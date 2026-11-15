@@ -884,17 +884,11 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         occurrence: BoundExecutionSite,
         subject: &bray_symbols::DependencySubject,
     ) -> Option<Vec<Target>> {
-        if let Some(target) = self.static_location(subject) {
-            return Some(vec![target]);
-        }
+        let Some(path) = self.dependencies.calls().get(&occurrence)?.reference_path(subject) else {
+            return self.static_location(subject).map(|target| vec![target]);
+        };
 
-        let path = self
-            .dependencies
-            .calls()
-            .get(&occurrence)?
-            .reference_path(subject)?;
-
-        self.invocation_path_locations(state, occurrence, subject, path)
+        self.invocation_stored_locations(state, occurrence, subject, path, false)
     }
 
     pub(in crate::analysis::storage_flow::check::analysis) fn invocation_path_locations(

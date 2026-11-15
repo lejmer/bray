@@ -214,12 +214,7 @@ impl super::check::TrustedChecks {
 
             shapes.insert(transfer.clone(), shape);
 
-            let uniform = self.owned_returns.iter()
-                .flat_map(|returned| returned.transfers.transfers())
-                .filter(|candidate| candidate.same_identity(&transfer))
-                .all(|candidate| candidate.preservation() == transfer.preservation());
-
-            if valid && uniform {
+            if valid {
                 shared.insert(transfer, shape);
             }
         }
@@ -227,14 +222,12 @@ impl super::check::TrustedChecks {
         // Common conditional moves also describe inactive exits. Other exits retain
         // their complete alternatives, including layouts that transfer no input.
         DependencyOwnedResult::choice(self.owned_returns.iter().map(|returned| {
-            let local = returned
-                .transfers
+            let factored = lift_shared_cases(&returned.transfers, &|transfer| {
+                shared.keys().any(|candidate| candidate.same_identity(transfer))
+            });
+            let local = factored
                 .try_map(
                     &mut |transfer| {
-                        if shared.keys().any(|candidate| candidate.same_identity(transfer)) {
-                            return Ok(DependencyOwnedResult::default());
-                        }
-
                         let (_, shape) = shapes.iter()
                             .find(|(candidate, _)| candidate.same_identity(transfer))
                             .expect("normal ownership layout retains its inferred shape");
@@ -252,7 +245,9 @@ impl super::check::TrustedChecks {
                 )
                 .expect("ownership mapping is infallible");
 
-            DependencyOwnedResult::all(std::iter::once(local).chain(shared.iter().map(
+            DependencyOwnedResult::all(std::iter::once(local).chain(shared.iter().filter(|(transfer, _)| {
+                !returned.transfers.transfers().any(|actual| actual.same_identity(transfer))
+            }).map(
                 |(transfer, shape)| {
                     DependencyOwnedResult::Transfer(DependencyOwnedTransfer::new(
                         (transfer.input(), *shape),
@@ -261,6 +256,39 @@ impl super::check::TrustedChecks {
                 },
             )))
         }))
+    }
+}
+
+// Keep a common identity outside branch guards, while each complete alternative
+// retains its own contents mask and the guards that make that alternative feasible.
+fn lift_shared_cases(
+    layout: &DependencyOwnedResult<StorageProjection>,
+    shared: &impl Fn(&DependencyOwnedTransfer<StorageProjection>) -> bool,
+) -> DependencyOwnedResult<StorageProjection> {
+    match layout {
+        DependencyOwnedResult::Transfer(_) => layout.clone(),
+        DependencyOwnedResult::All(values) => DependencyOwnedResult::all(values.iter().map(|value| lift_shared_cases(value, shared))),
+        DependencyOwnedResult::Choice(values) => DependencyOwnedResult::choice(values.iter().map(|value| lift_shared_cases(value, shared))),
+        DependencyOwnedResult::Case { condition, result } => {
+            factor_guard(*condition, lift_shared_cases(result, shared), shared)
+        }
+    }
+}
+
+fn factor_guard(
+    condition: bray_symbols::ConstantTermId,
+    layout: DependencyOwnedResult<StorageProjection>,
+    shared: &impl Fn(&DependencyOwnedTransfer<StorageProjection>) -> bool,
+) -> DependencyOwnedResult<StorageProjection> {
+    match layout {
+        DependencyOwnedResult::Transfer(ref transfer) if shared(transfer) => DependencyOwnedResult::all([
+            layout, DependencyOwnedResult::case(condition, DependencyOwnedResult::default()),
+        ]),
+        DependencyOwnedResult::All(values) if !values.is_empty() => DependencyOwnedResult::all(values.iter()
+            .map(|value| factor_guard(condition, value.clone(), shared))),
+        DependencyOwnedResult::Choice(values) => DependencyOwnedResult::choice(values.iter()
+            .map(|value| factor_guard(condition, value.clone(), shared))),
+        layout => DependencyOwnedResult::case(condition, layout),
     }
 }
 

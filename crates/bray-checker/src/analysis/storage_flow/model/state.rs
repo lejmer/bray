@@ -315,51 +315,7 @@ impl StorageFlowState {
             }
         }
 
-        for ((slot, layer), (path, ty, kind)) in &input.entry_references {
-            if let Some(target) =
-                StorageFlowInput::reference_location(values, &memory, slot.root, path, None)
-            {
-                if let Some(fields) = input.entry_buffer_pointer(path, *ty) {
-                    let owner_path = bray_bound_tree::StorageReferencePath::new(
-                        path.projections()[..path.projections().len() - 1].into(),
-                        path.borrows().into(),
-                    );
-
-                    let owner = StorageFlowInput::reference_location(
-                        values,
-                        &memory,
-                        slot.root,
-                        &owner_path,
-                        None,
-                    )
-                    .expect("prepared buffer pointer entry retains its reached owner");
-
-                    memory.declare_owned_buffer(owner.clone(), target, fields.element);
-
-                    if input.footprint.complete_reference_types.get(&fields.element) != Some(&true)
-                        && let Some(regions) = memory.owned_regions(&owner, bray_bound_tree::StorageProjection::ProductField(fields.pointer))
-                    {
-                        for region in regions {
-                            let element = region.project(&[bray_bound_tree::StorageProjection::AnyElement]);
-
-                            memory.seed_whole_source(element.clone(), element);
-                        }
-                    }
-
-                    continue;
-                }
-
-                memory.entry_reference_at(slot.clone(), *layer, target, *ty, *kind);
-            }
-        }
-
-        for (root, path) in &input.entry_whole_sources {
-            if initialized.contains(root)
-                && let Some(target) = StorageFlowInput::reference_location(values, &memory, *root, path, None)
-            {
-                memory.seed_whole_source(target.clone(), target);
-            }
-        }
+        input.initialize_entry_references(values, &mut memory, &initialized);
 
         Self {
             reachable: true,

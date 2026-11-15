@@ -63,7 +63,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         if let Some(source) = self.execution.observe_memory_read(execution, expression, target.as_ref())
             && !matches!(self.request.semantic_values().type_data(pointee).as_ref(), bray_symbols::TypeData::Borrow { .. })
             && let Some(invalidation) = invalidation {
-            self.preserve_snapshot_observations(&source, bray_symbols::DependencySubjectRoot::Result, &[], invalidation);
+            self.preserve_snapshot_observations(&source, bray_symbols::DependencySubjectRoot::Result, &[], true, invalidation);
         }
 
         if self.publish {

@@ -3,6 +3,8 @@
 pub enum StorageObservationKind {
     /// Contents can change through protected or unresolved reachable state.
     Mutable,
+    /// The initialized state of an Uninit owner, without its payload or reached authority.
+    Initialization,
     /// An ordinary inline value with no mutable reachable contents.
     Value,
     /// Unchanged ordinary inline data of an unresolved shape, excluding protected or reached state.
@@ -20,6 +22,11 @@ pub enum StorageObservationKind {
 }
 
 impl StorageObservationKind {
+    /// An inline value or descriptor identity, excluding protected and reached contents.
+    pub const fn is_ordinary_inline(self) -> bool {
+        !matches!(self, Self::Mutable | Self::Initialization | Self::Reference(_))
+    }
+
     /// Records descriptor survival separately from preserved contents or tags.
     pub fn record_preservation(
         self,
@@ -27,6 +34,10 @@ impl StorageObservationKind {
         descriptors: &mut std::collections::BTreeSet<crate::StoragePath>,
         observations: &mut std::collections::BTreeMap<crate::StoragePath, Self>,
     ) {
+        if self == Self::Initialization {
+            return;
+        }
+
         if self == Self::Identity {
             descriptors.insert(path);
             return;

@@ -432,9 +432,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     .lifecycle_paths
                     .get(&(call.lifecycle.call.callable, subject.clone()))?;
 
-                self.stored_locations(memory, occurrence, path, None, |prefix| {
-                    Some(vec![memory.reference_location(self.request.semantic_values(), receiver.clone(), prefix, None)?])
-                })
+                self.input.reference_locations(self.request.semantic_values(), memory, receiver.clone(), path, None)
             };
 
             let Some(destinations) = location(relation.exit()) else {
@@ -488,29 +486,27 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         receiver: &Target,
         ty: bray_symbols::TypeId,
     ) -> Option<Vec<Effect>> {
-        let (fields, elements) = self.input.raw_buffers.get(&ty)?;
+        let effects = self.input.buffer_cleanup_effects.get(&ty)?;
 
-        let targets = memory.owned_regions(
-            receiver,
-            bray_bound_tree::StorageProjection::ProductField(fields.pointer),
-        )?;
+        Some(self.resolve_effects(effects, |subject, indirect| {
+            let locations = if let Some(location) = self.static_location(subject) {
+                vec![location]
+            } else {
+                let path = self.input.buffer_cleanup_paths.get(&(ty, subject.clone()))?;
 
-        let effects = targets
-            .into_iter()
-            .flat_map(|target| {
-                let mut effects = if *elements {
-                    memory.cleanup_effects(Some(&target), fields.element)
-                } else {
-                    Vec::new()
-                };
+                self.input.reference_locations(self.request.semantic_values(), memory, receiver.clone(), path, None)?
+            };
 
-                effects.push(Effect::Mutation(target, DependencyMutationKind::Retire, None));
+            if indirect {
+                locations.into_iter().try_fold(Vec::new(), |mut targets, location| {
+                    targets.extend(memory.referenced_regions(&location)?);
 
-                effects
-            })
-            .collect::<Vec<_>>();
-
-        Some(effects)
+                    Some(targets)
+                })
+            } else {
+                Some(locations)
+            }
+        }))
     }
 
     fn cleanup_receiver(
@@ -567,7 +563,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 continue;
             };
 
-            let Some(location) = memory.reference_location(self.request.semantic_values(), receiver.clone(), prepared, None) else {
+            let Some(locations) = self.input.reference_locations(self.request.semantic_values(), memory, receiver.clone(), prepared, None) else {
                 continue;
             };
 
@@ -581,15 +577,17 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     .collect(),
             };
 
-            self.reference_observation(
-                memory,
-                effects,
-                invalidation,
-                call.access,
-                observed,
-                &crate::analysis::storage_flow::memory::Source::Value(location),
-                call.completes && relation.entry() != Some(relation.exit()),
-            );
+            for location in locations {
+                self.reference_observation(
+                    memory,
+                    effects,
+                    invalidation,
+                    call.access,
+                    observed.clone(),
+                    &crate::analysis::storage_flow::memory::Source::Value(location),
+                    call.completes && relation.entry() != Some(relation.exit()),
+                );
+            }
         }
 
         // A normal destructor can establish facts about a borrowed field even
@@ -614,12 +612,15 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     continue;
                 }
 
-                let Some(location) = memory.reference_location(self.request.semantic_values(), receiver.clone(), prepared, None)
-                else {
+                let Some(locations) = self.input.reference_locations(self.request.semantic_values(), memory, receiver.clone(), prepared, None) else {
                     continue;
                 };
 
-                let Some(targets) = memory.value_targets(&location) else {
+                let [location] = locations.as_slice() else {
+                    continue;
+                };
+
+                let Some(targets) = memory.value_targets(location) else {
                     continue;
                 };
 
@@ -679,12 +680,16 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     .lifecycle_paths
                     .get(&(lifecycle.call.callable, subject.clone()))?;
 
-                let location = memory.reference_location(self.request.semantic_values(), receiver, prepared, None)?;
+                let locations = self.input.reference_locations(self.request.semantic_values(), memory, receiver.clone(), prepared, None)?;
 
                 if indirect {
-                    memory.referenced_regions(&location)
+                    locations.into_iter().try_fold(Vec::new(), |mut targets, location| {
+                        targets.extend(memory.referenced_regions(&location)?);
+
+                        Some(targets)
+                    })
                 } else {
-                    Some(vec![location])
+                    Some(locations)
                 }
             }),
         )

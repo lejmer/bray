@@ -80,7 +80,7 @@ impl RetainedSnapshots {
         })
     }
 
-    pub(super) fn retains_inline_contents(&self, value: &ExecutionCondition) -> bool {
+    pub(crate) fn retains_inline_contents(&self, value: &ExecutionCondition) -> bool {
         self.matching(value, false, |selected| Self::same_contents(selected, value))
     }
 

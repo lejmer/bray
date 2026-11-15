@@ -14,9 +14,77 @@ use crate::{
 };
 
 use super::fixtures::{
-    compilation, compilation_from_sources_for_product_with_platform_services_and_worker_budget,
+    compilation, compilation_from_sources, compilation_from_sources_for_product_with_platform_services_and_worker_budget,
     execution_bundle_dependency, execution_consumer, execution_dependency, export,
 };
+
+#[test]
+fn exclusive_entry_tags_survive_only_disjoint_unpublished_call_effects() {
+    let api = r#"
+        trusted module api;
+
+        struct Owner
+        {
+            mut registration: usize?;
+            sibling: usize;
+        }
+
+        extern trusted func observe(pos sibling: &usize);
+        extern trusted func opaque(pos owner: &mut Owner);
+        extern trusted func publish_tag(pos pointer: DataPointer<(usize?)>);
+        extern trusted func publish_owner(pos pointer: DataPointer<Owner>);
+
+        func clear(pos owner: &mut Owner)
+        {
+            owner.registration = none;
+        }
+    "#;
+    let provider = compilation(api);
+
+    assert!(!provider.check_diagnostics().has_errors(), "{:#?}", provider.check_diagnostics());
+
+    for (operation, capabilities, valid) in [
+        ("trusted API.observe(&owner.sibling);", "", true),
+        ("trusted API.opaque(owner);", "", false),
+        ("trusted API.publish_tag(core.memory.address_of_mut<(usize?)>(&mut owner.registration));", "", false),
+        ("trusted API.publish_owner(core.memory.address_of_mut<API.Owner>(owner));", "", false),
+        ("API.clear(owner);", "", false),
+        (r#"let pointer = core.memory.address_of_mut<(usize?)>(&mut owner.registration);
+                    trusted core.memory.write<(usize?)>(pointer, none);"#,
+            "uses(raw_memory, unchecked_init)", false),
+    ] {
+        for imported in [false, true] {
+            let prefix = if imported { "example.package.api" } else { "api" };
+            let caller = format!(r#"
+                trusted module app;
+
+                using core.memory;
+                using API;
+
+                trusted func caller(pos owner: &mut API.Owner)
+                    ensures(owner.registration matches ?_)
+                    {capabilities}
+                {{
+                    owner.registration = 1;
+
+                    {operation}
+                }}
+            "#).replace("API", prefix);
+            let application = if imported {
+                execution_consumer(&provider, &caller)
+            } else {
+                compilation_from_sources([api, &caller])
+            };
+            let diagnostics = application.check_diagnostics();
+
+            bray_testing::assert_goal_state_diagnostic_outcome(diagnostics,
+                (!valid).then_some(bray_diagnostics::DiagnosticKind::CheckingPostconditionNotProven), &caller);
+
+            assert!(diagnostics.iter().all(|diagnostic| diagnostic.kind()
+                == bray_diagnostics::DiagnosticKind::CheckingPostconditionNotProven), "{diagnostics:#?}");
+        }
+    }
+}
 
 #[test]
 fn imported_domain_selection_is_independent_of_collected_diagnostics() {

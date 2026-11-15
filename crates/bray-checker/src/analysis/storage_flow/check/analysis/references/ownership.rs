@@ -79,7 +79,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
                 vec![Target::storage(source).project(input)]
             } else if adaptation.is_empty() {
-                self.invocation_path_locations(state, occurrence, &bray_symbols::DependencySubject::root(root), path)?
+                self.invocation_stored_locations(state, occurrence, &bray_symbols::DependencySubject::root(root), path, false)?
             } else {
                 vec![Target::storage(source)]
             };

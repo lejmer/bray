@@ -49,7 +49,13 @@ pub(in crate::analysis::storage_flow) struct StorageFlowInput {
     pub(in crate::analysis::storage_flow) allocation_pointer:
         Option<(bray_symbols::StructFieldSymbolId, bray_symbols::TypeId)>,
     pub(in crate::analysis::storage_flow) raw_buffers:
-        BTreeMap<bray_symbols::TypeId, (crate::representation::RawBufferFields, bool)>,
+        BTreeMap<bray_symbols::TypeId, crate::representation::RawBufferFields>,
+    pub(in crate::analysis::storage_flow) buffer_cleanup_effects:
+        BTreeMap<bray_symbols::TypeId, Vec<bray_symbols::DependencyStorageEffect>>,
+    pub(in crate::analysis::storage_flow) buffer_cleanup_paths: BTreeMap<
+        (bray_symbols::TypeId, bray_symbols::DependencySubject),
+        bray_bound_tree::StorageReferencePath,
+    >,
     pub(in crate::analysis::storage_flow) reference_paths:
         BTreeMap<StorageAccessId, (bray_symbols::TypeId, bray_bound_tree::StorageReferencePath)>,
     pub(in crate::analysis::storage_flow) value_references: BTreeMap<
@@ -64,7 +70,7 @@ pub(in crate::analysis::storage_flow) struct StorageFlowInput {
             bray_symbols::DependencyReferenceKind,
         ),
     >,
-    pub(super) entry_whole_sources: Vec<(StorageIdentityId, bray_bound_tree::StorageReferencePath)>,
+    pub(in crate::analysis::storage_flow) entry_whole_sources: Vec<(StorageIdentityId, bray_bound_tree::StorageReferencePath)>,
     pub(in crate::analysis::storage_flow) reference_constructions: BTreeMap<
         BoundExpressionId,
         Vec<(
@@ -84,7 +90,7 @@ impl StorageFlowInput {
         path: &bray_bound_tree::StorageReferencePath,
         pointee: Option<bray_symbols::TypeId>,
     ) -> Option<crate::representation::RawBufferFields> {
-        self.raw_buffers.values().find_map(|(fields, _)| {
+        self.raw_buffers.values().find_map(|fields| {
             (pointee == Some(fields.element)
                 && path.borrows().iter().all(|(index, _)| *index < path.projections().len())
                 && path.projections().last() == Some(&bray_bound_tree::StorageProjection::ProductField(fields.pointer)))
@@ -243,7 +249,8 @@ impl StorageFlowInput {
                     .filter_map(|expression| types.expression(expression).map(|ty| ty.ty())),
             );
 
-        input.prepare_buffer_fields(request, cleanup_shapes, buffer_types, &mut demands)?;
+        input.prepare_buffer_fields(request, buffer_types, &mut demands)?;
+        input.prepare_buffer_cleanup(request, cleanup.opaque_types(), &mut demands)?;
         input.prepare_allocation_pointer(request, memory, types)?;
 
         input.prepare_entry_references(request, storage, selections, dependencies, demands)?;

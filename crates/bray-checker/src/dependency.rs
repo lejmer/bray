@@ -19,6 +19,8 @@ mod witness;
 
 pub(crate) use check::check_dependency_contracts;
 pub(crate) use cleanup::check_synchronous_cleanup;
+pub(crate) use cleanup::resolve_effects as resolve_cleanup_effects;
+pub(crate) use cleanup::cleanup_callees;
 pub use implementation::generator_result_dependencies;
 pub(crate) use implementation::implementation_dependency_source;
 pub(crate) use result::{ReportDependencies, State as ResultState, Transfer as ResultTransfer};

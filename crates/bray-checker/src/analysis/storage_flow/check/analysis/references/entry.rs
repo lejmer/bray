@@ -32,8 +32,6 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
         dependencies: &bray_bound_tree::CheckedDependencyContracts,
         mut demands: Demands,
     ) -> crate::CheckerQueryResult<(), C::UpstreamError> {
-        let mut parents = ParentPaths::new();
-
         for (access, (_, prepared)) in &self.reference_paths {
             let Some(root) = storage
                 .root_identity(*access)
@@ -57,24 +55,10 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
                 .or_default()
                 .insert((Arc::clone(&projections), ty));
 
-            // Only inline containment transports demands. Following references or owned
-            // indirection here would grow recursive paths instead of preparing finite slots.
-            if !prepared.projections().is_empty()
-                && !prepared
-                    .projections()
-                    .contains(&bray_bound_tree::StorageProjection::OwnedTarget)
-                && prepared.borrows().iter().all(|(index, _)| *index == 0)
-                && crate::representation::reference_kind(request, ty).is_none()
-            {
-                parents.entry(ty).or_default().insert((
-                    root,
-                    Arc::<[bray_bound_tree::StorageProjection]>::from(prepared.projections()),
-                ));
-            }
         }
 
         self.prepare_summary_demands(request, storage, selections, dependencies, &mut demands)?;
-        Self::close_entry_demands(request, &mut demands, parents)?;
+        Self::close_entry_demands(request, &mut demands)?;
 
         self.install_reference_paths(request, storage, &demands)?;
 
@@ -99,9 +83,6 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
             let owner = request.semantic_values().unborrowed_type(pointee);
 
             for (projections, reached) in demands.get(&owner).into_iter().flatten() {
-                if projections.contains(&bray_bound_tree::StorageProjection::OwnedTarget)
-                    || projections.iter().any(|projection| !projection.is_exact()) { continue; }
-
                 let projections = slot.projections.iter().copied()
                     .chain([bray_bound_tree::StorageProjection::AddressTarget])
                     .chain(projections.iter().copied()).collect::<Arc<[_]>>();
@@ -121,8 +102,38 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
     fn close_entry_demands<C: CheckerRequestContext + ?Sized>(
         request: crate::CheckerUnitView<'_, C>,
         demands: &mut Demands,
-        mut parents: ParentPaths,
     ) -> crate::CheckerQueryResult<(), C::UpstreamError> {
+        let mut parents = ParentPaths::new();
+
+        for (root, paths) in demands.iter() {
+            for (path, _) in paths {
+                let mut ty = *root;
+
+                for (index, projection) in path.iter().enumerate() {
+                    // Only inline containment transports demands, including protected
+                    // payloads. References and ownership lead to finite explicit demands.
+                    if matches!(projection, bray_bound_tree::StorageProjection::OwnedTarget | bray_bound_tree::StorageProjection::AddressTarget)
+                        || crate::representation::reference_kind(request, ty).is_some() {
+                        break;
+                    }
+
+                    let projected = crate::storage::projected_storage_type(request, ty, *projection)?;
+
+                    let Some(projected) = *projected.value() else {
+                        break;
+                    };
+
+                    ty = projected;
+
+                    if crate::representation::reference_kind(request, ty).is_some() {
+                        break;
+                    }
+
+                    parents.entry(ty).or_default().insert((*root, path[..=index].into()));
+                }
+            }
+        }
+
         let components = bray_base::strongly_connected_components(parents.keys().copied(), |ty| {
             parents
                 .get(&ty)
@@ -176,6 +187,64 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
         }
 
         Ok(())
+    }
+
+    pub(in crate::analysis::storage_flow) fn initialize_entry_references(
+        &self,
+        values: &bray_symbols::SemanticValueStore,
+        memory: &mut crate::analysis::storage_flow::memory::State,
+        initialized: &BTreeSet<bray_bound_tree::StorageIdentityId>,
+    ) {
+        let mut references = self.entry_references.iter().collect::<Vec<_>>();
+
+        references.sort_by_key(|((_, layer), (path, _, _))| (
+            path.borrows().len() + path.projections().iter().filter(|projection| **projection == bray_bound_tree::StorageProjection::OwnedTarget).count(),
+            path.projections().len(), *layer,
+        ));
+
+        for ((slot, layer), (path, ty, kind)) in references {
+            if let Some(fields) = self.entry_buffer_pointer(path, *ty) {
+                let owner_path = bray_bound_tree::StorageReferencePath::new(
+                    path.projections()[..path.projections().len() - 1].into(), path.borrows().into(),
+                );
+
+                let owners = self.reference_locations(values, memory, crate::analysis::storage_flow::memory::Target::storage(Place::root(slot.root)), &owner_path, None);
+
+                for owner in owners.into_iter().flatten() {
+                    let pointer = bray_bound_tree::StorageProjection::ProductField(fields.pointer);
+
+                    memory.declare_owned_buffer(owner.clone(), owner.project(&[pointer]), fields.element);
+
+                    if self.footprint.complete_reference_types.get(&fields.element) != Some(&true) {
+                        for region in memory.owned_regions(&owner, pointer).into_iter().flatten() {
+                            let element = region.project(&[bray_bound_tree::StorageProjection::AnyElement]);
+
+                            memory.seed_whole_source(element.clone(), element);
+                        }
+                    }
+                }
+
+                continue;
+            }
+
+            let locations = self.reference_locations(values, memory, crate::analysis::storage_flow::memory::Target::storage(Place::root(slot.root)), path, None);
+
+            for location in locations.into_iter().flatten() {
+                memory.entry_reference_at(slot.clone(), *layer, location, *ty, *kind);
+            }
+        }
+
+        for (root, path) in &self.entry_whole_sources {
+            if !initialized.contains(root) {
+                continue;
+            }
+
+            let locations = self.reference_locations(values, memory, crate::analysis::storage_flow::memory::Target::storage(Place::root(*root)), path, None);
+
+            for location in locations.into_iter().flatten() {
+                memory.seed_whole_source(location.clone(), location);
+            }
+        }
     }
 
     fn install_reference_paths<C: CheckerRequestContext + ?Sized>(

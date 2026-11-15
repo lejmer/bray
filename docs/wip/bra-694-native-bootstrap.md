@@ -3,7 +3,7 @@
 Issue: https://linear.app/bray-lang/issue/BRA-694.
 Branch: `feature/bra-694-native-bootstrap-contracts`, based on develop c1d01eb34.
 Draft PR: https://github.com/lejmer/bray/pull/717. Initial regression checkpoint: 818499c39.
-Reviewer: `/root/bra694_review`, reviewed 818499c39 at https://github.com/lejmer/bray/pull/717#pullrequestreview-5911736252.
+Reviewer: `/root/bra694_review`, reviewed 8de7d45c6 at https://github.com/lejmer/bray/pull/717#pullrequestreview-5912211328.
 PR #710 and its seven prerequisites are merged. Execution and teardown remain BRA-695 and BRA-696.
 
 ## Contract and verification
@@ -14,10 +14,12 @@ Preserve source/import composition and negative rejection locations. Internal in
 Assignment of registration must precede demand_lane so panic rollback can withdraw it exactly once.
 
 The inherited baseline passed 1,718 fixed identities, 561 checker tests and 24 controls. Base style and format passed.
-Current source checks and lowering pass owner_entry_scope on Linux and Windows. dispatch_ready still loses view_owned,
-and reserve_start still loses registration presence. Six existing controls and the new source/import allocator control
-pass in the latest bounded run. The nested-union and mutable-entry fixtures have corrections awaiting validation.
-Physical-reference inventory and shared owned-path resolution are newer, unvalidated work. Style is deferred until the end.
+The connected batch builds. Latest bounded twelve-test run: nine pass, including the nested-union source/import
+composition, exclusive-entry tags and all six prior authority controls. The protected provider now checks through raw
+read and assume_initialized. Its repeated-read negative rejects correctly but also reached a later observation, so the
+fixture was corrected to isolate that boundary. That correction and remaining protected source/import cases await rerun.
+Both native probes still reach context/view_owned and registration postcondition failures. The dependency cycle is gone.
+Whole composition and broad suites remain unverified. Style is deferred.
 
 Actual Windows product baseline has nine call failures, one registration postcondition and sixteen propagated errors.
 Other leaf sites are create_execution, root_scope, create_worker_context, observer create and unlink_registration.
@@ -68,5 +70,28 @@ Validate raw read, protected extraction, imported publication, nested disposal, 
 Reuse existing paths, demands and stored-value graph. Remove superseded observation-derived physical queries and
 parallel backing lookup. Growth must buy those current contracts, without new authority or a new graph representation.
 
-Next: finish entry/cleanup consumers and demand closure before validating this complete batch. Then run fixed regression,
-owned/deferred, projection/cleanup, native product and fixed-five/loop gates. Re-review the committed repair on the PR.
+## Cleanup dependency closure
+
+Finite nested cleanup expansion queries source destructors that the summary component did not inventory.
+The producer must discover those edges before solving components. Reuse the same guarded cleanup expansion with
+a callable visitor, never a second list or a cycle fallback. Actual summary evaluation uses the existing component's
+immutable approximations. Preserve recursive/generic and imported cleanup effects and all failure effects.
+The corrected native checks pass cycle discovery. Keep that as a regression control.
+
+## Current normal-publication repair
+
+Nested union mutation retains the same complete Owner but branch masks differ. The observed export guards its whole
+mapping and rejects a child as separation. Factor verified common identities outside their Case guards inside each
+complete Choice arm. Preserve each arm's mask and Case(empty) feasibility. Never merge a weaker common mask into
+an arm's stronger mapping. Inactive/fabricated owners still require their ordinary output shape.
+
+Exact moving raw read captures an initialized Uninit owner before consuming source storage, but ordinary snapshot
+publication omits its existing initialization clause. Add an initialization observation, excluded from ordinary values,
+Mutable preservation and ownership masks. Normal proof retention selects only already-established UninitInitialized
+clauses on the exact transported inline owner. It must not preserve opaque wrapper predicates, source-slot access,
+reached contents or new initialization. Non-intrinsic call transport additionally requires synchronous normal storage
+preservation and a complete ownership mask. Controls include fabricated Uninit, repeated source read, nested overwrite,
+real nested backing retirement and an unrelated retained owner, with source/import call composition.
+
+Next: rerun the corrected protected fixture and trace the remaining native current summaries, then finish producer/consumer repairs. Final gates remain
+fixed regression, owned/deferred, projection/cleanup, native product and fixed-five/loop, followed by PR re-review.

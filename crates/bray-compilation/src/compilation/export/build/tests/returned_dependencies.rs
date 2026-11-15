@@ -46,6 +46,86 @@ fn allocation_producers_preserve_freshness_in_source_and_imported_calls() {
 }
 
 #[test]
+fn returned_owners_preserve_siblings_of_nested_union_mutations() {
+    let api = r#"
+        trusted module api;
+
+        struct Marker
+        {
+        }
+
+        struct Counter
+        {
+            mut value: u32;
+        }
+
+        union Content
+        {
+            Value(pos mut counter: Counter);
+            Empty;
+        }
+
+        struct Owner
+        {
+            marker: Marker;
+            mut content: Content;
+        }
+
+        trusted predicate live(owner: &Marker);
+
+        func update(pos mut owner: Owner) -> Owner
+        {
+            match &mut owner.content
+            {
+                case Content.Value(counter)
+                {
+                    counter.value = 2;
+                }
+                case Content.Empty
+                {
+                }
+            };
+
+            return owner;
+        }
+
+        func inspect(pos owner: &Owner)
+            requires(trusted live(&owner.marker))
+        {
+        }
+    "#;
+    let provider = compilation(api);
+
+    assert!(!provider.check_diagnostics().has_errors(), "{:#?}", provider.check_diagnostics());
+
+    for imported in [false, true] {
+        let prefix = if imported { "example.package.api" } else { "api" };
+        let caller = format!(r#"
+            trusted module app;
+
+            using {prefix};
+
+            func caller(pos owner: {prefix}.Owner)
+                requires(trusted {prefix}.live(&owner.marker))
+            {{
+                let result = {prefix}.update(owner);
+
+                {prefix}.inspect(&result);
+            }}
+        "#);
+        let application = if imported {
+            execution_consumer(&provider, &caller)
+        } else {
+            compilation_from_sources([api, &caller])
+        };
+        let diagnostics = application.check_diagnostics();
+
+        assert!(!diagnostics.has_errors(), "imported={imported}: {diagnostics:#?}; owned layout: {:#?}",
+            crate::compilation::result_dependencies::source_function_dependencies(&provider, "update").owned_result());
+    }
+}
+
+#[test]
 fn owned_match_results_release_the_subject_loan() {
     let api = r#"
         module api;

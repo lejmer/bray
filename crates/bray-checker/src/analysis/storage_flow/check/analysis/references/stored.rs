@@ -2,7 +2,7 @@ use super::super::core::StorageFlowCollector;
 use crate::CheckerRequestContext;
 use crate::analysis::storage_flow::memory::{Source, State, Target};
 use crate::analysis::storage_flow::model::StorageFlowState;
-use bray_bound_tree::{BoundExecutionSite, StorageProjection, StorageReferencePath};
+use bray_bound_tree::BoundExecutionSite;
 use bray_symbols::{DependencyStoredValue, DependencyStoredValuePath, DependencySubjectRoot, TypeId};
 
 impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
@@ -50,7 +50,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let staged_root = (output && subject.subject_root() == DependencySubjectRoot::Result)
             .then(|| self.invocation_result(occurrence).map(Target::storage)).flatten();
 
-        self.stored_locations(&state.memory, occurrence, path, staged_root.as_ref(), |prefix| {
+        self.input.stored_locations(self.request.semantic_values(), &state.memory, path, staged_root.as_ref().map(|root| (occurrence, root)), |prefix| {
             if let Some(root) = &staged_root {
                 Some(vec![state.memory.staged_reference_location(
                     occurrence, self.request.semantic_values(), root, root, prefix,
@@ -88,9 +88,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             |endpoint, _| {
                 let (ty, path) = paths.get(endpoint)?;
 
-                let locations = self.stored_locations(memory, occurrence, path, None, |prefix| {
-                    Some(vec![memory.reference_location(self.request.semantic_values(), receiver.clone(), prefix, None)?])
-                })?;
+                let locations = self.input.reference_locations(self.request.semantic_values(), memory, receiver.clone(), path, None)?;
 
                 Some((*ty, locations.into_iter().map(Source::Value).collect()))
             },
@@ -99,94 +97,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         for (destination, sources, complete) in transfers {
             memory.stage_whole_sources(occurrence, destination, sources, complete, false);
-        }
-    }
-
-    // Resolve owning projections through the descriptor's established backing
-    // reference. No ownership or exact alias authority follows from this lookup.
-    pub(in crate::analysis::storage_flow::check::analysis) fn stored_locations(
-        &self,
-        memory: &State,
-        occurrence: BoundExecutionSite,
-        path: &bray_bound_tree::StorageReferencePath,
-        staged_root: Option<&Target>,
-        first: impl FnOnce(&bray_bound_tree::StorageReferencePath) -> Option<Vec<Target>>,
-    ) -> Option<Vec<Target>> {
-
-        let projections = path.projections();
-        let mut borrows = path.borrows().iter().copied().peekable();
-        let mut start = 0;
-        let mut first = Some(first);
-        let mut locations = Vec::new();
-
-        loop {
-            let end = projections[start..].iter().position(|projection| *projection == StorageProjection::OwnedTarget)
-                .map_or(projections.len(), |index| start + index);
-
-            let mut segment_borrows = Vec::new();
-
-            while borrows.peek().is_some_and(|(index, _)| *index <= end) {
-                let (index, ty) = borrows.next().expect("peeked stored-path borrow exists");
-
-                segment_borrows.push((index.checked_sub(start)?, ty));
-            }
-
-            let segment = StorageReferencePath::new(projections[start..end].into(), segment_borrows.into());
-
-            locations = if let Some(resolve) = first.take() {
-                resolve(&segment)?
-            } else {
-                locations.into_iter().map(|target| {
-                    if let Some(root) = staged_root {
-                        memory.staged_reference_location(occurrence, self.request.semantic_values(), root, &target, &segment)
-                    } else {
-                        memory.reference_location(self.request.semantic_values(), target, &segment, None)
-                    }
-                }).collect::<Option<Vec<_>>>()?
-            };
-
-            if end == projections.len() {
-                return Some(locations);
-            }
-
-            let mut reached = std::collections::BTreeSet::new();
-
-            for owner in locations {
-                let owner_type = memory.declared_type(&owner).map(|ty| self.request.semantic_values().unborrowed_type(ty));
-                let fields = self.input.raw_buffers.iter().filter(|(ty, _)| owner_type.is_none_or(|owner_type| owner_type == **ty));
-                let mut found = false;
-
-                for (_, (fields, _)) in fields {
-                    let pointer = StorageProjection::ProductField(fields.pointer);
-
-                    let regions = if let Some(root) = staged_root {
-                        memory.staged_reference_regions(occurrence, root, &owner.project(&[pointer]))
-                    } else {
-                        memory.owned_regions(&owner, pointer)
-                    };
-
-                    if let Some(regions) = regions {
-                        found = true;
-                        reached.extend(regions);
-                    }
-                }
-
-                if !found {
-                    if owner_type.is_some_and(|ty| !self.input.raw_buffers.contains_key(&ty)) {
-                        reached.insert(owner.project(&[StorageProjection::OwnedTarget]));
-                    } else {
-                        return None;
-                    }
-                }
-            }
-
-            locations = reached.into_iter().collect();
-
-            if locations.is_empty() {
-                return None;
-            }
-
-            start = end + 1;
         }
     }
 

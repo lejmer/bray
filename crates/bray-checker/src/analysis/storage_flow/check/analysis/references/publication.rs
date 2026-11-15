@@ -266,7 +266,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                         if let Some((owner_ty, _)) = crate::storage::reference_path(self.request, ty, owner.into(), None)? {
                             let owner_ty = self.request.semantic_values().unborrowed_type(owner_ty);
 
-                            if self.input.raw_buffers.get(&owner_ty).is_some_and(|(fields, _)| fields.pointer == *pointer) {
+                            if self.input.raw_buffers.get(&owner_ty).is_some_and(|fields| fields.pointer == *pointer) {
                                 anchor.projections = owner.into();
                                 owned = true;
                             }

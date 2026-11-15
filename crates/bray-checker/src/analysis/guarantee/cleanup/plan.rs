@@ -18,6 +18,7 @@ pub(crate) struct Cleanup<'a> {
 
 #[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
 pub(crate) struct Plan {
+    cleanup_callees: BTreeSet<bray_symbols::CallableSymbolId>,
     pub(crate) expression_cleanup_calls:
         BTreeMap<bray_bound_tree::BoundExpressionId, BTreeSet<bray_bound_tree::BodyBehaviorCall>>,
     suspending: BTreeSet<StorageAccessId>,
@@ -245,9 +246,7 @@ impl Plan {
     pub(in crate::analysis) fn callees(
         &self,
     ) -> impl Iterator<Item = bray_symbols::CallableSymbolId> + '_ {
-        self.lifecycles
-            .values()
-            .map(|lifecycle| lifecycle.call.callable.definition().callable_symbol())
+        self.cleanup_callees.iter().copied()
     }
 
     pub(crate) fn check_dependencies<C: CheckerRequestContext + ?Sized>(
@@ -453,7 +452,12 @@ impl Plan {
             &mut diagnostics,
         )?;
 
+        prepared.cleanup_callees = crate::dependency::cleanup_callees(request,
+            types.iter().copied().chain(prepared.opaque_types()).chain(input_parts.keys().copied()))?;
+
         prepared.prepare_lifecycles(request, types, &mut diagnostics)?;
+        prepared.cleanup_callees.extend(prepared.lifecycles.values()
+            .map(|lifecycle| lifecycle.call.callable.definition().callable_symbol()));
 
         let mut input_cleanup = BTreeMap::new();
 

@@ -1,4 +1,4 @@
-use crate::analysis::storage_flow::memory::{Origin, Source};
+use crate::analysis::storage_flow::memory::{Origin, Source, Target};
 use crate::CheckerRequestContext;
 use crate::analysis::storage_flow::memory::Place;
 
@@ -64,122 +64,6 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
             })
     }
 
-    pub(in crate::analysis::storage_flow) fn prepare_buffer_fields<
-        C: CheckerRequestContext + ?Sized,
-    >(
-        &mut self,
-        request: crate::CheckerUnitView<'_, C>,
-        cleanup_shapes: &mut crate::asynchronous::CleanupShapeResolver<'_, C>,
-        types: impl Iterator<Item = bray_symbols::TypeId>,
-        demands: &mut super::entry::Demands,
-    ) -> crate::CheckerQueryResult<(), C::UpstreamError> {
-        let types = types
-            .map(|ty| request.semantic_values().unborrowed_type(ty))
-            .collect::<std::collections::BTreeSet<_>>();
-
-        for ty in types {
-            let Some(fields) = crate::representation::raw_buffer_fields(request, ty)? else {
-                continue;
-            };
-
-            let pointer_type = crate::storage::projected_value_type(
-                request,
-                ty,
-                bray_symbols::DependencyProjection::ProductField(fields.pointer),
-            )?;
-
-            let pointer_type = pointer_type
-                .value()
-                .expect("recognized buffer pointer has its checked type");
-
-            demands.entry(ty).or_default().insert((
-                std::sync::Arc::from([bray_bound_tree::StorageProjection::ProductField(
-                    fields.pointer,
-                )]),
-                pointer_type,
-            ));
-
-            let cleanup = cleanup_shapes.requirement(fields.element)?
-                != bray_bound_tree::AsyncStorageCleanupRequirement::None;
-
-            self.raw_buffers.insert(ty, (fields, cleanup));
-        }
-
-        Ok(())
-    }
-
-    pub(in crate::analysis::storage_flow) fn prepare_lifecycle_references<
-        C: CheckerRequestContext + ?Sized,
-    >(
-        &mut self,
-        request: crate::CheckerUnitView<'_, C>,
-        cleanup: &crate::analysis::guarantee::CleanupPlan,
-        dependencies: &bray_bound_tree::CheckedDependencyContracts,
-    ) -> crate::CheckerQueryResult<super::entry::Demands, C::UpstreamError> {
-        let mut demands = super::entry::Demands::new();
-
-        for ((ty, _), lifecycle) in &cleanup.lifecycles {
-            if self
-                .lifecycle_references
-                .contains_key(&lifecycle.call.callable)
-            {
-                continue;
-            }
-
-            for subject in
-                dependencies.lifecycle_dependencies()[&lifecycle.call.callable].reference_subjects()
-            {
-                let key = (lifecycle.call.callable, subject.clone());
-
-                if subject.subject_root() != bray_symbols::DependencySubjectRoot::Receiver
-                    || self.lifecycle_paths.contains_key(&key)
-                {
-                    continue;
-                }
-
-                let Some(projections) =
-                    crate::storage::resolve_storage_projections(request, subject.projections())?
-                else {
-                    continue;
-                };
-
-                // The actual cleanup receiver already denotes its physical storage.
-                let owner = *ty;
-
-                if let Some((ty, path)) =
-                    crate::storage::reference_path(request, owner, projections.into(), None)?
-                {
-                    demands
-                        .entry(owner)
-                        .or_default()
-                        .insert((std::sync::Arc::from(path.projections()), ty));
-
-                    self.lifecycle_paths.insert(key, (ty, path));
-                }
-            }
-
-            let references = crate::dependency::prepare_references(
-                request,
-                dependencies.lifecycle_dependencies()[&lifecycle.call.callable].borrows(),
-                |subject| self.lifecycle_paths.get(&(lifecycle.call.callable, subject.clone()))
-                    .map(|(ty, _)| *ty),
-            )?;
-
-            self.lifecycle_references
-                .insert(lifecycle.call.callable, references);
-
-            let stored = crate::dependency::prepare_stored_value_paths(
-                request.semantic_values(),
-                dependencies.lifecycle_dependencies()[&lifecycle.call.callable].stored_values(),
-                |subject| self.lifecycle_paths.get(&(lifecycle.call.callable, subject.clone())).cloned(),
-            );
-
-            self.lifecycle_stored_paths.insert(lifecycle.call.callable, stored);
-        }
-
-        Ok(demands)
-    }
-
     pub(in crate::analysis::storage_flow) fn reference_target(
         &self,
         values: &bray_symbols::SemanticValueStore,
@@ -201,27 +85,17 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
                     .is_some_and(|borrow| borrow.entry_binding().is_some())
             });
 
-        Self::reference_location(values, memory, logical.root, path, entry)
-    }
-
-    pub(in crate::analysis::storage_flow) fn reference_location(
-        values: &bray_symbols::SemanticValueStore,
-        memory: &crate::analysis::storage_flow::memory::State,
-        root: bray_bound_tree::StorageIdentityId,
-        path: &bray_bound_tree::StorageReferencePath,
-        entry: Option<bray_bound_tree::BorrowCapabilityId>,
-    ) -> Option<crate::analysis::storage_flow::memory::Target> {
         let root_borrow = match (entry, path.borrows().first()) {
             (Some(capability), Some((0, ty))) if !path.is_address_load(0) => Some(memory.borrow_target(capability, *ty)?),
             _ => None,
         };
+        let locations = self.reference_locations(values, memory, Target::storage(Place::root(logical.root)), path, root_borrow)?;
 
-        memory.reference_location(
-            values,
-            crate::analysis::storage_flow::memory::Target::storage(Place::root(root)),
-            path,
-            root_borrow,
-        )
+        let [location] = locations.as_slice() else {
+            return None;
+        };
+
+        Some(location.clone())
     }
 
     pub(in crate::analysis::storage_flow) fn prepare_reference_paths<

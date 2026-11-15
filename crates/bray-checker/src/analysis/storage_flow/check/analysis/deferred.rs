@@ -28,13 +28,29 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let captures = self.capture_opaque_effects(state, invocation, self.call_effects(state, invocation, captures), &roots, &private, &output);
 
         let result = self.resolve_effects(result, |subject, indirect| {
-            if let Some(target) = self.static_location(subject) { return Some(vec![target]); }
-            if subject.subject_root() != DependencySubjectRoot::Result { return None; }
+            let locations = if let Some(target) = self.static_location(subject) {
+                vec![target]
+            } else {
+                if subject.subject_root() != DependencySubjectRoot::Result {
+                    return None;
+                }
 
-            let path = contracts.reference_path(subject)?;
-            let location = state.memory.staged_reference_location(invocation, self.request.semantic_values(), &output, &output, path)?;
+                self.invocation_stored_locations(state, invocation, subject, contracts.reference_path(subject)?, true)?
+            };
 
-            if indirect { state.memory.staged_reference_regions(invocation, &output, &location) } else { Some(vec![location]) }
+            if indirect {
+                locations.into_iter().try_fold(Vec::new(), |mut targets, location| {
+                    targets.extend(if subject.subject_root() == DependencySubjectRoot::Result {
+                        state.memory.staged_reference_regions(invocation, &output, &location)?
+                    } else {
+                        state.memory.referenced_regions(&location)?
+                    });
+
+                    Some(targets)
+                })
+            } else {
+                Some(locations)
+            }
         });
 
         let result = self.capture_opaque_effects(state, invocation, result, &roots, &private, &output);

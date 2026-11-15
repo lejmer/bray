@@ -13,6 +13,7 @@ use bray_bound_tree::StorageObservationKind as Observation;
 #[derive(Debug)]
 struct Shape {
     observations: Vec<(Vec<StorageProjection>, Observation)>,
+    references: Vec<(Vec<StorageProjection>, TypeId)>,
     whole_sources: Vec<(Vec<StorageProjection>, TypeId)>,
     // Exhaustive ordinary values for return transport, excluding reached or protected state.
     returned_values: Vec<Vec<StorageProjection>>,
@@ -37,17 +38,14 @@ impl Shape {
     }
 
     fn is_reference_free(&self) -> bool {
-        self.complete_references
-            && !self
-                .observations
-                .iter()
-                .any(|(_, observation)| matches!(observation, Observation::Reference(_)))
+        self.complete_references && self.references.is_empty()
     }
 
     fn unknown(ty: TypeId) -> Self {
         // Opaque reachable state does not expose this value's inline storage.
         Self {
             observations: vec![(Vec::new(), Observation::Identity), (Vec::new(), Observation::InlineBits), (Vec::new(), Observation::Mutable)],
+            references: Vec::new(),
             whole_sources: vec![(Vec::new(), ty)],
             returned_values: Vec::new(),
             complete_value: false,
@@ -64,9 +62,8 @@ pub(crate) fn carries_no_borrows<C: CheckerRequestContext + ?Sized>(
 ) -> Result<bool, CheckerQueryError<C::UpstreamError>> {
     let shape = paths(request, ty, &mut BTreeSet::new(), &mut BTreeMap::new())?;
 
-    Ok(shape.complete_references && !shape.observations.iter().any(|(_, observation)| {
-        matches!(observation, Observation::Reference(ty)
-            if matches!(request.semantic_values().type_data(*ty).as_ref(), TypeData::Borrow { .. }))
+    Ok(shape.complete_references && !shape.references.iter().any(|(_, ty)| {
+        matches!(request.semantic_values().type_data(*ty).as_ref(), TypeData::Borrow { .. })
     }))
 }
 
@@ -103,6 +100,7 @@ fn known_shape<C: CheckerRequestContext + ?Sized>(
     if matches!(role, RepresentationRole::Unit | RepresentationRole::Never) {
         return Ok(Shape {
             observations: Vec::new(),
+            references: Vec::new(),
             whole_sources: Vec::new(),
             returned_values: (!reference).then(Vec::new).into_iter().collect(),
             complete_value: !reference,
@@ -127,6 +125,7 @@ fn known_shape<C: CheckerRequestContext + ?Sized>(
 
     let mut shape = Shape {
         observations: vec![(Vec::new(), observation)],
+        references: Vec::new(),
         whole_sources: Vec::new(),
         returned_values: (!reference && (scalar || crate::representation::is_address(role)
             || role == RepresentationRole::FunctionPointer)).then(Vec::new).into_iter().collect(),
@@ -149,18 +148,25 @@ fn known_shape<C: CheckerRequestContext + ?Sized>(
         let element = paths(request, element, visiting, complete_reference_types)?;
 
         if role == RepresentationRole::Uninit {
+            shape.observations.push((Vec::new(), Observation::Initialization));
+            shape.references = element.references.iter().map(|(path, ty)| {
+                (std::iter::once(StorageProjection::UninitPayload).chain(path.iter().copied()).collect(), *ty)
+            }).collect();
             shape.whole_sources = element.whole_sources.iter().map(|(path, ty)| {
                 (std::iter::once(StorageProjection::UninitPayload).chain(path.iter().copied()).collect(), *ty)
             }).collect();
         }
 
-        shape.complete_references = element.is_reference_free();
-        shape.inline_carriers = element.inline_carriers;
-
+        shape.complete_references = if role == RepresentationRole::Uninit {
+            element.complete_references
+        } else {
+            element.is_reference_free()
+        };
         // Protected storage exposes no ordinary payload value. A reference-free
         // slot retains its opaque snapshot while its inline bytes are unreachable.
         shape.complete_value =
-            !reference && role == RepresentationRole::Uninit && shape.complete_references;
+            !reference && role == RepresentationRole::Uninit && element.is_reference_free();
+        shape.inline_carriers = element.inline_carriers;
     }
 
     Ok(shape)
@@ -183,10 +189,7 @@ impl Footprint {
     pub(crate) fn reference_shape(&self, ty: TypeId) -> (bool, Vec<&[StorageProjection]>) {
         let shape = self.shapes.get(&ty).expect("assignment target shape is prepared");
 
-        let candidates = shape.observations.iter().filter_map(|(path, observation)| {
-            matches!(observation, Observation::Reference(_) | Observation::Address)
-                .then_some(path.as_slice())
-        }).collect::<BTreeSet<_>>();
+        let candidates = shape.references.iter().map(|(path, _)| path.as_slice()).collect::<BTreeSet<_>>();
 
         let mut slots = Vec::<&[StorageProjection]>::new();
 
@@ -473,6 +476,10 @@ pub(crate) fn prepare<C: CheckerRequestContext + ?Sized>(
 
         let shape = cached_shape(request, ty, &mut footprint.shapes, complete_reference_types)?;
 
+        footprint.references.extend(shape.references.iter().map(|(projections, ty)| {
+            (StoragePath { root, projections: projections.clone().into() }, *ty)
+        }));
+
         if identity.is_initialized_at_entry() {
             footprint.whole_sources.extend(shape.whole_sources.iter().map(|(projections, ty)| {
                 (StoragePath { root, projections: projections.clone().into() }, *ty)
@@ -494,6 +501,10 @@ pub(crate) fn prepare<C: CheckerRequestContext + ?Sized>(
             )?;
 
             complete_value &= shape.complete_value;
+
+            footprint.references.extend(shape.references.iter().map(|(projections, ty)| {
+                (StoragePath { root, projections: projections.clone().into() }, *ty)
+            }));
 
             shape.merge_observations(&mut observations);
         }
@@ -544,7 +555,7 @@ pub(crate) fn prepare<C: CheckerRequestContext + ?Sized>(
                 };
 
                 let borrowed = match observation {
-                    Observation::Value | Observation::InlineBits | Observation::Address | Observation::Identity | Observation::Marker(_) | Observation::Discriminant =>
+                    Observation::Value | Observation::InlineBits | Observation::Address | Observation::Identity | Observation::Marker(_) | Observation::Discriminant | Observation::Initialization =>
                         (0..=projections.len()).rev().find_map(|length| {
                             borrowed_paths.get(&projections[..length]).map(|(kind, ty)| {
                                 (StoragePath {
@@ -557,12 +568,8 @@ pub(crate) fn prepare<C: CheckerRequestContext + ?Sized>(
                 };
 
                 match observation {
-                    Observation::Reference(ty) => {
-                        footprint.references.push((path, *ty));
-
-                        None
-                    }
-                    Observation::Identity | Observation::Marker(_) => {
+                    Observation::Reference(_) => None,
+                    Observation::Identity | Observation::Marker(_) | Observation::Initialization => {
                         if shared.is_some()
                             || identity.is_invocation_owned(storage.kind())
                             || matches!(identity, bray_bound_tree::StorageIdentity::Static(_))
@@ -736,6 +743,7 @@ fn paths<C: CheckerRequestContext + ?Sized>(
         shape
             .observations
             .push((Vec::new(), Observation::Reference(ty)));
+        shape.references.push((Vec::new(), ty));
 
         // A reference value has one explicit pointer slot, independently of its pointee shape.
         shape.complete_references = true;
@@ -914,6 +922,7 @@ fn value_paths<C: CheckerRequestContext + ?Sized>(
     };
 
     let mut result = vec![(Vec::new(), Observation::Identity)];
+    let mut references = Vec::new();
     let mut whole_sources = Vec::new();
     let mut returned_values = Vec::new();
 
@@ -943,6 +952,10 @@ fn value_paths<C: CheckerRequestContext + ?Sized>(
 
     for (field, ty) in fields {
         let shape = paths(request, ty, visiting, complete_reference_types)?;
+
+        references.extend(shape.references.iter().map(|(path, ty)| {
+            (std::iter::once(field).chain(path.iter().copied()).collect(), *ty)
+        }));
 
         whole_sources.extend(shape.whole_sources.iter().map(|(path, ty)| {
             (std::iter::once(field).chain(path.iter().copied()).collect(), *ty)
@@ -989,6 +1002,7 @@ fn value_paths<C: CheckerRequestContext + ?Sized>(
 
     Ok(Shape {
         observations: result,
+        references,
         whole_sources,
         returned_values,
         complete_value,
@@ -1024,7 +1038,7 @@ fn array_shape<C: CheckerRequestContext + ?Sized>(
     if shape.inline_only {
         shape.observations.push((Vec::new(), Observation::Value));
     } else if let Some(length) = crate::constant::known_array_length(request.semantic_values(), ty)
-        && length.checked_mul(element.observations.len()).is_some_and(|work| work <= crate::ExecutionCondition::WORK_LIMIT)
+        && length.checked_mul(element.observations.len().max(element.references.len())).is_some_and(|work| work <= crate::ExecutionCondition::WORK_LIMIT)
     {
         for index in 0..length {
             let index = bray_symbols::SymbolOrdinal::new(u32::try_from(index)
@@ -1038,6 +1052,9 @@ fn array_shape<C: CheckerRequestContext + ?Sized>(
 
             shape.observations.extend(element.observations.iter().map(|(path, kind)| {
                 (std::iter::once(StorageProjection::ElementFromStart(index)).chain(path.iter().copied()).collect(), *kind)
+            }));
+            shape.references.extend(element.references.iter().map(|(path, ty)| {
+                (std::iter::once(StorageProjection::ElementFromStart(index)).chain(path.iter().copied()).collect(), *ty)
             }));
         }
     }

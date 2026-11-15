@@ -44,7 +44,7 @@ impl ValuePreservation {
             Kind::Identity | Kind::Reference(_) => self.descriptor = true,
             Kind::Discriminant => self.discriminant = true,
             Kind::InlineBits => self.inline = true,
-            Kind::Mutable => {},
+            Kind::Mutable | Kind::Initialization => {},
             _ => {
                 self.value = true;
                 self.children.clear();

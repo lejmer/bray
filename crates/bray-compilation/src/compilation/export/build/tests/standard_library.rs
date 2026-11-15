@@ -30,6 +30,161 @@ use super::fixtures::{
     standard_library_compilation, standard_library_compilation_with_options,
 };
 
+const MEMORY_SOURCES: [&str; 8] = [
+    include_str!("../../../../../../../standard-library/std/src/std.bray"),
+    include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
+    include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
+    include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
+    include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
+    include_str!("../../../../../../../standard-library/std/src/numeric/limits.bray"),
+    include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
+    include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
+];
+
+#[test]
+fn protected_nested_cleanup_keeps_current_backing_effects() {
+    let api = r#"
+        trusted module std.cleanup_fixture;
+
+        using core.memory;
+        using std.memory;
+
+        struct Marker
+        {
+        }
+
+        struct Frame
+        {
+            marker: Marker;
+        }
+
+        struct Layer
+        {
+            buffers: std.memory.RawBuffer<std.memory.RawBuffer<u8>>;
+        }
+
+        struct Packet
+        {
+            mut payload: Uninit<Layer>;
+        }
+
+        trusted predicate live(owner: &Marker);
+
+        func observe_marker(pos owner: &Frame)
+            requires(trusted live(&owner.marker))
+        {
+        }
+
+        func observe_backing(pos pointer: DataPointer<std.memory.RawBuffer<u8>>)
+            requires(trusted core.memory.valid_write<std.memory.RawBuffer<u8>>(pointer = pointer, count = 1))
+        {
+        }
+
+        trusted func dispose(pos packet: Packet)
+            requires(trusted core.memory.uninit_initialized<Layer>(storage = &packet.payload))
+            uses(raw_memory, unchecked_init)
+        {
+            let pointer = core.memory.address_of<Packet>(&packet);
+            let recovered = trusted core.memory.read<Packet>(pointer);
+            let contents = trusted std.memory.assume_initialized<Layer>(recovered.payload);
+        }
+    "#;
+    let provider = standard_library_compilation(MEMORY_SOURCES.into_iter().chain([api]));
+
+    assert!(!provider.check_diagnostics().has_errors(), "{:#?}", provider.check_diagnostics());
+
+    for (replacement, rejected) in [
+        ("_ = trusted core.memory.read<Packet>(pointer);", "core.memory.read<Packet>(pointer)"),
+        ("recovered.payload = std.memory.uninit<Layer>();\n            let contents = trusted std.memory.assume_initialized<Layer>(recovered.payload);", "assume_initialized<Layer>(recovered.payload)"),
+    ] {
+        let invalid = api.replace("let recovered =", "let mut recovered =").replace(
+            "let contents = trusted std.memory.assume_initialized<Layer>(recovered.payload);", replacement,
+        );
+        let application = standard_library_compilation(MEMORY_SOURCES.into_iter().chain([invalid.as_str()]));
+        let diagnostics = application.check_diagnostics();
+
+        bray_testing::assert_goal_state_diagnostic_kind(diagnostics,
+            bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven);
+
+        let source = source_function_body_key(&application, "dispose").source().syntax().source_id();
+        assert!(diagnostics.iter().filter(|diagnostic| diagnostic.kind()
+            == bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven)
+            .all(|diagnostic| crate::test_support::diagnostic_at_call(diagnostic, source, &invalid, rejected)),
+            "{replacement}: {diagnostics:#?}");
+    }
+
+    let summary = crate::compilation::result_dependencies::source_function_dependencies(&provider, "dispose");
+
+    assert!(summary.effects().iter().any(|effect| matches!(effect,
+        bray_symbols::DependencyStorageEffect::Indirect { kind: bray_symbols::DependencyMutationKind::Retire, .. })),
+        "nested cleanup must publish actual retirement: {summary:#?}");
+    assert!(!summary.effects().iter().any(|effect| matches!(effect,
+        bray_symbols::DependencyStorageEffect::Unknown | bray_symbols::DependencyStorageEffect::UnboundedMutation { .. })),
+        "known nested descriptors must keep finite backing effects: {summary:#?}");
+
+    for imported in [false, true] {
+        for (initialized, observation, rejected) in [
+            (true, "observe_marker(owner);", None),
+            (true, "observe_backing(saved);", Some("observe_backing(saved)")),
+            (false, "observe_marker(owner);", Some("dispose(packet)")),
+        ] {
+            let payload = if initialized {
+                r#"std.memory.uninit_from<std.cleanup_fixture.Layer>(
+                            {
+                                buffers = storage,
+                            }
+                        )"#
+            } else {
+                "std.memory.uninit<std.cleanup_fixture.Layer>()"
+            };
+            let caller = format!(r#"
+                trusted module app;
+
+                using core.memory;
+                using std.memory;
+                using std.cleanup_fixture;
+
+                trusted func caller(
+                    pos storage: std.memory.RawBuffer<std.memory.RawBuffer<u8>>,
+                    pos owner: &std.cleanup_fixture.Frame,
+                )
+                    requires(
+                        trusted std.cleanup_fixture.live(&owner.marker),
+                        trusted core.memory.valid_write<std.memory.RawBuffer<u8>>(pointer = storage.pointer, count = 1),
+                    )
+                {{
+                    let saved = storage.pointer;
+                    let packet: std.cleanup_fixture.Packet =
+                    {{
+                        payload = {payload},
+                    }};
+
+                    trusted std.cleanup_fixture.dispose(packet);
+                    std.cleanup_fixture.{observation}
+                }}
+            "#);
+            let application = if imported {
+                super::fixtures::execution_consumer(&provider, &caller)
+            } else {
+                standard_library_compilation(MEMORY_SOURCES.into_iter().chain([api, &caller]))
+            };
+            let diagnostics = application.check_diagnostics();
+
+            bray_testing::assert_goal_state_diagnostic_outcome(diagnostics,
+                rejected.map(|_| bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven), &caller);
+
+            if let Some(rejected) = rejected {
+                let source = source_function_body_key(&application, "caller").source().syntax().source_id();
+
+                assert!(diagnostics.iter().filter(|diagnostic| diagnostic.kind()
+                    == bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven)
+                    .any(|diagnostic| crate::test_support::diagnostic_at_call(diagnostic, source, &caller, rejected)),
+                    "rejection must identify {rejected}: {diagnostics:#?}");
+            }
+        }
+    }
+}
+
 #[test]
 fn platform_allocation_origins_survive_nullable_forwarding_without_access_authority() {
     let declarations = r#"
@@ -183,15 +338,7 @@ fn platform_service_implementations_publish_their_role_with_the_root_template() 
 
 #[test]
 fn raw_buffer_views_share_the_owners_declared_backing_type() {
-    let compilation = standard_library_compilation([
-        include_str!("../../../../../../../standard-library/std/src/std.bray"),
-        include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
-        include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
-        include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
-        include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
-        include_str!("../../../../../../../standard-library/std/src/numeric/limits.bray"),
-        include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
-        include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
+    let compilation = standard_library_compilation(MEMORY_SOURCES.into_iter().chain([
         r#"
             trusted module app;
 
@@ -214,7 +361,7 @@ fn raw_buffer_views_share_the_owners_declared_backing_type() {
                 return buffer;
             }
         "#,
-    ]);
+    ]));
 
     let checked = compilation
         .lowered_unit(source_function_body_key(&compilation, "inspect"))

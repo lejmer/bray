@@ -1894,7 +1894,7 @@ where
                                     .memory
                                     .reborrow_value(borrow, &source, capability.parent());
                             } else {
-                                if let Some((fields, _)) = self.input.raw_buffers.get(&ty) {
+                                if let Some(fields) = self.input.raw_buffers.get(&ty) {
                                     let pointer = source.project(&[StorageProjection::ProductField(fields.pointer)]);
 
                                     state.memory.declare_owned_buffer(source.clone(), pointer, fields.element);

@@ -28,16 +28,52 @@ pub(in crate::dependency) fn prepare_future_effects<C: CheckerRequestContext + ?
     Ok((captures, result))
 }
 
-pub(in crate::dependency) fn resolve_effects<C: CheckerRequestContext + ?Sized>(
+pub(crate) fn resolve_effects<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     effects: &[Effect],
+) -> Result<Vec<Effect>, CheckerQueryError<C::UpstreamError>> {
+    expand_effects(request, effects, &mut |callable| {
+        let template = request.callable_result_dependencies(callable.definition().callable_symbol())?;
+
+        let template = request.semantic_values().substitute_dependency_contract(template, callable.substitution())
+            .expect("selected lifecycle substitution retains its checked dependency contract");
+
+        Ok(request.semantic_values().dependency_contract_template_data(template).effects().to_vec())
+    })
+}
+
+pub(crate) fn cleanup_callees<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
+    types: impl IntoIterator<Item = TypeId>,
+) -> Result<BTreeSet<bray_symbols::CallableSymbolId>, CheckerQueryError<C::UpstreamError>> {
+    let effects = types.into_iter().collect::<BTreeSet<_>>().into_iter().map(|ty| Effect::Direct {
+        subject: DependencySubject::root(DependencySubjectRoot::Receiver),
+        kind: Kind::Dispose(ty), access_type: Some(ty),
+    }).collect::<Vec<_>>();
+    let mut callees = BTreeSet::new();
+
+    // Discover the structural edges before any source summary is requested.
+    // Each selected callable's body owns discovery of its own outgoing edges.
+    expand_effects(request, &effects, &mut |callable| {
+        callees.insert(callable.definition().callable_symbol());
+
+        Ok(Vec::new())
+    })?;
+
+    Ok(callees)
+}
+
+fn expand_effects<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
+    effects: &[Effect],
+    resolve: &mut impl FnMut(bray_symbols::CallableInstanceData) -> Result<Vec<Effect>, CheckerQueryError<C::UpstreamError>>,
 ) -> Result<Vec<Effect>, CheckerQueryError<C::UpstreamError>> {
     let mut shapes = crate::asynchronous::CleanupShapeResolver::new(request);
     let mut resolved = Vec::new();
     let mut active = BTreeSet::new();
 
     for effect in effects {
-        expand(request, &mut shapes, effect, &mut active, &mut resolved)?;
+        expand(request, &mut shapes, effect, &mut active, &mut resolved, resolve)?;
     }
 
     Ok(resolved)
@@ -49,6 +85,7 @@ fn expand<C: CheckerRequestContext + ?Sized>(
     effect: &Effect,
     active: &mut BTreeSet<TypeId>,
     resolved: &mut Vec<Effect>,
+    resolve: &mut impl FnMut(bray_symbols::CallableInstanceData) -> Result<Vec<Effect>, CheckerQueryError<C::UpstreamError>>,
 ) -> Result<(), CheckerQueryError<C::UpstreamError>> {
     let Some((kind @ (Kind::Dispose(ty) | Kind::Cleanup(ty)), _)) = mutation(effect) else {
         // The result owns its effects while sharing immutable projection paths.
@@ -62,7 +99,7 @@ fn expand<C: CheckerRequestContext + ?Sized>(
     }
 
     if matches!(kind, Kind::Cleanup(_)) {
-        return expand_region(request, shapes, effect, ty, active, resolved);
+        return expand_region(request, shapes, effect, ty, active, resolved, resolve);
     }
 
     if !active.insert(ty) {
@@ -104,10 +141,10 @@ fn expand<C: CheckerRequestContext + ?Sized>(
 
         let mut children = Vec::new();
 
-        append_part(request, *ty, part.as_ref().expect("concrete represented cleanup part"), &scope, &mut children)?;
+        append_part(request, *ty, part.as_ref().expect("concrete represented cleanup part"), &scope, &mut children, resolve)?;
 
         for child in children {
-            expand(request, shapes, &child, active, resolved)?;
+            expand(request, shapes, &child, active, resolved, resolve)?;
         }
     }
 
@@ -123,6 +160,7 @@ fn expand_region<C: CheckerRequestContext + ?Sized>(
     ty: TypeId,
     active: &mut BTreeSet<TypeId>,
     resolved: &mut Vec<Effect>,
+    resolve: &mut impl FnMut(bray_symbols::CallableInstanceData) -> Result<Vec<Effect>, CheckerQueryError<C::UpstreamError>>,
 ) -> Result<(), CheckerQueryError<C::UpstreamError>> {
     // Expand the actual value layout once. Its receiver-relative projections
     // cannot be applied to a region that merely bounds possible cleanup effects.
@@ -133,7 +171,7 @@ fn expand_region<C: CheckerRequestContext + ?Sized>(
 
     let mut effects = Vec::new();
 
-    expand(request, shapes, &value, active, &mut effects)?;
+    expand(request, shapes, &value, active, &mut effects, resolve)?;
 
     for effect in effects {
         let kind = match &effect {
@@ -158,6 +196,7 @@ fn append_part<C: CheckerRequestContext + ?Sized>(
     part: &bray_bound_tree::StorageCleanupPart,
     scope: &Effect,
     effects: &mut Vec<Effect>,
+    resolve: &mut impl FnMut(bray_symbols::CallableInstanceData) -> Result<Vec<Effect>, CheckerQueryError<C::UpstreamError>>,
 ) -> Result<(), CheckerQueryError<C::UpstreamError>> {
     if let Some(fields) = crate::representation::raw_buffer_fields(request, ty)? {
         let pointer = [Projection::ProductField(fields.pointer)];
@@ -170,14 +209,21 @@ fn append_part<C: CheckerRequestContext + ?Sized>(
             _ => unbounded_scope(scope, Kind::Retire, None),
         };
 
-        effects.push(replace_kind(&backing, Kind::Dispose(fields.element), None));
+        let elements = if matches!(scope, Effect::Direct { .. }) {
+            project(scope, &[Projection::OwnedTarget, Projection::AnyElement], Kind::Dispose(fields.element), Some(fields.element))
+        } else {
+            // A region bound does not locate the element descriptors within it.
+            replace_kind(&backing, Kind::Cleanup(fields.element), None)
+        };
+
+        effects.push(elements);
         effects.push(backing);
 
         return Ok(());
     }
 
     if let Some(release) = part.release() {
-        return append_call(request, release.callable(), scope, effects);
+        return append_call(release.callable(), scope, effects, resolve);
     }
 
     if !part.phases().includes_lifecycle() {
@@ -192,27 +238,22 @@ fn append_part<C: CheckerRequestContext + ?Sized>(
         assert!(!selected.diagnostics().has_errors(), "selected cleanup lifecycle retains its checked declaration: {ty:?}");
 
         if let Some((callable, _)) = selected.value() {
-            append_call(request, *callable, scope, effects)?;
+            append_call(*callable, scope, effects, resolve)?;
         }
     }
 
     Ok(())
 }
 
-fn append_call<C: CheckerRequestContext + ?Sized>(
-    request: CheckerUnitView<'_, C>,
+fn append_call<E>(
     callable: bray_symbols::CallableInstanceData,
     scope: &Effect,
     effects: &mut Vec<Effect>,
-) -> Result<(), CheckerQueryError<C::UpstreamError>> {
-    let template = request.callable_result_dependencies(callable.definition().callable_symbol())?;
+    resolve: &mut impl FnMut(bray_symbols::CallableInstanceData) -> Result<Vec<Effect>, CheckerQueryError<E>>,
+) -> Result<(), CheckerQueryError<E>> {
+    let selected = resolve(callable)?;
 
-    let template = request.semantic_values().substitute_dependency_contract(template, callable.substitution())
-        .expect("selected lifecycle substitution retains its checked dependency contract");
-
-    let template = request.semantic_values().dependency_contract_template_data(template);
-
-    effects.extend(template.effects().iter().map(|effect| match effect {
+    effects.extend(selected.iter().map(|effect| match effect {
         Effect::Direct { subject, kind, access_type } if cleanup_receiver(subject.subject_root()) => {
             project(scope, subject.projections(), *kind, *access_type)
         }

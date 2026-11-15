@@ -490,8 +490,48 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 value = value.project(projection);
             }
 
-            observations.insert_classified(value.clone(), *kind);
-            observations.insert_classified(value.borrowed(), *kind);
+            if *kind == bray_bound_tree::StorageObservationKind::Initialization {
+                self.preserve_initialized_snapshot(
+                    entry.map_or(&state.trusted_assumptions, |entry| &entry.trusted_assumptions),
+                    value, observations,
+                );
+            } else {
+                observations.insert_classified(value.clone(), *kind);
+                observations.insert_classified(value.borrowed(), *kind);
+            }
+        }
+    }
+
+    fn preserve_initialized_snapshot(
+        &self,
+        facts: &crate::execution_guarantees::ExecutionAssumptions,
+        value: ExecutionCondition,
+        observations: &mut crate::execution_guarantees::ObservationSet,
+    ) {
+        let predicate = self.request.available_compiler_known_symbols().provider()
+            .declaration_symbol::<bray_symbols::PredicateSymbolId>(
+                &bray_compiler_known::CompilerKnownDeclarationKey::try_new("UninitInitialized")
+                    .expect("closed protected initialization predicate key is valid"),
+            ).map(bray_symbols::PredicateDefinitionSymbolId::from);
+
+        let snapshots = crate::execution_guarantees::RetainedSnapshots::from_iter([value]);
+
+        for (condition, holds) in facts {
+            let crate::ExecutionConditionKind::Trusted(inner) = condition.kind() else {
+                continue;
+            };
+
+            let crate::ExecutionConditionKind::Predicate(identity, _, arguments) = inner.kind() else {
+                continue;
+            };
+
+            // Carry the existing initialization clause, never an opaque predicate
+            // on the wrapper or a permission on its consumed source storage.
+            if *holds && Some(*identity) == predicate
+                && let [owner] = arguments.as_ref()
+                && snapshots.retains_inline_contents(&owner.clone().into_referent()) {
+                observations.insert(condition.clone());
+            }
         }
     }
 

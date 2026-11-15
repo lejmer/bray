@@ -87,7 +87,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 // remain subject to their actual effects.
                 if borrow == Some(bray_symbols::BorrowKind::Mutable) && !raw
                     && matches!(effect, Effect::Ambient)
-                    && matches!(observation, Observation::Identity | Observation::Marker(_))
+                    && observation.is_ordinary_inline()
                     && exposed.iter().all(|reached| memory.target_relationship(reached, target) == StorageRelationship::Disjoint) {
                     return true;
                 }

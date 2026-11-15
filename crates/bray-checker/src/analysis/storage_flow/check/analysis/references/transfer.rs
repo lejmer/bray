@@ -702,13 +702,13 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 let owned_buffer = (relation.exit().subject_root() == DependencySubjectRoot::Result
                     && relation.kind() == bray_symbols::DependencyReferenceKind::Address
                     && contracts.reference_path(relation.exit()).is_some_and(|path| path.borrows().is_empty()))
-                    .then(|| self.input.raw_buffers.values().find(|(fields, _)| {
+                    .then(|| self.input.raw_buffers.values().find(|fields| {
                         Some(fields.element) == reference.addressed_type()
                             && logical.projections.last() == Some(&bray_bound_tree::StorageProjection::ProductField(fields.pointer))
                     }))
                     .flatten();
 
-                if let Some((fields, _)) = owned_buffer {
+                if let Some(fields) = owned_buffer {
                     let owner = Place { root: logical.root, projections: logical.projections[..logical.projections.len() - 1].into() };
 
                     state.memory.stage_owned_buffer_reference(occurrence, Target::storage(owner), destination, logical, fields.element);

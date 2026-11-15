@@ -60,7 +60,11 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
             source.projections = source.projections.iter().copied().chain(actual.iter().copied()).collect();
 
-            self.preserve_snapshot_observations(&source, root, formal, invalidation);
+            let initialization = contracts.deferred_effects().is_none()
+                && contracts.preserves_storage_on_normal_return()
+                && transfer.preservation() == &bray_symbols::DependencyValuePreservation::all();
+
+            self.preserve_snapshot_observations(&source, root, formal, initialization, invalidation);
         }
     }
 
@@ -69,6 +73,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         source: &StoragePath,
         root: bray_symbols::DependencySubjectRoot,
         prefix: &[bray_bound_tree::StorageProjection],
+        initialization: bool,
         invalidation: &mut StorageInvalidation,
     ) {
         let snapshots = match invalidation {
@@ -78,7 +83,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         };
 
         for (path, kind) in self.input.footprint.observations(source) {
-            if !kind.is_immutable_inline() && kind != bray_bound_tree::StorageObservationKind::Discriminant {
+            if !kind.is_immutable_inline() && kind != bray_bound_tree::StorageObservationKind::Discriminant
+                && !(initialization && kind == bray_bound_tree::StorageObservationKind::Initialization) {
                 continue;
             }
 
@@ -257,7 +263,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             {
                 if capability.kind() == bray_symbols::BorrowKind::Mutable {
                     for (value, observation) in self.input.footprint.observations(path) {
-                        if matches!(observation, bray_bound_tree::StorageObservationKind::Identity | bray_bound_tree::StorageObservationKind::Marker(_))
+                        if observation.is_ordinary_inline()
                             && targets.iter().all(|target| {
                                 survives(&target.project(&value.projections[path.projections.len()..]), observation, ty, false)
                             }) {
@@ -368,9 +374,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 continue;
             }
 
-            let location = if let Some((slot, _, _)) = self.input.entry_references.get(&(reference.clone(), 1)) {
-                crate::analysis::storage_flow::model::StorageFlowInput::reference_location(
-                    self.request.semantic_values(), memory, reference.root, slot, None,
+            let locations = if let Some((slot, _, _)) = self.input.entry_references.get(&(reference.clone(), 1)) {
+                self.input.reference_locations(
+                    self.request.semantic_values(), memory, Target::storage(StoragePath::root(reference.root)), slot, None,
                 )
             } else { match access {
                 _ if reference.projections.is_empty() => Some(Target::storage(reference.clone())),
@@ -385,11 +391,15 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     Some(Target::storage(reference.clone()))
                 }
                 None => None,
-            } };
+            }.map(|location| vec![location]) };
 
             // A shared loan protects each possible referent. Exact pointer identity
             // is unnecessary, but unknown or retired backing supplies no protection.
-            let Some(location) = location else {
+            let Some(locations) = locations else {
+                continue;
+            };
+
+            let [location] = locations.as_slice() else {
                 continue;
             };
 
@@ -408,7 +418,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 StorageInvalidation::Paths(_) => return,
             };
 
-            let source = Source::Value(location);
+            let source = Source::Value(location.clone());
 
             let Some(targets) = source.regions(memory) else {
                 continue;
@@ -1106,11 +1116,11 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 path.borrows()[..step].into(),
             );
 
-            let Some(location) =
-                crate::analysis::storage_flow::model::StorageFlowInput::reference_location(
+            let Some(locations) =
+                self.input.reference_locations(
                     self.request.semantic_values(),
                     memory,
-                    root,
+                    Target::storage(StoragePath::root(root)),
                     &descriptor,
                     None,
                 )
@@ -1118,9 +1128,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 continue;
             };
 
-            if mutations.clone().all(|mutation| {
-                memory.target_relationship(&location, mutation) == StorageRelationship::Disjoint
-            }) {
+            if locations.iter().all(|location| mutations.clone().all(|mutation| {
+                memory.target_relationship(location, mutation) == StorageRelationship::Disjoint
+            })) {
                 descriptors.insert(StoragePath {
                     root,
                     projections: path.projections()[..*index].into(),

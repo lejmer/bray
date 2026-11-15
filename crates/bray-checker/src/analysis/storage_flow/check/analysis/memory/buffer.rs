@@ -18,7 +18,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             .storage_type(result.root)
             .expect("checked buffer allocation retains its result type");
 
-        let (fields, _) = self
+        let fields = self
             .input
             .raw_buffers
             .get(&ty)
@@ -211,7 +211,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 .ty(),
         );
 
-        let (fields, _) = self
+        let fields = self
             .input
             .raw_buffers
             .get(&ty)
