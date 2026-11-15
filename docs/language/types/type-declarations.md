@@ -26,7 +26,7 @@ union Shape
 A bodyless struct declares a named type with no forgeable fields.
 
 ```bray
-struct FILE;
+struct File;
 
 @layout(stable, size = 40, align = 8)
 struct NativeMutex;
