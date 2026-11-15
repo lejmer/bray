@@ -48,11 +48,11 @@ fn activation_tokens_require_both_producer_and_entry_authority() {
     for (requirements, valid) in [
         ("", false),
         (
-            "requires(trusted bray.runtime.bootstrap.activation.producer(token = token))",
+            "requires(trusted bray.runtime.bootstrap.activation.producer_owned(owner = &token.acquisition))",
             false,
         ),
         (
-            "requires(trusted bray.runtime.bootstrap.activation.producer(token = token), trusted bray.runtime.bootstrap.activation.entry_authorized(token = token, origin = origin))",
+            "requires(trusted bray.runtime.bootstrap.activation.producer_owned(owner = &token.acquisition), trusted bray.runtime.bootstrap.activation.entry_authorized(owner = &token.acquisition, origin = origin))",
             true,
         ),
     ] {
@@ -63,7 +63,7 @@ fn activation_tokens_require_both_producer_and_entry_authority() {
             using internal bray.runtime.bootstrap.activation;
             using internal bray.runtime.bootstrap.pool;
             trusted func production_probe(
-                pos token: &bray.runtime.bootstrap.activation.Inactive,
+                pos token: bray.runtime.bootstrap.activation.Producer,
                 pos origin: u64,
             ) -> usize
                 requires(trusted bray.runtime.bootstrap.pool.protocol_access())
@@ -224,7 +224,7 @@ fn metadata_inspection_cannot_infer_exclusive_ownership_from_a_producer() {
             String::new()
         } else {
             format!(
-                "requires(trusted bray.runtime.bootstrap.activation.requirements.inactive_owner(token = {owner}))"
+                "requires(trusted bray.runtime.bootstrap.activation.requirements.inactive_owner(token = &{owner}))"
             )
         };
 
@@ -235,21 +235,23 @@ fn metadata_inspection_cannot_infer_exclusive_ownership_from_a_producer() {
             using internal bray.runtime.bootstrap.activation;
             using internal bray.runtime.bootstrap.pool;
             trusted func production_probe(
-                pos token: &bray.runtime.bootstrap.activation.Inactive,
-                pos other: &bray.runtime.bootstrap.activation.Inactive,
+                pos token: bray.runtime.bootstrap.activation.Inactive,
+                pos other: bray.runtime.bootstrap.activation.Inactive,
             ) -> bray.runtime.bootstrap.activation.requirements.Execution?
                 requires(
-                    trusted bray.runtime.bootstrap.activation.producer(token = token),
+                    trusted bray.runtime.bootstrap.activation.producer(token = &token),
                     trusted bray.runtime.bootstrap.pool.protocol_access(),
                 )
                 {ownership}
             {{
-                return trusted bray.runtime.bootstrap.activation.requirements.read(token, 0, 0, 0, 0);
+                let producer = trusted token.into_producer();
+
+                return trusted bray.runtime.bootstrap.activation.requirements.read(&producer, 0, 0, 0, 0);
             }}
             "#
         );
 
-        super::fixtures::assert_production_contract(&caller, (!valid).then_some(bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven), "return trusted bray.runtime.bootstrap.activation.requirements.read", "inactive_owner");
+        super::fixtures::assert_production_contract(&caller, (!valid).then_some(bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven), "trusted token.into_producer()", "inactive_owner");
     }
 }
 
@@ -294,5 +296,55 @@ fn inactive_cursor_requires_the_exact_native_token_and_outcome_pair() {
         );
 
         assert_production_probe(&source, valid);
+    }
+}
+
+#[test]
+#[ignore = "tier:proof"]
+fn native_frame_acquisition_consumes_the_claim_even_if_address_bits_are_restored() {
+    for (body, valid) in [
+        ("return trusted root_frame(frame);", true),
+        (
+            r#"
+            let first = trusted root_frame(frame);
+
+            return trusted root_frame(frame);
+            "#,
+            false,
+        ),
+        (
+            r#"
+            let address = trusted std.memory.read<usize>(std.memory.address_of_mut<usize>(frame));
+            let first = trusted root_frame(frame);
+
+            _ = trusted std.memory.replace_value<usize>(frame, address);
+
+            return trusted root_frame(frame);
+            "#,
+            false,
+        ),
+    ] {
+        let source = format!(
+            r#"
+            trusted internal module bray.runtime.bootstrap.execution;
+
+            using internal bray.runtime.bootstrap.activation;
+            using std.memory;
+
+            trusted func production_probe(pos frame: &mut usize) -> bray.runtime.bootstrap.activation.Producer
+                requires(trusted frame_input(owner = &frame))
+                uses(raw_memory)
+            {{
+                {body}
+            }}
+            "#
+        );
+
+        super::fixtures::assert_production_contract(
+            &source,
+            (!valid).then_some(bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven),
+            "return trusted root_frame(frame)",
+            "frame_input",
+        );
     }
 }

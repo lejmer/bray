@@ -18,21 +18,20 @@ trusted internal predicate retained(
 );
 
 trusted internal func read(
-    pos token: &bray.runtime.bootstrap.activation.Inactive,
+    pos token: &bray.runtime.bootstrap.activation.Producer,
     pos state: u32,
     pos operation: u32,
     pos argument: usize,
     pos origin: u64
 ) -> Execution?
     requires(
-        trusted bray.runtime.bootstrap.activation.producer(token = token),
-        trusted inactive_owner(token = token),
+        trusted bray.runtime.bootstrap.activation.producer_owned(owner = &token.acquisition),
         trusted bray.runtime.bootstrap.pool.protocol_access(),
     )
-    ensures(trusted bray.runtime.bootstrap.activation.producer(token = token), trusted inactive_owner(token = token))
+    ensures(trusted bray.runtime.bootstrap.activation.producer_owned(owner = &token.acquisition))
     uses(intrinsic, raw_memory, unchecked_alias, layout_reinterpret)
 {
-    let descriptor = trusted bray.runtime.bootstrap.activation.description(token);
+    let descriptor = trusted bray.runtime.bootstrap.activation.producer_description(token);
 
     if state >= descriptor.states || operation >= 6 || (operation == 3 && argument >= 7)
     {
@@ -51,15 +50,12 @@ trusted internal func read(
     // The resident lookup has checked the exact descriptor, epoch and inactive
     // phase. The producer keeps the initialized frame stable until this returns.
     let authorize = trusted lambda(
-        pos token: &bray.runtime.bootstrap.activation.Inactive,
+        pos token: &bray.runtime.bootstrap.activation.Producer,
         pos pointer: DataPointer<bray.runtime.bootstrap.activation.Header>
     )
-        requires(
-            trusted bray.runtime.bootstrap.activation.producer(token = token),
-            trusted inactive_owner(token = token)
-        )
+        requires(trusted bray.runtime.bootstrap.activation.producer_owned(owner = &token.acquisition))
         ensures(
-            trusted bray.runtime.bootstrap.activation.producer(token = token),
+            trusted bray.runtime.bootstrap.activation.producer_owned(owner = &token.acquisition),
             trusted core.memory.valid_read<bray.runtime.bootstrap.activation.Header>(pointer = pointer, count = 1),
             trusted core.memory.aligned_for<bray.runtime.bootstrap.activation.Header>(pointer = pointer),
             trusted core.memory.initialized_as<bray.runtime.bootstrap.activation.Header>(pointer = pointer),
@@ -77,7 +73,7 @@ trusted internal func read(
     {
         let header = trusted std.memory.borrow_from<
             bray.runtime.bootstrap.activation.Header,
-            bray.runtime.bootstrap.activation.Inactive
+            bray.runtime.bootstrap.activation.Producer
         >(token, pointer);
 
         yield header.context;
@@ -86,21 +82,15 @@ trusted internal func read(
     let callback = trusted std.memory.function.from_data<Query>(descriptor.state);
 
     let invoke = trusted lambda(
-        pos token: &bray.runtime.bootstrap.activation.Inactive,
+        pos token: &bray.runtime.bootstrap.activation.Producer,
         pos callback: FunctionPointer<Query>,
         pos context: usize,
         pos state: u32,
         pos operation: u32,
         pos argument: usize,
     ) -> State
-        requires(
-            trusted bray.runtime.bootstrap.activation.producer(token = token),
-            trusted inactive_owner(token = token)
-        )
-        ensures(
-            trusted bray.runtime.bootstrap.activation.producer(token = token),
-            trusted inactive_owner(token = token)
-        )
+        requires(trusted bray.runtime.bootstrap.activation.producer_owned(owner = &token.acquisition))
+        ensures(trusted bray.runtime.bootstrap.activation.producer_owned(owner = &token.acquisition))
         uses(layout_reinterpret)
     {
         let authorize = trusted lambda(
@@ -204,8 +194,9 @@ trusted internal func inspect(
         };
 
         let token = trusted read_owned(pointer, output);
+        let producer = trusted token.into_producer();
 
-        let requirements = match consume trusted read(&token, state, operation, argument, 0)
+        let requirements = match consume trusted read(&producer, state, operation, argument, 0)
         {
             case ?requirements { yield requirements; }
             case none { return none; }

@@ -169,7 +169,7 @@ trusted internal func invoke(
         &mut records
     );
 
-    let admit = trusted lambda(
+    let admit_and_enter_cleanup = trusted lambda(
         pos cursor: &mut bray.runtime.bootstrap.activation.run.Cursor,
         pos ready: bray.runtime.bootstrap.activation.callback.Ready,
         pos invocation: &mut bray.runtime.bootstrap.activation.callback.Invocation,
@@ -188,7 +188,7 @@ trusted internal func invoke(
             trusted bray.runtime.bootstrap.activation.callback.outputs_owned(owner = &invocation.acquisition)
         )
     {
-        trusted bray.runtime.bootstrap.activation.callback.admit(ready, invocation);
+        trusted bray.runtime.bootstrap.activation.callback.admit(cursor, ready, invocation);
 
         if invocation.admission == bray.runtime.bootstrap.STATUS_SUCCESS && operation == 3
         {
@@ -196,7 +196,7 @@ trusted internal func invoke(
         }
     };
 
-    trusted admit(cursor, ready, &mut invocation, operation);
+    trusted admit_and_enter_cleanup(cursor, ready, &mut invocation, operation);
 
     let status = invocation.admission;
 

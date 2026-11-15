@@ -8,17 +8,17 @@ using std.memory;
 
 // Entry authority is established against the run's admitted lanes before this
 // transition. It is not supplied by the descriptor, a copied token or a phase flag.
-trusted internal predicate entry_authorized(token: &Inactive, origin: u64);
+trusted internal predicate entry_authorized(owner: &ProducerAcquisition, origin: u64);
 
-trusted internal func begin(pos token: &Inactive, pos origin: u64) -> usize
+trusted internal func begin(pos token: Producer, pos origin: u64) -> usize
     requires(
-        trusted producer(token = token),
-        trusted entry_authorized(token = token, origin = origin),
+        trusted producer_owned(owner = &token.acquisition),
+        trusted entry_authorized(owner = &token.acquisition, origin = origin),
         trusted bray.runtime.bootstrap.pool.protocol_access(),
     )
 {
     // The entry witnesses authorize reading the descriptor before locking.
-    let descriptor = trusted description(token);
+    let descriptor = trusted producer_description(&token);
 
     // Keep the checked resident mutation within its owning pool borrow. This
     // local operation cannot escape the authorized entry or expose its header.
@@ -70,7 +70,7 @@ trusted internal func begin(pos token: &Inactive, pos origin: u64) -> usize
 
     let mut guard = trusted bray.runtime.bootstrap.pool.lock();
 
-    return trusted initialize(guard.get(), token, &descriptor, origin);
+    return trusted initialize(guard.get(), &token.token, &descriptor, origin);
 }
 
 // Both headers are already exclusively owned by the same dispatcher. Addresses
@@ -139,7 +139,7 @@ trusted internal func activate(pos pointer: DataPointer<Inactive>, pos origin: u
         trusted core.memory.aligned_for<Inactive>(pointer = pointer),
     )
 {
-    let read_entry = trusted lambda(pos pointer: DataPointer<Inactive>, pos origin: u64) -> Inactive
+    let read_entry = trusted lambda(pos pointer: DataPointer<Inactive>, pos origin: u64) -> Producer
         requires(
             trusted producer_slot(pointer = pointer),
             trusted entry_slot_authorized(pointer = pointer, origin = origin),
@@ -147,14 +147,23 @@ trusted internal func activate(pos pointer: DataPointer<Inactive>, pos origin: u
             trusted core.memory.initialized_as<Inactive>(pointer = pointer),
             trusted core.memory.aligned_for<Inactive>(pointer = pointer),
         )
-        ensures(trusted producer(token = &result), trusted entry_authorized(token = &result, origin = origin))
+        ensures(
+            trusted producer_owned(owner = &result.acquisition),
+            trusted entry_authorized(owner = &result.acquisition, origin = origin)
+        )
     {
-        return trusted std.memory.read<Inactive>(pointer);
+        return
+        {
+            acquisition = ProducerAcquisition
+            {
+            },
+            token = trusted std.memory.read<Inactive>(pointer)
+        };
     };
 
     let token = trusted read_entry(pointer, origin);
 
-    return trusted begin(&token, origin);
+    return trusted begin(token, origin);
 }
 
 // The caller already holds the exact header borrow. This changes cleanup state,

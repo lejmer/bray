@@ -34,7 +34,7 @@ trusted internal func acquire(
     )
     ensures(
         trusted bray.runtime.bootstrap.activation.run.selected(cursor = &result),
-        trusted entry(token = pointer, outcome = outcome),
+        trusted destination(output = outcome)
     )
     uses(intrinsic)
 {
@@ -58,8 +58,9 @@ trusted internal func acquire(
     };
 
     let token = trusted read(pointer, outcome);
-    let descriptor = trusted bray.runtime.bootstrap.activation.description(&token);
-    let address = trusted bray.runtime.bootstrap.activation.retained_address(&token, &descriptor);
+    let producer = trusted token.into_producer();
+    let descriptor = trusted bray.runtime.bootstrap.activation.producer_description(&producer);
+    let address = trusted bray.runtime.bootstrap.activation.retained_address(&producer, &descriptor);
 
     if address == 0
     {
@@ -68,9 +69,9 @@ trusted internal func acquire(
 
     // The resident lookup establishes epoch and descriptor pairing. This local
     // issuer also retains the caller's exclusive producer authority.
-    let selected = trusted lambda(pos token: &bray.runtime.bootstrap.activation.Inactive, pos address: usize) ->
+    let selected = trusted lambda(pos token: bray.runtime.bootstrap.activation.Producer, pos address: usize) ->
         bray.runtime.bootstrap.activation.run.Cursor
-        requires(trusted bray.runtime.bootstrap.activation.producer(token = token))
+        requires(trusted bray.runtime.bootstrap.activation.producer_owned(owner = &token.acquisition))
         ensures(trusted bray.runtime.bootstrap.activation.run.selected(cursor = &result))
         uses(intrinsic)
     {
@@ -85,7 +86,7 @@ trusted internal func acquire(
         };
     };
 
-    return trusted selected(&token, address);
+    return trusted selected(producer, address);
 }
 
 trusted internal func resolve(
@@ -239,24 +240,10 @@ trusted internal func execute(
     )
     uses(layout_reinterpret, raw_memory, unchecked_init)
 {
-    // Establish the independent output before any action can consume frame storage.
-    let output = trusted lambda(
-        pos pointer: DataPointer<bray.runtime.bootstrap.activation.Inactive>,
-        pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>,
-    )
-        requires(trusted entry(token = pointer, outcome = outcome))
-        ensures(
-            trusted destination(output = outcome),
-            trusted core.memory.valid_write<bray.runtime.bootstrap.ReportOutcome>(pointer = outcome, count = 1),
-            trusted core.memory.aligned_for<bray.runtime.bootstrap.ReportOutcome>(pointer = outcome),
-        )
-        executes(pure, total) {};
-
     let invoke = trusted std.memory.callable_from_pointer<bray.runtime.bootstrap.activation.callback.Invoke>(callback);
     let admission = trusted std.memory.callable_from_pointer<bray.runtime.bootstrap.activation.callback.Ready>(ready);
-    let cursor = trusted acquire(pointer, outcome);
 
-    trusted output(pointer, outcome);
+    let cursor = trusted acquire(pointer, outcome);
 
     let result = trusted resolve(cursor, invoke, admission, cleanup_exit, outcome);
 

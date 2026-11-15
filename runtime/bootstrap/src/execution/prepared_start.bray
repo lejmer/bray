@@ -15,7 +15,7 @@ internal struct PreparedStart
 {
     selected: &Current;
     reference: &bray.runtime.bootstrap.task.Reference;
-    token: &bray.runtime.bootstrap.activation.Inactive;
+    mut token: bray.runtime.bootstrap.activation.Producer?;
     mut execution: Owner;
     initial: bray.runtime.bootstrap.activation.requirements.Execution;
     mut registration: u64?;
@@ -56,8 +56,9 @@ internal predicate prepared_start(owner: &PreparedStart) = view_owned(owner = &o
 internal predicate inactive_start(owner: &PreparedStart) = prepared_start(owner = owner) && owner.selected.status ==
     0 && bray.runtime.bootstrap.task.resolution_owner(owner = owner.reference) && bray.runtime.bootstrap.task.retained(
     owner = owner.reference
-) && bray.runtime.bootstrap.activation.producer(token = owner.token) &&
-    bray.runtime.bootstrap.activation.requirements.inactive_owner(token = owner.token);
+) && owner.token matches ?_ && bray.runtime.bootstrap.activation.producer_owned(
+    owner = &bray.runtime.bootstrap.activation.producer_reference(&owner.token).acquisition
+);
 
 internal predicate prepared_start_result(owner: &Result<PreparedStart, u32>) = owner matches Error(_) || inactive_start(
     owner = present_prepared_start(owner)
@@ -77,7 +78,7 @@ internal const func present_prepared_start(pos owner: &Result<PreparedStart, u32
 trusted internal func prepare_start(
     pos selected: &Current,
     pos reference: &bray.runtime.bootstrap.task.Reference,
-    pos token: &bray.runtime.bootstrap.activation.Inactive,
+    pos token: bray.runtime.bootstrap.activation.Producer,
 ) -> Result<PreparedStart, u32>
     requires(
         blocking_execution(),
@@ -85,8 +86,7 @@ trusted internal func prepare_start(
         selected.status == 0,
         trusted bray.runtime.bootstrap.task.resolution_owner(owner = reference),
         trusted bray.runtime.bootstrap.task.retained(owner = reference),
-        trusted bray.runtime.bootstrap.activation.producer(token = token),
-        trusted bray.runtime.bootstrap.activation.requirements.inactive_owner(token = token),
+        trusted bray.runtime.bootstrap.activation.producer_owned(owner = &token.acquisition),
         trusted bray.runtime.bootstrap.entry.native_entry(),
         trusted bray.runtime.bootstrap.host.product.native_host(),
         trusted bray.runtime.bootstrap.pool.protocol_access()
@@ -101,7 +101,7 @@ trusted internal func prepare_start(
     let active = trusted context(selected);
 
     let initial = match consume trusted bray.runtime.bootstrap.activation.requirements.read(
-        token,
+        &token,
         0,
         0,
         0,
@@ -123,7 +123,7 @@ trusted internal func prepare_start(
     let make = trusted lambda(
         pos selected: &Current,
         pos reference: &bray.runtime.bootstrap.task.Reference,
-        pos token: &bray.runtime.bootstrap.activation.Inactive,
+        pos token: bray.runtime.bootstrap.activation.Producer,
         pos admission: Owner?,
         pos initial: bray.runtime.bootstrap.activation.requirements.Execution
     ) -> PreparedStart
@@ -132,8 +132,7 @@ trusted internal func prepare_start(
             selected.status == 0,
             trusted bray.runtime.bootstrap.task.resolution_owner(owner = reference),
             trusted bray.runtime.bootstrap.task.retained(owner = reference),
-            trusted bray.runtime.bootstrap.activation.producer(token = token),
-            trusted bray.runtime.bootstrap.activation.requirements.inactive_owner(token = token),
+            trusted bray.runtime.bootstrap.activation.producer_owned(owner = &token.acquisition),
             admission matches ?_,
             trusted optional_owner(owner = &admission)
         )
@@ -219,17 +218,27 @@ trusted internal func commit_start(pos owner: &mut PreparedStart) -> u32
 {
     let active = trusted context(owner.selected);
 
-    let authorize = trusted lambda(pos active: &Context, pos token: &bray.runtime.bootstrap.activation.Inactive)
-        requires(
-            trusted bray.runtime.bootstrap.activation.producer(token = token),
-            trusted bray.runtime.bootstrap.activation.requirements.inactive_owner(token = token)
+    let token = match consume trusted std.memory.take_nullable<bray.runtime.bootstrap.activation.Producer>(
+        &mut owner.token
+    )
+    {
+        case ?value { yield value; }
+        case none { yield trusted core.target.abort(); }
+    };
+
+    let authorize = trusted lambda(pos active: &Context, pos token: &bray.runtime.bootstrap.activation.Producer)
+        requires(trusted bray.runtime.bootstrap.activation.producer_owned(owner = &token.acquisition))
+        ensures(
+            trusted bray.runtime.bootstrap.activation.entry_authorized(
+                owner = &token.acquisition,
+                origin = active.thread
+            )
         )
-        ensures(trusted bray.runtime.bootstrap.activation.entry_authorized(token = token, origin = active.thread))
         executes(pure, total) {};
 
-    trusted authorize(active, owner.token);
+    trusted authorize(active, &token);
 
-    let root = trusted bray.runtime.bootstrap.activation.begin(owner.token, active.thread);
+    let root = trusted bray.runtime.bootstrap.activation.begin(token, active.thread);
 
     if root == 0
     {

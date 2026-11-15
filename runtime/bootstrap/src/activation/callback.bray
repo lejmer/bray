@@ -205,13 +205,22 @@ trusted internal func borrow_invocation(
     return trusted std.memory.borrow_mut_from<Invocation, DataPointer<Invocation>>(input, pointer);
 }
 
-trusted internal func admit(pos callback: Ready, pos owner: &mut Invocation)
+trusted internal func admit(
+    pos cursor: &mut bray.runtime.bootstrap.activation.run.Cursor,
+    pos callback: Ready,
+    pos owner: &mut Invocation
+)
     requires(
+        trusted bray.runtime.bootstrap.activation.run.selected(cursor = &cursor),
         trusted bray.runtime.bootstrap.entry.native_entry(),
         trusted authorized(owner = &owner.acquisition),
         trusted outputs_owned(owner = &owner.acquisition)
     )
-    ensures(trusted authorized(owner = &owner.acquisition), trusted outputs_owned(owner = &owner.acquisition))
+    ensures(
+        trusted bray.runtime.bootstrap.activation.run.selected(cursor = &cursor),
+        trusted authorized(owner = &owner.acquisition),
+        trusted outputs_owned(owner = &owner.acquisition)
+    )
     uses(foreign_call)
 {
     trusted callback(trusted native_pointer(owner));

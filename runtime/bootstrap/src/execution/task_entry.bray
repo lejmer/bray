@@ -63,7 +63,7 @@ trusted internal func task_allocation() -> Admission
 @abi(c)
 trusted internal func task_start(
     pos handle: u64,
-    pos frame: usize,
+    pos mut frame: usize,
     pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>
 ) -> u32
     requires(
@@ -88,7 +88,7 @@ trusted internal func task_start(
     }
 
     let owner = trusted bray.runtime.bootstrap.task.retain_source_claim(&handle);
-    let token = trusted root_frame(&frame);
+    let token = trusted root_frame(&mut frame);
     let started = trusted token.start_frame(&selected, &owner, none, outcome);
 
     _ = trusted bray.runtime.bootstrap.task.dispose_reference(owner);

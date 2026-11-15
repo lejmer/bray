@@ -38,7 +38,7 @@ trusted internal func compose(
     pos origin: u64,
     pos destination: usize,
     pos disposition: u8,
-    pos ready: FunctionPointer<bray.runtime.bootstrap.activation.callback.Ready>,
+    pos ready: FunctionPointer<bray.runtime.bootstrap.activation.callback.Ready>
 ) -> usize
     requires(
         disposition <= 2,
@@ -53,36 +53,19 @@ trusted internal func compose(
         trusted bray.runtime.bootstrap.activation.execution.owned(pointer = parent),
         trusted bray.runtime.bootstrap.pool.protocol_access(),
         trusted bray.runtime.bootstrap.entry.native_entry(),
-        trusted core.memory.callable_address_valid<bray.runtime.bootstrap.activation.callback.Ready>(pointer = ready),
+        trusted core.memory.callable_address_valid<bray.runtime.bootstrap.activation.callback.Ready>(pointer = ready)
     )
     ensures(trusted bray.runtime.bootstrap.activation.execution.owned(pointer = parent))
-    uses(intrinsic, layout_reinterpret)
 {
-    let admit = trusted std.memory.callable_from_pointer<bray.runtime.bootstrap.activation.callback.Ready>(ready);
-
-    let acquire = trusted lambda(pos pointer: DataPointer<bray.runtime.bootstrap.activation.Header>) ->
-        bray.runtime.bootstrap.activation.run.Cursor
-        requires(trusted bray.runtime.bootstrap.activation.execution.owned(pointer = pointer))
-        ensures(trusted bray.runtime.bootstrap.activation.run.selected(cursor = &result))
-        executes(pure, total)
-    {
-        return
-        {
-            root = pointer,
-            pointer = pointer
-        };
-    };
-
-    let mut cursor = trusted acquire(parent);
-
-    let inspect = trusted lambda(
+    let acquire = trusted lambda(
         pos parent: DataPointer<bray.runtime.bootstrap.activation.Header>,
         pos token: DataPointer<bray.runtime.bootstrap.activation.Inactive>,
         pos state: u32,
         pos origin: u64,
         pos destination: usize,
         pos disposition: u8,
-    ) -> bray.runtime.bootstrap.activation.Inactive
+        pos ready: FunctionPointer<bray.runtime.bootstrap.activation.callback.Ready>
+    ) -> Composition
         requires(
             trusted authorized(
                 parent = parent,
@@ -92,78 +75,84 @@ trusted internal func compose(
                 destination = destination,
                 disposition = disposition
             ),
-            trusted bray.runtime.bootstrap.pool.protocol_access(),
-        )
-        ensures(
-            trusted bray.runtime.bootstrap.pool.protocol_access(),
-            trusted bray.runtime.bootstrap.activation.producer(token = &result),
-            trusted bray.runtime.bootstrap.activation.requirements.inactive_owner(token = &result),
             trusted bray.runtime.bootstrap.activation.execution.owned(pointer = parent),
+            trusted core.memory.callable_address_valid<bray.runtime.bootstrap.activation.callback.Ready>(
+                pointer = ready
+            )
         )
-        uses(raw_memory)
+        ensures(trusted composition_pending(owner = &result))
+        uses(raw_memory, layout_reinterpret)
     {
-        let permit = trusted lambda(pos token: DataPointer<bray.runtime.bootstrap.activation.Inactive>)
+        let readable = trusted lambda(pos token: DataPointer<bray.runtime.bootstrap.activation.Inactive>)
             ensures(
                 trusted core.memory.valid_read<bray.runtime.bootstrap.activation.Inactive>(pointer = token, count = 1),
                 trusted core.memory.initialized_as<bray.runtime.bootstrap.activation.Inactive>(pointer = token),
-                trusted core.memory.aligned_for<bray.runtime.bootstrap.activation.Inactive>(pointer = token),
+                trusted core.memory.aligned_for<bray.runtime.bootstrap.activation.Inactive>(pointer = token)
             )
             executes(pure, total) {};
 
-        trusted permit(token);
-        return trusted std.memory.read<bray.runtime.bootstrap.activation.Inactive>(token);
+        trusted readable(token);
+
+        return
+        {
+            request = Request
+            {
+                acquisition = RequestAcquisition
+                {
+                },
+                producer = bray.runtime.bootstrap.activation.Producer
+                {
+                    acquisition = bray.runtime.bootstrap.activation.ProducerAcquisition
+                    {
+                    },
+                    token = trusted std.memory.read<bray.runtime.bootstrap.activation.Inactive>(token)
+                },
+                state = state,
+                destination = destination,
+                disposition = disposition,
+                ready = trusted std.memory.callable_from_pointer<bray.runtime.bootstrap.activation.callback.Ready>(
+                    ready
+                )
+            },
+            parent = bray.runtime.bootstrap.activation.run.Cursor
+            {
+                root = parent,
+                pointer = parent
+            },
+            origin = origin
+        };
     };
 
-    let query = trusted lambda(
-        pos cursor: &mut bray.runtime.bootstrap.activation.run.Cursor,
-        pos parent: DataPointer<bray.runtime.bootstrap.activation.Header>,
-        pos token: DataPointer<bray.runtime.bootstrap.activation.Inactive>,
-        pos state: u32,
-        pos origin: u64,
-        pos destination: usize,
-        pos disposition: u8,
-    ) -> bray.runtime.bootstrap.activation.requirements.Execution?
-        requires(
-            trusted authorized(
-                parent = parent,
-                token = token,
-                state = state,
-                origin = origin,
-                destination = destination,
-                disposition = disposition
-            ),
-            trusted bray.runtime.bootstrap.activation.execution.owned(pointer = parent),
-            trusted bray.runtime.bootstrap.activation.run.selected(cursor = &cursor),
-            trusted bray.runtime.bootstrap.pool.protocol_access(),
-        )
-        ensures(
-            trusted authorized(
-                parent = parent,
-                token = token,
-                state = state,
-                origin = origin,
-                destination = destination,
-                disposition = disposition
-            ),
-            trusted bray.runtime.bootstrap.activation.execution.owned(pointer = parent),
-            trusted bray.runtime.bootstrap.activation.run.selected(cursor = &cursor),
-            trusted bray.runtime.bootstrap.pool.protocol_access(),
-        )
+    return trusted compose_owned(trusted acquire(parent, token, state, origin, destination, disposition, ready));
+}
+
+trusted internal func compose_owned(pos mut owner: Composition) -> usize
+    requires(
+        trusted composition_pending(owner = &owner),
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
+        trusted bray.runtime.bootstrap.entry.native_entry()
+    )
+    uses(intrinsic)
+{
+    if owner.request.disposition > 2
     {
-        // The metadata provider cannot mutate the independently retained token
-        // slot or consume either owner. This preserves the exact admission pair.
-        return trusted bray.runtime.bootstrap.activation.requirements.active(cursor, state, 0, 0);
-    };
+        return 0;
+    }
 
-    // Query before consuming the child. The source callback has not published
-    // suspension yet, so use its explicit continuation rather than header.state.
-    let execution = match consume trusted query(&mut cursor, parent, token, state, origin, destination, disposition)
+    let state = owner.request.state;
+    let origin = owner.origin;
+    let disposition = owner.request.disposition;
+
+    let execution = match consume trusted bray.runtime.bootstrap.activation.requirements.active(
+        &mut owner.parent,
+        state,
+        0,
+        0
+    )
     {
         case ?execution { yield execution; }
         case none { return 0; }
     };
-
-    let value = trusted inspect(parent, token, state, origin, destination, disposition);
 
     // Inactive abandonment enters cleanup directly. It cannot acquire authority
     // from the source body's requirements or execute that body to discover work.
@@ -191,21 +180,19 @@ trusted internal func compose(
 
     let inspect_child = trusted lambda(
         pos cursor: &mut bray.runtime.bootstrap.activation.run.Cursor,
-        pos value: &bray.runtime.bootstrap.activation.Inactive,
+        pos value: &bray.runtime.bootstrap.activation.Producer,
         pos operation: u32,
         pos argument: usize,
         pos origin: u64
     ) -> bray.runtime.bootstrap.activation.requirements.Execution?
         requires(
             trusted bray.runtime.bootstrap.activation.run.selected(cursor = &cursor),
-            trusted bray.runtime.bootstrap.activation.producer(token = value),
-            trusted bray.runtime.bootstrap.activation.requirements.inactive_owner(token = value),
+            trusted bray.runtime.bootstrap.activation.producer_owned(owner = &value.acquisition),
             trusted bray.runtime.bootstrap.pool.protocol_access()
         )
         ensures(
             trusted bray.runtime.bootstrap.activation.run.selected(cursor = &cursor),
-            trusted bray.runtime.bootstrap.activation.producer(token = value),
-            trusted bray.runtime.bootstrap.activation.requirements.inactive_owner(token = value)
+            trusted bray.runtime.bootstrap.activation.producer_owned(owner = &value.acquisition)
         )
     {
         // The metadata protocol retains both owners through provider reentry.
@@ -213,7 +200,13 @@ trusted internal func compose(
         return trusted bray.runtime.bootstrap.activation.requirements.read(value, 0, operation, argument, origin);
     };
 
-    let own = match consume trusted inspect_child(&mut cursor, &value, operation, argument, origin)
+    let own = match consume trusted inspect_child(
+        &mut owner.parent,
+        bray.runtime.bootstrap.activation.producer_reference(&owner.request.producer),
+        operation,
+        argument,
+        origin
+    )
     {
         case ?requirements { yield requirements; }
         case none { return 0; }
@@ -251,7 +244,7 @@ trusted internal func compose(
     let mut records = bray.runtime.bootstrap.empty_records();
 
     let mut invocation = trusted bray.runtime.bootstrap.activation.callback.prepare_invocation(
-        &mut cursor,
+        &mut owner.parent,
         &requested,
         &description,
         operation,
@@ -260,32 +253,49 @@ trusted internal func compose(
         &mut records
     );
 
-    trusted bray.runtime.bootstrap.activation.callback.admit(admit, &mut invocation);
+    trusted bray.runtime.bootstrap.activation.callback.admit(&mut owner.parent, owner.request.ready, &mut invocation);
 
     if invocation.admission != 0
     {
         return 0;
     }
 
-    // The immutable token slot and parent remain exclusively owned across both
-    // metadata queries and capability admission. Only this successful path may
-    // transfer the child's resident lease.
-    let accepted = trusted lambda(
-        pos value: &bray.runtime.bootstrap.activation.Inactive,
-        pos origin: u64,
-        pos parent: DataPointer<bray.runtime.bootstrap.activation.Header>
-    )
-        ensures(
-            trusted bray.runtime.bootstrap.activation.producer(token = value),
-            trusted bray.runtime.bootstrap.activation.entry_authorized(token = value, origin = origin),
-            trusted bray.runtime.bootstrap.activation.execution.owned(pointer = parent),
-            trusted bray.runtime.bootstrap.pool.protocol_access(),
+    // This transition consumes only inactive permission. The complete request
+    // and selected parent still retain the exact connection and destination.
+    let begin_child = trusted lambda(pos owner: &mut Composition, pos admission: u32) -> usize
+        requires(
+            admission == 0,
+            trusted composition_pending(owner = &owner),
+            trusted bray.runtime.bootstrap.pool.protocol_access()
         )
-        executes(pure, total) {};
+        ensures(
+            trusted composition_owned(owner = &owner.request.acquisition),
+            trusted bray.runtime.bootstrap.activation.run.selected(cursor = &owner.parent),
+            owner.request.producer matches none
+        )
+        uses(intrinsic)
+    {
+        let producer = match consume trusted std.memory.take_nullable<bray.runtime.bootstrap.activation.Producer>(
+            &mut owner.request.producer
+        )
+        {
+            case ?value { yield value; }
+            case none { yield trusted core.target.abort(); }
+        };
 
-    trusted accepted(&value, origin, parent);
+        let authorize = trusted lambda(pos value: &bray.runtime.bootstrap.activation.Producer, pos origin: u64)
+            requires(trusted bray.runtime.bootstrap.activation.producer_owned(owner = &value.acquisition))
+            ensures(
+                trusted bray.runtime.bootstrap.activation.entry_authorized(owner = &value.acquisition, origin = origin)
+            )
+            executes(pure, total) {};
 
-    let address = trusted bray.runtime.bootstrap.activation.begin(&value, origin);
+        trusted authorize(&producer, owner.origin);
+
+        return trusted bray.runtime.bootstrap.activation.begin(producer, owner.origin);
+    };
+
+    let address = trusted begin_child(&mut owner, invocation.admission);
 
     if address == 0
     {
@@ -295,14 +305,16 @@ trusted internal func compose(
     // Successful resident admission establishes the new child owner. These local
     // writes only connect the returned header to the already retained parent.
     let connect = trusted lambda(
-        pos parent: DataPointer<bray.runtime.bootstrap.activation.Header>,
+        pos owner: &mut Composition,
         pos child: DataPointer<bray.runtime.bootstrap.activation.Header>,
         pos execution: bray.runtime.bootstrap.activation.requirements.Execution,
         pos address: usize,
-        pos destination: usize,
-        pos disposition: u8,
     )
-        ensures(trusted bray.runtime.bootstrap.activation.execution.owned(pointer = parent))
+        requires(
+            trusted composition_owned(owner = &owner.request.acquisition),
+            trusted bray.runtime.bootstrap.activation.run.selected(cursor = &owner.parent)
+        )
+        ensures(trusted bray.runtime.bootstrap.activation.run.selected(cursor = &owner.parent))
         uses(raw_memory, unchecked_init)
     {
         let acquire = trusted lambda(pos pointer: DataPointer<bray.runtime.bootstrap.activation.Header>) ->
@@ -318,12 +330,10 @@ trusted internal func compose(
         };
 
         // Resident admission returned fresh child storage, distinct from parent.
-        let mut retained_cursor = trusted acquire(parent);
-
         let mut attached_cursor = trusted acquire(child);
 
         {
-            let retained = trusted bray.runtime.bootstrap.activation.execution.access(&mut retained_cursor);
+            let retained = trusted bray.runtime.bootstrap.activation.execution.access(&mut owner.parent);
             let attached = trusted bray.runtime.bootstrap.activation.execution.access(&mut attached_cursor);
 
             trusted bray.runtime.bootstrap.activation.attach(
@@ -336,10 +346,10 @@ trusted internal func compose(
                 execution.origin
             );
 
-            attached.destination = destination;
-            attached.disposition = disposition as u32;
+            attached.destination = owner.request.destination;
+            attached.disposition = owner.request.disposition as u32;
 
-            if disposition != 0
+            if owner.request.disposition != 0
             {
                 _ = trusted bray.runtime.bootstrap.activation.abandon(attached);
             }
@@ -348,7 +358,7 @@ trusted internal func compose(
 
     let child = trusted core.target.from_exposed_address<bray.runtime.bootstrap.activation.Header>(address = address);
 
-    trusted connect(parent, child, execution, address, destination, disposition);
+    trusted connect(&mut owner, child, execution, address);
     return address;
 }
 

@@ -7,15 +7,50 @@ using core.target;
 using std.memory;
 using internal bray.runtime.bootstrap.activation;
 using internal bray.runtime.bootstrap.activation.callback;
+using internal bray.runtime.bootstrap.activation.composition;
 using internal bray.runtime.bootstrap.task;
 
 // The compiler lends the owned inactive token and its exact result destination
 // for this current producer call. A non-result disposition has destination zero.
 trusted internal predicate composition_frame_input(
     owner: &bray.runtime.bootstrap.activation.Inactive,
+    state: u32,
     destination: usize,
     disposition: u8
 );
+
+impl bray.runtime.bootstrap.activation.Inactive
+{
+    trusted internal consume func into_composition(
+        pos state: u32,
+        pos destination: usize,
+        pos disposition: u8
+    ) -> bray.runtime.bootstrap.activation.composition.Request
+        requires(
+            trusted bray.runtime.bootstrap.activation.producer(token = &self),
+            trusted bray.runtime.bootstrap.activation.requirements.inactive_owner(token = &self),
+            trusted composition_frame_input(
+                owner = &self,
+                state = state,
+                destination = destination,
+                disposition = disposition
+            )
+        )
+        ensures(trusted bray.runtime.bootstrap.activation.composition.request_pending(owner = &result))
+    {
+        return
+        {
+            acquisition = bray.runtime.bootstrap.activation.composition.RequestAcquisition
+            {
+            },
+            producer = trusted self.into_producer(),
+            state = state,
+            destination = destination,
+            disposition = disposition,
+            ready = composition_readiness
+        };
+    }
+}
 
 @abi(c)
 trusted internal func awaited_composition(
@@ -27,13 +62,19 @@ trusted internal func awaited_composition(
     requires(
         trusted bray.runtime.bootstrap.activation.producer(token = &token),
         trusted bray.runtime.bootstrap.activation.requirements.inactive_owner(token = &token),
-        trusted composition_frame_input(owner = &token, destination = destination, disposition = disposition),
+        trusted composition_frame_input(
+            owner = &token,
+            state = state,
+            destination = destination,
+            disposition = disposition
+        ),
         trusted bray.runtime.bootstrap.entry.native_entry(),
         trusted bray.runtime.bootstrap.host.product.native_host(),
         trusted bray.runtime.bootstrap.pool.protocol_access()
     )
-    uses(intrinsic, layout_reinterpret)
+    uses(intrinsic)
 {
+    let request = trusted token.into_composition(state, destination, disposition);
     let selected = trusted current();
 
     if selected.status != 0 || !has_execution(&selected)
@@ -41,19 +82,10 @@ trusted internal func awaited_composition(
         trusted core.target.abort();
     }
 
-    let ready: bray.runtime.bootstrap.activation.callback.Ready = composition_readiness;
-    let address = trusted std.memory.function_address<bray.runtime.bootstrap.activation.callback.Ready>(ready);
-    let parent = trusted composition_parent(&selected, &token, address);
+    let origin = (trusted context(&selected)).thread;
+    let parent = trusted composition_parent(&selected, &request, origin);
 
-    let status = trusted bray.runtime.bootstrap.task.compose_reference(
-        parent,
-        &token,
-        state,
-        (trusted context(&selected)).thread,
-        destination,
-        disposition,
-        address
-    );
+    let status = trusted bray.runtime.bootstrap.task.compose_reference(parent, request, origin);
 
     if status != 0
     {
@@ -63,22 +95,30 @@ trusted internal func awaited_composition(
 
 trusted internal func composition_parent(
     pos selected: &Current,
-    pos token: &bray.runtime.bootstrap.activation.Inactive,
-    pos ready: FunctionPointer<bray.runtime.bootstrap.activation.callback.Ready>
+    pos request: &bray.runtime.bootstrap.activation.composition.Request,
+    pos origin: u64
 ) -> &bray.runtime.bootstrap.task.Reference
     requires(
         trusted view_owned(owner = &selected.acquisition),
         selected.status == 0,
-        trusted bray.runtime.bootstrap.activation.producer(token = token),
-        trusted bray.runtime.bootstrap.activation.requirements.inactive_owner(token = token)
+        trusted bray.runtime.bootstrap.activation.composition.request_pending(owner = request)
     )
     ensures(
         trusted view_owned(owner = &selected.acquisition),
         trusted bray.runtime.bootstrap.task.retained(owner = result),
-        trusted bray.runtime.bootstrap.task.composition_input(owner = &result.acquisition, token = token, ready = ready)
+        trusted bray.runtime.bootstrap.task.request_for_task(
+            request = &request.acquisition,
+            parent = &result.acquisition,
+            origin = origin
+        )
     )
     uses(intrinsic)
 {
+    if origin != (trusted context(selected)).thread
+    {
+        trusted core.target.abort();
+    }
+
     let task = trusted current_task(selected);
 
     if task matches none

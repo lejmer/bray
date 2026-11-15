@@ -9,16 +9,16 @@ Read this record and the work-on-bray-issues contract gate after compaction.
 
 Comparison baseline: 854757009. validation-current.json/log retain fixed 916, owned 505, deferred 298,
 frozen 30 and focused controls. comparison-current.json/log preserve current exact identities and hashes.
-The latest batch passes all 1,715 identities with none missing in 398.28 s. Focused checks pass 559 checker,
+Compiler checkpoint 86ef6ef86 passes all 1,715 identities with none missing in 398.28 s. Focused checks pass 559 checker,
 221 symbol and 17 carrier/nullable/probe tests. No expected outcome or failure site changed.
-No checker instrumentation or temporary probe remains in source or current test binaries. The pin
-probe records identify the earlier binary. Four count hooks remain only in an ignored patch.
+No checker instrumentation or temporary probe remains in source. The focused binary includes the removed
+producer audit. Pin records identify an earlier binary. Four count hooks remain only in an ignored patch.
 
 The current pin probe verifies clean bodies for ensure_deadlines, ensure_workers, close_owner,
 close_owner_binding and native_owner_release. close_owner now publishes the complete execution Reference
 and its acquisition child. pin-current.json/log retain exact identities and layouts.
 
-Fresh native smoke compilation fails with 12 primary E7123 diagnostics and 15 dependent E7135 diagnostics.
+The last native gate at 86ef6ef86 fails with 12 primary E7123 diagnostics and 15 dependent E7135 diagnostics.
 All five E7124 separation failures are gone. native-current.json/log identify the release tool and pinned
 toolchains. Native execution, root C smoke, real async composition and archive/link removal remain unrun.
 Native Rust must use installed 1.98.1 with pinned LLVM 22.1.8. Default 1.99 emits LLVM 23 bitcode.
@@ -26,19 +26,15 @@ The provider tests filter selected functions, and the profiling test checks reus
 Their passing results do not establish that every production runtime body checks.
 
 Remaining groups: borrowed view/storage retention, raw allocation evidence, observer preparation,
-and inactive producer/neighbor access carriers. awaited_composition loses producer(token) at current().
-Inactive has copied IDs and a raw descriptor pointer, but no represented retained permission. Do not recover
-its opaque guarantee from unchanged pointer bits or weaken the indirect-storage negative. Establish the
-actual native producer-retention contract. LinkAccess similarly holds a lease borrow and raw pointer.
+and neighbor access carriers. The producer repair below now checks awaited_composition through current().
+Do not recover opaque guarantees from unchanged pointer bits or weaken indirect-storage negatives.
+LinkAccess still holds a lease borrow and raw pointer.
 allocation-current.log and links-current.log retain the unresolved earlier traces, identified by proof-current.json.
 
-Reviewer /root/pr_review reviewed 86ef6ef86 and published review 5909038223, verified on PR 710.
-Finding 4577016048 / PRRT_kwDOTFaIPc63mNSa: repeated enclosing-layout derivation for identical guards.
-Current fix derives only for a possible witness separation and reuses each sorted, deduplicated guard
-context within that invocation. It replaces repeated materialization, preserves diagnostic traversal order,
-and adds no persistent state. Focused validation passes all 559 checker tests and 820 owned/deferred,
-carrier, nullable and consuming-copy controls, with no missing fixed identity. Push, reply and re-review.
-No new ownership finding. All three earlier review threads are resolved.
+Reviewer /root/pr_review reviewed c7c69aba7 and published review 5909136276, verified on PR 710.
+The repeated-layout finding is fixed and thread PRRT_kwDOTFaIPc63mNSa is resolved, reply 4577051057.
+Lazy per-invocation reuse passes all 559 checker and 820 owned/deferred/carrier/nullable/consume controls.
+No new actionable findings. All prior review threads are resolved.
 Current fixes use selected_lane for all callback readiness, share referent_owner_identity and move imports.
 The existing root fixture checks blocking/compute rejection while the cooperative task is active and driver
 acceptance after terminal return. Native execution of those assertions remains blocked by contracts.
@@ -68,25 +64,50 @@ input. Immediate-parent projection respects empty intermediate records. Keep roo
 preservation from current contents. Never import historical children or derive ownership through loans.
 Existing projection and mutation tests cover nested owners, overwritten children and explicit empties.
 
-Next unresolved contract: Inactive remains a copied ABI token. A durable noncopy Producer must consume
-both native provider retention and the exact inactive-exclusive claim, store the token by value, and be
-borrowed only for metadata. Admission/destruction consumes it. A generic borrow_producer(&Inactive)
-issuer is unsound: it could mint two permits and leave one usable after the other releases the frame.
-Native fixtures own descriptor/backing in Arc<Frame>, removed and dropped by destroy before its callback
-returns. Native-call lifetime therefore cannot justify retention after frame release. Existing consuming-
-copyable-receiver tests establish move retirement and witness-copy rejection, including @copy values.
-Formation must use an actual move, not an implicit copy. Native exclusive claims remain entry-local,
-never recreated by general raw-slot readers. Producer retention alone cannot imply inactive exclusivity.
+Producer contract: Inactive remains the copied ABI token. Durable producer permission must
+include BOTH retained provider and exact inactive-exclusive claims. Native fixtures drop Arc<Frame>
+(including descriptor/backing) during destroy, before returning. Admission/destruction must consume the
+permission, and no native-bound permit may escape its authorized entry lifetime. A generic shared-borrow
+issuer can mint duplicates and is unsound. Mutable borrowing alone does not solve later reacquisition:
+read<Inactive> is Copy with no target consumption, even through address_of_mut. Do not change that rule.
 
-Trace all typed consumers before editing: metadata/requirements borrow Producer, begin and inactive
-acquisition consume it, compose_reference and task::Composition own and forward it. PreparedStart can
-lose its token field: prepare_start borrows the enclosing permit, reserve_start needs only preparation,
-task and service facts, commit_start takes the permit by value and passes it into begin. No optional
-replacement permit is needed on failed admission because current callers return or abort. Remove the
-accepted lambda's producer reassertion in activation/composition while keeping successful admission
-separate. Publication/provider initialization may borrow native retention without acquiring a durable
-exclusive permit. Their exact API boundary remains to be settled. Descriptor borrowing alone cannot
-retain raw callback providers. End-to-end consumer inventory and source oracles remain open.
+Inactive.into_producer consumes the ABI token and introduces the scoped noncopy owner from both native
+claims. The receiver retires caller authority. Its raw read copies data only and cannot recreate the claim.
+
+Current producer batch: all 8 admission controls and 3 async composition controls pass. The latter include
+actual async source checking/lowering and fabricated/moved-owner rejection. producer-controls and
+composition-current JSON/logs identify the binary and results. producer-bodies JSON/log/err record 65
+callable bodies from the 14 changed sources, with the declaration-only request source having no callable
+body. All three composition entry paths and root_frame now check/lower cleanly.
+
+Two bodies still fail: commit_start has storage_retained failures at lock_cell and wake_reference,
+and start_frame retains its cleanup failure. The lock_cell rejection is NEW after take_nullable clears
+owner.token. The earlier wake failure follows clearing owner.registration. This points to the same
+sibling-write/borrowed-reference retention boundary, but its compiler cause is not established yet.
+Do not claim no regressions. This blocks further migration and final handoff. No full matrix or fresh
+native execution gate has been run for this batch. Next trace invalidation through actual stored borrows.
+Relevant code: guarantee/flow/invalidation.rs, flow/preservation.rs, retirement.rs and condition/retained.rs.
+No compiler semantic edits have been made for this gap.
+
+Composition now has two actual stages. Pending Request owns the exact Producer, continuation,
+destination/disposition and typed Ready before current(). Bound Composition owns that same Request,
+actual parent Cursor and origin. Native callback pointers convert once. Source stores composition_readiness.
+The retained active invocation is paired through request_for_task(request marker, parent task marker, origin).
+This relation grants no independent producer/destination/callback authority. Task binding validates the
+actual dispatching/resumable parent under its lock, and source origin is checked against Current.
+Admission takes/clears the nullable producer slot. Independent request and parent authority survive for
+connection, which reads stored destination/disposition. Old expanded tuple predicates, raw forwarding and
+post-callback producer reassertion are removed. The retained reviewer agreed on this design before editing.
+
+root_frame consumes the mutable native address slot with replace_value and does not preserve frame_input.
+Its two callers own mutable local slots. The regression also restores address bits before retrying.
+Inactive acquire must publish independent output permission while consuming its exact entry claim.
+Publication/provider initialization retain their weaker retention-only protocol and cannot mint Producer.
+PreparedStart owns the exact Producer it inspected, preserves it through reservation, then takes/clears it
+before begin. No refill against old requirements. Rollback keeps independent registration/service duties.
+Retain the local invoke cleanup adapter: enter_cleanup is a separate state change after shared admission.
+Existing native/source admission test identities and outcomes remain, with metadata rejection now at
+into_producer's inactive_owner requirement, before metadata access. No permission weakening is allowed.
 
 Returned ownership contract: prepare each returned snapshot together with its current owned layout, using the same ownership
 recording as ValuePreservation.frame. Completion must consume that prepared mapping, not reconstruct input.root_layout.
@@ -191,3 +212,11 @@ Counter patch retains four measured hooks.
 Preserve immutable conditions, scope-keyed ProofMemo, ordered BooleanGraph, role-sensitive snapshots,
 actual predecessor evidence, absence/unknown and owner/contents/capture distinctions.
 No new cache or evidence representation without removing superseded machinery.
+
+Active batch: owned producer migration is ready for a WIP backup checkpoint, not final verification.
+No build or test process is running. Temporary audit_changed_producer_bodies was removed from source.
+Binary 4930D763 contains the removed audit. Its result metadata stores exact runtime-source hashes.
+Style/format passed again after removing the temporary Rust audit.
+Always set CARGO_TARGET_DIR and CARGO_BUILD_BUILD_DIR to the shared main target/cargo for cargo xtask.
+The duplicate worktree release intermediates were reclaimed with bounded cargo clean, removing 1.3 GiB.
+Shared main target/cargo is intact. Obsolete producer experiments were deleted.

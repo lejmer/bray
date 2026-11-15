@@ -13,16 +13,12 @@ using internal bray.runtime.bootstrap.scheduler;
 // Copying its lease leaves resident ownership with that caller until admission commits.
 trusted internal predicate frame_input(owner: &usize);
 
-trusted internal func root_frame(pos frame: &usize) -> bray.runtime.bootstrap.activation.Inactive
-    requires(trusted frame_input(owner = frame))
-    ensures(
-        trusted frame_input(owner = frame),
-        trusted bray.runtime.bootstrap.activation.producer(token = &result),
-        trusted bray.runtime.bootstrap.activation.requirements.inactive_owner(token = &result)
-    )
+trusted internal func root_frame(pos frame: &mut usize) -> bray.runtime.bootstrap.activation.Producer
+    requires(trusted frame_input(owner = &frame))
+    ensures(trusted bray.runtime.bootstrap.activation.producer_owned(owner = &result.acquisition))
     uses(raw_memory, intrinsic)
 {
-    let address = trusted std.memory.read<usize>(std.memory.address_of<usize>(frame));
+    let address = trusted std.memory.read<usize>(std.memory.address_of<usize>(&frame));
 
     let pointer = trusted core.target.from_exposed_address<bray.runtime.bootstrap.activation.Inactive>(
         address = address
@@ -40,13 +36,24 @@ trusted internal func root_frame(pos frame: &usize) -> bray.runtime.bootstrap.ac
         )
         executes(pure, total) {};
 
-    trusted readable(frame, pointer);
-    return trusted std.memory.read<bray.runtime.bootstrap.activation.Inactive>(pointer);
+    trusted readable(&frame, pointer);
+
+    let token = trusted std.memory.read<bray.runtime.bootstrap.activation.Inactive>(pointer);
+
+    _ = trusted std.memory.replace_value<usize>(frame, 0);
+
+    return
+    {
+        acquisition = bray.runtime.bootstrap.activation.ProducerAcquisition
+        {
+        },
+        token = token
+    };
 }
 
 @abi(c)
 trusted internal func root_execution(
-    pos frame: usize,
+    pos mut frame: usize,
     pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>
 ) -> Admission
     requires(
@@ -139,7 +146,7 @@ trusted internal func root_execution(
                 }
 
                 let owner = trusted bray.runtime.bootstrap.task.take_retained(reference);
-                let token = trusted root_frame(&frame);
+                let token = trusted root_frame(&mut frame);
                 let status = trusted token.start_frame(selected, &owner, lane, outcome);
                 let admission = trusted publish_admission(&owner, status);
 
@@ -175,7 +182,7 @@ trusted internal func root_execution(
     return result;
 }
 
-impl bray.runtime.bootstrap.activation.Inactive
+impl bray.runtime.bootstrap.activation.Producer
 {
     trusted internal consume func start_frame(
         pos selected: &Current,
@@ -189,8 +196,7 @@ impl bray.runtime.bootstrap.activation.Inactive
             selected.status == 0,
             trusted bray.runtime.bootstrap.task.resolution_owner(owner = reference),
             trusted bray.runtime.bootstrap.task.retained(owner = reference),
-            trusted bray.runtime.bootstrap.activation.producer(token = &self),
-            trusted bray.runtime.bootstrap.activation.requirements.inactive_owner(token = &self),
+            trusted bray.runtime.bootstrap.activation.producer_owned(owner = &self.acquisition),
             trusted bray.runtime.bootstrap.entry.native_entry(),
             trusted bray.runtime.bootstrap.host.product.native_host(),
             trusted bray.runtime.bootstrap.pool.protocol_access()
@@ -215,7 +221,7 @@ impl bray.runtime.bootstrap.activation.Inactive
             }
         }
 
-        let prepared = trusted prepare_start(selected, reference, &self);
+        let prepared = trusted prepare_start(selected, reference, self);
 
         return match consume prepared
         {
