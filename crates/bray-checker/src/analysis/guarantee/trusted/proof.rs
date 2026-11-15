@@ -195,7 +195,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             };
 
             let crate::ExecutionConditionKind::Predicate(predicate, substitution, arguments) =
-                (condition.as_ref()).kind()
+                condition.as_ref().kind()
             else {
                 return false;
             };
@@ -221,7 +221,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     };
 
                     let crate::ExecutionConditionKind::Predicate(predicate, substitution, arguments) =
-                        (condition.as_ref()).kind()
+                        condition.as_ref().kind()
                     else {
                         continue;
                     };
