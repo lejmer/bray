@@ -260,18 +260,18 @@ trusted internal func compose_owned(pos mut owner: Composition) -> usize
         return 0;
     }
 
-    // This transition consumes only inactive permission. The complete request
-    // and selected parent still retain the exact connection and destination.
-    let begin_child = trusted lambda(pos owner: &mut Composition, pos admission: u32) -> usize
+    // Consume the complete composition while admitting its producer. The returned
+    // owner retains the exact parent, connection and destination for attachment.
+    let begin_child = trusted lambda(pos mut owner: Composition, pos admission: u32) -> (Composition, usize)
         requires(
             admission == 0,
             trusted composition_pending(owner = &owner),
             trusted bray.runtime.bootstrap.pool.protocol_access()
         )
         ensures(
-            trusted composition_owned(owner = &owner.request.acquisition),
-            trusted bray.runtime.bootstrap.activation.run.selected(cursor = &owner.parent),
-            owner.request.producer matches none
+            trusted composition_owned(owner = &result.0.request.acquisition),
+            trusted bray.runtime.bootstrap.activation.run.selected(cursor = &result.0.parent),
+            result.0.request.producer matches none
         )
         uses(intrinsic)
     {
@@ -292,10 +292,12 @@ trusted internal func compose_owned(pos mut owner: Composition) -> usize
 
         trusted authorize(&producer, owner.origin);
 
-        return trusted bray.runtime.bootstrap.activation.begin(producer, owner.origin);
+        let address = trusted bray.runtime.bootstrap.activation.begin(producer, owner.origin);
+
+        return (owner, address);
     };
 
-    let address = trusted begin_child(&mut owner, invocation.admission);
+    let (mut admitted, address) = trusted begin_child(owner, invocation.admission);
 
     if address == 0
     {
@@ -358,7 +360,7 @@ trusted internal func compose_owned(pos mut owner: Composition) -> usize
 
     let child = trusted core.target.from_exposed_address<bray.runtime.bootstrap.activation.Header>(address = address);
 
-    trusted connect(&mut owner, child, execution, address);
+    trusted connect(&mut admitted, child, execution, address);
     return address;
 }
 

@@ -2,6 +2,74 @@ use bray_diagnostics::{DiagnosticKind};
 use crate::test_support::{compilation, source_function_body_key};
 
 #[test]
+fn sibling_writes_preserve_stored_shared_reference_evidence() {
+    for (mutation, observed, valid) in [
+        ("", "access.lease", true),
+        ("access.payload = none;", "access.lease", true),
+        ("let value = trusted std.memory.take_nullable<u64>(&mut access.payload);", "access.lease", true),
+        ("access.lease = other;", "access.lease", false),
+        ("selected = other;", "selected", false),
+    ] {
+        let source = format!(r#"
+            trusted module app;
+
+            using std.memory;
+
+            struct Marker
+            {{
+            }}
+
+            struct Lease
+            {{
+                acquisition: Marker;
+            }}
+
+            struct Access
+            {{
+                mut lease: &Lease;
+                mut payload: u64?;
+            }}
+
+            trusted predicate live(owner: &Marker);
+
+            func observe(pos lease: &Lease)
+                requires(trusted live(owner = &lease.acquisition))
+                executes(pure, total)
+            {{
+            }}
+
+            trusted func caller(pos access: &mut Access, pos mut selected: &Lease, pos other: &Lease)
+                requires(
+                    trusted live(owner = &access.lease.acquisition),
+                    trusted live(owner = &selected.acquisition)
+                )
+            {{
+                observe(selected);
+                {mutation}
+                observe({observed});
+            }}
+        "#);
+
+        let application = crate::test_support::production_standard_library_compilation(
+            crate::SelectedTarget::baseline(), &source);
+
+        let key = source_function_body_key(&application, "caller");
+        let source_id = key.source().syntax().source_id();
+        let checked = application.lowered_unit(key).expect("stored reference caller reaches lowering");
+        let expected = (!valid).then_some(DiagnosticKind::CheckingTrustedObligationNotProven);
+
+        bray_testing::assert_goal_state_diagnostic_outcome(checked.diagnostics(), expected, &source);
+
+        if !valid {
+            assert!(checked.diagnostics().iter().any(|diagnostic| {
+                diagnostic.kind() == DiagnosticKind::CheckingTrustedObligationNotProven
+                    && super::fixtures::diagnostic_at_call(diagnostic, source_id, &source, &format!("observe({observed})"))
+            }), "replacement must reject the final observation: {:#?}", checked.diagnostics());
+        }
+    }
+}
+
+#[test]
 fn sibling_mutation_preserves_a_returned_component_witness() {
     for (mutation, valid) in [
         ("", true),

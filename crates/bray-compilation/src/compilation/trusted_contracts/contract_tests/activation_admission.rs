@@ -306,20 +306,20 @@ fn native_frame_acquisition_consumes_the_claim_even_if_address_bits_are_restored
         ("return trusted root_frame(frame);", true),
         (
             r#"
-            let first = trusted root_frame(frame);
+                let first = trusted root_frame(frame);
 
-            return trusted root_frame(frame);
+                return trusted root_frame(frame);
             "#,
             false,
         ),
         (
             r#"
-            let address = trusted std.memory.read<usize>(std.memory.address_of_mut<usize>(frame));
-            let first = trusted root_frame(frame);
+                let address = trusted std.memory.read<usize>(std.memory.address_of_mut<usize>(frame));
+                let first = trusted root_frame(frame);
 
-            _ = trusted std.memory.replace_value<usize>(frame, address);
+                _ = trusted std.memory.replace_value<usize>(frame, address);
 
-            return trusted root_frame(frame);
+                return trusted root_frame(frame);
             "#,
             false,
         ),

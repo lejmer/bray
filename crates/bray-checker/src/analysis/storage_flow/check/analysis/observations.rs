@@ -342,6 +342,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         &self,
         memory: &crate::analysis::storage_flow::memory::State,
         survives: &impl Fn(&Target, bray_bound_tree::StorageObservationKind, bray_symbols::TypeId) -> bool,
+        slot_survives: &impl Fn(&Target) -> bool,
         invalidation: &mut StorageInvalidation,
     ) {
         let mut references = Vec::new();
@@ -358,8 +359,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
             let access = reference.access_id(self.storage);
 
-            // Replacing a reference slot ends that view. Changes reached through
-            // its value use different accesses and do not replace the descriptor.
+            // A direct slot write overrides preservation of the old shared pointee.
+            // Paths crossing a loan are classified at their physical slot below.
             if access.is_some_and(|access| {
                 self.input.reference_paths.get(&access).is_none_or(|(_, path)| path.borrows().is_empty())
                     && matches!(&*invalidation, StorageInvalidation::Observed { accesses, .. } if accesses.contains_key(&access))
@@ -392,11 +393,14 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 continue;
             };
 
-            // A live old pointee cannot preserve a descriptor that this operation
-            // can replace. Use the same slot frame as physical effect retirement.
-            if !crate::analysis::storage_flow::memory::State::stable_reference_slot(&location, invalidation) {
+            // Classify the actual descriptor before following its shared referent.
+            // The loan protects reached data, not replacement of its containing slot.
+            if location.previous || !crate::analysis::storage_flow::memory::State::stable_reference_slot(&location, invalidation)
+                && !slot_survives(&location) {
                 continue;
             }
+
+            invalidation.preserve_reference_slot(reference.clone(), location.clone());
 
             let (stable_descriptors, stable_values) = match invalidation {
                 StorageInvalidation::All { stable_descriptors, stable_values, .. }
