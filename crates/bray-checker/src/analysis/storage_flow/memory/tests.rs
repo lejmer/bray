@@ -3698,6 +3698,60 @@ fn ambient_reachability_requires_raw_publication_of_an_owned_slot() {
 
     assert!(state.escaped_regions([Target::storage(opaque)]).contains(&target),
         "unknown pointers can reach actually exposed local storage");
+
+    let ([parameter, raw, view, _], origins, capability) = borrowed_places();
+
+    let mut state = State {
+        owned_storage: [parameter.root, raw.root, view.root].into(),
+        entry_borrows: Arc::new([(parameter.root, BorrowKind::Mutable)].into()),
+        ..State::default()
+    };
+
+    state.begin_entry_borrow(capability, parameter.clone(), error_type());
+
+    let borrowed = state.borrow_target(capability, error_type()).expect("entry borrow retains its referent");
+
+    assert_eq!(state.ambient_regions(&[Effect::Ambient]), Some((BTreeSet::new(), false)),
+        "receiving a language borrow does not publish its inline owner");
+    assert!(state.ambient_regions(&[Effect::Ambient, Effect::Escape]).is_none(),
+        "an opaque invocation still has unbounded input reachability");
+
+    let mut shared = state.clone();
+
+    shared.entry_borrows = Arc::new([(parameter.root, BorrowKind::Shared)].into());
+    assert!(shared.ambient_regions(&[Effect::Ambient]).expect("shared external region").0.contains(&borrowed),
+        "shared interior state remains externally reachable");
+
+    let call = origins[0].into();
+
+    state.stage_reference_regions(call, Target::storage(view.clone()), view.clone(), error_type(), [borrowed.clone()]);
+    state.complete_transition(call);
+
+    let forwarded = state.value_targets(&Target::storage(view)).expect("bounded forwarded view")[0].clone();
+
+    state.values.insert(forwarded, References::one(borrowed.clone()).into());
+    assert_eq!(state.ambient_regions(&[Effect::Ambient]), Some((BTreeSet::new(), false)),
+        "forwarding a borrow cannot publish its private input bound");
+
+    let mut escaped = state.clone();
+
+    escaped.escape_targets([borrowed.clone()]);
+    assert!(escaped.ambient_regions(&[Effect::Ambient]).expect("finite escaped region").0.contains(&borrowed));
+
+    state.declare_owned_buffer(borrowed.clone(), borrowed.project(&[BUFFER_POINTER]), error_type());
+
+    let backing = borrowed.project(&[StorageProjection::OwnedTarget]);
+
+    assert!(state.ambient_regions(&[Effect::Ambient]).expect("finite backing region").0.contains(&backing),
+        "a raw buffer keeps its separate backing reachable through its stored pointer");
+
+    state.entry_reference(raw.clone());
+
+    let alias = state.value_targets(&Target::storage(raw)).expect("incoming raw alias")[0].clone();
+
+    assert!(state.ambient_regions(&[Effect::Ambient]).expect("finite raw region").0.contains(&alias));
+    assert_ne!(state.target_relationship(&alias, &borrowed), StorageRelationship::Disjoint,
+        "an actual raw input can still invalidate a borrowed owner");
 }
 
 #[test]

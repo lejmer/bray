@@ -33,9 +33,9 @@ impl State {
     }
 
     pub(in crate::analysis::storage_flow) fn consume_targets(&mut self, targets: impl IntoIterator<Item = Target>, ty: TypeId) {
-        let references = References { targets: targets.into_iter().collect(), ..Default::default() };
-
-        self.consume_references(&references, ty);
+        if let Some(references) = self.transition_references(targets) {
+            self.consume_references(&references, ty);
+        }
     }
 
     #[cfg(test)]
@@ -50,9 +50,18 @@ impl State {
         &mut self, targets: impl IntoIterator<Item = Target>, ty: TypeId, origin: BoundExpressionId,
         invalidation: Option<&bray_bound_tree::StorageInvalidation>,
     ) {
+        if let Some(references) = self.transition_references(targets) {
+            self.write_references(&references, ty, origin, invalidation);
+        }
+    }
+
+    fn transition_references(&self, targets: impl IntoIterator<Item = Target>) -> Option<References> {
         let references = References { targets: targets.into_iter().collect(), ..Default::default() };
 
-        self.write_references(&references, ty, origin, invalidation);
+        // Logical-only admission must retain already prepared reference values. Keep
+        // every alternative when physical tracking is needed, so weak writes stay weak.
+        references.targets.iter().any(|target| target.storage_path().is_none()
+            || self.has_addressed_storage(target)).then_some(references)
     }
 
     #[cfg(test)]

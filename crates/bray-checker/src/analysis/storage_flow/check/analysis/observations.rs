@@ -1022,7 +1022,12 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     continue;
                 };
 
-                Some(targets.into_iter().flatten().collect::<Vec<_>>())
+                let mut targets = targets.into_iter().flatten().collect::<Vec<_>>();
+
+                targets.sort();
+                targets.dedup();
+
+                Some(targets)
             } else {
                 observed
             };
@@ -1060,10 +1065,27 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     [target] => Some(target),
                     _ => None,
                 });
-                let suffix = unique
-                    .filter(|observed| observed.contains(mutation))
-                    .map(|observed| &mutation.projections()[observed.projections().len()..])
-                    .unwrap_or_default();
+                let suffix = observed.as_ref().and_then(|targets| {
+                    let mut suffix = None;
+
+                    for target in targets.iter().filter(|target| {
+                        memory.target_relationship(target, mutation) != StorageRelationship::Disjoint
+                    }) {
+                        if !target.contains(mutation) {
+                            return None;
+                        }
+
+                        let relative = &mutation.projections()[target.projections().len()..];
+
+                        if suffix.is_some_and(|previous| previous != relative) {
+                            return None;
+                        }
+
+                        suffix = Some(relative);
+                    }
+
+                    suffix
+                }).unwrap_or_default();
 
                 let path = observable_path(
                     logical.root,

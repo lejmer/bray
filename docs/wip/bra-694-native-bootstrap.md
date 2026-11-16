@@ -3,78 +3,100 @@
 Issue: https://linear.app/bray-lang/issue/BRA-694.
 Draft PR: https://github.com/lejmer/bray/pull/717.
 Branch: `feature/bra-694-native-bootstrap-contracts`, based on develop 5de46243b.
-Pushed checkpoint: 1430835b0. PR #710 and its prerequisites are merged.
-Reviewer: `/root/bra694_review`, published clean review through e9c174764:
-https://github.com/lejmer/bray/pull/717#pullrequestreview-5914521927.
-Later changes still require official incremental review.
+Pushed: 3b77524da. Reviewer: `/root/bra694_review`.
+Verified published review through that commit:
+https://github.com/lejmer/bray/pull/717#pullrequestreview-5916535230. No findings.
 
-## Contract
+## Required outcome
 
-Make supported Linux and Windows bootstrap products check and lower for x86_64 and AArch64.
-Preserve shared fields, disjoint owners, source/imported contracts and exact negative rejection sites.
-Reject fabrication, replacement, previous epochs, actual raw mutation and retirement. Compiler defects panic.
-Execution and shutdown are BRA-695 and BRA-696. Performance is separate work.
+Check and lower actual Linux/Windows bootstrap products for x86_64 and AArch64. Preserve source/imported
+contracts, exact negative sites, conditional masks and authoritative empty ownership records. Reject fabrication,
+replacement, old epochs, actual mutation and retirement. Compiler defects panic. BRA-695 execution and BRA-696
+shutdown remain separate. Performance work is separate except shared setup reuse already authorized.
 
-Trace all equivalent producers and consumers before semantic edits. No historical reconstruction, freshness from
-owned_allocation, exact cells from finite alternatives or region bounds, layout from alias bounds, predicate
-reassertion or blanket loan exemption. Preserve conditional masks and authoritative empty ownership records.
-Stop on unexplained fixed-suite regressions. Keep coherent good changes even when another defect remains.
-Commit/push checkpoints and publish independent PR reviews. Style remains deferred until finalization.
+Trace equivalent producers and all consumers before semantic edits. Never recover historical contents, derive
+freshness from owned_allocation, recover exact cells/layout from alias bounds, reassert predicates, or waive effects
+for an entire loan category. Commit/push coherent checkpoints. Keep style until finalization.
 
-## Current mechanisms
+## Current repair contract
 
-- Physical ownership uses current whole-value storage paths, segmented Uninit/OwnedTarget traversal and complete
-  cleanup effects. Retain actual types and AnyElement bounds. Do not project layout onto inexact Returned bounds.
-- Static host storage can also come from an admitted external View.host pointer. A BINDING lifetime anchor does
-  not identify that external allocation. Preserve all actual origins rather than only the local static arm.
-- Six authorized bodyless OS leaves preserve Bray storage: pthread_self, pthread_getspecific, GetCurrentThreadId,
-  FlsGetValue, GetLastError and SetLastError. Imported summaries and real bodies take precedence. Calls stay impure,
-  pointer results independent, and foreign-call capability nontransitive. Retaining setters, callbacks, output
-  writes, FLS destruction and allocation retirement keep their actual effects.
-- Anonymous owned discards clean up at scope exit. Nested child blocks finish owned cleanup before releasing
-  dependent runtime resources. ArenaAdmission encloses an inner cleanup block so its exit runs after those locals.
-- Native readiness, composition, std tests, smoke and performance preparation reuse canonical per-target std/runtime
-  artifacts. Carry the builder's Package inventory. Explicit and pinned inputs stay exact. Avoid competing artifact
-  configurations. Native toolchain processes run outside the sandbox.
+Frozen comparison on 3b found two regressions. Restore physical logical-only consume/write guarding without
+filtering finite alternatives into false singleton writes. This fixes scoped_borrow_postconditions_survive_capability_retirement
+case4 in both sync and async. Existing finite-choice fixture now checks sibling preservation before real overwrite.
+Observation targets are deduplicated and use a field suffix only when every overlapping candidate agrees.
 
-## Finite typed assignment repair
+The remaining async composition failure is at await direct(), bytes1434..1456, before visits+=1. The child has no
+receiver/arguments, captures no owner, and publishes only Ambient after deferred adaptation. Actual loss:
+ambient_regions -> reachable_regions treats the unescaped Entry Borrow receiver as an external root.
 
-The original untyped Write in publish_event_wait came from state.head/state.tail assignments. The first has two
-current exact Entry targets for Event and ExecutionEvent, both declared State. The single-target resolver rejected
-that finite choice and published/applied a global mutation. That erased state before the second assignment.
+Rule: the original exclusive entry borrow does not publish its inline referent to ambient work. Shared,
+nested and deeper-layer borrow roots stay conservative because the root metadata does not establish their own
+exclusive authority. Exclusion requires mutable entry_borrows, layer1 and an empty reference path. Entry Address origins,
+explicit escapes, external storage and current stored reference edges remain authoritative. Raw aliases can still
+invalidate a borrowed owner. Unknown and whole invocation Escape remain conservative. No survival shortcut. Do not broaden this rule without separate authority evidence.
 
-The current batch carries finite typed target sets through stored paths, calls, assignments, effect publication,
-observations, terminal checks, borrows and physical writes. Strict one-target proof queries remain strict. Unknown,
-displaced, previous and region-only references cannot supply layout. No synthetic Returned identity replaces a set.
+Producer/consumer inventory:
+- begin_entry_borrow seeds the entry referent plus the owned parameter reference slot. Entry reference preparation
+  separately seeds ordinary raw fields with Entry Address origins. RawBuffer pointers instead retain the borrowed
+  owner plus OwnedTarget, so preserve non-inline entry origins and their current stored edges.
+- reachable_regions currently adds all Entry contents and externally stored reference slots. Restrict automatic
+  roots to actual external origins. Only inline original exclusive Entry Borrow referents are excluded. OwnedTarget and other
+  non-inline routes stay conservative. Returned closed bounds must use the same classification, so a forwarded
+  borrow cannot republish the private inline root. Bounds are already expanded by stage_reference_regions.
+  Explicit roots/escapes still traverse current stored reference edges.
+- ambient_regions is shared by preservation and physical apply_effects. Terminal ownership and unexposed_storage
+  also use reachable_regions, so their explicit input roots and raw aliases must retain reachability.
+- Deferred capture maps unknown input effects to captured writes/escapes plus Ambient. Empty captures must stay
+  empty. Direct opaque calls retain [Ambient,Escape], so they remain unbounded, including no-argument opaque().
+- Await/task replay retains real body/cleanup effects. Scheduling may change external state. Do not remove Ambient
+  or erase captured writes merely to make yield pass. Cancellation owns its separate cleanup edge.
 
-Evaluate the RHS once and capture before mutation. Ambiguous or dynamic assignments mark pending outputs weak.
-Completion reuses the existing raw-write weak commit, preserving possible dependencies without initializing every
-candidate or installing a definite pointer at each. Pending joins retain weakness monotonically. No state cloning or
-new alias representation. Net growth before final formatting: 65 production Rust lines and 102 test lines.
+Oracles: real async ownership composition must pass. Existing fabricated/moved/borrow-conflict variants still fail.
+Frozen completion_after_opaque_execution_requires_a_terminal_state and exclusive-entry tags remain negative.
+Existing memory reachability test gains unescaped borrow, explicit escape and raw alias cases. Retain nested/raw,
+finite-choice, scoped-borrow and source/imported comparisons. Reconsider if nested pointer edges disappear,
+unknown reachability narrows, direct opaque becomes accepted, or any frozen result regresses.
 
-Oracles extend existing tests: direct branch and call-return choices publish both bounded writes, disjoint facts
-survive, either overwritten candidate loses its old fact, and weak staged writes initialize neither candidate.
-Reconsider on authority widening, strong updates to alternatives, loop instability, count growth or regressions.
+Design: repair external graph roots once, with existing Origin/References/escape machinery. Remove automatic
+publication of language borrow roots, not checks. No new effect variant or representation. Expected production
+change under30 lines, reuse existing tests. Compiler-owned hook contracts are also imprecise, but suspension still
+needs external-state invalidation, so hook exemptions alone do not close this contract.
 
-## Evidence and next action
+## Native blocker after frozen regressions
 
-- Current batch: all 563 checker tests pass in 240 ms, all 57 returned-dependency tests in 2.55 seconds. This includes
-  the new finite-choice controls, imported contracts, terminal ownership and negative raw/owner cases.
-- Expanded platform source/import controls pass in 390 ms. Protected nested cleanup passes in 4.90 seconds,
-  including incoming raw reads through returns, nullable record buffers and exact negative sites.
-- Both normal native controls still fail in 39.79 seconds at dispatch_ready/context(view_owned) and
-  start_frame/commit_start/scoped-exit authority. These observations are unchanged. Do not claim completion.
-  Trace remaining effects against the protected marker and real owner graph before another semantic patch.
-- Earlier current controls: all 62 catalog and 136 bound-tree tests pass. All 27 named production probes pass in
-  16.92 seconds with one immutable compilation and a CPU-sized worker pool. First cold dependency check was
-  10.25 seconds. Probes only check/lower source, without executing native products.
-- Frozen 1,718 baseline on 1ceb765eb: three regressions and seven panic timeouts. The three pass focused checks
-  after 1440b142a. The corrected broad comparison remains unrun. c606aaf83 removes four redundant provider-test
-  identities, replaced by actual native product gates. Record that ledger explicitly, never count removals as passes.
-- Five artifact-reuse controls and thirteen boundary/totality/cache controls pass. Actual native product gates remain
-  unverified. Resolve test binaries from Cargo's emitted paths rather than retained filenames.
+Actual Domain.arena.pointer is correctly seeded before take_ready and absent before retain_task. Raw Context.pending
+write in take_ready can alias the independent raw Domain pointer. Source retain_task/retain_locked summaries preserve
+the full Arena/Entries/Slab/Slot path. Observing the already-cleared pointer intentionally produces a container-bounded
+opaque Returned reference. Do not restore entry contents or add redundant demands.
 
-No temporary tracing remains. Build and focused output retain only current evidence. Required remaining gates:
-four-target actual checking/lowering and event layout, corrected frozen comparison, owned/deferred/projection/cleanup
-suites, fixed-five/loop counts and timings, maintainability/DRY audit, mutating style and Bray formatting.
-Update the final PR description and move PR/BRA-694 to Review only after acceptance, verification and published review.
+Pending source repair, not started: use existing SpinLock<Observation?> for Context.pending, copy observations under
+short guards, migrate all readers/writers and constructors, remove pending_storage raw escape. Never hold guards
+across callbacks, dispatch, scheduler acquisition or failure handling. Consider retaining the actual Domain/Arena view
+through pending processing. A separate unresolved InputRegions staging path flat-projects OwnedTarget rather than
+following current stored backing. Trace both without recovering layout from region bounds.
+
+## Valid evidence and exclusions
+
+- 3b: all563 checker tests240ms, returned-dependency57 tests2.55s, platform source/import390ms,
+  protected nested cleanup4.90s. All27 production probes17.29s, first cold dependency10.445s.
+- Current guard/common-mask/external-root batch: checker563 pass220ms. Both frozen regressions and async invalid
+  variants pass8.27s together. Exact opaque-call control passes40ms. Returned-dependency57 pass3.50s, platform2
+  pass440ms, protected nested cleanup passes7.26s. Fixed test outcomes and rejection locations are unchanged.
+  No compiler-owned hook exemption or loan survival shortcut was added.
+- Frozen1718 baseline1ceb765eb retained unchanged. Latest comparison on3b:1714 retained identities,
+  1675pass,2fail,37unreported after four90s group bounds, total181.35s. Four c606 provider-test removals are explicit
+  open replacements with actual native product gates, never passes. Previous three failures passed current run.
+- Both normal native controls still fail39.79s at dispatch_ready/view_owned and start_frame/scoped exit.
+  Source-summary diagnostic probes return early and are never native gate passes.
+- Earlier valid checks: catalog62, bound-tree136, artifact reuse5 and boundary/cache13 controls pass.
+
+Ignored evidence uses one current output per purpose under target/audit. comparison-baseline.json is the frozen
+inventory, comparison-current.json retains exact current results and timeout identities. Seven slow proof cases still
+need bounded investigation. Do not rerun unchanged broad suites.
+
+All temporary checker and bootstrap diagnostic changes have been removed. Resolve test executables from Cargo output, never retained filenames.
+
+Next: checkpoint the verified batch, then corrected comparison and bounded slow-case investigation. Remaining: native source ownership
+repair, actual four-target check/lower/event layout, owned/deferred/projection/cleanup gates, fixed-five/loop counts,
+maintainability/DRY audit, mandatory mutating style and Bray format, published incremental review, final PR description.
+Only then mark PR ready and BRA-694 In Review. No completion claim yet.

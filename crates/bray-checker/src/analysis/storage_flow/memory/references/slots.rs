@@ -143,6 +143,7 @@ impl State {
                     .filter(|(target, contents)| {
                         contents.escaped
                             || !target.previous && matches!(target.origin, Origin::Entry { .. })
+                                && self.is_external_region(target)
                     })
                     .map(|(target, _)| {
                         // Native address arithmetic can reach other fields of the allocation.
@@ -155,7 +156,7 @@ impl State {
                     .filter(|(target, value)| {
                         // Retired reference slots are history, not external roots. A surviving raw
                         // address can still reach them through the explicit exposure roots above.
-                        value.references.is_some() && !target.previous && self.reference_slot_is_external(target)
+                        value.references.is_some() && !target.previous && self.is_external_region(target)
                     })
                     .map(|(target, _)| target.clone()),
             )
@@ -180,18 +181,24 @@ impl State {
         targets.extend(self.transitive_regions(candidates, |_, _| true).0);
     }
 
-    fn reference_slot_is_external(&self, target: &Target) -> bool {
+    fn is_external_region(&self, target: &Target) -> bool {
         match &target.origin {
             Origin::Storage(path) => !self.is_owned_inline_storage(path),
+            Origin::Entry { reference, layer: 1, kind: bray_symbols::DependencyReferenceKind::Borrow, projections }
+                if reference.projections.is_empty()
+                    && self.entry_borrows.get(&reference.root) == Some(&bray_symbols::BorrowKind::Mutable) => {
+                // An original exclusive borrow does not publish its inline referent.
+                // Shared/nested borrows, separate backing and raw origins stay external.
+                !Place::inline_projections(projections)
+            }
             Origin::Returned { reference, projections }
-            if !projections.contains(&bray_bound_tree::StorageProjection::OwnedTarget) => {
+            if !projections.contains(&StorageProjection::OwnedTarget) => {
                 let bounds = self.returned_reference_bounds(reference, target.previous);
 
                 // A complete bound to private inline storage does not publish its
                 // owner. An inexact location within that region remains private.
                 bounds.unknown || bounds.displaced || bounds.targets.is_empty()
-                    || bounds.targets.iter().any(|target| target.previous
-                        || target.storage_path().is_none_or(|path| !self.is_owned_inline_storage(path)))
+                    || bounds.targets.iter().any(|target| target.previous || self.is_external_region(target))
             }
             _ => true,
         }
@@ -222,7 +229,7 @@ impl State {
         };
 
         let prefix = parent.projections.iter().copied()
-            .chain([bray_bound_tree::StorageProjection::AddressTarget])
+            .chain([StorageProjection::AddressTarget])
             .chain(projections.iter().copied());
 
         let prefix_len = parent.projections.len() + 1 + projections.len();
@@ -328,7 +335,7 @@ impl State {
     pub(in crate::analysis::storage_flow) fn exit_references(
         &self,
         result: StorageIdentityId,
-        absent: &std::collections::BTreeMap<
+        absent: &BTreeMap<
             Place,
             crate::analysis::storage_flow::model::StorageAbsence,
         >,
@@ -531,7 +538,7 @@ impl State {
         for (target, contents) in selected_subtree(&self.contents, source) {
             let suffix = &target.projections()[source.projections().len()..];
 
-            if suffix.contains(&bray_bound_tree::StorageProjection::UninitPayload) {
+            if suffix.contains(&StorageProjection::UninitPayload) {
                 // Evaluated inline storage owns its contents after the source is consumed.
                 let slot = destination.project(suffix);
                 let mut contents = self.evaluated.get(target).unwrap_or(contents).clone();
@@ -733,7 +740,7 @@ pub(super) fn selected_subtree<'a, V>(
             }
 
             target_prefix(slot, prefix.projections().len()) == prefix
-                && bray_bound_tree::StorageProjection::relationship(
+                && StorageProjection::relationship(
                     source.projections(), &slot.projections()[..length],
                 ) != bray_bound_tree::StorageRelationship::Disjoint
                 && (dynamic || slot.projections()[..length].iter().zip(source.projections()).all(|(actual, requested)| {

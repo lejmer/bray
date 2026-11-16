@@ -949,6 +949,7 @@ fn imported_call_effects_distinguish_forwarding_from_mutation() {
         struct Cell
         {
             mut value: bool;
+            mut visits: u32;
         }
 
         func same<T>(pos value: &T) -> &T
@@ -992,6 +993,11 @@ fn imported_call_effects_distinguish_forwarding_from_mutation() {
         {
             let selected = choose(left, right, first);
 
+            let before = selected.value;
+
+            selected.visits = 1;
+            assert(selected.value == before);
+
             selected.value = false;
         }
 
@@ -1005,6 +1011,11 @@ fn imported_call_effects_distinguish_forwarding_from_mutation() {
             {
                 yield right;
             };
+
+            let before = selected.value;
+
+            selected.visits = 1;
+            assert(selected.value == before);
 
             selected.value = false;
         }
