@@ -5,6 +5,8 @@ using core.atomic;
 using core.memory;
 using core.target;
 using std.memory;
+using std.sync;
+using internal std.sync.spin_lock;
 using std.memory.function;
 using internal bray.runtime.bootstrap;
 using internal bray.runtime.bootstrap.host;
@@ -39,7 +41,7 @@ trusted internal func origin_context(pos attachment: bray.runtime.bootstrap.host
         registration = core.atomic.initialize<u64>(0),
         lane = core.atomic.initialize<u32>(0),
         invocation = core.atomic.initialize<usize>(0),
-        pending = core.memory.uninit_from<(bray.runtime.bootstrap.scheduler.Observation?)>(none)
+        pending = trusted std.sync.SpinLock<(bray.runtime.bootstrap.scheduler.Observation?)>(none)
     };
 }
 
@@ -119,17 +121,16 @@ trusted internal func initialize_context(
     };
 }
 
-trusted internal func borrow_execution(pos owner: &bray.runtime.bootstrap.host.ExecutionOwner) -> Current
+trusted internal func owned_context(pos owner: &bray.runtime.bootstrap.host.ExecutionOwner) -> &Context
     requires(trusted bray.runtime.bootstrap.host.execution_owned(owner = owner))
     ensures(
         trusted bray.runtime.bootstrap.host.execution_owned(owner = owner),
-        trusted view_owned(owner = &result.acquisition),
-        result.status == 0
+        trusted std.sync.spin_lock.valid(&result.pending.prepared.instance)
     )
-    uses(raw_memory, unchecked_alias, intrinsic)
+    executes(pure, total)
+    uses(raw_memory, unchecked_alias, layout_reinterpret)
 {
-    let address = trusted core.target.expose_address<u8>(owner.resource);
-    let pointer = trusted core.target.from_exposed_address<Context>(address = address);
+    let pointer = trusted std.memory.reinterpret<Context, u8>(owner.resource);
 
     let permit = trusted lambda(
         pos owner: &bray.runtime.bootstrap.host.ExecutionOwner,
@@ -150,7 +151,21 @@ trusted internal func borrow_execution(pos owner: &bray.runtime.bootstrap.host.E
 
     trusted permit(owner, pointer);
 
-    let value = trusted std.memory.borrow_from<Context, bray.runtime.bootstrap.host.ExecutionOwner>(owner, pointer);
+    return trusted std.memory.borrow_from<Context, bray.runtime.bootstrap.host.ExecutionOwner>(owner, pointer);
+}
+
+trusted internal func borrow_execution(pos owner: &bray.runtime.bootstrap.host.ExecutionOwner) -> Current
+    requires(trusted bray.runtime.bootstrap.host.execution_owned(owner = owner))
+    ensures(
+        trusted bray.runtime.bootstrap.host.execution_owned(owner = owner),
+        trusted view_owned(owner = &result.acquisition),
+        result.status == 0
+    )
+    uses(raw_memory, unchecked_alias, intrinsic)
+{
+    let value = trusted owned_context(owner);
+    let address = trusted core.target.expose_address<u8>(owner.resource);
+    let pointer = trusted core.target.from_exposed_address<Context>(address = address);
 
     trusted acquire_view(value);
 

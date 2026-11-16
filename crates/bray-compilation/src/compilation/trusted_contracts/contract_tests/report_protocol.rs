@@ -1,5 +1,5 @@
 use bray_diagnostics::{DiagnosticKind};
-use crate::test_support::{source_function_body_key};
+use crate::test_support::{source_function_body_key, source_module_function_body_key};
 use super::fixtures::production_host_compilation;
 
 #[test]
@@ -270,23 +270,9 @@ fn production_observer_keeps_authority_through_conditional_protocol_changes() {
         let compilation = super::fixtures::production_host_compilation_for_target(
             "module probe;", crate::SelectedTarget::for_native(target));
 
-        let symbols = compilation.symbol_graph().expect("production symbols");
-
         for name in ["poll", "destroy"] {
-            let function = symbols.functions().iter().find(|function| {
-                if !symbols.member_name(function.id().into()).is_some_and(|candidate| candidate.as_str() == name) {
-                    return false;
-                }
-
-                let bray_symbols::SymbolKeyData::SourceDeclaration { owner, .. } = function.key().data() else {
-                    return false;
-                };
-
-                matches!(owner.data(), bray_symbols::SymbolKeyData::Module { path, .. }
-                    if path.segments().eq(["bray", "runtime", "bootstrap", "task", "observer"]))
-            }).expect("actual observer callback");
-
-            let key = crate::test_support::source_symbol_body_key(&compilation, symbols, function.id().into());
+            let key = source_module_function_body_key(&compilation,
+                &["bray", "runtime", "bootstrap", "task", "observer"], name);
             let flow = compilation.storage_flow(key).expect("production observer storage flow");
 
             assert!(!flow.diagnostics().has_errors(), "{target:?}: {:?}", flow.diagnostics());

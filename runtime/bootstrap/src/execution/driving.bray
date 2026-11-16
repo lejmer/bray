@@ -48,39 +48,17 @@ trusted internal func main_drive() -> u32
     return 0;
 }
 
-trusted internal func pending_storage(
-    pos selected: &Current
-) -> DataPointer<(bray.runtime.bootstrap.scheduler.Observation?)>
-    requires(trusted view_owned(owner = &selected.acquisition), selected.status == 0)
-    ensures(
-        trusted view_owned(owner = &selected.acquisition),
-        trusted core.memory.valid_read<(bray.runtime.bootstrap.scheduler.Observation?)>(pointer = result, count = 1),
-        trusted core.memory.valid_write<(bray.runtime.bootstrap.scheduler.Observation?)>(pointer = result, count = 1),
-        trusted core.memory.initialized_as<(bray.runtime.bootstrap.scheduler.Observation?)>(pointer = result),
-        trusted core.memory.aligned_for<(bray.runtime.bootstrap.scheduler.Observation?)>(pointer = result),
-        trusted core.memory.shared_alias_valid<(bray.runtime.bootstrap.scheduler.Observation?)>(pointer = result),
-        trusted core.memory.epoch_current<(bray.runtime.bootstrap.scheduler.Observation?)>(pointer = result),
-        trusted core.memory.synchronized_access<(bray.runtime.bootstrap.scheduler.Observation?)>(pointer = result),
-        trusted core.memory.movement_stable<(bray.runtime.bootstrap.scheduler.Observation?)>(pointer = result),
-        trusted core.memory.finalization_pending<(bray.runtime.bootstrap.scheduler.Observation?)>(pointer = result)
-    )
-    executes(pure, total)
-{
-    return std.memory.uninit_pointer<(bray.runtime.bootstrap.scheduler.Observation?)>(
-        &(trusted context(selected)).pending
-    );
-}
-
-trusted internal func pending_observation(pos selected: &Current) -> &(bray.runtime.bootstrap.scheduler.Observation?)
+trusted internal func pending_observation(pos selected: &Current) -> bray.runtime.bootstrap.scheduler.Observation?
     requires(trusted view_owned(owner = &selected.acquisition), selected.status == 0)
     ensures(trusted view_owned(owner = &selected.acquisition))
-    executes(pure, total)
-    uses(raw_memory, unchecked_alias)
 {
-    return trusted std.memory.borrow_from<(bray.runtime.bootstrap.scheduler.Observation?), Current>(
-        selected,
-        trusted pending_storage(selected)
-    );
+    let mut guard = trusted (trusted context(selected)).pending.lock();
+
+    return match trusted guard.get()
+    {
+        case ?observation { yield observation; }
+        case none { yield none; }
+    };
 }
 
 trusted internal func acquire_ready(pos selected: &Current, pos owner: &Reference) -> bool
@@ -91,7 +69,7 @@ trusted internal func acquire_ready(pos selected: &Current, pos owner: &Referenc
         trusted bray.runtime.bootstrap.host.product.native_host()
     )
     ensures(trusted view_owned(owner = &selected.acquisition), trusted retained(owner = owner))
-    uses(raw_memory, unchecked_init, intrinsic)
+    uses(intrinsic)
 {
     if trusted pending_observation(selected) matches ?_
     {
@@ -110,36 +88,35 @@ trusted internal func acquire_ready(pos selected: &Current, pos owner: &Referenc
         case none { return false; }
     };
 
-    let pending: bray.runtime.bootstrap.scheduler.Observation? = ready;
+    {
+        let mut guard = trusted value.pending.lock();
+        let pending = trusted guard.get();
 
-    trusted std.memory.write<(bray.runtime.bootstrap.scheduler.Observation?)>(
-        trusted pending_storage(selected),
-        pending
-    );
+        pending = ready;
+    }
 
     return true;
 }
 
-// Consume this driver's pending queue claim while borrowing the actual queue
-// owner. Neither context is transferred by clearing the observation slot.
+// Copy and clear this driver's pending queue claim under one exclusive guard.
 trusted internal func take_ready(
     pos selected: &Current,
     pos owner: &Reference
 ) -> bray.runtime.bootstrap.scheduler.Observation
     requires(trusted view_owned(owner = &selected.acquisition), selected.status == 0, trusted retained(owner = owner))
     ensures(trusted view_owned(owner = &selected.acquisition), trusted retained(owner = owner))
-    uses(raw_memory, unchecked_init, intrinsic)
+    uses(intrinsic)
 {
-    let pointer = trusted pending_storage(selected);
-    let pending = trusted std.memory.read<(bray.runtime.bootstrap.scheduler.Observation?)>(pointer);
-
-    trusted std.memory.write<(bray.runtime.bootstrap.scheduler.Observation?)>(pointer, none);
-
-    return match pending
+    let mut guard = trusted (trusted context(selected)).pending.lock();
+    let pending = trusted guard.get();
+    let ready = match pending
     {
         case ?observation { yield observation; }
         case none { yield trusted core.target.abort(); }
     };
+
+    pending = none;
+    return ready;
 }
 
 trusted internal func dispatch_ready(pos selected: &Current, pos owner: &Reference)

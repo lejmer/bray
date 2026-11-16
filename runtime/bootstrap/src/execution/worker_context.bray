@@ -5,6 +5,7 @@ using core.atomic;
 using core.memory;
 using core.target;
 using std.memory;
+using std.sync;
 using internal bray.runtime.bootstrap;
 using internal bray.runtime.bootstrap.worker;
 using internal bray.runtime.bootstrap.host;
@@ -59,7 +60,7 @@ trusted internal func worker_context(pos scope: &bray.runtime.bootstrap.worker.S
         registration = core.atomic.initialize<u64>(0),
         lane = core.atomic.initialize<u32>(0),
         invocation = core.atomic.initialize<usize>(0),
-        pending = core.memory.uninit_from<(bray.runtime.bootstrap.scheduler.Observation?)>(none)
+        pending = trusted std.sync.SpinLock<(bray.runtime.bootstrap.scheduler.Observation?)>(none)
     };
 }
 

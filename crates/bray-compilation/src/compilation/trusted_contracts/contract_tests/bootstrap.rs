@@ -2,7 +2,7 @@ use bray_target::NativeTarget;
 
 use super::fixtures::production_host_compilation_for_target;
 use crate::SelectedTarget;
-use crate::test_support::{source_function_body_key, source_type_callable_member_body_key};
+use crate::test_support::{source_function_body_key, source_module_function_body_key, source_type_callable_member_body_key};
 
 #[test]
 #[ignore = "tier:proof"]
@@ -24,14 +24,28 @@ fn assert_bootstrap_contracts(target: NativeTarget) {
 
     let mut failures = Vec::new();
 
-    for name in ["owner_entry_scope", "dispatch_ready", "start_frame"] {
+    for name in [
+        "owner_entry_scope", "dispatch_ready", "start_frame",
+        "origin_context", "worker_context", "owned_context", "borrow_execution", "view_context", "context",
+        "pending_observation", "take_ready", "acquire_ready", "acquire_worker_ready",
+        "record_worker_failure", "retire_driver",
+    ] {
         let key = if name == "start_frame" {
             source_type_callable_member_body_key(&compilation, name)
-        } else {
+        } else if name == "owner_entry_scope" {
             source_function_body_key(&compilation, name)
+        } else {
+            source_module_function_body_key(&compilation, &["bray", "runtime", "bootstrap", "execution"], name)
         };
+
+        let started = std::time::Instant::now();
+
+        eprintln!("[bootstrap] body-start target={} name={name}", target.as_str());
+
         let properties = compilation.execution_properties(key.clone()).expect("native bootstrap contracts are checked");
         let lowered = compilation.lowered_unit(key).expect("native bootstrap body lowers");
+
+        eprintln!("[bootstrap] body-finish target={} name={name} elapsed_ms={}", target.as_str(), started.elapsed().as_millis());
 
         if properties.diagnostics().has_errors() {
             failures.push(format!("{name} contracts: {:#?}", properties.diagnostics()));
