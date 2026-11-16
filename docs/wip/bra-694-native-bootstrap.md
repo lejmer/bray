@@ -3,9 +3,9 @@
 Issue: https://linear.app/bray-lang/issue/BRA-694.
 Draft PR: https://github.com/lejmer/bray/pull/717.
 Branch: `feature/bra-694-native-bootstrap-contracts`, rebased onto develop 5de46243b.
-Pushed checkpoint: 5facb06ae. PR #710 and its prerequisites are merged.
-Reviewer: `/root/bra694_review`, clean published review through 5facb06ae:
-https://github.com/lejmer/bray/pull/717#pullrequestreview-5914187348.
+Pushed checkpoint: e9c174764. PR #710 and its prerequisites are merged.
+Reviewer: `/root/bra694_review`, clean published review through e9c174764:
+https://github.com/lejmer/bray/pull/717#pullrequestreview-5914521927.
 
 ## Contract
 
@@ -111,16 +111,52 @@ The source ordering batch has not resolved view_owned and is not claimed to comp
 
 ## Active diagnosis and next action
 
-Only temporary compiler change: BRAY_TRACE_CURRENT_STORAGE in storage_flow/check/analysis/core.rs. It reports selected
-Node call attempts, normalized effects, actual dependency-table effects and invalidation counts with store/table identity.
-The broader tracing was removed because its overhead hit the 90-second bound. Remove this final trace before commit.
-A tooling build has completed and one bounded Windows trace is running. Resolve test executables from Cargo's emitted
-path, never a retained hard-coded filename. A stale-executable run supplied no evidence and is excluded above.
+Production tracing is removed. A temporary test-only BRAY_AUDIT_CALLABLES branch in contract_tests/bootstrap.rs
+queries fully qualified source callable summaries and checks/lowers selected bodies. BRAY_AUDIT_WRITES inspects only
+the existing dependency-membership graph for untyped unbounded writers, without reconstructing another graph. These
+runs are diagnostic probes, never native gate passes. Remove the entire branch before commit. Resolve test executables from Cargo's emitted path, never a retained
+hard-coded filename. The final producer trace finished in 41.83 seconds. An earlier stale-executable run supplied no
+evidence and is excluded above.
 
 Trace dispatch_ready's actual wait_execution effect and the corresponding stable owner observation. It transfers no
 owned Current, so input movement cannot explain selected's loss. Dependency contracts, refinements and flow project the
-same BodySemantics publication. No mixed-publication or equality defect is established. Do not call the public view shallow.
+same BodySemantics publication. Normalized and actual table effects now agree. No publication/equality defect is established. Do not call the public view
+shallow. The first untyped unbounded Write is published by host.insert_attachment (owner.bray), on a normal path, at an
+actual entry.identity assignment. It propagates through attachment acquisition into wait_execution. The small indexed
+assignment has the same missing physical target. The no-write indexed borrow does not publish a mutation.
 
-Finish the remaining contract, remove temporary tracing, validate and push the source batch. Obtain an official incremental
+The owning defect is memory::typed_target requiring exact-cell identity to use a known current typed view. A dynamic
+selector supplies a location but remains inexact. Accept exactly one nonprevious target with matching recorded type and
+no unknown, displaced or region-only flags. Return its unchanged target. Formation and entry seeding still declare the
+actual view type, segmented projection follows that view, actual writes stay weak, and effect publication stays bounded.
+Keep References::is_exact, value_targets and borrow_targets strict. Region bounds cannot supply layout, multi-target
+choices cannot become one identity, previous epochs remain invalid and no initialization or authority is introduced.
+
+Oracles extend the existing slice memory test and imported call-effects fixture: dynamic typed projection is available,
+exact-cell queries remain unavailable, region-only projection stays rejected, an indexed loan/read has no write, and a
+real indexed replacement stays bounded. Reuse all checker controls and native focused gates. Production growth is five
+lines in the existing helper with no new representation. Reconsider on strong updates, alias-layout recovery, loop
+instability or any unexplained fixed-suite regression. The fallback for genuinely unresolved writes remains conservative.
+Current typed-view evidence: all 563 checker tests pass in 220 ms and the expanded imported indexed test passes in 80 ms.
+Both native controls still fail at the same authority sites. The selective query confirms insert_attachment no longer
+publishes an untyped unbounded Write, but wait_execution still does. Its other writer producers remain to be inventoried.
+Do not migrate the entire effect publisher as a workaround. That independent change would need explicit move/private
+admission/borrow-descriptor/call-completion coverage.
+
+A second verified producer defect affects four more OS leaves on the attachment-load path: Linux pthread_getspecific,
+Windows FlsGetValue, GetLastError and SetLastError. Current Windows summary probes confirm generic Ambient/Escape.
+Their implementations access OS-private local state without dereferencing or retaining Bray payloads. Extend the same
+authorized bodyless policy after imported/source summaries. Keep all calls impure, pointer results independent/unknown,
+and the source wrapper's actual output-pointer write. Keep pointer-retaining setters, key creation, FLS destruction,
+callbacks, allocators and deallocators conservative or precisely mutating. No purity/access/freshness is introduced.
+The existing platform fixture now covers all six leaves using shared parameterized source in both import modes, fake
+ordinary names and purity negatives. Catalog has 16 recognized scopes and 162 declarations. New digest is
+460af27514d774f00024c7668824d92416c2616ea4fe71a6cbfcd3a48bc97ce1. Generation and fresh test/CLI builds passed. All 62 catalog tests, 563 checker tests and the expanded source/import platform controls pass. Both normal native gates still fail in 41.49 seconds. The diagnostic-only Windows run takes 17.25 seconds and confirms empty effects for the three new Windows leaves. Three cached callable summaries still contain the untyped unbounded Write. The bounded producer trace identifies publish_event_wait state.head and state.tail assignments, propagated through register_execution_wait to wait_execution. Before head, state has two current exact Entry targets for the Event and ExecutionEvent alternatives. Both have the expected State type. The one-target resolver rejects that finite choice, publishes a global Write and globally invalidates memory, losing state before tail. Descriptor-retention and historical-layout hypotheses do not explain this first divergence.
+Primary contracts: glibc nptl/pthread_getspecific.c and Microsoft FlsGetValue/GetLastError/SetLastError documentation.
+Reconsider if any leaf dereferences payloads, retains arguments, runs callbacks, masks a real source body or gains authority.
+
+Next repair contract: preserve finite typed alternatives across calls, direct joins and stored paths without creating a synthetic exact cell. Reuse existing target sets, Vec effects and weak memory writes. Actual assignment effects, observations, terminal checks and physical writes must agree. Single-target proof/strong-update queries stay strict. Reference output staging cannot initialize or install the new value definitely at every candidate. Resolve that staging boundary before production edits. Required controls include bounded summaries through source/import, branch and call selection, overwritten candidates, disjoint owners, real raw mutation and unchanged strict exact/unknown/previous checks. Do not normalize plural aliases into a Returned cell to make a one-target API succeed. The retained reviewer independently confirmed that would introduce exact-cell paths and lose exact alias export.
+
+Remove temporary tracing, validate and push the next checkpoint after completing this contract. Obtain an official incremental
 review on the PR. Run the required gates on corrected code, then final maintainability/DRY audit and mutating style/format.
 Update PR description and mark ready/BRA-694 In Review only after acceptance, required validation and published review.

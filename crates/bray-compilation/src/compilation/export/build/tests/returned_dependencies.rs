@@ -945,24 +945,87 @@ fn imported_call_effects_distinguish_forwarding_from_mutation() {
     let provider = compilation(
         r#"
         module api;
-        struct Cell { mut value: bool; }
-        func same<T>(pos value: &T) -> &T { return value; }
-        func rewrite(pos cell: &mut Cell) { cell.value = false; }
+
+        struct Cell
+        {
+            mut value: bool;
+        }
+
+        func same<T>(pos value: &T) -> &T
+        {
+            return value;
+        }
+
+        func rewrite(pos cell: &mut Cell)
+        {
+            cell.value = false;
+        }
+
+        func lend(pos cells: &mut [Cell], pos index: usize)
+            requires(index < cells.length())
+        {
+            let entry = &mut cells[index];
+            _ = entry.value;
+        }
+
+        func rewrite_at(pos cells: &mut [Cell], pos index: usize)
+            requires(index < cells.length())
+        {
+            let entry = &mut cells[index];
+
+            entry.value = false;
+        }
     "#,
     );
 
     for (body, unchanged) in [
         (
-            "func caller(pos cell: &example.package.api.Cell) -> &example.package.api.Cell { return example.package.api.same(cell); }",
+            r#"
+            func caller(pos cell: &example.package.api.Cell) -> &example.package.api.Cell
+            {
+                return example.package.api.same(cell);
+            }
+            "#,
             true,
         ),
         (
-            "func caller(pos cell: &mut example.package.api.Cell) { example.package.api.rewrite(cell); }",
+            r#"
+            func caller(pos cell: &mut example.package.api.Cell)
+            {
+                example.package.api.rewrite(cell);
+            }
+            "#,
+            false,
+        ),
+        (
+            r#"
+            func caller(pos cells: &mut [example.package.api.Cell])
+                requires(cells.length() > 0)
+            {
+                example.package.api.lend(cells, 0);
+            }
+            "#,
+            true,
+        ),
+        (
+            r#"
+            func caller(pos cells: &mut [example.package.api.Cell])
+                requires(cells.length() > 0)
+            {
+                example.package.api.rewrite_at(cells, 0);
+            }
+            "#,
             false,
         ),
     ] {
         let source = format!(
-            "module app; using example.package.api.Cell; using example.package.api.same; using example.package.api.rewrite; {body}"
+            r#"
+            module app;
+
+            using example.package.api;
+
+            {body}
+            "#
         );
 
         let consumer = execution_consumer(&provider, &source);
@@ -987,6 +1050,10 @@ fn imported_call_effects_distinguish_forwarding_from_mutation() {
         assert_eq!(call.effects().is_empty(), unchanged, "{:?}", call.effects());
 
         if !unchanged {
+            assert!(!call.effects().iter().any(|effect| matches!(effect,
+                bray_symbols::DependencyStorageEffect::UnboundedMutation { .. })),
+                "a selected input element write stays within that input: {:?}", call.effects());
+
             assert!(
                 call.effects().iter().any(|effect| matches!(
                     effect,

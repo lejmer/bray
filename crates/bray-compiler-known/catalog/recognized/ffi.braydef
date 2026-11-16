@@ -1,6 +1,16 @@
 catalog recognized_standard_library revision 1;
 
 scope StandardLinuxThread at std.os.linux {
+    declaration StandardLinuxThreadStorageLoad {
+        identity name pthread_getspecific;
+        availability ForeignAbi;
+
+        surface {
+            trusted func pthread_getspecific(pos key: u32) -> DataPointer<u8>
+                uses(foreign_call);
+        }
+    }
+
     declaration StandardLinuxCurrentThreadIdentity {
         identity name pthread_self;
         availability ForeignAbi;
@@ -13,6 +23,36 @@ scope StandardLinuxThread at std.os.linux {
 }
 
 scope StandardWindowsThread at std.os.windows {
+    declaration StandardWindowsFiberStorageLoad {
+        identity name fls_get_value;
+        availability ForeignAbi;
+
+        surface {
+            trusted func fls_get_value(pos key: u32) -> DataPointer<u8>
+                uses(foreign_call);
+        }
+    }
+
+    declaration StandardWindowsLastErrorRead {
+        identity name get_last_error;
+        availability ForeignAbi;
+
+        surface {
+            trusted func get_last_error() -> u32
+                uses(foreign_call);
+        }
+    }
+
+    declaration StandardWindowsLastErrorWrite {
+        identity name set_last_error;
+        availability ForeignAbi;
+
+        surface {
+            trusted func set_last_error(pos code: u32) -> unit
+                uses(foreign_call);
+        }
+    }
+
     declaration StandardWindowsCurrentThreadIdentity {
         identity name get_current_thread_id;
         availability ForeignAbi;

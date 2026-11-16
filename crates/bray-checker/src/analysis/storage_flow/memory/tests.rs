@@ -2629,6 +2629,15 @@ fn slice_projection_retains_the_element_allocation_without_retyping_it() {
         "admission carries an evaluated dynamic borrow without wrapping away its owned pointer");
 
     assert!(state.value_targets(&admitted).is_none(), "a dynamic selector remains inexact");
+    assert_eq!(state.value_target(&admitted, element), Some(selected.clone()),
+        "the current typed view retains its dynamic location without exact-cell authority");
+
+    let mut region_only = state.clone();
+
+    region_only.values.get_mut(&admitted).unwrap().references.as_mut().unwrap().inexact = true;
+
+    assert!(region_only.value_target(&admitted, element).is_none(),
+        "a region bound alone supplies no typed layout");
 
     let owners = state.referenced_regions(&admitted).unwrap();
 

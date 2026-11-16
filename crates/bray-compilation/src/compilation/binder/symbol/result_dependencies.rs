@@ -112,13 +112,23 @@ fn infer_reachable_results(
         Vec::new()
     };
 
-    // Native identity reads observe ambient state without changing Bray storage.
-    // Their execution remains impure and still requires foreign-call capability.
-    let observer = crate::compilation::standard_library::recognized_declaration(
-        context, root.into_any(), "StandardLinuxCurrentThreadIdentity",
-    ).map_err(binder_error)? || crate::compilation::standard_library::recognized_declaration(
-        context, root.into_any(), "StandardWindowsCurrentThreadIdentity",
-    ).map_err(binder_error)?;
+    // These leaves access OS-private thread or fiber state without changing Bray storage.
+    // They remain impure and still require foreign-call capability.
+    let preserves_storage = [
+        "StandardLinuxCurrentThreadIdentity",
+        "StandardLinuxThreadStorageLoad",
+        "StandardWindowsCurrentThreadIdentity",
+        "StandardWindowsFiberStorageLoad",
+        "StandardWindowsLastErrorRead",
+        "StandardWindowsLastErrorWrite",
+    ].into_iter().try_fold(false, |matched, key| {
+        if matched {
+            return Ok(true);
+        }
+
+        crate::compilation::standard_library::recognized_declaration(context, root.into_any(), key)
+            .map_err(binder_error)
+    })?;
 
     // A declaration without a body has explicit arguments and an explicit receiver.
     let template = context
@@ -127,7 +137,7 @@ fn infer_reachable_results(
             bray_symbols::DependencyContractTemplateData::new([])
                 .with_borrows(references)
                 .with_effects(bray_symbols::DependencyStorageEffect::capture_free_call()
-                    .into_iter().filter(|_| !observer)),
+                    .into_iter().filter(|_| !preserves_storage)),
         )
         .expect("declared result dependency template satisfies the semantic store contract");
 

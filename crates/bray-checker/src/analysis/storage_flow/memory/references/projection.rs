@@ -660,16 +660,17 @@ impl State {
     }
 
     fn typed_target(&self, references: &References, ty: TypeId) -> Option<Target> {
-        if !references.is_exact() {
+        if references.unknown || references.displaced || references.inexact || references.targets.len() != 1 {
             return None;
         }
 
         let target = references
             .targets
             .first()
-            .expect("exact reference has one target");
+            .expect("one current typed reference has one target");
 
-        (self.contents.get(target)?.storage_type == Some(ty)).then(|| target.clone())
+        // A typed dynamic selection supplies a location, without making it an exact cell.
+        (!target.previous && self.contents.get(target)?.storage_type == Some(ty)).then(|| target.clone())
     }
 
     pub(in crate::analysis::storage_flow) fn borrow_target_storage(
