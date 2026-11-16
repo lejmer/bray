@@ -402,8 +402,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             }
 
             let locations = if let Some((slot, _, _)) = self.input.entry_references.get(&(reference.clone(), 1)) {
-                self.input.reference_locations(
-                    self.request.semantic_values(), memory, Target::storage(StoragePath::root(reference.root)), slot, None,
+                memory.reference_locations(self.request.semantic_values(), Target::storage(StoragePath::root(reference.root)), slot, None,
                 )
             } else { match access {
                 _ if reference.projections.is_empty() => Some(Target::storage(reference.clone())),
@@ -1168,15 +1167,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 continue;
             }
 
-            let descriptor = bray_bound_tree::StorageReferencePath::new(
-                path.projections()[..*index].into(),
-                path.borrows()[..step].into(),
-            );
+            let descriptor = path.prefix(*index, step);
 
             let Some(locations) =
-                self.input.reference_locations(
-                    self.request.semantic_values(),
-                    memory,
+                memory.reference_locations(self.request.semantic_values(),
                     Target::storage(StoragePath::root(root)),
                     &descriptor,
                     None,

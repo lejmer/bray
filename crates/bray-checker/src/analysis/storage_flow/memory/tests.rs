@@ -41,9 +41,9 @@ fn returned_allocations_publish_once_and_keep_alias_groups_across_replay() {
     let other_allocation = Place { root: allocation.root, projections: [BUFFER_POINTER].into() };
 
     state.begin_transition(call);
-    state.stage_allocation_reference(call, Target::storage(first.clone()), allocation.clone(), &[]);
-    state.stage_allocation_reference(call, Target::storage(second.clone()), allocation.clone(), &[]);
-    state.stage_allocation_reference(call, Target::storage(other.clone()), other_allocation, &[]);
+    state.stage_allocation_reference(call, Target::storage(first.clone()), allocation.clone(), &[], error_type());
+    state.stage_allocation_reference(call, Target::storage(second.clone()), allocation.clone(), &[], error_type());
+    state.stage_allocation_reference(call, Target::storage(other.clone()), other_allocation, &[], error_type());
 
     assert!(state.referenced_regions(&Target::storage(first.clone())).is_none());
     state.complete_transition(call);
@@ -54,6 +54,7 @@ fn returned_allocations_publish_once_and_keep_alias_groups_across_replay() {
 
     assert_eq!(target, alias);
     assert_eq!(state.target_relationship(&target, &distinct), bray_bound_tree::StorageRelationship::Disjoint);
+    assert_eq!(state.declared_type(&target), Some(error_type()));
     assert!(!state.initialized(&target, error_type()), "freshness grants no initialized-memory authority");
 
     let stale = Place { root: second.root, projections: [BUFFER_POINTER].into() };
@@ -61,7 +62,7 @@ fn returned_allocations_publish_once_and_keep_alias_groups_across_replay() {
     state.stage_slot(call, &second, stale.clone());
     state.complete_transition(call);
     state.begin_transition(call);
-    state.stage_allocation_reference(call, Target::storage(first.clone()), allocation, &[]);
+    state.stage_allocation_reference(call, Target::storage(first.clone()), allocation, &[], error_type());
     state.complete_transition(call);
 
     assert!(!state.value_targets(&Target::storage(first)).expect("new allocation")[0].previous);
@@ -84,7 +85,7 @@ fn addressed_reference(
         bray_symbols::DependencyBorrowRelation::new(Some(entry), exit, kind),
         false,
         Some(ty),
-    )
+     None)
 }
 
 #[test]
@@ -652,7 +653,7 @@ fn joined_targets_require_all_possible_contents_and_weak_writes_do_not_initializ
         left.contents.entry(target.clone()).or_default().storage_type = Some(error_type());
     }
 
-    let path = bray_bound_tree::StorageReferencePath::new([].into(), [(0, error_type())].into());
+    let path = bray_bound_tree::StorageReferencePath::new([].into(), [(0, error_type())].into(), [].into());
 
     assert_eq!(left.reference_locations(crate::test_support::semantic_values(),
         Target::storage(alias.clone()), &path, None), Some(targets.clone()));
@@ -1774,7 +1775,7 @@ fn projected_entry_address_does_not_read_the_reference_held_in_that_field() {
     layered.entry_reference_at(parameter.clone(), 2, cell.clone(), Some(aggregate), bray_symbols::DependencyReferenceKind::Address);
 
     let route = bray_bound_tree::StorageReferencePath::new(
-        [StorageProjection::AddressTarget, projection].into(), [(0, ty), (0, aggregate)].into());
+        [StorageProjection::AddressTarget, projection].into(), [(0, ty), (0, aggregate)].into(), [].into());
 
     let reached = layered.reference_location(values, Target::storage(parameter.clone()), &route, Some(cell)).unwrap();
 
@@ -1786,7 +1787,7 @@ fn projected_entry_address_does_not_read_the_reference_held_in_that_field() {
         bray_symbols::DependencyReferenceKind::Address);
 
     let path = bray_bound_tree::StorageReferencePath::new(
-        [StorageProjection::AddressTarget, projection].into(), [(0, aggregate)].into());
+        [StorageProjection::AddressTarget, projection].into(), [(0, aggregate)].into(), [].into());
 
     let location = state.reference_location(values, Target::storage(parameter.clone()), &path, None).unwrap();
     let field = Place { root: parameter.root, projections: [StorageProjection::AddressTarget, projection].into() };
@@ -2589,7 +2590,7 @@ fn repeated_dereferences_have_distinct_entry_snapshots() {
     assert!(!second.contains(&first));
     assert!(second.observation_path().is_none());
 
-    let path = bray_bound_tree::StorageReferencePath::new([].into(), [(0, ty), (0, ty)].into());
+    let path = bray_bound_tree::StorageReferencePath::new([].into(), [(0, ty), (0, ty)].into(), [].into());
 
     assert_eq!(state.reference_location(crate::test_support::semantic_values(), slot, &path, None), Some(second));
 }
@@ -2614,6 +2615,7 @@ fn slice_projection_retains_the_element_allocation_without_retyping_it() {
     let path = bray_bound_tree::StorageReferencePath::new(
         [projection, BUFFER_POINTER].into(),
         [(0, slice)].into(),
+        [].into(),
     );
 
     let backing = owner.project(&[StorageProjection::OwnedTarget]);
@@ -2683,7 +2685,7 @@ fn slice_projection_retains_the_element_allocation_without_retyping_it() {
     assert!(state.value_targets(&nested).is_none());
 
     let wrong_slice = values.intern_type(bray_symbols::TypeData::Slice(slice)).unwrap();
-    let wrong = bray_bound_tree::StorageReferencePath::new([].into(), [(0, wrong_slice)].into());
+    let wrong = bray_bound_tree::StorageReferencePath::new([].into(), [(0, wrong_slice)].into(), [].into());
 
     assert!(state.reference_location(values, view.clone(), &wrong, None).is_none());
 
@@ -2737,7 +2739,7 @@ fn bounded_returned_regions_do_not_declare_or_initialize_a_cell() {
             .with_target_projections([DependencyProjection::OwnedTarget]),
         false,
         Some(slice),
-    );
+     None);
 
     let owner = Target::storage(owner);
     let backing = owner.project(&[StorageProjection::OwnedTarget]);
@@ -2957,34 +2959,110 @@ fn owned_regions_keep_headers_disjoint_and_survive_owner_moves_without_exact_off
 
 #[test]
 fn nested_backing_survives_descriptor_moves_and_pruning() {
-    let ([owner, moved, alias, ..], _) = places();
+    let ([owner, moved, alias, staged], origins) = places();
+    let field = bray_symbols::StructFieldSymbolId::from_symbol_id(bray_symbols::SymbolId::new(0));
+    let pointer = StorageProjection::ProductField(field);
+    let values = semantic_values();
     let mut state = State::default();
     let descriptor = Target::storage(owner.clone());
 
-    state.declare_owned_buffer(descriptor.clone(), descriptor.project(&[BUFFER_POINTER]), error_type());
+    state.declare_owned_buffer(descriptor.clone(), descriptor.project(&[pointer]), error_type());
 
-    let outer = state.owned_regions(&descriptor, BUFFER_POINTER).unwrap().remove(0);
+    let outer = state.owned_regions(&descriptor, pointer).unwrap().remove(0);
     let element = outer.project(&[StorageProjection::AnyElement]);
 
-    state.declare_owned_buffer(element.clone(), element.project(&[BUFFER_POINTER]), error_type());
+    state.declare_owned_buffer(element.clone(), element.project(&[pointer]), error_type());
 
-    let inner = state.owned_regions(&element, BUFFER_POINTER).unwrap().remove(0);
+    let inner = state.owned_regions(&element, pointer).unwrap().remove(0);
 
     state.contents.get_mut(&inner).unwrap().initialized.insert(error_type());
     state.values.insert(Target::storage(alias.clone()), References::one(inner.clone()).into());
+    let policy = bray_bound_tree::StorageReferenceOwner::Buffer { ty: error_type(), pointer: field, element: error_type() };
+    let path = bray_bound_tree::StorageReferencePath::new(
+        [StorageProjection::OwnedTarget, StorageProjection::AnyElement, StorageProjection::OwnedTarget].into(),
+        [].into(), [(0, policy), (2, policy)].into(),
+    );
+
+    assert_eq!(state.reference_locations(values, descriptor.clone(), &path, None), Some(vec![inner.clone()]));
+
+    for (inexact, displaced, unknown) in [(true, false, false), (false, true, false), (false, false, true)] {
+        let mut bounded = state.clone();
+        let reference = bounded.values.get_mut(&descriptor.project(&[pointer])).unwrap().references.as_mut().unwrap();
+        reference.inexact = inexact;
+        reference.displaced = displaced;
+        reference.unknown = unknown;
+
+        assert!(bounded.reference_target_regions(values, descriptor.clone(), &path, None).is_none(),
+            "a bound cannot locate another allocation");
+
+        let call = origins[0].into();
+        let output = Target::storage(staged.clone());
+
+        bounded.begin_transition(call);
+        bounded.stage_value(call, &descriptor, output.clone());
+        assert!(bounded.staged_reference_locations(call, values, &output, &output, &path).is_none());
+
+        let terminal = path.prefix(1, 0);
+        let regions = bounded.reference_target_regions(values, descriptor.clone(), &terminal, None);
+
+        if unknown {
+            assert!(regions.is_none());
+        } else {
+            assert_eq!(regions, Some(vec![outer.clone()]));
+        }
+    }
+
+    let mut empty = state.clone();
+    empty.values.get_mut(&descriptor.project(&[pointer])).unwrap().references = Some(References::default());
+    assert_eq!(empty.reference_target_regions(values, descriptor.clone(), &path.prefix(1, 0), None), Some(Vec::new()));
+    assert_eq!(empty.reference_locations(values, descriptor.clone(), &path, None), Some(Vec::new()));
+
+    let call = origins[0].into();
+    let output = Target::storage(staged.clone());
+
+    empty.begin_transition(call);
+    empty.stage_value(call, &descriptor, output.clone());
+    assert_eq!(empty.staged_reference_locations(call, values, &output, &output, &path), Some(Vec::new()));
+
+    empty.stage_reference_regions(call, output.project(&[pointer]),
+        Place { root: staged.root, projections: [pointer].into() }, error_type(), []);
+    assert_eq!(empty.staged_reference_regions(call, &output, &output.project(&[pointer])), Some(Vec::new()));
+    assert_eq!(empty.staged_reference_locations(call, values, &output, &output, &path), Some(Vec::new()));
+
+    let mut captured = state.clone();
+    let call = origins[0].into();
+    let output = Target::storage(staged.clone());
+
+    captured.begin_transition(call);
+    captured.stage_value(call, &descriptor, output.clone());
+    assert_eq!(captured.staged_reference_locations(call, values, &output, &output, &path), Some(vec![inner.clone()]));
+
+    let logical = Place { root: staged.root, projections: [StorageProjection::OwnedTarget, StorageProjection::AnyElement, pointer].into() };
+    captured.stage_returned_reference(call, element.project(&[pointer]), logical, error_type(), []);
+
+    let selected = captured.staged_reference_locations(call, values, &output, &output, &path).unwrap();
+    assert_ne!(selected, vec![inner.clone()], "staged pointer reads use their own produced referent");
+    assert!(!selected[0].is_exact(), "dynamic selectors remain dynamic");
+    assert!(!captured.initialized_targets(&References::one(selected[0].clone()), error_type()));
+    assert_eq!(captured.reference_locations(values, descriptor.clone(), &path, None), Some(vec![inner.clone()]));
+
     state.transfer_value(&descriptor, moved.clone());
     state.forget(owner.root);
     state.retain_live(&BTreeSet::from([moved.root, alias.root]));
     state.end_storage(|identity| identity == owner.root);
 
-    assert!(!state.values.contains_key(&descriptor.project(&[BUFFER_POINTER])), "backing records alone do not retain their descriptor");
-    assert_eq!(state.owned_regions(&Target::storage(moved), BUFFER_POINTER), Some(vec![outer.clone()]));
-    assert_eq!(state.owned_regions(&element, BUFFER_POINTER), Some(vec![inner.clone()]));
+    assert!(!state.values.contains_key(&descriptor.project(&[pointer])), "backing records alone do not retain their descriptor");
+    assert_eq!(state.owned_regions(&Target::storage(moved.clone()), pointer), Some(vec![outer.clone()]));
+    assert_eq!(state.owned_regions(&element, pointer), Some(vec![inner.clone()]));
     assert!(state.contents[&inner].initialized.contains(&error_type()), "descriptor storage end must preserve the moved allocation facts");
     assert!(!state.initialized_targets(&References::one(inner.clone()), error_type()),
         "a dynamic element's region must remain inexact");
 
+    let moved_descriptor = Target::storage(moved.clone());
+    assert_eq!(state.reference_locations(values, moved_descriptor.clone(), &path, None), Some(vec![inner.clone()]));
+
     state.retire_region(&outer, Retirement::Storage);
+    assert!(state.reference_locations(values, moved_descriptor, &path, None).is_none());
 
     assert!(state.contents[&inner].initialized.contains(&error_type()), "retiring an element descriptor does not free its owned allocation");
     assert_eq!(state.referenced_regions(&Target::storage(alias.clone())), Some(vec![inner.clone()]));
@@ -4746,7 +4824,7 @@ fn returned_null_does_not_invent_an_outside_origin() {
 
     assert_eq!(exported.empty_slots().collect::<Vec<_>>(), vec![&result]);
 
-    let target = Target::storage(input);
+    let target = Target::storage(input.clone());
 
     state.begin_transition(call);
 
@@ -4760,6 +4838,17 @@ fn returned_null_does_not_invent_an_outside_origin() {
 
     assert_eq!(state.exit_references(result.root, &Default::default()).empty_slots().count(), 0,
         "an empty alternative cannot erase a possible target");
+
+    let referent = Target { previous: false, origin: Origin::Returned {
+        reference: input.clone(), projections: [].into(),
+    } };
+
+    state.returned_inputs.insert((input, false), References::default());
+    state.stage_reference_regions(call, Target::storage(result.clone()), result.clone(), error_type(), [referent]);
+    state.complete_transition(call);
+
+    assert!(state.value_target(&Target::storage(result), error_type()).is_some(),
+        "a nonempty pointer with no external origins still denotes storage");
 }
 
 #[test]
@@ -4916,7 +5005,7 @@ fn deferred_input_references_survive_frame_moves_without_following_replaced_inpu
     let movement = expressions[1].into();
     let completion = expressions[2].into();
     let root = Target::storage(input.clone());
-    let path = bray_bound_tree::StorageReferencePath::new([].into(), [].into());
+    let path = bray_bound_tree::StorageReferencePath::new([].into(), [].into(), [].into());
 
     for target in [
         Target::storage(payload.clone()),

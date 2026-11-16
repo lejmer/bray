@@ -6,7 +6,7 @@ mod model;
 mod observation;
 mod parts;
 mod path;
-pub use path::{StoragePath, StorageReferencePath};
+pub use path::{StoragePath, StorageReferenceOwner, StorageReferencePath};
 mod plan;
 mod query;
 mod replacement;

@@ -2,128 +2,123 @@
 
 Issue: https://linear.app/bray-lang/issue/BRA-694.
 Draft PR: https://github.com/lejmer/bray/pull/717.
-Branch: feature/bra-694-native-bootstrap-contracts, develop base 5de46243b.
-Pushed aa09a61c3. Retained reviewer /root/bra694_review.
-Published review through that commit has no findings:
-https://github.com/lejmer/bray/pull/717#pullrequestreview-5921300355.
+Branch feature/bra-694-native-bootstrap-contracts, develop base 5de46243b. Use git HEAD for the current checkpoint.
+Retained reviewer /root/bra694_review. Published review through4f767fbb2 has no findings:
+https://github.com/lejmer/bray/pull/717#pullrequestreview-5922465574.
 
 ## Required outcome
 
-Check/lower actual Linux and Windows bootstrap products on x86_64 and AArch64. Preserve source/import contracts,
-negative failure locations, conditional masks and authoritative empty ownership. Reject fabrication, replacement,
-old epochs, actual mutation and retirement. Compiler invariant violations panic. BRA-695 execution and BRA-696
-shutdown remain separate. No historical reconstruction, freshness from owned_allocation, layout/exactness from alias
-bounds, predicate reassertion or blanket loan exemptions. Stop on unexplained regressions. Commit/push checkpoints.
+Check/lower actual Linux/Windows bootstrap products on x86_64/AArch64, with source/import contracts and negative
+failure locations. Preserve conditional masks and authoritative empty ownership. Reject fabrication, replacement,
+old epochs, actual mutation and retirement. Internal invariant defects panic. BRA-695 execution and BRA-696 shutdown
+remain separate. No entry reconstruction, freshness from owned_allocation, layout/exactness from alias bounds,
+predicate reassertion or blanket loan exemptions. Stop on unexplained regressions. Commit/push checkpoints.
 Style remains deferred until finalization. Native subprocess workflows run outside the sandbox.
 
-## Established repair contracts
+Joint gate: the actual dispatch_ready -> dispatch_task/event.wait_execution composition must check AND lower, and all
+1714 fixed comparison identities must pass on the SAME candidate. Neither focused controls nor checker units substitute
+for either gate. Do not expand the repair while either is red. More preparation mechanisms, accumulating exceptions or
+new semantic assumptions require reconsidering the original hypothesis, not extending its checklist.
 
-Logical-only transitions retain required physical descriptors. Finite assignments capture RHS before weak commit,
-never initialize every candidate or fabricate exact identity. Overlapping observation suffixes require agreement.
-Ambient confinement excludes only original mutable entry borrows at layer1, empty reference path and ordinary inline
-projections. Other origins stay conservative. Direct opaque Ambient/Escape stays unbounded. Current storage subtree
-walks share storage_subtree.
+## Established contracts
 
-Context.pending uses existing SpinLock<Observation?>, initialized once by both constructors. Typed context,
-view_context and owned_context publish lock validity. Snapshots end their guards before scheduling/dispatch.
-take_ready copies and clears under one guard. Current owns a counted view, not exclusive mutation. Preserve
-borrow_execution's exposed-address publication independently of its temporary ExecutionOwner loan. Retirement
-inspects through owned_context, ends inspection, then moves/destroys whole Context after zero-view/phase/task checks.
-No manual field teardown or new validity axioms.
+Logical-only transitions retain physical descriptors. Assignments capture RHS before weak commit, never initialize
+all candidates or fabricate exact identity. Observation suffixes require agreement. Ambient confinement excludes only
+original mutable entry borrows at layer1 with empty reference path and inline projections. Other origins stay
+conservative. Direct opaque Ambient/Escape stays unbounded. Physical subtree walks share storage_subtree.
 
-Exact typed pointee snapshots live in existing CurrentValues. Only successful Borrow<T> results seed actual current
-referents, keyed by physical target, checked T and producer occurrence. Raw pointers, alias bounds, previous/inexact
-targets and entry fallbacks cannot seed. Exact lookup only, no parent reconstruction. Repeated views cannot revive
-Absent storage. Read/VolatileRead capture before consumption and publish via existing normal-result preservation.
-Writes update exact destinations. Storage flow alone computes survival masks using cached Footprint shapes.
-Active loan/shared-view decisions publish logical and physical masks together, only for one actual Source.targets
-pointee, never allocation-wide Source.regions. Unknown mutations stay conservative. Non-call/non-assignment moves
-use actual Move plans and handle retirements. Pointee snapshots join normally but never enumerate as live owners.
-Producer reuse retires roots and dependent conditions. Runtime-only roots cannot export through portable contracts.
-Opaque field-reread origins, declaration-only static keys and unrepresentable UninitPayload logical paths remain
-excluded. Equivalent consumers share current_target_value. One current-store regression covers observation versus
-ownership, consumption and producer reuse. The batch adds about350 production lines, below its500-line limit.
+Exact typed pointee snapshots use CurrentValues, seeded only by successful actual Borrow<T> outputs. Raw, inexact,
+previous and entry-fallback targets cannot seed. Exact lookup only, no parent reconstruction or revival of Absent.
+Read captures before consumption, Write updates exact current destinations. Storage flow owns physical masks.
+Loan/shared-view decisions publish logical and physical preservation together for actual Source.targets, never
+Source.regions. Non-call moves use actual Move plans. Pointees join normally but never enumerate as live owners.
+Producer reuse retires dependent facts. Runtime-only roots cannot portable-export. Opaque field-reread origins,
+declaration-only static keys and unrepresentable UninitPayload paths remain conservative.
 
-Arena source composition acquires the actual Domain.arena borrow before pending mutation. task.retain_in_arena
-replaces execution.retain_task and shares existing HostLease/arena_anchor/retain_locked handling with native retention.
-Dispatch, worker failure and observer creation use that typed arena view. Existing status4, ownership and ABI remain.
-No additional guard/acquisition or predicate reassertion. This source batch reduces runtime code.
+Context.pending uses the existing SpinLock<Observation?>, initialized by both constructors. Typed context views
+publish lock validity. Guards end before scheduling. take_ready copies/clears under one guard. Current owns a counted
+view, not exclusive mutation. Preserve borrow_execution's exposed-address publication independently of its temporary
+ExecutionOwner loan. Retirement inspects, ends the view, then moves/destroys the whole Context after zero-view and
+phase/task checks. task.retain_in_arena shares HostLease/arena_anchor/retain_locked with native retention. Dispatch,
+worker failure and observer creation acquire the actual Domain.arena view before pending mutation. ABI/status remain.
 
-## Current unresolved transitions
+Implicit cleanup observes actual stored descriptor reads through observe_stored_reference, like explicit calls.
+Parent pointer reads precede nested owned paths. Snapshot the skipped conditional branch before these reads. Never
+revive unknown/inexact locations or establish trusted facts, initialization, ownership or historical contents.
 
-Only dispatch_ready and start_frame fail the current Windows18-body native gate. retire_driver now checks/lowers.
-Do not confuse failed actual conditions with larger required clauses, or expected post-Attempt consumption with failed
-admission. No compiler semantic patch since55763bb73.
+## Active typed-path contract
 
-Dispatch loses view_owned temporarily at dispatch_task and permanently at event.wait_execution, before recovery.
-The original truncated listing showed Ambient/Escape/typed Replace through a returned task pointer, but full tracing
-also found unbounded Retire effects. The arena source
-repair preserves its original Entry pointer through dispatch_task. Follow current bounds beyond task retention.
+The real retained task path crosses Arena.entries/UninitPayload/slabs/NullableValue/OwnedTarget/AnyElement/Slab.slots/
+OwnedTarget. Result staging and indirect effect resolution previously flat-appended projections, losing actual
+allocation edges. StorageReferencePath now retains typed borrowed/address loads and declared owned-load policies.
+State owns one current/staged/captured traversal. Each nonterminal load uses actual, current, nondisplaced and exact
+reference records with matching payload types. Dynamic selectors stay dynamic. Closed inexact bounds are allowed
+only at a terminal region endpoint. Traversal creates no ownership, freshness, initialization or trusted authority.
+Staged lookup uses matching pending payload types and current fallback only outside the staged result root.
 
-Verified but unpatched transport gap: stage_reference InputRegions and stage_reference_value append projections
-including OwnedTarget rather than following stored backing. Existing StorageFlowInput.stored_locations resolves
-OwnedTarget through current/staged buffer descriptors. Trace Arena.entries/UninitPayload/slabs/OwnedTarget/Slab.slots/
-OwnedTarget before changing transport. Inexact regions cannot recover exact identity or layout.
+BoundCallReference retains complete source-relative target routes. Binding uses entry source and exit pointee types,
+including explicit dereferences. Indirect effect suffixes are prepared immutably once for calls, deferred execution,
+capture/result cleanup, lifecycle and buffer cleanup. All consumers use the same typed traversal. Logical proof still
+withholds exact-origin authority from region relations. Runtime buffer-type search and path segmentation are removed.
 
-Start's actual failed commit_start condition is selected.status==0. Scoped exit fails view_owned(selected.acquisition).
-prepare_start22 and ScopedEnter101 both return selected/reference with exact preserves_value relations. The new trace
-shows selected still equals the original Entry Borrow through before_forward, after_forward and after_refresh at both
-calls. Later captured commit arguments instead observe a fresh prepare_result.Ok.selected. Find the first intervening
-current-value loss. The first loss is register_task54. A full marker trace exposes an UnboundedMutation Retire with
-no access type and ambient=false there, beyond the truncated first12 effects. This drops stored selected despite its
-correct exact Entry referent. Trace the original unbounded retirement producer before any policy change. Never repair call publication or relation generation based on the disproven earlier guesses.
+First-batch comparison exposed six regressions. Concrete corrections now written: an actually empty route must be
+recognized BEFORE expanding Returned external bounds. A nonempty referent with empty external bounds still exists.
+Allocation-result publication types only the actual projected target using checked addressed_type. It grants no
+initialization or invented root layout. Existing null/allocation tests cover both distinctions.
 
-## Implicit reference-read contract
+Preparation must inventory every pointer prefix in typed target routes, not just source endpoints. Buffer policy
+retains its declared owner type. One finite helper adds full source routes and each owned Buffer pointer prefix,
+then populates the existing buffer inventory before entry classification. Normal/deferred call routes, result/static
+routes, lifecycle source/target routes, and buffer cleanup source/target routes all enter that helper. Result root
+completion type is retained in the existing call subject table, including nonreference aggregates. Consumers require
+actual Borrow/reference kinds before publishing authority. Declaration metadata alone creates no entry identity.
+Inline demand closure deliberately stops at ownership/address boundaries and cannot substitute for these prefixes.
 
-The full trace finds the shared first cause: RawBuffer cleanup in host.product.progress and leave_domain resolves
-Receiver.pointer through a valid prepared path but its current physical reference is Unknown after callbacks/swaps.
-Other failures are nested buffers under OwnedTarget/AnyElement in complete_attachment_exit/acquire. Resolution widens
-to nonambient Unbounded Retire, then provider summaries propagate that effect into register_task and wait_execution.
-The earlier first12-effect listing concealed retirement. Do not infer its absence from that truncated listing.
+Keep all existing fixed outcomes. Oracles include nested_buffer_views_preserve_checked_storage_effects, reference-
+bearing RawBuffer source/import escape rejection, production channel bodies/fabrication/endpoint loops/async cleanup,
+and raw/returned controls. Existing nested-backing test covers current/staged overwrite/retirement, unknown/inexact/
+displaced middle edges, terminal bounds and emptiness. No bespoke provider or expectation changes. Target under300
+net production lines and one policy enum, no second graph. Reconsider above400 lines, invented layout/identity,
+widened authority, repeated type queries in the fixed point or parallel traversal policies.
 
-Explicit call inputs already observe actual stored references with observe_stored_reference. Implicit buffer/lifecycle
-cleanup must use that same current-read policy before resolving indirect effects. Read only prepared indirect effect
-subjects from current live cleanup receivers. Parent pointer reads precede nested owned paths. Preserve authoritative
-empty references. Unknown/inexact locations stay conservative. Establish no trusted facts, source equality, allocation
-freshness, ownership or old contents. This is an actual implicit descriptor read, not entry reconstruction.
+## Current evidence and next action
 
-Prepare the cleanup receiver after existing pending-result publication, capture the skipped branch, observe required
-current descriptor reads only on the selected cleanup branch, resolve current targets, then apply retirement once.
-One helper serves buffer and selected lifecycle consumers through the existing observer. Ordinary calls remain the
-established policy. Existing native18 catches the failure, with frozen raw/source/import66 and1714 controls guarding
-excessive retention. No new bespoke fixture initially. Target under80 production lines, no new types or mutation
-policy. Reconsider if bulk paths need invented identity/layout or unavailable storage is revived.
+On4f767fbb2 all1714 retained frozen identities pass, checker564, raw/returned66 pass. Native18 still only dispatch_ready
+and start_frame failures, involving original selected.acquisition/status after register_task/wait_execution effects.
+Fixed-five414/414/408/419/434ms and named cursor loop231ms. Counts not remeasured. Bound-tree136 passed previously.
 
-Current repair: checker564 pass0.53s. All1714 frozen identities pass, with1712 grouped212.0s and the same final2
-isolated70.60s. All65 frozen raw/source/import controls pass, plus the additional nested-union returned-owner control
-passes0.18s. Native18 gate44.16s still only dispatch/start. Failed actual conditions now name original selected.status
-and selected.acquisition rather than prepare_result.Ok.selected. One correspondence loss is repaired, but composition
-remains unverified. Independent review found and confirmed repair of a conditional-path issue: descriptor reads now
-follow the skipped-branch snapshot. No further actionable findings. Unknown intermediate prefixes and inexact bulk
-paths remain conservative and open. All11 diagnostic diffs and their superseded native-current log pair are removed.
-No style pass yet. Publish the reviewed checkpoint, then continue the existing OwnedTarget transport contract.
+Current canonical source-mapper batch compiles, checker564 passes0.23s. The unchanged bound-tree136 passed earlier.
+The four-case comparison11.35s now passes nested_buffer_views including its replacement negative. Remaining THREE
+regressions are channel declarations/fabrication and endpoint loops. Raw-buffer source/import reachability and async
+channel composition passed on the preceding publication/preparation batch and need reconfirmation with the full suite.
+Native18 isolated86.26s on that preceding batch still had only dispatch/start failures. It is not new-candidate evidence.
+Fixed-five926/1103/821/807/844ms and cursor loop437ms, counts not remeasured, machine contention not isolated.
 
-## Fixed evidence and remaining gates
+Prep repair inventories both staged inputs and all original source places through existing
+ValueInputs::projected_input_value, including conversion adaptation and carried components. Runtime invocation_argument
+deliberately hides staged operands and was the wrong accessor here. Source and staged projection slices stay distinct.
+This supplies DirectoryLink.directory plus nested owner prefixes before entry seeding. rewrite_link still retires
+initial records with no late reconstruction. Independent pre-build review found no concrete issue in this mapper.
 
-Frozen baseline1718 identities on1ceb765eb stays unchanged. Previous compiler baseline55763bb73 also passed all1714 retained identities:
-1712 grouped213.34s, final2 isolated together70.13s. The same2 hit90s bounds when concurrent, not new failures.
-Four removed provider identities remain open replacements by actual product gates, never passes:
-fixtures::tests::production_fixture_phase_timings,
-host_authority::production_host_nested_bodies_and_contracts_are_checked,
-report_protocol::production_report_consumers_check_their_callback_protocol,
-standard_storage::production_storage_boundaries_prove_their_declared_memory_effects.
+Temporary probes confirmed missing nested buffer pointer records, not terminal-bound rejection, in channel and native
+effects. First native example is pop_record_value, followed by host.product paths. Both broad probe runs hit bounds
+and do NOT supply final gate evidence. Probes are removed. Compact examples remain in typed-path-current.json and
+oversized stderr streams are removed. Channel failures first arise at duplicate and receive_waiters.pop_head.
+No read/authority policy has changed. No active build/test processes. Current typed-traversal hypothesis remains
+unverified and is reopened: missing current descriptor records behind checked SpinLock views still prevent finite
+effect resolution. Trace the selected actual bootstrap chain's first loss, including reference publication and
+framing/escape consumers. Do not add another preparation extension or late reconstruction on speculation. Restore
+the three channel identities and the selected real chain together before broader migration or new failure families.
 
-On55763bb73: checker564, bound-tree136, raw/source/import controls66 pass. Fixed-five420/409/405/417/430ms.
-Counts not remeasured. On aa09a61c3: controls66 pass11.16s, native18 gate44.12s with only dispatch/start failures.
-New helper, native retention callback, prepare_start, worker failure and retirement check/lower.
-The current comparison includes the aa09 source batch and this cleanup repair. Earlier catalog62, artifact reuse5 and boundary/cache13 remain valid.
+Frozen baseline1718 on1ceb765eb remains unchanged. Four removed provider identities remain OPEN product-gate
+replacements, never passes: production_fixture_phase_timings, production_host_nested_bodies_and_contracts_are_checked,
+production_report_consumers_check_their_callback_protocol, production_storage_boundaries_prove_their_declared_memory_effects.
+The same attachment/admission two tests require isolated bounded runs after grouped comparison. Preserve baseline,
+current comparison and scheduling identities. One ignored output per purpose in target/audit. Remove superseded traces.
+Shared Cargo/LLVM storage is reused and must never be cleaned. Earlier catalog62, artifact reuse5 and boundary/cache13
+remain valid.
 
-Keep one ignored output per purpose in target/audit. comparison-baseline is frozen. comparison-current1712 and
-slow-current final2 share557 code. comparison-pending.json retains scheduling identities. timing-current records the
-five557 timings. proof-counter.patch and counts-current remain for final counts. Remove superseded traces, not
-baseline evidence. Reuse shared Cargo/LLVM storage, never clean shared caches.
-
-Final gates: actual four-target check/lower and event layout, affected owned/deferred/projection/cleanup suites,
-fixed comparison after semantic changes, fixed-five/loop counts, maintainability/DRY audit, mutating cargo xtask style
-and cargo xtask format, fresh native compiler products, final PR description and published independent review.
-Only then mark PR ready and BRA-694 In Review. BRA-695 is the next separately scoped issue.
+Final gates: actual four-target products/event layout, affected owned/deferred/projection/cleanup suites, fixed
+comparison, five/loop counts, full maintainability/DRY and AGENTS audit, mutating cargo xtask style and cargo xtask format,
+fresh native compiler products, final PR description and published independent review. Only then PR ready and BRA-694
+In Review. No completion claim. BRA-695 remains the next separately scoped issue.

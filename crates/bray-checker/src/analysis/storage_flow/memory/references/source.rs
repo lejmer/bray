@@ -33,6 +33,45 @@ impl Source {
         }
     }
 
+    pub(in crate::analysis::storage_flow) fn address_targets(&self, state: &State) -> Option<Vec<Target>> {
+        let references = match self {
+            Self::Value(source) => state.values.get(source)?.references.as_ref()?,
+            Self::Borrow(capability) => state.borrows.get(capability)?,
+        };
+
+        Some(references.address_targets()?.iter().cloned().collect())
+    }
+
+    pub(in crate::analysis::storage_flow) fn reference_locations(
+        &self,
+        values: &bray_symbols::SemanticValueStore,
+        state: &State,
+        path: &bray_bound_tree::StorageReferencePath,
+        regions: bool,
+    ) -> Option<Vec<Target>> {
+        let resolve = |target, root| {
+            if regions {
+                state.reference_target_regions(values, target, path, root)
+            } else {
+                state.reference_locations(values, target, path, root)
+            }
+        };
+
+        match self {
+            Self::Value(source) => resolve(source.clone(), None),
+            Self::Borrow(_) => {
+                let targets = if regions && path.projections().is_empty() && path.borrows().len() == 1 {
+                    self.regions(state)?
+                } else {
+                    self.address_targets(state)?
+                };
+
+                targets.into_iter().map(|target| resolve(target.clone(), Some(target)))
+                    .collect::<Option<Vec<_>>>().map(|targets| targets.into_iter().flatten().collect())
+            }
+        }
+    }
+
     pub(in crate::analysis::storage_flow) fn regions(&self, state: &State) -> Option<Vec<Target>> {
         match self {
             Self::Value(source) => state.referenced_regions(source),

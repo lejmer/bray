@@ -257,6 +257,13 @@ impl State {
             }
         }
 
+        let mut inputs = inputs.into_iter().peekable();
+
+        if inputs.peek().is_none() {
+            self.stage_empty_reference(call, destination);
+            return;
+        }
+
         let mut bounds = self.expand_returned_regions(inputs, None);
 
         // Checked regions are closed physical bounds, not forwarded addresses.
@@ -557,6 +564,7 @@ impl State {
         destination: Target,
         allocation: Place,
         projections: &[bray_bound_tree::StorageProjection],
+        ty: TypeId,
     ) {
         let target = Target { previous: false,
             origin: Origin::Allocation { allocation, projections: [].into() } };
@@ -565,9 +573,13 @@ impl State {
 
         pending.payloads.entry(target.clone()).or_default().allocations.extend(call.expression());
 
+        let target = target.project(projections);
+
+        pending.payloads.entry(target.clone()).or_default().storage_type = Some(ty);
+
         pending.values.entry(destination).or_default()
             .references.get_or_insert_with(References::default)
-            .merge(&References::one(target.project(projections)));
+            .merge(&References::one(target));
     }
 
     pub(in crate::analysis::storage_flow) fn uninit(&mut self, target: Target, element: TypeId) {

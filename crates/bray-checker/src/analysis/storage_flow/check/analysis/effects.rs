@@ -10,7 +10,6 @@ use crate::CheckerRequestContext;
 use crate::analysis::model::{AnalysisCallPhase, AnalysisOperationKind};
 use crate::analysis::storage_flow::memory::{Origin, Target};
 use crate::analysis::storage_flow::model::StorageFlowState;
-use crate::storage::storage_projections;
 use bray_bound_tree::StorageAccessPurpose;
 
 impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
@@ -491,127 +490,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             occurrence,
             Some(&effects.invalidation),
         );
-    }
-
-    pub(super) fn call_effects(
-        &self,
-        state: &crate::analysis::storage_flow::model::StorageFlowState,
-        occurrence: bray_bound_tree::BoundExecutionSite,
-        effects: &[DependencyStorageEffect],
-    ) -> Vec<Effect> {
-        self.resolve_effects(effects, |subject, indirect| {
-            if indirect
-                && subject.projections().is_empty()
-                && !matches!(
-                    subject.subject_root(),
-                    DependencySubjectRoot::ProductStatic(_)
-                        | DependencySubjectRoot::ExactThreadStatic(_)
-                )
-            {
-                self.invocation_reference(state, occurrence, subject.subject_root())?
-                    .regions(&state.memory)
-            } else {
-                let locations = self.invocation_locations(state, occurrence, subject)?;
-
-                if indirect {
-                    locations
-                        .iter()
-                        .try_fold(Vec::new(), |mut targets, location| {
-                            let regions = state.memory.referenced_regions(location);
-
-                            targets.extend(regions?);
-
-                            Some(targets)
-                        })
-                } else {
-                    Some(locations)
-                }
-            }
-        })
-    }
-
-    pub(super) fn resolve_effects(
-        &self,
-        effects: &[DependencyStorageEffect],
-        mut resolve: impl FnMut(&DependencySubject, bool) -> Option<Vec<Target>>,
-    ) -> Vec<Effect> {
-        let mut resolved = Vec::new();
-
-        for effect in effects {
-            let (subject, indirect, projections, kind, access_type) = match effect {
-                DependencyStorageEffect::UnboundedMutation { kind, access_type, ambient } => {
-                    resolved.push(Effect::unbounded(*kind, *access_type, *ambient));
-                    continue;
-                }
-                DependencyStorageEffect::Escape => {
-                    resolved.push(Effect::Escape);
-                    continue;
-                }
-                DependencyStorageEffect::Ambient => {
-                    resolved.push(Effect::Ambient);
-                    continue;
-                }
-                DependencyStorageEffect::Unknown => {
-                    resolved.push(Effect::Unknown);
-                    continue;
-                }
-                DependencyStorageEffect::Atomic => {
-                    resolved.push(Effect::Atomic);
-                    continue;
-                }
-                DependencyStorageEffect::Direct { subject, kind, access_type } => {
-                    (subject, false, &[][..], *kind, *access_type)
-                }
-                DependencyStorageEffect::Indirect {
-                    reference,
-                    projections,
-                    kind,
-                    access_type,
-                } => (reference, true, projections.as_ref(), *kind, *access_type),
-            };
-
-            let static_subject = matches!(
-                subject.subject_root(),
-                DependencySubjectRoot::ProductStatic(_)
-                    | DependencySubjectRoot::ExactThreadStatic(_)
-            );
-
-            let suffix = storage_projections(
-                self.request.semantic_values(),
-                self.dependencies,
-                projections,
-            );
-
-            let suffix = if let Some(suffix) = suffix {
-                suffix
-            } else if static_subject {
-                Vec::new()
-            } else {
-                resolved.push(Effect::unbounded(kind, access_type, false));
-
-                continue;
-            };
-
-            let Some(targets) = resolve(subject, indirect) else {
-                if kind == DependencyMutationKind::Atomic {
-                    resolved.push(Effect::Atomic);
-                    continue;
-                }
-
-                resolved.push(Effect::unbounded(kind, access_type, false));
-
-                continue;
-            };
-
-            for target in targets {
-                resolved.push(Effect::Mutation(target.project(&suffix), kind, access_type));
-            }
-        }
-
-        resolved.sort_unstable();
-        resolved.dedup();
-
-        resolved
     }
 
     pub(super) fn record_resolved_effects(

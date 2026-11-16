@@ -1,8 +1,8 @@
 use super::super::core::StorageFlowCollector;
 use crate::CheckerRequestContext;
-use crate::analysis::storage_flow::memory::{Place, Source, State, Target};
+use crate::analysis::storage_flow::memory::{Place, Source, Target};
 use crate::analysis::storage_flow::model::StorageFlowState;
-use bray_bound_tree::{AnyBoundNodeId, BoundExpressionId, BoundExecutionSite, StorageAccessPurpose, StorageProjection, StorageReferencePath};
+use bray_bound_tree::{AnyBoundNodeId, BoundExpressionId, StorageAccessPurpose};
 
 impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     fn staged_memory_input(
@@ -245,108 +245,4 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             .find(|capability| state.memory.has_borrow(*capability))
             .map(Source::Borrow)
     }
-}
-
-impl crate::analysis::storage_flow::model::StorageFlowInput {
-    pub(in crate::analysis::storage_flow) fn reference_locations(
-        &self,
-        values: &bray_symbols::SemanticValueStore,
-        memory: &State,
-        start: Target,
-        path: &StorageReferencePath,
-        root_borrow: Option<Target>,
-    ) -> Option<Vec<Target>> {
-        self.stored_locations(values, memory, path, None, |prefix| {
-            memory.reference_locations(values, start, prefix, root_borrow)
-        })
-    }
-
-    // Resolve owning projections through the descriptor's established backing
-    // reference. No ownership or exact alias authority follows from this lookup.
-    pub(in crate::analysis::storage_flow) fn stored_locations(
-        &self,
-        values: &bray_symbols::SemanticValueStore,
-        memory: &State,
-        path: &bray_bound_tree::StorageReferencePath,
-        staged: Option<(BoundExecutionSite, &Target)>,
-        first: impl FnOnce(&bray_bound_tree::StorageReferencePath) -> Option<Vec<Target>>,
-    ) -> Option<Vec<Target>> {
-
-        let projections = path.projections();
-        let mut borrows = path.borrows().iter().copied().peekable();
-        let mut start = 0;
-        let mut first = Some(first);
-        let mut locations = Vec::new();
-
-        loop {
-            let end = projections[start..].iter().position(|projection| *projection == StorageProjection::OwnedTarget)
-                .map_or(projections.len(), |index| start + index);
-
-            let mut segment_borrows = Vec::new();
-
-            while borrows.peek().is_some_and(|(index, _)| *index <= end) {
-                let (index, ty) = borrows.next().expect("peeked stored-path borrow exists");
-
-                segment_borrows.push((index.checked_sub(start)?, ty));
-            }
-
-            let segment = StorageReferencePath::new(projections[start..end].into(), segment_borrows.into());
-
-            locations = if let Some(resolve) = first.take() {
-                resolve(&segment)?
-            } else {
-                locations.into_iter().map(|target| {
-                    if let Some((occurrence, root)) = staged {
-                        memory.staged_reference_locations(occurrence, values, root, &target, &segment)
-                    } else {
-                        memory.reference_locations(values, target, &segment, None)
-                    }
-                }).collect::<Option<Vec<_>>>()?.into_iter().flatten().collect()
-            };
-
-            if end == projections.len() {
-                return Some(locations);
-            }
-
-            let mut reached = std::collections::BTreeSet::new();
-
-            for owner in locations {
-                let owner_type = memory.declared_type(&owner).map(|ty| values.unborrowed_type(ty));
-                let fields = self.raw_buffers.iter().filter(|(ty, _)| owner_type.is_none_or(|owner_type| owner_type == **ty));
-                let mut found = false;
-
-                for (_, fields) in fields {
-                    let pointer = StorageProjection::ProductField(fields.pointer);
-
-                    let regions = if let Some((occurrence, root)) = staged {
-                        memory.staged_reference_regions(occurrence, root, &owner.project(&[pointer]))
-                    } else {
-                        memory.owned_regions(&owner, pointer)
-                    };
-
-                    if let Some(regions) = regions {
-                        found = true;
-                        reached.extend(regions);
-                    }
-                }
-
-                if !found {
-                    if owner_type.is_some_and(|ty| !self.raw_buffers.contains_key(&ty)) {
-                        reached.insert(owner.project(&[StorageProjection::OwnedTarget]));
-                    } else {
-                        return None;
-                    }
-                }
-            }
-
-            locations = reached.into_iter().collect();
-
-            if locations.is_empty() {
-                return None;
-            }
-
-            start = end + 1;
-        }
-    }
-
 }

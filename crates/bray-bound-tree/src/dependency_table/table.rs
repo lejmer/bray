@@ -671,7 +671,7 @@ mod tests {
             bray_symbols::DependencyReferenceKind::Borrow,
         );
 
-        let references = vec![super::BoundCallReference::new(relation, true, None)];
+        let references = vec![super::BoundCallReference::new(relation, true, None, None)];
 
         let retained = Some(std::collections::BTreeSet::from([expression.into()]));
         let phases = phases.with_references(references.clone(), retained.clone());

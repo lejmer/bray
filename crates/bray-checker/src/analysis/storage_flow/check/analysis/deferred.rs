@@ -2,7 +2,7 @@ use bray_bound_tree::BoundExecutionSite;
 use bray_symbols::{DependencyMutationKind as Kind, DependencySubjectRoot};
 
 use super::core::StorageFlowCollector;
-use crate::analysis::storage_flow::memory::{Effect, Target};
+use crate::analysis::storage_flow::memory::{Effect, Source, Target};
 use crate::analysis::storage_flow::model::StorageFlowState;
 use crate::CheckerRequestContext;
 
@@ -27,7 +27,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         let captures = self.capture_opaque_effects(state, invocation, self.call_effects(state, invocation, captures), &roots, &private, &output);
 
-        let result = self.resolve_effects(result, |subject, indirect| {
+        let result = self.resolve_effects(result, |subject, indirect, projections| {
             let locations = if matches!(subject.subject_root(), DependencySubjectRoot::ProductStatic(_) | DependencySubjectRoot::ExactThreadStatic(_)) {
                 self.invocation_locations(state, invocation, subject)?
             } else {
@@ -38,18 +38,14 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 self.invocation_stored_locations(state, invocation, subject, contracts.reference_path(subject)?, true)?
             };
 
-            if indirect {
-                locations.into_iter().try_fold(Vec::new(), |mut targets, location| {
-                    targets.extend(if subject.subject_root() == DependencySubjectRoot::Result {
-                        state.memory.staged_reference_regions(invocation, &output, &location)?
-                    } else {
-                        state.memory.referenced_regions(&location)?
-                    });
+            if !indirect {
+                return Some(locations);
+            }
 
-                    Some(targets)
-                })
+            if subject.subject_root() == DependencySubjectRoot::Result {
+                self.staged_effect_reference_targets(&state.memory, invocation, &output, locations, contracts.reference_type(subject), projections)
             } else {
-                Some(locations)
+                self.effect_reference_targets(&state.memory, locations.into_iter().map(Source::Value), contracts.reference_type(subject), projections)
             }
         });
 

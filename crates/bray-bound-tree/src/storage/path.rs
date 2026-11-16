@@ -85,12 +85,28 @@ impl StoragePath {
     }
 }
 
-/// A checked reference access, retaining projections and the typed dereferences between them.
-/// It identifies an access route, not a physical storage identity or an authority grant.
+/// The declared storage policy of one owning projection in a checked access route.
+#[derive(Copy, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum StorageReferenceOwner {
+    /// Storage selected by an ordinary owning indirection.
+    Indirection,
+    /// Buffer backing reached through its declared pointer field.
+    Buffer {
+        /// The declared owning descriptor type.
+        ty: bray_symbols::TypeId,
+        /// The field containing the current allocation address.
+        pointer: bray_symbols::StructFieldSymbolId,
+        /// The declared allocation element type.
+        element: bray_symbols::TypeId,
+    },
+}
+
+/// A checked access route, including typed borrow and owned-storage loads.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct StorageReferencePath {
     projections: Arc<[StorageProjection]>,
     borrows: Arc<[(usize, bray_symbols::TypeId)]>,
+    owners: Arc<[(usize, StorageReferenceOwner)]>,
 }
 
 impl StorageReferencePath {
@@ -106,10 +122,17 @@ impl StorageReferencePath {
     pub fn new(
         projections: Arc<[StorageProjection]>,
         borrows: Arc<[(usize, bray_symbols::TypeId)]>,
+        owners: Arc<[(usize, StorageReferenceOwner)]>,
     ) -> Self {
+        assert!(projections.iter().enumerate()
+            .filter_map(|(index, projection)| (*projection == StorageProjection::OwnedTarget).then_some(index))
+            .eq(owners.iter().map(|(index, _)| *index)),
+            "checked reference path retains every owned-storage load");
+
         Self {
             projections,
             borrows,
+            owners,
         }
     }
 
@@ -123,15 +146,45 @@ impl StorageReferencePath {
         &self.borrows
     }
 
+    /// The declared policy for each owning projection, prepared before flow analysis.
+    pub fn owners(&self) -> &[(usize, StorageReferenceOwner)] {
+        &self.owners
+    }
+
+    /// Retains the checked metadata before a selected reference load.
+    pub fn prefix(&self, projections: usize, borrows: usize) -> Self {
+        Self::new(self.projections[..projections].into(), self.borrows[..borrows].into(),
+            self.owners.iter().copied().take_while(|(index, _)| *index < projections).collect())
+    }
+
+    /// Removes formal wrapping without moving any load into the caller's removed prefix.
+    pub fn strip_prefix(&self, prefix: &[StorageProjection]) -> Option<Self> {
+        Some(Self::new(self.projections.strip_prefix(prefix)?.into(),
+            self.borrows.iter().map(|(index, ty)| Some((index.checked_sub(prefix.len())?, *ty))).collect::<Option<Vec<_>>>()?.into(),
+            self.owners.iter().map(|(index, owner)| Some((index.checked_sub(prefix.len())?, *owner))).collect::<Option<Vec<_>>>()?.into()))
+    }
+
     /// Appends checked terminal borrow loads while retaining the component route.
     pub fn with_terminal_borrows(&self, targets: &[bray_symbols::TypeId]) -> Self {
-        if targets.is_empty() { return self.clone(); }
+        if targets.is_empty() {
+            return self.clone();
+        }
 
         Self {
             projections: Arc::clone(&self.projections),
             borrows: self.borrows.iter().copied()
                 .chain(targets.iter().map(|ty| (self.projections.len(), *ty)))
                 .collect::<Vec<_>>().into(),
+            owners: Arc::clone(&self.owners),
+        }
+    }
+
+    /// Prepends the checked borrow loads performed before this value's access route.
+    pub fn with_initial_borrows(&self, targets: &[bray_symbols::TypeId]) -> Self {
+        Self {
+            projections: Arc::clone(&self.projections),
+            borrows: targets.iter().map(|ty| (0, *ty)).chain(self.borrows.iter().copied()).collect(),
+            owners: Arc::clone(&self.owners),
         }
     }
 

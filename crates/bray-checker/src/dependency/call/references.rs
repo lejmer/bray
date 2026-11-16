@@ -163,7 +163,13 @@ pub(super) fn with_reference_inputs<C: CheckerRequestContext + ?Sized>(
 
     let receiver = input_type(&bray_symbols::DependencySubject::root(DependencySubjectRoot::Receiver))?.is_some();
 
-    let result_type = input_type(&bray_symbols::DependencySubject::root(DependencySubjectRoot::Result))?.map(|(ty, _)| ty);
+    let result_subject = bray_symbols::DependencySubject::root(DependencySubjectRoot::Result);
+    let result = input_type(&result_subject)?;
+    let result_type = result.as_ref().map(|(ty, _)| *ty);
+
+    if let Some(result) = result {
+        inputs.entry(result_subject).or_insert(result);
+    }
 
     let returned = returned_values(request, template.owned_result().transfers(), result_type, contracts.input_count(), |ordinal| {
         let root = if receiver && ordinal == 0 { DependencySubjectRoot::Receiver }
@@ -221,19 +227,10 @@ pub(crate) fn prepare_references<C: CheckerRequestContext + ?Sized>(
     let mut incomplete = std::collections::BTreeSet::new();
 
     for relation in relations {
-        let subject =
-            if relation.provenance() == bray_symbols::DependencyReferenceProvenance::InputRegions {
-                relation.exit()
-            } else {
-                relation.entry().unwrap_or_else(|| relation.exit())
-            };
+        let source = relation.entry().and_then(|subject| input_type(subject));
+        let output = input_type(relation.exit());
 
-        if relation
-            .entry()
-            .is_none_or(|entry| input_type(entry).is_some())
-            && let Some(ty) = input_type(subject)
-            && let Some(reference) = prepare_reference(request, relation, ty)?
-        {
+        if let Some(reference) = prepare_reference(request, relation, source, output)? {
             references.push(reference);
         } else {
             incomplete.insert(relation.exit().clone());
@@ -248,54 +245,56 @@ pub(crate) fn prepare_references<C: CheckerRequestContext + ?Sized>(
 fn prepare_reference<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     relation: &bray_symbols::DependencyBorrowRelation,
-    mut ty: bray_symbols::TypeId,
+    source: Option<bray_symbols::TypeId>,
+    output: Option<bray_symbols::TypeId>,
 ) -> Result<Option<BoundCallReference>, CheckerQueryError<C::UpstreamError>> {
-    if relation.entry().is_none()
-        || relation.provenance() == bray_symbols::DependencyReferenceProvenance::InputRegions
-    {
-        return Ok(crate::representation::reference_target_type(request, ty)
-            .map(|target| BoundCallReference::new(relation.clone(), false, Some(target))));
+    if relation.entry().is_none() {
+        return Ok(output.and_then(|ty| crate::representation::reference_target_type(request, ty))
+            .map(|target| BoundCallReference::new(relation.clone(), false, Some(target), None)));
     }
 
+    let Some(mut ty) = source else {
+        return Ok(None);
+    };
+
+    let mut dereferences = Vec::new();
+
     for _ in 0..relation.dereferences() {
-        let bray_symbols::TypeData::Borrow { target, .. } =
-            *request.semantic_values().type_data(ty)
-        else {
+        let bray_symbols::TypeData::Borrow { target, .. } = *request.semantic_values().type_data(ty) else {
             return Ok(None);
         };
 
         ty = target;
+        dereferences.push(ty);
     }
 
     let kind = crate::representation::reference_kind(request, ty);
-
-    let addressed_type = if relation.target_projections().is_empty() {
-        kind.is_none().then_some(ty)
-    } else {
-        let Some(mut target) = crate::representation::reference_target_type(request, ty) else {
+    let regions = relation.provenance() == bray_symbols::DependencyReferenceProvenance::InputRegions;
+    let target = if !relation.target_projections().is_empty() || regions && kind.is_some() {
+        let Some((target, path)) = crate::storage::reference_target_path(request, ty, relation.target_projections())? else {
             return Ok(None);
         };
 
-        for projection in relation.target_projections() {
-            let projected = crate::storage::projected_value_type(request, target, *projection)?;
-
-            let Some(projected) = *projected.value() else {
-                return Ok(None);
-            };
-
-            target = projected;
-        }
-
-        Some(target)
+        Some((target, path.with_initial_borrows(&dereferences)))
+    } else {
+        None
     };
 
-    // The bound call retains the immutable relation independently of its source template.
+    let addressed_type = if regions {
+        let Some(target) = output.and_then(|ty| crate::representation::reference_target_type(request, ty)) else {
+            return Ok(None);
+        };
+
+        Some(target)
+    } else {
+        target.as_ref().map(|(ty, _)| *ty).or_else(|| kind.is_none().then_some(ty))
+    };
+
     Ok(Some(BoundCallReference::new(
         relation.clone(),
-        relation.is_exact()
-            && kind == Some(relation.kind())
-            && relation.target_projections().is_empty(),
+        !regions && relation.is_exact() && kind == Some(relation.kind()) && relation.target_projections().is_empty(),
         addressed_type,
+        target.map(|(_, path)| path),
     )))
 }
 
