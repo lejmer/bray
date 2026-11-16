@@ -75,6 +75,13 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 let receiver = self.prepare_cleanup_receiver(&mut memory, &mutation);
                 let skipped = conditional.then(|| memory.clone());
 
+                if let Some(receiver) = &receiver
+                    && let Err(error) = self.observe_cleanup_reference_inputs(&mut memory, receiver, &mutation)
+                {
+                    self.query_failure = Some(error);
+                    return;
+                }
+
                 if let CleanupMutation::Lifecycle(call) = &mutation {
                     self.collect_lifecycle_reports(operation, call, &mut report_outputs);
                 }

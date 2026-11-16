@@ -1,6 +1,8 @@
 use crate::analysis::storage_flow::memory::{Origin, Source, Target};
 use crate::CheckerRequestContext;
 use crate::analysis::storage_flow::memory::Place;
+use crate::analysis::guarantee::CleanupMutation;
+use bray_symbols::{DependencyStorageEffect, DependencySubjectRoot};
 
 impl crate::analysis::storage_flow::model::StorageFlowInput {
     pub(in crate::analysis::storage_flow) fn reference_slots<'a>(
@@ -367,5 +369,66 @@ impl<C: CheckerRequestContext + ?Sized> super::super::core::StorageFlowCollector
             .collect::<Vec<_>>();
 
         memory.observe_reference(self.request, location, logical, pointee, inputs)
+    }
+
+    pub(in crate::analysis::storage_flow::check::analysis) fn observe_cleanup_reference_inputs(
+        &self,
+        memory: &mut crate::analysis::storage_flow::memory::State,
+        receiver: &Target,
+        mutation: &CleanupMutation<'_>,
+    ) -> crate::CheckerQueryResult<(), C::UpstreamError> {
+        let logical = match mutation {
+            CleanupMutation::Opaque { path, .. } => *path,
+            CleanupMutation::Lifecycle(call) => call.path,
+            CleanupMutation::Unchanged | CleanupMutation::Recovery => unreachable!("only an actual cleanup has a receiver"),
+        }.expect("resolved cleanup receiver retains its logical path");
+
+        let effects = match mutation {
+            CleanupMutation::Opaque { ty, .. } => self.input.buffer_cleanup_effects.get(ty).map(Vec::as_slice),
+            CleanupMutation::Lifecycle(call) => Some(self.dependencies.lifecycle_dependencies()[&call.lifecycle.call.callable].effects()),
+            CleanupMutation::Unchanged | CleanupMutation::Recovery => None,
+        };
+
+        let subjects = effects.into_iter().flatten().filter_map(|effect| match effect {
+            DependencyStorageEffect::Indirect { reference, .. } => Some(reference),
+            _ => None,
+        }).collect::<std::collections::BTreeSet<_>>();
+
+        let mut inputs = subjects.into_iter().filter_map(|subject| {
+            let prepared = match mutation {
+                CleanupMutation::Opaque { ty, .. } => self.input.buffer_cleanup_paths.get(&(*ty, subject.clone())),
+                CleanupMutation::Lifecycle(call) => self.input.lifecycle_paths.get(&(call.lifecycle.call.callable, subject.clone())),
+                CleanupMutation::Unchanged | CleanupMutation::Recovery => None,
+            }?;
+
+            Some((subject, prepared))
+        }).collect::<Vec<_>>();
+
+        // A parent descriptor supplies the current backing for nested owned paths.
+        inputs.sort_by_key(|(_, (_, path))| path.projections().len());
+
+        for (subject, (ty, path)) in inputs {
+            let Some(pointee) = crate::representation::reference_target_type(self.request, *ty) else {
+                continue;
+            };
+
+            let Some(locations) = self.cleanup_subject_locations(memory, receiver, subject, Some(path)) else {
+                continue;
+            };
+
+            for location in locations {
+                let logical = if subject.subject_root() == DependencySubjectRoot::Receiver {
+                    Place { root: logical.root, projections: logical.projections.iter().chain(path.projections()).copied().collect() }
+                } else if let Some(logical) = location.observation_path() {
+                    logical
+                } else {
+                    continue;
+                };
+
+                self.observe_stored_reference(memory, location, logical, pointee)?;
+            }
+        }
+
+        Ok(())
     }
 }
