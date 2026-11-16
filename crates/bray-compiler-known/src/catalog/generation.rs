@@ -783,6 +783,8 @@ mod tests {
             "StandardNativeThreadStart",
             "StandardNativeThreadPanicReporting",
             "StandardPlatformHeapAlignedAllocate",
+            "StandardLinuxCurrentThreadIdentity",
+            "StandardWindowsCurrentThreadIdentity",
             "StandardNumericUsizeMaximum",
             "StandardRawAllocation",
             "StandardRawAllocationAlign",

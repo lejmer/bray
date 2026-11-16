@@ -1,5 +1,29 @@
 catalog recognized_standard_library revision 1;
 
+scope StandardLinuxThread at std.os.linux {
+    declaration StandardLinuxCurrentThreadIdentity {
+        identity name pthread_self;
+        availability ForeignAbi;
+
+        surface {
+            trusted func pthread_self() -> u64
+                uses(foreign_call);
+        }
+    }
+}
+
+scope StandardWindowsThread at std.os.windows {
+    declaration StandardWindowsCurrentThreadIdentity {
+        identity name get_current_thread_id;
+        availability ForeignAbi;
+
+        surface {
+            trusted func get_current_thread_id() -> u32
+                uses(foreign_call);
+        }
+    }
+}
+
 scope StandardFfi at std.ffi {
     declaration StandardCallbackContext {
         identity name CallbackContext;

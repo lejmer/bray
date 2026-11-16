@@ -159,51 +159,6 @@ trusted internal func prepare_start(
     return Ok(trusted make(selected, reference, token, admission, initial));
 }
 
-trusted internal func reserve_start(
-    pos prepared: &mut PreparedStart,
-    pos driver: bray.runtime.bootstrap.scheduler.Lane?,
-    pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>
-) -> u32
-    requires(
-        blocking_execution(),
-        trusted inactive_start(owner = &prepared),
-        trusted bray.runtime.bootstrap.entry.native_entry(),
-        trusted bray.runtime.bootstrap.host.product.native_host(),
-        trusted bray.runtime.bootstrap.pool.protocol_access()
-    )
-    ensures(trusted inactive_start(owner = &prepared), result != 0 || prepared.registration matches ?_)
-{
-    let (lane, status) = trusted select_lane(&prepared.execution.execution, 0, &prepared.initial, driver);
-
-    if status != 0
-    {
-        return status;
-    }
-
-    let registration = trusted register_task(&prepared.execution.execution, prepared.reference.handle, lane, driver);
-
-    if registration == 0
-    {
-        return 4;
-    }
-
-    prepared.registration = registration;
-
-    let failure = trusted demand_lane(&prepared.execution.execution, lane);
-
-    if failure.stage != 0
-    {
-        trusted bray.runtime.bootstrap.host.product.publish_provider<bray.runtime.bootstrap.ReportOutcome>(
-            outcome,
-            trusted bray.runtime.bootstrap.worker.failure_outcome(&failure)
-        );
-
-        return 5;
-    }
-
-    return 0;
-}
-
 trusted internal func commit_start(pos owner: &mut PreparedStart) -> u32
     requires(
         blocking_execution(),

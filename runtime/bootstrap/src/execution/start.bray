@@ -229,16 +229,45 @@ impl bray.runtime.bootstrap.activation.Producer
             {
                 yield with mut owner = preparation
                 {
-                    let status = trusted reserve_start(&mut owner, driver, outcome);
+                    let (lane, status) = trusted select_lane(
+                        &owner.execution.execution,
+                        0,
+                        &owner.initial,
+                        driver
+                    );
 
-                    yield if status == 0
+                    if status != 0
                     {
-                        yield trusted commit_start(&mut owner);
+                        return status;
                     }
-                    else
+
+                    let registration = trusted register_task(
+                        &owner.execution.execution,
+                        owner.reference.handle,
+                        lane,
+                        driver
+                    );
+
+                    if registration == 0
                     {
-                        yield status;
-                    };
+                        return 4;
+                    }
+
+                    owner.registration = registration;
+
+                    let failure = trusted demand_lane(&owner.execution.execution, lane);
+
+                    if failure.stage != 0
+                    {
+                        trusted bray.runtime.bootstrap.host.product.publish_provider<bray.runtime.bootstrap.ReportOutcome>(
+                            outcome,
+                            trusted bray.runtime.bootstrap.worker.failure_outcome(&failure)
+                        );
+
+                        return 5;
+                    }
+
+                    yield trusted commit_start(&mut owner);
                 };
             }
             case Error(status) { yield status; }

@@ -2,7 +2,7 @@ use bray_target::NativeTarget;
 
 use super::fixtures::production_host_compilation_for_target;
 use crate::SelectedTarget;
-use crate::test_support::source_function_body_key;
+use crate::test_support::{source_function_body_key, source_type_callable_member_body_key};
 
 #[test]
 #[ignore = "tier:proof"]
@@ -24,8 +24,12 @@ fn assert_bootstrap_contracts(target: NativeTarget) {
 
     let mut failures = Vec::new();
 
-    for name in ["owner_entry_scope", "dispatch_ready", "reserve_start"] {
-        let key = source_function_body_key(&compilation, name);
+    for name in ["owner_entry_scope", "dispatch_ready", "start_frame"] {
+        let key = if name == "start_frame" {
+            source_type_callable_member_body_key(&compilation, name)
+        } else {
+            source_function_body_key(&compilation, name)
+        };
         let properties = compilation.execution_properties(key.clone()).expect("native bootstrap contracts are checked");
         let lowered = compilation.lowered_unit(key).expect("native bootstrap body lowers");
 

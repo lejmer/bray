@@ -4,8 +4,8 @@ Issue: https://linear.app/bray-lang/issue/BRA-694.
 Draft PR: https://github.com/lejmer/bray/pull/717.
 Branch: `feature/bra-694-native-bootstrap-contracts`, rebased onto develop 5de46243b.
 PR #710 and its seven prerequisites are merged. Execution and teardown remain BRA-695 and BRA-696.
-Reviewer: `/root/bra694_review`, clean incremental review of 1ceb765eb, replayed unchanged as 418fecf7f:
-https://github.com/lejmer/bray/pull/717#pullrequestreview-5912959148.
+Reviewer: `/root/bra694_review`, clean incremental review through c606aaf83:
+https://github.com/lejmer/bray/pull/717#pullrequestreview-5913651968.
 Both earlier findings have resolved PR threads.
 
 ## Outcome and constraints
@@ -23,17 +23,17 @@ Style is deferred until errors are resolved. Commit/push checkpoints, then publi
 
 ## Current evidence
 
-Head 1440b142a is pushed. All 563 checker tests pass. Protected address/raw-read/Uninit/nested-buffer composition passes
+Head c606aaf83 is pushed. All 563 checker tests pass on production semantics 1440b142a. Protected address/raw-read/Uninit/nested-buffer composition passes
 source/import, including exact retirement and fabrication rejection locations. Conditional-future active, inactive and
 dropped controls pass both modes. The frozen opaque-execution negative is restored. No atomic-frame panic appeared
 after completing the effect inventory, but whole-provider completion is unverified.
 
 The frozen 1,718-identity comparison on 1ceb765eb had three regressions and seven panic timeouts. The three regressions
 now pass focused checks. A subsequent 39-case run completed 20 passes and stopped at 300 seconds with 16 unfinished.
-Both native probes still fail at dispatch_ready/context(view_owned) and reserve_start/registration presence.
+Both native probes still fail at dispatch_ready/context(view_owned) and start_frame's scoped owner authority.
 The corrected source/import tag fixture passes with its API import and conditional memory import.
 
-The uncommitted setup batch removes four duplicate provider tests and their separate cache and shares native dependency
+The setup checkpoint removes four duplicate provider tests and their separate cache and shares native dependency
 preparation across readiness/composition/std tests/performance/smoke. Five artifact reuse/pinned-input controls pass.
 All 13 remaining boundary/totality/cache controls pass in 19.1 seconds. No fixture-cache semantic change remains.
 Do not bypass the existing identity-namespace invalidation contract.
@@ -41,12 +41,13 @@ Do not bypass the existing identity-namespace invalidation contract.
 Native-exit, retirement and shutdown now retain all 15/5/7 cases as named functions under native-execution/contracts.
 One immutable Compilation discovers all three files and shares one CPU-sized worker pool across all groups, without
 source revisions. Their helper matches the actual source-unit inventory bijectively to expected outcomes and reports
-each case. All 27 pass in 16.8 seconds total under a 60-second bound. First probe checks cold dependencies in 10.26 seconds,
+each case. All 27 pass in 16.92 seconds total under a 60-second bound. First probe checks cold dependencies in 10.25 seconds,
 the other 26 total about two seconds, mostly 2–50 ms. The former 15-source-revision run exceeded 120 seconds. A single
 cold probe demanded 479 body units, 501 preparations, 293 certificates and 192 components through attachment cleanup
 and provider callbacks. Remaining cold compiler cost is separate performance work. Temporary query tracing and selection
-are removed. No test is running. Actual native products replace the four removed positive gates and remain mandatory.
+are removed. Actual native products replace the four removed positive gates and remain mandatory.
 Do not count those removed identities as passes.
+The setup checkpoint reduces production by 78 lines and tests by 147 lines, excluding records.
 
 Actual four-target products, event layout, final matrices/comparison, fixed-five/loop, mutating style/format and
 maintainability gates remain open. Use shared Cargo/LLVM storage. Native toolchain workflows run outside the sandbox.
@@ -139,7 +140,44 @@ waking, and scope exit releases only the preparation's independent services. The
 Never move the scoped capability into a helper, duplicate withdrawal, postpone the store or reassert predicates.
 Update the native bootstrap named-body control to start_frame. Expected production growth is negative. Reconsider on
 any loss of cleanup authority, changed failure outcome or regression in frozen opaque/raw-mutation controls.
-This source change remains unimplemented. dispatch_ready's first view-owned invalidation remains unresolved.
+This source change is implemented locally. Its Windows check/lower attempt completes in 40.2 seconds under a 90-second
+bound. Registration presence is no longer the failure. commit_start's inactive_start and the scoped exit's prepared_start
+lose selected/view_owned evidence. The method control uses source_type_callable_member_body_key.
+
+Actual CheckedRefinements.invalidations establish dispatch_ready's first unrepaired loss at wait_execution's Node
+operation, driving.bray byte 6457. dispatch_task also invalidates the marker but reestablishes it through its postcondition.
+Later select_lane, task_failure, demand_lane and record_task_failure preserve the marker. Call-input and cleanup frames
+are separate. StorageFlow.observation_invalidations contains conditional input frames and is not the actual effect trace.
+The public dependency-contract view reports empty call effects here. It projects the same BodySemantics publication
+as refinements and flow, not a shallow alternative. Huge internal effects and final empty tables must be correlated by
+compilation and solver round. Numeric unit IDs repeat. No mixed-publication or equality omission is established.
+
+The final published release_arena summary now keeps the arena allocation retirement and outer slab-buffer retirement
+bounded. A nested buffer retirement is still unresolved, as is a usize replacement from host payload mutation. Trace
+the actual inner pointer demand through raw Arena read, Uninit extraction and guarded buffer cleanup before editing.
+Event retirement remains correctly bounded.
+
+host_access calls std.thread.current_platform_identity. Its bodyless OS getters use generic Ambient/Escape despite
+only reading native thread identity. Purity would be false because this observes ambient state. Recognize only the
+authorized std.os.linux.pthread_self and std.os.windows.get_current_thread_id declarations, after real source-body
+inference, with empty storage effects. Keep execution impurity, foreign-call capability, result typing, native calls,
+all other foreign fallbacks and source-body effects unchanged. Empty effects already imply normal preservation.
+Source inference owns the contract, exports serialize it and importers consume it without recognition overrides.
+This preserves current stored fields across the observer, including direct/deferred and cleanup consumers, without
+restoring historical entry fields, changing raw retirement or granting access/freshness. Both OS scopes are optional.
+
+Oracles: mutable incoming tag preservation across the canonical observer, the same named ordinary extern remaining
+opaque, source/import purity rejection, existing opaque execution/raw-retirement negatives, and both native bootstrap
+composition controls. Keep the fixed comparison. Growth limit: 40 production lines excluding generated catalog output.
+Reconsider if purity is granted, recognition spreads to wrappers or foreign calls generally, a new language construct
+is required, or real source writes are hidden. The two native controls still fail after this local change, so the whole
+native composition is unresolved. All 62 catalog tests pass. The two small controls pass in 120 ms total, including
+source/import storage preservation and impurity rejection, plus ordinary same-symbol rejection. Four adjacent controls
+pass in 4.72 seconds: allocator separation without access, protected nested cleanup, raw read consumption and opaque
+shared-carrier invalidation. The final native trace
+confirms host_access publishes only Atomic, the getter publishes no storage effects, and domain getters stay bounded.
+All temporary tracing is removed. No build or test is running. Style remains deferred to finalization.
+
 
 ## Next work
 
