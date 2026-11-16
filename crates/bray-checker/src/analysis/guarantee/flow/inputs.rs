@@ -60,6 +60,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         if let Some(path) = &path {
             let ty = self.storage_path_type(path);
+
             // An address slot is not the value stored at that address. Only a
             // matching checked value or one direct loan supplies owned lineage.
             if !ty.is_some_and(|ty| ty == pointee || matches!(

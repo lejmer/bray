@@ -244,6 +244,7 @@ impl StorageFlowInput {
         input.prepare_allocation_pointer(request, memory, types)?;
 
         input.prepare_effect_observations(request, storage, memory, dependencies)?;
+
         input.tag_preserving_assignments = Self::prepare_assignment_observations(
             cleanup_shapes, request, storage, selections, &input.footprint,
         )?;

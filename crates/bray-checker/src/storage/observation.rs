@@ -149,9 +149,11 @@ fn known_shape<C: CheckerRequestContext + ?Sized>(
 
         if role == RepresentationRole::Uninit {
             shape.observations.push((Vec::new(), Observation::Initialization));
+
             shape.references = element.references.iter().map(|(path, ty)| {
                 (std::iter::once(StorageProjection::UninitPayload).chain(path.iter().copied()).collect(), *ty)
             }).collect();
+
             shape.whole_sources = element.whole_sources.iter().map(|(path, ty)| {
                 (std::iter::once(StorageProjection::UninitPayload).chain(path.iter().copied()).collect(), *ty)
             }).collect();
@@ -162,10 +164,12 @@ fn known_shape<C: CheckerRequestContext + ?Sized>(
         } else {
             element.is_reference_free()
         };
+
         // Protected storage exposes no ordinary payload value. A reference-free
         // slot retains its opaque snapshot while its inline bytes are unreachable.
         shape.complete_value =
             !reference && role == RepresentationRole::Uninit && element.is_reference_free();
+
         shape.inline_carriers = element.inline_carriers;
     }
 
@@ -756,6 +760,7 @@ fn paths<C: CheckerRequestContext + ?Sized>(
         shape
             .observations
             .push((Vec::new(), Observation::Reference(ty)));
+
         shape.references.push((Vec::new(), ty));
 
         // A reference value has one explicit pointer slot, independently of its pointee shape.
@@ -795,15 +800,7 @@ fn value_paths<C: CheckerRequestContext + ?Sized>(
 
     let role = match data.as_ref() {
         TypeData::Callable(_) => Some(bray_compiler_known::RepresentationRole::FunctionPointer),
-        TypeData::Named { definition, .. } => {
-            let symbols = request.available_compiler_known_symbols();
-
-            match definition {
-                NamedTypeSymbolId::Struct(id) => symbols.symbol_representation(*id),
-                NamedTypeSymbolId::Union(id) => symbols.symbol_representation(*id),
-            }
-        }
-        _ => None,
+        _ => crate::representation::type_representation(request, ty),
     };
 
     if let Some(role) = role.filter(|role| {
@@ -1066,6 +1063,7 @@ fn array_shape<C: CheckerRequestContext + ?Sized>(
             shape.observations.extend(element.observations.iter().map(|(path, kind)| {
                 (std::iter::once(StorageProjection::ElementFromStart(index)).chain(path.iter().copied()).collect(), *kind)
             }));
+
             shape.references.extend(element.references.iter().map(|(path, ty)| {
                 (std::iter::once(StorageProjection::ElementFromStart(index)).chain(path.iter().copied()).collect(), *ty)
             }));

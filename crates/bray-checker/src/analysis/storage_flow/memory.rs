@@ -6,7 +6,7 @@ mod transition;
 mod tests;
 
 pub(super) use model::{
-    CapturedEffects, Effect, Origin, Place, ReferenceBounds, ReferenceExit, State, Target,
+    CapturedEffects, Effect, EffectOutcomes, Origin, Place, ReferenceBounds, ReferenceExit, State, Target,
 };
 
 pub(super) use references::Source;

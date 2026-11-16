@@ -38,6 +38,8 @@ pub(crate) use storage_flow::check_storage_flow_with_graph;
 pub use storage_flow::{closed_type_is_copyable, type_is_copyable, type_is_copyable_in_context};
 mod storage_invalidation;
 
+pub(crate) use storage_invalidation::call_preserves_storage;
+
 pub(crate) use cleanup::exclude_cleanup_free_edges;
 
 #[cfg(test)]

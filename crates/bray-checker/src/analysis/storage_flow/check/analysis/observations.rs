@@ -1073,6 +1073,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     [target] => Some(target),
                     _ => None,
                 });
+
                 let suffix = observed.as_ref().and_then(|targets| {
                     let mut suffix = None;
 

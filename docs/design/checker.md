@@ -143,6 +143,12 @@ and retain an exact identity only when all normal outcomes agree. Recursive summ
 never publish a partial origin set as a complete bound. Substitution and package interfaces preserve these established
 results for downstream consumers.
 
+Function summaries retain outcome-specific effects as one shared contract. Its transitions determine storage
+preservation at normal return. Each transition binds its identities once and shares them across the outcomes that
+refer to it. Source, imported and deferred calls preserve this relationship through substitution and publication.
+Cleanup and failure handling consume the selected outcome's effects, while normal-result transport remains guarded
+by normal completion.
+
 Storage observations retain their classified kind and borrow context through effect resolution. Physical preservation
 precedes projection into shared views, so aliases use the same established storage facts. Ownership guarantees and
 non-owning access bounds retain their distinct classifications when completion publishes them. Consumers use that

@@ -210,7 +210,7 @@ pub use value::{
     ConstantProjectionKind, ConstantTermData, ConstantTermId, ConstantUnaryOperation,
     ConstantValueData, ConstantValueId, ConstantValueKind, DependencyBorrowRelation,
     DependencyCallInput, DependencyCallOutput, DependencyContractTemplateData,
-    DependencyContractTemplateId, DependencyGuard, DependencyMutationKind, DependencyOwnedResult,
+    DependencyContractTemplateId, DependencyEffectOutcomes, DependencyGuard, DependencyMutationKind, DependencyOwnedResult,
     DependencyOwnedTransfer, DependencyValuePreservation, DependencyProjection, DependencyReferenceKind,
     DependencyReferenceProvenance, DependencyRequirement, DependencyRequirementKind,
     DependencyStorageEffect, DependencyStoredValue, DependencyStoredValuePath, DependencySubject, DependencySubjectRoot, DependencyWitnessCarrier,

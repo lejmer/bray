@@ -193,6 +193,7 @@ fn catastrophic_abort_skips_lease_cleanup_without_continuing() {
         ("abort", "trusted core.target.abort();", false),
         ("panic", "panic(\"lease invariant failed\");", true),
     ];
+
     let mut caller = String::from(
         r#"
             trusted internal module bray.runtime.bootstrap.host;

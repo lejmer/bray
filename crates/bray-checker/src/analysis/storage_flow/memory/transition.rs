@@ -195,7 +195,6 @@ impl State {
         }
     }
 
-
     fn write_references(
         &mut self,
         references: &References,

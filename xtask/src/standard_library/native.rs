@@ -286,6 +286,7 @@ fn test_in(
 ) -> Result<(), BuildError> {
     let (runtime_package, standard_library) = crate::native_toolchain::prepare_bundles(root, target)
     .map_err(|error| BuildError::conformance("native runtime", error))?;
+
     let runtime = runtime_package.metadata;
 
     let toolchain = directory.join("toolchain");

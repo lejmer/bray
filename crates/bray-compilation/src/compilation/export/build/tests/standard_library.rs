@@ -122,6 +122,7 @@ fn protected_nested_cleanup_keeps_current_backing_effects() {
             let contents = trusted std.memory.assume_initialized<Layer>(acquired.payload);
         }
     "#;
+
     let provider = standard_library_compilation(MEMORY_SOURCES.into_iter().chain([api]));
 
     assert!(!provider.check_diagnostics().has_errors(), "{:#?}", provider.check_diagnostics());
@@ -136,6 +137,7 @@ fn protected_nested_cleanup_keeps_current_backing_effects() {
             _ => false,
         }),
             "nested cleanup must publish actual retirement: {summary:#?}");
+
         assert!(!summary.effects().iter().any(|effect| matches!(effect,
             bray_symbols::DependencyStorageEffect::Unknown | bray_symbols::DependencyStorageEffect::UnboundedMutation { .. })),
             "known nested descriptors must keep finite backing effects: {summary:#?}");
@@ -148,6 +150,7 @@ fn protected_nested_cleanup_keeps_current_backing_effects() {
         let invalid = api.replacen("let recovered =", "let mut recovered =", 1).replacen(
             "let contents = trusted std.memory.assume_initialized<Layer>(recovered.payload);", replacement, 1,
         );
+
         let application = standard_library_compilation(MEMORY_SOURCES.into_iter().chain([invalid.as_str()]));
         let diagnostics = application.check_diagnostics();
 
@@ -155,6 +158,7 @@ fn protected_nested_cleanup_keeps_current_backing_effects() {
             bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven);
 
         let source = source_function_body_key(&application, "dispose").source().syntax().source_id();
+
         assert!(diagnostics.iter().filter(|diagnostic| diagnostic.kind()
             == bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven)
             .all(|diagnostic| crate::test_support::diagnostic_at_call(diagnostic, source, &invalid, rejected)),
@@ -176,6 +180,7 @@ fn protected_nested_cleanup_keeps_current_backing_effects() {
             } else {
                 "std.memory.uninit<std.cleanup_fixture.Layer>()"
             };
+
             let caller = format!(r#"
                 trusted module app;
 
@@ -202,11 +207,13 @@ fn protected_nested_cleanup_keeps_current_backing_effects() {
                     std.cleanup_fixture.{observation}
                 }}
             "#);
+
             let application = if imported {
                 super::fixtures::execution_consumer(&provider, &caller)
             } else {
                 standard_library_compilation(MEMORY_SOURCES.into_iter().chain([api, &caller]))
             };
+
             let diagnostics = application.check_diagnostics();
 
             bray_testing::assert_goal_state_diagnostic_outcome(diagnostics,
@@ -232,6 +239,7 @@ fn platform_allocation_origins_survive_nullable_forwarding_without_access_author
         extern trusted func aligned_allocate(pos bytes: usize, pos alignment: usize) -> DataPointer<u8>
             uses(foreign_call);
     "#;
+
     let wrapper = r#"
         trusted module std.allocation_fixture;
 
@@ -248,6 +256,7 @@ fn platform_allocation_origins_survive_nullable_forwarding_without_access_author
             return trusted std.platform.heap.aligned_allocate(8, 8);
         }
     "#;
+
     let caller = r#"
         trusted module app;
 
@@ -259,6 +268,7 @@ fn platform_allocation_origins_survive_nullable_forwarding_without_access_author
             return trusted std.allocation_fixture.forward(overflow);
         }
     "#;
+
     let provider = standard_library_compilation([declarations, wrapper]);
 
     assert!(!provider.check_diagnostics().has_errors(), "{:#?}", provider.check_diagnostics());
@@ -269,6 +279,7 @@ fn platform_allocation_origins_survive_nullable_forwarding_without_access_author
         } else {
             standard_library_compilation([declarations, wrapper, caller])
         };
+
         let diagnostics = application.check_diagnostics();
 
         assert!(!diagnostics.has_errors(), "imported={imported}: {diagnostics:#?}");
@@ -277,6 +288,7 @@ fn platform_allocation_origins_survive_nullable_forwarding_without_access_author
 
         assert!(summary.borrows().iter().any(|relation| relation.allocation().is_some()),
             "imported={imported}: nullable forwarding retains the actual allocation origin: {summary:#?}");
+
         assert!(summary.requirements().is_empty() && summary.carriers().is_empty(),
             "origin separation grants no trusted access authority: {summary:#?}");
 
@@ -284,6 +296,7 @@ fn platform_allocation_origins_survive_nullable_forwarding_without_access_author
             "return trusted std.allocation_fixture.forward(overflow);",
             "let pointer = trusted std.allocation_fixture.forward(overflow);\n            return trusted core.memory.read<u8>(pointer);",
         );
+
         let application = if imported {
             super::fixtures::execution_consumer(&provider, &invalid)
         } else {
@@ -302,6 +315,7 @@ fn platform_allocation_origins_survive_nullable_forwarding_without_access_author
         )), "origin separation cannot authorize the raw read: {diagnostics:#?}");
 
         let invalid = caller.replace("-> DataPointer<u8>\n", "-> DataPointer<u8>\n            ensures(!core.memory.is_null<u8>(result))\n");
+
         let application = if imported {
             super::fixtures::execution_consumer(&provider, &invalid)
         } else {

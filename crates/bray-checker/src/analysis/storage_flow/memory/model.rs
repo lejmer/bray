@@ -8,6 +8,8 @@ pub(in crate::analysis::storage_flow) use bray_bound_tree::{
     StorageOrigin as Origin, StoragePath as Place, StorageTarget as Target,
 };
 
+pub(in crate::analysis::storage_flow) type EffectOutcomes = bray_symbols::DependencyEffectOutcomes<Effect>;
+
 #[derive(Clone, Copy)]
 pub(super) enum Retirement {
     Storage,
@@ -371,7 +373,7 @@ pub(super) struct Transfer {
     pub(super) values: BTreeMap<Target, StoredValue>,
     pub(super) payloads: BTreeMap<Target, Contents>,
     pub(super) failure_effects: Option<std::sync::Arc<CapturedEffects>>,
-    pub(super) deferred_effects: Option<BTreeSet<Effect>>,
+    pub(super) deferred_effects: Option<super::EffectOutcomes>,
     pub(super) captured_cleanup: Option<BTreeSet<Effect>>,
     pub(super) result_cleanup: Option<BTreeSet<Effect>>,
     pub(super) deferred: super::references::DeferredTransitions,
@@ -399,7 +401,6 @@ impl Transfer {
         }
 
         for (effects, incoming) in [
-            (&mut self.deferred_effects, &incoming.deferred_effects),
             (&mut self.captured_cleanup, &incoming.captured_cleanup),
             (&mut self.result_cleanup, &incoming.result_cleanup),
         ] {
@@ -413,6 +414,15 @@ impl Transfer {
                     *effects = None;
                     changed = true;
                 }
+            }
+        }
+
+        if let Some(current) = &mut self.deferred_effects {
+            if let Some(incoming) = &incoming.deferred_effects {
+                changed |= current.merge(incoming);
+            } else {
+                self.deferred_effects = None;
+                changed = true;
             }
         }
 

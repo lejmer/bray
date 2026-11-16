@@ -110,9 +110,7 @@ pub(crate) fn selected_operation_contracts<C: CheckerRequestContext + ?Sized>(
             .with_carriers(template.template.carriers().iter().cloned())
             .with_owned_result(template.template.owned_result().clone())
             .with_normal_completion(template.template.normal_completion())
-            .with_normal_storage_preservation(
-                template.template.preserves_storage_on_normal_return(),
-            );
+            .with_normal_effects(template.template.normal_effects().iter().cloned());
 
     let contracts = super::super::references::with_reference_inputs(
         request,

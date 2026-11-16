@@ -328,6 +328,7 @@ impl State {
         root_borrow: Option<Target>,
     ) -> Option<Target> {
         let locations = self.reference_locations(values, target, path, root_borrow)?;
+
         let [location] = locations.as_slice() else {
             return None;
         };
@@ -376,6 +377,7 @@ impl State {
         };
 
         let locations = self.reference_locations_in(values, root.clone(), path, None, lookup)?;
+
         let [location] = locations.as_slice() else {
             return None;
         };
@@ -439,8 +441,10 @@ impl State {
                 for target in targets {
                     let target = target.project(&path.projections()[copied..*index]);
                     let reference = lookup(&target)?;
+
                     let typed = self.typed_targets(reference, *ty).or_else(|| {
                         let data = values.type_data(*ty);
+
                         let bray_symbols::TypeData::Slice(element) = data.as_ref() else {
                             return None;
                         };

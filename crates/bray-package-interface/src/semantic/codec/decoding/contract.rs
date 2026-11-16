@@ -91,9 +91,6 @@ pub(super) fn decode_dependency_contract(
     let normal_completion =
         super::common::decode_bool(reader, crate::InterfaceValidationField::Dependency)?;
 
-    let normal_storage_preserved =
-        super::common::decode_bool(reader, crate::InterfaceValidationField::Dependency)?;
-
     let requirements = decode_dependency_requirements(reader, limits, context, 0)?;
     let mut reports = [None, None];
 
@@ -203,49 +200,57 @@ pub(super) fn decode_dependency_contract(
         ));
     }
 
-    let count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
-    let mut effects = context.allocate_items(reader, count)?;
+    let mut outcomes = [Vec::new(), Vec::new()];
 
-    for _ in 0..count {
+    for effects in &mut outcomes {
+        let count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
 
-        let raw = read_u32(reader)?;
+        *effects = context.allocate_items(reader, count)?;
 
-        effects.push(match raw {
-            7 => {
-                let kind = decode_mutation(reader)?;
-                let access_type = read_optional_u32(reader)?.map(crate::InterfaceTypeId::new);
+        for _ in 0..count {
 
-                let ambient = match read_u32(reader)? {
-                    0 => false,
-                    1 => true,
-                    value => return Err(crate::semantic::codec::invalid_discriminant(crate::InterfaceValidationField::Dependency, value)),
-                };
+            let raw = read_u32(reader)?;
 
-                DependencyStorageEffect::UnboundedMutation { kind, access_type, ambient }
-            }
-            0 => DependencyStorageEffect::Unknown,
-            6 => DependencyStorageEffect::Ambient,
-            5 => DependencyStorageEffect::Escape,
-            4 => DependencyStorageEffect::Atomic,
-            1 => DependencyStorageEffect::Direct {
-                subject: decode_dependency_subject(reader, limits, context)?,
-                kind: decode_mutation(reader)?,
-                access_type: read_optional_u32(reader)?.map(crate::InterfaceTypeId::new),
-            },
-            2 => DependencyStorageEffect::Indirect {
-                reference: decode_dependency_subject(reader, limits, context)?,
-                projections: decode_dependency_projections(reader, limits, context)?.into(),
-                kind: decode_mutation(reader)?,
-                access_type: read_optional_u32(reader)?.map(crate::InterfaceTypeId::new),
-            },
-            _ => {
-                return Err(crate::semantic::codec::invalid_discriminant(
-                    crate::InterfaceValidationField::Dependency,
-                    raw,
-                ));
-            }
-        });
+            effects.push(match raw {
+                7 => {
+                    let kind = decode_mutation(reader)?;
+                    let access_type = read_optional_u32(reader)?.map(crate::InterfaceTypeId::new);
+
+                    let ambient = match read_u32(reader)? {
+                        0 => false,
+                        1 => true,
+                        value => return Err(crate::semantic::codec::invalid_discriminant(crate::InterfaceValidationField::Dependency, value)),
+                    };
+
+                    DependencyStorageEffect::UnboundedMutation { kind, access_type, ambient }
+                }
+                0 => DependencyStorageEffect::Unknown,
+                6 => DependencyStorageEffect::Ambient,
+                5 => DependencyStorageEffect::Escape,
+                4 => DependencyStorageEffect::Atomic,
+                1 => DependencyStorageEffect::Direct {
+                    subject: decode_dependency_subject(reader, limits, context)?,
+                    kind: decode_mutation(reader)?,
+                    access_type: read_optional_u32(reader)?.map(crate::InterfaceTypeId::new),
+                },
+                2 => DependencyStorageEffect::Indirect {
+                    reference: decode_dependency_subject(reader, limits, context)?,
+                    projections: decode_dependency_projections(reader, limits, context)?.into(),
+                    kind: decode_mutation(reader)?,
+                    access_type: read_optional_u32(reader)?.map(crate::InterfaceTypeId::new),
+                },
+                _ => {
+                    return Err(crate::semantic::codec::invalid_discriminant(
+                        crate::InterfaceValidationField::Dependency,
+                        raw,
+                    ));
+                }
+            });
+        }
+
     }
+
+    let [effects, normal_effects] = outcomes;
 
     let mut contract = InterfaceDependencyContract::new(requirements);
 
@@ -264,9 +269,9 @@ pub(super) fn decode_dependency_contract(
         .with_owned_result(owned_result)
         .with_observed_result(observed_result)
         .with_effects(effects)
+        .with_normal_effects(normal_effects)
         .with_synchronous_cleanup(synchronous_cleanup)
-        .with_normal_completion(normal_completion)
-        .with_normal_storage_preservation(normal_storage_preserved))
+        .with_normal_completion(normal_completion))
 }
 
 fn decode_stored_value_path(
@@ -852,7 +857,7 @@ mod tests {
     fn independent_reference_origins_cannot_claim_exact_input_identity() {
 
         let attributes = (2 << REFERENCE_KIND_SHIFT) | REFERENCE_INPUT_ABSENT;
-        let mut words = vec![0, 1, 0, 0, 0, 0, 1, attributes, 3, 0, 0, 1, 0, 0, 0, 0];
+        let mut words = vec![0, 1, 0, 0, 0, 1, attributes, 3, 0, 0, 1, 0, 0, 0, 0, 0];
         let limits = InterfaceValidationLimits::default();
         let contract = decode_words(&words, limits).expect("fixture encoded words must decode");
 
@@ -860,7 +865,7 @@ mod tests {
         assert!(contract.borrows[0].entry().is_none());
         assert!(!contract.borrows[0].is_exact());
 
-        words[7] |= REFERENCE_INPUT_REGIONS;
+        words[6] |= REFERENCE_INPUT_REGIONS;
 
         let contract = decode_words(&words, limits).expect("region provenance must decode");
 
@@ -869,12 +874,12 @@ mod tests {
             bray_symbols::DependencyReferenceProvenance::InputRegions
         );
 
-        words[7] |= REFERENCE_EXACT;
+        words[6] |= REFERENCE_EXACT;
 
         assert!(decode_words(&words, limits).is_err());
 
         // Physical input independence carries no ordinary borrow lifetime.
-        words[7] = (1 << REFERENCE_KIND_SHIFT) | REFERENCE_INPUT_ABSENT;
+        words[6] = (1 << REFERENCE_KIND_SHIFT) | REFERENCE_INPUT_ABSENT;
 
         let contract = decode_words(&words, limits).expect("independent borrow origin must decode");
 
@@ -886,19 +891,19 @@ mod tests {
         assert!(contract.borrows[0].entry().is_none());
         assert!(contract.requirements.is_empty());
 
-        words[7] = (2 << REFERENCE_KIND_SHIFT) | REFERENCE_INPUT_ABSENT
+        words[6] = (2 << REFERENCE_KIND_SHIFT) | REFERENCE_INPUT_ABSENT
             | crate::semantic::codec::common::REFERENCE_ALLOCATION;
 
         assert!(decode_words(&words, limits).is_err(), "an allocation requires its producer identity");
 
-        words[7] = attributes | crate::semantic::codec::common::REFERENCE_EMPTY;
+        words[6] = attributes | crate::semantic::codec::common::REFERENCE_EMPTY;
 
         let contract = decode_words(&words, limits).expect("known empty reference must decode");
 
         assert!(contract.borrows[0].is_empty_reference());
 
         for invalid in [REFERENCE_EXACT, REFERENCE_INPUT_REGIONS, crate::semantic::codec::common::REFERENCE_ALLOCATION] {
-            words[7] = attributes | crate::semantic::codec::common::REFERENCE_EMPTY | invalid;
+            words[6] = attributes | crate::semantic::codec::common::REFERENCE_EMPTY | invalid;
 
             assert!(decode_words(&words, limits).is_err(), "an empty reference has no input or allocation origin");
         }
@@ -962,7 +967,7 @@ mod tests {
     fn synchronous_cleanup_types_decode_with_bounded_counts() {
         let limits = InterfaceValidationLimits::default();
 
-        let decoded = decode_words(&[1, 7, 3, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 5], limits)
+        let decoded = decode_words(&[1, 7, 3, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 5, 2, 0, 5], limits)
             .expect("fixture encoded words must decode");
 
         assert_eq!(
@@ -987,7 +992,7 @@ mod tests {
     fn report_outputs_preserve_presence_and_separate_requirements() {
         let decoded = decode_words(
             &[
-                0, 1, 0, 0, 1, 0, 1, 1, 1, 2, 3, 0, 7, 0, 0, 1, 0, 0, 0, 2, 0, 5,
+                0, 1, 0, 1, 0, 1, 1, 1, 2, 3, 0, 7, 0, 0, 1, 0, 0, 0, 2, 0, 5, 2, 0, 5,
             ],
             InterfaceValidationLimits::default(),
         )
@@ -1012,7 +1017,6 @@ mod tests {
         let words = [
             0, // No synchronous cleanup obligations.
             1, // Normal completion is possible.
-            0, // No normal-return preservation proof.
             1, // One result requirement.
             3, 1, 2, 3, 4, 1, // Value-output witness call and one input.
             1, 0, // Receiver input with no projection.
@@ -1021,6 +1025,7 @@ mod tests {
             0, 0, // No normal or abnormal report output.
             0, 0, 1, 0, 0, 0, 2, 0,
             5, // No reference relations, stored values, returned input, result observation or carriers. Unknown effects and input escapes.
+            2, 0, 5, // Normal completion can also have unknown effects and input escapes.
         ];
 
         let decoded = decode_words(&words, InterfaceValidationLimits::default())
@@ -1071,7 +1076,7 @@ mod tests {
     fn witness_dependencies_reject_projected_inputs_and_unbounded_counts() {
         assert!(matches!(
             decode_words(
-                &[0, 1, 0, 0, 0, 0, 0, 1, 3, 0, u32::MAX],
+                &[0, 1, 0, 0, 0, 0, 1, 3, 0, u32::MAX],
                 InterfaceValidationLimits::default(),
             ),
             Err(InterfaceValidationError::ResourceLimitExceeded { limit: InterfaceLimit::SemanticTypeDepth, .. }),
@@ -1080,7 +1085,7 @@ mod tests {
         // Two stored-value records may not name the same destination on the wire.
         assert_eq!(
             decode_words(
-                &[0, 1, 0, 0, 0, 0, 0, 2, 3, 0, 0, 1, 0, 3, 0, 0, 1, 0],
+                &[0, 1, 0, 0, 0, 0, 2, 3, 0, 0, 1, 0, 3, 0, 0, 1, 0],
                 InterfaceValidationLimits::default(),
             ),
             Err(crate::semantic::codec::invalid_value(crate::InterfaceValidationField::Dependency)),
@@ -1088,7 +1093,7 @@ mod tests {
 
         assert_eq!(
             decode_words(
-                &[0, 1, 0, 1, 3, 1, 2, 3, 4, 1, 1, 1, 4, 0, 0],
+                &[0, 1, 1, 3, 1, 2, 3, 4, 1, 1, 1, 4, 0, 0],
                 InterfaceValidationLimits::default()
             ),
             Err(crate::semantic::codec::invalid_value(
@@ -1098,7 +1103,7 @@ mod tests {
 
         assert!(matches!(
             decode_words(
-                &[0, 1, 0, 1, 3, 1, 2, 3, 4, u32::MAX],
+                &[0, 1, 1, 3, 1, 2, 3, 4, u32::MAX],
                 InterfaceValidationLimits::default()
             ),
             Err(InterfaceValidationError::ResourceLimitExceeded {
@@ -1110,7 +1115,7 @@ mod tests {
     #[test]
     fn dependency_equations_decode_with_bounded_nesting() {
         let words = [
-            0, 1, 0, 1, 6, 1, 1, 5, 0, 0, 1, 5, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 5,
+            0, 1, 1, 6, 1, 1, 5, 0, 0, 1, 5, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 5, 2, 0, 5,
         ];
 
         let variable = InterfaceDependencyRequirement::variable(0, SymbolOrdinal::new(0));
@@ -1139,7 +1144,7 @@ mod tests {
 
         assert!(matches!(
             decode_words(
-                &[0, 1, 0, 1, 6, u32::MAX],
+                &[0, 1, 1, 6, u32::MAX],
                 InterfaceValidationLimits::default()
             ),
             Err(InterfaceValidationError::ResourceLimitExceeded {

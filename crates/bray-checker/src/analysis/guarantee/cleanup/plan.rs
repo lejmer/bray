@@ -467,6 +467,7 @@ impl Plan {
             types.iter().copied().chain(prepared.opaque_types()).chain(input_parts.keys().copied()).chain(future_results))?;
 
         prepared.prepare_lifecycles(request, types, &mut diagnostics)?;
+
         prepared.cleanup_callees.extend(prepared.lifecycles.values()
             .map(|lifecycle| lifecycle.call.callable.definition().callable_symbol()));
 

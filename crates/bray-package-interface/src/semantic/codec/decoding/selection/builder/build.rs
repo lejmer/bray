@@ -1071,7 +1071,7 @@ impl<'bytes, 'records> SelectionBuilder<'bytes, 'records> {
             self.include_dependency_projections(carrier.path());
         }
 
-        for effect in &*contract.effects {
+        for effect in contract.effects.possible() {
 
             for ty in effect.referenced_types() {
                 self.enqueue(PendingRecord::Type(ty.raw()));

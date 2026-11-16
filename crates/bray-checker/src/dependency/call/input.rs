@@ -165,7 +165,7 @@ fn input_contract<C: CheckerRequestContext + ?Sized>(
         .with_carriers(template.carriers().iter().cloned())
         .with_owned_result(template.owned_result().clone())
         .with_normal_completion(template.normal_completion())
-        .with_normal_storage_preservation(template.preserves_storage_on_normal_return())
+        .with_normal_effects(template.normal_effects().iter().cloned())
         .with_reports(reports);
 
     super::references::with_reference_inputs(

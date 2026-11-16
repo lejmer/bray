@@ -1,5 +1,5 @@
 mod effect;
-pub use effect::{DependencyMutationKind, DependencyStorageEffect};
+pub use effect::{DependencyEffectOutcomes, DependencyMutationKind, DependencyStorageEffect};
 mod application;
 mod constant;
 mod contextual_self;

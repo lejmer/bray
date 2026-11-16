@@ -109,6 +109,7 @@ trusted internal func take_ready(
 {
     let mut guard = trusted (trusted context(selected)).pending.lock();
     let pending = trusted guard.get();
+
     let ready = match pending
     {
         case ?observation { yield observation; }

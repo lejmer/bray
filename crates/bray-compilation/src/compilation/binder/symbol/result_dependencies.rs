@@ -510,10 +510,8 @@ fn body_result_dependencies(
             .cloned(),
     )
     .with_normal_completion(previous.normal_completion() || checked.normal_completion())
-    .with_normal_storage_preservation(
-        (!previous.normal_completion() || previous.preserves_storage_on_normal_return())
-            && (!checked.normal_completion() || checked.preserves_storage_on_normal_return()),
-    );
+    .with_normal_effects(previous.normal_effects().iter().filter(|_| previous.normal_completion())
+        .chain(checked.normal_effects().iter().filter(|_| checked.normal_completion())).cloned());
 
     if previous.completion_reports().is_some() || checked.completion_reports().is_some() {
         result = result.with_completion_reports(

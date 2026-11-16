@@ -93,6 +93,7 @@ fn platform_local_state_contracts_grant_neither_purity_nor_name_based_authority(
 
         let source = platform_state_source(module, name, symbol, parameters, result, arguments);
         let provider = platform_state_compilation([&source]);
+
         let caller = format!(r#"
             trusted module app;
 

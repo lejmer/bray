@@ -92,7 +92,7 @@ impl InterfaceSemantics {
             if let Some(term) = contract.observed_result {
                 validate_index(term.to_index(), self.constant_terms.len())?;
 
-                if !contract.normal_completion || !contract.normal_storage_preserved {
+                if !contract.normal_completion || !contract.effects.preserves_storage_on_normal_return() {
                     return Err(crate::semantic::codec::invalid_value(
                         crate::InterfaceValidationField::Constant,
                     ));
@@ -173,7 +173,7 @@ impl InterfaceSemantics {
                 )?;
             }
 
-            for effect in &*contract.effects {
+            for effect in contract.effects.possible() {
 
                 for ty in effect.referenced_types() {
                     validate_index(ty.to_index(), self.types.len())?;

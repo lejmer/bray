@@ -106,6 +106,7 @@ fn smoke_test_command(arguments: impl Iterator<Item = String>) -> Result<(), Com
     }
 
     let root = workspace::root().map_err(CommandError::Workspace)?;
+
     let output = options.as_ref().map_or_else(
         || readiness_directory(&root, target),
         |options| options.native.target_output(target),

@@ -2,6 +2,102 @@ use std::sync::Arc;
 
 use super::{DependencyProjection, DependencySubject};
 
+/// Possible transitions and the subset that can precede normal completion.
+/// Abnormal execution can retain any performed prefix of the possible transitions.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct DependencyEffectOutcomes<Effect> {
+    possible: Arc<[Effect]>,
+    normal: Arc<[Effect]>,
+}
+
+impl<Effect: Ord + Clone> DependencyEffectOutcomes<Effect> {
+    /// Creates a conservative contract in which every transition can occur on either outcome.
+    pub fn new(effects: impl IntoIterator<Item = Effect>) -> Self {
+        let possible = bray_base::sorted_unique_shared_slice(effects);
+
+        Self { normal: Arc::clone(&possible), possible }
+    }
+
+    /// Records normal transitions, retaining them among all possible transitions.
+    pub fn with_normal(mut self, effects: impl IntoIterator<Item = Effect>) -> Self {
+        self.normal = bray_base::sorted_unique_shared_slice(effects);
+
+        if self.normal == self.possible {
+            self.normal = Arc::clone(&self.possible);
+        } else if self.normal.iter().any(|effect| self.possible.binary_search(effect).is_err()) {
+            // The outcomes own descriptors and share their immutable identities and paths.
+            self.possible = bray_base::sorted_unique_shared_slice(
+                self.possible.iter().chain(self.normal.iter()).cloned(),
+            );
+        }
+
+        self
+    }
+
+    /// Joins possible execution paths without changing their outcome guards.
+    pub fn merge(&mut self, incoming: &Self) -> bool {
+        if self == incoming { return false; }
+
+        let merged = Self::new(self.possible.iter().chain(incoming.possible.iter()).cloned())
+            .with_normal(self.normal.iter().chain(incoming.normal.iter()).cloned());
+
+        let changed = *self != merged;
+
+        *self = merged;
+
+        changed
+    }
+
+    /// Translates identities while preserving the outcome of every transition.
+    pub fn try_map<Mapped: Ord + Clone, Error>(
+        &self,
+        mut map: impl FnMut(&Effect) -> Result<Mapped, Error>,
+    ) -> Result<DependencyEffectOutcomes<Mapped>, Error> {
+        self.try_flat_map(|effect| map(effect).map(std::iter::once))
+    }
+
+    /// Binds each transition once, retaining its outcome guards on every resolved alternative.
+    pub fn try_flat_map<Mapped: Ord + Clone, Produced: IntoIterator<Item = Mapped>, Error>(
+        &self,
+        mut map: impl FnMut(&Effect) -> Result<Produced, Error>,
+    ) -> Result<DependencyEffectOutcomes<Mapped>, Error> {
+        let mut possible = Vec::with_capacity(self.possible.len());
+        let mut normal = Vec::with_capacity(self.normal.len());
+
+        for effect in &*self.possible {
+            let on_normal_path = self.normal.binary_search(effect).is_ok();
+
+            for mapped in map(effect)? {
+                if on_normal_path {
+                    // Translate each identity once, then share it between the outcomes that use it.
+                    normal.push(mapped.clone());
+                }
+
+                possible.push(mapped);
+            }
+        }
+
+        Ok(DependencyEffectOutcomes::new(possible).with_normal(normal))
+    }
+}
+
+impl<Effect> DependencyEffectOutcomes<Effect> {
+    /// Transitions that may occur before any completion, including a failing prefix.
+    pub fn possible(&self) -> &[Effect] { &self.possible }
+
+    /// Transitions that may occur on a path reaching normal completion.
+    pub fn normal(&self) -> &[Effect] { &self.normal }
+}
+
+impl<Subject, Projection, Type> DependencyEffectOutcomes<DependencyStorageEffect<Subject, Projection, Type>> {
+    /// Whether normal execution changes no storage beyond admitted input ownership.
+    pub fn preserves_storage_on_normal_return(&self) -> bool {
+        self.normal.iter().all(|effect| matches!(effect, DependencyStorageEffect::Direct {
+            kind: DependencyMutationKind::Consume, ..
+        }))
+    }
+}
+
 /// The storage transition a callable may perform at an invocation or deferred phase.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum DependencyMutationKind<Type = super::TypeId> {
@@ -178,6 +274,28 @@ impl<Subject: Ord, Projection: Ord, Type: Ord> DependencyStorageEffect<Subject, 
 #[cfg(test)]
 mod tests {
     use super::{DependencyMutationKind, DependencyStorageEffect, DependencySubject};
+
+    #[test]
+    fn mapping_and_joining_transitions_preserves_normal_and_abnormal_outcomes() {
+        let left = super::DependencyEffectOutcomes::new([1, 2]).with_normal([1]);
+        let right = super::DependencyEffectOutcomes::new([2, 3]).with_normal([3]);
+
+        let mut next = 10;
+
+        let mut joined = left.try_map(|_| {
+            next += 1;
+
+            Ok::<_, std::convert::Infallible>(next)
+        })
+            .expect("fixture translation is total");
+
+        let right = right.try_map(|effect| Ok::<_, std::convert::Infallible>(effect + 10))
+            .expect("fixture translation is total");
+
+        assert!(joined.merge(&right));
+        assert_eq!(joined, super::DependencyEffectOutcomes::new([11, 12, 13]).with_normal([11, 13]));
+        assert!(!joined.merge(&right), "revisiting the same program point must stabilize");
+    }
     #[test]
     fn unresolved_atomic_effect_absorbs_only_narrower_atomic_effects() {
         let subject = DependencySubject::root(super::super::DependencySubjectRoot::Receiver);

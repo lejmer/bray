@@ -326,16 +326,15 @@ pub struct InterfaceDependencyContract {
     >,
     pub(crate) synchronous_cleanup: Arc<[InterfaceDependencyRequirement]>,
     pub(crate) normal_completion: bool,
-    pub(crate) normal_storage_preserved: bool,
     pub(crate) requirements: Arc<[InterfaceDependencyRequirement]>,
     pub(crate) completion_reports: Option<Arc<[InterfaceDependencyRequirement]>>,
     pub(crate) abnormal_reports: Option<Arc<[InterfaceDependencyRequirement]>>,
-    pub(crate) effects: Arc<
-        [bray_symbols::DependencyStorageEffect<
+    pub(crate) effects: bray_symbols::DependencyEffectOutcomes<
+        bray_symbols::DependencyStorageEffect<
             InterfaceDependencySubject,
             InterfaceDependencyProjection,
             crate::InterfaceTypeId,
-        >],
+        >,
     >,
     pub(crate) borrows: Arc<
         [bray_symbols::DependencyBorrowRelation<
@@ -381,13 +380,12 @@ impl InterfaceDependencyContract {
             abnormal_reports: None,
             synchronous_cleanup: Arc::new([]),
             normal_completion: true,
-            normal_storage_preserved: false,
             owned_result: bray_symbols::DependencyOwnedResult::default(),
             observed_result: None,
             stored_values: Arc::new([]),
             carriers: Arc::new([]),
             borrows: Arc::new([]),
-            effects: Arc::new(bray_symbols::DependencyStorageEffect::opaque_call()),
+            effects: bray_symbols::DependencyEffectOutcomes::new(bray_symbols::DependencyStorageEffect::opaque_call()),
         }
     }
 
@@ -450,9 +448,11 @@ impl InterfaceDependencyContract {
         self
     }
 
-    /// Records checked storage preservation on normal return, independently of abnormal effects.
-    pub fn with_normal_storage_preservation(mut self, preserved: bool) -> Self {
-        self.normal_storage_preserved = preserved;
+    /// Records possible storage transitions on paths reaching normal completion.
+    pub fn with_normal_effects(mut self, effects: impl IntoIterator<Item = bray_symbols::DependencyStorageEffect<
+        InterfaceDependencySubject, InterfaceDependencyProjection, crate::InterfaceTypeId,
+    >>) -> Self {
+        self.effects = self.effects.with_normal(effects);
 
         self
     }
@@ -483,7 +483,7 @@ impl InterfaceDependencyContract {
             >,
         >,
     ) -> Self {
-        self.effects = bray_symbols::DependencyStorageEffect::normalize(effects);
+        self.effects = bray_symbols::DependencyEffectOutcomes::new(bray_symbols::DependencyStorageEffect::normalize(effects).iter().cloned());
 
         self
     }

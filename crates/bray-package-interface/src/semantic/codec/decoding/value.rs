@@ -828,7 +828,7 @@ mod tests {
                     ),
                 ])
                 .with_normal_completion(false)
-                .with_normal_storage_preservation(true),
+                .with_normal_effects([]),
             InterfaceDependencyContract::new([]).with_effects([DependencyStorageEffect::Atomic]),
         ]
         .into();

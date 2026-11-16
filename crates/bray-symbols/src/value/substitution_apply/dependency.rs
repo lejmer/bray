@@ -233,9 +233,8 @@ impl SemanticValueStore {
             .collect::<Result<Vec<_>, SemanticValueStoreError>>()?;
 
         let effects = template
-            .effects()
-            .iter()
-            .map(|effect| {
+            .effect_outcomes()
+            .try_map(|effect| {
 
                 Ok(match effect {
                     DependencyStorageEffect::UnboundedMutation { kind, access_type, ambient } => DependencyStorageEffect::UnboundedMutation {
@@ -273,8 +272,7 @@ impl SemanticValueStore {
                         access_type: access_type.map(|ty| self.substitute_type_data(ty, substitution)).transpose()?,
                     },
                 })
-            })
-            .collect::<Result<Vec<_>, SemanticValueStoreError>>()?;
+            })?;
 
         self.intern_dependency_contract_template(
             substituted
@@ -324,7 +322,7 @@ impl SemanticValueStore {
                             .map(Some)
                     },
                 )?)
-                .with_effects(effects),
+                .with_effect_outcomes(effects),
         )
     }
 

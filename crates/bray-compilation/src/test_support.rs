@@ -700,6 +700,7 @@ pub(crate) fn source_module_function_body_key(
     name: &str,
 ) -> BoundUnitKey {
     let symbols = compilation.symbol_graph().expect("source function declarations are available");
+
     let function = symbols.functions().iter().find(|function| {
         let symbol = function.id().into();
 

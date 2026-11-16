@@ -43,6 +43,7 @@ fn exclusive_entry_tags_require_bounded_effects_or_private_storage() {
             owner.registration = none;
         }
     "#;
+
     let provider = compilation(api);
 
     assert!(!provider.check_diagnostics().has_errors(), "{:#?}", provider.check_diagnostics());
@@ -60,11 +61,13 @@ fn exclusive_entry_tags_require_bounded_effects_or_private_storage() {
     ] {
         for imported in [false, true] {
             let prefix = if imported { "example.package.api" } else { "api" };
+
             let memory_import = if operation.contains("core.memory.") {
                 "using core.memory;"
             } else {
                 ""
             };
+
             let caller = format!(r#"
                 trusted module app;
 
@@ -80,11 +83,13 @@ fn exclusive_entry_tags_require_bounded_effects_or_private_storage() {
                     {operation}
                 }}
             "#).replace("API", prefix);
+
             let application = if imported {
                 execution_consumer(&provider, &caller)
             } else {
                 compilation_from_sources([api, &caller])
             };
+
             let diagnostics = application.check_diagnostics();
 
             bray_testing::assert_goal_state_diagnostic_outcome(diagnostics,

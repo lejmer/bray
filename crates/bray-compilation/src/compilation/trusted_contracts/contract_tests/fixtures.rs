@@ -210,9 +210,12 @@ pub(super) fn assert_production_probes(
     expected: &[(&str, Option<bray_diagnostics::DiagnosticKind>)],
 ) {
     let compilation = production_probe_compilation();
+
     let caller = compilation.sources().iter().find(|input| input.text() == source)
         .expect("production probe source is retained").source_id();
+
     let symbols = compilation.symbol_graph().expect("production probe declarations");
+
     let probes = compilation.declared_unit_keys_for_test().expect("production probe units").into_iter()
         .filter(|key| key.kind() == bray_bound_tree::BoundUnitKind::CallableBody
             && key.source().syntax().source_id() == caller)
@@ -225,6 +228,7 @@ pub(super) fn assert_production_probes(
     for key in probes {
         let name = symbols.symbol_for_key(key.declared_owner())
             .and_then(|symbol| symbols.member_name(symbol)).expect("probe function name").as_str();
+
         let expected = expected.remove(name)
             .expect("each declared probe has an expected outcome");
 
@@ -283,6 +287,7 @@ fn build_production_host(
         .with_native_link_inputs(production_native_link_inputs(["bray_runtime_host"])),
     )
     .with_standard_library_source_authority();
+
     let compilation = Compilation::load(request).expect("actual production host declarations must load");
 
     assert!(!compilation.syntax_tree_result().diagnostics().has_errors(),

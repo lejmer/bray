@@ -227,8 +227,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             .with_normal_completion(self.references.is_some())
             .with_carriers(published)
             .with_owned_result(owned_result)
-            .with_observed_result(observed_result)
-            .with_normal_storage_preservation(!self.has_normal_effects))
+            .with_observed_result(observed_result))
     }
 
     // Map each exit while its allocation anchors and inactive payloads are still distinct.

@@ -25,6 +25,7 @@ fn lazy_result_cleanup_participates_in_recursive_summary_discovery() {
             let pending = create();
         }
     "#);
+
     let diagnostics = compilation.check_diagnostics();
 
     assert!(!diagnostics.has_errors(), "{diagnostics:#?}");

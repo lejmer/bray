@@ -71,6 +71,8 @@ impl<'a> SemanticExporter<'a> {
             })
             .collect::<Result<Vec<_>, PackageInterfaceExportError>>()?;
 
+        let mut normal_effects = Vec::new();
+
         let effects = self
             .dependency_order(data.effects(), |encoder, item| {
                 encoder.dependency_effect(item)
@@ -78,7 +80,7 @@ impl<'a> SemanticExporter<'a> {
             .into_iter()
             .map(|effect| {
 
-                Ok(match effect {
+                let mapped = match effect {
                     DependencyStorageEffect::UnboundedMutation { kind, access_type, ambient } => DependencyStorageEffect::UnboundedMutation {
                         kind: kind.try_map_type(|ty| self.type_id(ty))?,
                         access_type: access_type.map(|ty| self.type_id(ty)).transpose()?,
@@ -109,7 +111,14 @@ impl<'a> SemanticExporter<'a> {
                         kind: kind.try_map_type(|ty| self.type_id(ty))?,
                         access_type: access_type.map(|ty| self.type_id(ty)).transpose()?,
                     },
-                })
+                };
+
+                if data.normal_effects().binary_search(effect).is_ok() {
+                    // The outcome shares translated subjects and immutable projection paths.
+                    normal_effects.push(mapped.clone());
+                }
+
+                Ok(mapped)
             })
             .collect::<Result<Vec<_>, PackageInterfaceExportError>>()?;
 
@@ -145,9 +154,9 @@ impl<'a> SemanticExporter<'a> {
                     .transpose()?,
             )
             .with_effects(effects)
+            .with_normal_effects(normal_effects)
             .with_synchronous_cleanup(self.dependency_requirements(data.synchronous_cleanup())?)
-            .with_normal_completion(data.normal_completion())
-            .with_normal_storage_preservation(data.preserves_storage_on_normal_return());
+            .with_normal_completion(data.normal_completion());
 
         let exported = InterfaceDependencyContractId::new(index(self.dependency_contracts.len())?);
 

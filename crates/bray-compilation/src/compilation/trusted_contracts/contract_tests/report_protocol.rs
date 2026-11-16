@@ -273,6 +273,7 @@ fn production_observer_keeps_authority_through_conditional_protocol_changes() {
         for name in ["poll", "destroy"] {
             let key = source_module_function_body_key(&compilation,
                 &["bray", "runtime", "bootstrap", "task", "observer"], name);
+
             let flow = compilation.storage_flow(key).expect("production observer storage flow");
 
             assert!(!flow.diagnostics().has_errors(), "{target:?}: {:?}", flow.diagnostics());

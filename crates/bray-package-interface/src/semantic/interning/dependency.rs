@@ -133,7 +133,11 @@ impl InternState {
                 continue;
             }
 
-            let Some(effects) = self.convert_dependency_effects(&input.effects, symbols)? else {
+            let Some(effects) = self.convert_dependency_effects(input.effects.possible(), symbols)? else {
+                continue;
+            };
+
+            let Some(normal_effects) = self.convert_dependency_effects(input.effects.normal(), symbols)? else {
                 continue;
             };
 
@@ -198,9 +202,9 @@ impl InternState {
                         .with_owned_result(owned_result)
                         .with_observed_result(observed_result)
                         .with_effects(effects)
+                        .with_normal_effects(normal_effects)
                         .with_synchronous_cleanup(synchronous_cleanup)
-                        .with_normal_completion(input.normal_completion)
-                        .with_normal_storage_preservation(input.normal_storage_preserved),
+                        .with_normal_completion(input.normal_completion),
                 )?,
             );
         }

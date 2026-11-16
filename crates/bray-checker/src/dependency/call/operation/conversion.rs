@@ -73,11 +73,9 @@ pub(in crate::dependency::call) fn conversion_dependencies<C: CheckerRequestCont
                     })
                     .expect("conversion projection preserves checked dependency equation bindings");
 
-                let effects = child
-                    .effects()
-                    .iter()
-                    .map(|effect| project_effect(effect, ordinal, shape.as_ref()))
-                    .collect::<Vec<_>>();
+                let effects = child.effect_outcomes().try_map(|effect| {
+                    Ok::<_, std::convert::Infallible>(project_effect(effect, ordinal, shape.as_ref()))
+                }).expect("conversion projection preserves effect outcome guards");
 
                 let stored_values = child.stored_values().iter().map(|stored| {
                     let project = |path: &bray_symbols::DependencyStoredValuePath| {
@@ -104,7 +102,7 @@ pub(in crate::dependency::call) fn conversion_dependencies<C: CheckerRequestCont
                     )
                 }).collect::<Vec<_>>();
 
-                let child = child.with_effects(effects).with_stored_values(stored_values);
+                let child = child.with_effect_outcomes(effects).with_stored_values(stored_values);
 
                 let child = if matches!(shape.as_ref(), TypeData::Nullable(_)) {
                     child
@@ -261,9 +259,7 @@ pub(super) fn sequence_dependencies(
                 .cloned(),
         )
         .with_normal_completion(first.normal_completion() && next.normal_completion())
-        .with_normal_storage_preservation(
-            first.preserves_storage_on_normal_return() && next.preserves_storage_on_normal_return(),
-        );
+        .with_normal_effects(first.normal_effects().iter().chain(next.normal_effects()).cloned());
 
     if first.completion_reports().is_some() || next.completion_reports().is_some() {
         result = result.with_completion_reports(

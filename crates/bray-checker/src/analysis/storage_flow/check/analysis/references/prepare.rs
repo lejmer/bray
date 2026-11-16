@@ -74,6 +74,7 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
         access: bray_bound_tree::StorageAccessId,
     ) -> Option<crate::analysis::storage_flow::memory::Target> {
         let targets = self.reference_targets(values, memory, storage, access)?;
+
         let [target] = targets.as_slice() else {
             return None;
         };
@@ -106,6 +107,7 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
             (Some(capability), Some((0, ty))) if !path.is_address_load(0) => Some(memory.borrow_target(capability, *ty)?),
             _ => None,
         };
+
         self.reference_locations(values, memory, Target::storage(Place::root(logical.root)), path, root_borrow)
     }
 

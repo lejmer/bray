@@ -339,17 +339,19 @@ fn remap_dependency_contract(
         })
         .collect::<Result<Vec<_>, InterfaceValidationError>>()?;
 
-    for effect in Arc::make_mut(&mut contract.effects) {
+    contract.effects = contract.effects.try_map(|original| {
+        // Selected records own their remapped subjects and share immutable paths until changed.
+        let mut effect = original.clone();
 
         if let DependencyStorageEffect::Direct { kind, access_type, .. }
         | DependencyStorageEffect::Indirect { kind, access_type, .. }
-        | DependencyStorageEffect::UnboundedMutation { kind, access_type, .. } = effect
+        | DependencyStorageEffect::UnboundedMutation { kind, access_type, .. } = &mut effect
         {
             *kind = kind.try_map_type(|ty| maps.type_id(ty))?;
             *access_type = access_type.map(|ty| maps.type_id(ty)).transpose()?;
         }
 
-        match effect {
+        match &mut effect {
             DependencyStorageEffect::UnboundedMutation { .. }
                 | DependencyStorageEffect::Atomic
             | DependencyStorageEffect::Ambient
@@ -367,15 +369,14 @@ fn remap_dependency_contract(
                 remap_dependency_projections(Arc::make_mut(projections), maps)?;
             }
         }
-    }
 
-    let effects = Arc::clone(&contract.effects);
+        Ok::<_, InterfaceValidationError>(effect)
+    })?;
 
     Ok(contract
         .with_borrows(borrows)
         .with_stored_values(stored_values)
-        .with_carriers(carriers)
-        .with_effects(effects.iter().cloned()))
+        .with_carriers(carriers))
 }
 
 fn remap_callable_contract(

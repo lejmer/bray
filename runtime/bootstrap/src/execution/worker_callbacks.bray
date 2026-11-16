@@ -230,6 +230,7 @@ trusted internal func record_worker_failure(
     uses(intrinsic)
 {
     let arena = &(trusted domain(owner)).arena;
+
     let ready = match trusted pending_observation(selected)
     {
         case ?value { yield value; }

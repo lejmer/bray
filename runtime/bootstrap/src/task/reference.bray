@@ -33,10 +33,7 @@ trusted internal func retention(
     return 0;
 }
 
-trusted internal func retain_in_arena(
-    pos owner: &ArenaReference,
-    pos handle: u64
-) -> (Reference?, u32)
+trusted internal func retain_in_arena(pos owner: &ArenaReference, pos handle: u64) -> (Reference?, u32)
     requires(trusted arena_retained(owner = owner))
     ensures(trusted arena_retained(owner = owner), trusted retained_option(owner = &result.0))
 {

@@ -663,10 +663,9 @@ pub struct DependencyContractTemplateData {
     stored_values: Arc<[DependencyStoredValue]>,
     observed_result: Option<ConstantTermId>,
     carriers: Arc<[DependencyWitnessCarrier]>,
-    effects: Arc<[DependencyStorageEffect]>,
+    effects: super::DependencyEffectOutcomes<DependencyStorageEffect>,
     synchronous_cleanup: Arc<[DependencyRequirement]>,
     normal_completion: bool,
-    normal_storage_preserved: bool,
 }
 
 impl DependencyContractTemplateData {
@@ -833,10 +832,9 @@ impl DependencyContractTemplateData {
             stored_values: Arc::new([]),
             observed_result: None,
             carriers: Arc::new([]),
-            effects: Arc::new(DependencyStorageEffect::opaque_call()),
+            effects: super::DependencyEffectOutcomes::new(DependencyStorageEffect::opaque_call()),
             synchronous_cleanup: Arc::new([]),
             normal_completion: true,
-            normal_storage_preserved: false,
         }
     }
 
@@ -856,10 +854,9 @@ impl DependencyContractTemplateData {
             stored_values: Arc::clone(&self.stored_values),
             observed_result: self.observed_result,
             carriers: Arc::clone(&self.carriers),
-            effects: Arc::clone(&self.effects),
+            effects: self.effects.clone(),
             synchronous_cleanup: Arc::clone(&self.synchronous_cleanup),
             normal_completion: self.normal_completion,
-            normal_storage_preserved: self.normal_storage_preserved,
         }
     }
 
@@ -890,17 +887,16 @@ impl DependencyContractTemplateData {
         self.normal_completion
     }
 
-    /// Records the owning analysis's proof that normal return preserves external storage.
-    /// Ownership transfers and effects on abnormal outcomes remain independent.
-    pub fn with_normal_storage_preservation(mut self, preserved: bool) -> Self {
-        self.normal_storage_preserved = preserved;
+    /// Records the possible transitions on paths reaching normal completion.
+    pub fn with_normal_effects(mut self, effects: impl IntoIterator<Item = DependencyStorageEffect>) -> Self {
+        self.effects = self.effects.with_normal(effects);
 
         self
     }
 
     /// Whether normal return preserves storage, independently of input ownership transfers.
     pub fn preserves_storage_on_normal_return(&self) -> bool {
-        self.normal_storage_preserved || self.effects.is_empty()
+        self.effects.preserves_storage_on_normal_return()
     }
 
     /// Attaches complete entry-to-exit origin bounds and exact identities in deterministic order.
@@ -941,7 +937,7 @@ impl DependencyContractTemplateData {
         mut self,
         effects: impl IntoIterator<Item = DependencyStorageEffect>,
     ) -> Self {
-        self.effects = DependencyStorageEffect::normalize(effects);
+        self.effects = super::DependencyEffectOutcomes::new(DependencyStorageEffect::normalize(effects).iter().cloned());
 
         self
     }
@@ -964,8 +960,21 @@ impl DependencyContractTemplateData {
 
     /// Returns possible mutations. An empty slice proves storage is unchanged.
     pub fn effects(&self) -> &[DependencyStorageEffect] {
-        &self.effects
+        self.effects.possible()
     }
+
+    /// Returns possible transitions on normal completion.
+    pub fn normal_effects(&self) -> &[DependencyStorageEffect] { self.effects.normal() }
+
+    /// Retains effect outcomes after translating their identities.
+    pub fn with_effect_outcomes(mut self, effects: super::DependencyEffectOutcomes<DependencyStorageEffect>) -> Self {
+        self.effects = effects;
+
+        self
+    }
+
+    /// Returns the connected effect contract for every completion boundary.
+    pub const fn effect_outcomes(&self) -> &super::DependencyEffectOutcomes<DependencyStorageEffect> { &self.effects }
 
     /// Returns the normalized requirements.
     pub fn requirements(&self) -> &[DependencyRequirement] {

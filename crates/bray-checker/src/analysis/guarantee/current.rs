@@ -351,12 +351,15 @@ mod tests {
     #[test]
     fn physical_snapshots_do_not_retain_owners_or_reuse_previous_producers() {
         let unit = BoundUnitId::new(0);
+
         let (_, expressions) = crate::test_support::integer_expression_unit(unit, 1);
+
         let producer = expressions[0];
         let mutation = bray_bound_tree::StorageMutation::Operation(producer.into());
         let mut storage = StoragePlanBuilder::new(unit, BoundUnitKind::CallableBody);
         let reference = storage.push_identity(StorageIdentity::Temporary(producer)).expect("test producer is in its storage unit");
         let storage = storage.finish();
+
         let target = StorageTarget {
             previous: false,
             origin: StorageOrigin::Returned {
@@ -364,6 +367,7 @@ mod tests {
                 projections: Arc::new([]),
             },
         };
+
         let place = ExecutionPlace::pointee(&storage, &target, crate::test_support::error_type());
         let value = ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(0))));
         let mut state = ExecutionState::default();

@@ -656,6 +656,7 @@ fn joined_targets_require_all_possible_contents_and_weak_writes_do_not_initializ
 
     assert_eq!(left.reference_locations(crate::test_support::semantic_values(),
         Target::storage(alias.clone()), &path, None), Some(targets.clone()));
+
     assert!(left.value_target(&Target::storage(alias.clone()), error_type()).is_none(),
         "a finite choice does not identify one cell");
 
@@ -674,6 +675,7 @@ fn joined_targets_require_all_possible_contents_and_weak_writes_do_not_initializ
 
     for target in &targets {
         assert!(staged.value_targets(target).is_none(), "neither possible destination receives a definite pointer value");
+
         assert!(!staged.contents[target].initialized.contains(&error_type()),
             "one selected write cannot initialize both candidates");
     }
@@ -2661,6 +2663,7 @@ fn slice_projection_retains_the_element_allocation_without_retyping_it() {
         "admission carries an evaluated dynamic borrow without wrapping away its owned pointer");
 
     assert!(state.value_targets(&admitted).is_none(), "a dynamic selector remains inexact");
+
     assert_eq!(state.value_target(&admitted, element), Some(selected.clone()),
         "the current typed view retains its dynamic location without exact-cell authority");
 
@@ -2958,6 +2961,7 @@ fn owned_regions_keep_headers_disjoint_and_survive_owner_moves_without_exact_off
 #[test]
 fn nested_backing_survives_descriptor_moves_and_pruning() {
     let ([owner, moved, alias, ..], _) = places();
+
     let mut state = State::default();
     let descriptor = Target::storage(owner.clone());
 
@@ -2981,6 +2985,7 @@ fn nested_backing_survives_descriptor_moves_and_pruning() {
     assert_eq!(state.owned_regions(&Target::storage(moved), BUFFER_POINTER), Some(vec![outer.clone()]));
     assert_eq!(state.owned_regions(&element, BUFFER_POINTER), Some(vec![inner.clone()]));
     assert!(state.contents[&inner].initialized.contains(&error_type()), "descriptor storage end must preserve the moved allocation facts");
+
     assert!(!state.initialized_targets(&References::one(inner.clone()), error_type()),
         "a dynamic element's region must remain inexact");
 
@@ -2992,6 +2997,7 @@ fn nested_backing_survives_descriptor_moves_and_pruning() {
     state.retire_region(&inner, Retirement::Storage);
 
     assert!(state.contents.get(&inner).is_none_or(|contents| !contents.initialized.contains(&error_type())));
+
     assert!(state.referenced_regions(&Target::storage(alias)).unwrap().iter().all(|target| target.previous),
         "actual backing retirement must invalidate saved aliases");
 }
@@ -3713,12 +3719,14 @@ fn ambient_reachability_requires_raw_publication_of_an_owned_slot() {
 
     assert_eq!(state.ambient_regions(&[Effect::Ambient]), Some((BTreeSet::new(), false)),
         "receiving a language borrow does not publish its inline owner");
+
     assert!(state.ambient_regions(&[Effect::Ambient, Effect::Escape]).is_none(),
         "an opaque invocation still has unbounded input reachability");
 
     let mut shared = state.clone();
 
     shared.entry_borrows = Arc::new([(parameter.root, BorrowKind::Shared)].into());
+
     assert!(shared.ambient_regions(&[Effect::Ambient]).expect("shared external region").0.contains(&borrowed),
         "shared interior state remains externally reachable");
 
@@ -3730,6 +3738,7 @@ fn ambient_reachability_requires_raw_publication_of_an_owned_slot() {
     let forwarded = state.value_targets(&Target::storage(view)).expect("bounded forwarded view")[0].clone();
 
     state.values.insert(forwarded, References::one(borrowed.clone()).into());
+
     assert_eq!(state.ambient_regions(&[Effect::Ambient]), Some((BTreeSet::new(), false)),
         "forwarding a borrow cannot publish its private input bound");
 
@@ -3750,6 +3759,7 @@ fn ambient_reachability_requires_raw_publication_of_an_owned_slot() {
     let alias = state.value_targets(&Target::storage(raw)).expect("incoming raw alias")[0].clone();
 
     assert!(state.ambient_regions(&[Effect::Ambient]).expect("finite raw region").0.contains(&alias));
+
     assert_ne!(state.target_relationship(&alias, &borrowed), StorageRelationship::Disjoint,
         "an actual raw input can still invalidate a borrowed owner");
 }
@@ -4912,6 +4922,7 @@ fn input_exclusivity_follows_mutable_ownership_and_preserves_shared_aliases() {
 #[test]
 fn deferred_input_references_survive_frame_moves_without_following_replaced_input_slots() {
     let ([input, frame, payload, moved], expressions) = places();
+
     let producer = expressions[0].into();
     let movement = expressions[1].into();
     let completion = expressions[2].into();
@@ -4965,7 +4976,10 @@ fn staged_future_moves_retain_completion_effects_and_references() {
     let mut state = State::default();
 
     state.begin_transition(producer);
-    state.defer_effects(producer, Some(vec![effect.clone()]));
+
+    let outcomes = super::EffectOutcomes::new([effect.clone()]).with_normal([]);
+
+    state.defer_effects(producer, Some(outcomes.clone()));
 
     let captured_cleanup = super::Effect::Mutation(Target::storage(payload.clone()), bray_symbols::DependencyMutationKind::Clear, None);
     let result_cleanup = super::Effect::Mutation(Target::storage(payload.clone()), bray_symbols::DependencyMutationKind::Escape, None);
@@ -4989,7 +5003,7 @@ fn staged_future_moves_retain_completion_effects_and_references() {
 
     assert_eq!(
         state.deferred_effects(&source, &producers),
-        Some(vec![effect])
+        Some(outcomes)
     );
 
     assert_eq!(state.deferred_cleanup_effects(&source, &producers, false), Some(vec![captured_cleanup.clone()]));
@@ -5263,8 +5277,10 @@ fn produced_owned_buffer_bounds_survive_transport_without_publishing_early() {
 
     assert!(state.referenced_regions(&Target::storage(Place { root: moved.root, projections: [BUFFER_POINTER].into() }))
         .unwrap().iter().all(|target| target.previous), "a repeated producer cannot revive its previous result");
+
     assert!(state.contents.contains_key(&Target { previous: true, ..backing }),
         "producer publication advances prior nested backing coordinates too");
+
     assert!(state.referenced_regions(&Target::storage(produced_pointer)).unwrap().iter().all(|target| !target.previous));
 
     state.stage_returned_reference(call, Target::storage(raw.clone()), raw.clone(), error_type(), []);

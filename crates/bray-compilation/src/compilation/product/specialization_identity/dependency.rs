@@ -143,8 +143,7 @@ impl StructuralValueEncoder<'_, '_> {
 
         self.digest.write_u8(u8::from(data.normal_completion()));
 
-        self.digest
-            .write_u8(u8::from(data.preserves_storage_on_normal_return()));
+        self.dependency_set(data.normal_effects(), Self::dependency_effect)?;
 
         self.dependency_requirements(data.requirements())?;
 

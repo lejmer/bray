@@ -32,13 +32,29 @@ pub(crate) fn resolve_effects<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     effects: &[Effect],
 ) -> Result<Vec<Effect>, CheckerQueryError<C::UpstreamError>> {
+    resolve_effects_using(request, effects, bray_symbols::DependencyContractTemplateData::effects)
+}
+
+pub(crate) fn resolve_effect_outcomes<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
+    effects: &bray_symbols::DependencyEffectOutcomes<Effect>,
+) -> Result<bray_symbols::DependencyEffectOutcomes<Effect>, CheckerQueryError<C::UpstreamError>> {
+    Ok(bray_symbols::DependencyEffectOutcomes::new(resolve_effects(request, effects.possible())?)
+        .with_normal(resolve_effects_using(request, effects.normal(), bray_symbols::DependencyContractTemplateData::normal_effects)?))
+}
+
+fn resolve_effects_using<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
+    effects: &[Effect],
+    select: fn(&bray_symbols::DependencyContractTemplateData) -> &[Effect],
+) -> Result<Vec<Effect>, CheckerQueryError<C::UpstreamError>> {
     expand_effects(request, effects, &mut |callable| {
         let template = request.callable_result_dependencies(callable.definition().callable_symbol())?;
 
         let template = request.semantic_values().substitute_dependency_contract(template, callable.substitution())
             .expect("selected lifecycle substitution retains its checked dependency contract");
 
-        Ok(request.semantic_values().dependency_contract_template_data(template).effects().to_vec())
+        Ok(select(&request.semantic_values().dependency_contract_template_data(template)).to_vec())
     })
 }
 
@@ -50,6 +66,7 @@ pub(crate) fn cleanup_callees<C: CheckerRequestContext + ?Sized>(
         subject: DependencySubject::root(DependencySubjectRoot::Receiver),
         kind: Kind::Dispose(ty), access_type: Some(ty),
     }).collect::<Vec<_>>();
+
     let mut callees = BTreeSet::new();
 
     // Discover the structural edges before any source summary is requested.

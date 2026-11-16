@@ -150,18 +150,6 @@ where
 
     let normal_paths = graph.completion_predecessors();
 
-    collector
-        .normal_failures
-        .extend(graph.edges().iter().filter_map(|edge| {
-            let crate::analysis::model::AnalysisRefinement::InvocationFailure(occurrence) =
-                edge.refinement()?
-            else {
-                return None;
-            };
-
-            normal_paths.contains(&edge.target()).then_some(occurrence)
-        }));
-
     for block in graph.blocks() {
         collector.on_normal_path = normal_paths.contains(&block.id());
         collector.report_boundary = block.report_boundary();
@@ -259,6 +247,7 @@ where
     .with_dependencies(
         dependencies
             .with_effects(effects)
+            .with_normal_effects(collector.normal_effects)
             .with_synchronous_cleanup(collector.synchronous_cleanup),
     )
     .with_report_collections(collector.report_collections)
@@ -390,11 +379,10 @@ where
     pub(super) receiver_cleanup: BTreeSet<bray_symbols::TypeId>,
     pub(super) terminal_diagnostics: BTreeSet<bray_bound_tree::BoundExecutionSite>,
     pub(super) on_normal_path: bool,
-    normal_failures: BTreeSet<bray_bound_tree::BoundExecutionSite>,
     pub(in crate::analysis::storage_flow) report_boundary: Option<BoundExpressionId>,
     report_collections: BTreeSet<Option<BoundExpressionId>>,
     pub(super) reporting_completions: BTreeSet<bray_bound_tree::BoundExecutionSite>,
-    pub(super) has_normal_effects: bool,
+    pub(super) normal_effects: BTreeSet<bray_symbols::DependencyStorageEffect>,
     pub(super) references: Option<crate::analysis::storage_flow::memory::ReferenceExit>,
     pub(super) stored_exits: Vec<(crate::analysis::storage_flow::memory::ReferenceExit, BTreeSet<crate::analysis::storage_flow::memory::Place>)>,
     pub(super) cleanup_mutations:
@@ -517,11 +505,10 @@ where
             receiver_cleanup: BTreeSet::new(),
             terminal_diagnostics: BTreeSet::new(),
             on_normal_path: false,
-            normal_failures: BTreeSet::new(),
             report_boundary: None,
             report_collections: BTreeSet::new(),
             reporting_completions: BTreeSet::new(),
-            has_normal_effects: false,
+            normal_effects: BTreeSet::new(),
             references: None,
             stored_exits: Vec::new(),
             memory_decisions: BTreeMap::new(),
@@ -903,23 +890,17 @@ where
 
         let assignment_roots = assignment_mutation.map(|_| self.assignment_roots(state, kind));
 
-        let mut invocation_roots = (!completing)
+        let invocation_roots = (!completing)
             .then(|| self.call_attempt(kind))
             .flatten()
             .map(|_| self.invocation_roots(state, occurrence));
 
-        let preserve_normal_storage = !completing
-            && self.call_attempt(kind).is_some()
-            && self
-                .execution
-                .call_preserves_normal_storage(&execution, occurrence);
+        let normal_effects = self.on_normal_path;
+        let outcomes = self.begin_transition(state, kind, assignment.as_deref(), &execution);
+        let call_effects = outcomes.as_ref().map(bray_symbols::DependencyEffectOutcomes::normal);
+        let possible_effects = outcomes.as_ref().map(bray_symbols::DependencyEffectOutcomes::possible);
 
-        let normal_effects = self.on_normal_path
-            && (!preserve_normal_storage || self.normal_failures.contains(&occurrence));
-
-        let call_effects = self.begin_transition(state, kind, assignment.as_deref(), &execution);
-
-        if let Some(effects) = &call_effects {
+        if let Some(effects) = possible_effects {
             state.memory.observe_effect_types(effects);
         }
 
@@ -940,20 +921,11 @@ where
         let escaped = invocation_roots
             .as_ref()
             .map(|roots| {
-                self.address_escapes(state, kind, call_effects.as_deref(), roots, normal_effects)
+                self.address_escapes(state, kind, call_effects, roots, normal_effects)
             })
             .unwrap_or_default();
 
-        if preserve_normal_storage {
-            // Opaque effects can reach the whole exposed allocation on abnormal return.
-            // Resolve that region now, while all invocation inputs still exist.
-            invocation_roots
-                .as_mut()
-                .expect("call attempt has invocation roots")
-                .extend(escaped.iter().cloned());
-        } else {
-            state.memory.escape_regions(escaped.iter().cloned());
-        }
+        state.memory.escape_regions(escaped);
 
         if !completing {
             self.check_terminal_operation(
@@ -961,7 +933,7 @@ where
                 kind,
                 assignment_effects.as_deref(),
                 assignment_mutation,
-                call_effects.as_deref(),
+                possible_effects,
                 invocation_roots.as_deref().unwrap_or(&[]),
             );
         }
@@ -972,7 +944,7 @@ where
                     state,
                     kind,
                     assignment.as_deref(),
-                    call_effects.as_deref(),
+                    call_effects,
                     invocation_roots.as_deref(),
                 )
             })
@@ -986,16 +958,43 @@ where
             self.preserve_operation_values(
                 state,
                 kind,
-                call_effects.as_deref().or(assignment_effects.as_deref()),
+                call_effects.or(assignment_effects.as_deref()),
                 invalidation,
             );
         }
 
         if !completing {
+            if self.call_attempt(kind).is_some() {
+                let roots = invocation_roots.as_deref().unwrap_or(&[]);
+                let escaped = self.address_escapes(state, kind, possible_effects, roots, false);
+
+                let mut failure = self.operation_observations(state, kind, None, possible_effects, Some(roots));
+
+                // A task can have executed before its observer is invoked. Its captured values do
+                // not establish a fresh body-entry memory snapshot at this observation boundary.
+                let observes_running_task = occurrence.expression().is_some_and(|expression| {
+                    self.execution.awaited_task_invocations(&execution, expression).is_some()
+                });
+
+                if !observes_running_task && let Some(failure) = &mut failure {
+                    let memory = occurrence.expression().and_then(|expression| self.memory.operation(expression));
+
+                    // Preserve incoming storage only, independently of normal-result transport.
+                    self.preserve_storage_values(state, &state.memory, memory, possible_effects, failure);
+                }
+
+                if let Some(effects) = possible_effects {
+                    self.record_resolved_effects(&state.memory, effects, false);
+                }
+
+                // Both outcomes capture addresses before admission consumes their input slots.
+                self.capture_failure_effects(state, occurrence, possible_effects.map(<[_]>::to_vec), escaped, failure.as_ref());
+            }
+
             self.record_operation_effects(
                 &state.memory,
                 kind,
-                call_effects.as_deref(),
+                call_effects,
                 assignment_effects.as_deref(),
                 normal_effects,
             );
@@ -1033,26 +1032,9 @@ where
 
         self.record_call_evidence(&execution, kind);
 
-        let task_completion = preserve_normal_storage
-            && occurrence.expression().is_some_and(|expression| {
-                self.execution
-                    .awaited_task_invocations(&execution, expression)
-                    .is_some()
-            });
-
         state.execution = Some(execution);
 
-        if preserve_normal_storage && !task_completion {
-            self.capture_failure_effects(
-                state,
-                occurrence,
-                call_effects,
-                escaped,
-                invalidation.as_ref(),
-            );
-        } else if !preserve_normal_storage {
-            self.apply_call_effects(state, kind, call_effects.as_deref(), invalidation.as_ref());
-        }
+        self.apply_call_effects(state, kind, call_effects, invalidation.as_ref());
 
         if completing
             && self

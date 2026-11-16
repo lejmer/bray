@@ -227,6 +227,7 @@ impl super::check::TrustedChecks {
             let factored = lift_shared_cases(&returned.transfers, &|transfer| {
                 shared.keys().any(|candidate| candidate.same_identity(transfer))
             });
+
             let factored = complete_shared_alternatives(&factored, &common, &[]);
 
             fill_shared_alternative(factored, &common)
@@ -325,6 +326,7 @@ fn fill_shared_alternative(
     shared: &[&DependencyOwnedTransfer<StorageProjection>],
 ) -> DependencyOwnedResult<StorageProjection> {
     let guaranteed = layout.guaranteed_transfers();
+
     let missing = shared.iter().filter(|transfer| !guaranteed.iter().any(|actual| actual.same_identity(transfer)))
         .map(|transfer| DependencyOwnedResult::Transfer((*transfer).clone()));
 
@@ -513,11 +515,14 @@ mod tests {
         let input = crate::test_support::semantic_values()
             .intern_constant_term(ConstantTermData::CallableArgument(SymbolOrdinal::new(0)))
             .expect("formal ownership input");
+
         let guard = crate::test_support::semantic_values()
             .intern_constant_term(ConstantTermData::CallableArgument(SymbolOrdinal::new(1)))
             .expect("ordinary result guard");
+
         let complete = DependencyOwnedTransfer::new(input, [])
             .with_preservation(DependencyValuePreservation::all());
+
         let changed = complete.clone().with_preservation(DependencyValuePreservation::none());
         let guarded = DependencyOwnedResult::case(guard, DependencyOwnedResult::Transfer(complete.clone()));
         let empty = DependencyOwnedResult::case(guard, DependencyOwnedResult::default());
@@ -537,6 +542,7 @@ mod tests {
                 DependencyOwnedResult::Transfer(changed), DependencyOwnedResult::default(),
             ]),
         ]);
+
         let common = simultaneous.transfers().collect::<Vec<_>>();
 
         assert_eq!(complete_shared_alternatives(&simultaneous, &common, &[]), simultaneous,

@@ -629,7 +629,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         if matches!(invalidation, StorageInvalidation::All { .. }) {
             self.invalidate_all_observations(state, mutation, invalidation);
 
-
             return;
         }
 

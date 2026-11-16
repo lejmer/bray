@@ -140,23 +140,23 @@ impl State {
         &self,
         source: &Source,
         producers: &std::collections::BTreeSet<BoundExecutionSite>,
-    ) -> Option<Vec<Effect>> {
+    ) -> Option<super::super::EffectOutcomes> {
         let Source::Value(source) = source
         else {
             return None;
         };
 
         let entries = self.deferred.get(source)?;
-        let mut effects = std::collections::BTreeSet::new();
+        let mut effects = super::super::EffectOutcomes::new([]);
 
         for (_, entry) in entries
             .iter()
             .filter(|(source, _)| producers.contains(source))
         {
-            effects.extend(entry.deferred_effects.as_ref()?.iter().cloned());
+            effects.merge(entry.deferred_effects.as_ref()?);
         }
 
-        Some(effects.into_iter().collect())
+        Some(effects)
     }
 
     pub(in crate::analysis::storage_flow) fn capture_deferred_cleanup(
@@ -283,6 +283,7 @@ impl Transfer {
             let Some(prefix) = source.storage_path().filter(|prefix| prefix.contains(&path)) else {
                 return path;
             };
+
             let destination = destination.storage_path().expect("deferred output keeps storage coordinates");
 
             StoragePath {
@@ -329,8 +330,10 @@ impl Transfer {
 
         self.payloads = std::mem::take(&mut self.payloads).into_iter()
             .map(|(slot, contents)| (relocate_slot(slot), contents)).collect();
+
         self.returned_inputs = std::mem::take(&mut self.returned_inputs).into_iter()
             .map(|(slot, references)| (relocate_path(slot), references)).collect();
+
         self.deferred = std::mem::take(&mut self.deferred).into_iter()
             .map(|(slot, entries)| (relocate_slot(slot), entries)).collect();
     }
@@ -350,7 +353,8 @@ impl Transfer {
                     .iter()
                     .any(|target| retirement.contains(current, target))
             })
-            || [&self.deferred_effects, &self.captured_cleanup, &self.result_cleanup].into_iter().flatten().flatten().any(|effect| {
+            || self.deferred_effects.iter().flat_map(|effects| effects.possible())
+                .chain([&self.captured_cleanup, &self.result_cleanup].into_iter().flatten().flatten()).any(|effect| {
                 effect
                     .mutation()
                     .is_some_and(|(target, _)| retirement.contains(current, target))
@@ -381,7 +385,18 @@ impl Transfer {
             references.retire(current, retirement);
         }
 
-        for effects in [&mut self.deferred_effects, &mut self.captured_cleanup, &mut self.result_cleanup].into_iter().flatten() {
+        if let Some(effects) = &mut self.deferred_effects {
+            *effects = effects.try_map(|effect| {
+                // A retiring allocation changes descriptors in both outcomes, with shared paths.
+                let mut effect = effect.clone();
+
+                effect.retire(current, retirement);
+
+                Ok::<_, std::convert::Infallible>(effect)
+            }).expect("retirement preserves resolved effect outcomes");
+        }
+
+        for effects in [&mut self.captured_cleanup, &mut self.result_cleanup].into_iter().flatten() {
             *effects = std::mem::take(effects)
                 .into_iter()
                 .map(|mut effect| {

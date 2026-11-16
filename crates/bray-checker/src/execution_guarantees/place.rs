@@ -77,6 +77,7 @@ impl ExecutionPlace {
             bray_bound_tree::StorageOrigin::Allocation { allocation, .. } => Some(allocation.root),
             _ => None,
         };
+
         let producer = identity.and_then(|identity| storage.identity(identity))
             .and_then(bray_bound_tree::StorageIdentity::definition_occurrence);
 

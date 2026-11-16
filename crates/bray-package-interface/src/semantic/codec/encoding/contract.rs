@@ -34,7 +34,6 @@ pub(super) fn encode_contracts(semantics: &InterfaceSemantics) -> EncodedSemanti
             }
 
             encoder.write_u32(u32::from(contract.normal_completion));
-            encoder.write_u32(u32::from(contract.normal_storage_preserved));
             write_count(encoder, contract.requirements.len());
 
             for requirement in &*contract.requirements {
@@ -116,38 +115,40 @@ pub(super) fn encode_contracts(semantics: &InterfaceSemantics) -> EncodedSemanti
                 encode_dependency_projections(encoder, carrier.path());
             }
 
-            write_count(encoder, contract.effects.len());
+            for effects in [contract.effects.possible(), contract.effects.normal()] {
+                write_count(encoder, effects.len());
 
-            for effect in &*contract.effects {
+                for effect in effects {
 
-                match effect {
-                    DependencyStorageEffect::UnboundedMutation { kind, access_type, ambient } => {
-                        encoder.write_u32(7);
-                        encode_mutation(encoder, *kind);
-                        write_optional_u32(encoder, access_type.map(|ty| ty.raw()));
-                        encoder.write_u32(u32::from(*ambient));
-                    }
-                    DependencyStorageEffect::Unknown => encoder.write_u32(0),
-                    DependencyStorageEffect::Ambient => encoder.write_u32(6),
-                    DependencyStorageEffect::Escape => encoder.write_u32(5),
-                    DependencyStorageEffect::Atomic => encoder.write_u32(4),
-                    DependencyStorageEffect::Direct { subject, kind, access_type } => {
-                        encoder.write_u32(1);
-                        encode_dependency_subject(encoder, subject);
-                        encode_mutation(encoder, *kind);
-                        write_optional_u32(encoder, access_type.map(|ty| ty.raw()));
-                    }
-                    DependencyStorageEffect::Indirect {
-                        reference,
-                        projections,
-                        kind,
-                        access_type,
-                    } => {
-                        encoder.write_u32(2);
-                        encode_dependency_subject(encoder, reference);
-                        encode_dependency_projections(encoder, projections);
-                        encode_mutation(encoder, *kind);
-                        write_optional_u32(encoder, access_type.map(|ty| ty.raw()));
+                    match effect {
+                        DependencyStorageEffect::UnboundedMutation { kind, access_type, ambient } => {
+                            encoder.write_u32(7);
+                            encode_mutation(encoder, *kind);
+                            write_optional_u32(encoder, access_type.map(|ty| ty.raw()));
+                            encoder.write_u32(u32::from(*ambient));
+                        }
+                        DependencyStorageEffect::Unknown => encoder.write_u32(0),
+                        DependencyStorageEffect::Ambient => encoder.write_u32(6),
+                        DependencyStorageEffect::Escape => encoder.write_u32(5),
+                        DependencyStorageEffect::Atomic => encoder.write_u32(4),
+                        DependencyStorageEffect::Direct { subject, kind, access_type } => {
+                            encoder.write_u32(1);
+                            encode_dependency_subject(encoder, subject);
+                            encode_mutation(encoder, *kind);
+                            write_optional_u32(encoder, access_type.map(|ty| ty.raw()));
+                        }
+                        DependencyStorageEffect::Indirect {
+                            reference,
+                            projections,
+                            kind,
+                            access_type,
+                        } => {
+                            encoder.write_u32(2);
+                            encode_dependency_subject(encoder, reference);
+                            encode_dependency_projections(encoder, projections);
+                            encode_mutation(encoder, *kind);
+                            write_optional_u32(encoder, access_type.map(|ty| ty.raw()));
+                        }
                     }
                 }
             }

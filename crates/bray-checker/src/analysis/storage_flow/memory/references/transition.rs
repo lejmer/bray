@@ -1,4 +1,4 @@
-use super::super::model::{Contents, Effect, Origin, Place, References, Retirement, State, Target, Transfer};
+use super::super::model::{Contents, Origin, Place, References, Retirement, State, Target, Transfer};
 use super::slots::{storage_subtree, take_subtree};
 use bray_bound_tree::{BorrowCapabilityId, BoundExpressionId, StorageIdentityId};
 use bray_symbols::TypeId;
@@ -35,10 +35,9 @@ impl State {
     pub(in crate::analysis::storage_flow) fn defer_effects(
         &mut self,
         call: bray_bound_tree::BoundExecutionSite,
-        effects: Option<Vec<Effect>>,
+        effects: Option<super::super::EffectOutcomes>,
     ) {
-        self.pending.entry(call).or_default().deferred_effects =
-            effects.map(|effects| effects.into_iter().collect());
+        self.pending.entry(call).or_default().deferred_effects = effects;
     }
 
     #[cfg(test)]

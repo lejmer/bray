@@ -17,18 +17,16 @@ pub(super) fn with_references<C: CheckerRequestContext + ?Sized>(
         bray_bound_tree::BoundCallResult::LazyFuture(_)
     );
 
-    let pure = call.phase_behaviors().invocation().execution_properties()
-        .contains(&bray_symbols::ExecutionProperty::Pure);
+    let pure = crate::analysis::call_preserves_storage(call, None);
 
     let contracts = if deferred {
         let (captures, result) = super::super::cleanup::prepare_future_effects(request, call)?;
 
         contracts.with_deferred_cleanup(captures, result)
             .with_deferred_execution(
-                template.effects().iter().cloned(),
+                template.effect_outcomes().clone(),
                 template.normal_completion(),
             )
-            .with_deferred_storage_preservation(template.preserves_storage_on_normal_return())
     } else {
         contracts
     };
@@ -45,9 +43,7 @@ pub(super) fn with_references<C: CheckerRequestContext + ?Sized>(
         .with_carriers(template.carriers().iter().cloned())
         .with_owned_result(template.owned_result().clone())
         .with_normal_completion(deferred || template.normal_completion())
-        .with_normal_storage_preservation(
-            deferred || pure || template.preserves_storage_on_normal_return(),
-        ),
+        .with_normal_effects(template.normal_effects().iter().filter(|_| !deferred && !pure).cloned()),
     )
 }
 
@@ -110,8 +106,8 @@ pub(super) fn with_hidden_references<C: CheckerRequestContext + ?Sized>(
 
     Ok(contracts
         .with_normal_completion(template.normal_completion())
-        .with_normal_storage_preservation(template.preserves_storage_on_normal_return())
         .with_effects(template.effects().iter().cloned())
+        .with_normal_effects(template.normal_effects().iter().cloned())
         .with_synchronous_cleanup(template.synchronous_cleanup())
         .with_carriers(template.carriers().iter().cloned())
         .with_owned_result(template.owned_result().clone())

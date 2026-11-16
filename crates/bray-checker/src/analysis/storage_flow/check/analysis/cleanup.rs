@@ -134,26 +134,12 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 let mut effects = match mutation {
                     CleanupMutation::Unchanged => Some(Vec::new()),
                     CleanupMutation::Recovery => None,
-                    CleanupMutation::Opaque { ty, .. } => Some(
-                        inactive_captures
-                            .as_ref()
-                            .and_then(|_| memory.deferred_cleanup_effects(task_source.as_ref()?, task_sources.as_ref()?, false))
-                            .or_else(|| {
-                                super::effects::task_effects(
-                                    memory.deferred_effects(
-                                        task_source.as_ref()?,
-                                        task_sources.as_ref()?,
-                                    ),
-                                    memory.deferred_cleanup_effects(task_source.as_ref()?, task_sources.as_ref()?, true)?,
-                                )
-                            })
-                            .or_else(|| {
-                                self.buffer_cleanup_effects(&memory, receiver.as_ref()?, ty)
-                            })
-                            .unwrap_or_else(|| memory.cleanup_effects(receiver.as_ref(), ty)),
-                    ),
+                    CleanupMutation::Opaque { ty, .. } => Some(self.opaque_cleanup_effects(
+                        &memory, receiver.as_ref(), ty,
+                        task_source.as_ref().zip(task_sources.as_ref()), inactive_captures.is_some(),
+                    )),
                     CleanupMutation::Lifecycle(ref call) => {
-                        self.lifecycle_effects(&memory, call.access, call.path, call.lifecycle)
+                        self.lifecycle_effects(&memory, call)
                     }
                 };
 
@@ -487,6 +473,27 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         self.prepare_lifecycle_stored_values(memory, occurrence, call.lifecycle.call.callable, &receiver);
     }
 
+    fn opaque_cleanup_effects(
+        &self,
+        memory: &State,
+        receiver: Option<&Target>,
+        ty: bray_symbols::TypeId,
+        task: Option<(&crate::analysis::storage_flow::memory::Source, &std::collections::BTreeSet<bray_bound_tree::BoundExecutionSite>)>,
+        inactive: bool,
+    ) -> Vec<Effect> {
+        task.and_then(|(source, producers)| {
+            if inactive {
+                return memory.deferred_cleanup_effects(source, producers, false);
+            }
+
+            super::effects::task_effects(memory.deferred_effects(source, producers),
+                memory.deferred_cleanup_effects(source, producers, true)?)
+                .map(|effects| effects.possible().to_vec())
+        })
+        .or_else(|| self.buffer_cleanup_effects(memory, receiver?, ty))
+        .unwrap_or_else(|| memory.cleanup_effects(receiver, ty))
+    }
+
     fn buffer_cleanup_effects(
         &self,
         memory: &State,
@@ -671,19 +678,19 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     fn lifecycle_effects(
         &self,
         memory: &State,
-        access: StorageAccessId,
-        path: Option<&StoragePath>,
-        lifecycle: &Lifecycle,
+        call: &crate::analysis::guarantee::LifecycleInvocation<'_>,
     ) -> Option<Vec<Effect>> {
-        let contracts = &self.dependencies.lifecycle_dependencies()[&lifecycle.call.callable];
+        let contracts = &self.dependencies.lifecycle_dependencies()[&call.lifecycle.call.callable];
 
         Some(
-            self.resolve_effects(contracts.effects(), |subject, indirect| {
-                let receiver = self.cleanup_receiver(memory, access, path)?;
+            self.resolve_effects(if call.completes { contracts.normal_effects() } else { contracts.effects() }, |subject, indirect| {
+                let receiver = self.cleanup_receiver(memory, call.access, call.path)?;
+
                 let prepared = self
                     .input
                     .lifecycle_paths
-                    .get(&(lifecycle.call.callable, subject.clone())).map(|(_, path)| path);
+                    .get(&(call.lifecycle.call.callable, subject.clone())).map(|(_, path)| path);
+
                 let locations = self.cleanup_subject_locations(memory, &receiver, subject, prepared)?;
 
                 if indirect {

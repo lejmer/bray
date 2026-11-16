@@ -27,6 +27,7 @@ func probe_fabricated_scope()
 func probe_copied_scope()
 {
     let scope = trusted bray.runtime.bootstrap.thread.destruction.explicit_exit_scope();
+
     let fake: bray.runtime.bootstrap.thread.destruction.ExitScope =
     {
         identity = scope.identity,
@@ -93,6 +94,7 @@ func probe_overwritten_owner()
 func probe_copied_owner()
 {
     let owner = trusted bray.runtime.bootstrap.host.attachment.acquire();
+
     let fake: bray.runtime.bootstrap.host.attachment.Owner =
     {
         status = owner.status,

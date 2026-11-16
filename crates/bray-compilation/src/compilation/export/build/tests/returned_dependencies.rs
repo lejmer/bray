@@ -94,12 +94,14 @@ fn returned_owners_preserve_siblings_of_nested_union_mutations() {
         {
         }
     "#;
+
     let provider = compilation(api);
 
     assert!(!provider.check_diagnostics().has_errors(), "{:#?}", provider.check_diagnostics());
 
     for imported in [false, true] {
         let prefix = if imported { "example.package.api" } else { "api" };
+
         let caller = format!(r#"
             trusted module app;
 
@@ -113,11 +115,13 @@ fn returned_owners_preserve_siblings_of_nested_union_mutations() {
                 {prefix}.inspect(&result);
             }}
         "#);
+
         let application = if imported {
             execution_consumer(&provider, &caller)
         } else {
             compilation_from_sources([api, &caller])
         };
+
         let diagnostics = application.check_diagnostics();
 
         assert!(!diagnostics.has_errors(), "imported={imported}: {diagnostics:#?}; owned layout: {:#?}",
@@ -1114,6 +1118,7 @@ fn imported_call_effects_distinguish_forwarding_from_mutation() {
 
     for function in ["rewrite_choice", "rewrite_joined"] {
         let summary = crate::compilation::result_dependencies::source_function_dependencies(&provider, function);
+
         let written = summary.effects().iter().map(|effect| match effect {
             bray_symbols::DependencyStorageEffect::Indirect {
                 reference, kind: bray_symbols::DependencyMutationKind::Replace(_), ..
@@ -1142,6 +1147,7 @@ fn imported_call_effects_distinguish_forwarding_from_mutation() {
                     example.package.api.{function}(left, right, first);
                 }}
             "#);
+
             let consumer = execution_consumer(&provider, &caller);
 
             bray_testing::assert_goal_state_diagnostic_outcome(consumer.check_diagnostics(),

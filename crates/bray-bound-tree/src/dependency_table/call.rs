@@ -161,18 +161,16 @@ pub struct BoundCallDependencyContracts {
     stored_values: Arc<[bray_symbols::DependencyStoredValue]>,
     stored_value_paths: BTreeMap<bray_symbols::DependencyStoredValuePath,
         (bray_symbols::TypeId, crate::StorageReferencePath)>,
-    effects: Arc<[bray_symbols::DependencyStorageEffect]>,
+    effects: bray_symbols::DependencyEffectOutcomes<bray_symbols::DependencyStorageEffect>,
     retained_inputs: Option<BTreeSet<crate::BoundExecutionSite>>,
     reference_subjects: BTreeMap<
         bray_symbols::DependencySubject,
         (bray_symbols::TypeId, crate::StorageReferencePath),
     >,
     normal_completion: bool,
-    normal_storage_preserved: bool,
-    deferred_effects: Option<Arc<[bray_symbols::DependencyStorageEffect]>>,
+    deferred_effects: Option<bray_symbols::DependencyEffectOutcomes<bray_symbols::DependencyStorageEffect>>,
     deferred_completion: bool,
     deferred_cleanup: Option<(Arc<[bray_symbols::DependencyStorageEffect]>, Arc<[bray_symbols::DependencyStorageEffect]>)>,
-    deferred_storage_preserved: bool,
 }
 
 impl BoundCallDependencyContracts {
@@ -228,15 +226,13 @@ impl BoundCallDependencyContracts {
             references: Vec::new(),
             stored_values: Arc::new([]),
             stored_value_paths: BTreeMap::new(),
-            effects: Arc::new(bray_symbols::DependencyStorageEffect::opaque_call()),
+            effects: bray_symbols::DependencyEffectOutcomes::new(bray_symbols::DependencyStorageEffect::opaque_call()),
             retained_inputs: None,
             reference_subjects: BTreeMap::new(),
             normal_completion: true,
-            normal_storage_preserved: false,
             deferred_effects: None,
             deferred_completion: true,
             deferred_cleanup: None,
-            deferred_storage_preserved: false,
         }
     }
 
@@ -305,41 +301,30 @@ impl BoundCallDependencyContracts {
         self.normal_completion
     }
 
-    /// Retains the checked normal-return storage-preservation proof for invocation.
-    pub fn with_normal_storage_preservation(mut self, preserved: bool) -> Self {
-        self.normal_storage_preserved = preserved;
+    /// Retains the normal transitions of the selected invocation.
+    pub fn with_normal_effects(mut self, effects: impl IntoIterator<Item = bray_symbols::DependencyStorageEffect>) -> Self {
+        self.effects = self.effects.with_normal(effects);
 
         self
     }
 
     /// Whether normal invocation preserves storage, apart from input ownership transfers.
     pub fn preserves_storage_on_normal_return(&self) -> bool {
-        self.normal_storage_preserved || self.effects.is_empty()
-    }
-
-    /// Retains the same proof for the deferred body of a lazy invocation.
-    pub fn with_deferred_storage_preservation(mut self, preserved: bool) -> Self {
-        self.deferred_storage_preserved = preserved;
-
-        self
+        self.effects.preserves_storage_on_normal_return()
     }
 
     /// Whether normal deferred execution preserves storage.
     pub fn deferred_preserves_storage_on_normal_return(&self) -> bool {
-        self.deferred_storage_preserved
-            || self
-                .deferred_effects
-                .as_ref()
-                .is_some_and(|effects| effects.is_empty())
+        self.deferred_effects.as_ref().is_some_and(bray_symbols::DependencyEffectOutcomes::preserves_storage_on_normal_return)
     }
 
     /// Records the body effects and outcome separately from lazy frame creation.
     pub fn with_deferred_execution(
         mut self,
-        effects: impl IntoIterator<Item = bray_symbols::DependencyStorageEffect>,
+        effects: bray_symbols::DependencyEffectOutcomes<bray_symbols::DependencyStorageEffect>,
         normal_completion: bool,
     ) -> Self {
-        self.deferred_effects = Some(bray_symbols::DependencyStorageEffect::normalize(effects));
+        self.deferred_effects = Some(effects);
         self.deferred_completion = normal_completion;
 
         self
@@ -347,8 +332,11 @@ impl BoundCallDependencyContracts {
 
     /// Body effects applied when this lazy invocation is driven.
     pub fn deferred_effects(&self) -> Option<&[bray_symbols::DependencyStorageEffect]> {
-        self.deferred_effects.as_deref()
+        self.deferred_effects.as_ref().map(bray_symbols::DependencyEffectOutcomes::possible)
     }
+
+    /// Effects of normal deferred completion, captured with the latent body.
+    pub fn deferred_effect_outcomes(&self) -> Option<&bray_symbols::DependencyEffectOutcomes<bray_symbols::DependencyStorageEffect>> { self.deferred_effects.as_ref() }
 
     /// Retains cleanup contracts for captured values and the discarded completion result.
     pub fn with_deferred_cleanup(
@@ -519,15 +507,21 @@ impl BoundCallDependencyContracts {
         mut self,
         effects: impl IntoIterator<Item = bray_symbols::DependencyStorageEffect>,
     ) -> Self {
-        self.effects = bray_symbols::DependencyStorageEffect::normalize(effects);
+        self.effects = bray_symbols::DependencyEffectOutcomes::new(bray_symbols::DependencyStorageEffect::normalize(effects).iter().cloned());
 
         self
     }
 
     /// Returns the complete may-mutation summary for this invocation.
     pub fn effects(&self) -> &[bray_symbols::DependencyStorageEffect] {
-        &self.effects
+        self.effects.possible()
     }
+
+    /// Returns transitions that may occur on normal invocation completion.
+    pub fn normal_effects(&self) -> &[bray_symbols::DependencyStorageEffect] { self.effects.normal() }
+
+    /// Returns the connected effect contract for this invocation.
+    pub const fn effect_outcomes(&self) -> &bray_symbols::DependencyEffectOutcomes<bray_symbols::DependencyStorageEffect> { &self.effects }
 
     /// Returns exact reference transfers on normal completion.
     pub fn references(&self) -> &[BoundCallReference] {
