@@ -698,8 +698,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 let projections = storage_projections(self.request.semantic_values(), self.dependencies,
                     relation.target_projections()).expect("prepared allocation projections remain available");
 
-                state.memory.stage_allocation_reference(occurrence, destination, allocation, &projections,
-                    reference.addressed_type().expect("allocated reference retains its checked target type"));
+                state.memory.stage_allocation_reference(occurrence, destination, allocation, &projections);
                 continue;
             }
 
@@ -777,44 +776,42 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let relation = reference.relation();
 
         if relation.provenance() == bray_symbols::DependencyReferenceProvenance::InputRegions {
-            let regions = if let Some(path) = reference.target_path() {
-                source.reference_locations(self.request.semantic_values(), memory, path, true)
-            } else {
-                let mut regions = source.regions(memory);
+            let Some(mut regions) = source.regions(memory) else {
+                memory.stage_unknown(occurrence, destination);
+                return;
+            };
 
-                for _ in 0..relation.dereferences() {
-                    regions = regions.and_then(|regions| regions.iter().map(|target| memory.referenced_regions(target))
-                        .collect::<Option<Vec<_>>>().map(|regions| regions.into_iter().flatten().collect()));
-                }
+            for _ in 0..relation.dereferences() {
+                let Some(next) = regions
+                    .iter()
+                    .map(|target| memory.referenced_regions(target))
+                    .collect::<Option<Vec<_>>>()
+                else {
+                    memory.stage_unknown(occurrence, destination);
+                    return;
+                };
 
+                regions = next.into_iter().flatten().collect();
+            }
+
+            let projections = storage_projections(
+                self.request.semantic_values(),
+                self.dependencies,
+                relation.target_projections(),
+            )
+            .expect("prepared reference regions retain their projections");
+
+            memory.stage_reference_regions(
+                occurrence,
+                destination,
+                logical.clone(),
+                reference
+                    .addressed_type()
+                    .expect("region bound retains its output target type"),
                 regions
-            };
-
-            let Some(regions) = regions else {
-                memory.stage_unknown(occurrence, destination);
-                return;
-            };
-
-            memory.stage_reference_regions(occurrence, destination, logical.clone(),
-                reference.addressed_type().expect("region bound retains its output target type"), regions);
-            return;
-        }
-
-        if !relation.target_projections().is_empty() {
-            let path = reference.target_path().expect("projected reference retains its checked target route");
-            let Some(targets) = source.reference_locations(self.request.semantic_values(), memory, path, false) else {
-                memory.stage_unknown(occurrence, destination);
-                return;
-            };
-
-            if targets.is_empty() {
-                memory.stage_empty_reference(occurrence, destination);
-                return;
-            }
-
-            for target in targets {
-                memory.stage_address(occurrence, target, destination.clone(), reference);
-            }
+                    .into_iter()
+                    .map(|target| target.project(&projections)),
+            );
 
             return;
         }
@@ -872,7 +869,30 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     ) {
         let relation = reference.relation();
 
-        if reference.addressed_type().is_some() {
+        if !relation.target_projections().is_empty() {
+            let Some(targets) = source.targets(memory) else {
+                memory.stage_unknown(occurrence, destination);
+                return;
+            };
+
+            let Some(projections) = storage_projections(
+                self.request.semantic_values(),
+                self.dependencies,
+                relation.target_projections(),
+            ) else {
+                memory.stage_unknown(occurrence, destination);
+                return;
+            };
+
+            for target in targets {
+                memory.stage_address(
+                    occurrence,
+                    target.project(&projections),
+                    destination.clone(),
+                    reference,
+                );
+            }
+        } else if reference.addressed_type().is_some() {
             let crate::analysis::storage_flow::memory::Source::Value(target) = source else {
                 panic!("addressed storage has a location");
             };

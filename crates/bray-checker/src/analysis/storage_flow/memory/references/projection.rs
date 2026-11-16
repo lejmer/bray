@@ -335,6 +335,140 @@ impl State {
         Some(location.clone())
     }
 
+    pub(in crate::analysis::storage_flow) fn reference_locations(
+        &self,
+        values: &bray_symbols::SemanticValueStore,
+        target: Target,
+        path: &bray_bound_tree::StorageReferencePath,
+        root_borrow: Option<Target>,
+    ) -> Option<Vec<Target>> {
+        self.reference_locations_in(values, target, path, root_borrow,
+            |target| self.values.get(target).and_then(|value| value.references.as_ref()))
+    }
+
+    pub(in crate::analysis::storage_flow) fn staged_reference_locations(
+        &self,
+        invocation: bray_bound_tree::BoundExecutionSite,
+        values: &bray_symbols::SemanticValueStore,
+        root: &Target,
+        start: &Target,
+        path: &bray_bound_tree::StorageReferencePath,
+    ) -> Option<Vec<Target>> {
+        let staged = self.pending.get(&invocation)?;
+
+        self.reference_locations_in(values, start.clone(), path, None, |target| {
+            staged.values.get(target).or_else(|| (!root.contains_storage(target)).then(|| self.values.get(target)).flatten())
+                .and_then(|value| value.references.as_ref())
+        })
+    }
+
+    pub(in crate::analysis::storage_flow) fn captured_input_target(
+        &self,
+        invocation: bray_bound_tree::BoundExecutionSite,
+        values: &bray_symbols::SemanticValueStore,
+        root: &Target,
+        path: &bray_bound_tree::StorageReferencePath,
+    ) -> Option<Target> {
+        let captured = &self.pending.get(&invocation)?.inputs;
+
+        let lookup = |target: &Target| {
+            (if root.contains_storage(target) { captured.get(target) } else { self.values.get(target) }).and_then(|value| value.references.as_ref())
+        };
+
+        let locations = self.reference_locations_in(values, root.clone(), path, None, lookup)?;
+        let [location] = locations.as_slice() else {
+            return None;
+        };
+
+        let references = lookup(location)?;
+
+        references.is_exact().then(|| references.targets.first()
+            .expect("exact captured input has one referent").clone())
+    }
+
+    pub(in crate::analysis::storage_flow) fn staged_reference_regions(
+        &self,
+        invocation: bray_bound_tree::BoundExecutionSite,
+        root: &Target,
+        location: &Target,
+    ) -> Option<Vec<Target>> {
+        let staged = self.pending.get(&invocation)?;
+
+        staged.values.get(location)
+            .or_else(|| (!root.contains_storage(location)).then(|| self.values.get(location)).flatten())?
+            .references.as_ref()?.regions()
+    }
+
+    pub(in crate::analysis::storage_flow) fn staged_contained_regions(
+        &self,
+        invocation: bray_bound_tree::BoundExecutionSite,
+        value: &Target,
+    ) -> (std::collections::BTreeSet<Target>, bool) {
+        let staged = self.pending.get(&invocation).expect("captured completion references retain their prepared transfer");
+        let mut targets = std::collections::BTreeSet::new();
+        let mut unknown = false;
+
+        for references in staged.values.range(value.clone()..).take_while(|(slot, _)| value.contains(slot))
+            .filter(|(slot, _)| value.contains_storage(slot)).filter_map(|(_, value)| value.references.as_ref()) {
+            targets.extend(references.targets.iter().cloned());
+            unknown |= references.unknown || references.displaced;
+        }
+
+        (targets, unknown)
+    }
+
+    fn reference_locations_in<'a>(
+        &'a self,
+        values: &bray_symbols::SemanticValueStore,
+        target: Target,
+        path: &bray_bound_tree::StorageReferencePath,
+        mut root_borrow: Option<Target>,
+        lookup: impl Fn(&Target) -> Option<&'a References>,
+    ) -> Option<Vec<Target>> {
+        let mut targets = vec![target];
+        let mut copied = 0;
+
+        for (step, (index, ty)) in path.borrows().iter().enumerate() {
+            let address = path.is_address_load(step);
+
+            targets = if let Some(root) = root_borrow.take().filter(|_| step == 0 && *index == 0 && !address) {
+                vec![root]
+            } else {
+                let mut reached = std::collections::BTreeSet::new();
+
+                for target in targets {
+                    let target = target.project(&path.projections()[copied..*index]);
+                    let reference = lookup(&target)?;
+                    let typed = self.typed_targets(reference, *ty).or_else(|| {
+                        let data = values.type_data(*ty);
+                        let bray_symbols::TypeData::Slice(element) = data.as_ref() else {
+                            return None;
+                        };
+
+                        // A slice view keeps each existing element region. Bounds alone
+                        // cannot supply a layout or turn a dynamic selector into one cell.
+                        (!reference.unknown && !reference.displaced && !reference.targets.is_empty()
+                            && reference.targets.iter().all(|reached| {
+                                let declared = self.contents.get(reached).and_then(|contents| contents.storage_type);
+
+                                !reached.previous && (!reference.inexact || !reached.is_exact())
+                                    && (declared == Some(*ty) || declared == Some(*element))
+                            }))
+                            .then_some(&reference.targets)
+                    })?;
+
+                    reached.extend(typed.iter().cloned());
+                }
+
+                reached.into_iter().collect()
+            };
+
+            copied = *index + usize::from(address);
+        }
+
+        Some(targets.into_iter().map(|target| target.project(&path.projections()[copied..])).collect())
+    }
+
     pub(in crate::analysis::storage_flow) fn referenced_regions(
         &self,
         location: &Target,
@@ -348,8 +482,11 @@ impl State {
     ) -> Option<Vec<Target>> {
         let references = self.values.get(location)?.references.as_ref()?;
 
-        references.address_targets().filter(|targets| targets.iter().all(|target| target.is_exact()))
-            .map(|targets| targets.iter().cloned().collect())
+        (!references.unknown
+            && !references.displaced
+            && !references.inexact
+            && references.targets.iter().all(Target::is_exact))
+        .then(|| references.targets.iter().cloned().collect())
     }
 
     pub(in crate::analysis::storage_flow) fn borrow_regions(
@@ -365,8 +502,11 @@ impl State {
     ) -> Option<Vec<Target>> {
         let references = self.borrows.get(&capability)?;
 
-        references.address_targets().filter(|targets| targets.iter().all(|target| target.is_exact()))
-            .map(|targets| targets.iter().cloned().collect())
+        (!references.unknown
+            && !references.displaced
+            && !references.inexact
+            && references.targets.iter().all(Target::is_exact))
+        .then(|| references.targets.iter().cloned().collect())
     }
 
     pub(in crate::analysis::storage_flow) fn borrow_observation(
@@ -536,7 +676,10 @@ impl State {
     }
 
     fn typed_targets<'a>(&self, references: &'a References, ty: TypeId) -> Option<&'a std::collections::BTreeSet<Target>> {
-        references.typed_targets(ty, |target| self.contents.get(target).and_then(|contents| contents.storage_type))
+        (!references.unknown && !references.displaced && !references.inexact && !references.targets.is_empty()
+            && references.targets.iter().all(|target| !target.previous
+                && self.contents.get(target).and_then(|contents| contents.storage_type) == Some(ty)))
+            .then_some(&references.targets)
     }
 
     fn typed_target(&self, references: &References, ty: TypeId) -> Option<Target> {

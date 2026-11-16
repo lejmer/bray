@@ -636,7 +636,16 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         // These projections belong to the formal value. They do not name cells
         // in the caller's unwrapped argument, including beneath raw pointers.
-        Some(Cow::Owned(path.strip_prefix(&wrapping)?))
+        let projections = path.projections().strip_prefix(wrapping.as_slice())?;
+
+        let borrows = path.borrows().iter().map(|(index, ty)| {
+            Some((index.checked_sub(wrapping.len())?, *ty))
+        }).collect::<Option<Vec<_>>>()?;
+
+        Some(Cow::Owned(bray_bound_tree::StorageReferencePath::new(
+            projections.into(),
+            borrows.into(),
+        )))
     }
 
     pub(in crate::analysis::storage_flow::check::analysis) fn invocation_logical_path(

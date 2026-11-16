@@ -8,7 +8,7 @@ use crate::CheckerRequestContext;
 use crate::analysis::guarantee::{ExecutionState, Lifecycle};
 use crate::analysis::model::AnalysisOperationKind;
 use crate::analysis::storage_flow::{
-    memory::{Source, State, Target},
+    memory::{State, Target},
     model::StorageFlowState,
 };
 
@@ -495,12 +495,16 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     ) -> Option<Vec<Effect>> {
         let effects = self.input.buffer_cleanup_effects.get(&ty)?;
 
-        Some(self.resolve_effects(effects, |subject, indirect, projections| {
-            let prepared = self.input.buffer_cleanup_paths.get(&(ty, subject.clone()));
-            let locations = self.cleanup_subject_locations(memory, receiver, subject, prepared.map(|(_, path)| path))?;
+        Some(self.resolve_effects(effects, |subject, indirect| {
+            let path = self.input.buffer_cleanup_paths.get(&(ty, subject.clone())).map(|(_, path)| path);
+            let locations = self.cleanup_subject_locations(memory, receiver, subject, path)?;
 
             if indirect {
-                self.effect_reference_targets(memory, locations.into_iter().map(Source::Value), prepared.map(|(ty, _)| *ty), projections)
+                locations.into_iter().try_fold(Vec::new(), |mut targets, location| {
+                    targets.extend(memory.referenced_regions(&location)?);
+
+                    Some(targets)
+                })
             } else {
                 Some(locations)
             }
@@ -537,7 +541,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         };
 
         if let Some(path) = path {
-            memory.reference_locations(self.request.semantic_values(), start, path, None)
+            self.input.reference_locations(self.request.semantic_values(), memory, start, path, None)
         } else {
             subject.projections().is_empty().then_some(vec![start])
         }
@@ -581,7 +585,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 continue;
             };
 
-            let Some(locations) = memory.reference_locations(self.request.semantic_values(), receiver.clone(), prepared, None) else {
+            let Some(locations) = self.input.reference_locations(self.request.semantic_values(), memory, receiver.clone(), prepared, None) else {
                 continue;
             };
 
@@ -630,7 +634,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     continue;
                 }
 
-                let Some(locations) = memory.reference_locations(self.request.semantic_values(), receiver.clone(), prepared, None) else {
+                let Some(locations) = self.input.reference_locations(self.request.semantic_values(), memory, receiver.clone(), prepared, None) else {
                     continue;
                 };
 
@@ -674,16 +678,20 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let contracts = &self.dependencies.lifecycle_dependencies()[&lifecycle.call.callable];
 
         Some(
-            self.resolve_effects(contracts.effects(), |subject, indirect, projections| {
+            self.resolve_effects(contracts.effects(), |subject, indirect| {
                 let receiver = self.cleanup_receiver(memory, access, path)?;
                 let prepared = self
                     .input
                     .lifecycle_paths
-                    .get(&(lifecycle.call.callable, subject.clone()));
-                let locations = self.cleanup_subject_locations(memory, &receiver, subject, prepared.map(|(_, path)| path))?;
+                    .get(&(lifecycle.call.callable, subject.clone())).map(|(_, path)| path);
+                let locations = self.cleanup_subject_locations(memory, &receiver, subject, prepared)?;
 
                 if indirect {
-                    self.effect_reference_targets(memory, locations.into_iter().map(Source::Value), prepared.map(|(ty, _)| *ty), projections)
+                    locations.into_iter().try_fold(Vec::new(), |mut targets, location| {
+                        targets.extend(memory.referenced_regions(&location)?);
+
+                        Some(targets)
+                    })
                 } else {
                     Some(locations)
                 }

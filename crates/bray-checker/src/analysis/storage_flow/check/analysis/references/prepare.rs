@@ -106,7 +106,7 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
             (Some(capability), Some((0, ty))) if !path.is_address_load(0) => Some(memory.borrow_target(capability, *ty)?),
             _ => None,
         };
-        memory.reference_locations(values, Target::storage(Place::root(logical.root)), path, root_borrow)
+        self.reference_locations(values, memory, Target::storage(Place::root(logical.root)), path, root_borrow)
     }
 
     pub(in crate::analysis::storage_flow) fn prepare_reference_paths<
@@ -135,7 +135,6 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
                             reached.reached_type(),
                             bray_bound_tree::StorageReferencePath::new(
                                 path.projections.clone(),
-                                std::sync::Arc::from([]),
                                 std::sync::Arc::from([]),
                             ),
                         ),

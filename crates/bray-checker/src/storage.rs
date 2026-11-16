@@ -13,7 +13,7 @@ pub(crate) use plan::plan_storage;
 pub use projection::projected_storage_type;
 pub(crate) use projection::{
     dependency_projection, dependency_projections, expression_storage_projections, nullable_wrapping, owned_storage_projections, projected_value_type, projected_owned_type,
-    reference_path, reference_target_path, unadapted_projections, resolve_owned_storage_preservation, resolve_owned_storage_projections, resolve_storage_projections, storage_projections,
+    reference_path, unadapted_projections, resolve_owned_storage_preservation, resolve_owned_storage_projections, resolve_storage_projections, storage_projections,
     static_subject_type,
 };
 pub(crate) use protocol::selected_storage_protocol_call;

@@ -52,8 +52,6 @@ pub(in crate::analysis::storage_flow) struct StorageFlowInput {
         BTreeMap<bray_symbols::TypeId, crate::representation::RawBufferFields>,
     pub(in crate::analysis::storage_flow) buffer_cleanup_effects:
         BTreeMap<bray_symbols::TypeId, Vec<bray_symbols::DependencyStorageEffect>>,
-    pub(in crate::analysis::storage_flow) effect_target_paths: BTreeMap<bray_symbols::TypeId,
-        BTreeMap<std::sync::Arc<[bray_symbols::DependencyProjection]>, Option<bray_bound_tree::StorageReferencePath>>>,
     pub(in crate::analysis::storage_flow) buffer_cleanup_paths: BTreeMap<
         (bray_symbols::TypeId, bray_symbols::DependencySubject),
         (bray_symbols::TypeId, bray_bound_tree::StorageReferencePath),
@@ -250,8 +248,7 @@ impl StorageFlowInput {
             cleanup_shapes, request, storage, selections, &input.footprint,
         )?;
 
-        input.prepare_summary_demands(request, storage, selections, dependencies, values, &mut demands)?;
-        input.prepare_entry_references(request, storage, dependencies, cleanup, demands)?;
+        input.prepare_entry_references(request, storage, selections, dependencies, demands)?;
 
         for (path, ty) in &input.footprint.whole_sources {
             let root = storage.storage_type(path.root).expect("whole-value source retains its entry type");
@@ -294,20 +291,15 @@ impl StorageFlowInput {
                 .chain(call.deferred_capture_cleanup().into_iter().flatten())
                 .chain(call.deferred_result_cleanup().into_iter().flatten());
 
-            Self::prepare_effect_target_paths(request, &mut self.effect_target_paths, effects.clone(), |subject| call.reference_type(subject))?;
             atomic |= self.footprint.prepare_effects(request, effects, |subject| call.reference_type(subject))?;
         }
 
         for (callable, contract) in dependencies.lifecycle_dependencies() {
-            Self::prepare_effect_target_paths(request, &mut self.effect_target_paths, contract.effects(),
-                |subject| self.lifecycle_paths.get(&(*callable, subject.clone())).map(|(ty, _)| *ty))?;
             atomic |= self.footprint.prepare_effects(request, contract.effects(),
                 |subject| self.lifecycle_paths.get(&(*callable, subject.clone())).map(|(ty, _)| *ty))?;
         }
 
         for (ty, effects) in &self.buffer_cleanup_effects {
-            Self::prepare_effect_target_paths(request, &mut self.effect_target_paths, effects,
-                |subject| self.buffer_cleanup_paths.get(&(*ty, subject.clone())).map(|(ty, _)| *ty))?;
             atomic |= self.footprint.prepare_effects(request, effects,
                 |subject| self.buffer_cleanup_paths.get(&(*ty, subject.clone())).map(|(ty, _)| *ty))?;
         }

@@ -7,7 +7,7 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
         &mut self,
         request: crate::CheckerUnitView<'_, C>,
         types: impl Iterator<Item = bray_symbols::TypeId>,
-        demands: &mut super::demands::Demands,
+        demands: &mut super::entry::Demands,
     ) -> crate::CheckerQueryResult<(), C::UpstreamError> {
         let types = types
             .map(|ty| request.semantic_values().unborrowed_type(ty))
@@ -47,7 +47,7 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
         &mut self,
         request: crate::CheckerUnitView<'_, C>,
         types: impl Iterator<Item = bray_symbols::TypeId>,
-        demands: &mut super::demands::Demands,
+        demands: &mut super::entry::Demands,
     ) -> crate::CheckerQueryResult<(), C::UpstreamError> {
         let mut nested = std::collections::BTreeSet::new();
 
@@ -112,8 +112,8 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
         request: crate::CheckerUnitView<'_, C>,
         cleanup: &crate::analysis::guarantee::CleanupPlan,
         dependencies: &bray_bound_tree::CheckedDependencyContracts,
-    ) -> crate::CheckerQueryResult<super::demands::Demands, C::UpstreamError> {
-        let mut demands = super::demands::Demands::new();
+    ) -> crate::CheckerQueryResult<super::entry::Demands, C::UpstreamError> {
+        let mut demands = super::entry::Demands::new();
 
         for ((ty, _), lifecycle) in &cleanup.lifecycles {
             if self

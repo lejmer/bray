@@ -241,23 +241,16 @@ impl References {
     }
 
     pub(super) fn is_exact(&self) -> bool {
-        self.address_targets().is_some_and(|targets| targets.len() == 1
-            && targets.first().expect("one reference target").is_exact())
+        !self.unknown
+            && !self.displaced
+            && !self.inexact
+            && self.targets.len() == 1
+            && self
+                .targets
+                .first()
+                .expect("one reference target")
+                .is_exact()
     }
-
-    pub(super) fn address_targets(&self) -> Option<&BTreeSet<Target>> {
-        (!self.unknown && (self.targets.is_empty() || !self.displaced && !self.inexact
-            && self.targets.iter().all(|target| !target.previous))).then_some(&self.targets)
-    }
-
-    pub(super) fn typed_targets(
-        &self,
-        ty: TypeId,
-        declared: impl Fn(&Target) -> Option<TypeId>,
-    ) -> Option<&BTreeSet<Target>> {
-        self.address_targets().filter(|targets| targets.iter().all(|target| declared(target) == Some(ty)))
-    }
-
 }
 
 type Origins = BTreeSet<BoundExpressionId>;

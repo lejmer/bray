@@ -392,17 +392,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
             let access = reference.access_id(self.storage);
 
-            // A direct slot write overrides preservation of the old shared pointee.
-            // Paths crossing a loan are classified at their physical slot below.
-            if access.is_some_and(|access| {
-                self.input.reference_paths.get(&access).is_none_or(|(_, path)| path.borrows().is_empty())
-                    && matches!(&*invalidation, StorageInvalidation::Observed { accesses, .. } if accesses.contains_key(&access))
-            }) {
-                continue;
-            }
-
             let locations = if let Some((slot, _, _)) = self.input.entry_references.get(&(reference.clone(), 1)) {
-                memory.reference_locations(self.request.semantic_values(), Target::storage(StoragePath::root(reference.root)), slot, None,
+                self.input.reference_locations(
+                    self.request.semantic_values(), memory, Target::storage(StoragePath::root(reference.root)), slot, None,
                 )
             } else { match access {
                 _ if reference.projections.is_empty() => Some(Target::storage(reference.clone())),
@@ -1167,10 +1159,15 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 continue;
             }
 
-            let descriptor = path.prefix(*index, step);
+            let descriptor = bray_bound_tree::StorageReferencePath::new(
+                path.projections()[..*index].into(),
+                path.borrows()[..step].into(),
+            );
 
             let Some(locations) =
-                memory.reference_locations(self.request.semantic_values(),
+                self.input.reference_locations(
+                    self.request.semantic_values(),
+                    memory,
                     Target::storage(StoragePath::root(root)),
                     &descriptor,
                     None,

@@ -68,7 +68,6 @@ pub struct BoundCallReference {
     relation: bray_symbols::DependencyBorrowRelation,
     preserves_value: bool,
     addressed_type: Option<bray_symbols::TypeId>,
-    target_path: Option<crate::StorageReferencePath>,
 }
 
 impl BoundCallReference {
@@ -77,13 +76,11 @@ impl BoundCallReference {
         relation: bray_symbols::DependencyBorrowRelation,
         preserves_value: bool,
         addressed_type: Option<bray_symbols::TypeId>,
-        target_path: Option<crate::StorageReferencePath>,
     ) -> Self {
         Self {
             relation,
             preserves_value,
             addressed_type,
-            target_path,
         }
     }
 
@@ -95,11 +92,6 @@ impl BoundCallReference {
     /// The reached storage type when forming an address or a bounded reference.
     pub const fn addressed_type(&self) -> Option<bray_symbols::TypeId> {
         self.addressed_type
-    }
-
-    /// The checked input route used when projecting through the source reference.
-    pub fn target_path(&self) -> Option<&crate::StorageReferencePath> {
-        self.target_path.as_ref()
     }
 
     /// Whether the output retains the input reference value, rather than only its target.

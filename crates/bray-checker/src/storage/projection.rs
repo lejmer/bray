@@ -247,7 +247,6 @@ pub(crate) fn reference_path<C: CheckerRequestContext + ?Sized>(
     CheckerQueryError<C::UpstreamError>,
 > {
     let mut borrows = Vec::new();
-    let mut owners = Vec::new();
 
     for index in 0..=projections.len() {
         while let TypeData::Borrow { target, .. } = request.semantic_values().type_data(ty).as_ref()
@@ -261,15 +260,6 @@ pub(crate) fn reference_path<C: CheckerRequestContext + ?Sized>(
         }
 
         if let Some(projection) = projections.get(index) {
-            if *projection == StorageProjection::OwnedTarget {
-                let owner = match crate::representation::raw_buffer_fields(request, ty)? {
-                    Some(fields) => bray_bound_tree::StorageReferenceOwner::Buffer { ty, pointer: fields.pointer, element: fields.element },
-                    None => bray_bound_tree::StorageReferenceOwner::Indirection,
-                };
-
-                owners.push((index, owner));
-            }
-
             if *projection == StorageProjection::AddressTarget {
                 if crate::representation::reference_kind(request, ty) != Some(bray_symbols::DependencyReferenceKind::Address) {
                     return Ok(None);
@@ -294,28 +284,8 @@ pub(crate) fn reference_path<C: CheckerRequestContext + ?Sized>(
 
     Ok(Some((
         ty,
-        bray_bound_tree::StorageReferencePath::new(projections, borrows.into(), owners.into()),
+        bray_bound_tree::StorageReferencePath::new(projections, borrows.into()),
     )))
-}
-
-pub(crate) fn reference_target_path<C: CheckerRequestContext + ?Sized>(
-    request: CheckerUnitView<'_, C>,
-    source: TypeId,
-    projections: &[DependencyProjection],
-) -> crate::CheckerQueryResult<Option<(TypeId, bray_bound_tree::StorageReferencePath)>, C::UpstreamError> {
-    let Some(target) = crate::representation::reference_target_type(request, source) else {
-        return Ok(None);
-    };
-
-    let Some(mut path) = resolve_storage_projections(request, projections)? else {
-        return Ok(None);
-    };
-
-    if crate::representation::reference_kind(request, source) == Some(bray_symbols::DependencyReferenceKind::Address) {
-        path.insert(0, StorageProjection::AddressTarget);
-    }
-
-    reference_path(request, source, path.into(), projections.is_empty().then_some(target))
 }
 
 pub(crate) fn resolve_storage_projections<C: CheckerRequestContext + ?Sized>(
