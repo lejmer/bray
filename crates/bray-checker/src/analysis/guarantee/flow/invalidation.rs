@@ -539,10 +539,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         &self,
         state: &mut ExecutionState,
         mutation: bray_bound_tree::StorageMutation,
-        descriptors: &BTreeSet<bray_bound_tree::StoragePath>,
-        stable_values: &BTreeMap<bray_bound_tree::StoragePath, bray_bound_tree::StorageObservationKind>,
-        normal_snapshots: &BTreeMap<(bray_symbols::DependencySubjectRoot, std::sync::Arc<[bray_bound_tree::StorageProjection]>), bray_bound_tree::StorageObservationKind>,
+        invalidation: &StorageInvalidation,
     ) {
+        let StorageInvalidation::All { stable_descriptors: descriptors, stable_values, normal_snapshots, .. } = invalidation else {
+            unreachable!("global observation invalidation has an opaque frame");
+        };
+
         let descriptor_paths = descriptors
             .iter()
             .flat_map(|path| self.storage_places(state, path.clone()).map(move |place| (place, path.clone())))
@@ -553,10 +555,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         self.preserve_normal_snapshots(state, mutation, normal_snapshots, &mut snapshots);
 
         let values = self.storage_preservations(state, stable_values);
+        let pointees = self.pointee_preservations(state, invalidation, &mut snapshots);
 
         let mut masks = self.preservation_masks(
             descriptor_paths.iter().map(|(place, path)| (place, path.projections.as_ref())),
-            values.iter().map(|(place, path, kind)| (place, path.projections.as_ref(), *kind)));
+            values.iter().map(|(place, path, kind)| (place, path.projections.as_ref(), *kind))
+                .chain(pointees.iter().map(|(place, path, kind)| (place, path.as_ref(), *kind))));
 
         let current = state.current.iter().filter_map(|(place, _)| {
             value_for_invalidation(state, place).map(|value| (place.clone(), value))
@@ -622,14 +626,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             _ => None,
         };
 
-        if let StorageInvalidation::All {
-            stable_descriptors: descriptors,
-            stable_values,
-            normal_snapshots,
-            ..
-        } = invalidation
-        {
-            self.invalidate_all_observations(state, mutation, descriptors, stable_values, normal_snapshots);
+        if matches!(invalidation, StorageInvalidation::All { .. }) {
+            self.invalidate_all_observations(state, mutation, invalidation);
 
 
             return;
@@ -646,6 +644,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             self.preserve_normal_snapshots(state, mutation, snapshots, &mut stable_values);
         }
 
+        let pointees = self.pointee_preservations(state, invalidation, &mut stable_values);
+
         for value in state.current.live_values().flat_map(|value| state.owned_values(&value)) {
             stable_values.preserve_scalar_data(&value);
         }
@@ -661,16 +661,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     continue;
                 };
 
-                let ty = path
-                    .access_id(self.storage)
-                    .and_then(|access| self.storage.access(access))
-                    .map(|access| access.reached_type())
-                    .or_else(|| {
-                        path.projections
-                            .is_empty()
-                            .then(|| self.storage.storage_type(path.root))
-                            .flatten()
-                    });
+                let ty = self.storage_path_type(path);
 
                 if ty.is_some_and(|ty| {
                     crate::representation::reference_kind(self.request, ty)
@@ -706,6 +697,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let (mut changed_places, mut changed_paths) = self.invalidated_places(invalidation);
 
+        changed_places.extend(state.current.iter().filter(|(place, _)| place.is_pointee())
+            .map(|(place, _)| place.clone()));
+
         self.extend_static_changes(state, invalidation, &mut changed_places, &mut changed_paths);
 
         // Storage flow distinguishes the descriptor slot from its reached elements.
@@ -727,11 +721,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let mut scalar_places = BTreeSet::new();
 
-        let mut invalidated_values: Vec<_> = if transfers {
-            Vec::new()
-        } else {
+        let mut invalidated_values: Vec<_> = {
             changed_places
                 .iter()
+                .filter(|place| !transfers || place.is_pointee())
                 .filter(|place| !descriptor_paths.contains_key(*place))
                 .filter_map(|place| {
                     let value = value_for_invalidation(state, place)?;
@@ -778,7 +771,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let mut masks = self.preservation_masks(
             descriptor_paths.iter().map(|(place, path)| (place, path.as_ref())),
-            values.iter().map(|(place, path, kind)| (place, path.projections.as_ref(), *kind)));
+            values.iter().map(|(place, path, kind)| (place, path.projections.as_ref(), *kind))
+                .chain(pointees.iter().map(|(place, path, kind)| (place, path.as_ref(), *kind))));
 
         let mut updates = BTreeMap::new();
 
@@ -797,7 +791,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             let mut empty = super::preservation::ValuePreservation::default();
             let mask = masks.get_mut(&root).unwrap_or(&mut empty);
 
-            let next = if transfers { ExecutionCondition::unknown() } else {
+            let next = if transfers && !place.is_pointee() { ExecutionCondition::unknown() } else {
                 mask.frame(state, &source, path, Some(&place), mutation)
             };
 
@@ -938,15 +932,13 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let aliases = observations
             .iter()
             .filter_map(|(path, target)| {
-                let target = (target).value_observation_path()?;
-
-                if *path == target {
+                if target.value_observation_path().as_ref() == Some(path) {
                     return None;
                 }
 
                 let place = crate::ExecutionPlace::storage_path(self.storage, path);
                 let previous = self.storage_path_value(state, path);
-                let value = self.current_storage_value(state, &target)?;
+                let value = self.current_target_value(state, target, self.borrowed_path_type(path))?;
 
                 let value = if matches!((previous.owner_identity()).kind(), crate::ExecutionConditionKind::Borrowed(_)) || path.projections.is_empty()
                     && self.storage.storage_type(path.root).is_some_and(|ty| {

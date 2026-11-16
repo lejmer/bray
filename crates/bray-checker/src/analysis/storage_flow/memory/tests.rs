@@ -104,7 +104,7 @@ fn retained_address_bits_keep_their_targets_without_preserving_pointee_state() {
         stable_descriptors: Default::default(),
         stable_values: [(pointer.clone(), bray_bound_tree::StorageObservationKind::Address)].into(),
         stable_reference_slots: Default::default(),
-        normal_snapshots: Default::default(),
+        normal_snapshots: Default::default(), stable_pointees: Default::default(),
     };
 
     let storage = StoragePlanBuilder::new(pointer.root.unit(), BoundUnitKind::CallableBody).finish();
@@ -143,7 +143,7 @@ fn cleanup_retains_its_value_scope_and_follows_actual_contained_references() {
         let stable = state.unexposed_storage(&protected, [Target::storage(right.clone())]).cloned().collect();
 
         let invalidation = bray_bound_tree::StorageInvalidation::All {
-            stable_descriptors: stable, stable_values: Default::default(), stable_reference_slots: Default::default(), normal_snapshots: Default::default(),
+            stable_descriptors: stable, stable_values: Default::default(), stable_reference_slots: Default::default(), normal_snapshots: Default::default(), stable_pointees: Default::default(),
         };
 
         state.apply_effects(Some(&effects), &invalidation, &storage);
@@ -3240,7 +3240,7 @@ fn opaque_effects_preserve_unexposed_reference_slots_but_revoke_contents() {
             &bray_bound_tree::StorageInvalidation::All {
                 stable_descriptors,
                 stable_values: Default::default(),
-                stable_reference_slots: Default::default(), normal_snapshots: Default::default(),
+                stable_reference_slots: Default::default(), normal_snapshots: Default::default(), stable_pointees: Default::default(),
             },
             &storage,
             bray_symbols::DependencyMutationKind::Retire,
@@ -3316,7 +3316,7 @@ fn typed_writes_keep_protected_reference_slots_until_exact_replacement() {
     let invalidation = bray_bound_tree::StorageInvalidation::All {
         stable_descriptors: [parameter].into(),
         stable_values: Default::default(),
-        stable_reference_slots: Default::default(), normal_snapshots: Default::default(),
+        stable_reference_slots: Default::default(), normal_snapshots: Default::default(), stable_pointees: Default::default(),
     };
 
     let other = Target {
@@ -3375,7 +3375,7 @@ fn effects_preserve_protected_entry_reference_slots_without_referent_authority()
         let mut invalidation = bray_bound_tree::StorageInvalidation::All {
             stable_descriptors: protected.then_some(parameter).into_iter().collect(),
             stable_values: Default::default(),
-            stable_reference_slots: Default::default(), normal_snapshots: Default::default(),
+            stable_reference_slots: Default::default(), normal_snapshots: Default::default(), stable_pointees: Default::default(),
         };
 
         if nested && protected {

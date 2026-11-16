@@ -32,6 +32,8 @@ pub enum StorageInvalidation {
         stable_reference_slots: BTreeSet<crate::StorageTarget>,
         /// Classified unchanged values held by this invocation's entry or normal result.
         normal_snapshots: BTreeMap<(bray_symbols::DependencySubjectRoot, Arc<[crate::StorageProjection]>), crate::StorageObservationKind>,
+        /// Surviving observations of exact typed pointees, without ownership or initialization.
+        stable_pointees: BTreeMap<(crate::StorageTarget, bray_symbols::TypeId), BTreeSet<(Arc<[crate::StorageProjection]>, crate::StorageObservationKind)>>,
     },
     /// Only the listed paths and overlapping storage may change.
     Paths(Vec<crate::StoragePath>),
@@ -56,6 +58,8 @@ pub enum StorageInvalidation {
         stable_reference_slots: BTreeSet<crate::StorageTarget>,
         /// Classified unchanged values held by this invocation's entry or normal result.
         normal_snapshots: BTreeMap<(bray_symbols::DependencySubjectRoot, Arc<[crate::StorageProjection]>), crate::StorageObservationKind>,
+        /// Surviving observations of exact typed pointees, without ownership or initialization.
+        stable_pointees: BTreeMap<(crate::StorageTarget, bray_symbols::TypeId), BTreeSet<(Arc<[crate::StorageProjection]>, crate::StorageObservationKind)>>,
     },
 }
 
@@ -92,12 +96,27 @@ impl StorageInvalidation {
         Self::All {
             stable_descriptors: BTreeSet::new(),
             stable_values: Default::default(),
-            stable_reference_slots: Default::default(), normal_snapshots: Default::default(),
+            stable_reference_slots: Default::default(), normal_snapshots: Default::default(), stable_pointees: Default::default(),
         }
     }
 
     /// Retains every target that either incoming execution can mutate.
     pub fn merge(&mut self, incoming: &Self) {
+        let mut pointees = match &mut *self {
+            Self::All { stable_pointees, .. } | Self::Observed { stable_pointees, .. } => std::mem::take(stable_pointees),
+            Self::Paths(_) => BTreeMap::new(),
+        };
+
+        pointees.retain(|key, observations| {
+            let Some(other) = incoming.stable_pointees().and_then(|pointees| pointees.get(key)) else {
+                return false;
+            };
+
+            observations.retain(|observation| other.contains(observation));
+
+            true
+        });
+
         let mut reference_slots = match &mut *self {
             Self::All { stable_reference_slots, .. } | Self::Observed { stable_reference_slots, .. } => std::mem::take(stable_reference_slots),
             Self::Paths(_) => BTreeSet::new(),
@@ -227,6 +246,18 @@ impl StorageInvalidation {
 
         if let Self::All { stable_reference_slots, .. } | Self::Observed { stable_reference_slots, .. } = self {
             *stable_reference_slots = reference_slots;
+        }
+
+        if let Self::All { stable_pointees, .. } | Self::Observed { stable_pointees, .. } = self {
+            *stable_pointees = pointees;
+        }
+    }
+
+    /// Returns physical observation preservation resolved by storage flow.
+    pub fn stable_pointees(&self) -> Option<&BTreeMap<(crate::StorageTarget, bray_symbols::TypeId), BTreeSet<(Arc<[crate::StorageProjection]>, crate::StorageObservationKind)>>> {
+        match self {
+            Self::All { stable_pointees, .. } | Self::Observed { stable_pointees, .. } => Some(stable_pointees),
+            Self::Paths(_) => None,
         }
     }
 
@@ -587,13 +618,13 @@ mod tests {
             assert_eq!(values[&path], StorageObservationKind::Value);
 
             let mut retained = super::StorageInvalidation::All {
-                stable_descriptors: Default::default(), stable_values: values, stable_reference_slots: Default::default(), normal_snapshots: Default::default(),
+                stable_descriptors: Default::default(), stable_values: values, stable_reference_slots: Default::default(), normal_snapshots: Default::default(), stable_pointees: Default::default(),
             };
 
             let tag = super::StorageInvalidation::All {
                 stable_descriptors: Default::default(),
                 stable_values: [(path.clone(), weaker)].into(),
-                stable_reference_slots: Default::default(), normal_snapshots: Default::default(),
+                stable_reference_slots: Default::default(), normal_snapshots: Default::default(), stable_pointees: Default::default(),
             };
 
             retained.merge(&tag);
@@ -766,7 +797,7 @@ mod tests {
             referents: [first.clone()].into(),
             stable_descriptors: [first.clone(), second.clone()].into(),
             stable_values: [first.clone(), second.clone()].into_iter().map(|path| (path, crate::StorageObservationKind::Value)).collect(),
-            stable_reference_slots: Default::default(), normal_snapshots: Default::default(),
+            stable_reference_slots: Default::default(), normal_snapshots: Default::default(), stable_pointees: Default::default(),
         };
 
         let right = super::StorageInvalidation::Observed {
@@ -780,7 +811,7 @@ mod tests {
             referents: [second.clone()].into(),
             stable_descriptors: [first.clone()].into(),
             stable_values: [first.clone()].into_iter().map(|path| (path, crate::StorageObservationKind::Value)).collect(),
-            stable_reference_slots: Default::default(), normal_snapshots: Default::default(),
+            stable_reference_slots: Default::default(), normal_snapshots: Default::default(), stable_pointees: Default::default(),
         };
 
         left.merge(&right);
@@ -788,7 +819,7 @@ mod tests {
         let opaque = super::StorageInvalidation::All {
             stable_descriptors: [first.clone()].into(),
             stable_values: [first.clone()].into_iter().map(|path| (path, crate::StorageObservationKind::Value)).collect(),
-            stable_reference_slots: Default::default(), normal_snapshots: Default::default(),
+            stable_reference_slots: Default::default(), normal_snapshots: Default::default(), stable_pointees: Default::default(),
         };
 
         let mut global = opaque.clone();
@@ -807,7 +838,7 @@ mod tests {
                 snapshots: [(first.clone(), crate::StorageTarget::storage(first.clone()))].into(),
                 stable_descriptors: [first.clone()].into(),
                 stable_values: [first.clone()].into_iter().map(|path| (path, crate::StorageObservationKind::Value)).collect(),
-                stable_reference_slots: Default::default(), normal_snapshots: Default::default(),
+                stable_reference_slots: Default::default(), normal_snapshots: Default::default(), stable_pointees: Default::default(),
                 referents: [first, second].into(),
             }
         );
@@ -834,7 +865,7 @@ mod tests {
             referents: [other.clone()].into(),
             stable_descriptors: Default::default(),
             stable_values: Default::default(),
-            stable_reference_slots: Default::default(), normal_snapshots: Default::default(),
+            stable_reference_slots: Default::default(), normal_snapshots: Default::default(), stable_pointees: Default::default(),
         };
 
         for opaque in [false, true] {
@@ -842,7 +873,7 @@ mod tests {
                 super::StorageInvalidation::All {
                     stable_descriptors: retained.clone(),
                     stable_values: retained.iter().cloned().map(|path| (path, crate::StorageObservationKind::Value)).collect(),
-                    stable_reference_slots: Default::default(), normal_snapshots: Default::default(),
+                    stable_reference_slots: Default::default(), normal_snapshots: Default::default(), stable_pointees: Default::default(),
                 }
             } else {
                 super::StorageInvalidation::Observed {
@@ -852,7 +883,7 @@ mod tests {
                     referents: Default::default(),
                     stable_descriptors: retained.clone(),
                     stable_values: retained.iter().cloned().map(|path| (path, crate::StorageObservationKind::Value)).collect(),
-                    stable_reference_slots: Default::default(), normal_snapshots: Default::default(),
+                    stable_reference_slots: Default::default(), normal_snapshots: Default::default(), stable_pointees: Default::default(),
                 }
             };
 
@@ -884,13 +915,13 @@ mod tests {
         let mut effects = super::StorageInvalidation::All {
             stable_descriptors: [first.clone(), second].into(),
             stable_values: Default::default(),
-            stable_reference_slots: Default::default(), normal_snapshots: Default::default(),
+            stable_reference_slots: Default::default(), normal_snapshots: Default::default(), stable_pointees: Default::default(),
         };
 
         effects.merge(&super::StorageInvalidation::All {
             stable_descriptors: [first.clone()].into(),
             stable_values: Default::default(),
-            stable_reference_slots: Default::default(), normal_snapshots: Default::default(),
+            stable_reference_slots: Default::default(), normal_snapshots: Default::default(), stable_pointees: Default::default(),
         });
 
         assert_eq!(
@@ -898,7 +929,7 @@ mod tests {
             super::StorageInvalidation::All {
                 stable_descriptors: [first.clone()].into(),
                 stable_values: Default::default(),
-                stable_reference_slots: Default::default(), normal_snapshots: Default::default()
+                stable_reference_slots: Default::default(), normal_snapshots: Default::default(), stable_pointees: Default::default()
             }
         );
 

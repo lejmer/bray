@@ -54,6 +54,23 @@ impl StorageObservationKind {
     pub const fn is_immutable_inline(self) -> bool {
         matches!(self, Self::Value | Self::Marker(_))
     }
+
+    /// Retains an already classified observation through the same exact typed view.
+    pub fn record_pointee_preservation<'a>(
+        self,
+        targets: impl IntoIterator<Item = &'a crate::StorageTarget>,
+        ty: bray_symbols::TypeId,
+        projections: &[crate::StorageProjection],
+        observations: &mut std::collections::BTreeMap<(crate::StorageTarget, bray_symbols::TypeId), std::collections::BTreeSet<(std::sync::Arc<[crate::StorageProjection]>, Self)>>,
+    ) {
+        if self.is_ordinary_inline() {
+            for target in targets {
+                if target.is_exact() && target.value_observation_path().is_none() {
+                    observations.entry((target.clone(), ty)).or_default().insert((projections.into(), self));
+                }
+            }
+        }
+    }
 }
 
 /// Identity of a checked operation that creates a new contents observation.

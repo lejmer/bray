@@ -59,9 +59,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             if !output.contains(&place) { continue; }
 
-            let Some(target) = target.value_observation_path() else { continue; };
-
-            let Some(contents) = self.current_storage_value(state, &target) else { continue; };
+            let Some(contents) = self.current_target_value(state, target, self.borrowed_path_type(path)) else { continue; };
 
             let projections = &place.projections[output.projections.len()..];
             let prior = projections.iter().fold(result.clone(), |value, projection| value.component(*projection));
@@ -140,10 +138,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
                 let target = completion.references().get(path)?;
 
-                let target = (target).value_observation_path()?;
-
-                if let Some(bray_bound_tree::StorageIdentity::Static(declaration)) =
-                    self.storage.identity(target.root)
+                if let Some(logical) = target.value_observation_path()
+                    && let Some(bray_bound_tree::StorageIdentity::Static(declaration)) =
+                    self.storage.identity(logical.root)
                 {
                     // Physical storage paths group a static declaration's instances.
                     // Keep the exact selected instance from the evaluated input.
@@ -164,7 +161,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
                     place.projections = std::sync::Arc::new([]);
 
-                    let place = place.project(&target.projections)?;
+                    let place = place.project(&logical.projections)?;
 
                     return Some(
                         place
@@ -173,7 +170,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     );
                 }
 
-                self.current_storage_value(state, &target)
+                self.current_target_value(state, target, self.borrowed_path_type(path))
             };
 
             let observed = match input {

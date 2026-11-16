@@ -7,6 +7,38 @@ use crate::analysis::storage_flow::memory::{Effect, State, Target};
 use crate::analysis::storage_flow::model::StorageFlowState;
 
 impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
+    pub(super) fn value_transfer_effects(
+        &self,
+        state: &StorageFlowState,
+        kind: crate::analysis::model::AnalysisOperationKind,
+    ) -> Option<Vec<Effect>> {
+        if self.call_attempt(kind).is_some()
+            || kind.occurrence().expression().is_some_and(|expression| self.memory.operation(expression).is_some())
+            || kind.storage_plans(self.storage).any(|plan| {
+                self.storage.effective_purpose(plan) == bray_bound_tree::StorageAccessPurpose::Assignment
+            }) {
+            return None;
+        }
+
+        let mut effects = Vec::new();
+
+        for plan in kind.storage_plans(self.storage)
+            .filter(|plan| self.storage.effective_purpose(*plan) == bray_bound_tree::StorageAccessPurpose::Move) {
+            let ty = self.storage.access(plan.access()).expect("a checked move retains its type").reached_type();
+            let targets = self.input.reference_targets(self.request.semantic_values(), &state.memory, self.storage, plan.access())?;
+
+            effects.extend(targets.into_iter().map(|target| Effect::Mutation(target, Mutation::Consume, Some(ty))));
+        }
+
+        if let Some(phase) = kind.value_consumption_phase() {
+            effects.extend(self.storage.value_retirements(kind.occurrence(), phase).map(|path| {
+                Effect::Mutation(Target::storage(path.clone()), Mutation::Consume, self.storage.storage_type(path.root))
+            }));
+        }
+
+        Some(effects)
+    }
+
     pub(super) fn preserve_storage_values(
         &mut self,
         state: &StorageFlowState,
@@ -145,6 +177,21 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         self.preserve_shared_views(memory, &shared,
             &|slot| survives(slot, Observation::Address, None, None), invalidation);
+
+        let pointees = match invalidation {
+            StorageInvalidation::All { stable_pointees, .. }
+            | StorageInvalidation::Observed { stable_pointees, .. } => stable_pointees,
+            StorageInvalidation::Paths(_) => unreachable!("physical preservation follows flow resolution"),
+        };
+
+        for (target, ty) in memory.typed_storage().filter(|(target, _)| target.value_observation_path().is_none()) {
+            let observations = self.input.footprint.typed_observations(ty)
+                .filter(|(path, kind)| kind.is_ordinary_inline()
+                    && survives(&target.project(path), *kind, Some(ty), None))
+                .map(|(path, kind)| (std::sync::Arc::<[bray_bound_tree::StorageProjection]>::from(path), kind));
+
+            pointees.entry((target.clone(), ty)).or_default().extend(observations);
+        }
 
     }
 }

@@ -46,39 +46,46 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         state: &mut ExecutionState,
         expression: BoundExpressionId,
         target: Option<&bray_bound_tree::StorageTarget>,
-    ) -> Option<bray_bound_tree::StoragePath> {
+    ) -> bool {
         let Some(pointee) = self.memory.operation(expression)
             .and_then(|operation| operation.kind().moving_read_type()) else {
-            return None;
+            return false;
         };
 
-        if let Some(path) = target.and_then(|target| (target).value_observation_path()) {
-            let ty = path.access_id(self.storage)
-                .and_then(|access| self.storage.access(access))
-                .map(|access| access.reached_type())
-                .or_else(|| path.projections.is_empty().then(|| self.storage.storage_type(path.root)).flatten());
+        let Some(target) = target else {
+            return false;
+        };
 
+        let path = target.value_observation_path();
+
+        if let Some(path) = &path {
+            let ty = self.storage_path_type(path);
             // An address slot is not the value stored at that address. Only a
             // matching checked value or one direct loan supplies owned lineage.
             if !ty.is_some_and(|ty| ty == pointee || matches!(
                 self.request.semantic_values().type_data(ty).as_ref(),
                 bray_symbols::TypeData::Borrow { target, .. } if *target == pointee)) {
-                return None;
+                return false;
             }
-
-            let value = self.storage_path_value(state, &path);
-
-            let value = if matches!(self.request.semantic_values().type_data(pointee).as_ref(), bray_symbols::TypeData::Borrow { .. }) {
-                value
-            } else { value.into_referent() };
-
-            self.observe_move(state, &path, pointee, &value);
-            state.pending_results.insert(expression, value);
-
-            return Some(path);
         }
 
-        None
+        let Some(value) = self.current_target_value(state, target, Some(pointee)) else {
+            return false;
+        };
+
+        let value = if matches!(self.request.semantic_values().type_data(pointee).as_ref(), bray_symbols::TypeData::Borrow { .. }) {
+            value
+        } else { value.into_referent() };
+
+        if let Some(path) = path {
+            self.observe_move(state, &path, pointee, &value);
+        } else {
+            state.vacate(ExecutionPlace::pointee(self.storage, target, pointee));
+        }
+
+        state.pending_results.insert(expression, value);
+
+        true
     }
 
     pub(in crate::analysis::guarantee) fn observed_call_result(

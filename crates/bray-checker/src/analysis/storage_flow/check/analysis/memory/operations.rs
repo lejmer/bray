@@ -60,10 +60,25 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let target = self.memory_argument_target(state, operation, operation.arguments()[0])
             .and_then(|slot| state.memory.value_target(&slot, pointee));
 
-        if let Some(source) = self.execution.observe_memory_read(execution, expression, target.as_ref())
+        if self.execution.observe_memory_read(execution, expression, target.as_ref())
             && !matches!(self.request.semantic_values().type_data(pointee).as_ref(), bray_symbols::TypeData::Borrow { .. })
             && let Some(invalidation) = invalidation {
-            self.preserve_snapshot_observations(&source, bray_symbols::DependencySubjectRoot::Result, &[], true, invalidation);
+            if let Some(source) = target.as_ref().and_then(Target::value_observation_path) {
+                self.preserve_snapshot_observations(&source, bray_symbols::DependencySubjectRoot::Result, &[], true, invalidation);
+            } else {
+                let snapshots = match invalidation {
+                    bray_bound_tree::StorageInvalidation::All { normal_snapshots, .. }
+                    | bray_bound_tree::StorageInvalidation::Observed { normal_snapshots, .. } => normal_snapshots,
+                    bray_bound_tree::StorageInvalidation::Paths(_) => unreachable!("read capture follows flow resolution"),
+                };
+
+                for (path, kind) in self.input.footprint.typed_observations(pointee) {
+                    if kind.is_immutable_inline() || matches!(kind,
+                        bray_bound_tree::StorageObservationKind::Discriminant | bray_bound_tree::StorageObservationKind::Initialization) {
+                        snapshots.insert((bray_symbols::DependencySubjectRoot::Result, path.into()), kind);
+                    }
+                }
+            }
         }
 
         if self.publish {

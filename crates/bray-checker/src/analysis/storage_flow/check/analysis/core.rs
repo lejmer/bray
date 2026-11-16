@@ -1140,8 +1140,9 @@ where
         self.preserve_returned_observations(occurrence, invalidation);
 
         let operation = occurrence.expression().and_then(|expression| self.memory.operation(expression));
+        let transfers = effects.is_none().then(|| self.value_transfer_effects(state, kind)).flatten();
 
-        self.preserve_storage_values(state, &state.memory, operation, effects, invalidation);
+        self.preserve_storage_values(state, &state.memory, operation, effects.or(transfers.as_deref()), invalidation);
 
         if let Some(contents) = self.input.tag_preserving_assignments.get(&occurrence) {
             self.preserve_store_values(&state.memory, invalidation, true, *contents);

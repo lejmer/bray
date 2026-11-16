@@ -63,6 +63,7 @@ impl ExecutionCondition {
             let depends = match condition.kind() {
                 K::Expression(candidate) | K::ScopedCapability(candidate) => mutation == StorageMutation::Operation((*candidate).into()),
                 K::PostState(site, _) => *site == mutation,
+                K::Input(place) | K::Joined(_, _, place) | K::InitializedSnapshot(place, _, _) => place.depends_on(mutation),
                 _ => false,
             };
 

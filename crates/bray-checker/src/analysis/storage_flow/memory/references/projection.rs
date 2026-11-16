@@ -605,6 +605,11 @@ impl State {
         self.contents.get(target)?.storage_type
     }
 
+    pub(in crate::analysis::storage_flow) fn typed_storage(&self) -> impl Iterator<Item = (&Target, TypeId)> {
+        self.contents.iter().filter(|(target, _)| !target.previous && target.is_exact())
+            .filter_map(|(target, contents)| contents.storage_type.map(|ty| (target, ty)))
+    }
+
     pub(in crate::analysis::storage_flow) fn projected_type<C: crate::CheckerRequestContext + ?Sized>(
         &self,
         request: crate::CheckerUnitView<'_, C>,

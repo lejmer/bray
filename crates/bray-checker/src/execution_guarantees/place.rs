@@ -11,6 +11,10 @@ pub(crate) trait ExecutionValues {
     /// Declaration normalization may introduce an unbound formal once. An
     /// execution-state reader must not recover an entry after losing its value.
     fn formal_input(&self, place: &ExecutionPlace) -> Option<super::ExecutionCondition> {
+        if place.is_pointee() {
+            return None;
+        }
+
         Some(super::ExecutionCondition::new(super::ExecutionConditionKind::Input(place.clone())))
     }
 }
@@ -46,6 +50,11 @@ pub(crate) enum ExecutionInput {
     Static(Arc<bray_symbols::StaticReferenceSelection>),
     Argument(bray_symbols::SymbolOrdinal),
     Storage(bray_bound_tree::StorageIdentityId),
+    Pointee {
+        target: bray_bound_tree::StorageTarget,
+        ty: bray_symbols::TypeId,
+        producer: Option<bray_bound_tree::BoundExecutionSite>,
+    },
 }
 
 impl From<BoundReferenceTarget> for ExecutionPlace {
@@ -58,6 +67,34 @@ impl From<BoundReferenceTarget> for ExecutionPlace {
 }
 
 impl ExecutionPlace {
+    pub(crate) fn pointee(
+        storage: &bray_bound_tree::StoragePlan,
+        target: &bray_bound_tree::StorageTarget,
+        ty: bray_symbols::TypeId,
+    ) -> Self {
+        let identity = match &target.origin {
+            bray_bound_tree::StorageOrigin::Returned { reference, .. } => Some(reference.root),
+            bray_bound_tree::StorageOrigin::Allocation { allocation, .. } => Some(allocation.root),
+            _ => None,
+        };
+        let producer = identity.and_then(|identity| storage.identity(identity))
+            .and_then(bray_bound_tree::StorageIdentity::definition_occurrence);
+
+        Self {
+            root: ExecutionInput::Pointee { target: target.clone(), ty, producer },
+            projections: Arc::new([]),
+        }
+    }
+
+    pub(crate) fn is_pointee(&self) -> bool {
+        matches!(self.root, ExecutionInput::Pointee { .. })
+    }
+
+    pub(crate) fn depends_on(&self, mutation: bray_bound_tree::StorageMutation) -> bool {
+        matches!(&self.root, ExecutionInput::Pointee { producer: Some(producer), .. }
+            if mutation == bray_bound_tree::StorageMutation::Operation(*producer))
+    }
+
     /// Selects retained inline data without extending its place into reached storage.
     /// Unresolved selectors name only the containing view, never a guessed child.
     pub(crate) fn select_storage_value(
@@ -151,7 +188,8 @@ impl ExecutionPlace {
             ExecutionInput::Constant(_)
             | ExecutionInput::Argument(_)
             | ExecutionInput::Static(_)
-            | ExecutionInput::Storage(_) => None,
+            | ExecutionInput::Storage(_)
+            | ExecutionInput::Pointee { .. } => None,
         }
     }
     pub(crate) fn is_callable_input(&self) -> bool {

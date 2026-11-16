@@ -241,6 +241,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         };
 
         let result = self.complete_returned_references(invocation, result, &arguments);
+        self.publish_returned_pointees(state, output, &result, observations);
         let result = self.refresh_returned_references(state, output, result, observations);
 
         let instantiate = |condition: &ExecutionCondition| {

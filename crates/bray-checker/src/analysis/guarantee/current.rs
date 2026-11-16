@@ -52,6 +52,8 @@ impl CurrentValues {
 
     /// Seed the complete entry snapshot once. Observing a component does not write it.
     pub(super) fn observe_input(&mut self, place: &ExecutionPlace) {
+        assert!(!place.is_pointee(), "physical contents require an actual typed value publication");
+
         let root = root_place(place);
 
         let current = self.roots.entry(root.clone()).or_insert_with(|| CurrentRoot {
@@ -171,6 +173,8 @@ impl CurrentValues {
     }
 
     pub(super) fn retire_availability(&mut self, mutation: bray_bound_tree::StorageMutation) {
+        self.roots.retain(|place, _| !place.depends_on(mutation));
+
         for root in self.roots.values_mut() {
             for availability in std::iter::once(&mut root.availability).chain(root.components.values_mut()) {
                 if matches!(availability, ValueAvailability::Guarded(guard) if guard.depends_on(mutation)) {
@@ -196,7 +200,7 @@ impl CurrentValues {
 
     pub(super) fn live_entries(&self) -> impl Iterator<Item = (ExecutionPlace, ExecutionCondition)> + '_ {
         self.roots.iter().flat_map(|(place, root)| {
-            if root.availability == ValueAvailability::Absent {
+            if place.is_pointee() || root.availability == ValueAvailability::Absent {
                 return Vec::new();
             }
 
@@ -341,7 +345,49 @@ mod tests {
     use crate::analysis::guarantee::state::ExecutionState;
     use crate::{ExecutionCondition, ExecutionPlace};
     use bray_symbols::SymbolOrdinal;
+    use bray_bound_tree::{BoundUnitId, BoundUnitKind, StorageIdentity, StorageOrigin, StoragePath, StoragePlanBuilder, StorageTarget};
     use std::sync::Arc;
+
+    #[test]
+    fn physical_snapshots_do_not_retain_owners_or_reuse_previous_producers() {
+        let unit = BoundUnitId::new(0);
+        let (_, expressions) = crate::test_support::integer_expression_unit(unit, 1);
+        let producer = expressions[0];
+        let mutation = bray_bound_tree::StorageMutation::Operation(producer.into());
+        let mut storage = StoragePlanBuilder::new(unit, BoundUnitKind::CallableBody);
+        let reference = storage.push_identity(StorageIdentity::Temporary(producer)).expect("test producer is in its storage unit");
+        let storage = storage.finish();
+        let target = StorageTarget {
+            previous: false,
+            origin: StorageOrigin::Returned {
+                reference: StoragePath::root(reference),
+                projections: Arc::new([]),
+            },
+        };
+        let place = ExecutionPlace::pointee(&storage, &target, crate::test_support::error_type());
+        let value = ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(0))));
+        let mut state = ExecutionState::default();
+
+        state.current.insert(place.clone(), value.clone());
+
+        assert_eq!(state.current.live_value(&place), Some(value.clone()));
+        assert!(state.current.live_values().next().is_none(), "observing a pointee supplies no independent owner");
+
+        state.current.retire(&place);
+
+        assert!(state.current.live_value(&place).is_none());
+        assert_eq!(place.value_in(&state.current), Some(value));
+
+        let observation = ExecutionCondition::new(crate::ExecutionConditionKind::Input(place.clone()));
+
+        assert!(observation.depends_on(mutation));
+
+        state.retire_evaluation(mutation);
+
+        assert!(state.current.get(&place).is_none(), "a genuine new producer must not inherit consumed contents");
+        assert!(observation.without_evaluation(mutation, &mut { ExecutionCondition::WORK_LIMIT }).is_unknown());
+        assert!(crate::execution_guarantees::ExecutionValues::formal_input(&std::collections::BTreeMap::new(), &place).is_none());
+    }
 
     #[test]
     fn observed_input_components_remain_live_after_a_sibling_moves() {

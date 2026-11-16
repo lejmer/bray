@@ -7,6 +7,7 @@ mod merge;
 mod model;
 mod numeric;
 mod operation;
+mod pointee;
 mod prepare;
 mod preservation;
 mod refinement;

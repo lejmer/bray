@@ -164,9 +164,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let observe = |path: &bray_bound_tree::StoragePath| {
             let target = completion.references().get(path)?;
 
-            let target = (target).value_observation_path()?;
-
-            self.current_storage_value(state, &target)
+            self.current_target_value(state, target, self.borrowed_path_type(path))
         };
 
         let contents = self.storage.node_plans(expression.into())
@@ -256,6 +254,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     {
                         self.storage.storage_type(identity)
                     }
+                    crate::execution_guarantees::ExecutionInput::Pointee { ty, .. }
+                        if place.projections.is_empty() => Some(ty),
                     _ => None,
                 }),
             crate::ExecutionConditionKind::Projection(_, _) => value.selector_place()
@@ -410,12 +410,27 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             return;
         };
 
-        let Some(path) = (target).value_observation_path() else {
+        let Some(ty) = self.memory.operation(expression).and_then(|operation| match operation.kind() {
+            bray_bound_tree::CheckedMemoryOperationKind::Write { pointee } => Some(*pointee),
+            _ => None,
+        }) else {
             return;
         };
 
-        let Some(place) = crate::ExecutionPlace::storage_path(self.storage, &path) else {
-            return;
+        let place = if let Some(path) = target.value_observation_path() {
+            let Some(place) = crate::ExecutionPlace::storage_path(self.storage, &path) else {
+                return;
+            };
+
+            place
+        } else {
+            let place = crate::ExecutionPlace::pointee(self.storage, target, ty);
+
+            if state.current.get(&place).is_none() {
+                return;
+            }
+
+            place
         };
 
         let Some(value) = state.entries.get(&expression.into()).and_then(|entry| {

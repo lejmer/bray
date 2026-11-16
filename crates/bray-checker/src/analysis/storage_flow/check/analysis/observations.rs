@@ -200,7 +200,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         StorageInvalidation::All {
             stable_descriptors,
             stable_values,
-            stable_reference_slots: Default::default(), normal_snapshots: Default::default(),
+            stable_reference_slots: Default::default(), normal_snapshots: Default::default(), stable_pointees: Default::default(),
         }
     }
 
@@ -213,17 +213,19 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     ) {
         let mut references = Vec::new();
 
-        let (stable_descriptors, stable_values) = match invalidation {
+        let (stable_descriptors, stable_values, stable_pointees) = match invalidation {
             StorageInvalidation::All {
                 stable_descriptors,
                 stable_values,
+                stable_pointees,
                 ..
             }
             | StorageInvalidation::Observed {
                 stable_descriptors,
                 stable_values,
+                stable_pointees,
                 ..
-            } => (stable_descriptors, stable_values),
+            } => (stable_descriptors, stable_values, stable_pointees),
             StorageInvalidation::Paths(_) => return,
         };
 
@@ -251,6 +253,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 continue;
             };
 
+            let exact_targets = source.targets(memory).filter(|targets| targets.len() == 1).unwrap_or_default();
+
             let exposed_referent = targets.iter().any(|target| exposed.iter().any(|raw| {
                 memory.target_relationship(raw, target) != StorageRelationship::Disjoint
             }));
@@ -268,6 +272,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                                 survives(&target.project(&value.projections[path.projections.len()..]), observation, ty, false)
                             }) {
                             observation.record_preservation(value.clone(), stable_descriptors, stable_values);
+
+                            observation.record_pointee_preservation(&exact_targets, ty, &value.projections[path.projections.len()..], stable_pointees);
                         }
                     }
 
@@ -300,6 +306,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                             survives(&target.project(&value.projections[path.projections.len()..]), bray_bound_tree::StorageObservationKind::Mutable, ty, true)
                         }) {
                             observation.record_preservation(value.clone(), stable_descriptors, stable_values);
+
+                            observation.record_pointee_preservation(&exact_targets, ty, &value.projections[path.projections.len()..], stable_pointees);
                             observed = true;
                         }
                     }
@@ -313,6 +321,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                             &target.project(&value.projections[path.projections.len()..]), observation, ty, true,
                         )) {
                             observation.record_preservation(value.clone(), stable_descriptors, stable_values);
+
+                            observation.record_pointee_preservation(&exact_targets, ty, &value.projections[path.projections.len()..], stable_pointees);
                             references.extend(targets.iter().map(|target| (value.clone(), target.project(&value.projections[path.projections.len()..]))));
                             observed = true;
                         }
@@ -326,6 +336,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
                     if survives && (!exposed_referent || observation == bray_bound_tree::StorageObservationKind::Identity || observation.is_immutable_inline()) {
                         observation.record_preservation(value.clone(), stable_descriptors, stable_values);
+
+                        observation.record_pointee_preservation(&exact_targets, ty, &value.projections[path.projections.len()..], stable_pointees);
 
                         observed = true;
                     }
@@ -346,6 +358,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                         bray_bound_tree::StorageObservationKind::Discriminant, ty, true,
                     )) {
                         bray_bound_tree::StorageObservationKind::Discriminant.record_preservation(descriptor.clone(), stable_descriptors, stable_values);
+
+                        bray_bound_tree::StorageObservationKind::Discriminant.record_pointee_preservation(&exact_targets, ty, &descriptor.projections[path.projections.len()..], stable_pointees);
                     }
                 }
 
@@ -425,9 +439,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
             invalidation.preserve_reference_slot(reference.clone(), location.clone());
 
-            let (stable_descriptors, stable_values) = match invalidation {
-                StorageInvalidation::All { stable_descriptors, stable_values, .. }
-                | StorageInvalidation::Observed { stable_descriptors, stable_values, .. } => (stable_descriptors, stable_values),
+            let (stable_descriptors, stable_values, stable_pointees) = match invalidation {
+                StorageInvalidation::All { stable_descriptors, stable_values, stable_pointees, .. }
+                | StorageInvalidation::Observed { stable_descriptors, stable_values, stable_pointees, .. } => (stable_descriptors, stable_values, stable_pointees),
                 StorageInvalidation::Paths(_) => return,
             };
 
@@ -438,6 +452,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             };
 
             let exact = source.is_exact(memory);
+            let exact_targets = source.targets(memory).filter(|targets| targets.len() == 1).unwrap_or_default();
 
             for (path, observation) in observations {
                 // A whole-value frame must not hide a retired marker inside it.
@@ -476,6 +491,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                         }
                     })
                 {
+                    observation.record_pointee_preservation(&exact_targets, *ty, &path.projections[reference.projections.len()..], stable_pointees);
+
                     // The copied logical path shares immutable projection metadata.
                     if address {
                         observation.record_preservation(path.clone(), stable_descriptors, stable_values);
@@ -943,7 +960,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 referents,
                 stable_descriptors,
                 stable_values: BTreeMap::new(),
-                stable_reference_slots: Default::default(), normal_snapshots: Default::default(),
+                stable_reference_slots: Default::default(), normal_snapshots: Default::default(), stable_pointees: Default::default(),
             };
         }
 
@@ -1124,7 +1141,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 referents,
                 stable_descriptors,
                 stable_values: BTreeMap::new(),
-                stable_reference_slots: Default::default(), normal_snapshots: Default::default(),
+                stable_reference_slots: Default::default(), normal_snapshots: Default::default(), stable_pointees: Default::default(),
             }
         } else {
             self.opaque_observations(memory, mutations.cloned())

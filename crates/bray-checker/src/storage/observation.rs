@@ -186,6 +186,11 @@ pub(crate) struct Footprint {
 }
 
 impl Footprint {
+    pub(crate) fn typed_observations(&self, ty: TypeId) -> impl Iterator<Item = (&[StorageProjection], Observation)> {
+        self.shapes.get(&ty).into_iter().flat_map(|shape| shape.observations.iter())
+            .map(|(path, kind)| (path.as_slice(), *kind))
+    }
+
     pub(crate) fn reference_shape(&self, ty: TypeId) -> (bool, Vec<&[StorageProjection]>) {
         let shape = self.shapes.get(&ty).expect("assignment target shape is prepared");
 
@@ -216,7 +221,7 @@ impl Footprint {
             referents: BTreeSet::new(),
             stable_descriptors: BTreeSet::new(),
             stable_values: BTreeMap::new(),
-            stable_reference_slots: Default::default(), normal_snapshots: Default::default(),
+            stable_reference_slots: Default::default(), normal_snapshots: Default::default(), stable_pointees: Default::default(),
         });
 
         let mut static_types = BTreeMap::<_, BTreeSet<_>>::new();
@@ -293,6 +298,19 @@ impl Footprint {
 
         let complete_reference_types = std::sync::Arc::get_mut(&mut self.complete_reference_types)
             .expect("a new footprint owns its type cache before publication");
+
+        let pointees = self.references.iter().filter(|_| !matches!(storage.kind(),
+            bray_bound_tree::BoundUnitKind::ContractClause | bray_bound_tree::BoundUnitKind::PredicateDefinition))
+            .filter_map(|(_, ty)| {
+            match request.semantic_values().type_data(*ty).as_ref() {
+                TypeData::Borrow { target, .. } => Some(*target),
+                _ => None,
+            }
+        }).collect::<BTreeSet<_>>();
+
+        for ty in pointees {
+            cached_shape(request, ty, &mut self.shapes, complete_reference_types)?;
+        }
 
         for plan in storage
             .access_plans()
@@ -1071,7 +1089,7 @@ pub(crate) fn restrict(
         unreachable!("prepared atomic frame contains resolved observations");
     };
 
-    let (mut accesses, mut referents, mut snapshots, mut stable_descriptors, stable_values, stable_reference_slots, normal_snapshots) =
+    let (mut accesses, mut referents, mut snapshots, mut stable_descriptors, stable_values, stable_reference_slots, normal_snapshots, stable_pointees) =
         match invalidation {
             StorageInvalidation::Observed {
                 accesses,
@@ -1081,6 +1099,7 @@ pub(crate) fn restrict(
                 stable_values,
                 stable_reference_slots,
                 normal_snapshots,
+                stable_pointees,
                 ..
             } => (
                 accesses,
@@ -1090,12 +1109,14 @@ pub(crate) fn restrict(
                 stable_values,
                 stable_reference_slots,
                 normal_snapshots,
+                stable_pointees,
             ),
             StorageInvalidation::All {
                 stable_values,
                 mut stable_descriptors,
                 stable_reference_slots,
                 normal_snapshots,
+                stable_pointees,
             } => {
                 let mut accesses = frame_paths.clone();
 
@@ -1116,6 +1137,7 @@ pub(crate) fn restrict(
                     stable_values,
                     stable_reference_slots,
                     normal_snapshots,
+                    stable_pointees,
                 };
             }
             StorageInvalidation::Paths(_) => return frame.clone(),
@@ -1161,5 +1183,6 @@ pub(crate) fn restrict(
         stable_values,
         stable_reference_slots,
         normal_snapshots,
+        stable_pointees,
     }
 }

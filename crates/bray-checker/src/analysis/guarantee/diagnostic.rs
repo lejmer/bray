@@ -254,6 +254,10 @@ fn place<C: CheckerRequestContext + ?Sized>(
         ExecutionInput::Argument(ordinal) => Condition::Argument(ordinal.raw()),
         ExecutionInput::Constant(term) => term_value(domain, *term, budget)?,
         ExecutionInput::Static(selection) => Condition::Source(symbol_path(domain, selection.template().declaration().into())?.join(".")),
+        ExecutionInput::Pointee { producer, .. } => match producer {
+            Some(producer) => occurrence(domain, *producer, budget)?,
+            None => Condition::Unknown,
+        },
         ExecutionInput::Storage(storage) => {
             let identity = domain.storage.identity(*storage).expect("condition storage is planned");
 
