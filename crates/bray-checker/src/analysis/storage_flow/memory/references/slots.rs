@@ -57,10 +57,7 @@ impl State {
         &'a self,
         location: &'a Target,
     ) -> impl Iterator<Item = &'a Target> {
-        self.values
-            .range(location.clone()..)
-            .take_while(|(slot, _)| location.contains(slot))
-            .filter(|(slot, _)| location.contains_storage(slot))
+        storage_subtree(&self.values, location)
             .flat_map(|(_, value)| value.references.iter().flat_map(|references| references.targets.iter()))
     }
 
@@ -647,10 +644,8 @@ impl State {
                 continue;
             }
 
-            let removed = self.values.range(root.clone()..)
-                .take_while(|(target, _)| root.contains(target))
-                .filter(|(target, _)| root.contains_storage(target)
-                    && matches!(&target.origin, Origin::Storage(path) if !is_entry_slot(&self.contents, path)))
+            let removed = storage_subtree(&self.values, &root)
+                .filter(|(target, _)| matches!(&target.origin, Origin::Storage(path) if !is_entry_slot(&self.contents, path)))
                 .map(|(target, _)| target.clone()).collect::<Vec<_>>();
 
             for target in removed {
@@ -709,6 +704,15 @@ fn target_prefix(target: &Target, length: usize) -> Target {
     }
 
     prefix
+}
+
+pub(in crate::analysis::storage_flow::memory) fn storage_subtree<'a, V>(
+    values: &'a BTreeMap<Target, V>,
+    root: &'a Target,
+) -> impl Iterator<Item = (&'a Target, &'a V)> + 'a {
+    values.range(root.clone()..)
+        .take_while(|(slot, _)| root.contains(slot))
+        .filter(|(slot, _)| root.contains_storage(slot))
 }
 
 pub(super) fn selected_subtree<'a, V>(

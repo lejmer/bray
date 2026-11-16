@@ -1,4 +1,5 @@
 use super::super::model::{Origin, Place, References, State, Target};
+use super::slots::storage_subtree;
 use bray_bound_tree::{BorrowCapabilityId, StorageIdentityId, StorageProjection};
 use bray_symbols::TypeId;
 
@@ -75,9 +76,7 @@ impl State {
         // reached separately, including during the call that first publishes them.
         let root = Target::storage(Place::root(path.root));
 
-        self.contents.range(root.clone()..)
-            .take_while(|(candidate, _)| root.contains(candidate))
-            .filter(|(candidate, _)| root.contains_storage(candidate))
+        storage_subtree(&self.contents, &root)
             .any(|(_, contents)| contents.exposed || contents.escaped)
     }
 
@@ -554,21 +553,10 @@ impl State {
     }
 
     pub(in crate::analysis::storage_flow) fn has_value(&self, target: &Target) -> bool {
-        self.values
-            .range(target.clone()..)
-            .take_while(|(candidate, _)| target.contains(candidate))
-            .filter(|(candidate, _)| target.contains_storage(candidate))
+        storage_subtree(&self.values, target)
             .any(|(_, value)| value.references.is_some() || value.tracked)
-            || self
-                .deferred
-                .range(target.clone()..)
-                .take_while(|(candidate, _)| target.contains(candidate))
-                .any(|(candidate, _)| target.contains_storage(candidate))
-            || self
-                .contents
-                .range(target.clone()..)
-                .take_while(|(candidate, _)| target.contains(candidate))
-                .filter(|(candidate, _)| target.contains_storage(candidate))
+            || storage_subtree(&self.deferred, target).next().is_some()
+            || storage_subtree(&self.contents, target)
                 .any(|(candidate, _)| {
                     candidate.projections()[target.projections().len()..]
                         .contains(&StorageProjection::UninitPayload)

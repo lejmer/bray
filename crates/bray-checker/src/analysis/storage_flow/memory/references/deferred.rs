@@ -5,6 +5,7 @@ use bray_bound_tree::{BoundExecutionSite, StoragePath};
 
 use super::super::model::{Effect, Origin, Retirement, State, Target, Transfer};
 use super::Source;
+use super::slots::storage_subtree;
 
 pub(in crate::analysis::storage_flow::memory) type DeferredTransitions =
     BTreeMap<Target, BTreeMap<BoundExecutionSite, Arc<Transfer>>>;
@@ -91,9 +92,7 @@ impl State {
         for (source, destination) in values {
             let pending = self.pending.entry(invocation).or_default();
 
-            for (slot, entries) in self.deferred.range(source.clone()..)
-                .take_while(|(slot, _)| source.contains(slot))
-                .filter(|(slot, _)| source.contains_storage(slot))
+            for (slot, entries) in storage_subtree(&self.deferred, &source)
             {
                 let target = destination.project(&slot.projections()[source.projections().len()..]);
 

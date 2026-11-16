@@ -1,4 +1,5 @@
 use super::Source;
+use super::references::storage_subtree;
 use super::model::{Place, References, State, Target, Transfer};
 use bray_bound_tree::{
     BoundExpressionId, MemoryOperationStatus, MemoryReadKind,
@@ -72,9 +73,7 @@ impl State {
     pub(in crate::analysis::storage_flow::memory) fn has_addressed_storage(&self, target: &Target) -> bool {
         let region = super::references::exposure_region(target);
 
-        self.contents.range(region.clone()..)
-            .take_while(|(target, _)| region.contains(target))
-            .any(|(target, _)| region.contains_storage(target))
+        storage_subtree(&self.contents, &region).next().is_some()
     }
 
     #[cfg(test)]

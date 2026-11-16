@@ -1,5 +1,5 @@
 use super::super::model::{Contents, Effect, Origin, Place, References, Retirement, State, Target, Transfer};
-use super::slots::take_subtree;
+use super::slots::{storage_subtree, take_subtree};
 use bray_bound_tree::{BorrowCapabilityId, BoundExpressionId, StorageIdentityId};
 use bray_symbols::TypeId;
 
@@ -27,9 +27,7 @@ impl State {
             .expect("prepared invocation retains its input transfer").inputs;
 
         for root in roots {
-            inputs.extend(self.values.range(root.clone()..)
-                .take_while(|(slot, _)| root.contains(slot))
-                .filter(|(slot, _)| root.contains_storage(slot))
+            inputs.extend(storage_subtree(&self.values, &root)
                 .map(|(slot, references)| (slot.clone(), references.clone())));
         }
     }

@@ -3,9 +3,9 @@
 Issue: https://linear.app/bray-lang/issue/BRA-694.
 Draft PR: https://github.com/lejmer/bray/pull/717.
 Branch: `feature/bra-694-native-bootstrap-contracts`, based on develop 5de46243b.
-Pushed: 3b77524da. Reviewer: `/root/bra694_review`.
+Pushed: 84a377c79. Reviewer: `/root/bra694_review`.
 Verified published review through that commit:
-https://github.com/lejmer/bray/pull/717#pullrequestreview-5916535230. No findings.
+https://github.com/lejmer/bray/pull/717#pullrequestreview-5918123029. No findings.
 
 ## Required outcome
 
@@ -83,8 +83,9 @@ following current stored backing. Trace both without recovering layout from regi
   variants pass8.27s together. Exact opaque-call control passes40ms. Returned-dependency57 pass3.50s, platform2
   pass440ms, protected nested cleanup passes7.26s. Fixed test outcomes and rejection locations are unchanged.
   No compiler-owned hook exemption or loan survival shortcut was added.
-- Frozen1718 baseline1ceb765eb retained unchanged. Latest comparison on3b:1714 retained identities,
-  1675pass,2fail,37unreported after four90s group bounds, total181.35s. Four c606 provider-test removals are explicit
+- Frozen1718 baseline1ceb765eb retained unchanged. Latest comparison:1714 retained identities,
+  1675pass,0fail,39unreported after four90s group bounds, total182.82s on84a377c79. Both earlier failures
+  pass focused checks. The remaining cases are unverified, not passed. Four c606 provider-test removals are explicit
   open replacements with actual native product gates, never passes. Previous three failures passed current run.
 - Both normal native controls still fail39.79s at dispatch_ready/view_owned and start_frame/scoped exit.
   Source-summary diagnostic probes return early and are never native gate passes.
@@ -96,7 +97,10 @@ need bounded investigation. Do not rerun unchanged broad suites.
 
 All temporary checker and bootstrap diagnostic changes have been removed. Resolve test executables from Cargo output, never retained filenames.
 
-Next: checkpoint the verified batch, then corrected comparison and bounded slow-case investigation. Remaining: native source ownership
+Current consolidation replaces repeated exact storage-subtree walks over values, deferred frames and contents with
+one generic helper in references/slots.rs. Selector-overlap and retirement scans retain their different rules. No new
+tests or semantic policy. Net production reduction12 lines. Checker563 pass190ms and source/imported
+returned-dependency57 pass2.84s. No broad rerun is needed for this behavior-preserving consolidation. Next: bounded slow-case investigation. Remaining: native source ownership
 repair, actual four-target check/lower/event layout, owned/deferred/projection/cleanup gates, fixed-five/loop counts,
 maintainability/DRY audit, mandatory mutating style and Bray format, published incremental review, final PR description.
 Only then mark PR ready and BRA-694 In Review. No completion claim yet.
