@@ -76,8 +76,8 @@ trusted internal func create_arena() -> ArenaReference?
     };
 }
 
-// The scoped admission owns the resident count until the initialized arena
-// accepts it. Allocation failure and unwinding release the same acquisition.
+// Admission retains the execution domain during formation and final arena cleanup.
+// Failed formation and unwinding release the same acquisition.
 internal struct ArenaAdmission
 {
     mut active: bool;
@@ -305,31 +305,35 @@ trusted internal func release_arena(pos owner: ArenaReference)
         return;
     }
 
-    // No slot or other owner can remain when the last arena reference ends.
-    // The resident lease also waits for every scoped intrusive-link access.
-    let retired =
+    // Keep the domain acquisition until the arena's physical cleanup has finished.
+    with admission = ArenaAdmission
     {
-        let lease = trusted bray.runtime.bootstrap.host.host_access();
-
-        if !lease.active
-        {
-            trusted core.target.abort();
-        }
-
-        yield trusted take_retired_arena(owner, &lease);
-    };
-
-    let entries = trusted std.memory.assume_initialized<Entries>(retired.entries);
-
-    if entries.active != 0
-    {
-        trusted core.target.abort();
+        active = true
     }
+    {
+        {
+            // No slot or other owner can remain when the last arena reference ends.
+            // The resident lease also waits for every scoped intrusive-link access.
+            let retired =
+            {
+                let lease = trusted bray.runtime.bootstrap.host.host_access();
 
-    _ = entries;
-    _ = retired.allocation;
+                if !lease.active
+                {
+                    trusted core.target.abort();
+                }
 
-    trusted bray.runtime.bootstrap.host.release_execution_domain();
+                yield trusted take_retired_arena(owner, &lease);
+            };
+
+            let entries = trusted std.memory.assume_initialized<Entries>(retired.entries);
+
+            if entries.active != 0
+            {
+                trusted core.target.abort();
+            }
+        }
+    }
 }
 
 trusted internal func take_retired_arena(

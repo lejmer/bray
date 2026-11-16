@@ -430,11 +430,11 @@ trusted internal func destroy_storage(pos owner: Reference)
 
     let (scheduler, owned_state, allocation) = trusted take(owner);
 
-    _ = owned_state;
+    {
+        _ = owned_state;
+    }
 
     trusted bray.runtime.bootstrap.scheduler.destroy_reference(scheduler);
-
-    _ = allocation;
 }
 
 trusted internal func scheduler_reference(pos owner: &Reference) -> &bray.runtime.bootstrap.scheduler.Reference

@@ -58,9 +58,14 @@ fn protected_nested_cleanup_keeps_current_backing_effects() {
             marker: Marker;
         }
 
+        struct Row
+        {
+            buffer: std.memory.RawBuffer<u8>;
+        }
+
         struct Layer
         {
-            buffers: std.memory.RawBuffer<std.memory.RawBuffer<u8>>;
+            buffers: std.memory.RawBuffer<Row>?;
         }
 
         struct Packet
@@ -70,13 +75,15 @@ fn protected_nested_cleanup_keeps_current_backing_effects() {
 
         trusted predicate live(owner: &Marker);
 
+        trusted predicate readable(pointer: DataPointer<Packet>);
+
         func observe_marker(pos owner: &Frame)
             requires(trusted live(&owner.marker))
         {
         }
 
-        func observe_backing(pos pointer: DataPointer<std.memory.RawBuffer<u8>>)
-            requires(trusted core.memory.valid_write<std.memory.RawBuffer<u8>>(pointer = pointer, count = 1))
+        func observe_backing(pos pointer: DataPointer<Row>)
+            requires(trusted core.memory.valid_write<Row>(pointer = pointer, count = 1))
         {
         }
 
@@ -88,17 +95,58 @@ fn protected_nested_cleanup_keeps_current_backing_effects() {
             let recovered = trusted core.memory.read<Packet>(pointer);
             let contents = trusted std.memory.assume_initialized<Layer>(recovered.payload);
         }
+
+        trusted func take(pos pointer: DataPointer<Packet>) -> Packet
+            requires(
+                trusted readable(pointer),
+                trusted core.memory.valid_read<Packet>(pointer = pointer, count = 1),
+                trusted core.memory.initialized_as<Packet>(pointer = pointer),
+                trusted core.memory.aligned_for<Packet>(pointer = pointer),
+            )
+            ensures(trusted core.memory.uninit_initialized<Layer>(storage = &result.payload))
+            uses(raw_memory)
+        {
+            return trusted core.memory.read<Packet>(pointer);
+        }
+
+        trusted func dispose_incoming(pos pointer: DataPointer<Packet>)
+            requires(
+                trusted readable(pointer),
+                trusted core.memory.valid_read<Packet>(pointer = pointer, count = 1),
+                trusted core.memory.initialized_as<Packet>(pointer = pointer),
+                trusted core.memory.aligned_for<Packet>(pointer = pointer),
+            )
+            uses(unchecked_init)
+        {
+            let acquired = trusted take(pointer);
+            let contents = trusted std.memory.assume_initialized<Layer>(acquired.payload);
+        }
     "#;
     let provider = standard_library_compilation(MEMORY_SOURCES.into_iter().chain([api]));
 
     assert!(!provider.check_diagnostics().has_errors(), "{:#?}", provider.check_diagnostics());
 
+    for name in ["dispose", "dispose_incoming"] {
+        let summary = crate::compilation::result_dependencies::source_function_dependencies(&provider, name);
+
+        assert!(summary.effects().iter().any(|effect| match effect {
+            bray_symbols::DependencyStorageEffect::Indirect { kind: bray_symbols::DependencyMutationKind::Retire, .. } => true,
+            bray_symbols::DependencyStorageEffect::Direct { subject, kind: bray_symbols::DependencyMutationKind::Retire, .. } =>
+                subject.projections().contains(&bray_symbols::DependencyProjection::OwnedTarget),
+            _ => false,
+        }),
+            "nested cleanup must publish actual retirement: {summary:#?}");
+        assert!(!summary.effects().iter().any(|effect| matches!(effect,
+            bray_symbols::DependencyStorageEffect::Unknown | bray_symbols::DependencyStorageEffect::UnboundedMutation { .. })),
+            "known nested descriptors must keep finite backing effects: {summary:#?}");
+    }
+
     for (replacement, rejected) in [
-        ("_ = trusted core.memory.read<Packet>(pointer);", "core.memory.read<Packet>(pointer)"),
+        ("_ = trusted core.memory.read<Packet>(pointer);", "_ = trusted core.memory.read<Packet>(pointer)"),
         ("recovered.payload = std.memory.uninit<Layer>();\n            let contents = trusted std.memory.assume_initialized<Layer>(recovered.payload);", "assume_initialized<Layer>(recovered.payload)"),
     ] {
-        let invalid = api.replace("let recovered =", "let mut recovered =").replace(
-            "let contents = trusted std.memory.assume_initialized<Layer>(recovered.payload);", replacement,
+        let invalid = api.replacen("let recovered =", "let mut recovered =", 1).replacen(
+            "let contents = trusted std.memory.assume_initialized<Layer>(recovered.payload);", replacement, 1,
         );
         let application = standard_library_compilation(MEMORY_SOURCES.into_iter().chain([invalid.as_str()]));
         let diagnostics = application.check_diagnostics();
@@ -112,19 +160,6 @@ fn protected_nested_cleanup_keeps_current_backing_effects() {
             .all(|diagnostic| crate::test_support::diagnostic_at_call(diagnostic, source, &invalid, rejected)),
             "{replacement}: {diagnostics:#?}");
     }
-
-    let summary = crate::compilation::result_dependencies::source_function_dependencies(&provider, "dispose");
-
-    assert!(summary.effects().iter().any(|effect| match effect {
-        bray_symbols::DependencyStorageEffect::Indirect { kind: bray_symbols::DependencyMutationKind::Retire, .. } => true,
-        bray_symbols::DependencyStorageEffect::Direct { subject, kind: bray_symbols::DependencyMutationKind::Retire, .. } =>
-            subject.projections().contains(&bray_symbols::DependencyProjection::OwnedTarget),
-        _ => false,
-    }),
-        "nested cleanup must publish actual retirement: {summary:#?}");
-    assert!(!summary.effects().iter().any(|effect| matches!(effect,
-        bray_symbols::DependencyStorageEffect::Unknown | bray_symbols::DependencyStorageEffect::UnboundedMutation { .. })),
-        "known nested descriptors must keep finite backing effects: {summary:#?}");
 
     for imported in [false, true] {
         for (initialized, observation, rejected) in [
@@ -149,12 +184,12 @@ fn protected_nested_cleanup_keeps_current_backing_effects() {
                 using std.cleanup_fixture;
 
                 trusted func caller(
-                    pos storage: std.memory.RawBuffer<std.memory.RawBuffer<u8>>,
+                    pos storage: std.memory.RawBuffer<std.cleanup_fixture.Row>,
                     pos owner: &std.cleanup_fixture.Frame,
                 )
                     requires(
                         trusted std.cleanup_fixture.live(&owner.marker),
-                        trusted core.memory.valid_write<std.memory.RawBuffer<u8>>(pointer = storage.pointer, count = 1),
+                        trusted core.memory.valid_write<std.cleanup_fixture.Row>(pointer = storage.pointer, count = 1),
                     )
                 {{
                     let saved = storage.pointer;
