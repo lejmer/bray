@@ -3,8 +3,8 @@
 Issue: https://linear.app/bray-lang/issue/BRA-694.
 Draft PR: https://github.com/lejmer/bray/pull/717.
 Branch: `feature/bra-694-native-bootstrap-contracts`, based on develop 5de46243b.
-Pushed: 84a377c79. Reviewer: `/root/bra694_review`.
-Verified published review through that commit:
+Pushed: c931129cf. Reviewer: `/root/bra694_review`.
+Verified published review through84a377c79:
 https://github.com/lejmer/bray/pull/717#pullrequestreview-5918123029. No findings.
 
 ## Required outcome
@@ -84,23 +84,28 @@ following current stored backing. Trace both without recovering layout from regi
   pass440ms, protected nested cleanup passes7.26s. Fixed test outcomes and rejection locations are unchanged.
   No compiler-owned hook exemption or loan survival shortcut was added.
 - Frozen1718 baseline1ceb765eb retained unchanged. Latest comparison:1714 retained identities,
-  1675pass,0fail,39unreported after four90s group bounds, total182.82s on84a377c79. Both earlier failures
-  pass focused checks. The remaining cases are unverified, not passed. Four c606 provider-test removals are explicit
+  1675pass,0fail and39unreported after four90s group bounds, total182.82s on84a377c79.
+  All39 pass individually on behavior-equivalent c931129cf in104.64s with eight workers and per-case bounds.
+  Therefore all1714 retained fixed identities pass. Four removed provider tests remain open native-gate replacements. Four c606 provider-test removals are explicit
   open replacements with actual native product gates, never passes. Previous three failures passed current run.
 - Both normal native controls still fail39.79s at dispatch_ready/view_owned and start_frame/scoped exit.
   Source-summary diagnostic probes return early and are never native gate passes.
 - Earlier valid checks: catalog62, bound-tree136, artifact reuse5 and boundary/cache13 controls pass.
 
 Ignored evidence uses one current output per purpose under target/audit. comparison-baseline.json is the frozen
-inventory, comparison-current.json retains exact current results and timeout identities. Seven slow proof cases still
-need bounded investigation. Do not rerun unchanged broad suites.
+inventory, comparison-current.json retains exact current results and timeout identities. The isolated catastrophic-abort case passes43.12s with peak576.8MiB and roughly43CPU seconds.
+Its two variants each construct guarded and terminal source compilations, repeating the production dependency work
+four times. Those four named probes now share one immutable compilation, retaining every cleanup assertion and
+Rust test identity. The same isolated test passes12.02s after consolidation, with peak389.4MiB. Original43.12s
+remains the comparison number, not a pending failure. Do not rerun unchanged broad suites.
 
 All temporary checker and bootstrap diagnostic changes have been removed. Resolve test executables from Cargo output, never retained filenames.
 
 Current consolidation replaces repeated exact storage-subtree walks over values, deferred frames and contents with
 one generic helper in references/slots.rs. Selector-overlap and retirement scans retain their different rules. No new
 tests or semantic policy. Net production reduction12 lines. Checker563 pass190ms and source/imported
-returned-dependency57 pass2.84s. No broad rerun is needed for this behavior-preserving consolidation. Next: bounded slow-case investigation. Remaining: native source ownership
+returned-dependency57 pass2.84s. No broad rerun is needed for this behavior-preserving consolidation. Next: consolidate the four catastrophic-abort source variants into one compilation, retaining every assertion and
+the fixed Rust test identity. Then resume the native pending-storage contract, now that the comparison is clear. Remaining: native source ownership
 repair, actual four-target check/lower/event layout, owned/deferred/projection/cleanup gates, fixed-five/loop counts,
 maintainability/DRY audit, mandatory mutating style and Bray format, published incremental review, final PR description.
 Only then mark PR ready and BRA-694 In Review. No completion claim yet.

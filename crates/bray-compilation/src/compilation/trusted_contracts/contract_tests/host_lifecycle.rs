@@ -189,25 +189,48 @@ fn production_retirement_owner_preserves_its_frozen_row_and_lock() {
 #[test]
 #[ignore = "tier:proof"]
 fn catastrophic_abort_skips_lease_cleanup_without_continuing() {
-    for (operation, cleans_up) in [
-        ("trusted core.target.abort();", false),
-        ("panic(\"lease invariant failed\");", true),
-    ] {
-        let caller = format!(
-            r#"trusted internal module bray.runtime.bootstrap.host;
-            func production_probe()
+    let variants = [
+        ("abort", "trusted core.target.abort();", false),
+        ("panic", "panic(\"lease invariant failed\");", true),
+    ];
+    let mut caller = String::from(
+        r#"
+            trusted internal module bray.runtime.bootstrap.host;
+        "#,
+    );
+
+    for (name, operation, _) in variants {
+        caller.push_str(&format!(
+            r#"
+            func guarded_{name}()
                 uses(intrinsic)
             {{
                 let lease = trusted host_access();
-                if !lease.active {{ {operation} }}
+
+                if !lease.active
+                {{
+                    {operation}
+                }}
+
                 let anchor = trusted host_anchor(&lease);
-            }}"#
-        );
+            }}
 
-        let compilation = production_host_compilation(&caller);
+            func terminal_{name}()
+                uses(intrinsic)
+            {{
+                let lease = trusted host_access();
 
+                {operation}
+            }}
+            "#
+        ));
+    }
+
+    let compilation = production_host_compilation(&caller);
+
+    for (name, operation, cleans_up) in variants {
         let checked = compilation
-            .lowered_unit(source_function_body_key(&compilation, "production_probe"))
+            .lowered_unit(source_function_body_key(&compilation, &format!("guarded_{name}")))
             .expect("target termination must retain its checked result");
 
         assert!(
@@ -215,18 +238,7 @@ fn catastrophic_abort_skips_lease_cleanup_without_continuing() {
             "{operation}: {checked:#?}"
         );
 
-        let terminal = format!(
-            r#"trusted internal module bray.runtime.bootstrap.host;
-            func production_probe()
-                uses(intrinsic)
-            {{
-                let lease = trusted host_access();
-                {operation}
-            }}"#
-        );
-
-        let compilation = production_host_compilation(&terminal);
-        let key = source_function_body_key(&compilation, "production_probe");
+        let key = source_function_body_key(&compilation, &format!("terminal_{name}"));
 
         let checked = compilation
             .async_analysis(key)
