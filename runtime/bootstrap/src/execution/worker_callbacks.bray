@@ -229,13 +229,14 @@ trusted internal func record_worker_failure(
     ensures(trusted view_owned(owner = &selected.acquisition))
     uses(intrinsic)
 {
+    let arena = &(trusted domain(owner)).arena;
     let ready = match trusted pending_observation(selected)
     {
         case ?value { yield value; }
         case none { yield trusted core.target.abort(); }
     };
 
-    let (reference, status) = trusted retain_task(owner, ready.task);
+    let (reference, status) = trusted bray.runtime.bootstrap.task.retain_in_arena(arena, ready.task);
 
     if reference matches none
     {

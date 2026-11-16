@@ -132,9 +132,10 @@ trusted internal func dispatch_ready(pos selected: &Current, pos owner: &Referen
     ensures(trusted view_owned(owner = &selected.acquisition), trusted retained(owner = owner))
     uses(intrinsic)
 {
+    let arena = &(trusted domain(owner)).arena;
     let ready = trusted take_ready(selected, owner);
 
-    let (task, status) = trusted retain_task(owner, ready.task);
+    let (task, status) = trusted bray.runtime.bootstrap.task.retain_in_arena(arena, ready.task);
 
     if task matches none
     {

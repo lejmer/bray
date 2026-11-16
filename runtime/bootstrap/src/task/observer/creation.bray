@@ -219,7 +219,8 @@ trusted internal func create(
     }
 
     let execution = trusted bray.runtime.bootstrap.execution.bound_execution(&driver);
-    let (acquired, _) = trusted bray.runtime.bootstrap.execution.retain_task(execution, owner.input.task);
+    let arena = &(trusted bray.runtime.bootstrap.execution.domain(execution)).arena;
+    let (acquired, _) = trusted bray.runtime.bootstrap.task.retain_in_arena(arena, owner.input.task);
 
     if acquired matches none
     {

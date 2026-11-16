@@ -3,9 +3,9 @@
 Issue: https://linear.app/bray-lang/issue/BRA-694.
 Draft PR: https://github.com/lejmer/bray/pull/717.
 Branch: feature/bra-694-native-bootstrap-contracts, develop base5de46243b.
-Pushed:508462d1e. Reviewer:/root/bra694_review.
-Verified published WIP review through508462d1e:
-https://github.com/lejmer/bray/pull/717#pullrequestreview-5918880038. No findings.
+Pushed:55763bb73. Reviewer:/root/bra694_review.
+Verified published WIP review through55763bb73:
+https://github.com/lejmer/bray/pull/717#pullrequestreview-5920332136. No findings.
 
 ## Required outcome
 
@@ -18,7 +18,7 @@ Commit/push coherent checkpoints. Style remains deferred until finalization.
 
 ## Fixed comparison and established rules
 
-All1714 retained frozen identities pass on the current physical-value batch. Baseline1718 on1ceb765eb stays fixed.
+All1714 retained frozen identities pass on55763bb73. Baseline1718 on1ceb765eb stays fixed.
 Four c606 provider-test removals remain open replacements with actual native product gates, never passes.
 
 Logical-only transitions retain prepared descriptors whenever physical tracking is needed. Finite assignments capture
@@ -40,7 +40,7 @@ Direct opaque [Ambient,Escape] stays unbounded. Current exact storage-subtree wa
 - Retirement requires zero views. Inspect through the owner-backed typed helper, end inspection, then move and destroy
   the whole Context. Never replace whole destruction with a manual field teardown list. Type-derived layout only.
 
-The existing native gates check15 actual bodies per target with body-start/finish reporting. Source/imported locks,
+The existing native gates check18 actual bodies per target with body-start/finish reporting. Source/imported locks,
 loop cleanup, escaped-guard and raw invalidation controls remain fixed. The pending source change reduces code.
 
 ## Remaining boundaries and evidence
@@ -65,7 +65,7 @@ executables from Cargo output. Native subprocess workflows run outside the sandb
 
 Trace confirmed retire_driver read77 reaches current Returned root20. The valid fact and available witness survive,
 but observe_memory_read creates no pending result because value_observation_path correctly excludes this origin.
-The temporary trace is removed. Published review508 is complete. Never turn the address carrier into Context data.
+The raw-read trace is removed. Never turn the address carrier into Context data.
 
 Retain exact typed pointee snapshots in existing CurrentValues, keyed by physical target, checked pointee type and
 producer occurrence. Normal completion of an actual Borrow<T> result supplies its current referent once. Raw address
@@ -113,8 +113,43 @@ raw/source/import controls66 pass10.90s, fixed comparison1712 pass213.34s plus f
 identities pass. Fixed-five420/409/405/417/430ms, counts not remeasured. Windows native15-body gate43.93s on this
 final code state has no retirement error, leaving the established dispatch/start failures.
 Net Rust growth396 lines by file placement, including the new current-store test. No second value graph.
-Next: checkpoint/push and published incremental review, then correlate remaining dispatch/start invalidation with
-the verified flat OwnedTarget staging gap. No style pass yet.
+Current trace: dispatch unit749970 loses view_owned at call35 then restores it, and permanently at call53
+(event.wait_execution), before recovery. Effects are Ambient/Escape/typed Replace on returned task pointer
+tuple10.0?.pointer5633, no Retire. First compare demanded Domain.arena.pointer before take_ready3 and retain_task9.
+Only if retained should staging be followed through both OwnedTarget boundaries.
+Start still proves both fact names before commit_start98. Its Attempt correctly consumes the token,
+so post-attempt losses cannot explain failed admission. Compare the actual failed observations with captured
+entry.proof_facts at98 and scoped exit101. No compiler semantic patch is authorized by these traces.
+Temporary BRAY_AUDIT_NATIVE diagnostics in flow/operation.rs and storage collector core/transfers print selected caller
+facts/effects, failed entry observations and marker rejection bounds. Their build is active. The bounded trace reader
+deduplicates only native/phase lines into native-current. Remove diagnostics before the next semantic checkpoint.
+Second trace confirms Domain.arena.pointer is changed from original Entry to newly observed Returned between3 and9.
+The owning boundary is memory.invalidate_target(Clear), which retires an overlapping descriptor lacking an actual
+typed shared view. The first repair is source composition, not a broad deep-frame exemption.
+
+## Arena-view source contract
+
+Acquire the actual Domain.arena typed borrow before pending mutation and use that same view for task retention.
+Replace execution.retain_task's implicit Domain recovery with task.retain_in_arena(&ArenaReference, handle), requiring
+the existing arena_retained condition. Share its existing HostLease/arena_anchor/retain_locked sequence with the native
+retention callback. Dispatch and worker-failure callers retain the arena view through snapshot/clear and lookup.
+Observer creation obtains the same view from its bound execution. All four paths keep existing status4 behavior,
+task-reference ownership and arena/host lifetimes. End views after actual lookup, with no extra acquisition or guard.
+Never reassert predicates, reconstruct entry fields, protect all deep address roots or infer freshness from retention.
+Delete the execution wrapper and duplicated callback setup. Target no production growth. Verify current pointer before
+lookup, dispatch native gate, direct helper/callback bodies, worker/observer controls and fixed source/import negatives.
+This source batch is implemented. Current66 controls pass11.16s. Windows18-body gate44.12s checks/lowers the new
+helper, native retention callback, prepare_start and worker-failure body, with only dispatch_ready/start_frame failing.
+The original arena pointer remains Entry through dispatch_task43. Source ownership/ABI/status behavior is unchanged.
+Full comparison on this source batch remains pending. Keep this design improvement even if later bounds still fail.
+
+Start correction: actual failed commit_start clause is selected.status==0, not producer_owned. Required observations
+remain prepare_start(...).Ok.value.selected.status/acquisition while captured facts identify original selected.
+Both prepare_start22 Result.Ok.selected/reference and exact return-self enter101 selected/reference relations are
+Exact with preserves_value=true. Completion22 publishes selected -> original Entry Borrow root1. construct(false)
+retains siblings. Normal calls publish at CallCompletion, not ResultCompletion. Next compare actual forwarded argument,
+result selected after complete_returned_references, after refresh_returned_references, and after scoped entry.
+No compiler semantic patch until that correspondence boundary is identified. No style pass yet.
 Final gates: actual four-target check/lower/event layout, affected owned/deferred/projection/cleanup suites and fixed
 comparison after material changes, fixed-five/loop counts, maintainability/DRY audit, mutating style and Bray format,
 fresh native compiler products, final PR description and published review. Only then PR ready and BRA-694 In Review.

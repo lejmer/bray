@@ -20,15 +20,7 @@ trusted internal func retention(
     requires(trusted arena_reference_slot(owner = &input), trusted bray.runtime.bootstrap.host.product.native_host())
 {
     let directory = trusted borrow_arena_reference(&input);
-    let lease = trusted bray.runtime.bootstrap.host.host_access();
-
-    if !lease.active
-    {
-        return bray.runtime.bootstrap.STATUS_RUNTIME_FAILURE;
-    }
-
-    let mut anchor = trusted arena_anchor(directory, &lease);
-    let (acquired, status) = trusted retain_locked(&lease, &mut anchor, handle);
+    let (acquired, status) = trusted retain_in_arena(directory, handle);
 
     if acquired matches none
     {
@@ -39,6 +31,25 @@ trusted internal func retention(
 
     trusted bray.runtime.bootstrap.host.product.publish_provider<Reference>(output, reference);
     return 0;
+}
+
+trusted internal func retain_in_arena(
+    pos owner: &ArenaReference,
+    pos handle: u64
+) -> (Reference?, u32)
+    requires(trusted arena_retained(owner = owner))
+    ensures(trusted arena_retained(owner = owner), trusted retained_option(owner = &result.0))
+{
+    let lease = trusted bray.runtime.bootstrap.host.host_access();
+
+    if !lease.active
+    {
+        return (none, bray.runtime.bootstrap.STATUS_RUNTIME_FAILURE);
+    }
+
+    let mut anchor = trusted arena_anchor(owner, &lease);
+
+    return trusted retain_locked(&lease, &mut anchor, handle);
 }
 
 trusted internal func retain_locked(

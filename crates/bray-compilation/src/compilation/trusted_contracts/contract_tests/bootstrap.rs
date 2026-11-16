@@ -25,15 +25,17 @@ fn assert_bootstrap_contracts(target: NativeTarget) {
     let mut failures = Vec::new();
 
     for name in [
-        "owner_entry_scope", "dispatch_ready", "start_frame",
+        "owner_entry_scope", "dispatch_ready", "start_frame", "prepare_start",
         "origin_context", "worker_context", "owned_context", "borrow_execution", "view_context", "context",
         "pending_observation", "take_ready", "acquire_ready", "acquire_worker_ready",
-        "record_worker_failure", "retire_driver",
+        "record_worker_failure", "retire_driver", "retain_in_arena", "retention",
     ] {
         let key = if name == "start_frame" {
             source_type_callable_member_body_key(&compilation, name)
         } else if name == "owner_entry_scope" {
             source_function_body_key(&compilation, name)
+        } else if matches!(name, "retain_in_arena" | "retention") {
+            source_module_function_body_key(&compilation, &["bray", "runtime", "bootstrap", "task"], name)
         } else {
             source_module_function_body_key(&compilation, &["bray", "runtime", "bootstrap", "execution"], name)
         };
