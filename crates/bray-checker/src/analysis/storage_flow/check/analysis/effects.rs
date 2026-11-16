@@ -18,7 +18,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         &mut self,
         state: &mut StorageFlowState,
         operation: AnalysisOperationKind,
-        assignment: Option<&Target>,
+        assignment: Option<&[Target]>,
         execution: &crate::analysis::guarantee::ExecutionState,
     ) -> Option<Vec<Effect>> {
         self.prepare_assignment_reference(state, operation, assignment);
@@ -339,22 +339,15 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         memory: &crate::analysis::storage_flow::memory::State,
         kind: AnalysisOperationKind,
         call_effects: Option<&[Effect]>,
-        assignment: Option<&Target>,
-        mutation: Option<DependencyMutationKind>,
+        assignment: Option<&[Effect]>,
         normal_effects: bool,
     ) {
         if !self.publish {
             return;
         }
 
-        if let Some(target) = assignment {
-            self.record_target_effect(
-                memory,
-                target,
-                mutation.expect("assignment retains its transition"),
-                None,
-                self.on_normal_path,
-            );
+        if let Some(effects) = assignment {
+            self.record_resolved_effects(memory, effects, self.on_normal_path);
         }
 
         if let Some(effects) = call_effects {
@@ -385,7 +378,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         &self,
         state: &StorageFlowState,
         kind: AnalysisOperationKind,
-        assignment: Option<&Target>,
+        assignment: Option<&[Target]>,
         effects: Option<&[Effect]>,
         roots: Option<&[Target]>,
     ) -> Option<StorageInvalidation> {
@@ -409,8 +402,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     .flatten()
             });
 
-        if let Some(target) = assignment {
-            let destination = self.target_observations(&state.memory, std::iter::once(target));
+        if let Some(targets) = assignment {
+            let destination = self.target_observations(&state.memory, targets.iter());
 
             if let Some(observed) = &mut observed {
                 observed.merge(&destination);

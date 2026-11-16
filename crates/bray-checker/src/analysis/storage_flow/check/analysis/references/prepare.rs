@@ -71,6 +71,21 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
         storage: &bray_bound_tree::StoragePlan,
         access: bray_bound_tree::StorageAccessId,
     ) -> Option<crate::analysis::storage_flow::memory::Target> {
+        let targets = self.reference_targets(values, memory, storage, access)?;
+        let [target] = targets.as_slice() else {
+            return None;
+        };
+
+        Some(target.clone())
+    }
+
+    pub(in crate::analysis::storage_flow) fn reference_targets(
+        &self,
+        values: &bray_symbols::SemanticValueStore,
+        memory: &crate::analysis::storage_flow::memory::State,
+        storage: &bray_bound_tree::StoragePlan,
+        access: bray_bound_tree::StorageAccessId,
+    ) -> Option<Vec<crate::analysis::storage_flow::memory::Target>> {
         let logical = storage.logical_path(access)?;
 
         let (_, path) = self.reference_paths.get(&access)?;
@@ -89,13 +104,7 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
             (Some(capability), Some((0, ty))) if !path.is_address_load(0) => Some(memory.borrow_target(capability, *ty)?),
             _ => None,
         };
-        let locations = self.reference_locations(values, memory, Target::storage(Place::root(logical.root)), path, root_borrow)?;
-
-        let [location] = locations.as_slice() else {
-            return None;
-        };
-
-        Some(location.clone())
+        self.reference_locations(values, memory, Target::storage(Place::root(logical.root)), path, root_borrow)
     }
 
     pub(in crate::analysis::storage_flow) fn prepare_reference_paths<

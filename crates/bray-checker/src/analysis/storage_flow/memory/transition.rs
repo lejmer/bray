@@ -27,28 +27,32 @@ impl State {
         }
     }
 
+    #[cfg(test)]
     pub(in crate::analysis::storage_flow) fn consume_target(&mut self, target: Target, ty: TypeId) {
-        if target.storage_path().is_some() && !self.has_addressed_storage(&target)
-        {
-            return;
-        }
-
-        self.consume_targets(&References::one(target), ty);
+        self.consume_targets([target], ty);
     }
 
+    pub(in crate::analysis::storage_flow) fn consume_targets(&mut self, targets: impl IntoIterator<Item = Target>, ty: TypeId) {
+        let references = References { targets: targets.into_iter().collect(), ..Default::default() };
+
+        self.consume_references(&references, ty);
+    }
+
+    #[cfg(test)]
     pub(in crate::analysis::storage_flow) fn write_target(
-        &mut self,
-        target: Target,
-        ty: TypeId,
-        origin: BoundExpressionId,
+        &mut self, target: Target, ty: TypeId, origin: BoundExpressionId,
         invalidation: Option<&bray_bound_tree::StorageInvalidation>,
     ) {
-        if target.storage_path().is_some() && !self.has_addressed_storage(&target)
-        {
-            return;
-        }
+        self.write_targets([target], ty, origin, invalidation);
+    }
 
-        self.write_targets(&References::one(target), ty, origin, invalidation);
+    pub(in crate::analysis::storage_flow) fn write_targets(
+        &mut self, targets: impl IntoIterator<Item = Target>, ty: TypeId, origin: BoundExpressionId,
+        invalidation: Option<&bray_bound_tree::StorageInvalidation>,
+    ) {
+        let references = References { targets: targets.into_iter().collect(), ..Default::default() };
+
+        self.write_references(&references, ty, origin, invalidation);
     }
 
     #[cfg(test)]
@@ -119,7 +123,7 @@ impl State {
                 }
             }
 
-            self.write_targets(references, ty, origin, None);
+            self.write_references(references, ty, origin, None);
 
             for target in affected {
                 let value = self.values.entry(target).or_default();
@@ -141,45 +145,50 @@ impl State {
             .map(|(target, source)| (target.clone(), self.capture_source(source, target)))
             .collect::<Vec<_>>();
 
-        self.write_targets(references, ty, origin, None);
+        self.write_references(references, ty, origin, None);
 
         for (target, transfer) in transfers {
             if references.is_exact() {
                 self.clear_value(&target);
                 self.commit_value(transfer);
             } else {
-                for (slot, mut value) in transfer.values {
-                    if let Some(references) = &mut value.references {
-                        references.unknown = true;
-                    }
-
-                    value.complete = false;
-
-                    self.values.entry(slot).and_modify(|previous| { previous.merge(&value); }).or_insert(value);
-                }
-
-                for (slot, mut contents) in transfer.payloads {
-                    contents.initialized.clear();
-
-                    self.contents
-                        .entry(slot.clone())
-                        .or_default()
-                        .merge(&contents, &slot);
-                }
-
-                super::references::merge_deferred(&mut self.deferred, &transfer.deferred);
-
-                for (reference, bounds) in transfer.returned_inputs {
-                    self.returned_inputs
-                        .entry((reference, false))
-                        .or_default()
-                        .merge(&bounds);
-                }
+                self.commit_weak_value(transfer);
             }
         }
     }
 
-    fn write_targets(
+    pub(in crate::analysis::storage_flow::memory) fn commit_weak_value(&mut self, transfer: Transfer) {
+        for (slot, mut value) in transfer.values {
+            if let Some(references) = &mut value.references {
+                references.unknown = true;
+            }
+
+            value.complete = false;
+
+            self.values.entry(slot).and_modify(|previous| { previous.merge(&value); }).or_insert(value);
+        }
+
+        for (slot, mut contents) in transfer.payloads {
+            contents.initialized.clear();
+
+            self.contents
+                .entry(slot.clone())
+                .or_default()
+                .merge(&contents, &slot);
+        }
+
+        super::references::merge_deferred(&mut self.deferred, &transfer.deferred);
+
+        for (reference, bounds) in transfer.returned_inputs {
+            self.returned_inputs
+                .entry((reference, false))
+                .or_default()
+                .merge(&bounds);
+        }
+    }
+
+
+    fn write_references(
         &mut self,
         references: &References,
         ty: TypeId,
@@ -317,7 +326,7 @@ impl State {
         }
 
         if kind == MemoryReadKind::Move {
-            self.consume_targets(&references, ty);
+            self.consume_references(&references, ty);
         }
 
         if let (Some(result), Some(transfer)) = (result, transferred) {
@@ -338,12 +347,12 @@ impl State {
             return MemoryOperationStatus::InvalidatedAllocation;
         }
 
-        self.consume_targets(&self.references(slot), ty);
+        self.consume_references(&self.references(slot), ty);
 
         MemoryOperationStatus::Valid
     }
 
-    fn consume_targets(&mut self, references: &References, ty: TypeId) {
+    fn consume_references(&mut self, references: &References, ty: TypeId) {
         let exact = references.is_exact();
 
         for target in &self.affected_targets(references) {

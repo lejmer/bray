@@ -320,6 +320,7 @@ impl State {
         References::one(target)
     }
 
+    #[cfg(test)]
     pub(in crate::analysis::storage_flow) fn reference_location(
         &self,
         values: &bray_symbols::SemanticValueStore,
@@ -327,20 +328,36 @@ impl State {
         path: &bray_bound_tree::StorageReferencePath,
         root_borrow: Option<Target>,
     ) -> Option<Target> {
-        self.reference_location_in(values, target, path, root_borrow, |target| self.values.get(target).and_then(|value| value.references.as_ref()))
+        let locations = self.reference_locations(values, target, path, root_borrow)?;
+        let [location] = locations.as_slice() else {
+            return None;
+        };
+
+        Some(location.clone())
     }
 
-    pub(in crate::analysis::storage_flow) fn staged_reference_location(
+    pub(in crate::analysis::storage_flow) fn reference_locations(
+        &self,
+        values: &bray_symbols::SemanticValueStore,
+        target: Target,
+        path: &bray_bound_tree::StorageReferencePath,
+        root_borrow: Option<Target>,
+    ) -> Option<Vec<Target>> {
+        self.reference_locations_in(values, target, path, root_borrow,
+            |target| self.values.get(target).and_then(|value| value.references.as_ref()))
+    }
+
+    pub(in crate::analysis::storage_flow) fn staged_reference_locations(
         &self,
         invocation: bray_bound_tree::BoundExecutionSite,
         values: &bray_symbols::SemanticValueStore,
         root: &Target,
         start: &Target,
         path: &bray_bound_tree::StorageReferencePath,
-    ) -> Option<Target> {
+    ) -> Option<Vec<Target>> {
         let staged = self.pending.get(&invocation)?;
 
-        self.reference_location_in(values, start.clone(), path, None, |target| {
+        self.reference_locations_in(values, start.clone(), path, None, |target| {
             staged.values.get(target).or_else(|| (!root.contains_storage(target)).then(|| self.values.get(target)).flatten())
                 .and_then(|value| value.references.as_ref())
         })
@@ -359,9 +376,12 @@ impl State {
             (if root.contains_storage(target) { captured.get(target) } else { self.values.get(target) }).and_then(|value| value.references.as_ref())
         };
 
-        let location = self.reference_location_in(values, root.clone(), path, None, lookup)?;
+        let locations = self.reference_locations_in(values, root.clone(), path, None, lookup)?;
+        let [location] = locations.as_slice() else {
+            return None;
+        };
 
-        let references = lookup(&location)?;
+        let references = lookup(location)?;
 
         references.is_exact().then(|| references.targets.first()
             .expect("exact captured input has one referent").clone())
@@ -398,53 +418,56 @@ impl State {
         (targets, unknown)
     }
 
-    fn reference_location_in<'a>(
+    fn reference_locations_in<'a>(
         &'a self,
         values: &bray_symbols::SemanticValueStore,
-        mut target: Target,
+        target: Target,
         path: &bray_bound_tree::StorageReferencePath,
         mut root_borrow: Option<Target>,
         lookup: impl Fn(&Target) -> Option<&'a References>,
-    ) -> Option<Target> {
+    ) -> Option<Vec<Target>> {
+        let mut targets = vec![target];
         let mut copied = 0;
 
         for (step, (index, ty)) in path.borrows().iter().enumerate() {
-            target = target.project(&path.projections()[copied..*index]);
-
             let address = path.is_address_load(step);
 
-            target = match root_borrow.take().filter(|_| step == 0 && *index == 0 && !address) {
-                Some(root) => root,
-                None => lookup(&target).and_then(|reference| self.typed_target(reference, *ty)).or_else(|| {
-                    let data = values.type_data(*ty);
+            targets = if let Some(root) = root_borrow.take().filter(|_| step == 0 && *index == 0 && !address) {
+                vec![root]
+            } else {
+                let mut reached = std::collections::BTreeSet::new();
 
-                    let bray_symbols::TypeData::Slice(element) = data.as_ref() else {
-                        return None;
-                    };
-
+                for target in targets {
+                    let target = target.project(&path.projections()[copied..*index]);
                     let reference = lookup(&target)?;
+                    let typed = self.typed_targets(reference, *ty).or_else(|| {
+                        let data = values.type_data(*ty);
+                        let bray_symbols::TypeData::Slice(element) = data.as_ref() else {
+                            return None;
+                        };
 
-                    if reference.unknown || reference.displaced || reference.targets.len() != 1 {
-                        return None;
-                    }
+                        // A slice view keeps each existing element region. Bounds alone
+                        // cannot supply a layout or turn a dynamic selector into one cell.
+                        (!reference.unknown && !reference.displaced && !reference.targets.is_empty()
+                            && reference.targets.iter().all(|reached| {
+                                let declared = self.contents.get(reached).and_then(|contents| contents.storage_type);
 
-                    let reached = reference.targets.first().expect("one bounded slice target");
-                    let declared = self.contents.get(reached)?.storage_type;
+                                !reached.previous && (!reference.inexact || !reached.is_exact())
+                                    && (declared == Some(*ty) || declared == Some(*element))
+                            }))
+                            .then_some(&reference.targets)
+                    })?;
 
-                    // A buffer view reaches its existing element allocation. A
-                    // dynamic owner projection remains inexact in the target itself.
-                    // Never turn a merely inexact view into an exact cell identity.
-                    (!reached.previous
-                        && (!reference.inexact || !reached.is_exact())
-                        && (declared == Some(*ty) || declared == Some(*element)))
-                    .then(|| reached.clone())
-                })?,
+                    reached.extend(typed.iter().cloned());
+                }
+
+                reached.into_iter().collect()
             };
 
             copied = *index + usize::from(address);
         }
 
-        Some(target.project(&path.projections()[copied..]))
+        Some(targets.into_iter().map(|target| target.project(&path.projections()[copied..])).collect())
     }
 
     pub(in crate::analysis::storage_flow) fn referenced_regions(
@@ -659,40 +682,41 @@ impl State {
         }
     }
 
-    fn typed_target(&self, references: &References, ty: TypeId) -> Option<Target> {
-        if references.unknown || references.displaced || references.inexact || references.targets.len() != 1 {
-            return None;
-        }
+    fn typed_targets<'a>(&self, references: &'a References, ty: TypeId) -> Option<&'a std::collections::BTreeSet<Target>> {
+        (!references.unknown && !references.displaced && !references.inexact && !references.targets.is_empty()
+            && references.targets.iter().all(|target| !target.previous
+                && self.contents.get(target).and_then(|contents| contents.storage_type) == Some(ty)))
+            .then_some(&references.targets)
+    }
 
-        let target = references
-            .targets
-            .first()
-            .expect("one current typed reference has one target");
+    fn typed_target(&self, references: &References, ty: TypeId) -> Option<Target> {
+        let targets = self.typed_targets(references, ty)?;
 
         // A typed dynamic selection supplies a location, without making it an exact cell.
-        (!target.previous && self.contents.get(target)?.storage_type == Some(ty)).then(|| target.clone())
+        (targets.len() == 1).then(|| targets.first().expect("one current typed reference has one target").clone())
     }
 
     pub(in crate::analysis::storage_flow) fn borrow_target_storage(
         &mut self,
         values: &bray_symbols::SemanticValueStore,
         capability: BorrowCapabilityId,
-        target: Target,
+        targets: impl IntoIterator<Item = Target>,
         ty: TypeId,
     ) {
-        let ty = if target.projections().last() == Some(&StorageProjection::OwnedTarget) {
-            Self::owned_element_type(values, ty)
-        } else {
-            ty
-        };
+        let mut references = References::default();
 
-        self.contents
-            .entry(target.clone())
-            .or_default()
-            .storage_type
-            .get_or_insert(ty);
+        for target in targets {
+            let ty = if target.projections().last() == Some(&StorageProjection::OwnedTarget) {
+                Self::owned_element_type(values, ty)
+            } else {
+                ty
+            };
 
-        self.borrows.insert(capability, References::one(target));
+            self.contents.entry(target.clone()).or_default().storage_type.get_or_insert(ty);
+            references.targets.insert(target);
+        }
+
+        self.borrows.insert(capability, references);
     }
 
     fn owned_element_type(values: &bray_symbols::SemanticValueStore, ty: TypeId) -> TypeId {

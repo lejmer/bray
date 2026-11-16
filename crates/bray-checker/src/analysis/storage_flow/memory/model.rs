@@ -364,6 +364,8 @@ impl CapturedEffects {
 /// A value captured before consumption, with inline protected payload state at its destination.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(super) struct Transfer {
+    // Possible destinations receive a weak merge, never definite replacement or initialization.
+    pub(super) weak_outputs: bool,
     /// Evaluated reference descriptors retained by this deferred frame, separate from published outputs.
     pub(super) inputs: BTreeMap<Target, StoredValue>,
     pub(super) values: BTreeMap<Target, StoredValue>,
@@ -382,6 +384,9 @@ impl Transfer {
         let changed = merge_stored(&mut self.values, &incoming.values, |_| false, |_| false) || changed;
 
         let mut changed = merge_contents(&mut self.payloads, &incoming.payloads) || changed;
+
+        changed |= !self.weak_outputs && incoming.weak_outputs;
+        self.weak_outputs |= incoming.weak_outputs;
 
         changed |= super::references::merge_deferred(&mut self.deferred, &incoming.deferred);
 

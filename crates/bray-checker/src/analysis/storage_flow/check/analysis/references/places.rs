@@ -94,15 +94,15 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 if matches!(value.kind(), bray_symbols::ConstantValueKind::NullableAbsent))
     }
 
-    pub(in crate::analysis::storage_flow::check::analysis) fn assignment_target(
+    pub(in crate::analysis::storage_flow::check::analysis) fn assignment_targets(
         &self,
         state: &StorageFlowState,
         node: AnyBoundNodeId,
-    ) -> Option<Target> {
+    ) -> Option<Vec<Target>> {
         let access = self.assignment_access(node)?;
 
         self.input
-            .reference_target(self.request.semantic_values(), &state.memory, self.storage, access)
+            .reference_targets(self.request.semantic_values(), &state.memory, self.storage, access)
     }
 
     pub(super) fn assignment_access(&self, node: AnyBoundNodeId) -> Option<bray_bound_tree::StorageAccessId> {
@@ -257,7 +257,7 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
         root_borrow: Option<Target>,
     ) -> Option<Vec<Target>> {
         self.stored_locations(values, memory, path, None, |prefix| {
-            Some(vec![memory.reference_location(values, start, prefix, root_borrow)?])
+            memory.reference_locations(values, start, prefix, root_borrow)
         })
     }
 
@@ -297,11 +297,11 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
             } else {
                 locations.into_iter().map(|target| {
                     if let Some((occurrence, root)) = staged {
-                        memory.staged_reference_location(occurrence, values, root, &target, &segment)
+                        memory.staged_reference_locations(occurrence, values, root, &target, &segment)
                     } else {
-                        memory.reference_location(values, target, &segment, None)
+                        memory.reference_locations(values, target, &segment, None)
                     }
-                }).collect::<Option<Vec<_>>>()?
+                }).collect::<Option<Vec<_>>>()?.into_iter().flatten().collect()
             };
 
             if end == projections.len() {

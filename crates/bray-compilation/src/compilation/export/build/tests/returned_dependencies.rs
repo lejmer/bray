@@ -975,6 +975,39 @@ fn imported_call_effects_distinguish_forwarding_from_mutation() {
 
             entry.value = false;
         }
+
+        func choose(pos left: &mut Cell, pos right: &mut Cell, pos first: bool) -> &mut Cell
+        {
+            return if first
+            {
+                yield left;
+            }
+            else
+            {
+                yield right;
+            };
+        }
+
+        func rewrite_choice(pos left: &mut Cell, pos right: &mut Cell, pos first: bool)
+        {
+            let selected = choose(left, right, first);
+
+            selected.value = false;
+        }
+
+        func rewrite_joined(pos left: &mut Cell, pos right: &mut Cell, pos first: bool)
+        {
+            let selected = if first
+            {
+                yield left;
+            }
+            else
+            {
+                yield right;
+            };
+
+            selected.value = false;
+        }
     "#,
     );
 
@@ -1065,6 +1098,43 @@ fn imported_call_effects_distinguish_forwarding_from_mutation() {
                 "the imported body retains its specific write target: {:?}",
                 call.effects()
             );
+        }
+    }
+
+    for function in ["rewrite_choice", "rewrite_joined"] {
+        let summary = crate::compilation::result_dependencies::source_function_dependencies(&provider, function);
+        let written = summary.effects().iter().map(|effect| match effect {
+            bray_symbols::DependencyStorageEffect::Indirect {
+                reference, kind: bray_symbols::DependencyMutationKind::Replace(_), ..
+            } => reference.subject_root(),
+            effect => panic!("finite selected write retains its actual candidates: {function}: {effect:?}"),
+        }).collect::<std::collections::BTreeSet<_>>();
+
+        assert_eq!(written, [0, 1].map(|index| bray_symbols::DependencySubjectRoot::Parameter(
+            bray_symbols::SymbolOrdinal::new(index))).into());
+
+        for (subject, valid) in [("stable", true), ("left", false), ("right", false)] {
+            let caller = format!(r#"
+                module app;
+
+                using example.package.api;
+
+                func caller(
+                    pos left: &mut example.package.api.Cell,
+                    pos right: &mut example.package.api.Cell,
+                    pos stable: &example.package.api.Cell,
+                    pos first: bool
+                )
+                    requires({subject}.value)
+                    ensures({subject}.value)
+                {{
+                    example.package.api.{function}(left, right, first);
+                }}
+            "#);
+            let consumer = execution_consumer(&provider, &caller);
+
+            bray_testing::assert_goal_state_diagnostic_outcome(consumer.check_diagnostics(),
+                (!valid).then_some(bray_diagnostics::DiagnosticKind::CheckingPostconditionNotProven), &caller);
         }
     }
 }

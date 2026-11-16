@@ -169,7 +169,7 @@ fn projected_region_types_keep_array_elements_distinct_from_array_valued_cells()
     let mut state = State::default();
     let owner = Target::storage(owner);
 
-    state.borrow_target_storage(values, capability, owner.clone(), generator);
+    state.borrow_target_storage(values, capability, [owner.clone()], generator);
 
     let backing = owner.project(&[StorageProjection::OwnedTarget]);
 
@@ -645,6 +645,38 @@ fn joined_targets_require_all_possible_contents_and_weak_writes_do_not_initializ
 
     right.transfer_value(&Target::storage(second.clone()), alias.clone());
     assert!(left.merge(&right, &Default::default(), &Default::default()));
+
+    let targets = left.value_targets(&Target::storage(alias.clone())).unwrap();
+
+    for target in &targets {
+        left.contents.entry(target.clone()).or_default().storage_type = Some(error_type());
+    }
+
+    let path = bray_bound_tree::StorageReferencePath::new([].into(), [(0, error_type())].into());
+
+    assert_eq!(left.reference_locations(crate::test_support::semantic_values(),
+        Target::storage(alias.clone()), &path, None), Some(targets.clone()));
+    assert!(left.value_target(&Target::storage(alias.clone()), error_type()).is_none(),
+        "a finite choice does not identify one cell");
+
+    let mut staged = left.clone();
+    let transition = origins[2].into();
+
+    staged.begin_transition(transition);
+
+    for target in &targets {
+        super::Source::Value(Target::storage(first.clone())).stage(&mut staged, transition, target.clone());
+    }
+
+    staged.weaken_transition(transition);
+    staged.write_targets(targets.clone(), error_type(), origins[2], None);
+    staged.complete_transition(transition);
+
+    for target in &targets {
+        assert!(staged.value_targets(target).is_none(), "neither possible destination receives a definite pointer value");
+        assert!(!staged.contents[target].initialized.contains(&error_type()),
+            "one selected write cannot initialize both candidates");
+    }
 
     left.write(
         &Target::storage(alias.clone()),
@@ -1690,7 +1722,7 @@ fn projected_entry_address_does_not_read_the_reference_held_in_that_field() {
 
     state.entry_reference_at(slot.clone(), 1, target.clone(), Some(ty), bray_symbols::DependencyReferenceKind::Address);
     state.transfer_value(&target, field_reference.clone());
-    state.borrow_target_storage(crate::test_support::semantic_values(), capability, target, ty);
+    state.borrow_target_storage(crate::test_support::semantic_values(), capability, [target], ty);
     state.retain_borrow(capability, address.clone());
     state.transfer_value(&Target::storage(address.clone()), copied.clone());
 
@@ -1871,7 +1903,7 @@ fn projected_entry_selectors_do_not_establish_exact_initialization() {
         .expect("fixture `borrow_target` call must succeed")
         .project(&[StorageProjection::Element(origins[0])]);
 
-    state.borrow_target_storage(crate::test_support::semantic_values(), capability, selected, error_type());
+    state.borrow_target_storage(crate::test_support::semantic_values(), capability, [selected], error_type());
     state.retain_borrow(capability, pointer.clone());
     state.expose_address(&pointer, error_type(), origins[1]);
     assert_eq!(state.exact_references(&pointer).count(), 0);
@@ -2600,7 +2632,7 @@ fn slice_projection_retains_the_element_allocation_without_retyping_it() {
 
     let mut alternate = State::default();
 
-    alternate.borrow_target_storage(values, capability, backing.clone(), slice);
+    alternate.borrow_target_storage(values, capability, [backing.clone()], slice);
 
     assert_eq!(alternate.declared_type(&backing), Some(element));
 
@@ -2618,7 +2650,7 @@ fn slice_projection_retains_the_element_allocation_without_retyping_it() {
     let call = selectors[1].into();
     let admitted = nested.clone();
 
-    state.borrow_target_storage(values, capability, selected.clone(), element);
+    state.borrow_target_storage(values, capability, [selected.clone()], element);
 
     super::Source::Borrow(capability).stage(&mut state, call, admitted.clone());
 

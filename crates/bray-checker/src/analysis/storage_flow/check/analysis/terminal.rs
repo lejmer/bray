@@ -111,7 +111,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         &mut self,
         state: &StorageFlowState,
         operation: AnalysisOperationKind,
-        assignment: Option<&Target>,
+        assignment: Option<&[Effect]>,
         mutation: Option<DependencyMutationKind>,
         effects: Option<&[Effect]>,
         roots: &[Target],
@@ -121,13 +121,12 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         }
 
         if let Some(mutation) = mutation {
-            if let Some(target) = assignment {
-                // The effect owns its path while the assignment retains the same shared projections.
+            if let Some(effects) = assignment {
                 self.check_terminal_effects(
                     state,
                     &state.memory,
                     operation,
-                    Some(&[Effect::Mutation(target.clone(), mutation, None)]),
+                    Some(effects),
                     [],
                 );
             } else if matches!(mutation, DependencyMutationKind::Replace(ty) if self.input.graceful_types.contains(&ty))

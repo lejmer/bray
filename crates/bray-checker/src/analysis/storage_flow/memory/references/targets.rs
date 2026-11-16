@@ -11,30 +11,36 @@ impl State {
         source: Place,
         ty: TypeId,
     ) {
-        self.borrow_target_storage(crate::test_support::semantic_values(), capability, Target::storage(source), ty);
+        self.borrow_target_storage(crate::test_support::semantic_values(), capability, [Target::storage(source)], ty);
     }
 
-    pub(in crate::analysis::storage_flow) fn reborrow_value(
+    pub(in crate::analysis::storage_flow) fn reborrow_values(
         &mut self,
         capability: BorrowCapabilityId,
-        source: &Target,
+        sources: &[Target],
         parent: Option<BorrowCapabilityId>,
     ) {
-        let references = self
-            .values
-            .get(source)
-            .and_then(|value| value.references.as_ref())
-            .or_else(|| {
-                source
-                    .storage_path()
-                    .filter(|path| path.projections.is_empty())
-                    .and_then(|_| parent.and_then(|parent| self.borrows.get(&parent)))
-            })
-            .cloned()
-            .unwrap_or(References {
-                unknown: true,
-                ..References::default()
-            });
+        let mut references = References::default();
+
+        for source in sources {
+            let incoming = self
+                .values
+                .get(source)
+                .and_then(|value| value.references.as_ref())
+                .or_else(|| {
+                    source
+                        .storage_path()
+                        .filter(|path| path.projections.is_empty())
+                        .and_then(|_| parent.and_then(|parent| self.borrows.get(&parent)))
+                })
+                .cloned()
+                .unwrap_or(References {
+                    unknown: true,
+                    ..References::default()
+                });
+
+            references.merge(&incoming);
+        }
 
         self.borrows.insert(capability, references);
     }

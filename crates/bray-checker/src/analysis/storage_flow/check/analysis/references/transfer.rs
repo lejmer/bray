@@ -518,7 +518,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         &self,
         state: &mut StorageFlowState,
         operation: crate::analysis::model::AnalysisOperationKind,
-        destination: Option<&Target>,
+        destinations: Option<&[Target]>,
     ) {
         let crate::analysis::model::AnalysisOperationKind::Bound(
             bray_bound_tree::AnyBoundNodeId::Expression(expression),
@@ -535,11 +535,15 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         state.memory.begin_transition(operation.occurrence());
 
-        let Some(destination) = destination else {
+        let Some(destinations) = destinations else {
             // The assignment transition applies its write after input capture.
             // An unresolved destination provides no reference output to stage.
             return;
         };
+
+        if !matches!(destinations, [target] if target.is_exact()) {
+            state.memory.weaken_transition(operation.occurrence());
+        }
 
         let [_, source] = assignment.operands() else {
             return;
@@ -553,11 +557,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             if let Some(projections) = self.reference_wrapping(*source, ty)
                 && let Some(source) = self.expression_reference(state, *source)
             {
-                source.stage(
-                    &mut state.memory,
-                    operation.occurrence(),
-                    destination.project(&projections),
-                );
+                for destination in destinations {
+                    source.clone().stage(&mut state.memory, operation.occurrence(), destination.project(&projections));
+                }
 
                 return;
             }
@@ -565,7 +567,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         let (complete, references) = self.input.footprint.reference_shape(ty);
 
-        state.memory.stage_unresolved_value(operation.occurrence(), destination.clone(), complete, references);
+        for destination in destinations {
+            state.memory.stage_unresolved_value(operation.occurrence(), destination.clone(), complete, references.iter().copied());
+        }
     }
 
     pub(in crate::analysis::storage_flow::check::analysis) fn prepare_call_references(
@@ -933,10 +937,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     // Candidate roots share the prepared starting path's immutable projections.
                     state
                         .memory
-                        .reference_location(self.request.semantic_values(), start.clone(), path, Some(target))
+                        .reference_locations(self.request.semantic_values(), start.clone(), path, Some(target))
                 })
-                .collect(),
-            None => Some(vec![state.memory.reference_location(self.request.semantic_values(), start, path, None)?]),
+                .collect::<Option<Vec<_>>>().map(|locations| locations.into_iter().flatten().collect()),
+            None => state.memory.reference_locations(self.request.semantic_values(), start, path, None),
         }
     }
     pub(in crate::analysis::storage_flow::check::analysis) fn prepare_result_references(

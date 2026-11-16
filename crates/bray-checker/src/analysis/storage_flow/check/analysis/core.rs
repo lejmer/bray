@@ -871,7 +871,7 @@ where
         );
 
         let assignment = (!completing)
-            .then(|| self.assignment_target(state, kind.node()))
+            .then(|| self.assignment_targets(state, kind.node()))
             .flatten();
 
         self.apply_invocation_inputs(state, kind, &refinements);
@@ -893,12 +893,12 @@ where
             .flatten();
 
         // Both checks reuse the resolved target and transition without another expression walk.
-        let assignment_effect =
+        let assignment_effects =
             assignment
                 .as_ref()
                 .zip(assignment_mutation)
-                .map(|(target, kind)| {
-                    crate::analysis::storage_flow::memory::Effect::Mutation(target.clone(), kind, None)
+                .map(|(targets, kind)| {
+                    targets.iter().map(|target| crate::analysis::storage_flow::memory::Effect::Mutation(target.clone(), kind, None)).collect::<Vec<_>>()
                 });
 
         let assignment_roots = assignment_mutation.map(|_| self.assignment_roots(state, kind));
@@ -917,7 +917,7 @@ where
         let normal_effects = self.on_normal_path
             && (!preserve_normal_storage || self.normal_failures.contains(&occurrence));
 
-        let call_effects = self.begin_transition(state, kind, assignment.as_ref(), &execution);
+        let call_effects = self.begin_transition(state, kind, assignment.as_deref(), &execution);
 
         if let Some(effects) = &call_effects {
             state.memory.observe_effect_types(effects);
@@ -929,7 +929,7 @@ where
             let escaped = self.address_escapes(
                 state,
                 kind,
-                assignment_effect.as_ref().map(std::slice::from_ref),
+                assignment_effects.as_deref(),
                 roots,
                 self.on_normal_path,
             );
@@ -959,7 +959,7 @@ where
             self.check_terminal_operation(
                 state,
                 kind,
-                assignment.as_ref(),
+                assignment_effects.as_deref(),
                 assignment_mutation,
                 call_effects.as_deref(),
                 invocation_roots.as_deref().unwrap_or(&[]),
@@ -971,7 +971,7 @@ where
                 self.operation_observations(
                     state,
                     kind,
-                    assignment.as_ref(),
+                    assignment.as_deref(),
                     call_effects.as_deref(),
                     invocation_roots.as_deref(),
                 )
@@ -986,7 +986,7 @@ where
             self.preserve_operation_values(
                 state,
                 kind,
-                call_effects.as_deref().or_else(|| assignment_effect.as_ref().map(std::slice::from_ref)),
+                call_effects.as_deref().or(assignment_effects.as_deref()),
                 invalidation,
             );
         }
@@ -996,15 +996,18 @@ where
                 &state.memory,
                 kind,
                 call_effects.as_deref(),
-                assignment.as_ref(),
-                assignment_mutation,
+                assignment_effects.as_deref(),
                 normal_effects,
             );
 
-            self.record_operation_observations(kind, assignment.as_ref(), invalidation.as_ref());
+            let unique_assignment = assignment.as_deref().and_then(|targets| match targets {
+                [target] => Some(target),
+                _ => None,
+            });
 
-            let assignment = assignment
-                .as_ref()
+            self.record_operation_observations(kind, unique_assignment, invalidation.as_ref());
+
+            let assignment = unique_assignment
                 .and_then(|target| target.storage_path())
                 .and_then(|path| crate::ExecutionPlace::storage_path(self.storage, path));
 
@@ -1656,9 +1659,9 @@ where
         }
 
         if matches!(status, StorageOperationStatus::Valid) {
-            let target = self
+            let targets = self
                 .input
-                .reference_target(self.request.semantic_values(), &state.memory, self.storage, plan.access());
+                .reference_targets(self.request.semantic_values(), &state.memory, self.storage, plan.access());
 
             if self.publish {
                 // The transition and publication share immutable target paths.
@@ -1667,12 +1670,15 @@ where
                         occurrence: plan.occurrence(),
                         access: plan.access(),
                     },
-                    target.clone(),
+                    targets.as_deref().and_then(|targets| match targets {
+                        [target] => Some(target.clone()),
+                        _ => None,
+                    }),
                 );
             }
 
             if let Err(error) =
-                self.apply_valid_operation(state, plan, purpose, borrow, target, invalidation)
+                self.apply_valid_operation(state, plan, purpose, borrow, targets, invalidation)
             {
                 self.query_failure = Some(error);
 
@@ -1790,16 +1796,17 @@ where
         plan: StorageAccessPlan,
         purpose: StorageAccessPurpose,
         borrow: Option<BorrowCapabilityId>,
-        target: Option<crate::analysis::storage_flow::memory::Target>,
+        targets: Option<Vec<crate::analysis::storage_flow::memory::Target>>,
         invalidation: Option<&bray_bound_tree::StorageInvalidation>,
     ) -> Result<(), CheckerQueryError<C::UpstreamError>> {
         match purpose {
             StorageAccessPurpose::Move
             | StorageAccessPurpose::Initialize
             | StorageAccessPurpose::Assignment => {
-                let observed = target
-                    .as_ref()
-                    .and_then(|target| target.storage_path())
+                let observed = targets.as_deref().and_then(|targets| match targets {
+                    [target] => target.storage_path(),
+                    _ => None,
+                })
                     .cloned();
 
                 let logical = observed
@@ -1827,7 +1834,7 @@ where
                     }
                 }
 
-                if let Some(target) = target {
+                if let Some(targets) = targets {
                     if purpose == StorageAccessPurpose::Move {
                         let admitted_input = self.storage.access_plan_role(plan)
                             == bray_bound_tree::StorageAccessPlanRole::PrivateInputAdmission;
@@ -1835,12 +1842,12 @@ where
                         // Admission transfers the private input to this invocation. Its
                         // protected payload remains initialized until the callee uses it.
                         if !admitted_input {
-                            state.memory.consume_target(target, ty);
+                            state.memory.consume_targets(targets, ty);
                         }
                     } else {
                         state
                             .memory
-                            .write_target(target, ty, plan.expression(), invalidation);
+                            .write_targets(targets, ty, plan.expression(), invalidation);
                     }
                 } else {
                     // A lifetime anchor cannot stand in for an unresolved physical target.
@@ -1868,9 +1875,9 @@ where
                     if capability.occurrence() == Some(plan.occurrence()) {
                         let access = capability.access();
 
-                        if let Some(source) =
+                        if let Some(sources) =
                             self.input
-                                .reference_target(self.request.semantic_values(), &state.memory, self.storage, access)
+                                .reference_targets(self.request.semantic_values(), &state.memory, self.storage, access)
                         {
                             let ty = self
                                 .storage
@@ -1892,15 +1899,17 @@ where
                             if reborrow {
                                 state
                                     .memory
-                                    .reborrow_value(borrow, &source, capability.parent());
+                                    .reborrow_values(borrow, &sources, capability.parent());
                             } else {
                                 if let Some(fields) = self.input.raw_buffers.get(&ty) {
-                                    let pointer = source.project(&[StorageProjection::ProductField(fields.pointer)]);
+                                    for source in &sources {
+                                        let pointer = source.project(&[StorageProjection::ProductField(fields.pointer)]);
 
-                                    state.memory.declare_owned_buffer(source.clone(), pointer, fields.element);
+                                        state.memory.declare_owned_buffer(source.clone(), pointer, fields.element);
+                                    }
                                 }
 
-                                state.memory.borrow_target_storage(self.request.semantic_values(), borrow, source, ty);
+                                state.memory.borrow_target_storage(self.request.semantic_values(), borrow, sources, ty);
                             }
                         }
                     }
@@ -1920,15 +1929,12 @@ where
                         crate::representation::reference_target_type(self.request, *ty)
                     && let Some(logical) = self.storage.logical_path(plan.access())
                     && !logical.projections.is_empty()
-                    && let Some(target) = target
+                    && let Some(targets) = targets
                 {
                     // Keep the value read from a reference field separate from its slot.
-                    self.observe_stored_reference(
-                        &mut state.memory,
-                        target,
-                        logical.clone(),
-                        pointee,
-                    )?;
+                    for target in targets {
+                        self.observe_stored_reference(&mut state.memory, target, logical.clone(), pointee)?;
+                    }
                 }
             }
         }

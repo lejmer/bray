@@ -997,7 +997,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 continue;
             };
 
-            let observed = self.input.reference_target(self.request.semantic_values(), memory, self.storage, access);
+            let observed = self.input.reference_targets(self.request.semantic_values(), memory, self.storage, access);
 
             // Stored borrows observe their reached contents. Borrow-capability routes
             // already name their target. Raw-address accesses observe descriptor slots.
@@ -1006,22 +1006,26 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 && matches!(access_data.root(), bray_bound_tree::StorageAccessRoot::Storage(_));
 
             let observed = if borrowed_value {
-                let Some(slot) = observed else { continue; };
+                let Some(slots) = observed else {
+                    continue;
+                };
 
                 // The access names a stored loan. A pointee write changes reached
                 // data, while a disjoint descriptor retains the evaluated loan.
-                if mutations.clone().all(|mutation| {
-                    memory.target_relationship(&slot, mutation) == StorageRelationship::Disjoint
-                }) {
+                if slots.iter().all(|slot| mutations.clone().all(|mutation| {
+                    memory.target_relationship(slot, mutation) == StorageRelationship::Disjoint
+                })) {
                     stable_descriptors.insert(logical.clone());
                 }
 
-                let Some(targets) = memory.value_targets(&slot) else { continue; };
+                let Some(targets) = slots.iter().map(|slot| memory.value_targets(slot)).collect::<Option<Vec<_>>>() else {
+                    continue;
+                };
 
-                let [target] = targets.as_slice() else { continue; };
-
-                Some(target.clone())
-            } else { observed };
+                Some(targets.into_iter().flatten().collect::<Vec<_>>())
+            } else {
+                observed
+            };
 
             self.stable_descriptors(
                 memory,
@@ -1032,7 +1036,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             );
 
             if let Some(observed) = &observed {
-                unrepresented.retain(|mutation| !observed.contains(mutation));
+                unrepresented.retain(|mutation| !observed.iter().any(|target| target.contains(mutation)));
             }
 
             let mut changed = Vec::new();
@@ -1040,20 +1044,23 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             for mutation in mutations.clone() {
                 // Possible origin bounds revoke evidence independently. They do
                 // not establish a particular new snapshot through another loan.
-                if borrowed_value && !observed.as_ref().is_some_and(|observed| observed.contains(mutation)) {
+                if borrowed_value && !observed.as_ref().is_some_and(|observed| observed.iter().any(|target| target.contains(mutation))) {
                     continue;
                 }
 
                 if observed.as_ref().is_some_and(|observed| {
-                    memory.target_relationship(observed, mutation) == StorageRelationship::Disjoint
+                    observed.iter().all(|target| memory.target_relationship(target, mutation) == StorageRelationship::Disjoint)
                 }) {
                     continue;
                 }
 
                 // A known enclosing target preserves the unaffected components. Other
                 // possible aliases lose the entire observation, never acquire equality.
-                let suffix = observed
-                    .as_ref()
+                let unique = observed.as_deref().and_then(|targets| match targets {
+                    [target] => Some(target),
+                    _ => None,
+                });
+                let suffix = unique
                     .filter(|observed| observed.contains(mutation))
                     .map(|observed| &mutation.projections()[observed.projections().len()..])
                     .unwrap_or_default();
@@ -1063,9 +1070,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     logical.projections.iter().chain(suffix).copied(),
                 );
 
-                if observed
-                    .as_ref()
-                    .is_some_and(|observed| observed.contains(mutation))
+                if unique.is_some_and(|observed| observed.contains(mutation))
                     && path.projections.len() == logical.projections.len() + suffix.len()
                 {
                     // An enclosing invalidation is not a value alias of protected

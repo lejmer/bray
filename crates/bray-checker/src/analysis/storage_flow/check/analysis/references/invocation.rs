@@ -899,7 +899,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         path: &bray_bound_tree::StorageReferencePath,
     ) -> Option<Vec<Target>> {
         if let Some(start) = self.static_location(&bray_symbols::DependencySubject::root(subject.subject_root())) {
-            return Some(vec![state.memory.reference_location(self.request.semantic_values(), start, path, None)?]);
+            return state.memory.reference_locations(self.request.semantic_values(), start, path, None);
         }
 
         let path = self.invocation_reference_path(occurrence, subject.subject_root(), path)?;
@@ -912,12 +912,12 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 Some(bray_bound_tree::StorageIdentity::InvocationInput { .. })
             )
         {
-            return Some(vec![state.memory.reference_location(
+            return state.memory.reference_locations(
                 self.request.semantic_values(),
                 Target::storage(place.clone()),
                 &path,
                 None,
-            )?]);
+            );
         }
 
         if let Some(argument) = invocation_argument(
@@ -931,7 +931,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         let start = Target::storage(start?);
 
-        Some(vec![state.memory.reference_location(self.request.semantic_values(), start, &path, None)?])
+        state.memory.reference_locations(self.request.semantic_values(), start, &path, None)
     }
 
     pub(in crate::analysis::storage_flow::check::analysis) fn static_location(

@@ -52,9 +52,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         self.input.stored_locations(self.request.semantic_values(), &state.memory, path, staged_root.as_ref().map(|root| (occurrence, root)), |prefix| {
             if let Some(root) = &staged_root {
-                Some(vec![state.memory.staged_reference_location(
+                state.memory.staged_reference_locations(
                     occurrence, self.request.semantic_values(), root, root, prefix,
-                )?])
+                )
             } else {
                 self.invocation_path_locations(state, occurrence, subject, prefix)
             }
