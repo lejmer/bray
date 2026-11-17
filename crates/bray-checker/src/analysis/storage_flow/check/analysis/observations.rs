@@ -939,6 +939,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         if mutations.clone().next().is_none() {
             return StorageInvalidation::Observed {
+                transition: Default::default(),
                 scope: mutations
                     .clone()
                     .map(|target| {
@@ -1121,6 +1122,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         if unrepresented.is_empty() {
             StorageInvalidation::Observed {
+                transition: Default::default(),
                 scope: mutations
                     .clone()
                     .map(|target| {

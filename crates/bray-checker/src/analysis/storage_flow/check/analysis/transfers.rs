@@ -7,6 +7,33 @@ use crate::analysis::storage_flow::memory::{Effect, State, Target};
 use crate::analysis::storage_flow::model::StorageFlowState;
 
 impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
+    pub(super) fn observation_transition(
+        &self,
+        operation: crate::analysis::model::AnalysisOperationKind,
+    ) -> bray_bound_tree::StorageObservationTransition {
+        use bray_bound_tree::StorageObservationTransition;
+
+        let occurrence = operation.occurrence();
+
+        let contents = matches!(occurrence, bray_bound_tree::BoundExecutionSite::Node(_))
+            && occurrence.expression().and_then(|expression| self.memory.operation(expression))
+                .is_some_and(|operation| crate::memory::execution::storage_effect(operation.kind())
+                    == crate::memory::execution::StorageEffect::Contents);
+
+        if contents { return StorageObservationTransition::Contents; }
+
+        let invocation = self.dependencies.calls().contains_key(&occurrence)
+            || occurrence.expression().is_some_and(|expression|
+                matches!(self.request.view().expression(expression), Some(bray_bound_tree::BoundExpression::Await(_))));
+
+        if !invocation && !self.storage.occurrence_plans(occurrence)
+            .any(|plan| plan.purpose() == bray_bound_tree::StorageAccessPurpose::Assignment) {
+            StorageObservationTransition::Transfer
+        } else {
+            StorageObservationTransition::Unknown
+        }
+    }
+
     pub(super) fn value_transfer_effects(
         &self,
         state: &StorageFlowState,

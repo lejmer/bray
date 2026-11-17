@@ -249,7 +249,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                         .or_insert_with(|| invalidation.clone());
                 }
 
-                domain.invalidate_observations(execution, identity, &invalidation, false, false);
+                domain.invalidate_observations(execution, identity, &invalidation);
                 domain.observe_references(execution, completion.references());
 
                 if let Some(skipped) = skipped {

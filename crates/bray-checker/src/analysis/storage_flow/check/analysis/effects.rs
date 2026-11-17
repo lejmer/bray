@@ -381,7 +381,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             }
         }
 
-        observed
+        observed.map(|observed| observed.with_observation_transition(self.observation_transition(kind)))
     }
 
     pub(super) fn apply_call_effects(

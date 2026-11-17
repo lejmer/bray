@@ -40,6 +40,8 @@ pub enum StorageInvalidation {
     /// Flow-resolved access paths and their current physical observations.
     /// Access paths are logical. Snapshot targets retain their established origins.
     Observed {
+        /// Change classification resolved with this same incoming observation frame.
+        transition: crate::StorageObservationTransition,
         /// Mutation confinement established while resolving the actual target identities.
         scope: StorageMutationScope,
         /// Logical paths whose contents may change, indexed by their checked access.
@@ -82,6 +84,27 @@ fn intersect_preserved_values(
 }
 
 impl StorageInvalidation {
+    /// The observation change resolved by composite flow. Opaque and structural
+    /// frames establish no additional lifetime or transfer preservation.
+    pub fn observation_transition(&self) -> crate::StorageObservationTransition {
+        match self {
+            Self::Observed { transition, .. } => *transition,
+            Self::All { .. } | Self::Paths(_) => crate::StorageObservationTransition::Unknown,
+        }
+    }
+
+    /// Attaches the operation classification after resolving its observation frame.
+    /// Opaque frames retain the conservative global invalidation semantics.
+    pub fn with_observation_transition(mut self, change: crate::StorageObservationTransition) -> Self {
+        match &mut self {
+            Self::Observed { transition, .. } => *transition = change,
+            Self::All { .. } => {},
+            Self::Paths(_) => panic!("operation change classification requires a resolved observation frame"),
+        }
+
+        self
+    }
+
     /// Returns the confinement established by the owning storage-flow analysis.
     pub fn mutation_scope(&self) -> StorageMutationScope {
         match self {
@@ -102,6 +125,10 @@ impl StorageInvalidation {
 
     /// Retains every target that either incoming execution can mutate.
     pub fn merge(&mut self, incoming: &Self) {
+        let transition = if self.observation_transition() == incoming.observation_transition() {
+            self.observation_transition()
+        } else { crate::StorageObservationTransition::Unknown };
+
         let mut pointees = match &mut *self {
             Self::All { stable_pointees, .. } | Self::Observed { stable_pointees, .. } => std::mem::take(stable_pointees),
             Self::Paths(_) => BTreeMap::new(),
@@ -251,6 +278,8 @@ impl StorageInvalidation {
         if let Self::All { stable_pointees, .. } | Self::Observed { stable_pointees, .. } = self {
             *stable_pointees = pointees;
         }
+
+        if let Self::Observed { transition: preserved, .. } = self { *preserved = transition; }
     }
 
     /// Returns physical observation preservation resolved by storage flow.
@@ -787,6 +816,7 @@ mod tests {
         let alias = crate::StoragePath::root(crate::StorageIdentityId::from_slot(unit, 2));
 
         let mut left = super::StorageInvalidation::Observed {
+            transition: crate::StorageObservationTransition::Contents,
             scope: super::StorageMutationScope::Unbounded,
             accesses: [(access, vec![first.clone()])].into(),
             snapshots: [
@@ -801,6 +831,7 @@ mod tests {
         };
 
         let right = super::StorageInvalidation::Observed {
+            transition: crate::StorageObservationTransition::Contents,
             scope: super::StorageMutationScope::Unbounded,
             accesses: [(access, vec![second.clone()])].into(),
             snapshots: [
@@ -833,6 +864,7 @@ mod tests {
         assert_eq!(
             left,
             super::StorageInvalidation::Observed {
+                transition: crate::StorageObservationTransition::Contents,
                 scope: super::StorageMutationScope::Unbounded,
                 accesses: [(access, vec![first.clone(), second.clone()])].into(),
                 snapshots: [(first.clone(), crate::StorageTarget::storage(first.clone()))].into(),
@@ -842,6 +874,11 @@ mod tests {
                 referents: [first, second].into(),
             }
         );
+
+        left.merge(&right.with_observation_transition(crate::StorageObservationTransition::Transfer));
+
+        assert_eq!(left.observation_transition(), crate::StorageObservationTransition::Unknown,
+            "a join cannot turn different changes into unconditional contents preservation");
     }
     #[test]
     fn closed_effect_merges_preserve_disjoint_observations_in_both_orders() {
@@ -859,6 +896,7 @@ mod tests {
         let retained = [owner, changed.clone(), sibling.clone(), other.clone()].into_iter().collect::<BTreeSet<_>>();
 
         let precise = super::StorageInvalidation::Observed {
+            transition: Default::default(),
             scope: super::StorageMutationScope::Unbounded,
             accesses: [(StorageAccessId::from_slot(unit, 0), vec![changed])].into(),
             snapshots: Default::default(),
@@ -877,6 +915,7 @@ mod tests {
                 }
             } else {
                 super::StorageInvalidation::Observed {
+                    transition: Default::default(),
                     scope: super::StorageMutationScope::Unbounded,
                     accesses: Default::default(),
                     snapshots: Default::default(),

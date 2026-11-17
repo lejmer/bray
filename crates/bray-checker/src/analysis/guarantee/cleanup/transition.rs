@@ -279,8 +279,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             state,
             mutation,
             flow.cleanup_mutation(mutation),
-            false,
-            false,
         );
 
         if let Some(completion) = flow.completion(mutation) {

@@ -1,3 +1,15 @@
+/// How a resolved transition changes existing value and lifetime observations.
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum StorageObservationTransition {
+    /// A source value is consumed without an independent pointee mutation.
+    Transfer,
+    /// Contents can change while their backing lifetimes remain alive.
+    Contents,
+    /// No additional observation survival follows from the change kind.
+    #[default]
+    Unknown,
+}
+
 /// The state observed through one checked value, independently of access authority.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum StorageObservationKind {
