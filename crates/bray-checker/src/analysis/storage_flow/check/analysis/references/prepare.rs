@@ -103,12 +103,12 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
                     .is_some_and(|borrow| borrow.entry_binding().is_some())
             });
 
-        let root_borrow = match (entry, path.borrows().first()) {
-            (Some(capability), Some((0, ty))) if !path.is_address_load(0) => Some(memory.borrow_target(capability, *ty)?),
+        let root_borrow = match (entry, path.reads().next()) {
+            (Some(capability), Some((0, 0, ty, bray_symbols::DependencyReferenceKind::Borrow))) => Some(memory.borrow_target(capability, ty)?),
             _ => None,
         };
 
-        self.reference_locations(values, memory, Target::storage(Place::root(logical.root)), path, root_borrow)
+        memory.reference_locations(values, Target::storage(Place::root(logical.root)), path, root_borrow)
     }
 
     pub(in crate::analysis::storage_flow) fn prepare_reference_paths<

@@ -198,17 +198,15 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
         let mut references = self.entry_references.iter().collect::<Vec<_>>();
 
         references.sort_by_key(|((_, layer), (path, _, _))| (
-            path.borrows().len() + path.projections().iter().filter(|projection| **projection == bray_bound_tree::StorageProjection::OwnedTarget).count(),
+            path.steps().len(),
             path.projections().len(), *layer,
         ));
 
         for ((slot, layer), (path, ty, kind)) in references {
             if let Some(fields) = self.entry_buffer_pointer(path, *ty) {
-                let owner_path = bray_bound_tree::StorageReferencePath::new(
-                    path.projections()[..path.projections().len() - 1].into(), path.borrows().into(),
-                );
+                let owner_path = path.prefix(path.projections().len() - 1, path.steps().len());
 
-                let owners = self.reference_locations(values, memory, crate::analysis::storage_flow::memory::Target::storage(Place::root(slot.root)), &owner_path, None);
+                let owners = memory.reference_locations(values, crate::analysis::storage_flow::memory::Target::storage(Place::root(slot.root)), &owner_path, None);
 
                 for owner in owners.into_iter().flatten() {
                     let pointer = bray_bound_tree::StorageProjection::ProductField(fields.pointer);
@@ -227,7 +225,7 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
                 continue;
             }
 
-            let locations = self.reference_locations(values, memory, crate::analysis::storage_flow::memory::Target::storage(Place::root(slot.root)), path, None);
+            let locations = memory.reference_locations(values, crate::analysis::storage_flow::memory::Target::storage(Place::root(slot.root)), path, None);
 
             for location in locations.into_iter().flatten() {
                 memory.entry_reference_at(slot.clone(), *layer, location, *ty, *kind);
@@ -239,7 +237,7 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
                 continue;
             }
 
-            let locations = self.reference_locations(values, memory, crate::analysis::storage_flow::memory::Target::storage(Place::root(*root)), path, None);
+            let locations = memory.reference_locations(values, crate::analysis::storage_flow::memory::Target::storage(Place::root(*root)), path, None);
 
             for location in locations.into_iter().flatten() {
                 memory.seed_whole_source(location.clone(), location);
@@ -274,15 +272,15 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
                 };
 
                 let reference = prepared
-                    .borrows()
-                    .first()
-                    .map(|(index, target)| {
+                    .reads()
+                    .next()
+                    .map(|(_, index, target, _)| {
                         (
                             Place {
                                 root: identity,
-                                projections: projections[..*index].into(),
+                                projections: projections[..index].into(),
                             },
-                            *target,
+                            target,
                         )
                     })
                     .or_else(|| {
@@ -422,45 +420,35 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
             return;
         }
 
-        for (step, (index, target)) in prepared
-            .borrows()
-            .iter()
-            .enumerate()
-            .filter(|(step, (index, _))| *step != 0 || *index != 0)
+        for (step, index, target, kind) in prepared
+            .reads()
+            .filter(|(step, index, _, _)| *step != 0 || *index != 0)
         {
             let prefix = Place {
                 root: path.root,
-                projections: path.projections[..*index].into(),
+                projections: path.projections[..index].into(),
             };
 
             self.entry_references
                 .entry((
                     prefix.clone(),
-                    1 + prepared.borrows()[..step]
-                        .iter()
-                        .rev()
-                        .take_while(|(previous, _)| previous == index)
+                    1 + prepared.steps()[..step]
+                        .iter().rev()
+                        .take_while(|operation| matches!(operation, bray_bound_tree::StorageReferenceStep::Read { index: previous, .. } if *previous == index))
                         .count(),
                 ))
                 .or_insert_with(|| {
                     (
-                        bray_bound_tree::StorageReferencePath::new(
-                            prefix.projections,
-                            prepared.borrows()[..step].into(),
-                        ),
-                        Some(*target),
-                        if prepared.is_address_load(step) {
-                            bray_symbols::DependencyReferenceKind::Address
-                        } else { bray_symbols::DependencyReferenceKind::Borrow },
+                        prepared.prefix(index, step),
+                        Some(target),
+                        kind,
                     )
                 });
         }
 
         let layer = 1 + prepared
-            .borrows()
-            .iter()
-            .rev()
-            .take_while(|(index, _)| *index == path.projections.len())
+            .reads().rev()
+            .take_while(|(_, index, _, _)| *index == path.projections.len())
             .count();
 
         if let Some(kind) = crate::representation::reference_kind(request, ty)

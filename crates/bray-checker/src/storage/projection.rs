@@ -246,7 +246,10 @@ pub(crate) fn reference_path<C: CheckerRequestContext + ?Sized>(
     Option<(TypeId, bray_bound_tree::StorageReferencePath)>,
     CheckerQueryError<C::UpstreamError>,
 > {
-    let mut borrows = Vec::new();
+    use bray_bound_tree::StorageReferenceStep;
+    use bray_symbols::DependencyReferenceKind;
+
+    let mut steps = Vec::new();
 
     for index in 0..=projections.len() {
         while let TypeData::Borrow { target, .. } = request.semantic_values().type_data(ty).as_ref()
@@ -256,7 +259,7 @@ pub(crate) fn reference_path<C: CheckerRequestContext + ?Sized>(
             }
 
             ty = *target;
-            borrows.push((index, ty));
+            steps.push(StorageReferenceStep::Read { index, target: ty, kind: DependencyReferenceKind::Borrow });
         }
 
         if let Some(projection) = projections.get(index) {
@@ -268,7 +271,7 @@ pub(crate) fn reference_path<C: CheckerRequestContext + ?Sized>(
                 let Some(target) = crate::representation::reference_target_type(request, ty) else { return Ok(None); };
 
                 ty = target;
-                borrows.push((index, ty));
+                steps.push(StorageReferenceStep::Read { index, target: ty, kind: DependencyReferenceKind::Address });
                 continue;
             }
 
@@ -278,13 +281,19 @@ pub(crate) fn reference_path<C: CheckerRequestContext + ?Sized>(
                 return Ok(None);
             };
 
+            if *projection == StorageProjection::OwnedTarget {
+                let pointer = crate::representation::raw_buffer_fields(request, ty)?.map(|fields| fields.pointer);
+
+                steps.push(StorageReferenceStep::Backing { index, target: projected, pointer });
+            }
+
             ty = projected;
         }
     }
 
     Ok(Some((
         ty,
-        bray_bound_tree::StorageReferencePath::new(projections, borrows.into()),
+        bray_bound_tree::StorageReferencePath::new(projections, steps.into()),
     )))
 }
 

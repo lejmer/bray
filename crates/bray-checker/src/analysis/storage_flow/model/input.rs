@@ -92,7 +92,7 @@ impl StorageFlowInput {
     ) -> Option<crate::representation::RawBufferFields> {
         self.raw_buffers.values().find_map(|fields| {
             (pointee == Some(fields.element)
-                && path.borrows().iter().all(|(index, _)| *index < path.projections().len())
+                && path.reads().all(|(_, index, _, _)| index < path.projections().len())
                 && path.projections().last() == Some(&bray_bound_tree::StorageProjection::ProductField(fields.pointer)))
                 .then_some(*fields)
         })

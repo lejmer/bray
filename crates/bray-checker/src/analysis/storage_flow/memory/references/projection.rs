@@ -430,36 +430,43 @@ impl State {
         let mut targets = vec![target];
         let mut copied = 0;
 
-        for (step, (index, ty)) in path.borrows().iter().enumerate() {
-            let address = path.is_address_load(step);
+        for (step, operation) in path.steps().iter().copied().enumerate() {
+            use bray_bound_tree::StorageReferenceStep;
 
-            targets = if let Some(root) = root_borrow.take().filter(|_| step == 0 && *index == 0 && !address) {
+            let index = operation.index();
+
+            if copied != index {
+                targets = targets.into_iter().map(|target| target.project(&path.projections()[copied..index])).collect();
+            }
+
+            let (ty, pointer, consumes) = match operation {
+                StorageReferenceStep::Read { target, kind, .. } =>
+                    (target, None, kind == bray_symbols::DependencyReferenceKind::Address),
+                StorageReferenceStep::Backing { target, pointer: Some(pointer), .. } =>
+                    (target, Some(StorageProjection::ProductField(pointer)), true),
+                StorageReferenceStep::Backing { pointer: None, .. } => {
+                    targets = targets.into_iter().map(|target| target.project(&[StorageProjection::OwnedTarget])).collect();
+                    copied = index + 1;
+                    continue;
+                }
+            };
+
+            targets = if let Some(root) = root_borrow.take().filter(|_| step == 0 && index == 0 && !consumes) {
                 vec![root]
             } else {
                 let mut reached = std::collections::BTreeSet::new();
 
                 for target in targets {
-                    let target = target.project(&path.projections()[copied..*index]);
+                    let target = match pointer { Some(pointer) => target.project(&[pointer]), None => target };
                     let reference = lookup(&target)?;
 
-                    let typed = self.typed_targets(reference, *ty).or_else(|| {
-                        let data = values.type_data(*ty);
-
-                        let bray_symbols::TypeData::Slice(element) = data.as_ref() else {
-                            return None;
-                        };
-
-                        // A slice view keeps each existing element region. Bounds alone
-                        // cannot supply a layout or turn a dynamic selector into one cell.
-                        (!reference.is_unknown() && !reference.is_displaced() && !reference.nullable && !reference.targets.is_empty()
-                            && reference.targets.iter().all(|reached| {
-                                let declared = self.contents.get(reached).and_then(|contents| contents.storage_type);
-
-                                !reached.previous && (!reference.is_bounded() || !reached.is_exact())
-                                    && (declared == Some(*ty) || declared == Some(*element))
-                            }))
-                            .then_some(&reference.targets)
-                    })?;
+                    let typed = if pointer.is_some() {
+                        // Backing selection follows the actual allocation descriptor.
+                        // It neither loads an element nor establishes its layout.
+                        reference.has_values().then_some(&reference.targets)
+                    } else {
+                        self.route_pointer_targets(values, reference, ty)
+                    }?;
 
                     reached.extend(typed.iter().cloned());
                 }
@@ -467,10 +474,35 @@ impl State {
                 reached.into_iter().collect()
             };
 
-            copied = *index + usize::from(address);
+            copied = index + usize::from(consumes);
         }
 
-        Some(targets.into_iter().map(|target| target.project(&path.projections()[copied..])).collect())
+        Some(if copied == path.projections().len() { targets } else {
+            targets.into_iter().map(|target| target.project(&path.projections()[copied..])).collect()
+        })
+    }
+
+    fn route_pointer_targets<'a>(
+        &self,
+        values: &bray_symbols::SemanticValueStore,
+        reference: &'a AddressValue,
+        ty: TypeId,
+    ) -> Option<&'a std::collections::BTreeSet<Target>> {
+        self.typed_targets(reference, ty).or_else(|| {
+            let data = values.type_data(ty);
+
+            let bray_symbols::TypeData::Slice(element) = data.as_ref() else { return None; };
+
+            // A slice view keeps established element regions. Bounds cannot
+            // supply a layout or turn a dynamic selector into one cell.
+            (!reference.is_unknown() && !reference.is_displaced() && !reference.nullable && !reference.targets.is_empty()
+                && reference.targets.iter().all(|reached| {
+                    let declared = self.contents.get(reached).and_then(|contents| contents.storage_type);
+
+                    !reached.previous && (!reference.is_bounded() || !reached.is_exact())
+                        && (declared == Some(ty) || declared == Some(*element))
+                })).then_some(&reference.targets)
+        })
     }
 
     pub(in crate::analysis::storage_flow) fn referenced_regions(

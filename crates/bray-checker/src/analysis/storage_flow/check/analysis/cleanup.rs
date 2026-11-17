@@ -548,7 +548,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         };
 
         if let Some(path) = path {
-            self.input.reference_locations(self.request.semantic_values(), memory, start, path, None)
+            memory.reference_locations(self.request.semantic_values(), start, path, None)
         } else {
             subject.projections().is_empty().then_some(vec![start])
         }
@@ -592,7 +592,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 continue;
             };
 
-            let Some(locations) = self.input.reference_locations(self.request.semantic_values(), memory, receiver.clone(), prepared, None) else {
+            let Some(locations) = memory.reference_locations(self.request.semantic_values(), receiver.clone(), prepared, None) else {
                 continue;
             };
 
@@ -641,7 +641,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     continue;
                 }
 
-                let Some(locations) = self.input.reference_locations(self.request.semantic_values(), memory, receiver.clone(), prepared, None) else {
+                let Some(locations) = memory.reference_locations(self.request.semantic_values(), receiver.clone(), prepared, None) else {
                     continue;
                 };
 

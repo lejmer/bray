@@ -393,8 +393,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             let access = reference.access_id(self.storage);
 
             let locations = if let Some((slot, _, _)) = self.input.entry_references.get(&(reference.clone(), 1)) {
-                self.input.reference_locations(
-                    self.request.semantic_values(), memory, Target::storage(StoragePath::root(reference.root)), slot, None,
+                memory.reference_locations(
+                    self.request.semantic_values(), Target::storage(StoragePath::root(reference.root)), slot, None,
                 )
             } else { match access {
                 _ if reference.projections.is_empty() => Some(Target::storage(reference.clone())),
@@ -1152,23 +1152,19 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             return;
         };
 
-        for (step, (index, ty)) in path.borrows().iter().enumerate() {
+        for (step, index, ty, _) in path.reads() {
             if !matches!(
-                self.request.semantic_values().type_data(*ty).as_ref(),
+                self.request.semantic_values().type_data(ty).as_ref(),
                 bray_symbols::TypeData::Slice(_)
             ) {
                 continue;
             }
 
-            let descriptor = bray_bound_tree::StorageReferencePath::new(
-                path.projections()[..*index].into(),
-                path.borrows()[..step].into(),
-            );
+            let descriptor = path.prefix(index, step);
 
             let Some(locations) =
-                self.input.reference_locations(
+                memory.reference_locations(
                     self.request.semantic_values(),
-                    memory,
                     Target::storage(StoragePath::root(root)),
                     &descriptor,
                     None,
@@ -1182,7 +1178,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             })) {
                 descriptors.insert(StoragePath {
                     root,
-                    projections: path.projections()[..*index].into(),
+                    projections: path.projections()[..index].into(),
                 });
             }
         }

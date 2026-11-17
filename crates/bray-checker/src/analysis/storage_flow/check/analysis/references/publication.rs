@@ -453,7 +453,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
                     let Some((_, prepared)) = crate::storage::reference_path(self.request, ty, combined.clone().into(), None)? else { return Ok(None); };
 
-                    let implied = prepared.borrows().iter().filter(|(index, _)| *index == reference.projections.len()).count();
+                    let implied = prepared.reads().filter(|(_, index, _, _)| *index == reference.projections.len()).count();
                     let expected = if *kind == bray_symbols::DependencyReferenceKind::Address { *layer } else { terminal };
 
                     if implied != expected { return Ok(None); }

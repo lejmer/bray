@@ -5,7 +5,7 @@ use crate::analysis::storage_flow::memory::{Place, Source, Target};
 use crate::analysis::storage_flow::model::StorageFlowState;
 use crate::storage::storage_projections;
 use bray_bound_tree::BoundExecutionSite;
-use bray_symbols::DependencySubjectRoot;
+use bray_symbols::{DependencyReferenceKind, DependencySubjectRoot};
 
 impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     pub(in crate::analysis::storage_flow::check::analysis) fn transfer_memory_result_state(
@@ -643,8 +643,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             let relation = reference.relation();
 
             let depth = contracts.reference_path(relation.exit()).map_or(0, |path| {
-                path.borrows().len() + path.projections().iter()
-                    .filter(|projection| **projection == bray_bound_tree::StorageProjection::OwnedTarget).count()
+                path.steps().len()
             });
 
             (depth, relation.entry().is_some())
@@ -673,7 +672,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         let Some(path) = contracts.reference_path(relation.exit()) else { return; };
 
-        if relation.exit().subject_root() != DependencySubjectRoot::Result && path.borrows().is_empty() {
+        if relation.exit().subject_root() != DependencySubjectRoot::Result && path.steps().is_empty() {
             return;
         }
 
@@ -706,7 +705,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 let owned_buffer = (!relation.is_empty_reference() && !relation.is_no_payload()
                     && relation.exit().subject_root() == DependencySubjectRoot::Result
                     && relation.kind() == bray_symbols::DependencyReferenceKind::Address
-                    && contracts.reference_path(relation.exit()).is_some_and(|path| path.borrows().is_empty()))
+                    && contracts.reference_path(relation.exit()).is_some_and(|path| path.steps().is_empty()))
                     .then(|| self.input.raw_buffers.values().find(|fields| {
                         Some(fields.element) == reference.addressed_type()
                             && logical.projections.last() == Some(&bray_bound_tree::StorageProjection::ProductField(fields.pointer))
@@ -918,8 +917,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     ) -> Option<Vec<Target>> {
         let start = self.expression_target(state, argument)?;
 
-        let root_borrow = if path.borrows().first().is_some_and(|(index, _)| *index == 0)
-            && !path.is_address_load(0) {
+        let root_borrow = if matches!(path.reads().next(), Some((0, 0, _, DependencyReferenceKind::Borrow))) {
             let borrowed = self.expression_is_borrowed(argument);
 
             Some(if borrowed {

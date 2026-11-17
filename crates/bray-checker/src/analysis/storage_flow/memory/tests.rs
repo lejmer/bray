@@ -652,7 +652,9 @@ fn joined_targets_require_all_possible_contents_and_weak_writes_do_not_initializ
         left.contents.entry(target.clone()).or_default().storage_type = Some(error_type());
     }
 
-    let path = bray_bound_tree::StorageReferencePath::new([].into(), [(0, error_type())].into());
+    let path = bray_bound_tree::StorageReferencePath::new([].into(), [bray_bound_tree::StorageReferenceStep::Read {
+        index: 0, target: error_type(), kind: bray_symbols::DependencyReferenceKind::Borrow,
+    }].into());
 
     assert_eq!(left.reference_locations(crate::test_support::semantic_values(),
         Target::storage(alias.clone()), &path, None), Some(targets.clone()));
@@ -1790,7 +1792,10 @@ fn projected_entry_address_does_not_read_the_reference_held_in_that_field() {
     layered.entry_reference_at(parameter.clone(), 2, cell.clone(), Some(aggregate), bray_symbols::DependencyReferenceKind::Address);
 
     let route = bray_bound_tree::StorageReferencePath::new(
-        [StorageProjection::AddressTarget, projection].into(), [(0, ty), (0, aggregate)].into());
+        [StorageProjection::AddressTarget, projection].into(), [
+            bray_bound_tree::StorageReferenceStep::Read { index: 0, target: ty, kind: bray_symbols::DependencyReferenceKind::Borrow },
+            bray_bound_tree::StorageReferenceStep::Read { index: 0, target: aggregate, kind: bray_symbols::DependencyReferenceKind::Address },
+        ].into());
 
     let reached = layered.reference_location(values, Target::storage(parameter.clone()), &route, Some(cell)).unwrap();
 
@@ -1802,7 +1807,9 @@ fn projected_entry_address_does_not_read_the_reference_held_in_that_field() {
         bray_symbols::DependencyReferenceKind::Address);
 
     let path = bray_bound_tree::StorageReferencePath::new(
-        [StorageProjection::AddressTarget, projection].into(), [(0, aggregate)].into());
+        [StorageProjection::AddressTarget, projection].into(), [
+            bray_bound_tree::StorageReferenceStep::Read { index: 0, target: aggregate, kind: bray_symbols::DependencyReferenceKind::Address },
+        ].into());
 
     let location = state.reference_location(values, Target::storage(parameter.clone()), &path, None).unwrap();
     let field = Place { root: parameter.root, projections: [StorageProjection::AddressTarget, projection].into() };
@@ -2621,7 +2628,10 @@ fn repeated_dereferences_have_distinct_entry_snapshots() {
     assert!(!second.contains(&first));
     assert!(second.observation_path().is_none());
 
-    let path = bray_bound_tree::StorageReferencePath::new([].into(), [(0, ty), (0, ty)].into());
+    let path = bray_bound_tree::StorageReferencePath::new([].into(), [
+        bray_bound_tree::StorageReferenceStep::Read { index: 0, target: ty, kind: bray_symbols::DependencyReferenceKind::Borrow },
+        bray_bound_tree::StorageReferenceStep::Read { index: 0, target: ty, kind: bray_symbols::DependencyReferenceKind::Borrow },
+    ].into());
 
     assert_eq!(state.reference_location(crate::test_support::semantic_values(), slot, &path, None), Some(second));
 }
@@ -2645,7 +2655,7 @@ fn slice_projection_retains_the_element_allocation_without_retyping_it() {
 
     let path = bray_bound_tree::StorageReferencePath::new(
         [projection, BUFFER_POINTER].into(),
-        [(0, slice)].into(),
+        [bray_bound_tree::StorageReferenceStep::Read { index: 0, target: slice, kind: bray_symbols::DependencyReferenceKind::Borrow }].into(),
     );
 
     let backing = owner.project(&[StorageProjection::OwnedTarget]);
@@ -2716,7 +2726,10 @@ fn slice_projection_retains_the_element_allocation_without_retyping_it() {
     assert!(state.value_targets(&nested).is_none());
 
     let wrong_slice = values.intern_type(bray_symbols::TypeData::Slice(slice)).unwrap();
-    let wrong = bray_bound_tree::StorageReferencePath::new([].into(), [(0, wrong_slice)].into());
+
+    let wrong = bray_bound_tree::StorageReferencePath::new([].into(), [
+        bray_bound_tree::StorageReferenceStep::Read { index: 0, target: wrong_slice, kind: bray_symbols::DependencyReferenceKind::Borrow },
+    ].into());
 
     assert!(state.reference_location(values, view.clone(), &wrong, None).is_none());
 
@@ -2989,19 +3002,52 @@ fn owned_regions_keep_headers_disjoint_and_survive_owner_moves_without_exact_off
 
 #[test]
 fn nested_backing_survives_descriptor_moves_and_pruning() {
-    let ([owner, moved, alias, ..], _) = places();
+    let ([owner, moved, alias, ..], origins) = places();
+
+    let pointer = bray_symbols::StructFieldSymbolId::from_symbol_id(bray_symbols::SymbolId::new(3));
+    let buffer_pointer = StorageProjection::ProductField(pointer);
 
     let mut state = State::default();
     let descriptor = Target::storage(owner.clone());
 
-    state.declare_owned_buffer(descriptor.clone(), descriptor.project(&[BUFFER_POINTER]), error_type());
+    state.declare_owned_buffer(descriptor.clone(), descriptor.project(&[buffer_pointer]), error_type());
 
-    let outer = state.owned_regions(&descriptor, BUFFER_POINTER).unwrap().remove(0);
+    let outer = state.owned_regions(&descriptor, buffer_pointer).unwrap().remove(0);
     let element = outer.project(&[StorageProjection::AnyElement]);
 
-    state.declare_owned_buffer(element.clone(), element.project(&[BUFFER_POINTER]), error_type());
+    state.declare_owned_buffer(element.clone(), element.project(&[buffer_pointer]), error_type());
 
-    let inner = state.owned_regions(&element, BUFFER_POINTER).unwrap().remove(0);
+    let inner = state.owned_regions(&element, buffer_pointer).unwrap().remove(0);
+
+    let values = crate::test_support::semantic_values();
+    let slice = values.intern_type(bray_symbols::TypeData::Slice(error_type())).unwrap();
+
+    let route = bray_bound_tree::StorageReferencePath::new(
+        [StorageProjection::OwnedTarget, StorageProjection::AnyElement, StorageProjection::OwnedTarget].into(),
+        [
+            bray_bound_tree::StorageReferenceStep::Backing { index: 0, target: slice, pointer: Some(pointer) },
+            bray_bound_tree::StorageReferenceStep::Backing { index: 2, target: slice, pointer: Some(pointer) },
+        ].into(),
+    );
+
+    assert_eq!(state.reference_locations(values, descriptor.clone(), &route, None), Some(vec![inner.clone()]));
+
+    state.contents.get_mut(&outer).unwrap().storage_type = None;
+
+    assert_eq!(state.reference_locations(values, descriptor.clone(), &route, None), Some(vec![inner.clone()]),
+        "selecting actual backing precedes element layout and initialization");
+
+    assert_eq!(state.contents[&outer].storage_type, None, "following a descriptor establishes no element layout");
+
+    state.contents.get_mut(&outer).unwrap().storage_type = Some(error_type());
+
+    let mut bounded = state.clone();
+    let pointer_binding = bounded.values.get_mut(&descriptor.project(&[buffer_pointer])).unwrap();
+
+    pointer_binding.address_bounds = pointer_binding.address.take();
+
+    assert!(bounded.reference_locations(values, descriptor.clone(), &route, None).is_none(),
+        "a possible backing region cannot supply the actual descriptor read");
 
     state.contents.get_mut(&inner).unwrap().initialized.insert(error_type());
     state.values.insert(Target::storage(alias.clone()), AddressValue::one(inner.clone()).into());
@@ -3010,13 +3056,31 @@ fn nested_backing_survives_descriptor_moves_and_pruning() {
     state.retain_live(&BTreeSet::from([moved.root, alias.root]));
     state.end_storage(|identity| identity == owner.root);
 
-    assert!(!state.values.contains_key(&descriptor.project(&[BUFFER_POINTER])), "backing records alone do not retain their descriptor");
-    assert_eq!(state.owned_regions(&Target::storage(moved), BUFFER_POINTER), Some(vec![outer.clone()]));
-    assert_eq!(state.owned_regions(&element, BUFFER_POINTER), Some(vec![inner.clone()]));
+    assert!(!state.values.contains_key(&descriptor.project(&[buffer_pointer])), "backing records alone do not retain their descriptor");
+    assert_eq!(state.owned_regions(&Target::storage(moved.clone()), buffer_pointer), Some(vec![outer.clone()]));
+    assert_eq!(state.reference_locations(values, Target::storage(moved.clone()), &route, None), Some(vec![inner.clone()]));
+    assert_eq!(state.owned_regions(&element, buffer_pointer), Some(vec![inner.clone()]));
     assert!(state.contents[&inner].initialized.contains(&error_type()), "descriptor storage end must preserve the moved allocation facts");
 
     assert!(!state.initialized_targets(&AddressValue::one(inner.clone()), error_type()),
         "a dynamic element's region must remain inexact");
+
+    let call = origins[0].into();
+
+    state.begin_transition(call);
+    state.stage_value(call, &Target::storage(moved.clone()), Target::storage(owner.clone()));
+    state.null(Place { root: moved.root, projections: [buffer_pointer].into() });
+
+    assert_eq!(state.reference_locations(values, Target::storage(moved), &route, None), Some(Vec::new()),
+        "an overwritten descriptor cannot be followed using its former backing region");
+
+    assert_eq!(state.staged_reference_locations(call, values, &Target::storage(owner.clone()), &Target::storage(owner.clone()), &route),
+        Some(vec![inner.clone()]), "captured inline descriptors survive source replacement");
+
+    state.clear_value(&element.project(&[buffer_pointer]));
+
+    assert!(state.staged_reference_locations(call, values, &Target::storage(owner.clone()), &Target::storage(owner), &route).is_none(),
+        "capturing a descriptor does not freeze nested pointees");
 
     state.retire_region(&outer, Retirement::Storage);
 
