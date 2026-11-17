@@ -226,6 +226,8 @@ impl StructuralValueEncoder<'_, '_> {
     ) -> Result<(), FactQueryError> {
         self.boolean(relation.entry().is_some());
         self.boolean(relation.allocation().is_some());
+        self.boolean(relation.is_empty_reference());
+        self.boolean(relation.is_no_payload());
 
         if let Some(entry) = relation.source_subject() {
             self.dependency_subject(entry)?;

@@ -315,7 +315,7 @@ impl Transfer {
         };
 
         self.values = std::mem::take(&mut self.values).into_iter().map(|(slot, mut value)| {
-            if let Some(references) = &mut value.references {
+            for references in value.references_mut() {
                 references.targets = std::mem::take(&mut references.targets).into_iter().map(&relocate_referent).collect();
             }
 
@@ -345,7 +345,7 @@ impl Transfer {
         self.values
             .values()
             .chain(self.inputs.values())
-            .filter_map(|value| value.references.as_ref())
+            .flat_map(|value| value.references())
             .chain(self.returned_inputs.values())
             .any(|references| {
                 references
@@ -379,7 +379,7 @@ impl Transfer {
             .values
             .values_mut()
             .chain(self.inputs.values_mut())
-            .filter_map(|value| value.references.as_mut())
+            .flat_map(|value| value.references_mut())
             .chain(self.returned_inputs.values_mut())
         {
             references.retire(current, retirement);

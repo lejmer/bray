@@ -202,6 +202,12 @@ Dependency analysis infers the requirements carried by values and accesses from 
 refinement, and witness results. Portable templates use formal subjects, while bound contracts refer to unit-local
 subjects. Aggregate guards and transfer requirements remain explicit.
 
+Memory value bindings capture evaluated addresses together with their carried dependencies. Conservative address bounds
+remain separate from evaluated addresses, so attaching generic dependency information cannot create or replace an
+address identity. Nullable empty alternatives remain explicit through joins and portable publication. Invalidation,
+retirement and deferred relocation update both parts of the binding at the same boundary.
+Inactive payloads contribute no value to a join. Their absence remains distinct from a live reference with a null address.
+
 Effects and contract validation consume selected operations and finalized flow results to establish the body summary and
 its relation to the declaration's surface. They do not rerun lifecycle state transfer.
 

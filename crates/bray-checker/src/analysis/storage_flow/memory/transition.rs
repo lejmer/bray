@@ -1,6 +1,6 @@
 use super::Source;
 use super::references::storage_subtree;
-use super::model::{Place, References, State, Target, Transfer};
+use super::model::{Place, AddressValue, State, Target, Transfer};
 use bray_bound_tree::{
     BoundExpressionId, MemoryOperationStatus, MemoryReadKind,
 };
@@ -56,8 +56,8 @@ impl State {
         }
     }
 
-    fn transition_references(&self, targets: impl IntoIterator<Item = Target>) -> Option<References> {
-        let references = References { targets: targets.into_iter().collect(), ..Default::default() };
+    fn transition_references(&self, targets: impl IntoIterator<Item = Target>) -> Option<AddressValue> {
+        let references = AddressValue::from_targets(targets);
 
         // Logical-only admission must retain already prepared reference values. Keep
         // every alternative when physical tracking is needed, so weak writes stay weak.
@@ -106,20 +106,17 @@ impl State {
 
     fn write_transferred(
         &mut self,
-        references: &References,
+        references: &AddressValue,
         ty: TypeId,
         origin: BoundExpressionId,
         source: Option<Source>,
     ) {
-        if references.unknown {
+        if references.is_unknown() {
             // An unlocated write can affect any tracked cell. Collapse the source's
             // possible references instead of inventing a subtree at every possible address.
             let affected = self.affected_targets(references);
 
-            let mut incoming = super::model::StoredValue::from(References {
-                unknown: true,
-                ..References::default()
-            });
+            let mut incoming = super::model::ValueBinding::from(AddressValue::unknown());
 
             if let (Some(source), Some(destination)) = (source.as_ref(), affected.first()) {
                 for value in self
@@ -138,7 +135,7 @@ impl State {
 
                 value.merge(&incoming);
 
-                value.complete = false;
+                value.completeness.lose_completeness();
             }
 
             return;
@@ -167,11 +164,11 @@ impl State {
 
     pub(in crate::analysis::storage_flow::memory) fn commit_weak_value(&mut self, transfer: Transfer) {
         for (slot, mut value) in transfer.values {
-            if let Some(references) = &mut value.references {
-                references.unknown = true;
+            for references in value.references_mut() {
+                references.forget_value();
             }
 
-            value.complete = false;
+            value.completeness.lose_completeness();
 
             self.values.entry(slot).and_modify(|previous| { previous.merge(&value); }).or_insert(value);
         }
@@ -197,7 +194,7 @@ impl State {
 
     fn write_references(
         &mut self,
-        references: &References,
+        references: &AddressValue,
         ty: TypeId,
         origin: BoundExpressionId,
         invalidation: Option<&bray_bound_tree::StorageInvalidation>,
@@ -217,11 +214,11 @@ impl State {
                 .is_some_and(|invalidation| Self::stable_reference_slot(&target, invalidation))
                 && let Some(stored) = self.values.get_mut(&target)
             {
-                if let Some(references) = &mut stored.references {
-                    references.unknown = true;
+                for references in stored.references_mut() {
+                    references.forget_value();
                 }
 
-                stored.complete = false;
+                stored.completeness.lose_completeness();
             }
 
             contents.pending.entry(ty).or_default().insert(origin);
@@ -235,7 +232,7 @@ impl State {
         origin: BoundExpressionId,
         source: Option<Source>,
     ) -> MemoryOperationStatus {
-        self.write_transferred(&References::one(target), ty, origin, source);
+        self.write_transferred(&AddressValue::one(target), ty, origin, source);
 
         MemoryOperationStatus::Valid
     }
@@ -248,7 +245,7 @@ impl State {
         proven: Option<BoundExpressionId>,
         result: Option<Place>,
     ) -> MemoryOperationStatus {
-        self.read_targets(References::one(target), ty, kind, proven, result)
+        self.read_targets(AddressValue::one(target), ty, kind, proven, result)
     }
 
     pub(in crate::analysis::storage_flow) fn read(
@@ -268,7 +265,7 @@ impl State {
 
     fn read_targets(
         &mut self,
-        references: References,
+        references: AddressValue,
         ty: TypeId,
         kind: MemoryReadKind,
         proven: Option<BoundExpressionId>,
@@ -299,17 +296,15 @@ impl State {
             // Actual pointer slots retain their captured reference uncertainty below.
             transfer.values.entry(destination).or_default();
 
-            if references.unknown
-                || references.displaced
-                || references.inexact
+            if !references.has_values()
                 || references.targets.iter().any(|target| !target.is_exact())
             {
                 for value in transfer.values.values_mut() {
-                    if let Some(references) = &mut value.references {
-                        references.unknown = true;
+                    for references in value.references_mut() {
+                        references.forget_value();
                     }
 
-                    value.complete = false;
+                    value.completeness.lose_completeness();
                 }
 
                 for contents in transfer.payloads.values_mut() {
@@ -359,7 +354,7 @@ impl State {
         MemoryOperationStatus::Valid
     }
 
-    fn consume_references(&mut self, references: &References, ty: TypeId) {
+    fn consume_references(&mut self, references: &AddressValue, ty: TypeId) {
         let exact = references.is_exact();
 
         for target in &self.affected_targets(references) {

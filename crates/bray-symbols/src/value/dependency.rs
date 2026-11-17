@@ -431,6 +431,7 @@ enum ReferenceSource<Subject> {
     Independent,
     Allocation(Subject),
     Empty,
+    NoPayload,
 }
 
 /// Checked origin information across one callable's normal completion.
@@ -478,7 +479,7 @@ impl<Subject, Projection> DependencyBorrowRelation<Subject, Projection> {
         }
     }
 
-    /// Records a slot with no reference target, including null and inactive payloads.
+    /// Records a live reference with a null address.
     pub fn new_empty(exit: Subject, kind: DependencyReferenceKind) -> Self {
         Self { source: ReferenceSource::Empty, ..Self::new(None, exit, kind) }
     }
@@ -486,6 +487,16 @@ impl<Subject, Projection> DependencyBorrowRelation<Subject, Projection> {
     /// Whether the producer established that this slot has no reference target.
     pub const fn is_empty_reference(&self) -> bool {
         matches!(self.source, ReferenceSource::Empty)
+    }
+
+    /// Records an inactive slot that contributes no reference value.
+    pub fn new_no_payload(exit: Subject, kind: DependencyReferenceKind) -> Self {
+        Self { source: ReferenceSource::NoPayload, ..Self::new(None, exit, kind) }
+    }
+
+    /// Whether the slot contributes no live payload to this normal outcome.
+    pub const fn is_no_payload(&self) -> bool {
+        matches!(self.source, ReferenceSource::NoPayload)
     }
 
     /// Retains a complete origin bound without claiming one exact address.
@@ -511,8 +522,8 @@ impl<Subject, Projection> DependencyBorrowRelation<Subject, Projection> {
 
     /// Records whether the relation forwards a value or only bounds possible reachability.
     pub fn with_provenance(mut self, provenance: DependencyReferenceProvenance) -> Self {
-        assert!(!self.is_empty_reference() || provenance == DependencyReferenceProvenance::Alternatives,
-            "an empty reference has no input provenance");
+        assert!(!(self.is_empty_reference() || self.is_no_payload()) || provenance == DependencyReferenceProvenance::Alternatives,
+            "an empty address or inactive slot has no input provenance");
 
         assert!(
             provenance != DependencyReferenceProvenance::Exact || self.entry().is_some(),
@@ -575,7 +586,7 @@ impl<Subject, Projection> DependencyBorrowRelation<Subject, Projection> {
     pub const fn entry(&self) -> Option<&Subject> {
         match &self.source {
             ReferenceSource::Input(subject) => Some(subject),
-            ReferenceSource::Independent | ReferenceSource::Allocation(_) | ReferenceSource::Empty => None,
+            ReferenceSource::Independent | ReferenceSource::Allocation(_) | ReferenceSource::Empty | ReferenceSource::NoPayload => None,
         }
     }
 
@@ -583,7 +594,7 @@ impl<Subject, Projection> DependencyBorrowRelation<Subject, Projection> {
     pub const fn allocation(&self) -> Option<&Subject> {
         match &self.source {
             ReferenceSource::Allocation(subject) => Some(subject),
-            ReferenceSource::Independent | ReferenceSource::Input(_) | ReferenceSource::Empty => None,
+            ReferenceSource::Independent | ReferenceSource::Input(_) | ReferenceSource::Empty | ReferenceSource::NoPayload => None,
         }
     }
 
@@ -591,7 +602,7 @@ impl<Subject, Projection> DependencyBorrowRelation<Subject, Projection> {
     pub const fn source_subject(&self) -> Option<&Subject> {
         match &self.source {
             ReferenceSource::Allocation(subject) | ReferenceSource::Input(subject) => Some(subject),
-            ReferenceSource::Independent | ReferenceSource::Empty => None,
+            ReferenceSource::Independent | ReferenceSource::Empty | ReferenceSource::NoPayload => None,
         }
     }
 
@@ -609,6 +620,11 @@ impl<Subject, Projection> DependencyBorrowRelation<Subject, Projection> {
                 assert!(source.is_none(), "empty reference has no source subject");
 
                 ReferenceSource::Empty
+            }
+            ReferenceSource::NoPayload => {
+                assert!(source.is_none(), "inactive slot has no source subject");
+
+                ReferenceSource::NoPayload
             }
         };
 

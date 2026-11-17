@@ -8,10 +8,10 @@ pub(in crate::analysis::storage_flow) enum Source {
 impl Source {
     pub(in crate::analysis::storage_flow) fn is_exact(&self, state: &State) -> bool {
         match self {
-            Self::Value(source) => state.values.get(source).and_then(|value| value.references.as_ref()),
+            Self::Value(source) => state.values.get(source).and_then(|value| value.address.as_ref()),
             Self::Borrow(capability) => state.borrows.get(capability),
         }
-        .is_some_and(super::super::model::References::is_exact)
+        .is_some_and(super::super::model::AddressValue::is_exact)
     }
 
     pub(in crate::analysis::storage_flow) fn stage(

@@ -37,7 +37,7 @@ Remaining migrations after this boundary include captured addresses separate fro
 dependency transport, connected guarded result bindings and one observation-survival classification. These require
 tracing their owning producer and consumers before edits.
 
-Validation on the current corrected source: cargo xtask style and cargo xtask format pass. Symbols222, interface217,
+Validation on checkpoint d087dde8f: cargo xtask style and cargo xtask format pass. Symbols222, interface217,
 checker564 and all1714 frozen comparison identities pass, with zero missing identities. The comparison takes272.38s.
 The source/imported task-ownership, loop-cleanup and both production channel regressions pass together. The bounded
 async-composition case passes in isolation and in the comparison. The saved-borrow source-slot overwrite case passes.
@@ -47,10 +47,102 @@ The full refactor and joint acceptance gate remain incomplete. No baseline tests
 This checkpoint removes the independent normal-storage flags throughout publication, hashing, import, call
 instantiation and deferred transport. It binds each effect once and shares translated identities across outcomes.
 The remaining work is the captured-value graph, actual addresses distinct from footprints, connected guarded result
-bindings, whole-value dependency transport and unified observation survival. Continue tracing the native retirement
-composition before the next production edits. Keep the PR in draft and BRA-694 In Progress.
+bindings, whole-value dependency transport and unified observation survival. Continue with shared value bindings
+and dependency transport. The native failures remain final acceptance checks and do not block the next slice.
+Keep the PR in draft and BRA-694 In Progress.
+
+## Binding checkpoint contract
+
+Replace the memory References and StoredValue representations with AddressValue and ValueBinding. AddressValue
+distinguishes evaluated addresses, conservative regions, displaced addresses and unknown addresses, and retains an
+explicit empty alternative. ValueBinding carries that address knowledge together with whole-value dependencies and
+typed completeness. A region cannot satisfy an actual-value query. Unknown is never empty. A nullable alternative
+cannot establish one definite address even when its nonempty alternative has one target.
+
+The authoritative producers are memory capture_value, address formation, checked reference output preparation and
+intrinsic value transport. Capture copies the evaluated binding before source mutation or consumption. Definite
+replacement publishes that captured binding. Weak writes retain feasible previous contents without granting definite
+initialization. Joins union possible addresses and dependencies and intersect completeness. NoPayload predecessors
+contribute no live value. Borrow observations, reference publication, effect resolution, escape traversal, deferred
+capture and ordered cleanup consume the same binding. Source and imported output preparation instantiate the same
+reference alternatives. Explicit empty output alternatives survive this boundary.
+
+Stored-value summary relations remain possible dependency bounds, not whole-value equality. Store their address
+bounds separately from the binding's evaluated address. Dependency staging never assigns or merges the evaluated
+address. Conservative queries can use these bounds when the evaluated address is unavailable. Actual-value queries
+cannot. This removes staged clone/merge/restore reconciliation and makes assembly independent of staging order.
+Alternative-value joins still join actual evaluated addresses and carried bounds separately. Invalidation clears both,
+and retirement and deferred relocation update both. Retain allocation recency and do not infer permissions from address
+precision. Displacement and origin widening are distinct states because publication consumes both distinctions.
+
+Conservative traversal visits carried bounds together with an uncertain evaluated address. A complete evaluated address
+set supplies its own origins. Exact queries never consume the carried bounds. The audit found and corrected a fallback
+lookup that would hide useful carried targets behind an unknown actual address. The staged-order regression must cover
+both exact and unknown produced addresses, including their resulting reachability.
+Typed pointer reads, reborrows, empty-value publication and unchanged-entry-field suppression require the evaluated
+address field. A carried bound cannot supply the pointer value needed to follow a route, publish null or justify
+suppressing a separately captured escape. Widening a known nonempty alternative does not erase an actual empty
+alternative. Displacement from null has unknown reachability and cannot become an empty effect footprint.
+Inactive nullable and union payloads carry a no-payload binding, independently of a live null pointer. Pending joins
+ignore those inactive alternatives, and unknown mutation loses their absence rather than turning it into an empty value.
+Captured-value assembly combines explicit reference slots with opaque lineage. CFG joins intersect coverage. Neither
+operation saves and restores completeness after applying a different merge rule.
+
+The binding batch passes564 checker,222 symbols,217 interface and all57 returned-dependency tests. The new
+specialization identity control distinguishes independent, null and inactive slots. All1714 frozen comparison identities
+pass in303.88s, with zero failures and zero missing identities. The final build source fingerprint is recorded with the
+comparison and binary hashes. Mutating cargo xtask style and cargo xtask format pass on this source.
+
+Portable reference bindings retain inactive-slot shape separately from null, including stored allocation payloads.
+Source/import, identity remapping, specialization, SCC joins, lifecycle and deferred instantiation retain that shape.
+A no-payload alternative contributes no live address and cannot erase a live alternative in either staging order.
+Unknown remains unknown. The package interface format revision is2 because reference attributes gain a shape bit.
+The temporary diagnostic trace is removed. The earlier nullable, propagation and escape regressions are corrected.
+
+No native retry or repair is permitted before the full refactor is done. Continue the remaining slices after this
+checkpoint. Neither native failure is a prerequisite for advancing the agreed migration.
+
+Positive oracles cover saved pointers after source overwrite, ordinary value moves, generic buffer transport,
+source/imported empty alternatives and deferred cleanup. Negative oracles cover nullable exact-location use,
+InputRegions as exact locations, replacement and retirement, and generic dependency escape. Existing frozen1714
+comparison identities remain fixed. Native failures remain acceptance checks, not this slice's repair target.
+
+This is the internal binding boundary, not the complete portable captured-value graph. No new graph identities or
+type-driven generic reconstruction are introduced. Replace boolean address states and tracked/complete combinations
+with typed states. Keep growth below300 production lines unless required to remove a duplicated interpretation.
+Reconsider if an address consumer needs to recover a removed boolean combination, if generic bounds gain identity,
+or if staged binding assembly still requires saving and restoring an old address after an alternative join.
 Current logs and the frozen comparison are under target/audit in the active worktree. Existing shared Cargo output
 is reused and must never be cleaned. Before builds, target/cargo/tooling measured 232.83 GiB and the drive had 99 GiB free.
+
+## Active production boundary contract
+
+A pending memory Transfer owns staged output bindings and captured entry information. The output fields are values,
+payloads, deferred frames and returned-input bounds, with the weak-write policy. Entry information is inputs, possible
+failure effects, latent deferred effects and captured/result cleanup. These have different lifetimes.
+
+Private production drains only the output fields into current memory. Cleanup can replace or retire that produced
+value, and repeated private production cannot replay its earlier snapshot. Captured entry references and abnormal
+transitions remain available until an outcome consumes them. Normal completion produces any still-staged output, then
+ends the capture. This replaces cleanup's use of complete_transition to expose a private receiver.
+
+The immediate producer is prepare_cleanup_receiver for a result-region value. Normal consumers are ordinary and hidden
+call completion, intrinsic completion, result-region completion and lifecycle completion. Deferred formation moves the
+whole pending capture without executing it. Deferred completion installs its relocated pending output through the same
+normal completion. Failure consumes captured possible effects without installing normal outputs. Do not clear the whole
+pending transfer on task-body failure because the observer can still produce a normal RunResult.Failed alternative.
+Retirement must keep updating retained entry descriptors and effects while private output is live.
+
+Extend normal_completion_discards_captured_failure_effects to produce a private pointer, overwrite its original input,
+change the private output during cleanup, and verify both capture retention and surviving normal publication. Repeated
+production and normal completion must not restore the old pointer. The existing deferred-input move/retirement and
+produced_owned_results_survive_enclosing_scope_cleanup compositions cover adjacent paths, including source/import and
+lowering. Keep the frozen1714 comparison unchanged.
+
+Use one output-draining implementation. Add no phase booleans, new identity graph or alternate commit engine. Keep
+production growth below50 lines. Reconsider if captures need copying, if private production grants caller permissions,
+or if the existing cleanup scheduler cannot retain its ordering. This boundary separates physical production from
+capture completion. Full connected outcomes and their unified logical publication remain subsequent work.
 
 Issue: https://linear.app/bray-lang/issue/BRA-694.
 Draft PR: https://github.com/lejmer/bray/pull/717.
@@ -64,14 +156,18 @@ Check/lower actual Linux/Windows bootstrap products on x86_64/AArch64, with sour
 failure locations. Preserve conditional masks and authoritative empty ownership. Reject fabrication, replacement,
 old epochs, actual mutation and retirement. Internal invariant defects panic. BRA-695 execution and BRA-696 shutdown
 remain separate. No historical reconstruction, freshness from owned_allocation, layout/exactness from alias bounds,
-predicate reassertion or blanket loan exemptions. Commit/push checkpoints. Style stays deferred until finalization.
+predicate reassertion or blanket loan exemptions. Commit/push checkpoints. Run style at implementation-batch finalization.
 Native subprocess workflows run outside the sandbox. Shared Cargo/LLVM storage must never be cleaned.
 
 Joint gate: actual dispatch_ready -> dispatch_task/event.wait_execution must check AND lower, and all1714 fixed
 comparison identities must pass on the SAME candidate. Focused controls and checker units cannot substitute.
-Do not expand migration while either gate is red. The repair unit is the connected owner composition: allocation,
+The user's current direction is to continue the contract refactor while native failures remain. Do not focus the
+next slice on repairing dispatch_ready or start_frame. The repair unit is the connected value composition: allocation,
 insertion, replay, owner moves, publication/import, escape and cleanup, including normal/panic/cancellation paths.
 The first loss locates the defect, not the repair scope. No speculative preparation or local patch checklist.
+Complete every agreed refactor boundary before attempting to fix dispatch_ready or start_frame. Correct regressions
+introduced by each slice, then continue to the next slice even while those two native failures remain. This ordering
+is the user's explicit instruction. A green native gate is not a prerequisite for expanding the contract migration.
 
 ## Established contracts
 

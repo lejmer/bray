@@ -3903,8 +3903,14 @@ fn imported_conditional_null_pointer_bounds_never_become_exact_identity() {
     let dependencies =
         crate::compilation::result_dependencies::source_function_dependencies(&consumer, "caller");
 
-    assert_eq!(dependencies.borrows().len(), 1, "{dependencies:#?}");
-    assert!(!dependencies.borrows()[0].is_exact(), "{dependencies:#?}");
+    assert_eq!(dependencies.borrows().len(), 2, "{dependencies:#?}");
+
+    assert_eq!(dependencies.borrows().iter().filter(|relation| relation.is_empty_reference()).count(), 1,
+        "{dependencies:#?}");
+
+    let input = dependencies.borrows().iter().find(|relation| relation.entry().is_some()).expect("retained input origin");
+
+    assert!(!input.is_exact(), "{dependencies:#?}");
 }
 
 #[test]
@@ -4010,7 +4016,10 @@ fn recursive_nullable_pointer_bounds_include_every_normal_origin() {
             name,
         );
 
-        assert_eq!(summary.borrows().len(), 2, "{name}: {summary:#?}");
+        assert_eq!(summary.borrows().len(), 3, "{name}: {summary:#?}");
+
+        assert_eq!(summary.borrows().iter().filter(|relation| relation.is_empty_reference()).count(), 1,
+            "{name}: the explicit empty alternative survives recursion and import: {summary:#?}");
 
         assert!(
             summary
@@ -4023,7 +4032,7 @@ fn recursive_nullable_pointer_bounds_include_every_normal_origin() {
         let origins = summary
             .borrows()
             .iter()
-            .map(|relation| relation.entry().expect("input origin").subject_root())
+            .filter_map(|relation| relation.entry().map(|entry| entry.subject_root()))
             .collect::<std::collections::BTreeSet<_>>();
 
         assert_eq!(
@@ -5414,6 +5423,16 @@ fn escape_summaries_preserve_input_roots_before_alias_expansion() {
 
             if roots != expected { failures.push(format!("{surface} {extra} wrapped={wrapped}: expected {expected} roots, got {effects:#?}")); }
             assert!(!effects.contains(&bray_symbols::DependencyStorageEffect::Escape), "{surface}: known escape roots remain structured");
+        }
+
+        if wrapped {
+            let dependencies = crate::compilation::result_dependencies::source_function_dependencies(&application, "wrap");
+
+            assert_eq!(dependencies.borrows().iter().filter(|relation| relation.is_no_payload()).count(), 1,
+                "the inactive union field must retain its shape through portable publication: {dependencies:#?}");
+
+            assert!(!dependencies.borrows().iter().any(|relation| relation.is_empty_reference()),
+                "inactive fields must not become live null addresses: {dependencies:#?}");
         }
     }
 

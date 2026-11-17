@@ -2,7 +2,7 @@ use bray_symbols::DependencyMutationKind;
 use bray_symbols::DependencyStorageEffect;
 use super::common::{decode_tag, validate_record_count};
 use crate::semantic::codec::common::{
-    REFERENCE_ALLOCATION, REFERENCE_EMPTY, REFERENCE_EXACT, REFERENCE_INPUT_ABSENT, REFERENCE_INPUT_REGIONS, REFERENCE_KIND_SHIFT,
+    REFERENCE_ALLOCATION, REFERENCE_EMPTY, REFERENCE_EXACT, REFERENCE_INPUT_ABSENT, REFERENCE_INPUT_REGIONS, REFERENCE_KIND_SHIFT, REFERENCE_NO_PAYLOAD,
     SemanticDecodeContext, map_wire_error, read_count, read_optional_u32, read_symbol_reference,
     read_symbol_references, read_u32,
 };
@@ -113,9 +113,11 @@ pub(super) fn decode_dependency_contract(
         let regions = attributes & REFERENCE_INPUT_REGIONS != 0;
         let allocation = attributes & REFERENCE_ALLOCATION != 0;
         let empty = attributes & REFERENCE_EMPTY != 0;
+        let no_payload = attributes & REFERENCE_NO_PAYLOAD != 0;
 
         if exact && (independent || regions) || allocation && (independent || exact || regions)
-            || empty && (!independent || exact || regions || allocation) {
+            || empty && (!independent || exact || regions || allocation)
+            || no_payload && (!independent || exact || regions || allocation || empty) {
             return Err(crate::semantic::codec::invalid_discriminant(
                 crate::InterfaceValidationField::Discriminant,
                 attributes,
@@ -132,7 +134,9 @@ pub(super) fn decode_dependency_contract(
 
         let exit = decode_dependency_subject(reader, limits, context)?;
 
-        let mut relation = if empty {
+        let mut relation = if no_payload {
+            bray_symbols::DependencyBorrowRelation::new_no_payload(exit, kind)
+        } else if empty {
             bray_symbols::DependencyBorrowRelation::new_empty(exit, kind)
         } else if allocation {
             if kind != bray_symbols::DependencyReferenceKind::Address {
@@ -906,6 +910,20 @@ mod tests {
             words[6] = attributes | crate::semantic::codec::common::REFERENCE_EMPTY | invalid;
 
             assert!(decode_words(&words, limits).is_err(), "an empty reference has no input or allocation origin");
+        }
+
+        words[6] = attributes | crate::semantic::codec::common::REFERENCE_NO_PAYLOAD;
+
+        let contract = decode_words(&words, limits).expect("inactive reference slot must decode");
+
+        assert!(contract.borrows[0].is_no_payload());
+        assert!(!contract.borrows[0].is_empty_reference());
+
+        for invalid in [REFERENCE_EXACT, REFERENCE_INPUT_REGIONS, crate::semantic::codec::common::REFERENCE_ALLOCATION,
+            crate::semantic::codec::common::REFERENCE_EMPTY] {
+            words[6] = attributes | crate::semantic::codec::common::REFERENCE_NO_PAYLOAD | invalid;
+
+            assert!(decode_words(&words, limits).is_err(), "inactive slots have no address or input origin");
         }
     }
 

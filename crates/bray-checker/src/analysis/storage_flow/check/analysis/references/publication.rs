@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use bray_bound_tree::StorageProjection;
 use super::super::core::StorageFlowCollector;
 use crate::CheckerRequestContext;
-use crate::analysis::storage_flow::memory::{Origin, Place, ReferenceBounds};
+use crate::analysis::storage_flow::memory::{Origin, Place, ReferenceBounds, ReferenceExitValue};
 use crate::analysis::storage_flow::model::StorageFlowState;
 use crate::storage::{dependency_projection, dependency_projections};
 use bray_symbols::{
@@ -172,7 +172,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             }
         }
 
-        for slot in self.references.iter().flat_map(|references| references.empty_slots()) {
+        let empty = self.references.iter().flat_map(|references| references.empty_slots()).map(|slot| (slot, false));
+        let absent = self.references.iter().flat_map(|references| references.no_payload_slots()).map(|slot| (slot, true));
+
+        for (slot, absent) in empty.chain(absent) {
             let Some(root) = self.formal_root(slot.root) else { continue; };
 
             let ty = self.storage.identity_type(slot.root).expect("published reference has its storage type");
@@ -181,9 +184,12 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
             let Some(projections) = dependency_projections(&slot.projections) else { continue; };
 
-            relations.push((slot.clone(), bray_symbols::DependencyBorrowRelation::new_empty(
-                bray_symbols::DependencySubject::new(root, projections), kind,
-            )));
+            let exit = bray_symbols::DependencySubject::new(root, projections);
+
+            let relation = if absent { DependencyBorrowRelation::new_no_payload(exit, kind) }
+                else { DependencyBorrowRelation::new_empty(exit, kind) };
+
+            relations.push((slot.clone(), relation));
         }
 
         let mut relations = relations
@@ -301,7 +307,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             // These bounds do not forward borrow authority to the caller.
             let mut physical = Physical::new();
 
-            for (destination, targets, _, bounds) in exit.stored_references() {
+            for (destination, value) in exit.stored_bindings() {
                 if !matches!(&destination.origin, Origin::Allocation { .. })
                     && !destination.projections().contains(&bray_bound_tree::StorageProjection::OwnedTarget) {
                     continue;
@@ -315,12 +321,19 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
                 let Some(kind) = self.physical_reference_kind(&place, ty)? else { entry.1 = false; continue; };
 
-                if !precise || endpoint.dereferences() != 0 || bounds != ReferenceBounds::Known {
+                if !precise || endpoint.dereferences() != 0 {
                     entry.1 = false;
                     continue;
                 }
 
-                if targets.is_empty() {
+                let ReferenceExitValue::Address { targets, nullable, bounds } = value else {
+                    entry.0.insert(DependencyBorrowRelation::new_no_payload(endpoint.subject().clone(), kind));
+                    continue;
+                };
+
+                if bounds != ReferenceBounds::Known { entry.1 = false; continue; }
+
+                if nullable {
                     if destination.is_exact() {
                         entry.0.insert(DependencyBorrowRelation::new_empty(endpoint.subject().clone(), kind));
                     } else { entry.1 = false; }

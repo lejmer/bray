@@ -904,6 +904,40 @@ mod tests {
 
         assert_eq!(identities.len(), 3);
     }
+
+    #[test]
+    fn reference_slot_shapes_distinguish_specialization_identities() {
+        let compilation = crate::test_support::compilation("module app;");
+        let values = compilation.semantic_value_store().expect("fixture semantic store");
+        let context = compilation.binding_context(&compilation.state.cancellation).expect("fixture binding context");
+        let result = bray_symbols::DependencySubject::root(bray_symbols::DependencySubjectRoot::Result);
+        let kind = bray_symbols::DependencyReferenceKind::Address;
+
+        let relations = [
+            bray_symbols::DependencyBorrowRelation::new(None, result.clone(), kind),
+            bray_symbols::DependencyBorrowRelation::new_empty(result.clone(), kind),
+            bray_symbols::DependencyBorrowRelation::new_no_payload(result, kind),
+        ];
+
+        let identities = relations.into_iter().map(|relation| {
+            let contract = values.intern_dependency_contract_template(
+                bray_symbols::DependencyContractTemplateData::new([]).with_borrows([relation]),
+            ).expect("fixture dependency contract");
+
+            let mut encoder = super::StructuralValueEncoder {
+                values,
+                binding_context: &context,
+                digest: bray_base::StableDigestHasher::new(),
+                allow_static_address: false,
+            };
+
+            encoder.dependency_contract(contract).expect("fixture contract identity");
+
+            encoder.digest.finalize()
+        }).collect::<std::collections::BTreeSet<_>>();
+
+        assert_eq!(identities.len(), 3, "independent addresses, null addresses and inactive slots have different contracts");
+    }
     #[test]
     fn guarded_callable_identities_are_independent_of_domain_and_store_order() {
         let mut by_store_order = Vec::new();

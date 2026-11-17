@@ -122,138 +122,7 @@ impl Effect {
     }
 }
 
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub(super) struct References {
-    pub(super) targets: BTreeSet<Target>,
-    pub(super) unknown: bool,
-    pub(super) displaced: bool,
-    pub(super) inexact: bool,
-}
-
-/// One value slot can carry generic lineage without being a reference slot.
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub(super) struct StoredValue {
-    pub(super) references: Option<References>,
-    pub(super) sources: BTreeSet<Target>,
-    pub(super) tracked: bool,
-    pub(super) complete: bool,
-}
-
-impl StoredValue {
-    pub(super) fn merge_staged(&mut self, incoming: &Self) {
-        let exact = self.references.as_ref().filter(|references| references.is_exact()).cloned();
-        let whole = (self.tracked, self.complete);
-
-        self.merge(incoming);
-
-        self.complete = match (whole.0, incoming.tracked) {
-            (true, true) => whole.1 && incoming.complete,
-            (true, false) => whole.1,
-            (false, true) => incoming.complete,
-            (false, false) => false,
-        };
-
-        if let Some(exact) = exact { self.references = Some(exact); }
-    }
-
-    pub(super) fn merge(&mut self, incoming: &Self) -> bool {
-        let previous = self.clone();
-
-        match (&mut self.references, &incoming.references) {
-            (Some(current), Some(incoming)) => { current.merge(incoming); }
-            (None, Some(incoming)) => {
-                let mut references = incoming.clone();
-
-                references.inexact |= self.tracked;
-
-                self.references = Some(references);
-            }
-            (Some(current), None) if incoming.tracked => current.inexact = true,
-            _ => {}
-        }
-
-        self.sources.extend(incoming.sources.iter().cloned());
-
-        if incoming.tracked {
-            self.complete = self.tracked && self.complete && incoming.complete;
-            self.tracked = true;
-        } else if self.tracked {
-            self.complete = false;
-        }
-
-        *self != previous
-    }
-}
-
-impl From<References> for StoredValue {
-    fn from(references: References) -> Self {
-        Self {
-            references: Some(references),
-            ..Self::default()
-        }
-    }
-}
-
-impl References {
-    pub(super) fn one(target: Target) -> Self {
-        Self {
-            // A dynamic selector is bounded by this region even without one exact cell.
-            unknown: false,
-            targets: BTreeSet::from([target]),
-            displaced: false,
-            inexact: false,
-        }
-    }
-
-    pub(super) fn merge(&mut self, incoming: &Self) -> bool {
-        let count = self.targets.len();
-        let unknown = self.unknown;
-        let displaced = self.displaced;
-        let inexact = self.inexact;
-
-        // Targets contain shared immutable projection paths.
-        self.targets.extend(incoming.targets.iter().cloned());
-        self.unknown |= incoming.unknown;
-        self.displaced |= incoming.displaced;
-        self.inexact |= incoming.inexact;
-
-        self.targets.len() != count
-            || self.unknown != unknown
-            || self.displaced != displaced
-            || self.inexact != inexact
-    }
-
-    pub(super) fn retire(&mut self, current: &Target, retirement: Retirement) {
-        let targets = self
-            .targets
-            .range(current.clone()..)
-            .take_while(|target| current.contains(target))
-            .filter(|target| retirement.contains(current, target))
-            .cloned()
-            .collect::<Vec<_>>();
-
-        for target in targets {
-            self.targets.remove(&target);
-
-            self.targets.insert(Target {
-                previous: true,
-                ..target
-            });
-        }
-    }
-
-    pub(super) fn is_exact(&self) -> bool {
-        !self.unknown
-            && !self.displaced
-            && !self.inexact
-            && self.targets.len() == 1
-            && self
-                .targets
-                .first()
-                .expect("one reference target")
-                .is_exact()
-    }
-}
+pub(super) use super::value::{AddressValue, DependencyCompleteness, ValueBinding};
 
 type Origins = BTreeSet<BoundExpressionId>;
 
@@ -369,15 +238,15 @@ pub(super) struct Transfer {
     // Possible destinations receive a weak merge, never definite replacement or initialization.
     pub(super) weak_outputs: bool,
     /// Evaluated reference descriptors retained by this deferred frame, separate from published outputs.
-    pub(super) inputs: BTreeMap<Target, StoredValue>,
-    pub(super) values: BTreeMap<Target, StoredValue>,
+    pub(super) inputs: BTreeMap<Target, ValueBinding>,
+    pub(super) values: BTreeMap<Target, ValueBinding>,
     pub(super) payloads: BTreeMap<Target, Contents>,
     pub(super) failure_effects: Option<std::sync::Arc<CapturedEffects>>,
     pub(super) deferred_effects: Option<super::EffectOutcomes>,
     pub(super) captured_cleanup: Option<BTreeSet<Effect>>,
     pub(super) result_cleanup: Option<BTreeSet<Effect>>,
     pub(super) deferred: super::references::DeferredTransitions,
-    pub(super) returned_inputs: BTreeMap<Place, References>,
+    pub(super) returned_inputs: BTreeMap<Place, AddressValue>,
 }
 
 impl Transfer {
@@ -456,9 +325,9 @@ pub(in crate::analysis::storage_flow) struct State {
     pub(super) owned_storage: std::sync::Arc<[bray_bound_tree::StorageIdentityId]>,
     pub(super) unaddressed_storage: std::sync::Arc<[bray_bound_tree::StorageIdentityId]>,
     // Bounds retain the producing slot and whether its evaluation has retired.
-    pub(super) returned_inputs: BTreeMap<(Place, bool), References>,
-    pub(super) values: BTreeMap<Target, StoredValue>,
-    pub(super) borrows: BTreeMap<BorrowCapabilityId, References>,
+    pub(super) returned_inputs: BTreeMap<(Place, bool), AddressValue>,
+    pub(super) values: BTreeMap<Target, ValueBinding>,
+    pub(super) borrows: BTreeMap<BorrowCapabilityId, AddressValue>,
     pub(super) pending: BTreeMap<BoundExecutionSite, Transfer>,
     pub(super) deferred: super::references::DeferredTransitions,
     pub(super) contents: BTreeMap<Target, Contents>,
@@ -559,8 +428,8 @@ fn merge_contents(
 }
 
 fn merge_stored<K: Clone + Ord>(
-    target: &mut BTreeMap<K, StoredValue>,
-    incoming: &BTreeMap<K, StoredValue>,
+    target: &mut BTreeMap<K, ValueBinding>,
+    incoming: &BTreeMap<K, ValueBinding>,
     target_absent: impl Fn(&K) -> bool,
     incoming_absent: impl Fn(&K) -> bool,
 ) -> bool {
@@ -573,38 +442,10 @@ fn merge_stored<K: Clone + Ord>(
             Some(other) if target_absent(slot) => *value = other.clone(),
             Some(_) if incoming_absent(slot) => {},
             Some(other) => {
-                match (&mut value.references, &other.references) {
-                    (Some(left), Some(right)) => {
-                        let nullable = left.targets.is_empty() != right.targets.is_empty();
-
-                        left.merge(right);
-                        left.inexact |= nullable;
-                    }
-                    (Some(left), None) => left.unknown = true,
-                    (None, Some(right)) => {
-                        let mut right = right.clone();
-
-                        right.unknown = true;
-                        value.references = Some(right);
-                    }
-                    (None, None) => {}
-                }
-
-                value.sources.extend(other.sources.iter().cloned());
-
-                if other.tracked {
-                    value.complete = value.tracked && value.complete && other.complete;
-                    value.tracked = true;
-                } else if value.tracked {
-                    value.complete = false;
-                }
+                value.join(other);
             }
             None if !incoming_absent(slot) => {
-                if let Some(references) = &mut value.references {
-                    references.unknown = true;
-                }
-
-                value.complete = false;
+                value.lose_information();
             }
             None => {}
         }
@@ -617,11 +458,7 @@ fn merge_stored<K: Clone + Ord>(
             let mut value = value.clone();
 
             if !target_absent(slot) {
-                if let Some(references) = &mut value.references {
-                    references.unknown = true;
-                }
-
-                value.complete = false;
+                value.lose_information();
             }
 
             target.insert(slot.clone(), value);
@@ -633,8 +470,8 @@ fn merge_stored<K: Clone + Ord>(
 }
 
 fn merge_references<K: Clone + Ord>(
-    target: &mut BTreeMap<K, References>,
-    incoming: &BTreeMap<K, References>,
+    target: &mut BTreeMap<K, AddressValue>,
+    incoming: &BTreeMap<K, AddressValue>,
     target_absent: impl Fn(&K) -> bool,
     incoming_absent: impl Fn(&K) -> bool,
 ) -> bool {
@@ -652,15 +489,10 @@ fn merge_references<K: Clone + Ord>(
             }
             Some(_) if incoming_absent(slot) => {}
             Some(incoming) => {
-                let nullable = references.targets.is_empty() != incoming.targets.is_empty();
-                let inexact = references.inexact;
-
                 changed |= references.merge(incoming);
-                references.inexact |= nullable;
-                changed |= references.inexact != inexact;
             }
-            None if !references.unknown && !incoming_absent(slot) => {
-                references.unknown = true;
+            None if !references.is_unknown() && !incoming_absent(slot) => {
+                references.forget_value();
                 changed = true;
             }
             None => {}
@@ -672,7 +504,7 @@ fn merge_references<K: Clone + Ord>(
             // Joined slots own their target alternatives independently of predecessor state.
             let mut references = references.clone();
 
-            references.unknown |= !target_absent(slot);
+            if !target_absent(slot) { references.forget_value(); }
             target.insert(slot.clone(), references);
             changed = true;
         }
@@ -691,36 +523,55 @@ pub(in crate::analysis::storage_flow) enum ReferenceBounds {
     Unknown,
 }
 
+pub(in crate::analysis::storage_flow) enum ReferenceExitValue<'a> {
+    Address {
+        targets: &'a BTreeSet<Target>,
+        nullable: bool,
+        bounds: ReferenceBounds,
+    },
+    NoPayload,
+}
+
 /// Reference values at a unit boundary, with the live-payload conditions used by the same join.
 #[derive(Clone, Debug, Default)]
 pub(in crate::analysis::storage_flow) struct ReferenceExit {
-    pub(super) slots: BTreeMap<Place, StoredValue>,
-    pub(super) stored: BTreeMap<Target, StoredValue>,
+    pub(super) slots: BTreeMap<Place, ValueBinding>,
+    pub(super) stored: BTreeMap<Target, ValueBinding>,
     pub(super) absent: BTreeSet<Place>,
     pub(super) input_regions: BTreeSet<Place>,
 }
 
 impl ReferenceExit {
     pub(in crate::analysis::storage_flow) fn whole_sources(&self) -> impl Iterator<Item = (&Target, &BTreeSet<Target>, bool)> {
-        self.stored.iter().filter(|(_, value)| value.tracked)
-            .map(|(target, value)| (target, &value.sources, value.complete))
+        self.stored.iter().filter_map(|(target, value)| value.whole_sources().map(|(sources, complete)| (target, sources, complete)))
     }
 
-    pub(in crate::analysis::storage_flow) fn stored_references(&self) -> impl Iterator<Item = (&Target, &BTreeSet<Target>, bool, ReferenceBounds)> {
-        self.stored.iter().filter_map(|(slot, value)| value.references.as_ref().map(|references| {
-            (slot, &references.targets, references.is_exact(), if references.unknown {
-                ReferenceBounds::Unknown
-            } else if references.displaced {
-                ReferenceBounds::Displaced
-            } else { ReferenceBounds::Known })
-        }))
+    pub(in crate::analysis::storage_flow) fn stored_bindings(&self) -> impl Iterator<Item = (&Target, ReferenceExitValue<'_>)> {
+        self.stored.iter().flat_map(|(slot, value)| {
+            value.is_no_payload().then_some((slot, ReferenceExitValue::NoPayload)).into_iter()
+                .chain(value.possible_references().map(move |references| {
+                    (slot, ReferenceExitValue::Address {
+                        targets: &references.targets,
+                        nullable: value.address.as_ref().is_some_and(AddressValue::has_empty_alternative),
+                        bounds: if references.is_unknown() { ReferenceBounds::Unknown }
+                            else if references.is_displaced() { ReferenceBounds::Displaced }
+                            else { ReferenceBounds::Known },
+                    })
+                }))
+        })
     }
 
     pub(in crate::analysis::storage_flow) fn empty_slots(&self) -> impl Iterator<Item = &Place> {
         self.slots.iter().filter_map(|(slot, value)| {
-            let references = value.references.as_ref()?;
+            let references = value.address.as_ref()?;
 
-            (!references.unknown && !references.displaced && references.targets.is_empty()).then_some(slot)
+            references.has_empty_alternative().then_some(slot)
+        })
+    }
+
+    pub(in crate::analysis::storage_flow) fn no_payload_slots(&self) -> impl Iterator<Item = &Place> {
+        self.slots.iter().filter_map(|(slot, value)| {
+            (value.is_no_payload() || self.absent.iter().any(|absent| absent.contains_storage(slot))).then_some(slot)
         })
     }
 
@@ -758,17 +609,17 @@ impl ReferenceExit {
     pub(in crate::analysis::storage_flow) fn targets(
         &self,
     ) -> impl Iterator<Item = (&Place, &Origin, bool, ReferenceBounds)> {
-        self.slots.iter().filter_map(|(slot, value)| Some((slot, value.references.as_ref()?))).flat_map(move |(slot, references)| {
+        self.slots.iter().filter_map(|(slot, value)| Some((slot, value.reference()?))).flat_map(move |(slot, references)| {
             references.targets.iter().map(move |target| {
                 (
                     slot,
                     &target.origin,
                     references.is_exact(),
-                    if references.unknown {
+                    if references.is_unknown() {
                         ReferenceBounds::Unknown
                     } else if self.input_regions.contains(slot) {
                         ReferenceBounds::InputRegions
-                    } else if references.displaced {
+                    } else if references.is_displaced() {
                         ReferenceBounds::Displaced
                     } else {
                         ReferenceBounds::Known

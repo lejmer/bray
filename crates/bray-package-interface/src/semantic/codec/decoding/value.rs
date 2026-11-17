@@ -1506,6 +1506,8 @@ mod tests {
             .with_exactness(false),
             bray_symbols::DependencyBorrowRelation::new_empty(
                 result.clone(), bray_symbols::DependencyReferenceKind::Address),
+            bray_symbols::DependencyBorrowRelation::new_no_payload(
+                result.clone(), bray_symbols::DependencyReferenceKind::Address),
             bray_symbols::DependencyBorrowRelation::new_allocation(
                 result.clone(), result.clone(), bray_symbols::DependencyReferenceKind::Address),
             bray_symbols::DependencyBorrowRelation::new(

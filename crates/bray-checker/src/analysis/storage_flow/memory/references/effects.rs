@@ -1,4 +1,4 @@
-use super::super::model::{Effect, Origin, Place, References, State, Target};
+use super::super::model::{Effect, Origin, Place, AddressValue, State, Target};
 use bray_bound_tree::StorageInvalidation;
 use bray_symbols::DependencyMutationKind;
 
@@ -137,7 +137,7 @@ impl State {
         invalidation: &StorageInvalidation,
         complete_cell: bool,
     ) {
-        let references = References::one(target.clone());
+        let references = AddressValue::one(target.clone());
 
         for affected in self.affected_targets(&references) {
             // Atomic effects change protected payload observations, not ordinary
@@ -148,8 +148,8 @@ impl State {
                 if complete_cell && target.is_exact() && *target == affected {
                     self.values.remove(&affected);
                 } else if let Some(value) = self.values.get_mut(&affected) {
-                    value.references = None;
-                    value.complete = false;
+                    value.clear_address();
+                    value.completeness.lose_completeness();
                 }
             }
 
@@ -198,9 +198,9 @@ impl State {
                     ),
                 };
 
-            if !retained && value.tracked {
-                value.references = None;
-                value.complete = false;
+            if !retained && value.completeness.tracked() {
+                value.clear_address();
+                value.completeness.lose_completeness();
 
                 true
             } else {

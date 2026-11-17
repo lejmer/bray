@@ -1,6 +1,65 @@
-use super::super::model::{State, Target, Transfer};
+use super::super::model::DependencyCompleteness;
+use super::super::model::{AddressValue, Place, Retirement, State, Target, Transfer, ValueBinding};
+use super::slots::take_subtree;
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum WholeValueKind {
+    Dependencies,
+    Value,
+}
 
 impl State {
+    pub(in crate::analysis::storage_flow) fn null(&mut self, destination: Place) {
+        self.replace_value(destination, AddressValue::empty().into());
+    }
+
+    pub(in crate::analysis::storage_flow) fn no_payload(&mut self, destination: Place) {
+        self.replace_value(destination, ValueBinding::no_payload());
+    }
+
+    pub(super) fn replace_value(&mut self, destination: Place, value: ValueBinding) {
+        self.clear(&destination);
+        self.values.insert(Target::storage(destination), value);
+    }
+
+    pub(in crate::analysis::storage_flow) fn stage_null(
+        &mut self,
+        call: bray_bound_tree::BoundExecutionSite,
+        destination: Target,
+    ) {
+        self.stage_replacement(call, destination, AddressValue::empty().into());
+    }
+
+    pub(in crate::analysis::storage_flow) fn stage_no_payload(
+        &mut self,
+        call: bray_bound_tree::BoundExecutionSite,
+        destination: Target,
+    ) {
+        self.stage_replacement(call, destination, ValueBinding::no_payload());
+    }
+
+    pub(in crate::analysis::storage_flow) fn stage_no_payload_alternative(
+        &mut self,
+        call: bray_bound_tree::BoundExecutionSite,
+        destination: Target,
+    ) {
+        self.pending.entry(call).or_default().values.entry(destination).or_insert_with(ValueBinding::no_payload);
+    }
+
+    fn stage_replacement(
+        &mut self,
+        call: bray_bound_tree::BoundExecutionSite,
+        destination: Target,
+        value: ValueBinding,
+    ) {
+        let pending = self.pending.entry(call).or_default();
+
+        take_subtree(&mut pending.values, &destination, Retirement::Storage).for_each(drop);
+        take_subtree(&mut pending.payloads, &destination, Retirement::Storage).for_each(drop);
+        take_subtree(&mut pending.deferred, &destination, Retirement::Storage).for_each(drop);
+        pending.values.insert(destination, value);
+    }
+
     /// Capture all possible stored inputs before the call mutates its destination.
     pub(in crate::analysis::storage_flow) fn stage_whole_sources(
         &mut self,
@@ -12,7 +71,7 @@ impl State {
     ) {
         let incoming = sources.into_iter().map(|source| self.capture_source(&source, &destination)).collect::<Vec<_>>();
 
-        self.stage_captured_whole(call, destination, incoming, complete, preserve_previous, false);
+        self.stage_captured_whole(call, destination, incoming, complete, preserve_previous, WholeValueKind::Dependencies);
     }
 
     /// Stage an intrinsic buffer insertion, including the actual value's storage state.
@@ -25,7 +84,7 @@ impl State {
     ) {
         let incoming = sources.into_iter().map(|source| self.capture_source(&source, &destination)).collect::<Vec<_>>();
 
-        self.stage_captured_whole(call, destination, incoming, complete, true, true);
+        self.stage_captured_whole(call, destination, incoming, complete, true, WholeValueKind::Value);
     }
 
     /// Capture a base-addressed element and indexed elements as alternative values.
@@ -49,7 +108,7 @@ impl State {
             incoming.push(self.capture_value(&selected, &destination));
         }
 
-        self.stage_captured_whole(call, destination, incoming, !regions.is_empty(), false, true);
+        self.stage_captured_whole(call, destination, incoming, !regions.is_empty(), false, WholeValueKind::Value);
     }
 
     fn stage_captured_whole(
@@ -59,10 +118,10 @@ impl State {
         incoming: impl IntoIterator<Item = Transfer>,
         complete: bool,
         preserve_previous: bool,
-        transport_value: bool,
+        kind: WholeValueKind,
     ) {
         let weak = preserve_previous || !complete;
-        let previous_complete = self.values.get(&destination).is_some_and(|value| value.tracked && value.complete);
+        let previous_complete = self.values.get(&destination).is_some_and(|value| value.whole_complete());
 
         let mut captured = if weak || !destination.is_exact() {
             self.capture_value(&destination, &destination)
@@ -75,17 +134,16 @@ impl State {
             // descriptors remain possible at an inexact physical location.
             captured.values.retain(|_, value| {
                 value.sources.clear();
-                value.tracked = false;
-                value.complete = false;
+                value.completeness = DependencyCompleteness::Untracked;
 
-                value.references.is_some()
+                value.reference().is_some()
             });
 
             captured.payloads.clear();
             captured.deferred.clear();
         }
 
-        if !transport_value {
+        if kind == WholeValueKind::Dependencies {
             captured.payloads.clear();
             captured.deferred.clear();
         }
@@ -99,18 +157,11 @@ impl State {
 
             for (slot, value) in incoming.values {
                 captured.values.entry(slot).and_modify(|current| {
-                    let complete_whole = current.tracked && current.complete && !value.tracked;
-                    let incoming_whole = !weak && !current.tracked && value.tracked && value.complete;
-
-                    current.merge(&value);
-
-                    if complete_whole || incoming_whole {
-                        current.complete = true;
-                    }
+                    current.include_value(&value);
                 }).or_insert(value);
             }
 
-            if transport_value {
+            if kind == WholeValueKind::Value {
                 for (slot, mut contents) in incoming.payloads {
                     if weak {
                         contents.initialized.clear();
@@ -125,26 +176,35 @@ impl State {
             }
         }
 
-        let captured_complete = captured.values.values().all(|value| !value.tracked || value.complete);
+        let captured_complete = captured.values.values().all(|value| value.is_no_payload() || !value.completeness.tracked() || value.completeness.complete());
         let root = captured.values.entry(destination).or_default();
 
-        root.tracked = true;
-        root.complete = complete && (!weak || previous_complete) && captured_complete && !missing;
+        if !root.is_no_payload() {
+            root.completeness = DependencyCompleteness::for_tracked(
+                complete && (!weak || previous_complete) && captured_complete && !missing);
+        }
 
         for value in captured.values.values_mut() {
-            if let Some(references) = &mut value.references {
-                references.inexact = true;
+            for references in value.references_mut() {
+                references.bound();
             }
 
             if weak && !previous_complete {
-                value.complete = false;
+                value.completeness.lose_completeness();
             }
         }
 
         let pending = self.pending.entry(call).or_default();
 
         for (slot, value) in captured.values {
-            pending.values.entry(slot).and_modify(|current| current.merge_staged(&value)).or_insert(value);
+            match kind {
+                WholeValueKind::Value => { pending.values.insert(slot, value); }
+                WholeValueKind::Dependencies => {
+                    let bounds = value.into_dependency_bounds();
+
+                    pending.values.entry(slot).and_modify(|current| current.include_carried(&bounds)).or_insert(bounds);
+                }
+            }
         }
 
         for (slot, contents) in captured.payloads {
@@ -164,7 +224,7 @@ impl State {
         let pending = self.pending.entry(call).or_default();
 
         for (slot, value) in captured.values {
-            pending.values.entry(slot).and_modify(|current| current.merge_staged(&value)).or_insert(value);
+            pending.values.entry(slot).and_modify(|current| current.include_carried(&value)).or_insert(value);
         }
 
         pending.payloads.extend(captured.payloads);

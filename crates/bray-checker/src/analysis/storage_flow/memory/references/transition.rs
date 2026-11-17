@@ -1,16 +1,9 @@
-use super::super::model::{Contents, Origin, Place, References, Retirement, State, Target, Transfer};
+use super::super::model::{Contents, DependencyCompleteness, Origin, Place, AddressValue, Retirement, State, Target, Transfer, ValueBinding};
 use super::slots::{storage_subtree, take_subtree};
 use bray_bound_tree::{BorrowCapabilityId, BoundExpressionId, StorageIdentityId};
 use bray_symbols::TypeId;
 
 impl State {
-    pub(in crate::analysis::storage_flow) fn null(&mut self, destination: Place) {
-        self.clear(&destination);
-
-        self.values
-            .insert(Target::storage(destination), References::default().into());
-    }
-
     pub(in crate::analysis::storage_flow) fn begin_transition(
         &mut self,
         call: bray_bound_tree::BoundExecutionSite,
@@ -99,31 +92,34 @@ impl State {
         let references = references
             .into_iter()
             .filter_map(|(destination, ty)| {
-                let forwarded = self
+                let binding = self
                     .pending
                     .get(&call)
-                    .and_then(|pending| pending.values.get(&Target::storage(destination.clone())))
-                    .and_then(|value| value.references.as_ref());
+                    .and_then(|pending| pending.values.get(&Target::storage(destination.clone())));
+
+                if binding.is_some_and(ValueBinding::is_no_payload) { return None; }
+
+                let forwarded = binding.and_then(|value| value.address.as_ref());
 
                 if forwarded.is_some_and(|references| {
-                    !references.unknown
-                        && (references.displaced
-                            || references.targets.is_empty()
-                            || !references.inexact)
+                    !references.is_unknown()
+                        && (references.is_displaced()
+                            || !references.is_bounded())
                 }) {
                     return None;
                 }
 
-                Some((destination, ty, forwarded.and_then(References::regions)))
+                Some((destination, ty, binding.and_then(|value| value.reference_regions()),
+                    forwarded.is_some_and(AddressValue::has_empty_alternative)))
             })
             .collect::<Vec<_>>();
 
         let opaque_bounds = references
             .iter()
-            .any(|(_, _, bounds)| bounds.is_none())
+            .any(|(_, _, bounds, _)| bounds.is_none())
             .then(|| self.unbounded_reference_regions(self.transitive_regions(inputs, |_, _| true).0));
 
-        for (destination, ty, forwarded) in references {
+        for (destination, ty, forwarded, nullable) in references {
             let bounds = match forwarded {
                 Some(regions) => self.expand_returned_regions(regions, self.pending.get(&call)),
                 None => {
@@ -137,17 +133,19 @@ impl State {
 
             if let Some(pending) = self.pending.get_mut(&call) {
                 if let Some(value) = pending.values.get_mut(&Target::storage(destination.clone())) {
-                    value.references = None;
+                    value.clear_address();
                 }
             }
 
             self.stage_bounded_reference(
                 call,
                 Target::storage(destination.clone()),
-                destination,
+                destination.clone(),
                 ty,
                 bounds,
             );
+
+            if nullable { self.stage_empty_reference(call, Target::storage(destination)); }
         }
     }
 
@@ -155,8 +153,8 @@ impl State {
         &self,
         regions: impl IntoIterator<Item = Target>,
         staged: Option<&Transfer>,
-    ) -> References {
-        let mut bounds = References::default();
+    ) -> AddressValue {
+        let mut bounds = AddressValue::default();
 
         for target in regions {
             match &target.origin {
@@ -168,7 +166,10 @@ impl State {
                         .unwrap_or_else(|| self.returned_reference_bounds(reference, target.previous));
 
                     bounds.merge(returned);
-                    bounds.unknown |= target.previous || projections.contains(&bray_bound_tree::StorageProjection::OwnedTarget);
+
+                    if target.previous || projections.contains(&bray_bound_tree::StorageProjection::OwnedTarget) {
+                        bounds.forget_value();
+                    }
                 }
                 _ => {
                     bounds.targets.insert(target);
@@ -179,7 +180,7 @@ impl State {
         bounds
     }
 
-    fn unbounded_reference_regions(&self, inputs: impl IntoIterator<Item = Target>) -> References {
+    fn unbounded_reference_regions(&self, inputs: impl IntoIterator<Item = Target>) -> AddressValue {
         // An external result can reach inline storage already published at its
         // introduction. Later publication cannot change an older reference's origins.
         let exposed = self.contents.iter().filter_map(|(target, contents)| {
@@ -193,7 +194,7 @@ impl State {
 
         let mut bounds = self.expand_returned_regions(inputs.into_iter().chain(exposed), None);
 
-        bounds.unknown = true;
+        bounds.forget_value();
 
         bounds
     }
@@ -229,7 +230,7 @@ impl State {
                 .map(|(slot, _)| slot.clone()).collect::<Vec<_>>();
 
             let exact = self.pending.get(&call).into_iter().flat_map(|pending| pending.values.iter())
-                .filter(|(_, value)| value.references.as_ref().is_some_and(References::is_exact))
+                .filter(|(_, value)| value.reference().is_some_and(AddressValue::is_exact))
                 .map(|(slot, _)| slot.clone()).collect::<std::collections::BTreeSet<_>>();
 
             let established_payloads = self.pending.get(&call).into_iter().flat_map(|pending| pending.payloads.keys())
@@ -241,9 +242,9 @@ impl State {
 
             for slot in affected {
                 if !exact.contains(&slot)
-                    && let Some(references) = pending.values.get_mut(&slot).and_then(|value| value.references.as_mut())
+                    && let Some(references) = pending.values.get_mut(&slot).and_then(|value| value.address.as_mut())
                 {
-                    references.inexact = true;
+                    references.bound();
                 }
             }
 
@@ -259,7 +260,7 @@ impl State {
         let mut bounds = self.expand_returned_regions(inputs, None);
 
         // Checked regions are closed physical bounds, not forwarded addresses.
-        bounds.inexact = true;
+        bounds.bound();
 
         self.stage_bounded_reference(call, destination, reference, ty, bounds);
     }
@@ -272,10 +273,12 @@ impl State {
         ty: TypeId,
         inputs: impl IntoIterator<Item = Target>,
     ) -> crate::CheckerQueryResult<(), C::UpstreamError> {
+        if self.values.get(&destination).is_some_and(ValueBinding::is_no_payload) { return Ok(()); }
+
         // A bounded view reads its existing field values. Its container is not
         // an origin of the pointers stored in those fields.
         if let Some(contents) = self.bounded_reference_contents(request, &destination)? {
-            self.values.entry(destination).or_default().references = Some(contents);
+            *self.values.entry(destination).or_default().produced_address() = contents;
 
             return Ok(());
         }
@@ -292,7 +295,7 @@ impl State {
             .or_default()
             .storage_type = Some(ty);
 
-        self.values.entry(destination).or_default().references = Some(References::one(target));
+        *self.values.entry(destination).or_default().produced_address() = AddressValue::one(target);
 
         Ok(())
     }
@@ -313,7 +316,7 @@ impl State {
         destination: Target,
         reference: Place,
         ty: TypeId,
-        bounds: References,
+        bounds: AddressValue,
     ) {
         let target = Self::returned_reference(reference.clone());
 
@@ -339,8 +342,8 @@ impl State {
             .values
             .entry(destination)
             .or_default()
-            .references.get_or_insert_with(References::default)
-            .merge(&References::one(target));
+            .produced_address()
+            .merge(&AddressValue::one(target));
     }
 
     pub(in crate::analysis::storage_flow) fn capture_inputs(
@@ -349,10 +352,7 @@ impl State {
         captures: impl IntoIterator<Item = Target>,
     ) {
         // Opaque frames retain reachable inputs, without being references to those inputs.
-        let references = self.values.entry(Target::storage(destination)).or_default().references.get_or_insert_with(References::default);
-
-        references.unknown = true;
-        references.targets.extend(captures);
+        self.values.entry(Target::storage(destination)).or_default().capture_inputs(captures);
     }
 
     pub(in crate::analysis::storage_flow) fn bound_staged_reference(
@@ -364,9 +364,9 @@ impl State {
             .pending
             .get_mut(&call)
             .and_then(|pending| pending.values.get_mut(destination))
-            .and_then(|value| value.references.as_mut())
+            .and_then(|value| value.address.as_mut())
         {
-            references.inexact = true;
+            references.bound();
         }
     }
 
@@ -376,20 +376,8 @@ impl State {
         destination: Target,
     ) {
         // Empty alternatives contribute no target and cannot erase another origin.
-        self.pending.entry(call).or_default().values.entry(destination).or_default().references.get_or_insert_with(References::default);
-    }
-
-    pub(in crate::analysis::storage_flow) fn stage_null(
-        &mut self,
-        call: bray_bound_tree::BoundExecutionSite,
-        destination: Target,
-    ) {
-        let pending = self.pending.entry(call).or_default();
-
-        take_subtree(&mut pending.values, &destination, Retirement::Storage).for_each(drop);
-        take_subtree(&mut pending.payloads, &destination, Retirement::Storage).for_each(drop);
-        take_subtree(&mut pending.deferred, &destination, Retirement::Storage).for_each(drop);
-        pending.values.insert(destination, References::default().into());
+        self.pending.entry(call).or_default().values.entry(destination).or_default()
+            .produced_address().nullable = true;
     }
 
     pub(in crate::analysis::storage_flow) fn stage_unresolved_value<'a>(
@@ -403,8 +391,8 @@ impl State {
         // Incomplete generic layouts retain whole-value uncertainty separately.
         let root = self.pending.entry(call).or_default().values.entry(destination.clone()).or_default();
 
-        root.tracked = !complete;
-        root.complete = false;
+        root.make_present();
+        root.completeness = if complete { DependencyCompleteness::Untracked } else { DependencyCompleteness::Partial };
 
         for path in references {
             self.stage_unknown(call, destination.project(path));
@@ -422,7 +410,7 @@ impl State {
             .values
             .entry(destination.clone())
             .or_default()
-            .references.get_or_insert_with(References::default).unknown = true;
+            .produced_address().forget_value();
 
         for (_, contents) in pending
             .payloads
@@ -450,7 +438,7 @@ impl State {
             .values
             .entry(destination)
             .or_default()
-            .references.get_or_insert_with(References::default)
+            .produced_address()
             .merge(references);
     }
 
@@ -472,10 +460,10 @@ impl State {
             self.contents.entry(source.clone()).or_default().exposed |=
                 relation.kind() == bray_symbols::DependencyReferenceKind::Address;
 
-            References::one(source)
+            AddressValue::one(source)
         };
 
-        references.inexact |= !relation.is_exact();
+        if !relation.is_exact() { references.bound(); }
 
         self.pending
             .entry(call)
@@ -483,7 +471,7 @@ impl State {
             .values
             .entry(destination)
             .or_default()
-            .references.get_or_insert_with(References::default)
+            .produced_address()
             .merge(&references);
     }
 
@@ -545,7 +533,7 @@ impl State {
         self.contents.insert(current.clone(), contents);
 
         self.values
-            .insert(Target::storage(slot), References::one(current.clone()).into());
+            .insert(Target::storage(slot), AddressValue::one(current.clone()).into());
 
         current
     }
@@ -565,8 +553,8 @@ impl State {
         pending.payloads.entry(target.clone()).or_default().allocations.extend(call.expression());
 
         pending.values.entry(destination).or_default()
-            .references.get_or_insert_with(References::default)
-            .merge(&References::one(target.project(projections)));
+            .produced_address()
+            .merge(&AddressValue::one(target.project(projections)));
     }
 
     pub(in crate::analysis::storage_flow) fn uninit(&mut self, target: Target, element: TypeId) {
@@ -585,11 +573,11 @@ impl State {
         &self,
         owner: &Target,
         pointer: bray_bound_tree::StorageProjection,
-    ) -> Option<&References> {
+    ) -> Option<&AddressValue> {
         self.values
             .get(&owner.project(&[pointer]))
-            .and_then(|value| value.references.as_ref())
-            .or_else(|| self.values.get(owner).and_then(|value| value.references.as_ref()).filter(|references| !references.unknown))
+            .and_then(|value| value.reference())
+            .or_else(|| self.values.get(owner).and_then(|value| value.reference()).filter(|references| !references.is_unknown()))
     }
 
     pub(in crate::analysis::storage_flow) fn stage_owned_buffer_reference(
@@ -604,7 +592,7 @@ impl State {
         // owning formal does. This declares neither freshness nor initialization.
         let backing = owner.project(&[bray_bound_tree::StorageProjection::OwnedTarget]);
 
-        self.stage_bounded_reference(call, destination, reference, element, References::one(backing));
+        self.stage_bounded_reference(call, destination, reference, element, AddressValue::one(backing));
     }
 
     pub(in crate::analysis::storage_flow) fn declare_owned_buffer(
@@ -613,12 +601,16 @@ impl State {
         pointer: Target,
         element: TypeId,
     ) {
-        if self.values.get(&pointer).is_some_and(|value| value.references.is_some()) {
+        if [&owner, &pointer].into_iter().any(|slot| self.values.get(slot).is_some_and(ValueBinding::is_no_payload)) {
             return;
         }
 
-        if let Some(recorded) = self.values.get(&owner).and_then(|value| value.references.clone()) {
-            self.values.entry(pointer).or_default().references = Some(recorded);
+        if self.values.get(&pointer).is_some_and(|value| value.reference().is_some()) {
+            return;
+        }
+
+        if let Some(recorded) = self.values.get(&owner).and_then(|value| value.address.clone()) {
+            *self.values.entry(pointer).or_default().produced_address() = recorded;
 
             return;
         }
@@ -634,7 +626,7 @@ impl State {
 
         assert_eq!(*declared, element, "an owned buffer keeps its declared backing element type");
 
-        self.values.entry(pointer).or_default().references = Some(References::one(backing));
+        *self.values.entry(pointer).or_default().produced_address() = AddressValue::one(backing);
     }
 
     pub(in crate::analysis::storage_flow) fn owned_regions(
@@ -653,16 +645,15 @@ impl State {
         pointer: bray_bound_tree::StorageProjection,
         inexact: bool,
     ) {
-        let mut references = References {
-            inexact,
-            ..References::default()
-        };
+        let mut references = AddressValue::default();
+
+        if inexact { references.bound(); }
 
         for owner in owners {
             if let Some(owned) = self.owned_references(owner, pointer) {
                 references.merge(owned);
             } else {
-                references.unknown = true;
+                references.forget_value();
             }
         }
 
@@ -686,8 +677,7 @@ impl State {
     ) {
         let references = self.addressed_target(target, ty, kind);
 
-        self.clear(&destination);
-        self.values.insert(Target::storage(destination), references.into());
+        self.replace_value(destination, references.into());
     }
 
     pub(super) fn retire(&mut self, current: &Target) {
@@ -709,12 +699,12 @@ impl State {
             .take_while(|(target, _)| current.contains(target))
             .any(|(target, _)| retirement.contains(current, target))
             && !self.values.range(current.clone()..).take_while(|(target, _)| current.contains(target))
-                .any(|(target, value)| retirement.contains(current, target) && value.tracked)
+                .any(|(target, value)| retirement.contains(current, target) && value.whole_sources().is_some())
         {
             return;
         }
 
-        for references in self.values.values_mut().filter_map(|value| value.references.as_mut())
+        for references in self.values.values_mut().flat_map(|value| value.references_mut())
             .chain(self.borrows.values_mut()) {
             references.retire(current, retirement);
         }
@@ -740,11 +730,11 @@ impl State {
         let values = take_subtree(&mut self.values, current, retirement).collect::<Vec<_>>();
 
         for (target, mut value) in values {
-            if let Some(references) = &mut value.references {
-                references.unknown = true;
+            for references in value.references_mut() {
+                references.forget_value();
             }
 
-            value.complete = false;
+            value.completeness.lose_completeness();
 
             self.values
                 .entry(Target {

@@ -1,4 +1,4 @@
-use super::super::model::{Origin, Place, References, State, Target};
+use super::super::model::{Origin, Place, AddressValue, State, Target};
 use super::slots::storage_subtree;
 use bray_bound_tree::{BorrowCapabilityId, StorageIdentityId, StorageProjection};
 use bray_symbols::TypeId;
@@ -99,7 +99,7 @@ impl State {
     }
 
     #[track_caller]
-    pub(super) fn returned_reference_bounds(&self, reference: &Place, previous: bool) -> &References {
+    pub(super) fn returned_reference_bounds(&self, reference: &Place, previous: bool) -> &AddressValue {
         let Some(bounds) = self.returned_inputs.get(&(reference.clone(), previous)) else {
             panic!("returned reference {reference:?} (previous={previous}) has no complete input-region bound");
         };
@@ -111,7 +111,7 @@ impl State {
         &self,
         request: crate::CheckerUnitView<'_, C>,
         location: &Target,
-    ) -> crate::CheckerQueryResult<Option<References>, C::UpstreamError> {
+    ) -> crate::CheckerQueryResult<Option<AddressValue>, C::UpstreamError> {
         if location.previous {
             return Ok(None);
         }
@@ -123,7 +123,7 @@ impl State {
 
         let bounds = self.returned_reference_bounds(reference, location.previous);
 
-        if projections.is_empty() || bounds.unknown || bounds.displaced || bounds.inexact || bounds.targets.is_empty() {
+        if projections.is_empty() || !bounds.has_values() || bounds.targets.is_empty() {
             return Ok(None);
         }
 
@@ -140,19 +140,19 @@ impl State {
             return Ok(None);
         };
 
-        let mut contents = References::default();
+        let mut contents = AddressValue::default();
 
         for target in &bounds.targets {
             if target.previous || !target.is_exact() || self.projected_type(request, target)? != Some(ty) {
                 return Ok(None);
             }
 
-            let Some(value) = self.values.get(&target.project(projections)).and_then(|value| value.references.as_ref())
+            let Some(value) = self.values.get(&target.project(projections)).and_then(|value| value.address.as_ref())
             else {
                 return Ok(None);
             };
 
-            if value.unknown || value.displaced {
+            if value.is_unknown() || value.is_displaced() {
                 return Ok(None);
             }
 
@@ -197,9 +197,9 @@ impl State {
 
     pub(super) fn effect_origins_from<'a>(
         target: &'a Target,
-        returned: Option<&'a References>,
+        returned: Option<&'a AddressValue>,
     ) -> (impl Iterator<Item = &'a Target>, bool) {
-        let unbounded = returned.is_some_and(|bounds| bounds.unknown || target.previous
+        let unbounded = returned.is_some_and(|bounds| bounds.is_unknown() || target.previous
             || target.projections().contains(&StorageProjection::OwnedTarget));
 
         let origins = std::iter::once(target)
@@ -224,7 +224,7 @@ impl State {
                     // Complete producer bounds exclude unrelated storage, without
                     // equating the returned address to any one possible source.
                     // Reaching another owner requires its own physical bounds.
-                    if !bounds.unknown && !bounds.targets.is_empty()
+                    if !bounds.is_unknown() && !bounds.targets.is_empty()
                         && bounds.targets.iter().all(|region| self.target_relationship(region, other)
                             == bray_bound_tree::StorageRelationship::Disjoint)
                     {
@@ -310,13 +310,13 @@ impl State {
         target: Target,
         ty: TypeId,
         kind: bray_symbols::DependencyReferenceKind,
-    ) -> References {
+    ) -> AddressValue {
         let contents = self.contents.entry(target.clone()).or_default();
 
         contents.storage_type.get_or_insert(ty);
         contents.exposed |= kind == bray_symbols::DependencyReferenceKind::Address;
 
-        References::one(target)
+        AddressValue::one(target)
     }
 
     #[cfg(test)]
@@ -344,7 +344,7 @@ impl State {
         root_borrow: Option<Target>,
     ) -> Option<Vec<Target>> {
         self.reference_locations_in(values, target, path, root_borrow,
-            |target| self.values.get(target).and_then(|value| value.references.as_ref()))
+            |target| self.values.get(target).and_then(|value| value.address.as_ref()))
     }
 
     pub(in crate::analysis::storage_flow) fn staged_reference_locations(
@@ -359,7 +359,7 @@ impl State {
 
         self.reference_locations_in(values, start.clone(), path, None, |target| {
             staged.values.get(target).or_else(|| (!root.contains_storage(target)).then(|| self.values.get(target)).flatten())
-                .and_then(|value| value.references.as_ref())
+                .and_then(|value| value.address.as_ref())
         })
     }
 
@@ -373,7 +373,7 @@ impl State {
         let captured = &self.pending.get(&invocation)?.inputs;
 
         let lookup = |target: &Target| {
-            (if root.contains_storage(target) { captured.get(target) } else { self.values.get(target) }).and_then(|value| value.references.as_ref())
+            (if root.contains_storage(target) { captured.get(target) } else { self.values.get(target) }).and_then(|value| value.address.as_ref())
         };
 
         let locations = self.reference_locations_in(values, root.clone(), path, None, lookup)?;
@@ -398,7 +398,7 @@ impl State {
 
         staged.values.get(location)
             .or_else(|| (!root.contains_storage(location)).then(|| self.values.get(location)).flatten())?
-            .references.as_ref()?.regions()
+            .address.as_ref()?.regions()
     }
 
     pub(in crate::analysis::storage_flow) fn staged_contained_regions(
@@ -411,9 +411,9 @@ impl State {
         let mut unknown = false;
 
         for references in staged.values.range(value.clone()..).take_while(|(slot, _)| value.contains(slot))
-            .filter(|(slot, _)| value.contains_storage(slot)).filter_map(|(_, value)| value.references.as_ref()) {
+            .filter(|(slot, _)| value.contains_storage(slot)).flat_map(|(_, value)| value.possible_references()) {
             targets.extend(references.targets.iter().cloned());
-            unknown |= references.unknown || references.displaced;
+            unknown |= references.is_unknown() || references.is_displaced();
         }
 
         (targets, unknown)
@@ -425,7 +425,7 @@ impl State {
         target: Target,
         path: &bray_bound_tree::StorageReferencePath,
         mut root_borrow: Option<Target>,
-        lookup: impl Fn(&Target) -> Option<&'a References>,
+        lookup: impl Fn(&Target) -> Option<&'a AddressValue>,
     ) -> Option<Vec<Target>> {
         let mut targets = vec![target];
         let mut copied = 0;
@@ -451,11 +451,11 @@ impl State {
 
                         // A slice view keeps each existing element region. Bounds alone
                         // cannot supply a layout or turn a dynamic selector into one cell.
-                        (!reference.unknown && !reference.displaced && !reference.targets.is_empty()
+                        (!reference.is_unknown() && !reference.is_displaced() && !reference.nullable && !reference.targets.is_empty()
                             && reference.targets.iter().all(|reached| {
                                 let declared = self.contents.get(reached).and_then(|contents| contents.storage_type);
 
-                                !reached.previous && (!reference.inexact || !reached.is_exact())
+                                !reached.previous && (!reference.is_bounded() || !reached.is_exact())
                                     && (declared == Some(*ty) || declared == Some(*element))
                             }))
                             .then_some(&reference.targets)
@@ -477,18 +477,16 @@ impl State {
         &self,
         location: &Target,
     ) -> Option<Vec<Target>> {
-        self.values.get(location)?.references.as_ref()?.regions()
+        self.values.get(location)?.reference_regions()
     }
 
     pub(in crate::analysis::storage_flow) fn value_targets(
         &self,
         location: &Target,
     ) -> Option<Vec<Target>> {
-        let references = self.values.get(location)?.references.as_ref()?;
+        let references = self.values.get(location)?.address.as_ref()?;
 
-        (!references.unknown
-            && !references.displaced
-            && !references.inexact
+        (references.has_values()
             && references.targets.iter().all(Target::is_exact))
         .then(|| references.targets.iter().cloned().collect())
     }
@@ -506,9 +504,7 @@ impl State {
     ) -> Option<Vec<Target>> {
         let references = self.borrows.get(&capability)?;
 
-        (!references.unknown
-            && !references.displaced
-            && !references.inexact
+        (references.has_values()
             && references.targets.iter().all(Target::is_exact))
         .then(|| references.targets.iter().cloned().collect())
     }
@@ -553,12 +549,12 @@ impl State {
             .or_default()
             .storage_type = ty;
 
-        self.values.insert(location, References::one(target).into());
+        self.values.insert(location, AddressValue::one(target).into());
     }
 
     pub(in crate::analysis::storage_flow) fn has_value(&self, target: &Target) -> bool {
         storage_subtree(&self.values, target)
-            .any(|(_, value)| value.references.is_some() || value.tracked)
+            .any(|(_, value)| value.reference().is_some() || value.whole_sources().is_some())
             || storage_subtree(&self.deferred, target).next().is_some()
             || storage_subtree(&self.contents, target)
                 .any(|(candidate, _)| {
@@ -584,9 +580,9 @@ impl State {
             .storage_type = Some(ty);
 
         self.values
-            .insert(Target::storage(reference), References::one(target.clone()).into());
+            .insert(Target::storage(reference), AddressValue::one(target.clone()).into());
 
-        self.borrows.insert(capability, References::one(target));
+        self.borrows.insert(capability, AddressValue::one(target));
     }
 
     pub(in crate::analysis::storage_flow) fn borrow_target(
@@ -602,7 +598,7 @@ impl State {
         location: &Target,
         ty: TypeId,
     ) -> Option<Target> {
-        self.typed_target(self.values.get(location)?.references.as_ref()?, ty)
+        self.typed_target(self.values.get(location)?.address.as_ref()?, ty)
     }
 
     pub(in crate::analysis::storage_flow) fn declared_type(&self, target: &Target) -> Option<TypeId> {
@@ -679,14 +675,14 @@ impl State {
         }
     }
 
-    fn typed_targets<'a>(&self, references: &'a References, ty: TypeId) -> Option<&'a std::collections::BTreeSet<Target>> {
-        (!references.unknown && !references.displaced && !references.inexact && !references.targets.is_empty()
+    fn typed_targets<'a>(&self, references: &'a AddressValue, ty: TypeId) -> Option<&'a std::collections::BTreeSet<Target>> {
+        (references.has_values() && !references.targets.is_empty()
             && references.targets.iter().all(|target| !target.previous
                 && self.contents.get(target).and_then(|contents| contents.storage_type) == Some(ty)))
             .then_some(&references.targets)
     }
 
-    fn typed_target(&self, references: &References, ty: TypeId) -> Option<Target> {
+    fn typed_target(&self, references: &AddressValue, ty: TypeId) -> Option<Target> {
         let targets = self.typed_targets(references, ty)?;
 
         // A typed dynamic selection supplies a location, without making it an exact cell.
@@ -700,7 +696,7 @@ impl State {
         targets: impl IntoIterator<Item = Target>,
         ty: TypeId,
     ) {
-        let mut references = References::default();
+        let mut references = AddressValue::default();
 
         for target in targets {
             let ty = if target.projections().last() == Some(&StorageProjection::OwnedTarget) {
@@ -723,26 +719,5 @@ impl State {
             bray_symbols::TypeData::Slice(element) => *element,
             _ => ty,
         }
-    }
-}
-
-impl References {
-    pub(super) fn regions(&self) -> Option<Vec<Target>> {
-        if self.unknown {
-            return None;
-        }
-
-        self.targets
-            .iter()
-            .map(|target| {
-                // Closed allocations bound displaced pointers. Ordinary address arithmetic
-                // has no such region proof and cannot narrow an unknown mutation.
-                if self.displaced {
-                    target.allocation_region()
-                } else {
-                    Some(target.clone())
-                }
-            })
-            .collect()
     }
 }

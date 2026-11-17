@@ -178,8 +178,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 );
             }
 
-            // An inactive payload is an evaluated null reference value. Stage it
-            // with the result so source lifetime retirement cannot erase it.
+            // Capture inactive payloads with the result so source retirement cannot
+            // erase their absence or turn it into a live null reference.
             for (path, reason) in &state.definitely_absent {
                 if *reason == crate::analysis::storage_flow::model::StorageAbsence::NoPayload
                     && result.contains_storage(path)
@@ -363,10 +363,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         occurrence: BoundExecutionSite,
         absent: &Place,
     ) {
-        // Pending joins compare exact slots. An absent aggregate must carry emptiness
-        // for every prepared reference it contains, without making result storage live.
+        // Inactive components contribute no live value to pending joins. Their absence
+        // is distinct from a live reference whose evaluated address is null.
         for path in self.input.reference_slots(absent) {
-            memory.stage_null(occurrence, Target::storage(path));
+            memory.stage_no_payload(occurrence, Target::storage(path));
         }
     }
 
@@ -455,9 +455,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             crate::analysis::storage_flow::model::StorageAbsence::NoPayload,
         );
 
-        // Empty reference values move and stage with the containing inactive payload.
+        // The captured absence moves with the containing inactive payload.
         for path in self.input.reference_slots(absent) {
-            state.memory.null(path);
+            state.memory.no_payload(path);
         }
     }
 
@@ -703,7 +703,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             }
 
             let Some(entry) = relation.entry() else {
-                let owned_buffer = (relation.exit().subject_root() == DependencySubjectRoot::Result
+                let owned_buffer = (!relation.is_empty_reference() && !relation.is_no_payload()
+                    && relation.exit().subject_root() == DependencySubjectRoot::Result
                     && relation.kind() == bray_symbols::DependencyReferenceKind::Address
                     && contracts.reference_path(relation.exit()).is_some_and(|path| path.borrows().is_empty()))
                     .then(|| self.input.raw_buffers.values().find(|fields| {
@@ -756,7 +757,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         logical: Place,
         reference: &bray_bound_tree::BoundCallReference,
     ) {
-        if reference.relation().is_empty_reference() {
+        if reference.relation().is_no_payload() {
+            memory.stage_no_payload_alternative(occurrence, destination);
+        } else if reference.relation().is_empty_reference() {
             memory.stage_empty_reference(occurrence, destination);
         } else {
             memory.stage_returned_reference(occurrence, destination, logical,

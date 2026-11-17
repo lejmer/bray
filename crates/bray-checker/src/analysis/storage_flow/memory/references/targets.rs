@@ -1,4 +1,4 @@
-use super::super::model::{Origin, Place, References, State, Target};
+use super::super::model::{Origin, Place, AddressValue, State, Target};
 use bray_bound_tree::{BorrowCapabilityId, BoundExpressionId};
 use bray_symbols::TypeId;
 use std::collections::BTreeSet;
@@ -20,13 +20,13 @@ impl State {
         sources: &[Target],
         parent: Option<BorrowCapabilityId>,
     ) {
-        let mut references = References::default();
+        let mut references = AddressValue::default();
 
         for source in sources {
             let incoming = self
                 .values
                 .get(source)
-                .and_then(|value| value.references.as_ref())
+                .and_then(|value| value.address.as_ref())
                 .or_else(|| {
                     source
                         .storage_path()
@@ -34,10 +34,7 @@ impl State {
                         .and_then(|_| parent.and_then(|parent| self.borrows.get(&parent)))
                 })
                 .cloned()
-                .unwrap_or(References {
-                    unknown: true,
-                    ..References::default()
-                });
+                .unwrap_or(AddressValue::unknown());
 
             references.merge(&incoming);
         }
@@ -136,7 +133,7 @@ impl State {
     }
 
     pub(in crate::analysis::storage_flow) fn borrow_view(&mut self, slot: &Place, ty: TypeId) {
-        let Some(references) = self.values.get_mut(&Target::storage(slot.clone())).and_then(|value| value.references.as_mut()) else {
+        let Some(references) = self.values.get_mut(&Target::storage(slot.clone())).and_then(|value| value.address.as_mut()) else {
             return;
         };
 
@@ -148,37 +145,35 @@ impl State {
 
             // A checked borrow may interpret a differently typed region. Keep
             // its provenance without making the view that region's declaration.
-            references.inexact = self
+            if self
                 .contents
                 .get(target)
                 .and_then(|contents| contents.storage_type)
-                .is_some_and(|declared| declared != ty);
+                .is_some_and(|declared| declared != ty) {
+                references.bound();
+            }
         }
     }
     pub(in crate::analysis::storage_flow::memory) fn references(
         &self,
         slot: &Target,
-    ) -> References {
+    ) -> AddressValue {
         // Transfers and mutations need an owned snapshot while changing their reached targets.
-        let mut references = if slot.is_exact() {
-            self.values.get(slot).and_then(|value| value.references.clone()).unwrap_or_default()
+        if slot.is_exact() {
+            self.values.get(slot).and_then(|value| value.captured_reference()).unwrap_or_else(AddressValue::unknown)
         } else {
-            References::default()
-        };
-
-        references.unknown |= references.targets.is_empty();
-
-        references
+            AddressValue::unknown()
+        }
     }
 
     pub(in crate::analysis::storage_flow) fn invalidated(&self, slot: &Target) -> bool {
-        self.values.get(slot).and_then(|value| value.references.as_ref()).is_some_and(|references| {
+        self.values.get(slot).is_some_and(|value| value.possible_references().any(|references| {
             references.targets.iter().any(|target| {
                 self.contents
                     .get(target)
                     .is_some_and(|contents| !contents.invalidations.is_empty())
             })
-        })
+        }))
     }
 
     pub(in crate::analysis::storage_flow::memory) fn initialized(
@@ -191,12 +186,10 @@ impl State {
 
     pub(in crate::analysis::storage_flow::memory) fn initialized_targets(
         &self,
-        references: &References,
+        references: &AddressValue,
         ty: TypeId,
     ) -> bool {
-        !references.unknown
-            && !references.displaced
-            && !references.inexact
+        references.has_values()
             && !references.targets.is_empty()
             && references.targets.iter().all(|target| {
                 target.is_exact()
@@ -209,7 +202,7 @@ impl State {
 
     pub(in crate::analysis::storage_flow::memory) fn affected_targets(
         &self,
-        references: &References,
+        references: &AddressValue,
     ) -> BTreeSet<Target> {
         let regions = references.regions();
 
@@ -356,8 +349,8 @@ impl State {
 }
 
 #[cfg(test)]
-fn located_storage(references: References) -> Option<Vec<Place>> {
-    if references.unknown || references.displaced || references.inexact {
+fn located_storage(references: AddressValue) -> Option<Vec<Place>> {
+    if !references.has_values() {
         return None;
     }
 
