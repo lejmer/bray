@@ -3072,7 +3072,10 @@ fn nested_backing_survives_descriptor_moves_and_pruning() {
     let call = origins[0].into();
 
     state.begin_transition(call);
-    state.stage_value(call, &Target::storage(moved.clone()), Target::storage(owner.clone()));
+
+    state.stage_preserved_value(call, &Target::storage(moved.clone()), Target::storage(owner.clone()),
+        &bray_symbols::DependencyValuePreservation::all());
+
     state.null(Place { root: moved.root, projections: [buffer_pointer].into() });
 
     assert_eq!(state.reference_locations(values, Target::storage(moved), &route, None), Some(Vec::new()),

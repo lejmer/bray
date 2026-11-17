@@ -369,7 +369,7 @@ fn returned_values<'a, C: CheckerRequestContext + ?Sized>(
         let borrowed = matches!(request.semantic_values().type_data(output_type).as_ref(), bray_symbols::TypeData::Borrow { .. });
         let mut conditions = Vec::new();
 
-        let (transferred, ty, input_path) = prepare_returned_input(
+        let (transferred, input_path) = prepare_returned_input(
             request,
             transfer.input(),
             (!borrowed).then_some(output_type),
@@ -406,8 +406,7 @@ fn returned_values<'a, C: CheckerRequestContext + ?Sized>(
         conditions.dedup();
 
         result.insert(transfer.clone(), bray_bound_tree::BoundReturnedValue::new(
-            borrowed, input_path, crate::storage::resolve_owned_storage_preservation(request, transfer.preservation())?,
-            conditions, crate::storage::observation::returned_observations(request, ty)?,
+            borrowed, input_path, conditions,
         ));
     }
 
@@ -425,7 +424,7 @@ fn prepare_returned_input<C: CheckerRequestContext + ?Sized>(
         Option<bray_symbols::TypeId>,
         CheckerQueryError<C::UpstreamError>,
     >,
-) -> Result<(Vec<bray_symbols::ConstantTermId>, bray_symbols::TypeId, bray_bound_tree::StorageReferencePath), CheckerQueryError<C::UpstreamError>> {
+) -> Result<(Vec<bray_symbols::ConstantTermId>, bray_bound_tree::StorageReferencePath), CheckerQueryError<C::UpstreamError>> {
 
     let values = request.semantic_values();
     let mut projections = Vec::new();
@@ -505,5 +504,5 @@ fn prepare_returned_input<C: CheckerRequestContext + ?Sized>(
             ));
     }
 
-    Ok((conditions, ty, input_path))
+    Ok((conditions, input_path))
 }

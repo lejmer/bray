@@ -547,6 +547,17 @@ pub(super) fn prepare_variants<C: crate::CheckerRequestContext + ?Sized>(
                         _ => None,
                     }),
             );
+
+            let mut masks = vec![transfer.preservation()];
+
+            while let Some(mask) = masks.pop() {
+                fields.extend(mask.children().keys().filter_map(|projection| match projection {
+                    bray_symbols::ConstantProjectionKind::UnionPayloadField(field) => Some(*field),
+                    _ => None,
+                }));
+
+                masks.extend(mask.children().values());
+            }
         }
     }
 

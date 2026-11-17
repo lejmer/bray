@@ -316,14 +316,14 @@ pub(crate) fn owned_storage_projections(
     projections.iter().map(|projection| owned_storage_projection(dependencies, *projection)).collect()
 }
 
-/// Resolves the complete retained-value mask at dependency preparation.
-pub(crate) fn resolve_owned_storage_preservation<C: CheckerRequestContext + ?Sized>(
-    request: CheckerUnitView<'_, C>,
+/// Translates a shared normal-return mask using its already checked projection identities.
+pub(crate) fn owned_storage_preservation(
+    dependencies: &bray_bound_tree::CheckedDependencyContracts,
     preservation: &bray_symbols::DependencyValuePreservation<bray_symbols::ConstantProjectionKind>,
-) -> crate::CheckerQueryResult<bray_symbols::DependencyValuePreservation<StorageProjection>, C::UpstreamError> {
+) -> bray_symbols::DependencyValuePreservation<StorageProjection> {
     preservation.try_map_projections(&mut |projection| {
-        resolve_owned_storage_projection(request, *projection)
-    })
+        Ok::<_, std::convert::Infallible>(owned_storage_projection(dependencies, *projection))
+    }).expect("checked ownership masks retain their prepared projections")
 }
 
 pub(crate) fn resolve_owned_storage_projections<C: CheckerRequestContext + ?Sized>(

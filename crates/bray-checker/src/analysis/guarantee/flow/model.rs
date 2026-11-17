@@ -367,6 +367,14 @@ impl<C: CheckerRequestContext + ?Sized> FixedPointDomain for ExecutionFlowDomain
 
                 state.current.observe_input(place);
 
+                if self.observed_types[place].is_some_and(|ty|
+                    matches!(self.request.semantic_values().type_data(ty).as_ref(), bray_symbols::TypeData::Borrow { .. }))
+                {
+                    // The entry value records its loan role before any capture.
+                    // Its referent retains the same formal data used by entry facts.
+                    state.current.insert(place.clone(), ExecutionCondition::reference_value(input.clone().borrowed(), input.clone()));
+                }
+
                 // Only the formal value owns storage at entry. Observations of
                 // its components can cross loans and do not establish ownership.
                 if place.is_callable_input() && place.projections.is_empty()

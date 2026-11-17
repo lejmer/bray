@@ -24,7 +24,7 @@ BRA-695 execution and BRA-696 shutdown remain separate. No new issues or subagen
 
 ## Pushed checkpoints and current evidence
 
-The route checkpoint8be430cea and observation checkpoint338483c04 are pushed. The captured-effect checkpoint follows them.
+The route checkpoint8be430cea, observation checkpoint338483c04 and captured-effect checkpoint584e0e266 are pushed.
 Earlier checkpoint551d12bb1 replaces References/StoredValue with AddressValue/ValueBinding,
 separates actual addresses from carried bounds, preserves nullable empty alternatives and distinct NoPayload, removes
 staged clone/merge/restore reconciliation and transports inactive slots through source/import/lifecycle/deferred code.
@@ -85,10 +85,9 @@ Authoritative producers and consumers traced so far:
 - memory.stage_buffer_push/stage_buffer_elements capture full physical binding subtrees. stage_whole_sources demotes them
   to dependency bounds for portable summaries. stage_buffer_payload and stored_transfers skip reference-free concrete T,
   which cannot express a witness-bearing owner with no pointer fields.
-- prepare_returned_values/stage_preserved_references enumerate BoundReturnedValue.observations. Logical returned-value
-  reconstruction in guarantee/trusted/borrows uses the same type inventory through ValuePreservation::returned. Remove
-  both reconstruction paths within the migrated scope, not just one consumer.
-- dependency/call/references::returned_values constructs that inventory using the substituted source type.
+- The return-snapshot candidate removes BoundReturnedValue.observations, its duplicate prepared preservation mask and
+  both physical/logical uses of the substituted-type inventory. It captures existing physical binding subtrees and
+  frames actual logical data, with borrow roles recorded at entry. See the closed return-snapshot contract below.
 - Physical captures are Transfer.inputs. Logical data, ownership, proof and duties are ExecutionCallEvidence.arguments,
   owned_inputs, extracted_values and witness_inputs. CurrentValues is authoritative for current contents.
 - CFG begin_invocation has Input, then a possible precondition-failure edge, then Attempt. All argument evaluation and
@@ -167,6 +166,71 @@ This boundary preserves known evaluated address identities. An unknown pointer s
 bounds here. The full value graph must retain its producing value identity too. Buffer relocation's existing physical
 staging still uses the selected footprint under its descriptor-exactness check. Replace that path with the actual stored
 prefix binding during the graph migration, rather than treating a possible region as a value transfer.
+
+## Captured return snapshot boundary
+
+An established ownership transfer transports its actual captured inline snapshot under the producer's portable contents
+mask. It does not rediscover reference fields or ordinary values from the substituted return type. Actual reference
+descriptors retain their identity while reached data is refreshed from current memory. A plain opaque value remains one
+opaque value. Retaining its identity supplies no previously unknown protected or reached contents. Physical whole-source
+bounds still describe possible dependencies, never equality or authority.
+
+The producer is the existing ownership summary and its preservation mask. BoundReturnedValue prepares its typed input
+route, borrowed role and ordinary conditions only. Physical prepare_returned_values selects
+the captured source and passes its whole actual binding subtree to memory staging. Staging filters each present binding
+using that same mask. Unchanged subtrees retain inactive shape, physical descriptors, initialization and deferred frames.
+Partially changed subtrees lose whole-source completeness and retain only permitted descendants. No actual initialized
+payload or deferred frame may be restored through a partially preserved subtree. Adaptation selects the mask relative to
+the actual wrapped input before staging. Guaranteed mappings alone establish physical replacement. Alternative deferred
+frames remain possible relations until their existing guards select them.
+
+Logical prepare_returned_values frames the actual ExecutionCondition tree with the same portable mask. It traverses
+retained actual inline components and explicit mask overrides. Reference leaves preserve descriptors and refresh reached
+data. A whole opaque leaf is not expanded into invented fields. Existing current-value publication remains the data
+authority. Production, cleanup and normal completion ordering stay unchanged. Abnormal paths never install these normal
+bindings. Deferred completion supplies its captured entry values to this same return preparation and reads current
+pointees at execution. Ordered cleanup still observes the current private values of ordinary returned owners. Its
+separate lifecycle reference and stored-value binding path remains part of the full instantiator migration.
+
+The entry trace finds an implicit role that must become explicit first. CurrentValues seeds borrowed formal fields as
+plain Input projections, so is_reference alone cannot identify their boundary. ExecutionFlowDomain::boundary already
+has the checked observed types and owns entry construction. It will publish Reference observations for borrowed entry
+places, with the same formal descriptor identity and entry referent data. Nested borrowed fields update that one
+CurrentValues tree. Later captures transport that role with the actual value. Entry facts still name their original data.
+Do not construct a second role inventory at call completion. Expression producers already retain actual borrow roles.
+
+The audit also finds that prepare_variants visits ownership input and output projections but omits projections that
+occur only in preservation masks. Include those keys at this existing relationship-preparation boundary. Both physical
+and logical instantiation then translate the same portable mask using the checked projection table, without queries or
+type inspection. Remove BoundReturnedValue's duplicate resolved mask and its separate request-based mapper. This keeps
+one portable mask and one shared conversion, and offsets the necessary capture filtering rather than adding a cache.
+
+Remove BoundReturnedValue.observations, returned_observations and Shape.returned_values, the physical reference-only
+inventory loop and logical restriction of a separately reconstructed shape. Reuse capture_value, shared pending staging,
+ValuePreservation framing and returned-reference refresh. Do not replace the inventory with another type walker, or add
+a side registry. Expected net production code is non-growing. Reconsider if actual references cannot be identified from
+captured data and checked completion, or if removing the inventory would freeze protected contents. The full portable
+storage graph and generic prefix operations remain open after this prerequisite.
+
+Use existing opaque, nullable, shallow-reference, protected framing, partial update, repeated identity, nested backing,
+source/imported return, deferred and cleanup controls. Keep fabricated owner and escape controls rejected. Extend existing
+snapshot tests to distinguish ordinary actual data from reached data. Preserve the red generic oracle and frozen1714
+identities. Validate the coherent batch once, then correct related regressions together. Native failures remain deferred.
+
+Framing retains an anonymous nullable's tag and actual payload as separate components instead of adopting the payload's
+owner as a complete wrapper owner. Explicit owned nullable contexts retain their identity. This uses existing snapshot
+forms. The unchanged nullable-layout oracle caught the initial regression and now passes, including the checks that an
+explicit no-transfer wrapper cannot recover an earlier payload mapping.
+
+The completed batch removes5 net production lines and adds21 net test lines. Mutating cargo xtask style passes. The
+corrected checker/compilation test build takes3m24s. All564 checker tests pass. The unchanged symbols and bound-tree
+parts retain their222 and136 passing tests from the first joint build. All368 return/deferred/cleanup/buffer compositions
+pass in13.02s. Another36 raw-memory/owner controls pass in21.06s, with3 pre-existing ignored tests. snapshot-build-source.json
+records parent584e0e266 plus diff30eb8f94a88eeae5a0645df906aa1ec69b5301ffc104f92fd4d13d4e87ed7587, verified unchanged
+after validation. Logs use snapshot-*-current.log. The final generic probe takes10.70s and still fails only at inspect
+for the witnessed source and imported round trips. Both fabricated-owner controls and all4 original escape cases pass.
+Its store/restore/round_trip summaries remain as recorded above. Positive probe lowering is unverified. The frozen
+comparison remains551d12 evidence. No native retry or repair occurred.
 
 ## Completed typed route boundary
 
@@ -248,8 +312,8 @@ No task-owned builds, tests, native workflows or agents are running. The next ac
 value graph, whose contract remains open above. The generic witness experiment remains uncommitted and red.
 
 Current unit executables are bray_checker-05848d70c4b314f7.exe and bray_compilation-4af58abd509cab18.exe under
- target/cargo/release/deps. Build checker and compilation together to retain feature reuse. Current bootstrap-build.log
-belongs to the test-only generic round-trip probe. Do not mistake it for a completed graph implementation.
+ target/cargo/release/deps. Build checker and compilation together to retain feature reuse. snapshot-build-current.log
+is the latest corrected joint build. The full stored-value graph is not implemented yet.
 
 Run mutating cargo xtask style at completed Rust-batch finalization. Run cargo xtask format before the final handoff.
 Native LLVM/linker/executable workflows run outside the sandbox. The generic round-trip probe is a justified targeted

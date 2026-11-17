@@ -97,46 +97,28 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         for (transfer, sources, output, adaptation) in &transfers {
             let Some(common) = guaranteed.iter().find(|common| common.same_identity(transfer)) else { continue; };
 
-            self.stage_preserved_references(state, occurrence, common, contracts.returned_value(transfer), sources, output, adaptation);
+            self.stage_preserved_value(state, occurrence, common, sources, output, adaptation);
         }
 
         state.memory.stage_deferred_values(occurrence,
             transfers.into_iter().flat_map(|(_, sources, destination, _)| sources.into_iter().map(move |source| (source, destination.clone()))));
     }
 
-    fn stage_preserved_references(
+    fn stage_preserved_value(
         &self,
         state: &mut crate::analysis::storage_flow::model::StorageFlowState,
         occurrence: bray_bound_tree::BoundExecutionSite,
         transfer: &bray_symbols::DependencyOwnedTransfer,
-        returned: &bray_bound_tree::BoundReturnedValue,
         sources: &[crate::analysis::storage_flow::memory::Target],
         output: &crate::analysis::storage_flow::memory::Target,
         adaptation: &[bray_bound_tree::StorageProjection],
     ) {
-        let references = returned.is_borrowed().then_some(&[][..]).into_iter().chain(
-            returned.observations().iter().filter_map(|(path, kind)| {
-                (!returned.is_borrowed() && matches!(kind, bray_bound_tree::StorageObservationKind::Reference(_)))
-                    .then_some(path.as_ref())
-            }),
-        );
+        let preservation = crate::storage::owned_storage_preservation(self.dependencies, transfer.preservation());
+        let preservation = preservation.subtree(adaptation);
 
-        for suffix in references {
-            let Some(actual) = suffix.strip_prefix(adaptation) else { continue; };
-
-            let Some(preservation) = suffix.iter().try_fold(transfer.preservation().clone(), |mask, projection| {
-                Some(mask.projected(&crate::ExecutionPlace::projection_kind(*projection)?))
-            }) else { continue; };
-
-            let sources = sources.iter().map(|source| source.project(actual)).collect::<Vec<_>>();
-
-            if preservation.preserves_value() && !sources.is_empty() && sources.iter().all(|source| state.memory.has_value(source)) {
-                // Capture unchanged descriptors before consumption. Referent contents are
-                // refreshed from committed memory, never restored from this entry snapshot.
-                for source in sources {
-                    state.memory.stage_value(occurrence, &source, output.project(actual));
-                }
-            }
+        for source in sources {
+            // The output owns its captured bindings while paths remain shared with the plan.
+            state.memory.stage_preserved_value(occurrence, source, output.clone(), &preservation);
         }
     }
 

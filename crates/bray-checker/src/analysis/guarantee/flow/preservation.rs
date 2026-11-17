@@ -52,46 +52,52 @@ impl ValuePreservation {
         }
     }
 
-    /// Resolve portable inline preservation against the checked actual source shape.
+    /// Frame the captured inline value. Its actual reference roles stop traversal at loans.
     pub(in crate::analysis::guarantee) fn returned(
         preservation: &bray_symbols::DependencyValuePreservation<StorageProjection>,
-        observations: &[(std::sync::Arc<[StorageProjection]>, bray_bound_tree::StorageObservationKind)],
+        source: &ExecutionCondition,
     ) -> Self {
-        let mut mask = Self::default();
-
-        for (path, kind) in observations { mask.at_mut(path).record(*kind); }
-        mask.restrict_contents(preservation, &mut { ExecutionCondition::WORK_LIMIT });
-
-        mask
+        Self::returned_bounded(preservation, source, &mut { ExecutionCondition::WORK_LIMIT })
     }
 
-    fn restrict_contents(
-        &mut self,
+    fn returned_bounded(
         preservation: &bray_symbols::DependencyValuePreservation<StorageProjection>,
+        source: &ExecutionCondition,
         budget: &mut usize,
-    ) {
-        let Some(remaining) = budget.checked_sub(1) else { *self = Self::default(); return; };
+    ) -> Self {
+        let Some(remaining) = budget.checked_sub(1) else { return Self::default(); };
 
         *budget = remaining;
 
-        for projection in preservation.children().keys() {
-            // A complete ordinary value supplies unchanged children by default;
-            // explicit portable overrides still replace their contents.
-            self.children.entry(*projection).or_insert(Self {
-                value: self.value, inline: self.inline, ..Default::default()
-            });
+        if source.is_reference() {
+            return Self { descriptor: preservation.preserves_value(), ..Default::default() };
         }
 
-        if !preservation.preserves_value() {
-            self.value = false;
-            self.inline = false;
-            self.descriptor = false;
-            self.discriminant = false;
+        let mut actual = source.computed_value();
+
+        while let crate::ExecutionConditionKind::Tagged(_, contents) = actual.kind() {
+            let Some(remaining) = budget.checked_sub(1) else { return Self::default(); };
+
+            *budget = remaining;
+            actual = contents.computed_value();
         }
 
-        for (projection, child) in &mut self.children {
-            child.restrict_contents(&preservation.projected(projection), budget);
+        let mut mask = Self { value: preservation.preserves_value(), ..Default::default() };
+
+        let fields = actual.component_projections().into_iter().chain(preservation.children().keys().copied())
+            .filter(|field| bray_bound_tree::StoragePath::inline_projections(&[*field]))
+            .collect::<std::collections::BTreeSet<_>>();
+
+        for field in fields {
+            if *budget == 0 { return Self::default(); }
+
+            // Every child selects from the same shared immutable captured value.
+            let child = source.clone().project(field);
+
+            mask.children.insert(field, Self::returned_bounded(&preservation.subtree(&[field]), &child, budget));
         }
+
+        mask
     }
 
     /// Frame the actual value and its existing ownership layout together.
@@ -229,7 +235,14 @@ impl ValuePreservation {
             place.cloned().map_or(ExecutionCondition::unknown(), |place| ExecutionCondition::new(crate::ExecutionConditionKind::Input(place)))
         };
 
-        let mut contents = if retained { source.clone() }
+        let mut contents = if retained && in_place && source.observation_kind().is_none()
+            && source.known_presence().is_some()
+        {
+            // A lifted nullable owns its payload, with no independent wrapper owner.
+            // Retain its actual data under the tag instead of adopting the payload's identity.
+            source.discriminant().with_storage_component(&[StorageProjection::NullableValue],
+                source.clone().project(StorageProjection::NullableValue))
+        } else if retained { source.clone() }
         else if self.discriminant && !consumed {
             source.discriminant()
         } else { ExecutionCondition::post_state(mutation, identity) };
@@ -279,13 +292,7 @@ mod tests {
 
         let (_, sites) = crate::test_support::integer_expression_unit(BoundUnitId::new(0), 1);
 
-        let observations: [(Arc<[StorageProjection]>, Kind); 3] = [
-            (Arc::from([]), Kind::Discriminant),
-            (Arc::from([StorageProjection::NullableValue]), Kind::Identity),
-            (Arc::from([StorageProjection::NullableValue]), Kind::InlineBits),
-        ];
-
-        let mut mask = ValuePreservation::returned(&Mask::all(), &observations);
+        let mut mask = ValuePreservation::returned(&Mask::all(), &source);
         let framed = mask.frame(&mut state, &source, &[], Some(&place), StorageMutation::Operation(sites[0].into()));
 
         assert_eq!(framed.ownership_identity(), None,
@@ -333,16 +340,14 @@ mod tests {
 
         let changed_mask = Mask::new(true, [(changed, Mask::none())].into());
 
-        let observations = [(Arc::from([]), bray_bound_tree::StorageObservationKind::Value)];
-
-        let contents = ValuePreservation::returned(&changed_mask, &observations)
+        let contents = ValuePreservation::returned(&changed_mask, &source)
             .apply(&source, Some(&place), StorageMutation::Operation(sites[0].into()));
 
         let mut current = ExecutionCondition::owned_value(owner.clone(), contents);
         let expected = current.clone();
 
         for _ in 0..16 {
-            let contents = ValuePreservation::returned(&Mask::all(), &observations)
+            let contents = ValuePreservation::returned(&Mask::all(), &current)
                 .apply(&current, Some(&place), StorageMutation::Operation(sites[1].into()));
 
             current = ExecutionCondition::owned_value(owner.clone(), contents);
@@ -378,6 +383,18 @@ mod tests {
         assert_eq!(complete.apply(&source, Some(&root), mutation), source,
             "whole-value preservation subsumes earlier child descriptor masks");
 
+        let captured = ValuePreservation::returned(&Mask::all(), &source).returned_snapshot(&source, &root, mutation);
+
+        assert_eq!(captured.clone().project(fields[0]), ExecutionCondition::boolean(true));
+
+        assert_eq!(captured.clone().project(fields[1]), ExecutionCondition::boolean(true),
+            "the captured tree carries actual ordinary data without reconstructing its type");
+
+        assert_eq!(captured.clone().project(fields[2]).owner_identity(), source.clone().project(fields[2]).owner_identity());
+
+        assert_ne!(captured.project(fields[2]).into_referent().computed_value(), &ExecutionCondition::boolean(true),
+            "a captured reference descriptor does not freeze reached data");
+
         let observations: [(Arc<[StorageProjection]>, Kind); 5] = [
             (Arc::from([]), Kind::Identity),
             (Arc::from([fields[0]]), Kind::Value),
@@ -386,7 +403,10 @@ mod tests {
             (Arc::from([fields[3]]), Kind::Address),
         ];
 
-        let mask = ValuePreservation::returned(&Mask::all(), &observations);
+        let mut mask = ValuePreservation::default();
+
+        for (path, kind) in &observations { mask.at_mut(path).record(*kind); }
+
         let actual = mask.apply(&source, Some(&root), mutation);
 
         assert_eq!(actual.clone().project(fields[0]), ExecutionCondition::boolean(true));
@@ -395,8 +415,9 @@ mod tests {
         assert_ne!(actual.clone().project(fields[2]).into_referent().computed_value(), &ExecutionCondition::boolean(true));
         assert_eq!(actual.project(fields[3]), ExecutionCondition::boolean(true));
 
-        let opaque = [(Arc::from([]), Kind::InlineBits)];
-        let mask = ValuePreservation::returned(&Mask::all(), &opaque);
+        let mut mask = ValuePreservation::default();
+
+        mask.record(Kind::InlineBits);
 
         assert_eq!(mask.contents_preservation(), Mask::all());
         assert_ne!(mask.apply(&input, Some(&root), mutation).computed_value(), input.computed_value());
@@ -412,9 +433,8 @@ mod tests {
         assert_eq!(nullable.contents_preservation(), Mask::all());
         assert!(!nullable.preserves_value(), "portable inline preservation cannot freeze generic payload data");
 
-        let ordinary = [(Arc::from([]), Kind::Value)];
         let partial = Mask::new(true, [(fields[0], Mask::none())].into());
-        let actual = ValuePreservation::returned(&partial, &ordinary).apply(&source, Some(&root), mutation);
+        let actual = ValuePreservation::returned(&partial, &source).apply(&source, Some(&root), mutation);
 
         assert_ne!(actual.clone().project(fields[0]).computed_value(), &ExecutionCondition::boolean(true));
         assert_eq!(actual.project(fields[3]), ExecutionCondition::boolean(true));

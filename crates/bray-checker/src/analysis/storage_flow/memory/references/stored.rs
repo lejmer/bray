@@ -9,6 +9,82 @@ enum WholeValueKind {
 }
 
 impl State {
+    pub(in crate::analysis::storage_flow) fn stage_value(
+        &mut self,
+        call: bray_bound_tree::BoundExecutionSite,
+        source: &Target,
+        destination: Target,
+    ) {
+        let captured = self.capture_value(source, &destination);
+
+        self.stage_captured_value(call, destination, captured);
+    }
+
+    pub(in crate::analysis::storage_flow) fn stage_preserved_value(
+        &mut self,
+        call: bray_bound_tree::BoundExecutionSite,
+        source: &Target,
+        destination: Target,
+        preservation: &bray_symbols::DependencyValuePreservation<bray_bound_tree::StorageProjection>,
+    ) {
+        let mut captured = self.capture_value(source, &destination);
+        let mask = |slot: &Target| preservation.subtree(&slot.projections()[destination.projections().len()..]);
+
+        captured.values.retain(|slot, value| {
+            let mask = mask(slot);
+
+            if !mask.preserves_value() { return false; }
+
+            if !mask.children().is_empty() { value.completeness.lose_completeness(); }
+
+            true
+        });
+
+        // Initialization and captured frames belong to the entire unchanged subtree.
+        // Partial data preservation cannot recreate either obligation from an entry snapshot.
+        let complete = |slot: &Target| {
+            let mask = mask(slot);
+
+            mask.preserves_value() && mask.children().is_empty()
+        };
+
+        captured.payloads.retain(|slot, _| complete(slot));
+        captured.deferred.retain(|slot, _| complete(slot));
+        self.stage_captured_value(call, destination, captured);
+    }
+
+    fn stage_captured_value(
+        &mut self,
+        call: bray_bound_tree::BoundExecutionSite,
+        destination: Target,
+        mut staged: Transfer,
+    ) {
+
+        // The root marks replacement of the whole value. Only actual reference
+        // slots carry reference uncertainty, including fields of an aggregate.
+        staged.values.entry(destination.clone()).or_default();
+
+        let pending = self.pending.entry(call).or_default();
+
+        if pending.values.contains_key(&destination) {
+            // Alternative sources for one output must agree on its initialized payloads.
+            let mut previous = super::super::model::Transfer {
+                values: take_subtree(&mut pending.values, &destination, Retirement::Storage).collect(),
+                payloads: take_subtree(&mut pending.payloads, &destination, Retirement::Storage).collect(),
+                deferred: take_subtree(&mut pending.deferred, &destination, Retirement::Storage).collect(),
+                ..Default::default()
+            };
+
+            previous.merge(&staged);
+            staged = previous;
+        }
+
+        pending.values.extend(staged.values);
+        pending.payloads.extend(staged.payloads);
+        pending.deferred.extend(staged.deferred);
+        pending.returned_inputs.extend(staged.returned_inputs);
+    }
+
     pub(in crate::analysis::storage_flow) fn null(&mut self, destination: Place) {
         self.replace_value(destination, AddressValue::empty().into());
     }

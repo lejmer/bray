@@ -47,39 +47,6 @@ impl State {
         );
     }
 
-    pub(in crate::analysis::storage_flow) fn stage_value(
-        &mut self,
-        call: bray_bound_tree::BoundExecutionSite,
-        source: &Target,
-        destination: Target,
-    ) {
-        let mut staged = self.capture_value(source, &destination);
-
-        // The root marks replacement of the whole value. Only actual reference
-        // slots carry reference uncertainty, including fields of an aggregate.
-        staged.values.entry(destination.clone()).or_default();
-
-        let pending = self.pending.entry(call).or_default();
-
-        if pending.values.contains_key(&destination) {
-            // Alternative sources for one output must agree on its initialized payloads.
-            let mut previous = super::super::model::Transfer {
-                values: take_subtree(&mut pending.values, &destination, Retirement::Storage).collect(),
-                payloads: take_subtree(&mut pending.payloads, &destination, Retirement::Storage).collect(),
-                deferred: take_subtree(&mut pending.deferred, &destination, Retirement::Storage).collect(),
-                ..Default::default()
-            };
-
-            previous.merge(&staged);
-            staged = previous;
-        }
-
-        pending.values.extend(staged.values);
-        pending.payloads.extend(staged.payloads);
-        pending.deferred.extend(staged.deferred);
-        pending.returned_inputs.extend(staged.returned_inputs);
-    }
-
     pub(in crate::analysis::storage_flow) fn stage_returned_references(
         &mut self,
         call: bray_bound_tree::BoundExecutionSite,

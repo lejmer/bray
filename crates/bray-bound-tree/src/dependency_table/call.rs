@@ -100,14 +100,12 @@ impl BoundCallReference {
     }
 }
 
-/// Prepared ordinary shape and completion conditions of one exact owning transfer.
+/// Prepared input route and completion conditions of one exact owning transfer.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct BoundReturnedValue {
     borrowed: bool,
     input_path: crate::StorageReferencePath,
-    preservation: bray_symbols::DependencyValuePreservation<crate::StorageProjection>,
     conditions: Arc<[bray_symbols::ConstantTermId]>,
-    observations: Arc<[(Arc<[crate::StorageProjection]>, crate::StorageObservationKind)]>,
 }
 
 impl BoundReturnedValue {
@@ -115,11 +113,9 @@ impl BoundReturnedValue {
     pub fn new(
         borrowed: bool,
         input_path: crate::StorageReferencePath,
-        preservation: bray_symbols::DependencyValuePreservation<crate::StorageProjection>,
         conditions: impl Into<Arc<[bray_symbols::ConstantTermId]>>,
-        observations: impl Into<Arc<[(Arc<[crate::StorageProjection]>, crate::StorageObservationKind)]>>,
     ) -> Self {
-        Self { borrowed, input_path, preservation, conditions: conditions.into(), observations: observations.into() }
+        Self { borrowed, input_path, conditions: conditions.into() }
     }
 
     /// Whether the instantiated output is a borrow rather than an extracted owner.
@@ -128,18 +124,9 @@ impl BoundReturnedValue {
     /// The current physical source, including borrowed layers crossed by extraction.
     pub fn input_path(&self) -> &crate::StorageReferencePath { &self.input_path }
 
-    /// Complete inline preservation, resolved before storage and guarantee flow.
-    pub fn preservation(&self) -> &bray_symbols::DependencyValuePreservation<crate::StorageProjection> {
-        &self.preservation
-    }
-
     /// Ordinary presence facts implied by the transferred projection.
     pub fn conditions(&self) -> &[bray_symbols::ConstantTermId] { &self.conditions }
 
-    /// Actual shallow observations, stopping at reference boundaries.
-    pub fn observations(&self) -> &[(Arc<[crate::StorageProjection]>, crate::StorageObservationKind)] {
-        &self.observations
-    }
 }
 
 /// The distinct invocation, returned-value and deferred requirements of one selected call.
@@ -196,7 +183,7 @@ impl BoundCallDependencyContracts {
         self
     }
 
-    /// Returns the actual checked shape and conditions for one selected transfer.
+    /// Returns the checked input route and conditions for one selected transfer.
     pub fn returned_value(
         &self,
         transfer: &bray_symbols::DependencyOwnedTransfer,
