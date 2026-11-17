@@ -115,7 +115,7 @@ or if staged binding assembly still requires saving and restoring an old address
 Current logs and the frozen comparison are under target/audit in the active worktree. Existing shared Cargo output
 is reused and must never be cleaned. Before builds, target/cargo/tooling measured 232.83 GiB and the drive had 99 GiB free.
 
-## Active production boundary contract
+## Production checkpoint contract
 
 A pending memory Transfer owns staged output bindings and captured entry information. The output fields are values,
 payloads, deferred frames and returned-input bounds, with the weak-write policy. Entry information is inputs, possible
@@ -133,8 +133,8 @@ normal completion. Failure consumes captured possible effects without installing
 pending transfer on task-body failure because the observer can still produce a normal RunResult.Failed alternative.
 Retirement must keep updating retained entry descriptors and effects while private output is live.
 
-Extend normal_completion_discards_captured_failure_effects to produce a private pointer, overwrite its original input,
-change the private output during cleanup, and verify both capture retention and surviving normal publication. Repeated
+The extended private_production_retains_captures_until_normal_completion test produces a private pointer, overwrites its input,
+changes the private output during cleanup, and verifies capture retention and surviving normal publication. Repeated
 production and normal completion must not restore the old pointer. The existing deferred-input move/retirement and
 produced_owned_results_survive_enclosing_scope_cleanup compositions cover adjacent paths, including source/import and
 lowering. Keep the frozen1714 comparison unchanged.
@@ -143,6 +143,35 @@ Use one output-draining implementation. Add no phase booleans, new identity grap
 production growth below50 lines. Reconsider if captures need copying, if private production grants caller permissions,
 or if the existing cleanup scheduler cannot retain its ordering. This boundary separates physical production from
 capture completion. Full connected outcomes and their unified logical publication remain subsequent work.
+
+The completed production boundary passes564 checker tests and362 deferred, returned-dependency and private-result
+cleanup compositions in9.88s, including source/import and MIR lowering. Mutating cargo xtask style passes. The existing
+format pass covers the maintained Bray sources, which did not change. Production grows by19 lines and the extended test
+by32 lines. The full1714 comparison last passed on binding checkpoint551d12bb1 and has not been rerun after this boundary.
+No native test or repair has been attempted. Continue the full refactor before either native-failure repair.
+
+## Active whole-value tracing
+
+The next boundary must transport a complete captured generic value without a caller-side reference-field inventory.
+Entry whole-source producers are initialize_entry_references for demanded opaque paths and buffer AnyElement storage.
+They seed possible generic lineage, not value equality. Intrinsic push/pop capture full internal bindings, but portable
+DependencyStoredValue remains a possible-source bound. Do not promote its complete flag into actual value identity.
+
+prepare_returned_values consumes actual DependencyOwnedTransfer identities, input paths and preservation masks. Its
+stage_preserved_references currently enumerates BoundReturnedValue.observations, as does logical returned-value
+reconstruction in guarantee/trusted/borrows through ValuePreservation::returned. Both must use the same captured value.
+The observation list is prepared by dependency/call/references::returned_values using the substituted source type.
+It cannot be removed from one consumer while leaving a second reconstruction in the other.
+
+prepare_result_references currently creates symbolic reference outputs before prepare_stored_values adds dependency
+bounds. Physical input captures live in memory Transfer.inputs while logical data, ownership, proof and duties live in
+ExecutionCallEvidence.arguments and its other fields. Their admission, deferred execution and publication phases must
+be traced before joining them. CurrentValues remains authoritative. Missing data must stay unknown, not empty.
+
+The new whole-value contract is not closed yet. Trace actual argument capture, inline mutation of carried graphs,
+source/import publication, deferred pointee reads versus by-value captures, and cleanup/abnormal consumption before
+production edits. Reuse the existing generic buffer reachability composition and owner forwarding controls. Do not
+return to dispatch_ready or start_frame while resolving this architecture.
 
 Issue: https://linear.app/bray-lang/issue/BRA-694.
 Draft PR: https://github.com/lejmer/bray/pull/717.

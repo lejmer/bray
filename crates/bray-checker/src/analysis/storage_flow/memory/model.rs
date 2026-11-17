@@ -250,6 +250,18 @@ pub(super) struct Transfer {
 }
 
 impl Transfer {
+    /// Production consumes output snapshots while entry captures remain available to outcomes.
+    pub(super) fn take_outputs(&mut self) -> Self {
+        Self {
+            weak_outputs: std::mem::take(&mut self.weak_outputs),
+            values: std::mem::take(&mut self.values),
+            payloads: std::mem::take(&mut self.payloads),
+            deferred: std::mem::take(&mut self.deferred),
+            returned_inputs: std::mem::take(&mut self.returned_inputs),
+            ..Self::default()
+        }
+    }
+
     pub(super) fn merge(&mut self, incoming: &Self) -> bool {
         let changed = merge_stored(&mut self.inputs, &incoming.inputs, |_| false, |_| false);
         let changed = merge_stored(&mut self.values, &incoming.values, |_| false, |_| false) || changed;

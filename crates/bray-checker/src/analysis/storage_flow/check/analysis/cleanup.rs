@@ -29,9 +29,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             && self.storage.value_slot(producer) == Some(path.root)
             && self.request.view().expression(producer).is_some_and(bray_bound_tree::BoundExpression::has_result_region)
         {
-            // Cleanup takes the produced private value before normal publication.
-            // Consuming its transfer once gives every cleanup part the same current contents.
-            memory.complete_transition(producer.into());
+            // Cleanup uses current private output while the transition retains its
+            // entry captures until an outcome completes it.
+            memory.produce_transition(producer.into());
         }
 
         self.cleanup_receiver(memory, access, Some(path))

@@ -3930,28 +3930,57 @@ fn targeted_atomic_effects_preserve_reference_slots_under_possible_aliasing() {
 }
 
 #[test]
-fn normal_completion_discards_captured_failure_effects() {
-    let ([source, _, _, _], origins) = places();
+fn private_production_retains_captures_until_normal_completion() {
+    let ([source, input, output, _], origins) = places();
 
     let occurrence = origins[0].into();
     let mut state = State::default();
+    let input_target = Target::storage(input.clone());
+    let output_target = Target::storage(output.clone());
+    let source_target = Target::storage(source);
+    let path = bray_bound_tree::StorageReferencePath::new([].into(), [].into());
 
+    state.point_at(source_target.clone(), input.clone(), error_type(), bray_symbols::DependencyReferenceKind::Address);
     state.begin_transition(occurrence);
+    state.capture_reference_inputs(occurrence, [input_target.clone()]);
+    state.stage_slot(occurrence, &input, output.clone());
 
     state.capture_failure_effects(
         occurrence,
         super::CapturedEffects {
-            mutations: [super::Effect::Mutation(Target::storage(source.clone()), bray_symbols::DependencyMutationKind::Write, None)]
+            mutations: [super::Effect::Mutation(source_target.clone(), bray_symbols::DependencyMutationKind::Write, None)]
             .into(),
-            escaped: [Target::storage(source)].into(),
+            escaped: [source_target.clone()].into(),
             invalidation: bray_bound_tree::StorageInvalidation::unknown(),
         },
     );
 
+    assert!(state.value_targets(&output_target).is_none(), "staged output has not been produced");
+
+    state.produce_transition(occurrence);
+
+    assert_eq!(state.value_targets(&output_target), Some(vec![source_target.clone()]));
+
+    state.null(input);
+    state.null(output);
+    state.produce_transition(occurrence);
+
+    assert_eq!(state.value_targets(&output_target), Some(Vec::new()), "cleanup changes survive repeated production");
+
+    assert_eq!(state.captured_input_target(occurrence, semantic_values(), &input_target, &path), Some(source_target.clone()),
+        "private production retains the evaluated input independently of its current slot");
+
+    let mut failed = state.clone();
+    let effects = failed.take_failure_effects(occurrence).expect("private production retains abnormal effects");
+
+    assert_eq!(effects.escaped.as_slice(), &[source_target]);
+    assert!(failed.take_failure_effects(occurrence).is_none(), "an outcome consumes its capture once");
+
     state.complete_transition(occurrence);
 
     assert!(state.take_failure_effects(occurrence).is_none());
-    assert!(state.contents.is_empty());
+    assert!(state.captured_input_target(occurrence, semantic_values(), &input_target, &path).is_none());
+    assert_eq!(state.value_targets(&output_target), Some(Vec::new()), "normal completion publishes the surviving private value");
 }
 
 #[test]

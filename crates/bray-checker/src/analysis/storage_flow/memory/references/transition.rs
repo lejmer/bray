@@ -494,11 +494,11 @@ impl State {
         self.pending.get_mut(&call).expect("a weak assignment retains its captured transition").weak_outputs = true;
     }
 
-    pub(in crate::analysis::storage_flow) fn complete_transition(
+    pub(in crate::analysis::storage_flow) fn produce_transition(
         &mut self,
         call: bray_bound_tree::BoundExecutionSite,
     ) {
-        if let Some(transfer) = self.pending.remove(&call) {
+        if let Some(transfer) = self.pending.get_mut(&call).map(Transfer::take_outputs) {
             if transfer.weak_outputs {
                 self.commit_weak_value(transfer);
                 return;
@@ -510,6 +510,14 @@ impl State {
 
             self.commit_value(transfer);
         }
+    }
+
+    pub(in crate::analysis::storage_flow) fn complete_transition(
+        &mut self,
+        call: bray_bound_tree::BoundExecutionSite,
+    ) {
+        self.produce_transition(call);
+        self.pending.remove(&call);
     }
 
     pub(in crate::analysis::storage_flow) fn fresh(

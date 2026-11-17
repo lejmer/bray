@@ -207,6 +207,8 @@ remain separate from evaluated addresses, so attaching generic dependency inform
 address identity. Nullable empty alternatives remain explicit through joins and portable publication. Invalidation,
 retirement and deferred relocation update both parts of the binding at the same boundary.
 Inactive payloads contribute no value to a join. Their absence remains distinct from a live reference with a null address.
+Private production retains invocation captures until an outcome completes. Ordered cleanup changes the current private
+value, and normal publication uses the surviving result.
 
 Effects and contract validation consume selected operations and finalized flow results to establish the body summary and
 its relation to the declaration's surface. They do not rerun lifecycle state transfer.
