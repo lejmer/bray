@@ -2,13 +2,64 @@ use super::super::model::DependencyCompleteness;
 use super::super::model::{AddressValue, Place, Retirement, State, Target, Transfer, ValueBinding};
 use super::slots::take_subtree;
 
-#[derive(Clone, Copy, Eq, PartialEq)]
-enum WholeValueKind {
-    Dependencies,
-    Value,
-}
-
 impl State {
+    pub(in crate::analysis::storage_flow) fn capture_evaluated_value(&self, source: &super::Source,
+        coordinate: Target, ty: bray_symbols::TypeId,
+    ) -> bray_bound_tree::StorageCapturedValue {
+        let mut captured = self.capture_source(source, &coordinate);
+
+        if self.complete_reference_types.get(&ty) == Some(&true) {
+            // A typed scalar or reference-free owner carries no source-address bounds.
+            // Its initialization, deferred duties and logical value remain captured.
+            for value in captured.values.values_mut() {
+                value.sources.clear();
+                value.address = None;
+                value.address_bounds = None;
+            }
+
+            captured.values.entry(coordinate.clone()).or_default().completeness = DependencyCompleteness::Complete;
+        }
+
+        bray_bound_tree::StorageCapturedValue::new(coordinate, captured)
+    }
+
+    pub(in crate::analysis::storage_flow) fn capture_reached_value(&self, source: &Target) -> bray_bound_tree::StorageCapturedValue {
+        bray_bound_tree::StorageCapturedValue::new(source.clone(), self.capture_value(source, source))
+    }
+
+    pub(in crate::analysis::storage_flow) fn publish_captured_value(&mut self, destination: &Target,
+        value: &bray_bound_tree::StorageCapturedValue,
+    ) {
+        if destination.is_exact() {
+            self.clear_value(destination);
+            self.commit_value(value.materialize(destination));
+        } else {
+            self.include_captured_bounds(destination, value);
+        }
+    }
+
+    pub(in crate::analysis::storage_flow) fn include_captured_bounds(&mut self, region: &Target,
+        value: &bray_bound_tree::StorageCapturedValue,
+    ) {
+        let captured = value.materialize(region);
+
+        for (slot, value) in captured.values {
+            let bounds = value.into_dependency_bounds();
+
+            self.values.entry(slot).and_modify(|value| value.include_carried(&bounds)).or_insert(bounds);
+        }
+
+        for (slot, contents) in captured.payloads {
+            self.contents.entry(slot.clone()).or_default().merge(&contents.into_bounds(), &slot);
+        }
+    }
+
+    pub(in crate::analysis::storage_flow) fn lose_captured_information(&mut self, destination: &Target) {
+        let value = self.values.entry(destination.clone()).or_default();
+
+        value.lose_information();
+        value.completeness = DependencyCompleteness::Partial;
+    }
     pub(in crate::analysis::storage_flow) fn stage_value(
         &mut self,
         call: bray_bound_tree::BoundExecutionSite,
@@ -49,7 +100,6 @@ impl State {
         };
 
         captured.payloads.retain(|slot, _| complete(slot));
-        captured.deferred.retain(|slot, _| complete(slot));
         self.stage_captured_value(call, destination, captured);
     }
 
@@ -71,7 +121,6 @@ impl State {
             let mut previous = super::super::model::Transfer {
                 values: take_subtree(&mut pending.values, &destination, Retirement::Storage).collect(),
                 payloads: take_subtree(&mut pending.payloads, &destination, Retirement::Storage).collect(),
-                deferred: take_subtree(&mut pending.deferred, &destination, Retirement::Storage).collect(),
                 ..Default::default()
             };
 
@@ -81,7 +130,6 @@ impl State {
 
         pending.values.extend(staged.values);
         pending.payloads.extend(staged.payloads);
-        pending.deferred.extend(staged.deferred);
         pending.returned_inputs.extend(staged.returned_inputs);
     }
 
@@ -132,7 +180,6 @@ impl State {
 
         take_subtree(&mut pending.values, &destination, Retirement::Storage).for_each(drop);
         take_subtree(&mut pending.payloads, &destination, Retirement::Storage).for_each(drop);
-        take_subtree(&mut pending.deferred, &destination, Retirement::Storage).for_each(drop);
         pending.values.insert(destination, value);
     }
 
@@ -147,55 +194,6 @@ impl State {
     ) {
         let incoming = sources.into_iter().map(|source| self.capture_source(&source, &destination)).collect::<Vec<_>>();
 
-        self.stage_captured_whole(call, destination, incoming, complete, preserve_previous, WholeValueKind::Dependencies);
-    }
-
-    /// Stage an intrinsic buffer insertion, including the actual value's storage state.
-    pub(in crate::analysis::storage_flow) fn stage_buffer_push(
-        &mut self,
-        call: bray_bound_tree::BoundExecutionSite,
-        destination: Target,
-        sources: impl IntoIterator<Item = super::Source>,
-        complete: bool,
-    ) {
-        let incoming = sources.into_iter().map(|source| self.capture_source(&source, &destination)).collect::<Vec<_>>();
-
-        self.stage_captured_whole(call, destination, incoming, complete, true, WholeValueKind::Value);
-    }
-
-    /// Capture a base-addressed element and indexed elements as alternative values.
-    pub(in crate::analysis::storage_flow) fn stage_buffer_elements(
-        &mut self,
-        call: bray_bound_tree::BoundExecutionSite,
-        destination: Target,
-        regions: &[Target],
-    ) {
-        let mut incoming = Vec::new();
-
-        for region in regions {
-            let direct = self.capture_base_element(region, &destination);
-
-            if !direct.values.is_empty() || !direct.payloads.is_empty() || !direct.deferred.is_empty() {
-                incoming.push(direct);
-            }
-
-            let selected = region.project(&[bray_bound_tree::StorageProjection::AnyElement]);
-
-            incoming.push(self.capture_value(&selected, &destination));
-        }
-
-        self.stage_captured_whole(call, destination, incoming, !regions.is_empty(), false, WholeValueKind::Value);
-    }
-
-    fn stage_captured_whole(
-        &mut self,
-        call: bray_bound_tree::BoundExecutionSite,
-        destination: Target,
-        incoming: impl IntoIterator<Item = Transfer>,
-        complete: bool,
-        preserve_previous: bool,
-        kind: WholeValueKind,
-    ) {
         let weak = preserve_previous || !complete;
         let previous_complete = self.values.get(&destination).is_some_and(|value| value.whole_complete());
 
@@ -215,20 +213,11 @@ impl State {
                 value.reference().is_some()
             });
 
-            captured.payloads.clear();
-            captured.deferred.clear();
-        }
-
-        if kind == WholeValueKind::Dependencies {
-            captured.payloads.clear();
-            captured.deferred.clear();
         }
 
         let mut missing = false;
 
         for incoming in incoming {
-            // A deferred frame alone does not describe the source's ordinary
-            // stored subtree. Reference-free sources are omitted by the caller.
             missing |= incoming.values.is_empty();
 
             for (slot, value) in incoming.values {
@@ -237,19 +226,6 @@ impl State {
                 }).or_insert(value);
             }
 
-            if kind == WholeValueKind::Value {
-                for (slot, mut contents) in incoming.payloads {
-                    if weak {
-                        contents.initialized.clear();
-                    }
-
-                    captured.payloads.entry(slot.clone()).and_modify(|previous| {
-                        previous.merge(&contents, &slot);
-                    }).or_insert(contents);
-                }
-
-                super::merge_deferred(&mut captured.deferred, &incoming.deferred);
-            }
         }
 
         let captured_complete = captured.values.values().all(|value| value.is_no_payload() || !value.completeness.tracked() || value.completeness.complete());
@@ -273,21 +249,25 @@ impl State {
         let pending = self.pending.entry(call).or_default();
 
         for (slot, value) in captured.values {
-            match kind {
-                WholeValueKind::Value => { pending.values.insert(slot, value); }
-                WholeValueKind::Dependencies => {
-                    let bounds = value.into_dependency_bounds();
+            let bounds = value.into_dependency_bounds();
 
-                    pending.values.entry(slot).and_modify(|current| current.include_carried(&bounds)).or_insert(bounds);
-                }
-            }
+            pending.values.entry(slot).and_modify(|current| current.include_carried(&bounds)).or_insert(bounds);
+        }
+    }
+
+    /// Dependencies and possible duties of an unidentified element in the captured backing regions.
+    pub(in crate::analysis::storage_flow) fn capture_element_bounds(&self, roots: &[Target], coordinate: &Target) -> bray_bound_tree::StorageCapturedValue {
+        let mut transfer = Transfer::default();
+
+        for root in roots {
+            let direct = self.capture_base_element(root, coordinate);
+            let indexed = self.capture_value(&root.project(&[bray_bound_tree::StorageProjection::AnyElement]), coordinate);
+
+            transfer.merge(&direct);
+            transfer.merge(&indexed);
         }
 
-        for (slot, contents) in captured.payloads {
-            pending.payloads.entry(slot.clone()).and_modify(|previous| { previous.merge(&contents, &slot); }).or_insert(contents);
-        }
-
-        super::merge_deferred(&mut pending.deferred, &captured.deferred);
+        bray_bound_tree::StorageCapturedValue::new(coordinate.clone(), transfer).bounded()
     }
 
     /// Keep the existing possible contents while an inexact operation changes a part.
@@ -305,6 +285,5 @@ impl State {
 
         pending.payloads.extend(captured.payloads);
 
-        super::merge_deferred(&mut pending.deferred, &captured.deferred);
     }
 }

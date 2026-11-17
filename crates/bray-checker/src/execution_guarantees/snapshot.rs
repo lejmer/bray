@@ -18,6 +18,52 @@ pub(crate) fn common_components(
         return left.clone();
     }
 
+    use crate::ExecutionConditionKind::CapturedValue;
+
+    match (left.kind(), right.kind()) {
+        (CapturedValue { value: left, storage }, CapturedValue { value: right, storage: incoming }) => {
+            return common_components(left, right, result, conditions, facts, budget)
+                .captured_value(storage.merged(incoming));
+        }
+        (CapturedValue { value, storage }, _) => {
+            return common_components(value, right, result, conditions, facts, budget)
+                .captured_value(storage.with_unknown_alternative());
+        }
+        (_, CapturedValue { value, storage }) => {
+            return common_components(left, value, result, conditions, facts, budget)
+                .captured_value(storage.with_unknown_alternative());
+        }
+        _ => {}
+    }
+
+    if matches!(left.kind(), crate::ExecutionConditionKind::DeferredValue { .. })
+        || matches!(right.kind(), crate::ExecutionConditionKind::DeferredValue { .. })
+    {
+        let split = |value: &ExecutionCondition| match value.kind() {
+            crate::ExecutionConditionKind::DeferredValue { value, frame } => (value.as_ref().clone(), frame.as_ref().clone()),
+            _ => (value.clone(), super::ExecutionDeferredValue::unknown(&Default::default())),
+        };
+
+        let (left, mut frame) = split(left);
+
+        let (right, incoming) = split(right);
+
+        let fallback = super::ExecutionProofCache::default();
+
+        frame.merge(&incoming, conditions.0.cache().unwrap_or(&fallback));
+
+        return common_components(&left, &right, result, conditions, facts, budget)
+            .with_deferred_value(std::sync::Arc::new(frame));
+    }
+
+    common_data_components(left, right, result, conditions, facts, budget)
+}
+
+fn common_data_components(
+    left: &ExecutionCondition, right: &ExecutionCondition, result: Option<ExecutionCondition>,
+    conditions: (&ExecutionProof<'_>, &ExecutionProof<'_>),
+    facts: &mut Vec<(ExecutionCondition, bool)>, budget: &mut usize,
+) -> ExecutionCondition {
     for (candidate, other, assumptions) in [(left, right, conditions.1), (right, left, conditions.0)] {
         if candidate.ownership_identity().is_none()
             && candidate.observation_kind().is_none_or(|kind| kind == ObservationKind::Scalar)
@@ -351,6 +397,10 @@ pub(crate) fn owned_snapshot(
     }
 
     match source.kind() {
+        crate::ExecutionConditionKind::DeferredValue { value, frame } =>
+            owned_snapshot(value, identity, budget).with_deferred_value(std::sync::Arc::clone(frame)),
+        crate::ExecutionConditionKind::CapturedValue { value, storage } =>
+            owned_snapshot(value, identity, budget).captured_value(storage.as_ref().clone()),
         crate::ExecutionConditionKind::Observation { contents, kind: ObservationKind::Scalar, .. }
             if contents.ownership_identity().is_none() => {
             ExecutionCondition::scalar_observation(identity, contents.as_ref().clone())

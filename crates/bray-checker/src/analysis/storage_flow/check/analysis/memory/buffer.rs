@@ -120,7 +120,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                             bray_bound_tree::StorageProjection::ProductField(fields.pointer),
                         )?
                         .into_iter()
-                        .map(|target| Effect::through(target, kind, None)),
+                        .map(|target| Effect::through(target.project(&[StorageProjection::AnyElement]), kind, None)),
                 );
             }
         }
@@ -128,67 +128,94 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         Some(effects)
     }
 
-    pub(super) fn stage_buffer_payload(
-        &self,
-        state: &mut StorageFlowState,
-        operation: &bray_bound_tree::CheckedMemoryOperation,
-    ) {
+    pub(in crate::analysis::storage_flow::check::analysis) fn resolve_memory_values(&mut self, execution: &crate::analysis::guarantee::ExecutionState, operation: &bray_bound_tree::CheckedMemoryOperation, effects: &[Effect]) {
+        use bray_symbols::{CapturedValueOperation as Op, CapturedValueTemplate as Value, SymbolOrdinal};
+        use bray_bound_tree::{StorageValueDestination, StorageValueInput, StorageValueTransition};
 
-        let element = match operation.kind() {
-            CheckedMemoryOperationKind::RawBufferPush { element }
-            | CheckedMemoryOperationKind::RawBufferPop { element } => *element,
-            _ => return,
-        };
+        if matches!(operation.kind(), CheckedMemoryOperationKind::RawBufferAllocate) {
+            let result = self.expression_result_storage(operation.expression()).expect("buffer allocation has a result slot");
+            let ty = self.storage.identity_type(result.root).expect("buffer allocation result retains its checked type");
+            let fields = self.input.raw_buffers.get(&ty).expect("checked buffer allocation prepares its descriptor fields");
+            let initialized = self.buffer_count(0);
 
-        if self.input.footprint.complete_reference_types.get(&element) == Some(&true) { return; }
+            self.value_transitions.insert(operation.expression().into(), [StorageValueTransition::new(None, [(StorageValueDestination::Result,
+                Value::Aggregate { base: std::sync::Arc::new(Value::Unknown),
+                    fields: [
+                        (StorageProjection::ProductField(fields.capacity), Value::Data(StorageValueInput::Argument(SymbolOrdinal::new(0)))),
+                        (StorageProjection::ProductField(fields.initialized), Value::Data(StorageValueInput::Term(initialized))),
+                        (StorageProjection::OwnedTarget, Value::Operation(Op::OwningStorage(StorageProjection::ProductField(fields.pointer)),
+                            [Value::Operation(Op::EmptyPrefix, [].into())].into())),
+                    ].into() })])].into());
 
-        let call = operation.expression().into();
-
-        // Each intrinsic attempt owns a fresh staged output. A rejected prior
-        // attempt must not contribute payloads to a later loop incarnation.
-        state.memory.begin_transition(call);
-
-        let unknown_result = |state: &mut StorageFlowState| {
-            if matches!(operation.kind(), CheckedMemoryOperationKind::RawBufferPop { .. })
-                && let Some(result) = self.expression_result_storage(operation.expression())
-            {
-                state.memory.stage_whole_sources(call, Target::storage(result), [], false, false);
-            }
-        };
-
-        let Some((_, fields, source)) = self.buffer_argument(state, operation, 0) else { unknown_result(state); return; };
-
-        let Some(owners) = source.regions(&state.memory) else { unknown_result(state); return; };
-
-        let Some(regions) = owners.iter().map(|owner| {
-            state.memory.owned_regions(owner, StorageProjection::ProductField(fields.pointer))
-        }).collect::<Option<Vec<_>>>() else { unknown_result(state); return; };
-
-        let regions = regions.into_iter().flatten().collect::<Vec<_>>();
-
-        match operation.kind() {
-            CheckedMemoryOperationKind::RawBufferPush { .. } => {
-                for region in regions {
-                    state.memory.stage_preserved_subtree(call, &region);
-
-                    let destination = region.project(&[StorageProjection::AnyElement]);
-                    let source = self.memory_argument_reference(state, operation, operation.arguments()[1]);
-                    let complete = source.is_some();
-
-                    state.memory.stage_buffer_push(call, destination, source, complete);
-                }
-            }
-            CheckedMemoryOperationKind::RawBufferPop { .. } => {
-                for region in &regions {
-                    state.memory.stage_preserved_subtree(call, region);
-                }
-
-                if let Some(result) = self.expression_result_storage(operation.expression()) {
-                    state.memory.stage_buffer_elements(call, Target::storage(result), &regions);
-                }
-            }
-            _ => unreachable!("checked buffer payload operation"),
+            return;
         }
+
+        if !matches!(operation.kind(), CheckedMemoryOperationKind::RawBufferPush { .. } | CheckedMemoryOperationKind::RawBufferPop { .. }) { return; }
+
+        let base = Value::Operation(Op::Read, [Value::Input(StorageValueInput::Argument(SymbolOrdinal::new(0)))].into());
+        let prefix = Value::Operation(Op::Select(StorageProjection::OwnedTarget), [base.clone()].into());
+        let pop = matches!(operation.kind(), CheckedMemoryOperationKind::RawBufferPop { .. });
+        let mut writes = Vec::new();
+
+        let ty = self.request.semantic_values().unborrowed_type(self.execution.semantics.types()
+            .expression(operation.arguments()[0]).expect("checked buffer receiver has a type").ty());
+
+        let fields = &self.input.raw_buffers[&ty];
+
+        let receiver = execution.admitted_call(operation.expression().into())
+            .and_then(|entry| crate::ExecutionPlace::argument(SymbolOrdinal::new(0)).value_in(&entry.arguments));
+
+        if let Some(target) = receiver.as_ref().and_then(crate::ExecutionCondition::inline_captured_storage)
+            .and_then(bray_bound_tree::StorageCapturedValue::known_address) {
+            let value = if pop { Value::Operation(Op::Remainder, [prefix.clone()].into()) }
+                else { Value::Operation(Op::Append, [prefix.clone(), Value::Input(StorageValueInput::Argument(SymbolOrdinal::new(1)))].into()) };
+
+            let initialized = StorageProjection::ProductField(fields.initialized);
+
+            let count = Value::Operation(if pop { Op::Subtract } else { Op::Add }, [
+                Value::Operation(Op::Select(initialized), [base.clone()].into()),
+                Value::Data(StorageValueInput::Term(self.buffer_count(1))),
+            ].into());
+
+            writes.push((StorageValueDestination::Current { target: target.clone(), ty },
+                Value::Aggregate { base: std::sync::Arc::new(base), fields: [
+                    (initialized, count), (StorageProjection::OwnedTarget, value),
+                ].into() }));
+        }
+
+        if !pop {
+            for effect in effects {
+                if let Effect::Mutation { kind: DependencyMutationKind::Replace(_), footprint, .. } = effect {
+                    writes.push((StorageValueDestination::Region(footprint.clone()), Value::Input(StorageValueInput::Argument(SymbolOrdinal::new(1)))));
+                }
+            }
+        }
+
+        if pop {
+            writes.push((StorageValueDestination::Result, Value::Operation(Op::Last, [prefix].into())));
+        }
+
+        let values: std::sync::Arc<[StorageValueTransition]> = [StorageValueTransition::new(None, writes)].into();
+
+        if self.publish {
+            self.value_transitions.entry(operation.expression().into()).and_modify(|previous| {
+                if previous != &values { *previous = StorageValueTransition::join_reachable(previous, &values); }
+            }).or_insert(values);
+        } else {
+            self.value_transitions.insert(operation.expression().into(), values);
+        }
+    }
+
+    fn buffer_count(&self, count: u64) -> bray_symbols::ConstantTermId {
+        let values = self.request.semantic_values();
+
+        let value = values.intern_constant_value(bray_symbols::ConstantValueData::new(
+            crate::representation::representation_type(self.request, bray_compiler_known::RepresentationRole::ScalarUsize),
+            bray_symbols::ConstantValueKind::Integer(bray_symbols::IntegerConstant::from_u64(count)),
+        )).expect("checked buffer count belongs to its semantic store");
+
+        values.intern_constant_term(bray_symbols::ConstantTermData::Value(value))
+            .expect("checked buffer count term belongs to its semantic store")
     }
 
     fn buffer_argument(
@@ -300,8 +327,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         // A transfer can publish its payload through the destination, never the
         // address of either buffer descriptor or its enclosing allocation.
         if destinations.iter().any(|target| {
-            Effect::through(target.clone(), DependencyMutationKind::Write, None)
-                .may_retain_address(&state.memory)
+            state.memory.may_retain_address(&Effect::through(target.clone(), DependencyMutationKind::Write, None))
         }) {
             effects.extend(
                 source_regions

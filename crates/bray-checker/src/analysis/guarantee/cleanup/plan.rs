@@ -602,38 +602,14 @@ fn lifecycle(
         .deferred_execution()
         .unwrap_or(behavior);
 
-    let mut contract = TrustedCallContract {
-        // Failed finalizer attempts can still be followed by destruction.
-        completes: callable.execution() == bray_symbols::CallableExecution::Synchronous
-            && (!behavior.may_unwind()
-                || behavior
-                    .execution_properties()
-                    .contains(&bray_symbols::ExecutionProperty::Total)),
-        ..Default::default()
-    };
+    // Failed finalizer attempts can still be followed by destruction.
+    let completes = callable.execution() == bray_symbols::CallableExecution::Synchronous
+        && (!behavior.may_unwind()
+            || behavior.execution_properties().contains(&bray_symbols::ExecutionProperty::Total));
 
-    for (predicates, completion) in [
-        (behavior.predicate_requirements(), false),
-        (completion.predicate_guarantees(), true),
-    ] {
-        for predicate in predicates {
-            let condition = {
-                let condition = predicate
-                    .condition()
-                    .map(|term| crate::execution_condition_from_term(values, term, &references))
-                    .transpose()?;
-
-                condition.unwrap_or_else(ExecutionCondition::unknown)
-            };
-
-            match (completion, predicate.is_trusted()) {
-                (false, true) => contract.requirements.push(condition),
-                (false, false) => contract.preconditions.push((condition, predicate.domain())),
-                (true, true) => contract.guarantees.push(condition),
-                (true, false) => contract.postconditions.push(condition),
-            }
-        }
-    }
+    let contract = TrustedCallContract::try_from_phases(values, symbols, behavior, completion, completes,
+        |predicate| predicate.condition().map(|term| crate::execution_condition_from_term(values, term, &references))
+            .transpose().map(|condition| condition.unwrap_or_else(ExecutionCondition::unknown)))?;
 
     Ok(Lifecycle {
         call: bray_bound_tree::LifecycleCallable::from_signature(

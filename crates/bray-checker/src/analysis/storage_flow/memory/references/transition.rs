@@ -25,6 +25,7 @@ impl State {
         }
     }
 
+    #[cfg(test)]
     pub(in crate::analysis::storage_flow) fn defer_effects(
         &mut self,
         call: bray_bound_tree::BoundExecutionSite,
@@ -678,6 +679,8 @@ impl State {
         current: &Target,
         retirement: Retirement,
     ) {
+        self.retirements.insert((current.clone(), retirement));
+
         for bounds in self.returned_inputs.values_mut() {
             bounds.retire(current, retirement);
         }
@@ -700,14 +703,6 @@ impl State {
 
         for transfer in self.pending.values_mut() {
             transfer.retire_dependencies(current, retirement);
-        }
-
-        for entries in self.deferred.values_mut() {
-            for transfer in entries.values_mut() {
-                if transfer.references(current, retirement) {
-                    std::sync::Arc::make_mut(transfer).retire_dependencies(current, retirement);
-                }
-            }
         }
 
         if let Origin::Returned { reference, projections } = &current.origin

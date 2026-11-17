@@ -20,7 +20,7 @@ pub enum StorageMutationScope {
 }
 
 /// Storage whose previously observed contents may change at one execution site.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum StorageInvalidation {
     /// An opaque operation can reach storage through untracked aliases.
     All {
@@ -31,7 +31,7 @@ pub enum StorageInvalidation {
         /// Physical reference slots retained independently of their current logical aliases.
         stable_reference_slots: BTreeSet<crate::StorageTarget>,
         /// Classified unchanged values held by this invocation's entry or normal result.
-        normal_snapshots: BTreeMap<(bray_symbols::DependencySubjectRoot, Arc<[crate::StorageProjection]>), crate::StorageObservationKind>,
+        normal_snapshots: BTreeMap<(crate::StorageSnapshotRoot, Arc<[crate::StorageProjection]>), crate::StorageObservationKind>,
         /// Surviving observations of exact typed pointees, without ownership or initialization.
         stable_pointees: BTreeMap<(crate::StorageTarget, bray_symbols::TypeId), BTreeSet<(Arc<[crate::StorageProjection]>, crate::StorageObservationKind)>>,
     },
@@ -59,7 +59,7 @@ pub enum StorageInvalidation {
         /// Physical reference slots retained independently of their current logical aliases.
         stable_reference_slots: BTreeSet<crate::StorageTarget>,
         /// Classified unchanged values held by this invocation's entry or normal result.
-        normal_snapshots: BTreeMap<(bray_symbols::DependencySubjectRoot, Arc<[crate::StorageProjection]>), crate::StorageObservationKind>,
+        normal_snapshots: BTreeMap<(crate::StorageSnapshotRoot, Arc<[crate::StorageProjection]>), crate::StorageObservationKind>,
         /// Surviving observations of exact typed pointees, without ownership or initialization.
         stable_pointees: BTreeMap<(crate::StorageTarget, bray_symbols::TypeId), BTreeSet<(Arc<[crate::StorageProjection]>, crate::StorageObservationKind)>>,
     },
@@ -312,7 +312,7 @@ impl StorageInvalidation {
     }
 
     /// Returns the original observation kinds of captured invocation snapshots.
-    pub fn normal_snapshots(&self) -> Option<&BTreeMap<(bray_symbols::DependencySubjectRoot, Arc<[crate::StorageProjection]>), crate::StorageObservationKind>> {
+    pub fn normal_snapshots(&self) -> Option<&BTreeMap<(crate::StorageSnapshotRoot, Arc<[crate::StorageProjection]>), crate::StorageObservationKind>> {
         match self {
             Self::All { normal_snapshots, .. } | Self::Observed { normal_snapshots, .. } => Some(normal_snapshots),
             Self::Paths(_) => None,

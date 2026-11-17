@@ -6,8 +6,6 @@ use bray_bound_tree::BoundExpressionId;
 use crate::ExecutionCondition;
 use crate::execution_guarantees::ExecutionProof;
 
-pub(super) type DeferredInvocations = BTreeMap<ExecutionCondition, super::deferred::DeferredValue>;
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ExecutionState {
     pub(super) proofs: std::sync::Arc<crate::execution_guarantees::ExecutionProofCache>,
@@ -20,12 +18,8 @@ pub(crate) struct ExecutionState {
     pub(super) current: super::current::CurrentValues,
     pub(super) expressions: BTreeMap<BoundExpressionId, ExecutionCondition>,
     pub(super) pending_results: BTreeMap<BoundExpressionId, ExecutionCondition>,
-    pub(super) owned_results: BTreeMap<
-        ExecutionCondition,
-        bray_symbols::DependencyOwnedResult<bray_bound_tree::StorageProjection, ExecutionCondition>,
-    >,
+    pub(super) owned_results: super::ownership::OwnedResults,
     pub(super) entries: BTreeMap<bray_bound_tree::BoundExecutionSite, crate::ExecutionCallEvidence>,
-    pub(super) deferred_invocations: DeferredInvocations,
     pub(super) completion_dependencies: BTreeSet<crate::ExecutionCompletionDependency>,
 }
 
@@ -41,9 +35,8 @@ impl Default for ExecutionState {
             current: super::current::CurrentValues::default(),
             expressions: BTreeMap::new(),
             pending_results: BTreeMap::new(),
-            owned_results: BTreeMap::new(),
+            owned_results: super::ownership::OwnedResults::default(),
             entries: BTreeMap::new(),
-            deferred_invocations: BTreeMap::new(),
             completion_dependencies: BTreeSet::new(),
         }
     }
@@ -68,6 +61,23 @@ pub(super) fn update_parent_observations(
 }
 
 impl ExecutionState {
+    pub(in crate::analysis) fn ordinary_proof(&self) -> ExecutionProof<'_> {
+        self.proofs.ordinary_proof(&self.assumptions)
+    }
+
+    /// The admitted invocation shared with the physical transition producer.
+    pub(in crate::analysis) fn admitted_receiver(&self, invocation: bray_bound_tree::BoundExecutionSite) -> ExecutionCondition {
+        self.entries.get(&invocation)
+            .and_then(|entry| crate::ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(0)).value_in(&entry.arguments))
+            .unwrap_or_else(ExecutionCondition::unknown)
+    }
+
+    pub(in crate::analysis) fn admitted_call(&self, invocation: bray_bound_tree::BoundExecutionSite)
+        -> Option<&crate::ExecutionCallEvidence>
+    {
+        self.entries.get(&invocation)
+    }
+
     pub(super) fn proof(&self) -> ExecutionProof<'_> {
         self.proofs.proof(&self.trusted_assumptions, &self.assumptions)
     }
@@ -97,7 +107,7 @@ impl ExecutionState {
 
         let captured = owned.iter().filter(|value| {
             matches!(value.ownership_identity(), Some((crate::execution_guarantees::ExecutionObservationKind::Owned, _)))
-        }).filter_map(|value| self.deferred_entries(value))
+        }).filter_map(|value| value.deferred_value())
             .flat_map(|deferred| deferred.producers.values())
             .filter(|candidate| super::deferred::possible(&candidate.selection, &self.proofs.ordinary_proof(&self.assumptions)))
             .flat_map(|candidate| candidate.entry.witness_inputs.iter());
@@ -146,23 +156,57 @@ impl ExecutionState {
         self.trusted_assumptions.retain(|fact| !retired.contains(fact));
     }
 
-    /// Mutate entry snapshots only when their captured context changes.
-    pub(super) fn entry_snapshots_mut<'a>(
-        &'a mut self,
-        changed: &'a impl Fn(&crate::ExecutionCallEvidence) -> bool,
-    ) -> impl Iterator<Item = &'a mut crate::ExecutionCallEvidence> {
-        self.entries
-            .values_mut()
-            .filter(move |entry| changed(entry))
-            .chain(
-                self.deferred_invocations
-                    .values_mut()
-                    .flat_map(|entries| entries.producers.values_mut())
-                    .filter(move |candidate| {
-                        changed(&candidate.entry)
-                    })
-                    .map(|candidate| std::sync::Arc::make_mut(&mut candidate.entry)),
-            )
+    /// Shared frame records reachable from the actual current values and admitted inputs.
+    pub(super) fn deferred_values(&self) -> Vec<std::sync::Arc<crate::execution_guarantees::ExecutionDeferredValue>> {
+        let mut seen = std::collections::HashSet::new();
+
+        self.current.values().chain(self.expressions.values()).chain(self.pending_results.values())
+            .chain(self.entries.values().flat_map(|entry| entry.conditions()))
+            .flat_map(|value| value.deferred_values()).filter(|frame| seen.insert(std::sync::Arc::as_ptr(frame)))
+            .cloned().collect()
+    }
+
+    /// Applies one shared rewrite to current values, private results and admitted evidence.
+    pub(super) fn update_stored_values(&mut self, mut update: impl FnMut(&ExecutionCondition) -> ExecutionCondition) {
+        for value in self.current.values_mut().chain(self.expressions.values_mut()).chain(self.pending_results.values_mut()) {
+            *value = update(value);
+        }
+
+        for entry in self.entries.values_mut() {
+            *entry = entry.try_map_conditions(|value| Ok::<_, std::convert::Infallible>(update(value)))
+                .expect("updating carried frame records is infallible");
+        }
+    }
+
+    /// Replace the actual shared frame record, without searching by a reconstructed owner key.
+    pub(in crate::analysis) fn replace_deferred_value(&mut self, frame: &std::sync::Arc<crate::execution_guarantees::ExecutionDeferredValue>,
+        replacement: Option<std::sync::Arc<crate::execution_guarantees::ExecutionDeferredValue>>,
+    ) {
+        self.update_stored_values(ExecutionCondition::mapping_frames(|_| true, |original, mapped| {
+            if std::sync::Arc::ptr_eq(original, frame) { replacement.clone() }
+            else { Some(std::sync::Arc::clone(mapped)) }
+        }));
+    }
+
+    /// Update admitted snapshots only when the transition invalidates their captured context.
+    pub(super) fn update_entry_snapshots(&mut self,
+        changed: &impl Fn(&crate::ExecutionCallEvidence) -> bool,
+        change: &mut impl FnMut(&mut crate::ExecutionCallEvidence),
+    ) {
+        for entry in self.entries.values_mut().filter(|entry| changed(entry)) { change(entry); }
+
+        self.update_stored_values(ExecutionCondition::mapping_frames(|_| true, |_, frame| {
+            if !frame.producers.values().any(|producer| changed(&producer.entry)) { return Some(std::sync::Arc::clone(frame)); }
+
+            // Only affected immutable frame records detach from their predecessor's shared snapshot.
+            let mut updated = frame.as_ref().clone();
+
+            for producer in updated.producers.values_mut().filter(|producer| changed(&producer.entry)) {
+                change(std::sync::Arc::make_mut(&mut producer.entry));
+            }
+
+            Some(std::sync::Arc::new(updated))
+        }));
     }
 
     pub(super) fn resume_owned_witnesses(
@@ -198,13 +242,6 @@ impl ExecutionState {
         }
     }
 
-    pub(super) fn deferred_entries(
-        &self,
-        value: &ExecutionCondition,
-    ) -> Option<&super::deferred::DeferredValue> {
-        self.deferred_invocations.get(value.owner_identity())
-    }
-
     /// Visits initialized owned components and the checked captures of pending futures.
     pub(super) fn owned_values<'a>(
         &'a self,
@@ -237,13 +274,12 @@ impl ExecutionState {
             pending.extend(value.owned_components().cloned());
 
             if let Some((crate::execution_guarantees::ExecutionObservationKind::Owned, owner)) = value.ownership_identity()
-                && let Some(entries) = self.deferred_invocations.get(owner)
+                && let Some(entries) = value.deferred_value()
             {
                 for (invocation, candidate) in &entries.producers {
                     let entry = &candidate.entry;
 
-                    if deferred.insert((owner.clone(), *invocation)) {
-                        pending.extend(entry.owned_arguments());
+                    if deferred.insert((owner.clone(), invocation.clone())) {
 
                         if extraction_evidence {
                             pending.extend(entry.extracted_values.iter().cloned());
@@ -428,11 +464,13 @@ impl ExecutionState {
             !witness.conditions.is_empty() || !witness.dependencies.is_empty()
         });
 
-        self.deferred_invocations.retain(|value, entries| {
-            entries.retire_selection(|condition| condition.depends_on(mutation));
+        self.update_stored_values(ExecutionCondition::mapping_frames(|_| true, |_, frame| {
+            let mut updated = frame.as_ref().clone();
 
-            !stale(value)
-        });
+            Some(if updated.retire_selection(|condition| condition.depends_on(mutation)) {
+                std::sync::Arc::new(updated)
+            } else { std::sync::Arc::clone(frame) })
+        }));
 
         self.trusted_assumptions
             .retain(|(condition, _)| !stale(condition));
@@ -444,10 +482,21 @@ impl ExecutionState {
 
         self.retire_entry_context(&stale, &stale, &BTreeSet::new());
 
-        for entry in self.entry_snapshots_mut(&|entry| entry.pending_execution
-            && entry.arguments.values().any(stale)) {
-            entry.arguments.retain(|_, value| !stale(value));
-        }
+        self.update_entry_snapshots(
+            &|entry| entry.arguments.values().chain(entry.outputs.conditions()).any(&stale)
+                || entry.witness_inputs.iter().chain(&entry.extracted_values).any(&stale),
+            &mut |entry| {
+                for value in entry.arguments.values_mut() {
+                    *value = value.without_evaluation(mutation);
+                }
+
+                entry.outputs = entry.outputs.try_map(|value| Ok::<_, std::convert::Infallible>(value.without_evaluation(mutation)))
+                    .expect("evaluation retirement is total");
+
+                entry.witness_inputs.retain(|owner| !stale(owner));
+                entry.extracted_values.retain(|value| !stale(value));
+            },
+        );
 
         for value in self
             .current
@@ -455,7 +504,7 @@ impl ExecutionState {
             .chain(self.expressions.values_mut())
             .chain(self.pending_results.values_mut())
         {
-            *value = value.without_evaluation(mutation, &mut { ExecutionCondition::WORK_LIMIT });
+            *value = value.without_evaluation(mutation);
         }
     }
 
@@ -539,7 +588,7 @@ impl ExecutionState {
         // Entry mutation keeps the analysis cache shared without borrowing the mutable state.
         let proofs = std::sync::Arc::clone(&self.proofs);
 
-        for entry in self.entry_snapshots_mut(&|entry| entry.pending_execution && {
+        self.update_entry_snapshots(&|entry| entry.pending_execution && {
             let owners = entry.owned_arguments().collect::<crate::execution_guarantees::RetainedSnapshots>();
             let admission = private_admission_facts(entry, &private_witnesses, &proofs);
 
@@ -556,7 +605,7 @@ impl ExecutionState {
                     .trusted_assumptions
                     .iter()
                     .any(|fact| !preserves_owned(fact, &owners, &admission))
-        }) {
+        }, &mut |entry| {
             let owners = entry.owned_arguments().collect::<crate::execution_guarantees::RetainedSnapshots>();
             let admission = private_admission_facts(entry, &private_witnesses, &proofs);
 
@@ -573,7 +622,7 @@ impl ExecutionState {
                 .retain(|fact| preserves_owned(fact, &owners, &admission));
 
             entry.trusted_boundary = false;
-        }
+        });
     }
 
     pub(super) fn join_values(
@@ -587,32 +636,17 @@ impl ExecutionState {
         let rename = |value: &ExecutionCondition| substitution.value(value);
         let rename_identity = |value: &ExecutionCondition| substitution.owner(value);
 
-        let mut computations = DeferredInvocations::new();
+        let mut replacements = Vec::new();
 
-        for (owner, mut entries) in std::mem::take(&mut self.deferred_invocations) {
-            let value = rename_identity(&owner);
+        for frame in self.deferred_values() {
+            let mut joined = frame.as_ref().clone();
 
-            if value == ExecutionCondition::unknown() {
-                continue;
-            }
+            joined.join_values(substitution, &self.current, Some(&self.assumptions));
 
-            entries.join_values(
-                substitution,
-                &self.current,
-                (value != owner).then_some(&self.assumptions),
-            );
-
-            match computations.entry(value) {
-                std::collections::btree_map::Entry::Vacant(slot) => {
-                    slot.insert(entries);
-                }
-                std::collections::btree_map::Entry::Occupied(mut slot) => {
-                    slot.get_mut().merge(&entries, &self.proofs);
-                }
-            }
+            if joined != *frame { replacements.push((frame, std::sync::Arc::new(joined))); }
         }
 
-        self.deferred_invocations = computations;
+        for (frame, joined) in replacements { self.replace_deferred_value(&frame, Some(joined)); }
 
         // Even identity-only joins prune stale frame captures above. They do not
         // rename the remaining value snapshots, carrier clauses or storage identities.
@@ -643,7 +677,7 @@ impl ExecutionState {
             .filter(|(condition, _)| *condition != ExecutionCondition::unknown())
             .collect();
 
-        let mut ownership = BTreeMap::new();
+        let mut ownership = super::ownership::OwnedResults::default();
 
         for (value, result) in std::mem::take(&mut self.owned_results) {
             let value = rename(&value);
@@ -732,6 +766,49 @@ mod tests {
 
     use super::ExecutionState;
     use crate::{ExecutionCondition, ExecutionPlace};
+
+    #[test]
+    fn rewriting_shared_frames_retains_all_holders_and_distinct_equal_frames() {
+        let (_, expressions) = crate::test_support::integer_expression_unit(bray_bound_tree::BoundUnitId::new(0), 3);
+
+        let site: bray_bound_tree::BoundExecutionSite = expressions[0].into();
+
+        let frame = Arc::new(crate::ExecutionDeferredValue {
+            producers: [(site.into(), crate::ExecutionDeferredInvocation {
+                callee: None,
+                transition: None,
+                entry: Arc::new(crate::ExecutionCallEvidence::default()),
+                reports: Default::default(),
+                selection: [(input(3), true)].into(),
+            })].into(),
+            unknown: None,
+        });
+
+        let independent = Arc::new(frame.as_ref().clone());
+        let mut state = ExecutionState::default();
+
+        for (index, owner) in [(0, &frame), (1, &frame), (2, &independent)] {
+            state.expressions.insert(expressions[index], input(index as u32).with_deferred_value(Arc::clone(owner)));
+        }
+
+        state.entries.entry(site).or_default().arguments.insert(
+            ExecutionPlace::argument(SymbolOrdinal::new(0)), input(1).with_deferred_value(Arc::clone(&frame)));
+
+        state.update_entry_snapshots(&|entry| !entry.pending_execution, &mut |entry| entry.pending_execution = true);
+
+        let updated = state.expressions[&expressions[0]].deferred_value().unwrap().clone();
+
+        assert!(!Arc::ptr_eq(&updated, &frame));
+        assert!(Arc::ptr_eq(&updated, state.expressions[&expressions[1]].deferred_value().unwrap()));
+        assert_eq!(updated.as_ref(), state.expressions[&expressions[2]].deferred_value().unwrap().as_ref());
+
+        state.replace_deferred_value(&updated, None);
+
+        assert!(state.expressions[&expressions[0]].deferred_value().is_none());
+        assert!(state.expressions[&expressions[1]].deferred_value().is_none());
+        assert!(state.expressions[&expressions[2]].deferred_value().is_some());
+        assert!(state.entries[&site].arguments.values().all(|value| value.deferred_value().is_none()));
+    }
 
     #[test]
     fn private_admission_keeps_only_proved_owning_clauses() {
@@ -1051,6 +1128,7 @@ mod tests {
             state.allocation_owners.insert(condition.clone(), owner.clone());
 
             state.entries.insert(invocation, crate::ExecutionCallEvidence {
+                outputs: Default::default(),
                 arguments: [(ExecutionPlace::argument(SymbolOrdinal::new(0)), owner.clone())].into(),
                 owned_inputs: if owned { [SymbolOrdinal::new(0)].into() } else { [].into() },
                 witness_inputs: if recorded { [owner.clone()].into() } else { BTreeSet::new() },
@@ -1657,6 +1735,7 @@ mod tests {
         state.entries.insert(
             occurrence,
             crate::ExecutionCallEvidence {
+                outputs: Default::default(),
                 implementation_witnesses: Default::default(),
                 witness_inputs: Default::default(),
                 extracted_values: Default::default(),
@@ -1681,13 +1760,13 @@ mod tests {
         assert_eq!(current.clone().project(marker), unchanged);
         assert_eq!(current.project(payload), ExecutionCondition::unknown());
 
-        state.assign(place, old.clone(), None);
+        state.assign(place.clone(), old.clone(), None);
 
         assert!(!state.owns_witness(&old));
         assert!(!state.trusted_assumptions.contains(&(old, true)));
         assert!(state.owns_witness(&sibling));
         assert!(state.trusted_assumptions.contains(&(sibling, true)));
-        assert!(state.entries[&occurrence].arguments.is_empty());
+        assert_eq!(state.entries[&occurrence].arguments[&place], ExecutionCondition::unknown());
         assert!(state.entries[&occurrence].trusted_assumptions.is_empty());
     }
 

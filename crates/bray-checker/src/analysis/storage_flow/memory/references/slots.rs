@@ -1,6 +1,6 @@
-use super::super::model::DependencyCompleteness;
+pub(in crate::analysis::storage_flow::memory) use bray_bound_tree::{selected_storage_values as selected_subtree, storage_selector_parent as selector_parent, storage_value_subtree as storage_subtree};
 use super::super::model::{
-    Contents, Origin, Place, ReferenceExit, Retirement, State, ValueBinding, Target, Transfer,
+    Contents, DependencyCompleteness, Origin, Place, ReferenceExit, Retirement, State, ValueBinding, Target, Transfer,
 };
 #[cfg(test)]
 use super::super::model::AddressValue;
@@ -442,21 +442,6 @@ impl State {
         slot.is_exact() && self.has_value(&Target::storage(slot.clone()))
     }
 
-    pub(super) fn transferred_slots<'a>(
-        &'a self,
-        source: &'a Target,
-        destination: &'a Target,
-    ) -> impl Iterator<Item = (Target, ValueBinding, bool)> + 'a {
-        selected_subtree(&self.values, source)
-            .map(move |(slot, references)| {
-                let overlap = slot.projections()[..source.projections().len()] != *source.projections();
-                let slot = destination.project(&slot.projections()[source.projections().len()..]);
-
-                // The receiver owns each copied value while target paths remain shared.
-                (slot, references.clone(), overlap)
-            })
-    }
-
     pub(in crate::analysis::storage_flow) fn transfer_value(
         &mut self,
         source: &Target,
@@ -501,59 +486,8 @@ impl State {
         }
     }
 
-    pub(in crate::analysis::storage_flow::memory) fn capture_value(
-        &self,
-        source: &Target,
-        destination: &Target,
-    ) -> Transfer {
-        let inexact = selector_parent(source).is_some();
-        let complete = self.values.get(source).is_some_and(|value| value.whole_complete());
-        let mut values = BTreeMap::<Target, ValueBinding>::new();
-
-        for (slot, mut value, overlap) in self.transferred_slots(source, destination) {
-            if inexact || overlap {
-                for references in value.references_mut() {
-                    references.bound();
-                }
-
-                if inexact && value.completeness.tracked() && !complete {
-                    value.completeness.lose_completeness();
-                }
-            }
-
-            values.entry(slot).and_modify(|current| { current.merge(&value); }).or_insert(value);
-        }
-
-        if inexact && !complete {
-            let value = values.entry(destination.clone()).or_default();
-
-            if !value.is_no_payload() { value.completeness = DependencyCompleteness::Partial; }
-        }
-
-        let mut transfer = Transfer {
-            values,
-            payloads: Default::default(),
-            deferred: self.capture_deferred_value(source, destination),
-            ..Default::default()
-        };
-
-        for (target, contents) in selected_subtree(&self.contents, source) {
-            let suffix = &target.projections()[source.projections().len()..];
-
-            if suffix.contains(&StorageProjection::UninitPayload) {
-                // Evaluated inline storage owns its contents after the source is consumed.
-                let slot = destination.project(suffix);
-                let mut contents = self.evaluated.get(target).unwrap_or(contents).clone();
-
-                if inexact || target.projections()[..source.projections().len()] != *source.projections() {
-                    contents.initialized.clear();
-                }
-
-                transfer.payloads.entry(slot.clone()).and_modify(|previous| { previous.merge(&contents, &slot); }).or_insert(contents);
-            }
-        }
-
-        transfer
+    pub(in crate::analysis::storage_flow::memory) fn capture_value(&self, source: &Target, destination: &Target) -> Transfer {
+        Transfer::capture(&self.values, &self.contents, &self.evaluated, source, destination)
     }
 
     /// Select the element directly addressed by a buffer's base pointer.
@@ -568,13 +502,16 @@ impl State {
 
         captured.values.retain(|target, _| inline(target));
         captured.payloads.retain(|target, _| inline(target));
-        captured.deferred.retain(|target, _| inline(target));
 
         captured
     }
 
     pub(in crate::analysis::storage_flow) fn finish_value_transfers(&mut self) {
         self.evaluated.clear();
+    }
+
+    pub(in crate::analysis::storage_flow) fn take_retirements(&mut self) -> BTreeSet<(Target, Retirement)> {
+        std::mem::take(&mut self.retirements)
     }
 
     pub(in crate::analysis::storage_flow::memory) fn commit_value(
@@ -608,7 +545,6 @@ impl State {
 
         self.values.extend(transfer.values);
         self.contents.extend(transfer.payloads);
-        self.deferred.extend(transfer.deferred);
 
         // Retired bounds stay in their historical epoch. This completion publishes
         // only the regions of the newly produced reference.
@@ -627,7 +563,6 @@ impl State {
     pub(in crate::analysis::storage_flow) fn clear_value(&mut self, target: &Target) {
         // Only the replaced subtree is visited, even when the function has many live values.
         take_subtree(&mut self.values, target, Retirement::Storage).for_each(drop);
-        take_subtree(&mut self.deferred, target, Retirement::Storage).for_each(drop);
     }
 
     pub(in crate::analysis::storage_flow) fn offset(
@@ -688,74 +623,6 @@ impl State {
             self.forget(identity);
         }
     }
-}
-
-/// The exact prefix before the first dynamic selector, retaining origin and epoch.
-pub(super) fn selector_parent(target: &Target) -> Option<Target> {
-    let length = target.projections().iter().position(|projection| !projection.is_exact())?;
-
-    Some(target_prefix(target, length))
-}
-
-fn target_prefix(target: &Target, length: usize) -> Target {
-    let mut prefix = target.clone();
-
-    match &mut prefix.origin {
-        Origin::Storage(path) => path.projections = path.projections[..length].into(),
-        Origin::Entry { projections, .. } | Origin::Returned { projections, .. }
-        | Origin::Allocation { projections, .. } | Origin::Static { projections, .. } => {
-            *projections = projections[..length].into();
-        }
-    }
-
-    prefix
-}
-
-pub(in crate::analysis::storage_flow::memory) fn storage_subtree<'a, V>(
-    values: &'a BTreeMap<Target, V>,
-    root: &'a Target,
-) -> impl Iterator<Item = (&'a Target, &'a V)> + 'a {
-    values.range(root.clone()..)
-        .take_while(|(slot, _)| root.contains(slot))
-        .filter(|(slot, _)| root.contains_storage(slot))
-}
-
-pub(super) fn selected_subtree<'a, V>(
-    values: &'a BTreeMap<Target, V>,
-    source: &'a Target,
-) -> impl Iterator<Item = (&'a Target, &'a V)> + 'a {
-    let dynamic = selector_parent(source).is_some();
-
-    let prefix = source.projections().iter().position(|projection| {
-        !projection.is_exact() || matches!(projection, StorageProjection::ElementFromStart(_) | StorageProjection::ElementFromEnd(_))
-    }).map_or_else(|| source.clone(), |length| target_prefix(source, length));
-
-    let widened = prefix != *source;
-    let limit = prefix.clone();
-
-    values.range(prefix.clone()..)
-        .take_while(move |(slot, _)| limit.contains(slot))
-        .filter(move |(slot, _)| {
-            let length = source.projections().len();
-
-            if slot.projections().len() < length
-                || !StorageProjection::remains_in_allocation(&slot.projections()[length..])
-            {
-                return false;
-            }
-
-            if !widened {
-                return true;
-            }
-
-            target_prefix(slot, prefix.projections().len()) == prefix
-                && StorageProjection::relationship(
-                    source.projections(), &slot.projections()[..length],
-                ) != bray_bound_tree::StorageRelationship::Disjoint
-                && (dynamic || slot.projections()[..length].iter().zip(source.projections()).all(|(actual, requested)| {
-                    actual == requested || matches!(actual, StorageProjection::AnyElement)
-                }))
-        })
 }
 
 fn is_entry_slot(contents: &BTreeMap<Target, Contents>, slot: &Place) -> bool {

@@ -560,7 +560,7 @@ impl SemanticValueStore {
             .collect()
     }
 
-    fn substitute_static_reference(
+    pub(in crate::value) fn substitute_static_reference(
         &self,
         selection: &StaticReferenceSelection,
         substitution: &Substitution<'_>,

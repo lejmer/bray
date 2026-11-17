@@ -121,6 +121,16 @@ pub enum DependencyMutationKind<Type = super::TypeId> {
     Retire,
 }
 
+impl<Type> DependencyMutationKind<Type> {
+    /// Removes the layout claim of a mutation known only through its footprint.
+    pub fn region_kind(self) -> Self {
+        match self {
+            Self::Dispose(ty) => Self::Cleanup(ty),
+            other => other,
+        }
+    }
+}
+
 /// A possible mutation expressed over entry values, separately from their reference targets.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum DependencyStorageEffect<
@@ -147,6 +157,8 @@ pub enum DependencyStorageEffect<
     },
     /// Mutate the value slot named by the formal subject.
     Direct {
+        /// Whether the complete route supplies the evaluated operand as well as its footprint.
+        addressed: bool,
         /// Entry value slot.
         subject: Subject,
         /// Original checked access type, independent of the region that bounds aliases.
@@ -157,9 +169,14 @@ pub enum DependencyStorageEffect<
     },
     /// Mutate storage reached by the reference value held in an entry slot.
     Indirect {
+        /// Whether the complete route supplies the evaluated operand as well as its footprint.
+        addressed: bool,
         /// Slot containing the entry reference. Reassigning this slot does not change that identity.
         reference: Subject,
-        /// Checked projections after dereferencing the entry reference.
+        /// Projection positions at which execution reads another stored descriptor.
+        /// Equal positions denote successive pointers without an intervening component.
+        reads: Arc<[u32]>,
+        /// Checked components selected between reads and after the final read.
         projections: Arc<[Projection]>,
         /// Original checked access type, independent of the region that bounds aliases.
         /// Forwarding a raw access through a borrowed owner preserves this type.
@@ -170,6 +187,30 @@ pub enum DependencyStorageEffect<
 }
 
 impl<Subject, Projection, Type> DependencyStorageEffect<Subject, Projection, Type> {
+    /// Keeps this route as a footprint after losing the actual operand.
+    pub fn into_region(self) -> Self {
+        match self {
+            Self::Direct { subject, kind, access_type, .. } => Self::Direct {
+                subject, addressed: false, kind: kind.region_kind(), access_type,
+            },
+            Self::Indirect { reference, reads, projections, kind, access_type, .. } => Self::Indirect {
+                reference, reads, projections, addressed: false, kind: kind.region_kind(), access_type,
+            },
+            effect => effect,
+        }
+    }
+
+    /// Whether the route can be executed in order and its precision admits the requested layout.
+    pub fn is_valid_route(&self) -> bool {
+        match self {
+            Self::Direct { addressed: false, kind: DependencyMutationKind::Dispose(_), .. }
+            | Self::Indirect { addressed: false, kind: DependencyMutationKind::Dispose(_), .. } => false,
+            Self::Indirect { reads, projections, .. } => reads.is_sorted()
+                && reads.last().is_none_or(|index| (*index as usize) <= projections.len()),
+            _ => true,
+        }
+    }
+
     /// Entry slot whose value or reference bounds this effect.
     pub fn subject(&self) -> Option<&Subject> {
         match self {
@@ -300,13 +341,13 @@ mod tests {
     fn unresolved_atomic_effect_absorbs_only_narrower_atomic_effects() {
         let subject = DependencySubject::root(super::super::DependencySubjectRoot::Receiver);
 
-        let write: DependencyStorageEffect = DependencyStorageEffect::Direct {
+        let write: DependencyStorageEffect = DependencyStorageEffect::Direct { addressed: true,
             subject: subject.clone(),
             kind: DependencyMutationKind::Write,
             access_type: None,
         };
 
-        let atomic = DependencyStorageEffect::Direct {
+        let atomic = DependencyStorageEffect::Direct { addressed: true,
             subject,
             kind: DependencyMutationKind::Atomic,
             access_type: None,
@@ -335,7 +376,7 @@ mod tests {
 
         assert!(unchanged.effects().is_empty());
 
-        let write: DependencyStorageEffect = DependencyStorageEffect::Direct {
+        let write: DependencyStorageEffect = DependencyStorageEffect::Direct { addressed: true,
             subject: DependencySubject::root(super::super::DependencySubjectRoot::Receiver),
             kind: DependencyMutationKind::Write,
             access_type: None,

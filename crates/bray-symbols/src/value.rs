@@ -1,6 +1,7 @@
 mod effect;
 pub use effect::{DependencyEffectOutcomes, DependencyMutationKind, DependencyStorageEffect};
 mod application;
+mod captured;
 mod constant;
 mod contextual_self;
 mod dependency;
@@ -18,6 +19,7 @@ pub use application::{
     CallableDefinitionId, CallableInstanceData, ImplementationInstanceData, PredicateInstanceData,
     TraitApplicationData,
 };
+pub use captured::{CapturedCallable, CapturedDeferredInvocation, CapturedValueOutcome, CapturedValueOperation, CapturedValueTemplate};
 pub use constant::{
     AnyConstantDefinitionId, ConstantBinaryOperation, ConstantField, ConstantProjection,
     ConstantProjectionKind, ConstantTermData, ConstantUnaryOperation, ConstantValueData,

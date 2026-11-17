@@ -73,6 +73,8 @@ impl InterfaceSemantics {
         }
 
         for contract in &*self.dependency_contracts {
+            self.validate_captured_value_graph(contract, symbol_count, dependency_count, limits)?;
+
             if !is_strictly_sorted(&contract.requirements)
                 || !is_strictly_sorted(&contract.synchronous_cleanup)
                 || contract
@@ -99,11 +101,11 @@ impl InterfaceSemantics {
                 }
             }
 
-            self.validate_owned_result_graph(
-                &contract.owned_result, symbol_count, dependency_count, limits,
-            )?;
+            for outcome in &*contract.captured_values {
+                self.validate_owned_result_graph(&outcome.ownership, symbol_count, dependency_count, limits)?;
+            }
 
-            for carrier in &*contract.carriers {
+            for carrier in contract.captured_values.iter().flat_map(|row| row.carriers.iter()) {
                 validate_index(carrier.guarantee().to_index(), self.constant_terms.len())?;
 
                 for projection in carrier.path() {
@@ -174,6 +176,9 @@ impl InterfaceSemantics {
             }
 
             for effect in contract.effects.possible() {
+                if !effect.is_valid_route() {
+                    return Err(crate::semantic::codec::invalid_value(crate::InterfaceValidationField::Dependency));
+                }
 
                 for ty in effect.referenced_types() {
                     validate_index(ty.to_index(), self.types.len())?;
@@ -793,7 +798,7 @@ impl InterfaceSemantics {
         Ok(())
     }
 
-    fn validate_dependency_subject(
+    pub(in crate::semantic::validation) fn validate_dependency_subject(
         &self,
         subject: &InterfaceDependencySubject,
         symbol_count: usize,
@@ -825,7 +830,7 @@ impl InterfaceSemantics {
         self.validate_dependency_projections(&subject.projections, symbol_count, dependency_count)
     }
 
-    fn validate_dependency_projections(
+    pub(in crate::semantic::validation) fn validate_dependency_projections(
         &self,
         projections: &[InterfaceDependencyProjection],
         symbol_count: usize,
@@ -1074,6 +1079,25 @@ mod tests {
     }
 
     #[test]
+    fn outcome_witness_carriers_require_canonical_wire_order() {
+        let term = InterfaceConstantTermId::new;
+
+        for (ids, accepted) in [([0, 1], true), ([1, 0], false), ([0, 0], false)] {
+            let mut row = crate::InterfaceNormalOutcome::new(None, []);
+
+            row.carriers = ids.map(|id| DependencyWitnessCarrier::new(term(id), [])).into();
+
+            let semantics = InterfaceSemantics {
+                constant_terms: [0, 1].map(|index| InterfaceConstantTerm::CallableArgument(SymbolOrdinal::new(index))).into(),
+                dependency_contracts: [InterfaceDependencyContract::new([]).with_captured_values([row])].into(),
+                ..Default::default()
+            };
+
+            assert_eq!(semantics.validate_value_graph(0, 0, InterfaceValidationLimits::default()).is_ok(), accepted);
+        }
+    }
+
+    #[test]
     fn carrier_array_paths_require_fixed_unsigned_ordinals() {
 
         for (kind, dynamic, valid) in [
@@ -1112,14 +1136,14 @@ mod tests {
                 constant_values: vec![InterfaceConstantValue::new(InterfaceTypeId::new(0), kind)]
                     .into(),
                 constant_terms: vec![term].into(),
-                dependency_contracts: vec![InterfaceDependencyContract::new([]).with_carriers([
+                dependency_contracts: vec![InterfaceDependencyContract::new([]).with_captured_values([crate::InterfaceNormalOutcome::new(None, []).with_carriers([
                     DependencyWitnessCarrier::new(
                         InterfaceConstantTermId::new(0),
                         [InterfaceDependencyProjection::Element(
                             InterfaceConstantTermId::new(0),
                         )],
                     ),
-                ])]
+                ])])]
                 .into(),
                 ..InterfaceSemantics::default()
             };

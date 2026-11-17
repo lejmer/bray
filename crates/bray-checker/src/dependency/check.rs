@@ -6,7 +6,7 @@ use bray_bound_tree::{
     DependencyContractInstantiationError, SemanticSelection, StoragePlan,
 };
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
-use bray_symbols::CallableSignatureQuery;
+use bray_symbols::{CallableSignatureQuery, ExactSymbolId};
 
 use super::call::{selected_call_contracts, selected_implicit_contracts};
 use super::operation::{operation_access_requirements, operation_requirements};
@@ -288,6 +288,9 @@ where
     let prepared = super::conditions::references(request).and_then(|references| {
         prepare_static_carriers(request, contracts.with_condition_references(references))
     }).and_then(|contracts| {
+        let callees = frame_callees(request, &contracts)?;
+        let contracts = contracts.with_frame_callees(callees);
+
         let variants = super::projection::prepare_variants(
             request,
             &contracts,
@@ -403,8 +406,52 @@ fn prepare_static_carriers<C: CheckerRequestContext + ?Sized>(
 
         let template = values.dependency_contract_template_data(template);
 
-        static_carriers.insert(selection.clone(), template.carriers().into());
+        static_carriers.insert(selection.clone(), template.common_carriers());
     }
 
     Ok(contracts.with_static_carriers(static_carriers))
+}
+
+/// Resolve only callees named in a produced value. Their own results remain demand-driven.
+fn frame_callees<C>(
+    request: CheckerUnitView<'_, C>,
+    contracts: &CheckedDependencyContracts,
+) -> crate::CheckerQueryResult<BTreeMap<bray_symbols::CapturedCallable, bray_bound_tree::BoundDeferredCallable>, C::UpstreamError>
+where C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized {
+    let mut callees = BTreeMap::new();
+    let values = request.semantic_values();
+
+    let bindings = contracts.calls().values().flat_map(|call| call.captured_values())
+        .chain(contracts.lifecycle_dependencies().values().flat_map(|contract| contract.captured_values()));
+
+    for callee in bindings.flat_map(|outcome| outcome.bindings.iter()).flat_map(|(_, value)| value.callees()) {
+        if callees.contains_key(callee) { continue; }
+
+        let instance = values.callable_instance_data(callee.instance);
+
+        let (instance, contextual_self) = match callee.requirement {
+            Some(requirement) if bray_symbols::TraitCallableMemberSymbolId::try_from_any(instance.definition().symbol()).is_some() => {
+                let witnesses = callee.dispatch.iter().chain(&*callee.witnesses).copied().collect::<Vec<_>>();
+
+                let Some((selected, context, _)) = request.context().witness_callable(callee.instance, requirement, &witnesses)? else { continue; };
+
+                (selected, Some((context, requirement.subject())))
+            }
+            _ => (*instance, None),
+        };
+
+        let summary = request.callable_result_dependencies(instance.definition().callable_symbol())?;
+
+        let summary = super::witness::instantiate_template(request, summary, super::parameters::ResultKey {
+            callable: instance, contextual_self, output: bray_symbols::DependencyCallOutput::Value,
+        })?;
+
+        callees.insert(callee.clone(), bray_bound_tree::BoundDeferredCallable {
+            summary: values.intern_dependency_contract_template(summary.as_ref().clone()).expect("selected body belongs to its store"),
+            hook: request.implementation_hook(instance.definition().symbol())?
+                .filter(|resolution| resolution.is_available()).map(|resolution| resolution.hook()),
+        });
+    }
+
+    Ok(callees)
 }

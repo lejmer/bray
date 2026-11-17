@@ -651,7 +651,7 @@ fn prepare_effects<'a, C: CheckerRequestContext + ?Sized>(
     let mut atomic = false;
 
     'effects: for effect in effects {
-        let (mut ty, projections) = match effect {
+        let (mut ty, projections, reads) = match effect {
             Effect::Atomic | Effect::Direct { kind: Mutation::Atomic, .. }
             | Effect::Indirect { kind: Mutation::Atomic, .. }
             | Effect::UnboundedMutation { kind: Mutation::Atomic, .. } => {
@@ -660,30 +660,40 @@ fn prepare_effects<'a, C: CheckerRequestContext + ?Sized>(
             }
             Effect::Direct { kind: Mutation::Replace(ty), .. }
             | Effect::Indirect { kind: Mutation::Replace(ty), .. }
-            | Effect::UnboundedMutation { kind: Mutation::Replace(ty), .. } => (*ty, &[][..]),
+            | Effect::UnboundedMutation { kind: Mutation::Replace(ty), .. } => (*ty, &[][..], &[][..]),
             Effect::Direct { access_type: Some(ty), kind: Mutation::Write | Mutation::Consume | Mutation::Clear, .. }
             | Effect::Indirect { access_type: Some(ty), kind: Mutation::Write | Mutation::Consume | Mutation::Clear, .. }
             | Effect::UnboundedMutation { access_type: Some(ty), kind: Mutation::Write | Mutation::Consume | Mutation::Clear, .. }
                 if crate::representation::reference_kind(request, *ty) == Some(bray_symbols::DependencyReferenceKind::Address) => {
                 let Some(ty) = crate::representation::reference_target_type(request, *ty) else { continue; };
 
-                (ty, &[][..])
+                (ty, &[][..], &[][..])
             }
             Effect::Direct { subject, kind: Mutation::Write | Mutation::Consume | Mutation::Clear, .. } => {
                 let Some(ty) = reference_type(subject) else { continue; };
 
-                (ty, &[][..])
+                (ty, &[][..], &[][..])
             }
-            Effect::Indirect { reference, projections, kind: Mutation::Write | Mutation::Consume | Mutation::Clear, .. } => {
+            Effect::Indirect { reference, projections, reads, kind: Mutation::Write | Mutation::Consume | Mutation::Clear, .. } => {
                 let Some(ty) = reference_type(reference) else { continue; };
 
                 // A lifecycle root already denotes its physical receiver.
-                (crate::representation::reference_target_type(request, ty).unwrap_or(ty), projections.as_ref())
+                (crate::representation::reference_target_type(request, ty).unwrap_or(ty), projections.as_ref(), reads.as_ref())
             }
             _ => continue,
         };
 
-        for projection in projections {
+        let mut reads = reads.iter().copied().peekable();
+
+        for index in 0..=projections.len() {
+            while reads.next_if(|read| *read as usize == index).is_some() {
+                let Some(target) = crate::representation::reference_target_type(request, ty) else { continue 'effects; };
+
+                ty = target;
+            }
+
+            let Some(projection) = projections.get(index) else { break; };
+
             let projected = crate::storage::projected_value_type(request, ty, *projection)?;
 
             let Some(projected) = *projected.value() else { continue 'effects; };

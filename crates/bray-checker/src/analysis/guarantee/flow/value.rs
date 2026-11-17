@@ -146,41 +146,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }
     }
 
-    pub(in crate::analysis::guarantee) fn borrowed_value(
-        &self,
-        state: &ExecutionState,
-        expression: BoundExpressionId,
-    ) -> ExecutionCondition {
-        let value = self.value(state, expression);
-
-        let Some(flow) = self.checked_body.map(bray_bound_tree::CheckedBodySemantics::storage_flow) else {
-            return value;
-        };
-
-        let Some(completion) = flow.completion(bray_bound_tree::StorageMutation::Operation(expression.into())) else {
-            return value;
-        };
-
-        let observe = |path: &bray_bound_tree::StoragePath| {
-            let target = completion.references().get(path)?;
-
-            self.current_target_value(state, target, self.borrowed_path_type(path))
-        };
-
-        let contents = self.storage.node_plans(expression.into())
-            .filter_map(|plan| self.storage.logical_path(plan.access()))
-            .find_map(observe)
-            .or_else(|| self.storage.temporary(expression)
-                .and_then(|root| observe(&bray_bound_tree::StoragePath::root(root))));
-
-        // The evaluated reference retains its identity even if its source binding
-        // was replaced. Physical completion names the storage it still reaches.
-        match contents {
-            Some(contents) => value.with_referent(contents),
-            None => value,
-        }
-    }
-
     pub(in crate::analysis) fn invocation_value(
         &self,
         state: &ExecutionState,
@@ -237,6 +202,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         value: &ExecutionCondition,
     ) -> Option<bray_symbols::TypeId> {
         match value.kind() {
+            crate::ExecutionConditionKind::CapturedValue { value, .. } | crate::ExecutionConditionKind::DeferredValue { value, .. } => self.observation_type(value),
             crate::ExecutionConditionKind::Result => self.storage.identity_entries().find_map(|(identity, storage)| {
                 matches!(storage, bray_bound_tree::StorageIdentity::PostconditionResult(_))
                     .then(|| self.storage.storage_type(identity)).flatten()
@@ -314,17 +280,13 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             bray_bound_tree::StorageIdentity::Temporary(expression)
             | bray_bound_tree::StorageIdentity::Allocation(expression)
             | bray_bound_tree::StorageIdentity::Result(AnyBoundNodeId::Expression(expression)) => {
-                // Physical frame storage can find the actual retained frame after
-                // its expression-cache lifetime ends. A missing frame is not recreated.
-                state.deferred_invocations.keys().find(|owner| {
-                    matches!(owner.kind(), crate::ExecutionConditionKind::Expression(source) if *source == expression)
-                }).cloned().unwrap_or_else(|| self.value(state, expression))
+                self.value(state, expression)
             }
             _ => ExecutionCondition::unknown(),
         }
     }
 
-    pub(in crate::analysis::guarantee) fn storage_path_value(
+    pub(in crate::analysis) fn storage_path_value(
         &self,
         state: &ExecutionState,
         path: &bray_bound_tree::StoragePath,
@@ -443,11 +405,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         state.assign(place, value, None);
     }
 
-    pub(in crate::analysis) fn task_invocations(
+    pub(in crate::analysis) fn task_receiver(
         &self,
         state: &ExecutionState,
         expression: BoundExpressionId,
-    ) -> Option<std::collections::BTreeSet<bray_bound_tree::BoundExecutionSite>> {
+    ) -> Option<ExecutionCondition> {
         let bray_bound_tree::SemanticSelection::Call(call) =
             self.semantics.selections().expression(expression)?
         else {
@@ -458,14 +420,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             call.implementation_hook()?,
         )?;
 
-        let value = self.receiver_value(state, expression, call);
-
-        state
-            .deferred_entries(&value)?
-            .known_sources(&state.proofs.ordinary_proof(&state.assumptions))
+        Some(state.admitted_receiver(expression.into()))
     }
 
-    pub(super) fn started_future(
+    pub(in crate::analysis) fn started_future(
         &self,
         state: &ExecutionState,
         expression: BoundExpressionId,
@@ -481,7 +439,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             return None;
         }
 
-        Some(self.receiver_value(state, expression, call))
+        let entry = state.entries.get(&expression.into())?;
+
+        crate::ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(0)).value_in(&entry.arguments)
     }
 
     pub(in crate::analysis::guarantee) fn receiver_value(
@@ -521,10 +481,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }
 
         let value = self.storage_path_value(state, path);
-        let entries = state.deferred_entries(&value)?;
+        let entries = value.deferred_value()?;
         let mut captures = std::collections::BTreeSet::new();
 
-        for source in entries.known_sources(&state.proofs.ordinary_proof(&state.assumptions))? {
+        for source in entries.known_sources(&state.ordinary_proof())? {
             let types = self
                 .disposal
                 .plan
@@ -537,34 +497,20 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         Some(captures.into_iter().collect())
     }
 
-    pub(in crate::analysis) fn deferred_cleanup_invocations(
+    pub(in crate::analysis) fn deferred_cleanup_frame(
         &self,
         state: &ExecutionState,
         ty: bray_symbols::TypeId,
         path: &bray_bound_tree::StoragePath,
-    ) -> Option<std::collections::BTreeSet<bray_bound_tree::BoundExecutionSite>> {
+    ) -> Option<std::sync::Arc<crate::ExecutionDeferredValue>> {
         if crate::representation::type_representation(self.request, ty)
             .is_none_or(|role| !matches!(role, bray_compiler_known::RepresentationRole::Task | bray_compiler_known::RepresentationRole::Future))
         {
             return None;
         }
 
-        state
-            .deferred_entries(&self.storage_path_value(state, path))?
-            .known_sources(&state.proofs.ordinary_proof(&state.assumptions))
+        self.storage_path_value(state, path).deferred_value()
+            .filter(|frame| !frame.unknown_possible(&state.ordinary_proof())).cloned()
     }
 
-    /// Whether a known task can run cleanup for its captured values.
-    pub(in crate::analysis) fn task_has_capture_cleanup(
-        &self,
-        sources: &std::collections::BTreeSet<bray_bound_tree::BoundExecutionSite>,
-    ) -> Option<bool> {
-        let mut cleanup = false;
-
-        for source in sources {
-            cleanup |= !self.disposal.plan.future_capture_cleanup.get(&source.expression()?)?.is_empty();
-        }
-
-        Some(cleanup)
-    }
 }

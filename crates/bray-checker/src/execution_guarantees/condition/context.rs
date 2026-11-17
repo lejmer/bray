@@ -270,6 +270,10 @@ impl<'a> ExecutionProof<'a> {
             .filter(|(condition, _)| !condition.contains_trusted())
     }
 
+    pub(in crate::execution_guarantees) fn cache(&self) -> Option<&ExecutionProofCache> {
+        self.cache.map(|(cache, _, _)| cache)
+    }
+
     pub(crate) fn can_assume(&self, condition: &ExecutionCondition, value: bool) -> bool {
         if condition.is_unknown() { return true; }
 

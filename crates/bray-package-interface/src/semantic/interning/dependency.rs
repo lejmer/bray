@@ -14,6 +14,24 @@ use super::common::{convert_requirement_kind, resolve_exact, resolve_family};
 use super::{InterfaceSemanticInternError, InterfaceSymbolResolver, InternState};
 
 impl InternState {
+    fn convert_captured_static(&self, root: &crate::InterfaceStaticReference, symbols: &impl InterfaceSymbolResolver)
+        -> Result<bray_symbols::StaticReferenceSelection, Option<InterfaceSemanticInternError>>
+    {
+        let declaration = resolve_exact::<bray_symbols::StaticSymbolId>(symbols, &root.declaration).map_err(Some)?;
+        let substitution = self.substitution_id(root.substitution).ok_or(None)?;
+
+        let witnesses = root.selected_witnesses.iter().map(|witness| self.implementation_instance_id(*witness).ok_or(None))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let template = bray_symbols::StaticInstanceTemplateId::new(declaration);
+
+        Ok(if root.closed {
+            bray_symbols::StaticReferenceSelection::Closed(bray_symbols::StaticInstanceKey::new(template, substitution, witnesses, root.target.clone()))
+        } else {
+            bray_symbols::StaticReferenceSelection::open(template, substitution, witnesses, root.target.clone())
+        })
+    }
+
     pub(super) fn intern_dependency_contracts(
         &mut self,
         semantics: &InterfaceSemantics,
@@ -114,25 +132,6 @@ impl InternState {
                 continue;
             }
 
-            let mut carriers = Vec::with_capacity(input.carriers.len());
-
-            for carrier in &*input.carriers {
-                let Some(path) = self.convert_dependency_projections(carrier.path(), symbols)?
-                else {
-                    break;
-                };
-
-                let Some(condition) = self.constant_term_id(carrier.guarantee()) else {
-                    break;
-                };
-
-                carriers.push(bray_symbols::DependencyWitnessCarrier::new(condition, path));
-            }
-
-            if carriers.len() != input.carriers.len() {
-                continue;
-            }
-
             let Some(effects) = self.convert_dependency_effects(input.effects.possible(), symbols)? else {
                 continue;
             };
@@ -147,7 +146,37 @@ impl InternState {
                 continue;
             };
 
-            let owned_result = input.owned_result.try_map(
+            let observed_result = if let Some(term) = input.observed_result {
+                let Some(term) = self.constant_term_id(term) else {
+                    continue;
+                };
+
+                Some(term)
+            } else {
+                None
+            };
+
+            let captured_values = input.captured_values.iter().map(|outcome| {
+                let guard = outcome.guard.map(|term| self.constant_term_id(term).ok_or(None)).transpose()?;
+
+                let bindings = outcome.bindings.iter().map(|(destination, value)| {
+                let destination = self.convert_dependency_subject(destination, symbols).map_err(Some)?.ok_or(None)?;
+
+                let value = value.try_map(&mut |input| self.constant_term_id(*input).ok_or(None), &mut |projection| {
+                    self.convert_dependency_projections(std::slice::from_ref(projection), symbols).map_err(Some)?
+                        .and_then(|projections| projections.into_iter().next()).ok_or(None)
+                }, &mut |root| self.convert_captured_static(root, symbols), &mut |call| Ok(bray_symbols::CapturedCallable {
+                    instance: self.callable_instance_id(call.instance).ok_or(None)?, signature: self.type_id(call.signature).ok_or(None)?, has_receiver: call.has_receiver,
+                    requirement: call.requirement.map(|(ty, app)| Ok::<_, Option<InterfaceSemanticInternError>>(bray_symbols::ImplementationRequirementKey::new(
+                        self.type_id(ty).ok_or(None)?, self.trait_application_id(app).ok_or(None)?))).transpose()?,
+                    dispatch: call.dispatch.map(|w| self.implementation_instance_id(w).ok_or(None)).transpose()?,
+                    witnesses: call.witnesses.iter().map(|w| self.implementation_instance_id(*w).ok_or(None)).collect::<Result<_, _>>()?,
+                }))?;
+
+                Ok((destination, value))
+                }).collect::<Result<Vec<_>, Option<InterfaceSemanticInternError>>>()?;
+
+                let owned_result = outcome.ownership.try_map(
                 &mut |transfer| {
                     let term = self.constant_term_id(transfer.input()).ok_or(None)?;
 
@@ -175,22 +204,21 @@ impl InternState {
                     ))
                 },
                 &mut |condition| self.constant_term_id(*condition).map(Some).ok_or(None),
-            );
+            )?;
 
-            let owned_result = match owned_result {
-                Ok(result) => result,
+                let carriers = outcome.carriers.iter().map(|carrier| {
+                    let path = self.convert_dependency_projections(carrier.path(), symbols).map_err(Some)?.ok_or(None)?;
+
+                    Ok(bray_symbols::DependencyWitnessCarrier::new(self.constant_term_id(carrier.guarantee()).ok_or(None)?, path))
+                }).collect::<Result<Vec<_>, Option<crate::InterfaceSemanticInternError>>>()?;
+
+                Ok(bray_symbols::CapturedValueOutcome::new(guard, bindings).with_carriers(carriers).with_ownership(owned_result))
+            }).collect::<Result<Vec<_>, Option<InterfaceSemanticInternError>>>();
+
+            let captured_values = match captured_values {
+                Ok(values) => values,
                 Err(None) => continue,
                 Err(Some(error)) => return Err(error),
-            };
-
-            let observed_result = if let Some(term) = input.observed_result {
-                let Some(term) = self.constant_term_id(term) else {
-                    continue;
-                };
-
-                Some(term)
-            } else {
-                None
             };
 
             self.dependency_contracts[index] = Some(
@@ -198,8 +226,7 @@ impl InternState {
                     contract
                         .with_borrows(borrows)
                         .with_stored_values(stored_values)
-                        .with_carriers(carriers)
-                        .with_owned_result(owned_result)
+                        .with_captured_values(captured_values)
                         .with_observed_result(observed_result)
                         .with_effects(effects)
                         .with_normal_effects(normal_effects)
@@ -515,12 +542,12 @@ impl InternState {
                 DependencyStorageEffect::Ambient => DependencyStorageEffect::Ambient,
                 DependencyStorageEffect::Unknown => DependencyStorageEffect::Unknown,
                 DependencyStorageEffect::Escape => DependencyStorageEffect::Escape,
-                DependencyStorageEffect::Direct { subject, kind, access_type } => {
+                DependencyStorageEffect::Direct { addressed, subject, kind, access_type } => {
                     let Some(subject) = self.convert_dependency_subject(subject, symbols)? else {
                         return Ok(None);
                     };
 
-                    DependencyStorageEffect::Direct {
+                    DependencyStorageEffect::Direct { addressed: *addressed,
                         subject,
                         kind: match kind.try_map_type(|ty| self.type_id(ty).ok_or(())) {
                             Ok(kind) => kind,
@@ -532,7 +559,7 @@ impl InternState {
                         },
                     }
                 }
-                DependencyStorageEffect::Indirect {
+                DependencyStorageEffect::Indirect { addressed, reads,
                     reference,
                     projections,
                     kind,
@@ -545,7 +572,7 @@ impl InternState {
                         return Ok(None);
                     };
 
-                    DependencyStorageEffect::Indirect {
+                    DependencyStorageEffect::Indirect { addressed: *addressed, reads: std::sync::Arc::clone(reads),
                         reference,
                         projections: projections.into(),
                         kind: match kind.try_map_type(|ty| self.type_id(ty).ok_or(())) {

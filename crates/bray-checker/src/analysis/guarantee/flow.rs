@@ -1,4 +1,5 @@
 mod completion;
+mod captured;
 mod deferred;
 mod inputs;
 mod invalidation;
@@ -20,7 +21,3 @@ pub(super) use model::ExecutionFlow;
 pub(crate) use model::ExecutionFlowDomain;
 pub(super) use prepare::analyze_execution_flow;
 pub(crate) use prepare::prepare_execution_flow;
-
-pub(super) use witnesses::owned_alternatives;
-
-pub(super) use preservation::ValuePreservation;

@@ -16,6 +16,18 @@ use std::sync::Arc;
 const BUFFER_POINTER: StorageProjection =
     StorageProjection::TupleElement(bray_symbols::SymbolOrdinal::new(0));
 
+fn captured_frame(producer: bray_bound_tree::BoundExecutionSite, transition: Arc<bray_bound_tree::StorageDeferredTransition>)
+    -> crate::ExecutionCondition
+{
+    crate::ExecutionCondition::result().with_deferred_value(Arc::new(crate::ExecutionDeferredValue {
+        producers: [(producer.into(), crate::ExecutionDeferredInvocation {
+            callee: None, transition: Some(transition), entry: Default::default(),
+            reports: Default::default(), selection: Default::default(),
+        })].into(),
+        unknown: None,
+    }))
+}
+
 fn observe_reference(
     state: &mut State,
     destination: Target,
@@ -585,6 +597,7 @@ fn join_intersects_initialization_but_preserves_possible_obligations_and_origins
     let mut left = State::default();
 
     left.fresh(source.clone(), origins[0]);
+    left.take_retirements();
 
     let mut right = left.clone();
 
@@ -615,6 +628,8 @@ fn join_intersects_initialization_but_preserves_possible_obligations_and_origins
     );
 
     right.deallocate(&Target::storage(source.clone()), origins[2]);
+    left.take_retirements();
+    right.take_retirements();
     assert!(left.merge(&right, &Default::default(), &Default::default()));
 
     assert_eq!(
@@ -644,6 +659,8 @@ fn joined_targets_require_all_possible_contents_and_weak_writes_do_not_initializ
     left.fresh(first.clone(), origins[0]);
     left.fresh(second.clone(), origins[1]);
     left.transfer_value(&Target::storage(first.clone()), alias.clone());
+
+    left.take_retirements();
 
     let mut right = left.clone();
 
@@ -891,6 +908,8 @@ fn origin_join_unions_and_deduplicates_diagnostic_causes() {
     let mut left = State::default();
 
     left.fresh(source.clone(), origins[0]);
+
+    left.take_retirements();
 
     let mut right = left.clone();
 
@@ -1801,9 +1820,22 @@ fn projected_entry_address_does_not_read_the_reference_held_in_that_field() {
             bray_bound_tree::StorageReferenceStep::Read { index: 0, target: aggregate, kind: bray_symbols::DependencyReferenceKind::Address },
         ].into());
 
-    let reached = layered.reference_location(values, Target::storage(parameter.clone()), &route, Some(cell)).unwrap();
+    let reached = layered.reference_location(values, Target::storage(parameter.clone()), &route, Some(cell.clone())).unwrap();
 
     assert_eq!(reached.projections(), &[projection], "a language borrow followed by a raw-address load consumes one route marker");
+
+    let read = |slot| super::Source::Value(slot).mutation_targets(&layered);
+
+    let operands = bray_bound_tree::StorageMutationTarget::resolve_route(
+        vec![bray_bound_tree::StorageMutationTarget::location(cell.clone())], &[projection], &[0], read,
+    ).unwrap();
+
+    assert_eq!(operands, [bray_bound_tree::StorageMutationTarget::location(reached)]);
+
+    assert!(bray_bound_tree::StorageMutationTarget::resolve_route(
+        vec![bray_bound_tree::StorageMutationTarget::bounded(cell)], &[projection], &[0],
+        |_| panic!("a bounding region cannot identify a stored pointer"),
+    ).is_none());
 
     let mut state = State { owned_storage: [parameter.root, copied.root].into(), ..State::default() };
 
@@ -2309,12 +2341,23 @@ fn stored_whole_sources_follow_transfers_and_weak_replay() {
     state.values.insert(exact.project(&[element(0), first]),
         super::model::AddressValue::one(destination.clone()).into());
 
-    state.begin_transition(call);
-    state.stage_buffer_elements(call, copied.clone(), std::slice::from_ref(&exact));
-    state.complete_transition(call);
+    let source = state.capture_reached_value(&exact);
 
-    assert!(state.values[&copied].address.as_ref().unwrap().targets.contains(&exact));
-    assert!(state.values[&copied.project(&[first])].address.as_ref().unwrap().targets.contains(&destination));
+    state.include_captured_bounds(&copied, &source);
+
+    let possible = state.capture_reached_value(&copied);
+
+    assert!(possible.known_address().is_none());
+    assert!(possible.address_regions().unwrap().contains(&exact));
+
+    let bounds = state.capture_element_bounds(std::slice::from_ref(&exact), &copied);
+
+    assert!(bounds.known_address().is_none());
+    assert!(bounds.project(first).known_address().is_none());
+    state.publish_captured_value(&copied, &bounds);
+
+    assert!(state.values[&copied].address_bounds.as_ref().unwrap().targets.contains(&exact));
+    assert!(state.values[&copied.project(&[first])].address_bounds.as_ref().unwrap().targets.contains(&destination));
 
     assert!(!state.values.contains_key(&copied.project(&[StorageProjection::AnyElement])),
         "a popped element cannot retain the buffer's collection selector");
@@ -3961,13 +4004,13 @@ fn local_mutation_does_not_publish_an_invocation_address() {
 
     let heap_write = super::Effect::at(Target::storage(local.clone()).project(&[StorageProjection::OwnedTarget]), bray_symbols::DependencyMutationKind::Write, None);
 
-    assert!(!local_write.may_retain_address(&state));
-    assert!(external_write.may_retain_address(&state));
-    assert!(heap_write.may_retain_address(&state));
+    assert!(!state.may_retain_address(&local_write));
+    assert!(state.may_retain_address(&external_write));
+    assert!(state.may_retain_address(&heap_write));
 
     state.escape_targets([Target::storage(local)]);
 
-    assert!(local_write.may_retain_address(&state));
+    assert!(state.may_retain_address(&local_write));
 }
 
 #[test]
@@ -5110,7 +5153,9 @@ fn deferred_input_references_survive_frame_moves_without_following_replaced_inpu
         state.point_at(target.clone(), input.clone(), error_type(), bray_symbols::DependencyReferenceKind::Borrow);
         state.begin_transition(producer);
         state.capture_reference_inputs(producer, [root.clone()]);
-        state.capture_deferred_transition(producer, frame.clone());
+
+        let value = captured_frame(producer, state.capture_deferred_transition(producer, frame.clone()));
+
         state.clear(&input);
         state.point_at(Target::storage(moved.clone()), input.clone(), error_type(), bray_symbols::DependencyReferenceKind::Borrow);
         state.begin_transition(movement);
@@ -5118,8 +5163,12 @@ fn deferred_input_references_survive_frame_moves_without_following_replaced_inpu
         state.clear(&frame);
         state.complete_transition(movement);
 
-        assert!(state.prepare_deferred_completion(completion,
-            &super::Source::Value(Target::storage(moved.clone())), payload.clone(), [(producer, frame.clone())]));
+        let assumptions = Default::default();
+        let proof = crate::execution_guarantees::ExecutionProof::new(&assumptions, &assumptions);
+        let transitions = value.deferred_value().unwrap().transitions(&proof).unwrap();
+
+        assert!(state.prepare_deferred_completion(completion, payload.clone(),
+            transitions));
 
         assert_eq!(state.captured_input_target(completion, semantic_values(), &root, &path), Some(target.clone()),
             "output instantiation must preserve the captured physical input");
@@ -5139,7 +5188,6 @@ fn staged_future_moves_retain_completion_effects_and_references() {
     let producer = expressions[0].into();
     let movement = expressions[1].into();
     let observation = expressions[2].into();
-    let producers = [producer].into();
     let effect = super::Effect::unbounded(bray_symbols::DependencyMutationKind::Dispose(error_type()), None, false);
     let mut state = State::default();
 
@@ -5168,32 +5216,49 @@ fn staged_future_moves_retain_completion_effects_and_references() {
         &addressed_reference(error_type(), bray_symbols::DependencyReferenceKind::Borrow),
     );
 
-    state.capture_deferred_transition(producer, frame.clone());
+    // A loop can leave another frame from the same site in an owned capture.
+    let child = captured_frame(producer, Arc::new(bray_bound_tree::StorageDeferredTransition {
+        output: Some(frame.clone()),
+        transfer: bray_bound_tree::StorageCapturedTransition {
+            deferred_effects: Some(super::EffectOutcomes::new([Effect::Escape])), ..Default::default()
+        },
+    }));
+
+    let value = captured_frame(producer, state.capture_deferred_transition(producer, frame.clone()));
+    let mut outer = Arc::clone(value.deferred_value().unwrap());
+    let entry = &mut Arc::make_mut(&mut outer).producers.get_mut(&producer.into()).unwrap().entry;
+    let ordinal = bray_symbols::SymbolOrdinal::new(0);
+
+    Arc::make_mut(entry).arguments.insert(crate::ExecutionPlace::argument(ordinal), child);
+    Arc::make_mut(entry).owned_inputs = [ordinal].into();
+
+    let value = value.with_deferred_value(outer);
+
     state.begin_transition(movement);
     state.stage_slot(movement, &frame, moved.clone());
     state.clear(&frame);
     state.complete_transition(movement);
 
-    let source = super::Source::Value(Target::storage(moved));
+    let assumptions = Default::default();
+    let proof = crate::execution_guarantees::ExecutionProof::new(&assumptions, &assumptions);
 
     assert_eq!(
-        state.deferred_effects(&source, &producers),
+        value.deferred_value().unwrap().effects(&proof),
         Some(outcomes)
     );
 
-    assert_eq!(state.deferred_cleanup_effects(&source, &producers, false), Some(vec![captured_cleanup.clone()]));
+    assert_eq!(value.deferred_value().unwrap().cleanup_effects(false, &proof), Some(vec![captured_cleanup.clone()]));
 
     let mut discarded = vec![captured_cleanup, result_cleanup];
 
     discarded.sort_unstable();
 
-    assert_eq!(state.deferred_cleanup_effects(&source, &producers, true), Some(discarded));
+    assert_eq!(value.deferred_value().unwrap().cleanup_effects(true, &proof), Some(discarded));
 
     assert!(state.prepare_deferred_completion(
         observation,
-        &source,
         output.clone(),
-        [(producer, frame)]
+        value.deferred_value().unwrap().transitions(&proof).unwrap()
     ));
 
     assert!(!state.values.contains_key(&Target::storage(output.clone())));

@@ -90,13 +90,6 @@ pub enum DiagnosticCondition {
     String(String),
     /// A character scalar without source escaping applied.
     Character(char),
-    /// An input retained by a deferred producer.
-    CapturedInput {
-        /// The future or task retaining the input.
-        owner: Box<DiagnosticCondition>,
-        /// Receiver-first input ordinal.
-        ordinal: u32,
-    },
     /// A test of an active union variant.
     VariantTest {
         /// The supplied union value.

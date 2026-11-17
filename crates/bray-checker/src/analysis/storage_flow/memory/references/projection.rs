@@ -6,7 +6,7 @@ use bray_symbols::TypeId;
 impl State {
     pub(in crate::analysis::storage_flow) fn for_storage(
         storage: &bray_bound_tree::StoragePlan,
-        cleanup_free: &std::collections::BTreeSet<bray_bound_tree::StorageIdentityId>,
+        cleanup_free: &std::collections::BTreeSet<StorageIdentityId>,
         complete_reference_types: &std::sync::Arc<std::collections::BTreeMap<TypeId, bool>>,
     ) -> Self {
         let borrowed = storage
@@ -393,7 +393,7 @@ impl State {
         invocation: bray_bound_tree::BoundExecutionSite,
         root: &Target,
         location: &Target,
-    ) -> Option<Vec<super::super::effect::MutationTarget>> {
+    ) -> Option<Vec<super::super::MutationTarget>> {
         let staged = self.pending.get(&invocation)?;
 
         staged.values.get(location)
@@ -587,7 +587,6 @@ impl State {
     pub(in crate::analysis::storage_flow) fn has_value(&self, target: &Target) -> bool {
         storage_subtree(&self.values, target)
             .any(|(_, value)| value.reference().is_some() || value.whole_sources().is_some())
-            || storage_subtree(&self.deferred, target).next().is_some()
             || storage_subtree(&self.contents, target)
                 .any(|(candidate, _)| {
                     candidate.projections()[target.projections().len()..]

@@ -297,6 +297,8 @@ mod tests {
             expressions[0],
         );
 
+        left.memory.take_retirements();
+
         let mut snapshot = ExitState::new(&left);
 
         let mut right = StorageFlowState::default();

@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 /// Scope obligations and portable dependencies captured by the same report owner.
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub(crate) struct ReportDependencies {
     pub(crate) subjects: BTreeSet<bray_bound_tree::BoundDependencySubject>,
     pub(crate) requirements: BTreeSet<DependencyRequirement>,

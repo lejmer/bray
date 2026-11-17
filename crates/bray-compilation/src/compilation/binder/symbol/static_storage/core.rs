@@ -593,7 +593,7 @@ fn with_initializer_carriers(
             dependency
                 .as_ref()
                 .clone()
-                .with_carriers(result.carriers().iter().cloned()),
+                .with_captured_values(result.captured_values().iter().cloned()),
         )
         .expect("checked static initializer summaries belong to the same semantic store")
 }

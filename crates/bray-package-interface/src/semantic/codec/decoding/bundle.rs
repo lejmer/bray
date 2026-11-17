@@ -896,12 +896,12 @@ mod tests {
                 access_type: Some(access),
                 ambient: true,
             },
-            DependencyStorageEffect::Direct {
+            DependencyStorageEffect::Direct { addressed: true,
                 subject: subject.clone(),
                 kind: DependencyMutationKind::Replace(replacement),
                 access_type: Some(access),
             },
-            DependencyStorageEffect::Indirect {
+            DependencyStorageEffect::Indirect { addressed: true, reads: [].into(),
                 reference: subject,
                 projections: [].into(),
                 kind: DependencyMutationKind::Replace(replacement),

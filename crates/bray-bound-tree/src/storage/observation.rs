@@ -137,6 +137,10 @@ impl StorageMutation {
 /// Value observations and required storage lifetimes are distinct relationships.
 #[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
 pub struct StorageCompletion {
+    publications: std::collections::BTreeMap<crate::StorageValueDestination, std::sync::Arc<crate::StorageCapturedValue>>,
+    deferred: Option<std::sync::Arc<crate::StorageDeferredTransition>>,
+    captures: std::sync::Arc<[crate::StorageValueCapture]>,
+    values: std::sync::Arc<[crate::StorageValueTransition]>,
     references: std::collections::BTreeMap<crate::StoragePath, crate::StorageTarget>,
     borrow_origins: std::collections::BTreeMap<
         crate::BoundExecutionSite,
@@ -145,6 +149,11 @@ pub struct StorageCompletion {
 }
 
 impl StorageCompletion {
+    /// Whether this completion publishes no values, captures or reference relationships.
+    pub fn is_empty(&self) -> bool {
+        self.publications.is_empty() && self.deferred.is_none() && self.values.is_empty() && self.captures.is_empty() && self.references.is_empty() && self.borrow_origins.is_empty()
+    }
+
     /// Creates a completion from exact value observations and all possible local borrowed owners.
     pub fn new(
         references: std::collections::BTreeMap<crate::StoragePath, crate::StorageTarget>,
@@ -154,10 +163,54 @@ impl StorageCompletion {
         >,
     ) -> Self {
         Self {
+            publications: Default::default(),
+            deferred: None,
+            captures: std::sync::Arc::from([]),
+            values: std::sync::Arc::from([]),
             references,
             borrow_origins,
         }
     }
+
+    /// Records the physical snapshot that survived cleanup at this normal destination.
+    pub fn publish(&mut self, destination: crate::StorageValueDestination, value: std::sync::Arc<crate::StorageCapturedValue>) {
+        self.publications.insert(destination, value);
+    }
+
+    /// Final physical publications paired with their current logical values.
+    pub fn publications(&self) -> &std::collections::BTreeMap<crate::StorageValueDestination, std::sync::Arc<crate::StorageCapturedValue>> {
+        &self.publications
+    }
+
+    /// Retains the same prepared latent transition for source checking and execution replay.
+    pub fn with_deferred_transition(mut self, transition: std::sync::Arc<crate::StorageDeferredTransition>) -> Self {
+        self.deferred = Some(transition);
+
+        self
+    }
+
+    /// The latent transition captured at this producer's formation boundary.
+    pub fn deferred_transition(&self) -> Option<&std::sync::Arc<crate::StorageDeferredTransition>> { self.deferred.as_ref() }
+
+    /// Publishes actual whole-value transitions resolved before input consumption.
+    pub fn with_values(mut self, values: std::sync::Arc<[crate::StorageValueTransition]>) -> Self {
+        self.values = values;
+
+        self
+    }
+
+    /// Returns actual value publications, independently of may-dependency bounds.
+    pub fn values(&self) -> &[crate::StorageValueTransition] { &self.values }
+
+    /// Retains physical input snapshots captured at the operation's admission boundary.
+    pub fn with_captures(mut self, captures: std::sync::Arc<[crate::StorageValueCapture]>) -> Self {
+        self.captures = captures;
+
+        self
+    }
+
+    /// Returns the input snapshots shared by production and execution replay.
+    pub fn captures(&self) -> &[crate::StorageValueCapture] { &self.captures }
 
     /// Returns established referents without discarding entry layers or returned origins.
     pub fn references(
@@ -181,6 +234,40 @@ impl StorageCompletion {
     /// Merges alternative normal completions. Exact aliases must agree, and lifetimes accumulate.
     /// A missing origin mapping remains unknown, never an empty lifetime requirement.
     pub fn merge(&mut self, incoming: &Self) {
+        crate::StorageDeferredTransition::merge_alternative(&mut self.deferred, &incoming.deferred);
+
+        if self.captures != incoming.captures {
+            self.captures = self.captures.iter().filter_map(|capture| {
+                let other = incoming.captures.iter().find(|other| other.input == capture.input)?;
+
+                let referent = match (&capture.referent, &other.referent) {
+                    (Some((ty, left)), Some((other_ty, right))) if ty == other_ty => Some((*ty, std::sync::Arc::new(left.merged(right)))),
+                    _ => None,
+                };
+
+                let element_bounds = match (&capture.element_bounds, &other.element_bounds) {
+                    (Some((pointer, left)), Some((other_pointer, right))) if pointer == other_pointer =>
+                        Some((*pointer, std::sync::Arc::new(left.merged(right)))),
+                    (Some((pointer, bounds)), None) | (None, Some((pointer, bounds))) =>
+                        Some((*pointer, std::sync::Arc::new(bounds.with_unknown_alternative()))),
+                    _ => None,
+                };
+
+                Some(crate::StorageValueCapture { input: capture.input, element_bounds,
+                    value: std::sync::Arc::new(capture.value.merged(&other.value)), referent })
+            }).collect();
+        }
+
+        if self.values != incoming.values { self.values = crate::StorageValueTransition::join_reachable(&self.values, &incoming.values); }
+
+        self.publications.retain(|destination, value| {
+            let Some(other) = incoming.publications.get(destination) else { return false; };
+
+            if value != other { *value = std::sync::Arc::new(value.merged(other)); }
+
+            true
+        });
+
         self.references
             .retain(|path, target| incoming.references.get(path) == Some(target));
 
@@ -212,18 +299,39 @@ mod tests {
 
         let argument = crate::BoundExpressionId::from_slot(unit, 0);
 
+        let publication = |slot| {
+            let mut binding = crate::StorageValueBinding::default();
+
+            binding.address = Some(crate::StorageAddressValue::one(StorageTarget::storage(path(slot))));
+
+            std::sync::Arc::new(crate::StorageCapturedValue::new(StorageTarget::storage(path(0)),
+                crate::StorageCapturedTransition {
+                    values: [(StorageTarget::storage(path(0)), binding)].into(), ..Default::default()
+                }))
+        };
+
         let mut left = StorageCompletion::new(
             BTreeMap::from([(path(0), StorageTarget::storage(path(1)))]),
             BTreeMap::from([(argument.into(), BTreeSet::from([path(1)]))]),
         );
 
-        let right = StorageCompletion::new(
+        left.publish(crate::StorageValueDestination::Result, publication(1));
+
+        let mut right = StorageCompletion::new(
             BTreeMap::from([(path(0), StorageTarget::storage(path(2)))]),
             BTreeMap::from([(argument.into(), BTreeSet::from([path(2)]))]),
         );
 
+        right.publish(crate::StorageValueDestination::Result, publication(2));
+
         left.merge(&right);
         assert!(left.references().is_empty());
+        assert_eq!(left.publications().len(), 1);
+
+        let snapshot = &left.publications()[&crate::StorageValueDestination::Result];
+
+        assert!(snapshot.known_address().is_none(), "alternative addresses do not establish one current actual target");
+        assert_eq!(snapshot.address_regions(), Some(vec![StorageTarget::storage(path(1)), StorageTarget::storage(path(2))]));
 
         assert_eq!(
             left.borrow_origins()[&argument.into()],
@@ -232,5 +340,6 @@ mod tests {
 
         left.merge(&StorageCompletion::default());
         assert!(!left.borrow_origins().contains_key(&argument.into()));
+        assert!(left.publications().is_empty(), "a missing outcome cannot preserve a guaranteed publication");
     }
 }

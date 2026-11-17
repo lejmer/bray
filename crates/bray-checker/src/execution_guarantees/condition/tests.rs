@@ -257,6 +257,82 @@ fn predicate_reference_arguments_keep_referents_owners_and_changed_contents_dist
 
     assert_ne!(condition(loan(2, copied(6))), condition(loan(2, copied(7))));
 
+    let nested = loan(3, loan(2, ExecutionCondition::owned_value(input(0), input(1))));
+    let replacement = loan(4, input(5));
+
+    assert_eq!(nested.with_referent(replacement.clone()).current_referent(), Some(&replacement),
+        "updating one reference layer retains the inner loan without transferring its old pointee's ownership");
+
+    let contents = ExecutionCondition::constructed(input(0), [].into());
+
+    assert_eq!(condition(loan(2, ExecutionCondition::scalar_observation(input(0), contents.clone()))),
+        condition(loan(2, contents.clone())), "a same-owner copy view has no separate reached version");
+
+    assert_ne!(condition(loan(2, ExecutionCondition::scalar_observation(input(4), contents.clone()))),
+        condition(loan(2, contents)), "an independent copy context remains a different storage observation");
+
+    let (unit, expressions) = crate::test_support::integer_expression_unit(bray_bound_tree::BoundUnitId::new(0), 2);
+
+    let mut storage = bray_bound_tree::StoragePlanBuilder::new(unit.unit(), unit.key().kind());
+
+    let slots = expressions.iter().map(|expression|
+        storage.push_identity(bray_bound_tree::StorageIdentity::Temporary(*expression)).expect("captured test value has planned storage"))
+        .collect::<Vec<_>>();
+
+    let captured = |slot: usize| input(0).captured_value(bray_bound_tree::StorageCapturedValue::new(
+        bray_bound_tree::StorageTarget::storage(bray_bound_tree::StoragePath::root(slots[slot])),
+        bray_bound_tree::StorageCapturedTransition::default(),
+    ));
+
+    assert_ne!(captured(0), captured(1), "storage propagation retains its actual snapshot coordinates");
+
+    assert_eq!(condition(captured(0).borrowed()), condition(input(0).borrowed()),
+        "a physical capture does not change the same observed predicate argument");
+
+    assert_eq!(condition(captured(0).borrowed()), condition(captured(1).borrowed()));
+
+    let index = bray_symbols::SymbolOrdinal::new(0);
+
+    let aggregate = ExecutionCondition::constructed(input(1),
+        [(bray_bound_tree::StorageProjection::TupleElement(index), captured(0))].into())
+        .captured_value(captured(1).captured_storage().unwrap().clone());
+
+    let selected = ExecutionCondition::new(crate::ExecutionConditionKind::Projection(
+        bray_symbols::ConstantProjectionKind::TupleElement(index), Arc::new(aggregate)));
+
+    let selected = ExecutionCondition::new(crate::ExecutionConditionKind::Borrowed(Arc::new(selected)));
+
+    assert_eq!(condition(selected), condition(input(0).borrowed()),
+        "a delayed projection cannot introduce hidden physical metadata into proof data");
+
+    let fields = (0..=ExecutionCondition::WORK_LIMIT).map(|ordinal| {
+        let ordinal = SymbolOrdinal::new(u32::try_from(ordinal).expect("fixture ordinal fits"));
+
+        (bray_bound_tree::StorageProjection::TupleElement(ordinal), input(ordinal.raw()))
+    }).collect::<Vec<_>>();
+
+    let expected = ExecutionCondition::constructed(input(1), fields.clone().into());
+    let snapshot = captured(0).captured_storage().unwrap().clone();
+
+    let large = ExecutionCondition::constructed(input(1), fields.into_iter()
+        .map(|(field, value)| (field, value.captured_value(snapshot.clone()))).collect());
+
+    assert_eq!(large.without_captured_storage(), expected,
+        "metadata projection preserves every known field beyond the proof-work limit");
+
+    assert_eq!(ExecutionCondition::retiring_storage(
+        &bray_bound_tree::StorageTarget::storage(bray_bound_tree::StoragePath::root(slots[1])),
+        bray_bound_tree::StorageValueRetirement::Producer,
+    )(&large), large, "retiring unrelated metadata cannot truncate logical data");
+
+    let captured_loan = input(0).borrowed().with_referent(captured(0));
+    let updated = captured_loan.with_referent(captured(1));
+
+    assert_eq!(updated.current_referent(), Some(&captured(1)),
+        "publishing unchanged logical data still installs its current physical snapshot");
+
+    assert_eq!(updated.with_referent(captured(1)), updated, "publication of the same paired value stabilizes");
+
     let callable = crate::test_support::callable_instance(
         bray_symbols::FunctionSymbolId::from_symbol_id(bray_symbols::SymbolId::new(960)).into());
 
@@ -370,6 +446,7 @@ fn copy_proof_correlations_preserve_borrowed_storage_identity() {
     let place = ExecutionPlace::argument(SymbolOrdinal::new(0));
 
     let evidence = crate::ExecutionCallEvidence {
+        outputs: Default::default(),
         arguments: BTreeMap::from([(place.clone(), copied.clone())]),
         copy_sources: BTreeMap::from([(place, source.clone())]),
         ..Default::default()
@@ -683,6 +760,14 @@ fn aggregate_contents_refresh_does_not_introduce_a_scalar_storage_context() {
 
     let borrowed = allocated.clone().borrowed();
     let stored = ExecutionCondition::owned_value(inline, allocated);
+
+    let outer = ExecutionCondition::reference_value(
+        ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(6)))).borrowed(), borrowed.clone(),
+    );
+
+    let read = ExecutionCondition::storage_value(bray_symbols::CapturedValueOperation::Read, vec![outer].into());
+
+    assert_eq!(read.copied_value(), &borrowed, "one read retains a reference-valued payload instead of following its pointee");
 
     assert_eq!(borrowed.with_referent(stored), borrowed,
         "refreshing unchanged reached contents must not invent a contents transition");
@@ -1045,6 +1130,30 @@ fn boolean_proofs_keep_decisive_operands_without_equating_unknowns() {
     }
 
     let known = ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(0))));
+
+    let (unit, expressions) = crate::test_support::integer_expression_unit(bray_bound_tree::BoundUnitId::new(0), 2);
+
+    let mut storage = bray_bound_tree::StoragePlanBuilder::new(unit.unit(), unit.key().kind());
+
+    let captured = expressions.iter().map(|expression| {
+        let slot = storage.push_identity(bray_bound_tree::StorageIdentity::Temporary(*expression))
+            .expect("captured Boolean value retains its planned coordinates");
+
+        known.clone().captured_value(bray_bound_tree::StorageCapturedValue::new(
+            bray_bound_tree::StorageTarget::storage(bray_bound_tree::StoragePath::root(slot)), Default::default(),
+        ))
+    }).collect::<Vec<_>>();
+
+    for truth in [false, true] {
+        let mut facts = BTreeSet::new();
+
+        captured[0].clone().assume(truth, &mut facts);
+
+        for value in [&known, &captured[0], &captured[1]] {
+            assert_eq!(value.prove(&facts, &mut { ExecutionCondition::WORK_LIMIT }), Some(truth),
+                "physical capture coordinates do not change the same Boolean data");
+        }
+    }
 
     for (operator, truth) in [
         (BoundOperator::LogicalOr, true),

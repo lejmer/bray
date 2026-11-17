@@ -117,22 +117,24 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         state: &ExecutionState,
         invocation: bray_bound_tree::BoundExecutionSite,
     ) -> bool {
-        let deferred = invocation
-            .expression()
-            .into_iter()
-            .flat_map(|expression| self.awaited_invocations(state, expression))
-            .collect::<Vec<_>>();
-
         let result = self.invocation_value(state, invocation);
 
-        if invocation
-            .expression()
-            .is_some_and(|expression| self.awaited_unknown(state, expression))
-        {
-            true
-        } else if invocation.expression().is_none_or(|expression| !matches!(
-            self.request.view().expression(expression), Some(BoundExpression::Await(_))
-        )) {
+        if state.entries.get(&invocation).is_some_and(|entry| !entry.outputs.can_complete(&state.ordinary_proof(), entry, &result)) {
+            return false;
+        }
+
+        if let Some(BoundExpression::Await(_)) = invocation.expression().and_then(|expression| self.request.view().expression(expression)) {
+            let value = state.admitted_receiver(invocation);
+
+            let Some(frame) = value.deferred_value() else { return true; };
+
+            let proof = state.ordinary_proof();
+
+            return frame.unknown_possible(&proof) || frame.producers.iter().any(|(source, candidate)|
+                super::super::deferred::possible(&candidate.selection, &proof)
+                    && self.frame_normal_completion(&state.assumptions, source, candidate, &result));
+        }
+
             self.dependencies
                 .calls()
                 .get(&invocation)
@@ -148,12 +150,23 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                                 )
                             }))
                 })
-        } else {
-            deferred.into_iter().any(|(source, entry)| {
-                self.dependencies.calls()[&source].deferred_completion()
-                    && self.owned_normal_completion(&state.assumptions, source, entry, &result)
-            })
+    }
+
+    pub(super) fn frame_normal_completion(&self, assumptions: &crate::execution_guarantees::ExecutionAssumptions,
+        source: &crate::execution_guarantees::DeferredProducer, candidate: &crate::ExecutionDeferredInvocation,
+        result: &ExecutionCondition,
+    ) -> bool {
+        if let Some(source) = source.local() {
+            return self.dependencies.calls()[&source].deferred_completion()
+                && self.owned_normal_completion(assumptions, source, &candidate.entry, result);
         }
+
+        candidate.callee.as_deref().and_then(|callee| self.dependencies.frame_callees().get(callee)).is_none_or(|body| {
+            let summary = self.request.semantic_values().dependency_contract_template_data(body.summary);
+
+            summary.normal_completion() && self.outcome_reachable(assumptions, &candidate.entry, result,
+                summary.captured_values())
+        })
     }
 
     pub(in crate::analysis) fn condition_evidence(
@@ -246,7 +259,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             let (condition, observed, known) = self.condition_evidence(state, expression);
 
             if known.is_some_and(|known| known != value)
-                || known.is_none() && !state.proofs.ordinary_proof(&state.assumptions).can_assume(&condition, value)
+                || known.is_none() && !state.ordinary_proof().can_assume(&condition, value)
             {
                 return false;
             }
@@ -305,7 +318,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }
 
         if let Some((condition, value)) = self.branch_condition(state, edge) {
-            if !state.proofs.ordinary_proof(&state.assumptions).can_assume(&condition, value) {
+            if !state.ordinary_proof().can_assume(&condition, value) {
                 return false;
             }
 

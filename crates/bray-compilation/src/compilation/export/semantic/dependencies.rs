@@ -54,23 +54,6 @@ impl<'a> SemanticExporter<'a> {
             })
             .collect::<Result<Vec<_>, PackageInterfaceExportError>>()?;
 
-        let carriers = self
-            .dependency_order(data.carriers(), |encoder, item| {
-                encoder.dependency_carrier(item)
-            })?
-            .into_iter()
-            .map(|carrier| {
-                Ok(bray_symbols::DependencyWitnessCarrier::new(
-                    self.constant_term_id(carrier.guarantee())?,
-                    carrier
-                        .path()
-                        .iter()
-                        .map(|projection| self.dependency_projection(projection))
-                        .collect::<Result<Vec<_>, _>>()?,
-                ))
-            })
-            .collect::<Result<Vec<_>, PackageInterfaceExportError>>()?;
-
         let mut normal_effects = Vec::new();
 
         let effects = self
@@ -90,19 +73,19 @@ impl<'a> SemanticExporter<'a> {
                     DependencyStorageEffect::Ambient => DependencyStorageEffect::Ambient,
                     DependencyStorageEffect::Unknown => DependencyStorageEffect::Unknown,
                     DependencyStorageEffect::Escape => DependencyStorageEffect::Escape,
-                    DependencyStorageEffect::Direct { subject, kind, access_type } => {
-                        DependencyStorageEffect::Direct {
+                    DependencyStorageEffect::Direct { addressed, subject, kind, access_type } => {
+                        DependencyStorageEffect::Direct { addressed: *addressed,
                             subject: self.dependency_subject(subject)?,
                             kind: kind.try_map_type(|ty| self.type_id(ty))?,
                             access_type: access_type.map(|ty| self.type_id(ty)).transpose()?,
                         }
                     }
-                    DependencyStorageEffect::Indirect {
+                    DependencyStorageEffect::Indirect { addressed, reads,
                         reference,
                         projections,
                         kind,
                         access_type,
-                    } => DependencyStorageEffect::Indirect {
+                    } => DependencyStorageEffect::Indirect { addressed: *addressed, reads: std::sync::Arc::clone(reads),
                         reference: self.dependency_subject(reference)?,
                         projections: projections
                             .iter()
@@ -122,8 +105,6 @@ impl<'a> SemanticExporter<'a> {
             })
             .collect::<Result<Vec<_>, PackageInterfaceExportError>>()?;
 
-        let owned_result = self.dependency_owned_result(data.owned_result())?;
-
         let mut contract = InterfaceDependencyContract::new(requirements);
 
         if let Some(requirements) = data.completion_reports() {
@@ -136,6 +117,7 @@ impl<'a> SemanticExporter<'a> {
         }
 
         let contract = contract
+            .with_captured_values(self.dependency_captured_bindings(data.captured_values())?)
             .with_borrows(borrows)
             .with_stored_values(self.dependency_order(data.stored_values(), |encoder, stored| encoder.dependency_stored_value(stored))?
                 .into_iter().map(|stored| {
@@ -146,8 +128,6 @@ impl<'a> SemanticExporter<'a> {
                         bray_symbols::DependencyStoredValuePath::new(self.dependency_subject(stored.destination().subject())?, stored.destination().dereferences()), sources, stored.is_complete(),
                     ))
                 }).collect::<Result<Vec<_>, PackageInterfaceExportError>>()?)
-            .with_carriers(carriers)
-            .with_owned_result(owned_result)
             .with_observed_result(
                 data.observed_result()
                     .map(|term| self.constant_term_id(term))
@@ -165,6 +145,75 @@ impl<'a> SemanticExporter<'a> {
         self.dependency_contract_ids.insert(id, exported);
 
         Ok(exported)
+    }
+
+    fn dependency_captured_bindings(&mut self, bindings: &[bray_symbols::CapturedValueOutcome]) -> Result<Vec<bray_package_interface::InterfaceNormalOutcome>, PackageInterfaceExportError> {
+        self.dependency_order(bindings, |encoder, binding| encoder.dependency_captured_binding(binding))?
+            .into_iter().map(|outcome| {
+                let guard = outcome.guard.map(|term| self.constant_term_id(term)).transpose()?;
+
+                let bindings = self.dependency_order(&outcome.bindings, |encoder, write| encoder.dependency_captured_write(write))?
+                    .into_iter().map(|(destination, value)| {
+                let mut inputs = std::collections::BTreeMap::new();
+                let mut projections = std::collections::BTreeMap::new();
+
+                for input in value.terms() {
+                    if !inputs.contains_key(input) { inputs.insert(*input, self.constant_term_id(*input)?); }
+                }
+
+                for projection in value.projections() {
+                    if !projections.contains_key(projection) { projections.insert(*projection, self.dependency_projection(projection)?); }
+                }
+
+                let mut callees = std::collections::BTreeMap::new();
+
+                for call in value.callees() {
+                    if callees.contains_key(call) { continue; }
+
+                    callees.insert(call, bray_package_interface::InterfaceCapturedCallable {
+                        instance: self.callable_instance_id(call.instance)?, signature: self.type_id(call.signature)?, has_receiver: call.has_receiver,
+                        requirement: call.requirement.map(|r| Ok((self.type_id(r.subject())?, self.trait_application_id(r.trait_application())?))).transpose()?,
+                        dispatch: call.dispatch.map(|w| self.implementation_instance_id(w)).transpose()?,
+                        witnesses: call.witnesses.iter().map(|w| self.implementation_instance_id(*w)).collect::<Result<_, _>>()?,
+                    });
+                }
+
+                Ok((self.dependency_subject(destination)?, value.try_map(&mut |input| Ok::<_, PackageInterfaceExportError>(inputs[input]),
+                        &mut |projection| Ok(projections[projection].clone()),
+                        &mut |root| self.captured_static_reference(root), &mut |callee| Ok(callees[callee].clone()))?))
+                }).collect::<Result<Vec<_>, PackageInterfaceExportError>>()?;
+
+        let carriers = self
+            .dependency_order(&outcome.carriers, |encoder, item| {
+                encoder.dependency_carrier(item)
+            })?
+            .into_iter()
+            .map(|carrier| {
+                Ok(bray_symbols::DependencyWitnessCarrier::new(
+                    self.constant_term_id(carrier.guarantee())?,
+                    carrier
+                        .path()
+                        .iter()
+                        .map(|projection| self.dependency_projection(projection))
+                        .collect::<Result<Vec<_>, _>>()?,
+                ))
+            })
+            .collect::<Result<Vec<_>, PackageInterfaceExportError>>()?;
+
+                Ok(bray_symbols::CapturedValueOutcome::new(guard, bindings).with_carriers(carriers).with_ownership(self.dependency_owned_result(&outcome.ownership)?))
+            }).collect()
+    }
+
+    fn captured_static_reference(&mut self, root: &bray_symbols::StaticReferenceSelection)
+        -> Result<bray_package_interface::InterfaceStaticReference, PackageInterfaceExportError>
+    {
+        let witnesses = root.selected_witnesses().iter().map(|witness| self.implementation_instance_id(*witness))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(bray_package_interface::InterfaceStaticReference::new(
+            self.symbol_reference(root.template().declaration().into())?, self.substitution_id(root.substitution())?,
+            witnesses, root.target().clone(), root.closed_instance().is_some(),
+        ))
     }
 
     fn dependency_owned_result(
@@ -690,7 +739,7 @@ mod tests {
                             .with_abnormal_reports([equations])
                     }
                     "borrows" => DependencyContractTemplateData::new([]).with_borrows(borrows),
-                    "carriers" => DependencyContractTemplateData::new([]).with_carriers(carriers),
+                    "carriers" => DependencyContractTemplateData::new([]).with_captured_values([bray_symbols::CapturedValueOutcome::new(None, []).with_carriers(carriers)]),
                     "effects" => DependencyContractTemplateData::new([]).with_effects(effects),
                     _ => unreachable!(),
                 };

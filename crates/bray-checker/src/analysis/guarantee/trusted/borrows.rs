@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{BoundExecutionSite, BoundExpressionId, StorageProjection};
 use bray_symbols::{
-    DependencyReferenceKind, DependencySubject, DependencySubjectRoot,
+    DependencyReferenceKind, DependencySubject,
 };
 
 use super::super::flow::ExecutionFlowDomain;
@@ -51,25 +51,34 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }
     }
 
+    fn feasible_owned_transfers<'layout>(
+        &self,
+        entry: &crate::ExecutionCallEvidence,
+        assumptions: &ExecutionAssumptions,
+        result: &ExecutionCondition,
+        ownership: &'layout bray_symbols::DependencyOwnedResult,
+    ) -> Vec<(&'layout bray_symbols::DependencyOwnedTransfer, ExecutionCondition)> {
+
+        let bind = |term| entry.bind_term(self.request.semantic_values(), term, result);
+
+        ownership.guarded_transfers().filter_map(|(transfer, cases)| {
+            let guard = cases.into_iter().copied().chain(transfer.condition()).map(bind)
+                .fold(ExecutionCondition::boolean(true), |guard, condition|
+                    ExecutionCondition::operation(bray_bound_tree::BoundOperator::LogicalAnd, vec![guard, condition]));
+
+            (guard.prove_ordinary(assumptions, Some(&self.proofs)) != Some(false)).then_some((transfer, guard))
+        }).collect()
+    }
+
     pub(in crate::analysis::guarantee) fn extracted_input_values(
         &self,
         invocation: BoundExecutionSite,
-        arguments: &BTreeMap<ExecutionPlace, ExecutionCondition>,
-        assumptions: &ExecutionAssumptions,
+        entry: &crate::ExecutionCallEvidence,
     ) -> BTreeSet<ExecutionCondition> {
-        let Some(dependencies) = self.dependencies.calls().get(&invocation) else {
-            return BTreeSet::new();
-        };
+        let Some(dependencies) = self.dependencies.calls().get(&invocation) else { return BTreeSet::new(); };
 
-        dependencies.owned_result().guarded_transfers()
-            .filter(|(transfer, cases)| cases.iter().copied().copied().chain(transfer.condition())
-                .all(|term| crate::execution_condition_from_type_term(
-                    self.request.semantic_values(), term, dependencies.input_count(),
-                ).expect("checked extraction guard decodes in the same semantic store")
-                    .substitute(&|place| place.value_in(arguments).unwrap_or_else(ExecutionCondition::unknown),
-                        &ExecutionCondition::unknown(), &mut { ExecutionCondition::WORK_LIMIT })
-                    .prove_ordinary(assumptions, Some(&self.proofs)) != Some(false)))
-            .map(|(transfer, _)| transfer)
+        self.feasible_owned_transfers(entry, &entry.assumptions, &ExecutionCondition::unknown(), dependencies.owned_result())
+            .into_iter().map(|(transfer, _)| transfer)
             .filter(|transfer| !dependencies.returned_value(transfer).is_borrowed())
             .filter_map(|transfer| {
                 let decoded = crate::execution_condition_from_type_term(
@@ -80,64 +89,30 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     unreachable!("checked extraction source contains only input projections");
                 };
 
-                let source = input.value_in(arguments)?;
+                let source = input.value_in(&entry.arguments)?;
 
                 if !source.is_reference() { return None; }
 
-                let value = source.into_referent();
+                let value = source.argument_value(false);
 
                 value.ownership_identity().is_some_and(|(role, _)|
                     role == crate::execution_guarantees::ExecutionObservationKind::Owned).then_some(value)
             }).collect()
     }
 
-    pub(super) fn prepare_returned_values(
+    fn transferred_values(
         &self,
         state: &mut super::super::state::ExecutionState,
-        invocation: BoundExecutionSite,
-        output: Option<&ExecutionPlace>,
-        arguments: &BTreeMap<ExecutionPlace, ExecutionCondition>,
-        completion: &bray_bound_tree::StorageCompletion,
+        entry: &crate::ExecutionCallEvidence,
+        result: &ExecutionCondition,
+        ownership: &bray_symbols::DependencyOwnedResult,
     ) -> ReturnedValues {
         let mut fields = BTreeMap::new();
 
-        let Some(dependencies) = self.dependencies.calls().get(&invocation) else {
-            return fields;
-        };
-
-        let transports_value = match invocation {
-            BoundExecutionSite::CallInput { expression, ordinal } => self.semantics.selections()
-                .expression(expression).and_then(|selection| selection.input(ordinal))
-                .is_some_and(|input| matches!(input, bray_bound_tree::SelectedInput::Receiver(_))
-                    || input.conversion().is_some_and(super::super::completion::conversion_transports_value)),
-            BoundExecutionSite::Node(bray_bound_tree::AnyBoundNodeId::Expression(expression)) =>
-                match self.semantics.selections().expression(expression) {
-                    Some(bray_bound_tree::SemanticSelection::Operation(bray_bound_tree::SelectedOperation::Conversion(conversion))) =>
-                        super::super::completion::conversion_transports_value(conversion),
-                    _ => false,
-                },
-            _ => false,
-        };
-
-        for transfer in dependencies.owned_result().transfers() {
+        for (transfer, _) in self.feasible_owned_transfers(entry, &state.assumptions, result, ownership) {
             if fields.contains_key(transfer) { continue; }
 
-            let input = crate::execution_condition_from_type_term(
-                self.request.semantic_values(),
-                transfer.input(),
-                dependencies.input_count(),
-            )
-            .expect("checked owned input decodes in the same semantic store");
-
-            let value = input.substitute(
-                &|place| {
-                    place
-                        .value_in(arguments)
-                        .unwrap_or_else(ExecutionCondition::unknown)
-                },
-                &ExecutionCondition::unknown(),
-                &mut { ExecutionCondition::WORK_LIMIT },
-            );
+            let value = entry.bind_term(self.request.semantic_values(), transfer.input(), result);
 
             if value == ExecutionCondition::unknown() {
                 continue;
@@ -145,51 +120,25 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             let path = crate::storage::owned_storage_projections(self.dependencies, transfer.output());
 
-            let borrowed_result = dependencies.returned_value(transfer).is_borrowed();
-            let extracted = value.is_reference() && !borrowed_result;
+            let actual = path.iter().copied().fold(result.clone(), ExecutionCondition::project);
 
-            // A checked ownership transfer can extract the value from a borrowed
-            // slot. Returning a borrow instead retains its original loan identity.
-            let source = if borrowed_result { value } else { value.into_referent() };
+            let extracted = (value.is_reference() && !actual.is_reference())
+                .then(|| value.clone().argument_value(false))
+                .filter(|source| entry.extracted_values.contains(source));
 
-            let crate::ExecutionConditionKind::Input(input) = input.kind() else {
-                unreachable!("a checked ownership source names an input projection");
-            };
+            let is_extraction = extracted.is_some();
+            let source = extracted.unwrap_or(value);
 
-            // Whole inline preservation and absence of reached writes jointly retain
-            // this synchronous entry snapshot. A deferred entry can predate suspension.
-            let unchanged = !borrowed_result && !source.is_reference() && (transports_value
-                || dependencies.deferred_effects().is_none()
-                    && dependencies.preserves_storage_on_normal_return()
-                    && transfer.preservation() == &bray_symbols::DependencyValuePreservation::all());
-
-            let preservation = crate::storage::owned_storage_preservation(self.dependencies, transfer.preservation());
-
-            let value = if borrowed_result || source.is_reference() {
-                ExecutionCondition::reference_value(source.owner_identity().clone(), ExecutionCondition::unknown())
-            } else if unchanged {
-                // Retain the immutable source while recording its prepared ownership below.
-                source.clone()
+            let value = if actual.is_reference() || source.is_reference() || source.owner_identity() == actual.owner_identity() {
+                actual
             } else {
-                super::super::flow::ValuePreservation::returned(
-                    &preservation, &source,
-                ).returned_snapshot(&source, &input, bray_bound_tree::StorageMutation::Operation(invocation))
+                ExecutionCondition::owned_value(source.owner_identity().clone(), actual)
             };
 
-            // The selected child owns its output path while the enclosing completion keeps its root.
-            let destination = output.map(|output| output.clone().project(&path)
-                .expect("checked returned ownership has a portable output path"));
+            if !source.is_reference() && !value.is_reference() {
+                let preservation = crate::storage::owned_storage_preservation(self.dependencies, transfer.preservation());
 
-            let value = if unchanged { value } else {
-                self.refresh_returned_references(state, destination.as_ref(), value, completion)
-            };
-
-            if !borrowed_result && !source.is_reference() {
-                // The callee proves inline transport. The physical snapshot mask
-                // separately refreshes reached state and is not a portable contract.
-                state.preserve_owned_result(&source, &value, extracted, |path| {
-                    preservation.subtree(path).into_owned()
-                });
+                state.preserve_owned_result(&source, &value, is_extraction, |path| preservation.subtree(path).into_owned());
             }
 
             fields.insert(transfer.clone(), (path, value));
@@ -199,48 +148,20 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     }
 
     /// Qualify live input evidence by the result layouts that actually retain it.
-    pub(super) fn guard_returned_inputs(
+    fn guard_returned_inputs(
         &self,
         state: &mut super::super::state::ExecutionState,
-        invocation: BoundExecutionSite,
-        arguments: &BTreeMap<ExecutionPlace, ExecutionCondition>,
+        entry: &crate::ExecutionCallEvidence,
         returned: &ReturnedValues,
         result: &ExecutionCondition,
+        ownership: &bray_symbols::DependencyOwnedResult,
     ) {
         use bray_bound_tree::BoundOperator;
         use std::collections::BTreeSet;
 
-        let Some(dependencies) = self.dependencies.calls().get(&invocation) else {
-            return;
-        };
-
-        let decode = |term| {
-            crate::execution_condition_from_type_term(
-                self.request.semantic_values(),
-                term,
-                dependencies.input_count(),
-            )
-            .expect("checked ownership condition decodes in the same semantic store")
-            .substitute(
-                &|place| {
-                    place
-                        .value_in(arguments)
-                        .unwrap_or_else(ExecutionCondition::unknown)
-                },
-                result,
-                &mut { ExecutionCondition::WORK_LIMIT },
-            )
-        };
-
         let mut guards = BTreeMap::new();
 
-        for (transfer, enclosing) in dependencies.owned_result().guarded_transfers() {
-            let guard = enclosing.into_iter().copied().chain(transfer.condition())
-                .map(|condition| decode(condition))
-                .fold(ExecutionCondition::boolean(true), |guard, condition| {
-                    ExecutionCondition::operation(BoundOperator::LogicalAnd, vec![guard, condition])
-                });
-
+        for (transfer, guard) in self.feasible_owned_transfers(entry, &state.assumptions, result, ownership) {
             for value in returned.get(transfer).into_iter()
                 .flat_map(|(_, value)| state.owned_values(value))
             {
@@ -320,9 +241,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         &self,
         state: &super::super::state::ExecutionState,
         invocation: BoundExecutionSite,
+        entry: &crate::ExecutionCallEvidence,
     ) -> std::collections::BTreeSet<ExecutionCondition> {
-        if state.entries[&invocation].owned_inputs.is_empty()
-            && state.entries[&invocation].extracted_values.is_empty() {
+        if entry.owned_inputs.is_empty() && entry.extracted_values.is_empty() {
             return Default::default();
         }
 
@@ -363,32 +284,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             || invocation == (BoundExecutionSite::CallInput { expression, ordinal }))
     }
 
-    pub(super) fn retire_consumed_inputs(
-        &self,
-        state: &mut super::super::state::ExecutionState,
-        invocation: BoundExecutionSite,
-        arguments: &BTreeMap<ExecutionPlace, ExecutionCondition>,
-        returned: &ReturnedValues,
-        result: &ExecutionCondition,
-        outside: &std::collections::BTreeSet<ExecutionCondition>,
-    ) {
-        let entry = state
-            .entries
-            .get(&invocation)
-            .expect("completed invocation retains its captured ownership");
-
-        let consumed = entry.retiring_witness_values().collect::<Vec<_>>();
-
-        let retained = returned.values()
-            .flat_map(|(_, value)| state.witness_values(value))
-            .chain(state.witness_values(result))
-            .chain(outside.iter().cloned())
-            .chain(self.preserved_borrowed_inputs(invocation, arguments))
-            .collect();
-
-        state.retire_trusted_values(consumed, &retained);
-    }
-
     pub(in crate::analysis::guarantee) fn retire_failed_call(
         &self,
         state: &mut super::super::state::ExecutionState,
@@ -401,7 +296,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         // Retire private input evidence when execution produces no normal result.
         // Retained caller values remain distinct from the callee's owned inputs.
         let consumed = entry.retiring_witness_values().collect::<Vec<_>>();
-        let retained = self.surviving_call_values(state, invocation);
+        let retained = self.surviving_call_values(state, invocation, entry);
 
         let private = state.current.iter()
             .filter(|(place, _)| self.is_invocation_input_place(invocation, place))
@@ -422,18 +317,15 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     fn retire_owned_alternative(
         &self,
         state: &mut super::super::state::ExecutionState,
-        invocation: BoundExecutionSite,
-        arguments: &BTreeMap<ExecutionPlace, ExecutionCondition>,
+        entry: &crate::ExecutionCallEvidence,
         result: &ExecutionCondition,
         outside: &std::collections::BTreeSet<ExecutionCondition>,
     ) {
-        let consumed = state.entries.get(&invocation)
-            .expect("normal return retains its captured entry").retiring_witness_values().collect::<Vec<_>>();
+        let consumed = entry.retiring_witness_values().collect::<Vec<_>>();
 
         let retained = state
             .witness_values(result)
             .chain(outside.iter().cloned())
-            .chain(self.preserved_borrowed_inputs(invocation, arguments))
             .collect();
 
         state.retire_trusted_values(consumed, &retained);
@@ -482,7 +374,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         invocation: BoundExecutionSite,
         state: &mut super::super::state::ExecutionState,
         mut result: ExecutionCondition,
-        arguments: &BTreeMap<ExecutionPlace, ExecutionCondition>,
+        entry: &crate::ExecutionCallEvidence,
         returned: &ReturnedValues,
         ownership: &bray_symbols::DependencyOwnedResult,
         outside: &std::collections::BTreeSet<ExecutionCondition>,
@@ -494,23 +386,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 condition,
                 result: layout,
             } => {
-                let dependencies = &self.dependencies.calls()[&invocation];
-
-                let condition = crate::execution_condition_from_type_term(
-                    self.request.semantic_values(),
-                    *condition,
-                    dependencies.input_count(),
-                )
-                .expect("checked ordinary ownership condition decodes in the same store")
-                .substitute(
-                    &|place| {
-                        place
-                            .value_in(arguments)
-                            .unwrap_or_else(ExecutionCondition::unknown)
-                    },
-                    &result,
-                    &mut { ExecutionCondition::WORK_LIMIT },
-                );
+                let condition = entry.bind_term(self.request.semantic_values(), *condition, &result);
 
                 if condition.prove_ordinary(&state.assumptions, Some(&state.proofs)) == Some(false) {
                     return None;
@@ -518,36 +394,15 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
                 condition.assume(true, &mut state.assumptions);
 
-                self.complete_owned_result(invocation, state, result, arguments, returned, layout, outside)
+                self.complete_owned_result(invocation, state, result, entry, returned, layout, outside)
             }
             DependencyOwnedResult::Transfer(transfer) => {
-                let dependencies = &self.dependencies.calls()[&invocation];
-
-                for term in dependencies.returned_value(transfer).conditions() {
-                    let condition = crate::execution_condition_from_type_term(
-                        self.request.semantic_values(),
-                        *term,
-                        dependencies.input_count(),
-                    )
-                    .expect("prepared transport condition belongs to the same semantic store")
-                    .substitute(
-                        &|place| {
-                            place
-                                .value_in(arguments)
-                                .unwrap_or_else(ExecutionCondition::unknown)
-                        },
-                        &result,
-                        &mut { ExecutionCondition::WORK_LIMIT },
-                    );
-
-                    condition.assume(true, &mut state.assumptions);
-                }
-
                 self.refine_witnesses(state);
 
-                let fields = returned.get(transfer);
-
-                Some(construct(result, fields.into_iter().cloned().collect(), transfer.condition().is_none()))
+                Some(match returned.get(transfer) {
+                    Some((path, value)) => result.with_storage_component(path, value.clone()),
+                    None => result,
+                })
             }
             DependencyOwnedResult::All(values) => {
                 // Install containing owners first so explicit surviving child
@@ -572,7 +427,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     );
 
                     result = self.complete_owned_result(
-                        invocation, state, result, arguments, returned, value, &retained,
+                        invocation, state, result, entry, returned, value, &retained,
                     )?;
                 }
 
@@ -590,7 +445,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         invocation,
                         &mut branch,
                         root.clone(),
-                        arguments,
+                        entry,
                         returned,
                         value,
                         outside,
@@ -600,8 +455,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
                     self.retire_owned_alternative(
                         &mut branch,
-                        invocation,
-                        arguments,
+                        entry,
                         &value,
                         outside,
                     );
@@ -623,157 +477,27 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }
     }
 
-    pub(in crate::analysis::guarantee) fn complete_returned_values(
-        &self,
-        invocation: BoundExecutionSite,
-        state: &mut super::super::state::ExecutionState,
-        result: ExecutionCondition,
-        arguments: &BTreeMap<ExecutionPlace, ExecutionCondition>,
-        returned: &ReturnedValues,
-        outside: &std::collections::BTreeSet<ExecutionCondition>,
+    pub(in crate::analysis::guarantee) fn complete_transferred_ownership(
+        &self, state: &mut super::super::state::ExecutionState, invocation: BoundExecutionSite,
+        source: Option<BoundExecutionSite>, entry: &crate::ExecutionCallEvidence,
+        result: ExecutionCondition, ownership: &bray_symbols::DependencyOwnedResult,
     ) -> ExecutionCondition {
-        // Reference observations can add fields around this invocation's pending
-        // result. A constructed input from an earlier producer is already complete.
-        let pending = match result.kind() {
-            crate::ExecutionConditionKind::Constructed(base, _) => {
-                let belongs = match (base.as_ref()).kind() {
-                    crate::ExecutionConditionKind::Expression(expression) => invocation == (*expression).into(),
-                    crate::ExecutionConditionKind::ScopedCapability(expression) => invocation == BoundExecutionSite::ScopedEnter(*expression),
-                    crate::ExecutionConditionKind::PostState(bray_bound_tree::StorageMutation::Operation(site), _) => *site == invocation,
-                    _ => false,
-                };
+        let returned = self.transferred_values(state, entry, &result, ownership);
 
-                if !belongs { return result; }
+        self.guard_returned_inputs(state, entry, &returned, &result, ownership);
 
-                base.as_ref()
-            }
-            _ => &result,
-        };
+        let mut outside = self.surviving_call_values(state, invocation, entry);
 
-        let retains_identity = matches!((
-            pending).kind(),
-            crate::ExecutionConditionKind::Expression(_)
-                | crate::ExecutionConditionKind::ScopedCapability(_)
-                | crate::ExecutionConditionKind::Projection(_, _)
-        ) || matches!(pending.kind(), crate::ExecutionConditionKind::PostState(
-                bray_bound_tree::StorageMutation::Operation(site), _) if *site == invocation);
-
-        if !retains_identity {
-            return result;
+        if let Some(source) = source {
+            outside.extend(self.preserved_borrowed_inputs(source, &entry.arguments));
         }
 
-        let Some(dependencies) = self.dependencies.calls().get(&invocation) else {
-            return result;
-        };
-
-        let result = self
-            .complete_owned_result(
-                invocation,
-                state,
-                result,
-                arguments,
-                returned,
-                dependencies.owned_result(),
-                outside,
-            )
+        let result = self.complete_owned_result(invocation, state, result, entry, &returned, ownership, &outside)
             .expect("completed checked call has a feasible ownership layout");
 
-        self.retire_owned_alternative(state, invocation, arguments, &result, outside);
+        self.retire_owned_alternative(state, entry, &result, &outside);
 
         result
-    }
-
-    pub(in crate::analysis::guarantee) fn complete_returned_references(
-        &self,
-        invocation: BoundExecutionSite,
-        result: ExecutionCondition,
-        arguments: &BTreeMap<ExecutionPlace, ExecutionCondition>,
-    ) -> ExecutionCondition {
-        let Some(source) = invocation.expression() else {
-            return result;
-        };
-
-        let Some(dependencies) = self.dependencies.calls().get(&invocation) else {
-            return result;
-        };
-
-        let selection = self
-            .semantics
-            .selections()
-            .expression(source)
-            .expect("completed checked call retains its selection");
-
-        let mut result = result;
-        let mut fields = BTreeMap::new();
-
-        for subject in dependencies.reference_subjects() {
-            if subject.subject_root() != DependencySubjectRoot::Result {
-                continue;
-            }
-
-            let ty = dependencies.reference_type(subject)
-                .expect("prepared reference subject retains its value type");
-
-            if !matches!(self.request.semantic_values().type_data(ty).as_ref(), bray_symbols::TypeData::Borrow { .. }) {
-                continue;
-            }
-
-            let path = crate::storage::storage_projections(self.request.semantic_values(), self.dependencies, subject.projections())
-                .expect("checked result reference retains its storage projection");
-
-            let value = path.iter().copied().fold(result.clone(), ExecutionCondition::project)
-                .coerce(self.request.semantic_values(), ty, ty);
-
-            if value != ExecutionCondition::unknown() {
-                if path.is_empty() {
-                    result = value;
-                } else {
-                    fields.insert(path, value);
-                }
-            }
-        }
-
-        for reference in dependencies.references() {
-            let relation = reference.relation();
-
-            if relation.exit().subject_root() != DependencySubjectRoot::Result || !reference.preserves_value() {
-                continue;
-            }
-
-            let path = crate::storage::storage_projections(self.request.semantic_values(), self.dependencies, relation.exit().projections())
-                .expect("checked result reference retains its storage projection");
-
-            let entry = relation
-                .entry()
-                .expect("value-preserving reference has an exact input origin");
-
-            let Some(ordinal) =
-                selection.invocation_input_ordinal(invocation, entry.subject_root())
-            else {
-                continue;
-            };
-
-            let Some(input) = project_place(self.request.semantic_values(), self.dependencies, ExecutionPlace::argument(ordinal), entry) else {
-                continue;
-            };
-
-            let Some(value) = input.value_in(arguments) else {
-                continue;
-            };
-
-            if value == ExecutionCondition::unknown() {
-                continue;
-            }
-
-            let value = match relation.kind() {
-                DependencyReferenceKind::Borrow => value.borrowed(),
-                DependencyReferenceKind::Address => value.into_referent(),
-            };
-
-            fields.insert(path, value);
-        }
-
-        construct(result, fields, false)
     }
 }
 
@@ -784,64 +508,4 @@ pub(in crate::analysis::guarantee) fn project_place(
     subject: &DependencySubject,
 ) -> Option<ExecutionPlace> {
     place.project(&crate::storage::storage_projections(values, dependencies, subject.projections())?)
-}
-
-// The checked owned-result layout can establish presence and an active variant.
-// Borrowed result projections update data without asserting either condition.
-fn construct(
-    root: ExecutionCondition,
-    mut fields: BTreeMap<Vec<StorageProjection>, ExecutionCondition>,
-    owns: bool,
-) -> ExecutionCondition {
-    if let Some(value) = fields.remove(&Vec::new()) {
-        return value;
-    }
-
-    if !owns {
-        return fields.into_iter().fold(root, |root, (path, value)| {
-            root.with_storage_component(&path, value)
-        });
-    }
-
-    let mut children =
-        BTreeMap::<StorageProjection, BTreeMap<Vec<StorageProjection>, ExecutionCondition>>::new();
-
-    for (path, value) in fields {
-        let (first, rest) = path.split_first()
-            .expect("whole result replacement was selected before its component layout");
-
-        children
-            .entry(*first)
-            .or_default()
-            .insert(rest.to_vec(), value);
-    }
-
-    if children.is_empty() {
-        return root;
-    }
-
-    if children.len() == 1
-        && let Some(fields) = children.remove(&StorageProjection::NullableValue)
-    {
-        return ExecutionCondition::new(crate::ExecutionConditionKind::Present(std::sync::Arc::new(construct(
-            root.project(StorageProjection::NullableValue),
-            fields,
-            owns,
-        ))));
-    }
-
-    let root = if let Some(StorageProjection::ActiveUnionPayloadField { variant, .. }) =
-            children.keys().next()
-    {
-        ExecutionCondition::new(crate::ExecutionConditionKind::Tagged(*variant, std::sync::Arc::new(root)))
-    } else {
-        root
-    };
-
-    children.into_iter().fold(root, |root, (projection, fields)| {
-        let prior = root.clone().project(projection);
-        let component = construct(prior, fields, owns);
-
-        root.with_storage_component(&[projection], component)
-    })
 }

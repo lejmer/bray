@@ -319,6 +319,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 if matches!(scoped.invocation(invocation).2, bray_bound_tree::BoundCallResult::LazyFuture(_)));
 
         Some(crate::ExecutionCallEvidence {
+            outputs: Default::default(),
             implementation_witnesses: Default::default(),
             witness_inputs: Default::default(),
             extracted_values: Default::default(),
@@ -388,6 +389,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }
 
         Some(crate::ExecutionCallEvidence {
+            outputs: Default::default(),
             implementation_witnesses: Default::default(),
             witness_inputs: Default::default(),
             extracted_values: Default::default(),
@@ -411,14 +413,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let mut entry = self.awaited_entry(state, invocation)
             .or_else(|| self.invocation_entry(state, invocation))?;
 
-        entry.extracted_values.extend(self.extracted_input_values(invocation, &entry.arguments, &entry.assumptions));
+        entry.extracted_values.extend(self.extracted_input_values(invocation, &entry));
 
         let captured_extractions = entry.owned_arguments()
             .flat_map(|value| state.owned_values(&value))
-            .filter_map(|value| state.deferred_entries(&value))
-            .flat_map(|deferred| deferred.producers.values())
-            .filter(|producer| super::deferred::possible(&producer.selection, &state.proofs.ordinary_proof(&entry.assumptions)))
-            .flat_map(|producer| producer.entry.extracted_values.iter().cloned())
+            .filter_map(|value| value.deferred_value().cloned())
+            .flat_map(|deferred| deferred.producers.values()
+                .filter(|producer| super::deferred::possible(&producer.selection, &state.proofs.ordinary_proof(&entry.assumptions)))
+                .flat_map(|producer| producer.entry.extracted_values.iter().cloned()).collect::<Vec<_>>())
             .collect::<BTreeSet<_>>();
 
         entry.extracted_values.extend(captured_extractions);
@@ -647,6 +649,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let owned_inputs = self.owned_input_ordinals(selection);
 
         let mut evidence = crate::ExecutionCallEvidence {
+            outputs: Default::default(),
             implementation_witnesses: call.resolution().implementation_witnesses().into(),
             witness_inputs: Default::default(),
             extracted_values: Default::default(),
@@ -735,12 +738,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     ) {
         let result = self.invocation_value(state, expression.into());
 
-        let (result, post_state) = self.complete_trusted_call(state, expression.into(), self.invocation_result_place(expression.into()).as_ref(), result, observations);
+        let result = self.complete_trusted_call(state, expression.into(), self.invocation_result_place(expression.into()).as_ref(), result, observations);
 
         state.expressions.insert(expression, result);
+    }
 
-        let Some(post_state) = post_state else { return; };
-
+    pub(super) fn assume_call_postconditions(&self, state: &mut ExecutionState, expression: BoundExpressionId,
+        result: &ExecutionCondition, post_state: &BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
+    ) {
         let Some(entry) = state.entries.get(&expression.into()) else {
             return;
         };
@@ -761,8 +766,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             return;
         }
 
-        let result = self.value(state, expression);
-
         let contracts = self
             .contracts
             .get(&expression)
@@ -780,10 +783,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 let condition = postcondition.substitute(
                     &|input| {
                         input
-                            .value_in(&post_state)
+                            .value_in(post_state)
                             .unwrap_or_else(ExecutionCondition::unknown)
                     },
-                    &result,
+                    result,
                     &mut { ExecutionCondition::WORK_LIMIT },
                 );
 
@@ -803,7 +806,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             }
         }
 
-        state.expressions.insert(expression, result);
     }
 }
 

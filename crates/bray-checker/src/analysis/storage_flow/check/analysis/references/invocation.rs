@@ -79,7 +79,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             && effects.is_none_or(|effects| {
                 effects
                     .iter()
-                    .any(|effect| effect.may_retain_address(&state.memory))
+                    .any(|effect| state.memory.may_retain_address(effect))
             });
 
         if let Some(operation) = memory
@@ -162,6 +162,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             self.record_target_effect(
                 memory,
                 &target,
+                false,
                 DependencyMutationKind::Escape,
                 None,
                 normal_effects,

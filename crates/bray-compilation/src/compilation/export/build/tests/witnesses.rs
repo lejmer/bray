@@ -1544,7 +1544,7 @@ fn witness_ownership_survives_imported_control_flow() {
 
     let values = provider.semantic_value_store().unwrap();
 
-    assert!(contract.carriers().iter().any(|carrier|
+    assert!(contract.common_carriers().iter().any(|carrier|
         matches!(carrier.path(), [bray_symbols::DependencyProjection::TupleElement(index)] if index.raw() == 1)
             && matches!(bray_checker::execution_condition_from_type_term(values, carrier.guarantee(), 1).unwrap().kind(),
                 bray_checker::ExecutionConditionKind::Trusted(_))),

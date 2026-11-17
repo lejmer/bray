@@ -106,15 +106,9 @@ pub(super) fn encode_contracts(semantics: &InterfaceSemantics) -> EncodedSemanti
                 }
             }
 
-            super::super::ownership::encode_owned_result(encoder, &contract.owned_result);
+            super::super::captured::encode_values(encoder, &contract.captured_values);
 
             write_optional_u32(encoder, contract.observed_result.map(|term| term.raw()));
-            write_count(encoder, contract.carriers.len());
-
-            for carrier in &*contract.carriers {
-                encoder.write_u32(carrier.guarantee().raw());
-                encode_dependency_projections(encoder, carrier.path());
-            }
 
             for effects in [contract.effects.possible(), contract.effects.normal()] {
                 write_count(encoder, effects.len());
@@ -132,20 +126,22 @@ pub(super) fn encode_contracts(semantics: &InterfaceSemantics) -> EncodedSemanti
                         DependencyStorageEffect::Ambient => encoder.write_u32(6),
                         DependencyStorageEffect::Escape => encoder.write_u32(5),
                         DependencyStorageEffect::Atomic => encoder.write_u32(4),
-                        DependencyStorageEffect::Direct { subject, kind, access_type } => {
-                            encoder.write_u32(1);
+                        DependencyStorageEffect::Direct { addressed, subject, kind, access_type } => {
+                            encoder.write_u32(if *addressed { 1 } else { 8 });
                             encode_dependency_subject(encoder, subject);
                             encode_mutation(encoder, *kind);
                             write_optional_u32(encoder, access_type.map(|ty| ty.raw()));
                         }
-                        DependencyStorageEffect::Indirect {
+                        DependencyStorageEffect::Indirect { addressed, reads,
                             reference,
                             projections,
                             kind,
                             access_type,
                         } => {
-                            encoder.write_u32(2);
+                            encoder.write_u32(if *addressed { 2 } else { 9 });
                             encode_dependency_subject(encoder, reference);
+                            write_count(encoder, reads.len());
+                            for index in reads.iter() { encoder.write_u32(*index); }
                             encode_dependency_projections(encoder, projections);
                             encode_mutation(encoder, *kind);
                             write_optional_u32(encoder, access_type.map(|ty| ty.raw()));
@@ -418,7 +414,7 @@ fn encode_dependency_call_inputs(
     }
 }
 
-pub(super) fn encode_dependency_subject(
+pub(in crate::semantic::codec) fn encode_dependency_subject(
     encoder: &mut WireEncoder,
     subject: &InterfaceDependencySubject,
 ) {
@@ -453,7 +449,7 @@ pub(super) fn encode_dependency_subject(
     encode_dependency_projections(encoder, &subject.projections);
 }
 
-fn encode_dependency_projections(
+pub(in crate::semantic::codec) fn encode_dependency_projections(
     encoder: &mut WireEncoder,
     projections: &[InterfaceDependencyProjection],
 ) {

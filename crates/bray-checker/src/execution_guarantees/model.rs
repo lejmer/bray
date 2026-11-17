@@ -375,12 +375,14 @@ mod tests {
             let value = |value| if borrowed { snapshot(value).borrowed() } else { snapshot(value) };
 
             let mut entry = ExecutionCallEvidence {
+                outputs: Default::default(),
                 arguments: [(input.clone(), value(true))].into(),
                 owned_inputs: if borrowed { Arc::from([]) } else { Arc::from([ordinal]) },
                 ..ExecutionCallEvidence::default()
             };
 
             let incoming = ExecutionCallEvidence {
+                outputs: Default::default(),
                 arguments: [(input.clone(), value(false))].into(),
                 owned_inputs: Arc::clone(&entry.owned_inputs),
                 ..ExecutionCallEvidence::default()

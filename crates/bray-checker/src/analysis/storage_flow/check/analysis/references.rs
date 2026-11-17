@@ -1,4 +1,5 @@
 mod cleanup;
+mod captured;
 mod entry;
 mod invocation;
 mod places;

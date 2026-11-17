@@ -6,6 +6,9 @@ mod declaration;
 mod implication;
 mod ordered_facts;
 mod evidence;
+mod outputs;
+pub(crate) use outputs::{ExecutionOutput, ExecutionOutputs, OutputGuard};
+mod deferred;
 mod model;
 mod normalize;
 mod place;
@@ -17,7 +20,9 @@ mod witness;
 
 pub(crate) use assumptions::ExecutionAssumptions;
 
-pub(crate) use snapshot::{common_components, owned_snapshot};
+pub(crate) use snapshot::common_components;
+#[cfg(test)]
+pub(crate) use snapshot::owned_snapshot;
 
 pub use bray_symbols::ExecutionProperty;
 pub use condition::{ExecutionCondition, ExecutionConditionKind, ExecutionDescriptorKind, ExecutionOperands, ExecutionObservationKind};
@@ -28,6 +33,8 @@ pub use implication::{
     remap_execution_condition_inputs, substitute_execution_condition,
 };
 pub use evidence::{ExecutionCallEvidence, UnprovenExecutionCondition};
+pub use deferred::{ExecutionDeferredInvocation, ExecutionDeferredValue};
+pub(crate) use deferred::{DeferredProducer, deferred_selection, deferred_possible};
 pub use model::{
     DeclaredExecutionProperty, ExecutionCandidate, ExecutionCandidates,
     ExecutionCertification, ExecutionCleanup, ExecutionCompletionContract,

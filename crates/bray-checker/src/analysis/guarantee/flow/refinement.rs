@@ -48,7 +48,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 expected,
             );
 
-            if !state.proofs.ordinary_proof(&state.assumptions).can_assume(&condition, value) {
+            if !state.ordinary_proof().can_assume(&condition, value) {
                 return false;
             }
 

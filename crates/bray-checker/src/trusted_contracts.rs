@@ -59,3 +59,43 @@ pub struct TrustedCallContract {
     /// Ordinary completion predicates used for path and equality reasoning.
     pub postconditions: Vec<ExecutionCondition>,
 }
+
+impl TrustedCallContract {
+    /// Decodes the checked predicates at one invocation boundary and its selected completion phase.
+    pub fn try_from_phases<E>(
+        values: &bray_symbols::SemanticValueStore,
+        symbols: &bray_symbols::AvailableCompilerKnownSymbols,
+        invocation: &bray_symbols::CallablePhaseBehavior,
+        completion: &bray_symbols::CallablePhaseBehavior,
+        completes: bool,
+        mut decode: impl FnMut(&bray_symbols::PredicateSemanticSummary) -> Result<ExecutionCondition, E>,
+    ) -> Result<Self, E> {
+        let mut contract = Self {
+            completes,
+            checks_preconditions: invocation.has_runtime_requirements(),
+            ..Self::default()
+        };
+
+        for predicate in invocation.predicate_requirements() {
+            let condition = decode(predicate)?;
+
+            if predicate.domain() == bray_symbols::PredicateDomain::Execution
+                && predicate.execution_requirement(values, symbols).is_none()
+            {
+                contract.execution_requirements.push(condition.clone());
+            }
+
+            if predicate.is_trusted() { contract.requirements.push(condition); }
+            else { contract.preconditions.push((condition, predicate.domain())); }
+        }
+
+        for predicate in completion.predicate_guarantees() {
+            let condition = decode(predicate)?;
+
+            if predicate.is_trusted() { contract.guarantees.push(condition); }
+            else { contract.postconditions.push(condition); }
+        }
+
+        Ok(contract)
+    }
+}

@@ -138,7 +138,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         output: Option<&crate::ExecutionPlace>,
         result: ExecutionCondition,
         observations: &bray_bound_tree::StorageCompletion,
-    ) -> (ExecutionCondition, Option<BTreeMap<crate::ExecutionPlace, ExecutionCondition>>) {
+    ) -> ExecutionCondition {
         // Calls without trusted clauses still establish checked result identities.
         // An empty contract contributes no authority or preservation guarantees.
         let ordinary = crate::TrustedCallContract {
@@ -153,8 +153,19 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .unwrap_or(&ordinary);
 
         let Some(entry) = self.completed_entry(state, invocation, &result, contract) else {
-            return (result, None);
+            return result;
         };
+
+        self.complete_entry_outputs(state, invocation, result, &entry, |state, result, ownership, carriers|
+            self.complete_admitted_call(state, invocation, output, result, observations, contract, entry.clone(), ownership, carriers))
+    }
+
+    fn complete_admitted_call(
+        &self, state: &mut ExecutionState, invocation: bray_bound_tree::BoundExecutionSite,
+        output: Option<&crate::ExecutionPlace>, result: ExecutionCondition, observations: &bray_bound_tree::StorageCompletion,
+        contract: &crate::TrustedCallContract, entry: crate::ExecutionCallEvidence, ownership: &bray_symbols::DependencyOwnedResult,
+        carriers: &[bray_symbols::DependencyWitnessCarrier<bray_bound_tree::StorageProjection>],
+    ) -> ExecutionCondition {
 
         let capture = |condition: &ExecutionCondition| {
             condition.capture_entry(
@@ -169,7 +180,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             )
         };
 
-        let (guarantees, subjects) = self.completion_guarantees(invocation, contract, &capture);
+        let (guarantees, subjects) = self.completion_guarantees(entry.positional_arguments().count(), carriers, contract, &capture);
 
         let address_subjects = contract
             .address_subjects
@@ -198,20 +209,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .get_mut(&invocation)
             .expect("completed invocation retains its captured entry");
 
-        completed.assumptions = entry.assumptions;
-        completed.trusted_assumptions = entry.trusted_assumptions;
+        completed.assumptions.clone_from(&entry.assumptions);
+        completed.trusted_assumptions.clone_from(&entry.trusted_assumptions);
 
-        let returned = self.prepare_returned_values(state, invocation, output, &entry.arguments, observations);
-
-        self.guard_returned_inputs(state, invocation, &entry.arguments, &returned, &result);
-
-        let outside = self.surviving_call_values(state, invocation);
-
-        self.retire_consumed_inputs(state, invocation, &entry.arguments, &returned, &result, &outside);
-
-        // Ownership leaves with the entry value. Borrowed completion clauses below
-        // instead observe the storage contents left by the call.
-        let result = self.complete_returned_values(invocation, state, result, &entry.arguments, &returned, &outside);
+        let result = self.complete_transferred_ownership(state, invocation, Some(invocation), &entry, result, ownership);
 
         let mut arguments = entry.arguments;
 
@@ -223,7 +224,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 .clone()
         }));
 
-        self.refresh_borrowed_arguments(state, invocation, &mut arguments, observations);
+        self.refresh_borrowed_arguments(state, invocation, &mut arguments);
 
         let owners = if let Some((_, call)) = self.observation_call(invocation)
         {
@@ -240,11 +241,16 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             Default::default()
         };
 
-        let result = self.complete_returned_references(invocation, result, &arguments);
+        let result = match self.dependencies.calls().get(&invocation).and_then(|contract|
+            contract.reference_type(&bray_symbols::DependencySubject::root(bray_symbols::DependencySubjectRoot::Result)))
+        {
+            Some(ty) => result.coerce(self.request.semantic_values(), ty, ty),
+            None => result,
+        };
 
         self.publish_returned_pointees(state, output, &result, observations);
 
-        let result = self.refresh_returned_references(state, output, result, observations);
+        let result = self.complete_captured_references(state, invocation, result);
 
         let instantiate = |condition: &ExecutionCondition| {
             let condition = condition.substitute(
@@ -367,7 +373,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         assume_completion(state, guarantees.iter().map(&instantiate), postconditions.iter().map(&instantiate));
 
-        (result, Some(arguments))
+        if let bray_bound_tree::BoundExecutionSite::Node(bray_bound_tree::AnyBoundNodeId::Expression(expression)) = invocation {
+            self.assume_call_postconditions(state, expression, &result, &arguments);
+        }
+
+        result
     }
     fn carry_result_guarantee(
         &self,

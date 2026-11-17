@@ -744,59 +744,59 @@ mod tests {
             DependencyStorageEffect::Unknown,
             DependencyStorageEffect::UnboundedMutation { kind: bray_symbols::DependencyMutationKind::Dispose(crate::InterfaceTypeId::new(0)), access_type: None, ambient: false },
             DependencyStorageEffect::Escape,
-            DependencyStorageEffect::Direct {
+            DependencyStorageEffect::Direct { addressed: false,
                 subject: subject.clone(),
                 kind: DependencyMutationKind::Cleanup(crate::InterfaceTypeId::new(0)),
                 access_type: None,
             },
-            DependencyStorageEffect::Direct {
+            DependencyStorageEffect::Direct { addressed: true,
                 subject: subject.clone(),
                 kind: DependencyMutationKind::Dispose(crate::InterfaceTypeId::new(0)),
                 access_type: Some(crate::InterfaceTypeId::new(0)),
             },
-            DependencyStorageEffect::Indirect {
+            DependencyStorageEffect::Indirect { addressed: true, reads: [].into(),
                 reference: subject.clone(),
                 projections: [InterfaceDependencyProjection::OwnedTarget].into(),
                 kind: DependencyMutationKind::Dispose(crate::InterfaceTypeId::new(0)),
                 access_type: None,
             },
-            DependencyStorageEffect::Direct {
+            DependencyStorageEffect::Direct { addressed: true,
                 subject: subject.clone(),
                 kind: DependencyMutationKind::Escape,
                 access_type: None,
             },
-            DependencyStorageEffect::Indirect {
+            DependencyStorageEffect::Indirect { addressed: true, reads: [].into(),
                 reference: subject.clone(),
                 projections: [].into(),
                 kind: DependencyMutationKind::Escape,
                 access_type: None,
             },
-            DependencyStorageEffect::Direct {
+            DependencyStorageEffect::Direct { addressed: true,
                 subject: subject.clone(),
                 kind: DependencyMutationKind::Write,
                 access_type: None,
             },
-            DependencyStorageEffect::Direct {
+            DependencyStorageEffect::Direct { addressed: true,
                 subject: subject.clone(),
                 kind: DependencyMutationKind::Clear,
                 access_type: None,
             },
-            DependencyStorageEffect::Direct {
+            DependencyStorageEffect::Direct { addressed: true,
                 subject: subject.clone(),
                 kind: DependencyMutationKind::Consume,
                 access_type: Some(crate::InterfaceTypeId::new(0)),
             },
-            DependencyStorageEffect::Direct {
+            DependencyStorageEffect::Direct { addressed: true,
                 subject: subject.clone(),
                 kind: DependencyMutationKind::Atomic,
                 access_type: None,
             },
-            DependencyStorageEffect::Direct {
+            DependencyStorageEffect::Direct { addressed: true,
                 subject: subject.clone(),
                 kind: DependencyMutationKind::Replace(crate::InterfaceTypeId::new(0)),
                 access_type: Some(crate::InterfaceTypeId::new(0)),
             },
-            DependencyStorageEffect::Indirect {
+            DependencyStorageEffect::Indirect { addressed: true, reads: [0, 1, 1].into(),
                 reference: subject.clone(),
                 projections: [InterfaceDependencyProjection::Element(
                     crate::InterfaceConstantTermId::new(0),
@@ -903,7 +903,7 @@ mod tests {
         ));
 
         assert!(template.effects().iter().any(|effect| matches!(effect,
-            DependencyStorageEffect::Direct { kind: DependencyMutationKind::Cleanup(ty), access_type: None, .. }
+            DependencyStorageEffect::Direct { addressed: false, kind: DependencyMutationKind::Cleanup(ty), access_type: None, .. }
                 if *ty == imported.types()[0])));
 
         assert!(template.effects().iter().any(|effect| matches!(effect,
@@ -919,8 +919,8 @@ mod tests {
                 if *ty == imported.types()[0])));
 
         assert!(
-            template.effects().iter().any(|effect| matches!(effect, DependencyStorageEffect::Indirect { projections, kind: DependencyMutationKind::Retire, .. }
-            if projections.as_ref() == [bray_symbols::DependencyProjection::Element(imported.constant_terms()[0])]))
+            template.effects().iter().any(|effect| matches!(effect, DependencyStorageEffect::Indirect { reads, projections, kind: DependencyMutationKind::Retire, .. }
+            if reads.as_ref() == [0, 1, 1] && projections.as_ref() == [bray_symbols::DependencyProjection::Element(imported.constant_terms()[0])]))
         );
     }
 

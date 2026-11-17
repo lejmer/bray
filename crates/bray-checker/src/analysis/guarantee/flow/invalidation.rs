@@ -306,28 +306,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             return false;
         }
 
-        if let Some(expression) = occurrence.expression() {
-            if self
-                .awaited_invocations(state, expression)
-                .any(|(source, _)| self.is_task_observation(source))
-                && let Some(bray_bound_tree::BoundExpression::Await(awaited)) =
-                    self.request.view().expression(expression)
-            {
-                return self
-                    .deferred_preserves_storage(state, self.value(state, awaited.operand()));
-            }
-
-            if self.awaited_unknown(state, expression) {
-                return false;
-            }
-
-            let mut deferred = self.awaited_invocations(state, expression).peekable();
-
-            if deferred.peek().is_some() {
-                return deferred.all(|(source, _)| {
-                    self.dependencies.calls()[&source].deferred_preserves_storage_on_normal_return()
-                });
-            }
+        if occurrence.expression().is_some_and(|expression| matches!(self.request.view().expression(expression),
+            Some(bray_bound_tree::BoundExpression::Await(_)))) {
+            return self.deferred_preserves_storage(state, state.admitted_receiver(occurrence));
         }
 
         self.dependencies.calls().get(&occurrence).is_some_and(
@@ -435,7 +416,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         &self,
         state: &ExecutionState,
         mutation: bray_bound_tree::StorageMutation,
-        snapshots: &BTreeMap<(bray_symbols::DependencySubjectRoot, std::sync::Arc<[bray_bound_tree::StorageProjection]>), bray_bound_tree::StorageObservationKind>,
+        snapshots: &BTreeMap<(bray_bound_tree::StorageSnapshotRoot, std::sync::Arc<[bray_bound_tree::StorageProjection]>), bray_bound_tree::StorageObservationKind>,
         observations: &mut crate::execution_guarantees::ObservationSet,
     ) {
         let bray_bound_tree::StorageMutation::Operation(site) = mutation else { return; };
@@ -446,11 +427,13 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let entry = state.entries.get(&site);
 
         for ((root, projections), kind) in snapshots {
-            let value = if *root == bray_symbols::DependencySubjectRoot::Result {
-                state.pending_results.get(&expression).or_else(|| state.expressions.get(&expression)).cloned()
-            } else {
-                selection.and_then(|selection| selection.invocation_input_ordinal(site, *root))
-                    .and_then(|ordinal| crate::ExecutionPlace::argument(ordinal).value_in(&entry?.arguments))
+            let value = match root {
+                bray_bound_tree::StorageSnapshotRoot::Produced(destination) => entry.and_then(|entry| entry.outputs.common_value(destination)).cloned(),
+                bray_bound_tree::StorageSnapshotRoot::Input(bray_symbols::DependencySubjectRoot::Result) =>
+                    state.pending_results.get(&expression).or_else(|| state.expressions.get(&expression)).cloned(),
+                bray_bound_tree::StorageSnapshotRoot::Input(root) =>
+                    selection.and_then(|selection| selection.invocation_input_ordinal(site, *root))
+                        .and_then(|ordinal| crate::ExecutionPlace::argument(ordinal).value_in(&entry?.arguments)),
             };
 
             let Some(mut value) = value else { continue; };

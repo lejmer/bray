@@ -61,7 +61,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     }
 
     pub(in crate::analysis::storage_flow::check::analysis) fn memory_effects(
-        &self,
+        &mut self,
         state: &mut StorageFlowState,
         expression: BoundExpressionId,
     ) -> Option<Vec<Effect>> {
@@ -75,28 +75,22 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         match *operation.kind() {
             CheckedMemoryOperationKind::RawBufferPush { element } => {
-                let effects = self.buffer_prefix_effects(
+                return self.buffer_prefix_effects(
                     state,
                     operation,
                     0,
                     Some(bray_symbols::DependencyMutationKind::Replace(element)),
                 );
 
-                self.stage_buffer_payload(state, operation);
-
-                return effects;
             }
             CheckedMemoryOperationKind::RawBufferPop { .. } => {
-                let effects = self.buffer_prefix_effects(
+                return self.buffer_prefix_effects(
                     state,
                     operation,
                     0,
                     Some(bray_symbols::DependencyMutationKind::Consume),
                 );
 
-                self.stage_buffer_payload(state, operation);
-
-                return effects;
             }
             CheckedMemoryOperationKind::RawBufferSetInitializedCount => {
                 return self.buffer_prefix_effects(state, operation, 0, None);

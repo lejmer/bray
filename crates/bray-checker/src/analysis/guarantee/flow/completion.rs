@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use bray_bound_tree::{BoundExecutionSite, BoundExpressionId};
+use bray_bound_tree::BoundExpressionId;
 
 use super::super::state::ExecutionState;
 use super::ExecutionFlowDomain;
@@ -73,25 +73,23 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     /// Follow the selected frame through Task observations, retaining each result's placement.
     fn deferred_execution<'s>(
         &'s self,
-        deferred: &'s super::super::state::DeferredInvocations,
         proof: crate::execution_guarantees::ExecutionProof<'s>,
         value: ExecutionCondition,
         result: ExecutionCondition,
     ) -> impl Iterator<
         Item = (
-            BoundExecutionSite,
-            &'s Arc<crate::ExecutionCallEvidence>,
+            crate::execution_guarantees::DeferredProducer,
+            Arc<crate::ExecutionDeferredValue>,
             ExecutionCondition,
         ),
     > + 's {
         let mut next = Some((value, result));
-        let mut visited = std::collections::BTreeSet::new();
         let mut payload = None;
 
         std::iter::from_fn(move || {
             let (value, result) = next.take()?;
 
-            let deferred = deferred.get(value.owner_identity())?;
+            let deferred = value.deferred_value()?;
 
             if deferred.unknown_possible(&proof) {
                 return None;
@@ -108,11 +106,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 "operation selects one deferred producer before composing completion"
             );
 
-            if self.is_task_observation(*source) {
-                if !visited.insert(value.owner_identity().clone()) {
-                    return None;
-                }
-
+            if self.is_task_observation(source.clone()) {
                 let task = ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(0))
                     .value_in(&candidate.entry.arguments)?;
 
@@ -129,7 +123,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 next = Some((task, result.clone().project(projection)));
             }
 
-            Some((*source, &candidate.entry, result))
+            Some((source.clone(), Arc::clone(deferred), result))
         })
     }
 
@@ -137,36 +131,16 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         &self,
         state: &ExecutionState,
         value: ExecutionCondition,
-    ) -> Option<(BoundExecutionSite, usize)> {
+    ) -> Option<(crate::execution_guarantees::DeferredProducer, usize, Arc<crate::ExecutionDeferredValue>)> {
         self.deferred_execution(
-            &state.deferred_invocations,
-            state.proofs.ordinary_proof(&state.assumptions),
+            state.ordinary_proof(),
             value,
             ExecutionCondition::unknown(),
         )
         .enumerate()
         .last()
-        .filter(|(_, (source, _, _))| !self.is_task_observation(*source))
-        .map(|(depth, (source, _, _))| (source, depth))
-    }
-
-    pub(in crate::analysis) fn task_body(
-        &self,
-        state: &ExecutionState,
-        expression: BoundExpressionId,
-    ) -> Option<BoundExecutionSite> {
-        let bray_bound_tree::SemanticSelection::Call(call) =
-            self.semantics.selections().expression(expression)?
-        else {
-            return None;
-        };
-
-        crate::analysis::AnalysisTaskOperationKind::from_implementation_hook(
-            call.implementation_hook()?,
-        )?;
-
-        self.deferred_body(state, self.receiver_value(state, expression, call))
-            .map(|(source, _)| source)
+        .filter(|(_, (source, _, _))| !self.is_task_observation(source.clone()))
+        .map(|(depth, (source, frame, _))| (source, depth, frame))
     }
 
     /// Preservation queries can join producers before an operation selects one.
@@ -180,24 +154,22 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let mut body = false;
 
         while let Some(value) = pending.pop() {
-            if !visited.insert(value.owner_identity().clone()) {
-                continue;
-            }
-
-            let Some(deferred) = state.deferred_entries(&value) else {
+            let Some(deferred) = value.deferred_value() else {
                 return false;
             };
 
-            if deferred.unknown_possible(&state.proofs.ordinary_proof(&state.assumptions)) {
+            if !visited.insert(Arc::as_ptr(deferred)) { continue; }
+
+            if deferred.unknown_possible(&state.ordinary_proof()) {
                 return false;
             }
 
             for (source, candidate) in &deferred.producers {
-                if !super::super::deferred::possible(&candidate.selection, &state.proofs.ordinary_proof(&state.assumptions)) {
+                if !super::super::deferred::possible(&candidate.selection, &state.ordinary_proof()) {
                     continue;
                 }
 
-                if self.is_task_observation(*source) {
+                if self.is_task_observation(source.clone()) {
                     let Some(task) = ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(0))
                         .value_in(&candidate.entry.arguments)
                     else {
@@ -206,8 +178,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
                     pending.push(task);
                 } else {
-                    if !self.dependencies.calls()[source]
-                        .deferred_preserves_storage_on_normal_return()
+                    let preserves = source.local().map_or_else(|| {
+                        candidate.callee.as_deref().and_then(|callee| self.dependencies.frame_callees().get(callee)).is_some_and(|body|
+                            self.request.semantic_values().dependency_contract_template_data(body.summary).effect_outcomes().preserves_storage_on_normal_return())
+                    }, |source| self.dependencies.calls()[&source].deferred_preserves_storage_on_normal_return());
+
+                    if !preserves
                     {
                         return false;
                     }
@@ -225,26 +201,19 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         state: &ExecutionState,
         expression: BoundExpressionId,
     ) -> Option<std::collections::BTreeSet<BoundExpressionId>> {
-        let Some(bray_bound_tree::BoundExpression::Await(awaited)) =
+        let Some(bray_bound_tree::BoundExpression::Await(_)) =
             self.request.view().expression(expression)
         else {
             return None;
         };
 
-        let value = self.value(state, awaited.operand());
+        let value = state.admitted_receiver(expression.into());
 
-        state.deferred_entries(&value)?;
+        value.deferred_value()?;
 
-        Some(
-            self.deferred_body(state, value)
-                .map(|(source, _)| {
-                    source
-                        .expression()
-                        .expect("formed producer retains its source expression")
-                })
-                .into_iter()
-                .collect(),
-        )
+        let (source, _, _) = self.deferred_body(state, value)?;
+
+        Some([source.local()?.expression()?].into())
     }
 
     fn task_outcomes<'s>(
@@ -253,8 +222,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         expression: BoundExpressionId,
     ) -> impl Iterator<Item = ExecutionCondition> + 's {
         let value = match self.request.view().expression(expression) {
-            Some(bray_bound_tree::BoundExpression::Await(awaited)) => {
-                self.value(state, awaited.operand())
+            Some(bray_bound_tree::BoundExpression::Await(_)) => {
+                state.admitted_receiver(expression.into())
             }
             _ => ExecutionCondition::unknown(),
         };
@@ -266,12 +235,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         );
 
         self.deferred_execution(
-            &state.deferred_invocations,
-            state.proofs.ordinary_proof(&state.assumptions),
+            state.ordinary_proof(),
             value,
             ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expression)),
         )
-        .take_while(|(source, _, _)| self.is_task_observation(*source))
+        .take_while(|(source, _, _)| self.is_task_observation(source.clone()))
         .map(move |(_, _, result)| ExecutionCondition::new(crate::ExecutionConditionKind::VariantTest(variant, Arc::new(result))))
     }
 
@@ -313,38 +281,31 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             return Vec::new();
         };
 
-        let Some(sources) = self.awaited_task_invocations(state, expression) else {
-            return Vec::new();
-        };
+        let Some(task) = self.awaited_task_frame(state, expression) else { return Vec::new(); };
 
-        let Some(cleanup) = self.task_has_capture_cleanup(&sources) else {
-            return Vec::new();
-        };
+        let proof = state.ordinary_proof();
 
-        let body_effects = sources.iter().any(|source| {
-            self.dependencies.calls()[source]
-                .deferred_effects()
-                .is_none_or(|effects| !effects.is_empty())
-        });
+        let changes_storage = task.unknown_possible(&proof) || task.producers.values()
+            .filter(|producer| super::super::deferred::possible(&producer.selection, &proof))
+            .any(|producer| producer.transition.as_ref().is_none_or(|transition|
+                transition.transfer.captured_cleanup.as_ref().is_none_or(|cleanup| !cleanup.is_empty()) ||
+                transition.transfer.deferred_effects.as_ref().is_none_or(|effects| !effects.possible().is_empty())));
 
-        if sources.is_empty() || (!cleanup && !body_effects) {
-            return Vec::new();
-        }
+        if !changes_storage { return Vec::new(); }
 
-        let Some(bray_bound_tree::BoundExpression::Await(awaited)) =
+        let Some(bray_bound_tree::BoundExpression::Await(_)) =
             self.request.view().expression(expression)
         else {
             unreachable!("Task completion retains its await operation");
         };
 
-        let value = self.value(state, awaited.operand());
+        let value = state.admitted_receiver(expression.into());
 
         // Formation guards select existing frames while this outcome refines ordinary truth.
         let formation = state.assumptions.clone();
 
         let mut steps = self
             .deferred_execution(
-                &state.deferred_invocations,
                 state.proofs.ordinary_proof(&formation),
                 value,
                 ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expression)),
@@ -372,9 +333,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 None => {}
             }
 
-            let possible = steps.peek().is_none_or(|(body, entry, result)| {
-                self.dependencies.calls()[body].deferred_completion()
-                    && self.owned_normal_completion(&state.assumptions, *body, entry, result)
+            let possible = steps.peek().is_none_or(|(body, frame, result)| {
+                self.frame_normal_completion(&state.assumptions, body, &frame.producers[body], result)
             });
 
             if !possible {

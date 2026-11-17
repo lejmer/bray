@@ -4,6 +4,48 @@ use crate::ExecutionCondition;
 use bray_bound_tree::StorageProjection;
 use bray_symbols::{DependencyOwnedResult, DependencyOwnedTransfer, DependencyValuePreservation};
 
+type OwnedLayout = DependencyOwnedResult<StorageProjection, ExecutionCondition>;
+
+/// Formal lineage is indexed by logical contents. Physical capture coordinates do not name a different value.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(super) struct OwnedResults(std::collections::BTreeMap<ExecutionCondition, OwnedLayout>);
+
+impl OwnedResults {
+    pub(super) fn get(&self, value: &ExecutionCondition) -> Option<&OwnedLayout> {
+        self.0.get(&value.without_captured_storage())
+    }
+
+    pub(super) fn insert(&mut self, value: ExecutionCondition, layout: OwnedLayout) -> Option<OwnedLayout> {
+        self.0.insert(value.without_captured_storage(), layout)
+    }
+
+    pub(super) fn entry(&mut self, value: ExecutionCondition)
+        -> std::collections::btree_map::Entry<'_, ExecutionCondition, OwnedLayout>
+    {
+        self.0.entry(value.without_captured_storage())
+    }
+
+    pub(super) fn retain(&mut self, mut keep: impl FnMut(&ExecutionCondition, &mut OwnedLayout) -> bool) {
+        self.0.retain(|value, layout| keep(value, layout));
+    }
+
+    #[cfg(test)]
+    pub(super) fn len(&self) -> usize { self.0.len() }
+
+    #[cfg(test)]
+    pub(super) fn keys(&self) -> impl Iterator<Item = &ExecutionCondition> { self.0.keys() }
+
+    #[cfg(test)]
+    pub(super) fn values(&self) -> impl Iterator<Item = &OwnedLayout> { self.0.values() }
+}
+
+impl IntoIterator for OwnedResults {
+    type Item = (ExecutionCondition, OwnedLayout);
+    type IntoIter = std::collections::btree_map::IntoIter<ExecutionCondition, OwnedLayout>;
+
+    fn into_iter(self) -> Self::IntoIter { self.0.into_iter() }
+}
+
 impl ExecutionState {
     /// Retain only current mappings whose actual owner survives this preservation.
     pub(super) fn preserve_owned_result(
@@ -106,6 +148,7 @@ impl ExecutionState {
         }
 
         let contents = match value.kind() {
+            crate::ExecutionConditionKind::CapturedValue { value, .. } | crate::ExecutionConditionKind::DeferredValue { value, .. } => self.owned_result_bounded(value, extraction, budget),
             crate::ExecutionConditionKind::Observation { contents, kind: ObservationKind::Owned, .. } => self.owned_result_bounded(contents, extraction, budget),
             crate::ExecutionConditionKind::Present(value) => {
                 self.prefixed_owned_result(value, StorageProjection::NullableValue, extraction, budget)
@@ -246,8 +289,14 @@ impl ExecutionState {
             return self.value_preservation(payload, source, budget);
         }
 
+        if let crate::ExecutionConditionKind::CapturedValue { value: source, .. } | crate::ExecutionConditionKind::DeferredValue { value: source, .. } = source.kind() {
+            return self.value_preservation(value, source, budget);
+        }
+
         match value.kind() {
-            crate::ExecutionConditionKind::Observation { contents, kind: ObservationKind::Owned | ObservationKind::Scalar, .. }
+            crate::ExecutionConditionKind::CapturedValue { value: contents, .. }
+            | crate::ExecutionConditionKind::DeferredValue { value: contents, .. }
+            | crate::ExecutionConditionKind::Observation { contents, kind: ObservationKind::Owned | ObservationKind::Scalar, .. }
             | crate::ExecutionConditionKind::Tagged(_, contents) => self.value_preservation(contents, source, budget),
             crate::ExecutionConditionKind::Constructed(base, fields) => {
                 let base = self.value_preservation(base, source, budget);
@@ -666,7 +715,23 @@ mod tests {
 
         let mut state = ExecutionState::default();
 
-        state.owned_results.insert(original.clone(), original_layout.clone());
+        let (unit, expressions) = crate::test_support::integer_expression_unit(bray_bound_tree::BoundUnitId::new(0), 2);
+
+        let mut storage = bray_bound_tree::StoragePlanBuilder::new(unit.unit(), unit.key().kind());
+
+        let captures = expressions.iter().map(|expression| {
+            let slot = storage.push_identity(bray_bound_tree::StorageIdentity::Temporary(*expression))
+                .expect("ownership test snapshots retain planned coordinates");
+
+            original.clone().captured_value(bray_bound_tree::StorageCapturedValue::new(
+                bray_bound_tree::StorageTarget::storage(bray_bound_tree::StoragePath::root(slot)), Default::default(),
+            ))
+        }).collect::<Vec<_>>();
+
+        state.owned_results.insert(captures[0].clone(), original_layout.clone());
+
+        assert_eq!(state.owned_result(&captures[1]), original_layout,
+            "formal lineage follows the same logical value through distinct physical captures");
 
         let changed = original.with_storage_component(&[field], ExecutionCondition::unknown());
         let changed_layout = state.owned_result(&changed);

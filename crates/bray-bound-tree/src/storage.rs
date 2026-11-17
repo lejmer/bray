@@ -1,4 +1,5 @@
 mod builder;
+mod capture;
 mod cleanup;
 mod flow;
 mod liveness;
@@ -16,8 +17,16 @@ mod retention;
 mod scope;
 mod shape;
 mod target;
+mod transition;
+mod value;
+
+pub use value::{StorageAddressValue, StorageDependencyCompleteness, StorageMutationTarget, StorageValueBinding, StorageValueRetirement};
+pub use capture::{StorageCapturedEffects, StorageCapturedTransition, StorageDeferredTransition, StorageContents, StorageEffect,
+    StorageCapturedValue, merge_storage_bindings, merge_storage_contents,
+    selected_storage_values, storage_selector_parent, storage_value_subtree};
 
 pub use target::{StorageOrigin, StorageTarget};
+pub use transition::{StorageSnapshotRoot, StorageValueBoundary, StorageValueCapture, StorageValueDestination, StorageValueInput, StorageValuePhase, StorageValueTransition};
 
 pub use builder::{StoragePlanBuildError, StoragePlanBuilder};
 pub use flow::{

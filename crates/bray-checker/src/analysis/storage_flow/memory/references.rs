@@ -10,5 +10,4 @@ mod projection;
 mod source;
 pub(in crate::analysis::storage_flow) use source::Source;
 
-pub(super) use deferred::{DeferredTransitions, merge_deferred};
 pub(super) use slots::{exposure_region, storage_subtree};

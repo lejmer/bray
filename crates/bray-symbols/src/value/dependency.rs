@@ -34,6 +34,18 @@ pub enum DependencySubjectRoot {
     ExactThreadStatic(StaticSymbolId),
 }
 
+impl DependencySubjectRoot {
+    /// Position of this formal among the evaluated receiver and arguments.
+    pub fn input_ordinal(self, has_receiver: bool) -> Option<SymbolOrdinal> {
+        match self {
+            Self::Receiver if has_receiver => Some(SymbolOrdinal::new(0)),
+            Self::Parameter(ordinal) => Some(SymbolOrdinal::new(ordinal.raw().checked_add(u32::from(has_receiver))
+                .expect("formal ordinal fits receiver-first order"))),
+            _ => None,
+        }
+    }
+}
+
 /// One source-independent projection from a formal dependency subject.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum DependencyProjection {
@@ -676,15 +688,26 @@ pub struct DependencyContractTemplateData {
     abnormal_reports: Option<Arc<[DependencyRequirement]>>,
     borrows: Arc<[DependencyBorrowRelation]>,
     owned_result: DependencyOwnedResult,
+    captured_values: Arc<[super::CapturedValueOutcome]>,
     stored_values: Arc<[DependencyStoredValue]>,
     observed_result: Option<ConstantTermId>,
-    carriers: Arc<[DependencyWitnessCarrier]>,
     effects: super::DependencyEffectOutcomes<DependencyStorageEffect>,
     synchronous_cleanup: Arc<[DependencyRequirement]>,
     normal_completion: bool,
 }
 
 impl DependencyContractTemplateData {
+    /// Records the actual whole-value expression produced by normal completion.
+    pub fn with_captured_values(mut self, values: impl IntoIterator<Item = super::CapturedValueOutcome>) -> Self {
+        self.captured_values = sorted_unique_shared_slice(values);
+        self.owned_result = super::CapturedValueOutcome::ownership_layout(&self.captured_values);
+
+        self
+    }
+
+    /// Returns the whole-value expression, with explicit unknown for lost precision.
+    pub fn captured_values(&self) -> &[super::CapturedValueOutcome] { &self.captured_values }
+
     /// Records possible captured values stored in normal-output subtrees.
     pub fn with_stored_values(mut self, values: impl IntoIterator<Item = DependencyStoredValue>) -> Self {
         self.stored_values = DependencyStoredValue::normalize(values);
@@ -709,10 +732,10 @@ impl DependencyContractTemplateData {
     }
 
     /// Records complete owning layouts retained by normal completion.
-    pub fn with_owned_result(mut self, result: DependencyOwnedResult) -> Self {
-        self.owned_result = result;
+    pub fn with_owned_result(self, result: DependencyOwnedResult) -> Self {
+        assert!(self.captured_values.is_empty(), "a standalone ownership layout describes one normal exit");
 
-        self
+        self.with_captured_values([super::CapturedValueOutcome::new(None, []).with_ownership(result)])
     }
 
     /// Returns the owning result contract, without introducing trusted guarantees.
@@ -824,6 +847,7 @@ impl DependencyContractTemplateData {
             .chain(self.stored_values().iter().flat_map(|stored| {
                 std::iter::once(stored.destination().subject()).chain(stored.sources().iter().map(DependencyStoredValuePath::subject))
             }))
+            .chain(self.captured_values().iter().flat_map(|outcome| outcome.bindings.iter().map(|(subject, _)| subject)))
     }
 
     /// Returns requirements for one selected output.
@@ -845,9 +869,9 @@ impl DependencyContractTemplateData {
             abnormal_reports: None,
             borrows: Arc::new([]),
             owned_result: DependencyOwnedResult::default(),
+            captured_values: Arc::new([]),
             stored_values: Arc::new([]),
             observed_result: None,
-            carriers: Arc::new([]),
             effects: super::DependencyEffectOutcomes::new(DependencyStorageEffect::opaque_call()),
             synchronous_cleanup: Arc::new([]),
             normal_completion: true,
@@ -867,28 +891,18 @@ impl DependencyContractTemplateData {
             // Transformations own a new contract while retaining the immutable checked summary.
             borrows: Arc::clone(&self.borrows),
             owned_result: self.owned_result.clone(),
+            captured_values: Arc::clone(&self.captured_values),
             stored_values: Arc::clone(&self.stored_values),
             observed_result: self.observed_result,
-            carriers: Arc::clone(&self.carriers),
             effects: self.effects.clone(),
             synchronous_cleanup: Arc::clone(&self.synchronous_cleanup),
             normal_completion: self.normal_completion,
         }
     }
 
-    /// Attaches complete carrier paths proved by the owning body analysis.
-    pub fn with_carriers(
-        mut self,
-        carriers: impl IntoIterator<Item = DependencyWitnessCarrier>,
-    ) -> Self {
-        self.carriers = sorted_unique_shared_slice(carriers);
-
-        self
-    }
-
-    /// Returns the proven returned carriers of declared trusted guarantees.
-    pub fn carriers(&self) -> &[DependencyWitnessCarrier] {
-        &self.carriers
+    /// Guarantees supported by the same returned owner on every normal exit.
+    pub fn common_carriers(&self) -> Arc<[DependencyWitnessCarrier]> {
+        super::CapturedValueOutcome::common_carriers(&self.captured_values)
     }
 
     /// Records whether the checked body can produce a normal result.
@@ -1066,7 +1080,7 @@ mod tests {
 
         let template = DependencyContractTemplateData::new([])
             .with_borrows([relation])
-            .with_effects([crate::DependencyStorageEffect::Direct {
+            .with_effects([crate::DependencyStorageEffect::Direct { addressed: true,
                 subject: subject.clone(),
                 kind: crate::DependencyMutationKind::Write,
                 access_type: None,

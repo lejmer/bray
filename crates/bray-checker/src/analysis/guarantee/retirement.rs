@@ -13,6 +13,14 @@ struct RetirementQueries {
 }
 
 impl ExecutionState {
+    pub(in crate::analysis) fn retire_captured_storage(&mut self,
+        retirements: &[(bray_bound_tree::StorageTarget, bray_bound_tree::StorageValueRetirement)],
+    ) {
+        for (target, retirement) in retirements {
+            self.update_stored_values(ExecutionCondition::retiring_storage(target, *retirement));
+        }
+    }
+
     #[cfg(test)]
     pub(super) fn invalidate_trusted(&mut self, value: &ExecutionCondition) {
         self.invalidate_trusted_values([value.clone()]);
@@ -253,21 +261,16 @@ impl ExecutionState {
         self.retire_entry_context(&|condition| revokes(condition, &queries(condition)),
             &observes_selection, &retired_conditions);
 
-        for entries in self.deferred_invocations.values_mut() {
-            // Current branch selectors can outlive a slot's loop incarnation.
-            // Frozen call-entry arguments remain owned by their captured frame.
-            entries.retire_selection(&observes_selection);
-        }
+        self.update_stored_values(ExecutionCondition::mapping_frames(|value| {
+            !invalidated.contains(value.owner_identity()) || value.deferred_value().is_some_and(|frame|
+                frame.producers.values().any(|candidate| !candidate.entry.pending_execution))
+        }, |_, frame| {
+            let mut updated = frame.as_ref().clone();
 
-        // A destroyed frame cannot participate in a later incarnation's ownership join.
-        // An active await retains its entry until its completion transition consumes it.
-        self.deferred_invocations.retain(|owner, value| {
-            !invalidated.contains(owner)
-                || value
-                    .producers
-                    .values()
-                    .any(|candidate| !candidate.entry.pending_execution)
-        });
+            Some(if updated.retire_selection(&observes_selection) {
+                std::sync::Arc::new(updated)
+            } else { std::sync::Arc::clone(frame) })
+        }));
 
     }
 
@@ -295,7 +298,7 @@ impl ExecutionState {
             }).cloned());
         }
 
-        let (dependents, input_dependents) = self.retirement_dependents(kind, retained_owner);
+        let (dependents, input_dependents) = self.retirement_dependents(kind);
 
         let mut visited = BTreeSet::new();
         let mut invalidated = BTreeSet::new();
@@ -356,7 +359,6 @@ impl ExecutionState {
     fn retirement_dependents(
         &self,
         kind: bray_symbols::DependencyMutationKind,
-        retained_owner: &impl Fn(&ExecutionCondition) -> bool,
     ) -> (
         BTreeMap<ExecutionCondition, BTreeSet<ExecutionCondition>>,
         BTreeMap<crate::ExecutionPlace, BTreeSet<ExecutionCondition>>,
@@ -368,30 +370,6 @@ impl ExecutionState {
 
         // Index current dependencies once, then visit only carriers reached by the worklist.
         for (carrier, witness) in &self.witnesses {
-            // Captured inputs belong to a frame. Ordinary projection identities can
-            // survive extraction, so their former containing slot is not a lifetime owner.
-            // A retained captured owner also severs its former frame's ownership edge.
-            for owner in carrier
-                .ownership_ancestors()
-                .take_while(|value| !retained_owner(value))
-                .filter_map(|value| match value.kind() {
-                    crate::ExecutionConditionKind::CapturedInput { owner, .. } => Some(owner.owner_identity()),
-                    _ => None,
-                })
-            {
-                if let crate::ExecutionConditionKind::Input(place) = owner.kind() {
-                    input_dependents
-                        .entry(place.clone())
-                        .or_default()
-                        .insert(carrier.clone());
-                } else {
-                    dependents
-                        .entry(owner.clone())
-                        .or_default()
-                        .insert(carrier.clone());
-                }
-            }
-
             if kind.is_write() {
                 continue;
             }
@@ -401,27 +379,20 @@ impl ExecutionState {
                 .iter()
                 .filter_map(|place| place.value_in(&self.current))
             {
-                for observed in dependency.observations() {
-                    if let crate::ExecutionConditionKind::Input(place) = observed.kind() {
-                        input_dependents
-                            .entry(place.clone())
-                            .or_default()
-                            .insert(carrier.clone());
-                    } else {
-                        let mut owner = observed;
+                // A support's lifetime is independent of its current owned children.
+                let observed = dependency.referent_owner_identity();
 
-                        loop {
-                            dependents
-                                .entry(owner.owner_identity().clone())
-                                .or_default()
-                                .insert(carrier.clone());
+                if let crate::ExecutionConditionKind::Input(place) = observed.kind() {
+                    input_dependents.entry(place.clone()).or_default().insert(carrier.clone());
+                } else {
+                    let mut owner = &observed;
 
-                            let crate::ExecutionConditionKind::Projection(_, parent) = owner.kind() else {
-                                break;
-                            };
+                    loop {
+                        dependents.entry(owner.owner_identity().clone()).or_default().insert(carrier.clone());
 
-                            owner = parent;
-                        }
+                        let crate::ExecutionConditionKind::Projection(_, parent) = owner.kind() else { break; };
+
+                        owner = parent;
                     }
                 }
             }
@@ -436,21 +407,21 @@ impl ExecutionState {
         revokes_source: &impl Fn(&ExecutionCondition) -> bool,
         retired: &BTreeSet<(ExecutionCondition, bool)>,
     ) {
-        for entry in self.entry_snapshots_mut(&|entry| {
+        self.update_entry_snapshots(&|entry| {
             entry.pending_execution && entry
                 .assumptions
                 .iter()
                 .chain(&entry.trusted_assumptions)
                 .any(|fact| revokes(&fact.0) || retired.contains(fact))
                 || entry.copy_sources.values().any(revokes_source)
-        }) {
+        }, &mut |entry| {
             entry.copy_sources.retain(|_, value| !revokes_source(value));
 
             if entry.pending_execution {
                 entry.assumptions.retain(|fact| !revokes(&fact.0) && !retired.contains(fact));
                 entry.trusted_assumptions.retain(|fact| !revokes(&fact.0) && !retired.contains(fact));
             }
-        }
+        });
     }
 
     pub(super) fn invalidate_referents(
@@ -539,7 +510,7 @@ impl ExecutionState {
         self.allocation_owners
             .retain(|condition, _| private_allocations.contains(condition) || !revokes_observation(condition));
 
-        for entry in self.entry_snapshots_mut(&|entry| entry.pending_execution && {
+        self.update_entry_snapshots(&|entry| entry.pending_execution && {
             entry
                 .assumptions
                 .iter()
@@ -548,7 +519,7 @@ impl ExecutionState {
                     .trusted_assumptions
                     .iter()
                     .any(|(condition, _)| revokes_observation(condition))
-        }) {
+        }, &mut |entry| {
             entry
                 .assumptions
                 .retain(|(condition, _)| !revokes_observation(condition));
@@ -556,7 +527,7 @@ impl ExecutionState {
             entry
                 .trusted_assumptions
                 .retain(|(condition, _)| !revokes_observation(condition));
-        }
+        });
     }
 
     pub(super) fn invalidate_contents(
@@ -639,19 +610,19 @@ impl ExecutionState {
         self.allocation_owners
             .retain(|condition, _| !retired.contains(&(condition.clone(), true)));
 
-        for entry in self.entry_snapshots_mut(&|entry| entry.pending_execution && {
+        self.update_entry_snapshots(&|entry| entry.pending_execution && {
             entry
                 .assumptions
                 .iter()
                 .chain(&entry.trusted_assumptions)
                 .any(|fact| retired.contains(fact))
-        }) {
+        }, &mut |entry| {
             entry.assumptions.retain(|fact| !retired.contains(fact));
 
             entry
                 .trusted_assumptions
                 .retain(|fact| !retired.contains(fact));
-        }
+        });
     }
 
     pub(super) fn invalidate_trusted_roots(
@@ -746,24 +717,24 @@ mod tests {
         let unrelated = ExecutionCondition::new(crate::ExecutionConditionKind::ScalarValue(Arc::new(ExecutionCondition::new(crate::ExecutionConditionKind::Joined(BoundUnitId::new(91), 6,
             ExecutionPlace::argument(SymbolOrdinal::new(1)))))));
 
-        let captured = ExecutionCondition::new(crate::ExecutionConditionKind::CapturedInput {
-            owner: Arc::new(ExecutionCondition::result()), invocation: expressions[0].into(), ordinal: SymbolOrdinal::new(0),
-        });
+        let captured = ExecutionCondition::opaque_scalar(ExecutionCondition::new(
+            crate::ExecutionConditionKind::Expression(expressions[0])));
 
         let mut state = ExecutionState::default();
 
-        state.deferred_invocations.insert(ExecutionCondition::result(), DeferredValue {
-            producers: [(expressions[0].into(), DeferredInvocation {
+        state.current.insert(ExecutionPlace::argument(SymbolOrdinal::new(2)), ExecutionCondition::result().with_deferred_value(Arc::new(DeferredValue {
+            producers: [(expressions[0].into(), DeferredInvocation { callee: None, transition: None,
                 entry: Arc::new(crate::ExecutionCallEvidence {
+                    outputs: Default::default(),
                     arguments: [(ExecutionPlace::argument(SymbolOrdinal::new(0)), captured.clone())].into(),
                     copy_sources: [(ExecutionPlace::argument(SymbolOrdinal::new(0)), selector.clone())].into(),
                     assumptions: [(captured.clone(), true)].into(), ..Default::default()
                 }), reports: Default::default(), selection: Default::default(),
             })].into(),
-            unknown: Some(DeferredInvocation { entry: (), reports: Default::default(),
+            unknown: Some(DeferredInvocation { callee: None, transition: None, entry: (), reports: Default::default(),
                 selection: [(selector.clone(), true), (unrelated.clone(), false), (captured.clone(), true)].into(),
             }), ..Default::default()
-        });
+        })));
 
         let field = ConstantProjectionKind::TupleElement(SymbolOrdinal::new(0));
         let sibling = ConstantProjectionKind::TupleElement(SymbolOrdinal::new(1));
@@ -789,13 +760,15 @@ mod tests {
 
         state.invalidate_contents(&[place].into(), [], &Default::default(), &Default::default(), None);
 
-        let selection = &state.deferred_invocations[&ExecutionCondition::result()].unknown.as_ref().unwrap().selection;
+        let value = state.current.live_value(&ExecutionPlace::argument(SymbolOrdinal::new(2))).unwrap();
+        let frame = value.deferred_value().unwrap();
+        let selection = &frame.unknown.as_ref().unwrap().selection;
 
         assert!(!selection.contains(&(selector, true)));
         assert!(selection.contains(&(unrelated, false)));
         assert!(selection.contains(&(captured, true)));
 
-        let entry = &state.deferred_invocations[&ExecutionCondition::result()].producers[&expressions[0].into()].entry;
+        let entry = &frame.producers[&expressions[0].into()].entry;
 
         assert!(entry.copy_sources.is_empty());
         assert!(!entry.assumptions.is_empty());
@@ -964,6 +937,22 @@ mod tests {
             only_view.current = state.current.clone();
             only_view.witnesses.insert(loan.clone(), state.witnesses[&loan].clone());
             only_view.trusted_assumptions.insert((condition.clone(), true));
+
+            let support = ExecutionCondition::new(crate::ExecutionConditionKind::Input(scope.clone()));
+            let child = ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(2))));
+
+            for (retired, survives) in [(child.clone(), true), (support.clone(), false)] {
+                let mut nested = only_view.clone();
+
+                nested.current.insert(scope.clone(), ExecutionCondition::constructed(support.clone(),
+                    [(StorageProjection::TupleElement(SymbolOrdinal::new(0)), child.clone())].into()));
+
+                nested.retire_trusted_values([retired], &BTreeSet::new());
+
+                assert_eq!(nested.trusted_assumptions.contains(&(condition.clone(), true)), survives,
+                    "retiring a contained value differs from ending the support's lifetime");
+            }
+
             only_view.invalidate_trusted_roots(&BTreeSet::from([scope.root.clone()]));
 
             assert!(!only_view.trusted_assumptions.contains(&(condition.clone(), true)), "an expired sole view cannot retain evidence");

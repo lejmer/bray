@@ -27,6 +27,8 @@ pub(in crate::analysis) struct StorageFlowState {
     pub(in crate::analysis) fully_moved: BTreeSet<StorageIdentityId>,
     pub(in crate::analysis::storage_flow) active_borrows: BTreeSet<BorrowCapabilityId>,
     pub(in crate::analysis::storage_flow) definitely_active_borrows: BTreeSet<BorrowCapabilityId>,
+    // Entry referents whose inline contents were written on every path to this state.
+    pub(in crate::analysis::storage_flow) written_inputs: BTreeSet<bray_symbols::DependencySubjectRoot>,
     pub(in crate::analysis::storage_flow) result_dependencies: crate::dependency::ResultState,
     pub(in crate::analysis::storage_flow) memory: crate::analysis::storage_flow::memory::State,
     reports: BTreeMap<Option<BoundExpressionId>, RetainedReports>,
@@ -330,6 +332,7 @@ impl StorageFlowState {
             definitely_active_borrows: active_borrows.clone(),
             active_borrows,
             memory,
+            written_inputs: BTreeSet::new(),
             result_dependencies: Default::default(),
             reports: BTreeMap::new(),
             recovered: false,
@@ -357,6 +360,10 @@ impl StorageFlowState {
             &incoming.execution,
             crate::analysis::guarantee::ExecutionJoin::from(block),
         );
+
+        let written_count = self.written_inputs.len();
+
+        self.written_inputs.retain(|input| incoming.written_inputs.contains(input));
 
         let dependencies_changed = self
             .result_dependencies
@@ -442,7 +449,8 @@ impl StorageFlowState {
 
         self.recovered |= incoming.recovered;
 
-        dependencies_changed
+        self.written_inputs.len() != written_count
+            || dependencies_changed
             || reports_changed
             || execution_changed
             || refinements_changed

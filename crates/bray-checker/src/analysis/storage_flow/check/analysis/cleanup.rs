@@ -73,6 +73,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
              conditional: bool| {
 
                 let receiver = self.prepare_cleanup_receiver(&mut memory, &mutation);
+
+                self.record_capture_retirements(execution, identity, bray_bound_tree::StorageValuePhase::Attempt, bray_bound_tree::StorageValueBoundary::Execution, memory.take_retirements());
+
                 let skipped = conditional.then(|| memory.clone());
 
                 if let Some(receiver) = &receiver
@@ -96,16 +99,11 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     _ => None,
                 };
 
-                let task_sources = match &mutation {
+                let task_source = match &mutation {
                     CleanupMutation::Opaque { ty, .. } => task_path
-                        .and_then(|path| domain.deferred_cleanup_invocations(execution, *ty, path)),
+                        .and_then(|path| domain.deferred_cleanup_frame(execution, *ty, path)),
                     _ => None,
                 };
-
-                let task_source = task_sources
-                    .as_ref()
-                    .and(receiver.clone())
-                    .map(crate::analysis::storage_flow::memory::Source::Value);
 
                 let inactive_captures = match &mutation {
                     CleanupMutation::Opaque { ty, .. } => task_path
@@ -125,7 +123,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 let broadcast_frames = if matches!(identity, StorageMutation::Cancellation { .. }) {
                     task_path
                         .into_iter()
-                        .flat_map(|path| memory.unexposed_deferred_paths(path))
+                        .flat_map(|path| self.unexposed_deferred_paths(&memory, execution, path))
                         .collect::<Vec<_>>()
                 } else {
                     Vec::new()
@@ -136,7 +134,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     CleanupMutation::Recovery => None,
                     CleanupMutation::Opaque { ty, .. } => Some(self.opaque_cleanup_effects(
                         &memory, receiver.as_ref(), ty,
-                        task_source.as_ref().zip(task_sources.as_ref()), inactive_captures.is_some(),
+                        task_source.as_deref(), inactive_captures.is_some(), &execution.ordinary_proof(),
                     )),
                     CleanupMutation::Lifecycle(ref call) => {
                         self.lifecycle_effects(&memory, call)
@@ -227,6 +225,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 if invocation.as_ref().is_some_and(|call| call.completes) {
                     memory.complete_transition(operation.occurrence());
                 }
+
+                self.record_capture_retirements(execution, identity, bray_bound_tree::StorageValuePhase::Attempt, bray_bound_tree::StorageValueBoundary::Execution, memory.take_retirements());
 
                 let completion = if let (Some(call), Some(effects)) = (&invocation, &effects) {
                     self.cleanup_observations(&memory, call, effects, &mut invalidation)
@@ -478,20 +478,47 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         memory: &State,
         receiver: Option<&Target>,
         ty: bray_symbols::TypeId,
-        task: Option<(&crate::analysis::storage_flow::memory::Source, &std::collections::BTreeSet<bray_bound_tree::BoundExecutionSite>)>,
+        task: Option<&crate::ExecutionDeferredValue>,
         inactive: bool,
+        proof: &crate::execution_guarantees::ExecutionProof<'_>,
     ) -> Vec<Effect> {
-        task.and_then(|(source, producers)| {
+        task.and_then(|frame| {
             if inactive {
-                return memory.deferred_cleanup_effects(source, producers, false);
+                return frame.cleanup_effects(false, proof);
             }
 
-            super::effects::task_effects(memory.deferred_effects(source, producers),
-                memory.deferred_cleanup_effects(source, producers, true)?)
+            super::effects::task_effects(frame.effects(proof),
+                frame.cleanup_effects(true, proof)?)
                 .map(|effects| effects.possible().to_vec())
         })
         .or_else(|| self.buffer_cleanup_effects(memory, receiver?, ty))
         .unwrap_or_else(|| memory.cleanup_effects(receiver, ty))
+    }
+
+    fn unexposed_deferred_paths(&self, memory: &State, execution: &crate::analysis::guarantee::ExecutionState,
+        root: &bray_bound_tree::StoragePath,
+    ) -> Vec<bray_bound_tree::StoragePath> {
+        let mut pending = vec![(root.clone(), self.execution.storage_path_value(execution, root))];
+        let mut frames = Vec::new();
+
+        while let Some((path, value)) = pending.pop() {
+            if value.is_reference() { continue; }
+
+            if value.deferred_value().is_some()
+                && memory.unexposed_storage(std::slice::from_ref(&path), []).next().is_some()
+            { frames.push(path.clone()); }
+
+            for projection in value.component_projections() {
+                if !bray_bound_tree::StorageProjection::remains_in_allocation(&[projection]) { continue; }
+
+                let mut child = path.clone();
+
+                child.projections = path.projections.iter().copied().chain([projection]).collect();
+                pending.push((child, value.clone().project(projection)));
+            }
+        }
+
+        frames
     }
 
     fn buffer_cleanup_effects(
@@ -502,7 +529,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     ) -> Option<Vec<Effect>> {
         let effects = self.input.buffer_cleanup_effects.get(&ty)?;
 
-        Some(self.resolve_effects(effects, |subject, indirect| {
+        Some(self.resolve_effects(effects, |slot| crate::analysis::storage_flow::memory::Source::Value(slot).mutation_targets(memory), |subject, indirect| {
             let path = self.input.buffer_cleanup_paths.get(&(ty, subject.clone())).map(|(_, path)| path);
             let locations = self.cleanup_subject_locations(memory, receiver, subject, path)?;
 
@@ -683,7 +710,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let contracts = &self.dependencies.lifecycle_dependencies()[&call.lifecycle.call.callable];
 
         Some(
-            self.resolve_effects(if call.completes { contracts.normal_effects() } else { contracts.effects() }, |subject, indirect| {
+            self.resolve_effects(if call.completes { contracts.normal_effects() } else { contracts.effects() }, |slot| crate::analysis::storage_flow::memory::Source::Value(slot).mutation_targets(memory), |subject, indirect| {
                 let receiver = self.cleanup_receiver(memory, call.access, call.path)?;
 
                 let prepared = self

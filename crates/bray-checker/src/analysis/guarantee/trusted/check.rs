@@ -30,13 +30,9 @@ pub(in crate::analysis) struct TrustedChecks {
     cleanup_failures: BTreeMap<(AnyBoundNodeId, bray_symbols::CallableInstanceData), crate::UnprovenExecutionCondition>,
     pub(super) guarantees: Vec<(ExecutionCondition, bray_source::SourceSpan)>,
     guarantee_failures: Vec<Option<crate::UnprovenExecutionCondition>>,
-    pub(super) owned_returns: Vec<super::owned::OwnedReturn>,
     pub(super) owned_entry_conditions: BTreeSet<(ExecutionCondition, bool)>,
     pub(in crate::analysis) observed_result: Option<Option<bray_symbols::ConstantTermId>>,
-    pub(super) inferred: Option<
-        BTreeSet<bray_symbols::DependencyWitnessCarrier<bray_bound_tree::StorageProjection>>,
-    >,
-    pub(super) carriers: Vec<Option<BTreeSet<Vec<bray_bound_tree::StorageProjection>>>>,
+
 }
 
 impl TrustedChecks {
@@ -74,7 +70,6 @@ impl TrustedChecks {
         Self {
             owned_entry_conditions: boundary.as_ref().into_iter().flat_map(|state| state.assumptions.iter()).filter(|(condition, _)| matches!(condition.kind(), crate::ExecutionConditionKind::Input(place) if place.is_callable_input())).cloned().collect(),
             guarantee_failures: vec![None; guarantees.len()],
-            carriers: vec![None; guarantees.len()],
             guarantees,
             ..Self::default()
         }
@@ -139,7 +134,7 @@ impl TrustedChecks {
         );
 
         // Completion facts can prove that a potential extraction never occurred.
-        let proof = state.proofs.ordinary_proof(&state.assumptions);
+        let proof = state.ordinary_proof();
 
         for (invocation, condition, failure) in self.pending_transfers.drain(..) {
             let active = condition.is_none_or(|condition| {
@@ -208,7 +203,8 @@ impl TrustedChecks {
         &mut self,
         domain: &ExecutionFlowDomain<'_, '_, C>,
         state: &ExecutionState,
-    ) {
+        writes: &BTreeSet<bray_symbols::DependencySubjectRoot>,
+    ) -> Option<super::owned::NormalReturn> {
         super::super::postcondition::check_postconditions(
             domain,
             state,
@@ -223,8 +219,6 @@ impl TrustedChecks {
             _ => domain.returned_value(state),
         };
 
-        self.collect_carriers(domain.request, state, &result);
-
         if domain.request.unit().key().kind() == bray_bound_tree::BoundUnitKind::RuntimeDefault {
             let observed = super::carriers::portable(domain.request, result.copied_value());
 
@@ -235,7 +229,7 @@ impl TrustedChecks {
             }
         }
 
-        self.collect_owned_return(domain, state, &result);
+        self.normal_return(domain, state, &result, writes)
     }
 
     pub(in crate::analysis) fn finish<C: CheckerRequestContext + ?Sized>(

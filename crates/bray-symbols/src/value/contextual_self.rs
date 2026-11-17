@@ -179,7 +179,7 @@ mod tests {
                     )])
                     .with_effects([
                         DependencyStorageEffect::UnboundedMutation { kind: DependencyMutationKind::Dispose(contextual), access_type: None, ambient: false },
-                        DependencyStorageEffect::Direct {
+                        DependencyStorageEffect::Direct { addressed: true,
                             subject: DependencySubject::root(DependencySubjectRoot::Receiver),
                             kind: DependencyMutationKind::Replace(contextual),
                             access_type: Some(nested),

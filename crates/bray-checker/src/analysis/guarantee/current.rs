@@ -195,7 +195,9 @@ impl CurrentValues {
     /// Maximal live subtrees of the retained actual objects. A terminal field
     /// remains readable as data, but cannot keep its former owner alive.
     pub(super) fn live_values(&self) -> impl Iterator<Item = ExecutionCondition> + '_ {
-        self.live_entries().map(|(_, value)| value)
+        self.live_entries().map(|(_, value)| value).chain(self.roots.iter()
+            .filter(|(place, root)| place.is_pointee() && root.availability == ValueAvailability::Present)
+            .flat_map(|(_, root)| root.value.owning_storage_components().into_iter().cloned()))
     }
 
     pub(super) fn live_entries(&self) -> impl Iterator<Item = (ExecutionPlace, ExecutionCondition)> + '_ {
@@ -236,6 +238,10 @@ impl CurrentValues {
 
             live.into_iter().filter_map(|place| place.value_in(self).map(|value| (place, value))).collect()
         })
+    }
+
+    pub(super) fn values(&self) -> impl Iterator<Item = &ExecutionCondition> {
+        self.roots.values().map(|root| &root.value)
     }
 
     pub(super) fn values_mut(&mut self) -> impl Iterator<Item = &mut ExecutionCondition> {
@@ -389,7 +395,7 @@ mod tests {
         state.retire_evaluation(mutation);
 
         assert!(state.current.get(&place).is_none(), "a genuine new producer must not inherit consumed contents");
-        assert!(observation.without_evaluation(mutation, &mut { ExecutionCondition::WORK_LIMIT }).is_unknown());
+        assert!(observation.without_evaluation(mutation).is_unknown());
         assert!(crate::execution_guarantees::ExecutionValues::formal_input(&std::collections::BTreeMap::new(), &place).is_none());
     }
 

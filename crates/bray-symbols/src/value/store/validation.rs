@@ -316,11 +316,78 @@ fn validate_application_owner(
     assert_eq!(actual, expected, "application substitution owner mismatch");
 }
 
+fn validate_captured_bindings(tables: &SemanticTables, store: SemanticValueStoreId,
+    bindings: &[crate::CapturedValueOutcome],
+) {
+    for outcome in bindings {
+        if let Some(guard) = outcome.guard { tables.constant_terms.get(store, guard); }
+        assert!(outcome.carriers.windows(2).all(|pair| pair[0] < pair[1]), "outcome witness carriers are unique and ordered");
+        assert!(outcome.bindings.windows(2).all(|pair| pair[0].0 < pair[1].0), "outcome destinations are unique and ordered");
+
+        for (destination, value) in outcome.bindings.iter() {
+        validate_dependency_projections(tables, store, destination.projections());
+
+        for input in value.terms() { tables.constant_terms.get(store, *input); }
+
+        for root in value.static_roots() {
+            tables.substitutions.get(store, root.substitution());
+
+            for witness in root.selected_witnesses() { tables.implementation_instances.get(store, *witness); }
+        }
+
+        for projection in value.projections() {
+            validate_dependency_projections(tables, store, std::slice::from_ref(projection));
+        }
+
+        for node in value.nodes() {
+            match node {
+                super::super::CapturedValueTemplate::Operation(operation, values) => {
+                    assert_eq!(operation.operand_count(), values.len(), "checked captured-value operation retains its operands");
+                }
+                super::super::CapturedValueTemplate::Deferred { alternatives, unknown } => {
+                    assert!(!alternatives.is_empty() || *unknown, "a formed deferred value retains a feasible producer");
+
+                    for alternative in alternatives.iter() {
+                        assert!(alternative.owned_inputs.windows(2).all(|pair| pair[0] < pair[1])
+                            && alternative.owned_inputs.iter().all(|ordinal| ordinal.to_index().is_some_and(|index| index < alternative.captures.len())),
+                            "owned deferred inputs name distinct captured values");
+
+                        if let Some(call) = &alternative.call {
+                            tables.callable_instances.get(store, call.instance);
+
+                            let crate::TypeData::Callable(signature) = tables.types.get(store, call.signature) else {
+                                panic!("a deferred selection carries its callable signature");
+                            };
+
+                            let required = signature.parameters().len() + usize::from(call.has_receiver);
+
+                            assert!(alternative.captures.len() == required || signature.is_variadic() && alternative.captures.len() >= required,
+                                "captured arguments match the selected deferred signature");
+
+                            if let Some(r) = call.requirement {
+                                tables.types.get(store, r.subject());
+                                tables.trait_applications.get(store, r.trait_application());
+                            }
+
+                            for witness in call.dispatch.iter().chain(&*call.witnesses) { tables.implementation_instances.get(store, *witness); }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    }
+}
+
 pub(super) fn validate_dependency_template_data(
     tables: &SemanticTables,
     store: SemanticValueStoreId,
     data: &DependencyContractTemplateData,
 ) {
+    validate_captured_bindings(tables, store, data.captured_values());
+
     if let Some(result) = data.observed_result() {
         tables.constant_terms.get(store, result);
     }
@@ -345,7 +412,7 @@ pub(super) fn validate_dependency_template_data(
         );
     }
 
-    for carrier in data.carriers() {
+    for carrier in data.captured_values().iter().flat_map(|row| row.carriers.iter()) {
         tables.constant_terms.get(store, carrier.guarantee());
         validate_dependency_projections(tables, store, carrier.path());
     }
@@ -377,6 +444,7 @@ pub(super) fn validate_dependency_template_data(
     }
 
     for effect in data.effects() {
+        assert!(effect.is_valid_route(), "invalid storage effect route: {effect:?}");
 
         for ty in effect.referenced_types() {
             tables.types.get(store, *ty);

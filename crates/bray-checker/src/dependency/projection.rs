@@ -431,6 +431,11 @@ pub(super) fn prepare_variants<C: crate::CheckerRequestContext + ?Sized>(
     };
 
     for call in contracts.calls().values() {
+        for (destination, value) in call.captured_values().iter().flat_map(|outcome| outcome.bindings.iter()) {
+            retain(destination.projections());
+            retain(&value.projections().copied().collect::<Vec<_>>());
+        }
+
         for subject in call.reference_subjects() {
             retain(subject.projections());
         }
@@ -446,7 +451,7 @@ pub(super) fn prepare_variants<C: crate::CheckerRequestContext + ?Sized>(
             retain(relation.target_projections());
         }
 
-        for carrier in call.carriers() {
+        for carrier in call.captured_values().iter().flat_map(|row| row.carriers.iter()) {
             retain(carrier.path());
         }
 
@@ -478,7 +483,17 @@ pub(super) fn prepare_variants<C: crate::CheckerRequestContext + ?Sized>(
         }
     }
 
-    for contract in contracts.lifecycle_dependencies().values() {
+    let frame_bodies = contracts.frame_callees().values()
+        .map(|callee| request.semantic_values().dependency_contract_template_data(callee.summary)).collect::<Vec<_>>();
+
+    for contract in contracts.lifecycle_dependencies().values().chain(frame_bodies.iter().map(AsRef::as_ref)) {
+        for carrier in contract.captured_values().iter().flat_map(|row| row.carriers.iter()) { retain(carrier.path()); }
+
+        for (destination, value) in contract.captured_values().iter().flat_map(|outcome| outcome.bindings.iter()) {
+            retain(destination.projections());
+            retain(&value.projections().copied().collect::<Vec<_>>());
+        }
+
         for subject in contract.reference_subjects() {
             retain(subject.projections());
         }

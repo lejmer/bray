@@ -289,7 +289,7 @@ fn platform_allocation_origins_survive_nullable_forwarding_without_access_author
         assert!(summary.borrows().iter().any(|relation| relation.allocation().is_some()),
             "imported={imported}: nullable forwarding retains the actual allocation origin: {summary:#?}");
 
-        assert!(summary.requirements().is_empty() && summary.carriers().is_empty(),
+        assert!(summary.requirements().is_empty() && summary.captured_values().iter().all(|row| row.carriers.is_empty()),
             "origin separation grants no trusted access authority: {summary:#?}");
 
         let invalid = caller.replace("-> DataPointer<u8>", "-> u8\n            uses(raw_memory)").replace(
@@ -4293,6 +4293,102 @@ fn raw_buffer_reachability_preserves_reference_bearing_payload_dependencies() {
             }
         }
     }
+
+    let declarations = r#"
+        trusted module std.buffer_fixture;
+
+        using internal std.memory;
+
+        struct Marker {}
+        struct Owner { marker: Marker; }
+
+        trusted predicate live(value: &Marker);
+
+        trusted func create() -> Owner
+            ensures(trusted live(&result.marker))
+        {
+            return { marker = Marker {} };
+        }
+
+        trusted func store<T>(pos value: T) -> std.memory.RawBuffer<T>
+        {
+            let moved = value;
+            let mut buffer: std.memory.RawBuffer<T> = match trusted std.memory.RawBuffer<T>(capacity = 1)
+            {
+                case Ok(buffer) { yield buffer; }
+                case Error(_) { panic("buffer layout failed"); }
+            };
+
+            trusted internal std.memory.initialize_spare<T>(&mut buffer, moved);
+            return buffer;
+        }
+
+        trusted func restore<T>(pos buffer: std.memory.RawBuffer<T>) -> T
+        {
+            let mut moved = buffer;
+            return trusted internal std.memory.take_last<T>(&mut moved);
+        }
+
+        trusted func round_trip(pos owner: Owner) -> Owner
+        {
+            return restore<Owner>(store<Owner>(owner));
+        }
+
+        func inspect(pos owner: &Owner)
+            requires(trusted live(&owner.marker))
+        {}
+    "#;
+
+    let provider = standard_library_compilation(sources.into_iter().chain([declarations]));
+
+    assert!(!provider.check_diagnostics().has_errors(), "{:#?}", provider.check_diagnostics());
+
+    let mut failures = Vec::new();
+
+    for (created, valid) in [
+        ("std.buffer_fixture.create()", true),
+        ("std.buffer_fixture.Owner { marker = std.buffer_fixture.Marker {} }", false)
+    ] {
+        let caller = format!(r#"
+            trusted module app;
+
+            using std.buffer_fixture;
+
+            trusted func caller()
+            {{
+                let owner = std.buffer_fixture.round_trip({created});
+                std.buffer_fixture.inspect(&owner);
+            }}
+        "#);
+
+        let source = standard_library_compilation(sources.into_iter().chain([declarations, caller.as_str()]));
+        let imported = super::fixtures::execution_consumer(&provider, &caller);
+
+        for (mode, compilation) in [("source", &source), ("import", &imported)] {
+            let diagnostics = compilation.check_diagnostics();
+
+            if diagnostics.has_errors() == valid {
+                failures.push(format!("{mode}, created={created}: {diagnostics:#?}"));
+                continue;
+            }
+
+            if !valid {
+                bray_testing::assert_goal_state_diagnostic_kind(diagnostics,
+                    bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven);
+            } else {
+                let lowered = compilation.lowered_unit(crate::test_support::source_function_body_key(compilation, "caller"))
+                    .expect("generic stored-value composition reaches lowering");
+
+                assert!(!lowered.diagnostics().has_errors() && lowered.value().is_some(), "{mode}: {lowered:#?}");
+            }
+        }
+    }
+
+    assert!(failures.is_empty(), "{}\n{:#?}", failures.join("\n"), ["store", "restore", "round_trip"].map(|name| {
+        let contract = crate::compilation::result_dependencies::source_function_dependencies(&provider, name);
+
+        format!("{name}: values={:?}, owned={:?}, stored={:?}, borrows={:?}", contract.captured_values(), contract.owned_result(), contract.stored_values(), contract.borrows())
+    }));
 }
 
 #[test]
@@ -4423,6 +4519,7 @@ fn copied_opaque_pointee_fields_do_not_retain_the_reading_loan() {
                 uses(raw_memory, unchecked_alias)
             {
                 let pointer = self.pointer;
+
                 let permit = trusted lambda(pos owner: &Marker, pos pointer: DataPointer<State>)
                     requires(trusted active(owner))
                     ensures(
@@ -4505,6 +4602,7 @@ fn copied_opaque_pointee_fields_do_not_retain_the_reading_loan() {
 
     let envelope = r#"
                 let pin = number;
+
                 let mut envelope: std.memory.Envelope =
                 {
                     owner = guard,

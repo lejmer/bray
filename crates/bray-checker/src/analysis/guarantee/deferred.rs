@@ -1,120 +1,16 @@
 use crate::execution_guarantees::ExecutionSubstitution;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
-use crate::{ExecutionCallEvidence, ExecutionCondition};
-use bray_bound_tree::BoundExecutionSite;
+use crate::ExecutionCondition;
 
 type Selection = BTreeSet<(ExecutionCondition, bool)>;
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(super) struct DeferredInvocation<Entry = Arc<ExecutionCallEvidence>> {
-    pub(super) entry: Entry,
-    /// Each report owns its formation snapshot, independently of frame captures.
-    pub(super) reports: BTreeMap<bray_bound_tree::CallReportOutput, Arc<crate::dependency::ReportDependencies>>,
-    pub(super) selection: Selection,
-}
-
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub(in crate::analysis) struct DeferredValue {
-    pub(super) producers: BTreeMap<BoundExecutionSite, DeferredInvocation>,
-    pub(super) unknown: Option<DeferredInvocation<()>>,
-}
-
-pub(super) fn selection(facts: &Selection) -> Selection {
-    facts
-        .iter()
-        .filter(|(condition, _)| {
-            !condition.contains_trusted() && !condition.observes_live(None)
-        })
-        .cloned()
-        .collect()
-}
-
-pub(super) fn possible(guard: &Selection, proof: &crate::execution_guarantees::ExecutionProof<'_>) -> bool {
-    !guard
-        .iter()
-        .any(|(condition, holds)| proof.prove_trusted(condition) == Some(!holds))
-}
-
-impl<Entry> DeferredInvocation<Entry> {
-    fn merge_capture(&mut self, incoming: &Self) -> bool {
-        let before = self.selection.len();
-
-        self.selection.retain(|fact| incoming.selection.contains(fact));
-
-        let mut changed = before != self.selection.len();
-
-        for (output, incoming) in &incoming.reports {
-            if let Some(reports) = self.reports.get_mut(output) {
-                changed |= reports.merge(incoming);
-            } else {
-                self.reports.insert(*output, Arc::clone(incoming));
-                changed = true;
-            }
-        }
-
-        changed
-    }
-}
+pub(in crate::analysis) use crate::execution_guarantees::ExecutionDeferredValue as DeferredValue;
+pub(super) use crate::execution_guarantees::ExecutionDeferredInvocation as DeferredInvocation;
+pub(super) use crate::execution_guarantees::{deferred_selection as selection, deferred_possible as possible};
 
 impl DeferredValue {
-    pub(super) fn unknown(facts: &Selection) -> Self {
-        Self {
-            unknown: Some(DeferredInvocation {
-                entry: (), selection: selection(facts), reports: BTreeMap::new(),
-            }),
-            ..Self::default()
-        }
-    }
-
-    pub(super) fn unknown_possible(&self, proof: &crate::execution_guarantees::ExecutionProof<'_>) -> bool {
-        self.unknown
-            .as_ref()
-            .is_some_and(|candidate| possible(&candidate.selection, proof))
-    }
-
-    pub(super) fn known_sources(&self, proof: &crate::execution_guarantees::ExecutionProof<'_>) -> Option<BTreeSet<BoundExecutionSite>> {
-        (!self.unknown_possible(proof)).then(|| {
-            self.producers
-                .iter()
-                .filter(|(_, candidate)| possible(&candidate.selection, proof))
-                .map(|(source, _)| *source)
-                .collect()
-        })
-    }
-
-    pub(super) fn merge(&mut self, incoming: &Self, cache: &crate::execution_guarantees::ExecutionProofCache) -> bool {
-        let mut changed = false;
-
-        for (source, candidate) in &incoming.producers {
-            if let Some(previous) = self.producers.get_mut(source) {
-                if previous != candidate {
-                    if previous.entry != candidate.entry {
-                        changed |= Arc::make_mut(&mut previous.entry).intersect(&candidate.entry, cache);
-                    }
-
-                    changed |= previous.merge_capture(candidate);
-                }
-            } else {
-                // Producers share captured evidence while each flow branch owns its selection facts.
-                self.producers.insert(*source, candidate.clone());
-                changed = true;
-            }
-        }
-
-        if let Some(incoming) = &incoming.unknown {
-            if let Some(previous) = &mut self.unknown {
-                changed |= previous.merge_capture(incoming);
-            } else {
-                self.unknown = Some(incoming.clone());
-                changed = true;
-            }
-        }
-
-        changed
-    }
-
     pub(super) fn join_values(
         &mut self,
         substitution: &ExecutionSubstitution<'_>,
@@ -180,15 +76,6 @@ impl DeferredValue {
         }
     }
 
-    pub(super) fn retire_selection(&mut self, stale: impl Fn(&ExecutionCondition) -> bool) {
-        for guard in self.unknown.iter_mut().map(|candidate| &mut candidate.selection).chain(
-            self.producers
-                .values_mut()
-                .map(|candidate| &mut candidate.selection),
-        ) {
-            guard.retain(|(condition, _)| !stale(condition));
-        }
-    }
 }
 
 #[cfg(test)]
@@ -201,6 +88,11 @@ mod tests {
     use bray_symbols::SymbolOrdinal;
     use std::sync::Arc;
 
+    fn carried(state: &ExecutionState) -> &DeferredValue {
+        state.current.values().find_map(|value| value.deferred_value().map(Arc::as_ref))
+            .expect("test state retains its actual frame value")
+    }
+
     #[test]
     fn frame_moves_freeze_copy_guards_and_do_not_import_old_loop_incarnations() {
         let (_, expressions) = expression_unit(BoundUnitId::new(92), |tree, origin| {
@@ -211,36 +103,36 @@ mod tests {
         let place = ExecutionPlace::argument(SymbolOrdinal::new(0));
         let source = ExecutionCondition::new(crate::ExecutionConditionKind::ScalarValue(Arc::new(ExecutionCondition::new(crate::ExecutionConditionKind::Joined(BoundUnitId::new(92), 6, place.clone())))));
 
-        let captured = |owner| ExecutionCondition::new(crate::ExecutionConditionKind::CapturedInput {
-            owner: Arc::new(owner), invocation: expressions[0].into(), ordinal: SymbolOrdinal::new(0),
-        });
+        let captured = ExecutionCondition::opaque_scalar(ExecutionCondition::new(
+            crate::ExecutionConditionKind::Expression(expressions[1])));
 
         let mut state = ExecutionState::default();
 
         state.current.insert(place.clone(), source.clone());
         state.assumptions.insert((source.clone(), true));
 
-        state.deferred_invocations.insert(owner.clone(), DeferredValue {
-            producers: [(expressions[0].into(), DeferredInvocation {
+        state.current.insert(ExecutionPlace::argument(SymbolOrdinal::new(2)), owner.clone().with_deferred_value(Arc::new(DeferredValue {
+            producers: [(expressions[0].into(), DeferredInvocation { callee: None, transition: None,
                 entry: Arc::new(ExecutionCallEvidence {
-                    arguments: [(place.clone(), captured(owner.clone()))].into(),
+                    outputs: Default::default(),
+                    arguments: [(place.clone(), captured.clone())].into(),
                     copy_sources: [(place.clone(), source.clone())].into(), pending_execution: true, ..Default::default()
                 }), reports: Default::default(), selection: Default::default(),
             })].into(),
-            unknown: Some(DeferredInvocation { entry: (), reports: Default::default(), selection: [(source.clone(), true)].into() }),
-        });
+            unknown: Some(DeferredInvocation { callee: None, transition: None, entry: (), reports: Default::default(), selection: [(source.clone(), true)].into() }),
+        })));
 
         let middle = ExecutionCondition::result();
 
         state.join_values(&crate::execution_guarantees::ExecutionSubstitution::new(&[(owner.clone(), middle.clone())].into(), &[(owner, middle.clone())].into()));
-        assert!(state.deferred_invocations[&middle].producers[&expressions[0].into()].entry.assumptions.contains(&(captured(middle.clone()), true)));
-        assert!(state.deferred_invocations[&middle].producers[&expressions[0].into()].selection.contains(&(source.clone(), true)));
+        assert!(carried(&state).producers[&expressions[0].into()].entry.assumptions.contains(&(captured.clone(), true)));
+        assert!(carried(&state).producers[&expressions[0].into()].selection.contains(&(source.clone(), true)));
 
         state.current.insert(place, ExecutionCondition::boolean(false));
 
         state.join_values(&crate::execution_guarantees::ExecutionSubstitution::new(&[(middle.clone(), middle.clone())].into(), &[(middle.clone(), middle.clone())].into()));
 
-        let unchanged = &state.deferred_invocations[&middle].producers[&expressions[0].into()];
+        let unchanged = &carried(&state).producers[&expressions[0].into()];
 
         assert!(!unchanged.selection.contains(&(source.clone(), true)), "identity joins still prune stale selectors");
         assert!(unchanged.entry.copy_sources.is_empty(), "identity joins still revoke stale copy origins");
@@ -249,13 +141,13 @@ mod tests {
 
         state.join_values(&crate::execution_guarantees::ExecutionSubstitution::new(&[(middle.clone(), target.clone())].into(), &[(middle, target.clone())].into()));
 
-        let moved = &state.deferred_invocations[&target].producers[&expressions[0].into()];
+        let moved = &carried(&state).producers[&expressions[0].into()];
 
         assert!(!moved.selection.contains(&(source.clone(), true)));
         assert!(!moved.entry.assumptions.contains(&(source, true)));
-        assert!(state.deferred_invocations[&target].unknown.as_ref().expect("opaque predecessor remains possible").selection.is_empty());
+        assert!(carried(&state).unknown.as_ref().expect("opaque predecessor remains possible").selection.is_empty());
         assert!(moved.entry.copy_sources.is_empty());
-        assert!(moved.entry.assumptions.contains(&(captured(target), true)));
+        assert!(moved.entry.assumptions.contains(&(captured, true)));
     }
 
     #[test]
@@ -274,12 +166,12 @@ mod tests {
         let completed = captured(0);
         let abnormal = captured(1);
 
-        let mut first = DeferredInvocation {
+        let mut first = DeferredInvocation { callee: None, transition: None,
             entry: (), selection: Default::default(),
             reports: [(DeferredCompleted, Arc::clone(&completed)), (DeferredAbnormal, Arc::clone(&abnormal))].into(),
         };
 
-        let second = DeferredInvocation {
+        let second = DeferredInvocation { callee: None, transition: None,
             entry: (), selection: Default::default(),
             reports: [(DeferredCompleted, captured(2))].into(),
         };
@@ -301,11 +193,12 @@ mod tests {
             )]
         });
 
-        let source = source[0].into();
+        let source: crate::execution_guarantees::DeferredProducer = source[0].into();
         let argument = ExecutionPlace::argument(SymbolOrdinal::new(0));
         let value = ExecutionCondition::new(crate::ExecutionConditionKind::Input(argument.clone()));
 
         let entry = Arc::new(ExecutionCallEvidence {
+            outputs: Default::default(),
             arguments: [(argument.clone(), value.clone())].into(),
             witness_inputs: [value.clone()].into(),
             extracted_values: [value.clone()].into(),
@@ -315,12 +208,12 @@ mod tests {
         let owner = ExecutionCondition::result();
         let mut state = ExecutionState::default();
 
-        state.deferred_invocations.insert(
-            owner.clone(),
-            DeferredValue {
+        state.current.insert(
+            ExecutionPlace::argument(SymbolOrdinal::new(2)),
+            owner.clone().with_deferred_value(Arc::new(DeferredValue {
                 producers: [(
-                    source,
-                    DeferredInvocation {
+                    source.clone(),
+                    DeferredInvocation { callee: None, transition: None,
                         entry: Arc::clone(&entry),
                         reports: Default::default(),
                         selection: Default::default(),
@@ -328,7 +221,7 @@ mod tests {
                 )]
                 .into(),
                 ..DeferredValue::default()
-            },
+            })),
         );
 
         let unrelated = ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(1))));
@@ -339,10 +232,12 @@ mod tests {
 
         assert!(Arc::ptr_eq(
             &entry,
-            &state.deferred_invocations[&owner].producers[&source].entry
+            &carried(&state).producers[&source].entry
         ));
 
         let renamed = ExecutionCondition::boolean(false);
+
+        let owner = state.current.live_value(&ExecutionPlace::argument(SymbolOrdinal::new(2))).unwrap();
 
         assert!(!state.owned_values(&owner).any(|owned| owned == value),
             "capturing extraction evidence does not make the future own its borrowed source");
@@ -354,7 +249,7 @@ mod tests {
             &[(value.clone(), renamed.clone())].into(),
             &[(value.clone(), renamed.clone())].into()));
 
-        let completed = &state.deferred_invocations[&owner].producers[&source].entry;
+        let completed = &carried(&state).producers[&source].entry;
 
         assert!(!Arc::ptr_eq(&entry, completed));
         assert_eq!(entry.arguments[&argument], value);

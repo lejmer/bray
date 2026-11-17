@@ -43,7 +43,7 @@ impl ExecutionCondition {
     /// Select only the retained tag from the actual current snapshot.
     pub(crate) fn discriminant(&self) -> Self {
         match self.kind() {
-            K::Observation { contents, .. } | K::Borrowed(contents)
+            K::CapturedValue { value: contents, .. } | K::DeferredValue { value: contents, .. } | K::Observation { contents, .. } | K::Borrowed(contents)
             | K::Constructed(contents, _) => contents.discriminant(),
             K::Present(_) => Self::new(K::Present(Arc::new(Self::unknown()))),
             K::Tagged(variant, _) => Self::new(K::Tagged(*variant, Arc::new(Self::unknown()))),
@@ -90,7 +90,7 @@ impl ExecutionCondition {
         loop {
             match value.kind() {
                 K::Constructed(base, _) | K::Discriminant(base) => value = base,
-                K::Observation { contents, .. } | K::Borrowed(contents) => value = contents,
+                K::CapturedValue { value: contents, .. } | K::DeferredValue { value: contents, .. } | K::Observation { contents, .. } | K::Borrowed(contents) => value = contents,
                 _ => return value,
             }
         }
@@ -99,7 +99,7 @@ impl ExecutionCondition {
     pub(crate) fn matches_variant(self, variant: bray_symbols::UnionVariantSymbolId) -> Self {
         match self.kind() {
             K::Unknown => self,
-            K::Borrowed(value) | K::Observation { contents: value, .. } => value.as_ref().clone().matches_variant(variant),
+            K::CapturedValue { value, .. } | K::DeferredValue { value, .. } | K::Borrowed(value) | K::Observation { contents: value, .. } => value.as_ref().clone().matches_variant(variant),
             K::Literal(value)
                 if let bray_symbols::ConstantValueKind::Union {
                     variant: active, ..

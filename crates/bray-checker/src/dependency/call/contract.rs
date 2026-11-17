@@ -1107,6 +1107,7 @@ mod tests {
     ) -> SelectedCall {
         SelectedCall::new(
             BoundResolvedCall::new(BoundCallableTarget::Indirect(callable_type), [], result),
+            callable_type,
             bray_symbols::CallableConstness::Runtime,
             CallableAbi::Bray,
             empty_callable_phase_behaviors(),

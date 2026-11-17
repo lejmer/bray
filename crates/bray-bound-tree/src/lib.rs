@@ -54,7 +54,7 @@ pub use dependency::{
     GuardedBoundDependencyRequirement, LifecycleObligationId, ScopedCapabilityId,
 };
 pub use dependency_table::{
-    BoundCallDependencyContracts, BoundCallReference, BoundCallReports, BoundReturnedValue, CallReportOutput,
+    BoundCallDependencyContracts, BoundCallReference, BoundCallReports, BoundDeferredCallable, BoundReturnedValue, CallReportOutput,
     CheckedDependencyContracts, ConditionCallReferences, DependencyContractsBuildError,
 };
 pub use lifecycle::{CompletedFinalizer, LifecycleAction, LifecycleCallable, LifecyclePhase};
@@ -119,12 +119,17 @@ pub use semantic::{
     SemanticSnapshotInputKind,
 };
 pub use storage::{
+    StorageCapturedEffects, StorageCapturedTransition, StorageDeferredTransition, StorageContents, StorageEffect,
+    StorageCapturedValue, merge_storage_bindings, merge_storage_contents,
+    selected_storage_values, storage_selector_parent, storage_value_subtree,
+    StorageSnapshotRoot, StorageValueBoundary, StorageValueCapture, StorageValueDestination, StorageValueInput, StorageValuePhase, StorageValueTransition,
     BorrowCapabilityId, BorrowCapabilityOrigin, LastUse, LiveAcrossScope, LiveAcrossSuspension,
     Liveness, LivenessBuildError, OwnerRetention, PlannedBorrowCapability, StorageAccess,
     StorageAccessId, StorageAccessPlan, StorageAccessPlanRole, StorageAccessPurpose, StorageAccessRoot,
     StorageAlternative, StorageAlternativeId, StorageBinding, StorageBindingTarget,
     StorageCleanupPart, StorageCleanupProjection, StorageCleanupProjectionKind, StorageCleanupType,
     StorageCompletion, StorageExitDecision, StorageExitPoint, StorageFlow, StorageFlowBuildError,
+    StorageAddressValue, StorageDependencyCompleteness, StorageMutationTarget, StorageValueBinding, StorageValueRetirement,
     StorageIdentity, StorageIdentityId, StorageMutation, StorageObservationKind, StorageObservationTransition, StorageOperationDecision,
     StorageOperationStatus, StorageOrigin, StoragePath, StoragePlan, StoragePlanBuildError,
     StoragePlanBuilder, StorageProjection, StorageProtocolCall, StorageReferencePath, StorageReferenceStep, StorageValueConsumptionPhase,

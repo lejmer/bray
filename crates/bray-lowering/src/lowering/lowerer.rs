@@ -1665,6 +1665,7 @@ mod tests {
 
         let selected = SelectedCall::new(
             resolution,
+            ty,
             bray_symbols::CallableConstness::Runtime,
             CallableAbi::C,
             CallablePhaseBehaviors::empty(CallableDependencyContracts::synchronous(dependency)),

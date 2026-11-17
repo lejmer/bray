@@ -322,6 +322,7 @@ where
                 key,
                 call: SelectedCall::new(
                     resolution,
+            candidate.callable_type(),
                     constness,
                     abi,
                     phase_behaviors,

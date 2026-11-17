@@ -69,14 +69,6 @@ pub(in crate::analysis) fn merge(
 
     changed |= dependencies != target.completion_dependencies.len();
 
-    for (owner, entries) in &incoming.deferred_invocations {
-        changed |= target
-            .deferred_invocations
-            .entry(owner.clone())
-            .or_default()
-            .merge(entries, &target.proofs);
-    }
-
     for (expression, evidence) in &incoming.entries {
         match target.entries.entry(*expression) {
             std::collections::btree_map::Entry::Vacant(entry) => {
@@ -171,7 +163,7 @@ fn join_observations<'a>(
     let mut places = Vec::new();
     let mut joins = false;
     let mut results = Vec::new();
-    let mut owned_results = BTreeMap::new();
+    let mut owned_results = super::super::ownership::OwnedResults::default();
     let mut joined_facts = Vec::new();
     let mut needs_condition_proof = false;
 
@@ -453,8 +445,6 @@ fn join_current_value(
         right.1.clone()
     } else if *right.2 == ValueAvailability::Absent || left.1 == right.1 {
         left.1.clone()
-    } else if *left.1 == ExecutionCondition::unknown() || *right.1 == ExecutionCondition::unknown() {
-        ExecutionCondition::unknown()
     } else {
         common_components(left.1, right.1, result(), (&left.0.proofs.ordinary_proof(&left.0.assumptions), &right.0.proofs.ordinary_proof(&right.0.assumptions)), facts,
             &mut { ExecutionCondition::WORK_LIMIT })
@@ -575,10 +565,7 @@ fn join_current_truth(
 fn publish_owned_results(
     target: &mut ExecutionState,
     incoming: &mut std::borrow::Cow<'_, ExecutionState>,
-    owned_results: BTreeMap<
-        ExecutionCondition,
-        bray_symbols::DependencyOwnedResult<bray_bound_tree::StorageProjection, ExecutionCondition>,
-    >,
+    owned_results: super::super::ownership::OwnedResults,
 ) -> bool {
     let mut changed = false;
 

@@ -75,7 +75,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 for (path, kind) in self.input.footprint.typed_observations(pointee) {
                     if kind.is_immutable_inline() || matches!(kind,
                         bray_bound_tree::StorageObservationKind::Discriminant | bray_bound_tree::StorageObservationKind::Initialization) {
-                        snapshots.insert((bray_symbols::DependencySubjectRoot::Result, path.into()), kind);
+                        snapshots.insert((bray_bound_tree::StorageSnapshotRoot::Input(bray_symbols::DependencySubjectRoot::Result), path.into()), kind);
                     }
                 }
             }

@@ -4,7 +4,6 @@ use bray_bound_tree::StorageProjection;
 use super::super::core::StorageFlowCollector;
 use crate::CheckerRequestContext;
 use crate::analysis::storage_flow::memory::{Origin, Place, ReferenceBounds, ReferenceExitValue};
-use crate::analysis::storage_flow::model::StorageFlowState;
 use crate::storage::{dependency_projection, dependency_projections};
 use bray_symbols::{
     ConstantBinaryOperation, ConstantTermData, ConstantUnaryOperation, DependencySubjectRoot,
@@ -12,87 +11,74 @@ use bray_symbols::{
 };
 
 impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
-    pub(in crate::analysis::storage_flow::check::analysis) fn collect_exit_references(
-        &mut self,
-        state: &StorageFlowState,
-    ) {
-        let Some(bray_bound_tree::StorageBinding::Identity(result)) = self
-            .storage
-            .binding(bray_bound_tree::StorageBindingTarget::Result)
-        else {
-            panic!("planned body has result storage");
-        };
-
-        let incoming = state
-            .memory
-            .exit_references(result, &state.definitely_absent);
-
-        let absent = state.definitely_absent.iter().filter_map(|(place, reason)|
-            (*reason == crate::analysis::storage_flow::model::StorageAbsence::NoPayload).then_some(place.clone())
-        ).collect();
-
-        self.stored_exits.push((incoming.clone(), absent));
-
-        match &mut self.references {
-            Some(previous) => previous.merge(&incoming),
-            None => self.references = Some(incoming),
-        }
-    }
-
     pub(in crate::analysis::storage_flow::check::analysis) fn result_dependencies(
         &mut self,
     ) -> crate::CheckerQueryResult<bray_symbols::DependencyContractTemplateData, C::UpstreamError>
     {
-        let carriers = self.trusted.result_carriers(self.request);
-        let mut guards = std::collections::BTreeMap::new();
-        let mut published = Vec::with_capacity(carriers.len());
-
-        for carrier in carriers {
-            let guard = if let Some(guard) = guards.get(carrier.path()) {
-                *guard
-            } else {
-                // Payload steps own their activity guards. A complete nullable
-                // carrier can establish a protocol even when its value is absent.
-                let guard = self.result_path_condition(carrier.path(), false)?;
-
-                guards.insert(carrier.path().to_vec(), guard);
-
-                guard
-            };
-
-            let condition = if let Some(guard) = guard {
-                // Both terms already retain their checked portable subjects.
-                // Compose them directly rather than reconstructing local places.
-                let values = self.request.semantic_values();
-
-                let inactive = values
-                    .intern_constant_term(ConstantTermData::Unary {
-                        operation: ConstantUnaryOperation::LogicalNot,
-                        operand: guard,
-                    })
-                    .expect("a checked result guard belongs to this semantic store");
-
-                values
-                    .intern_constant_term(ConstantTermData::Binary {
-                        operation: ConstantBinaryOperation::LogicalOr,
-                        left: inactive,
-                        right: carrier.guarantee(),
-                    })
-                    .expect("checked returned witness terms belong to this semantic store")
-            } else {
-                carrier.guarantee()
-            };
-
-            published.push(bray_symbols::DependencyWitnessCarrier::new(
-                condition,
-                crate::analysis::guarantee::portable_carrier_path(self.request, carrier.path()),
-            ));
-        }
-
+        let mut guards = BTreeMap::new();
         let observed_result = self.trusted.observed_result.flatten();
+        let mut captured_values = Vec::new();
 
-        let owned_result = self.trusted.owned_result(self.execution);
-        let owned_result = self.owned_result(owned_result)?;
+        let exits = std::mem::take(&mut self.normal_exits);
+
+        let (stored_values, physical_references) = self.stored_values(exits.iter().map(|(references, _)| references))?;
+
+        let mut references: Option<crate::analysis::storage_flow::memory::ReferenceExit> = None;
+
+        for (physical, returned) in exits {
+            match &mut references {
+                None => references = Some(physical),
+                Some(previous) => previous.merge(&physical),
+            }
+
+            let Some(crate::analysis::guarantee::NormalReturn { captured: outcome, carriers, transfers: ownership }) = returned else { continue; };
+
+            let mut published = Vec::with_capacity(carriers.len());
+
+            for carrier in carriers {
+                let guard = if let Some(guard) = guards.get(carrier.path()) {
+                    *guard
+                } else {
+                    // Payload steps own their activity guards. A complete nullable
+                    // carrier can establish a protocol even when its value is absent.
+                    let guard = self.result_path_condition(carrier.path())?;
+
+                    guards.insert(carrier.path().to_vec(), guard);
+
+                    guard
+                };
+
+                let condition = if let Some(guard) = guard {
+                    // Both terms already retain their checked portable subjects.
+                    // Compose them directly rather than reconstructing local places.
+                    let values = self.request.semantic_values();
+
+                    let inactive = values
+                        .intern_constant_term(ConstantTermData::Unary {
+                            operation: ConstantUnaryOperation::LogicalNot,
+                            operand: guard,
+                        })
+                        .expect("a checked result guard belongs to this semantic store");
+
+                    values
+                        .intern_constant_term(ConstantTermData::Binary {
+                            operation: ConstantBinaryOperation::LogicalOr,
+                            left: inactive,
+                            right: carrier.guarantee(),
+                        })
+                        .expect("checked returned witness terms belong to this semantic store")
+                } else {
+                    carrier.guarantee()
+                };
+
+                published.push(bray_symbols::DependencyWitnessCarrier::new(
+                    condition,
+                    crate::analysis::guarantee::portable_carrier_path(self.request, carrier.path()),
+                ));
+            }
+
+            captured_values.push(outcome.with_ownership(self.owned_result(ownership)?).with_carriers(published));
+        }
 
         self.diagnostics
             .add_range(std::mem::take(&mut self.trusted).finish(self.execution)?);
@@ -106,8 +92,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let mut allocations = std::collections::BTreeMap::new();
         let summary = std::mem::take(&mut self.results).summary();
 
-        for (slot, target, exact, bounds) in self
-            .references
+        for (slot, target, exact, bounds) in references
             .iter()
             .flat_map(|references| references.targets())
         {
@@ -172,8 +157,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             }
         }
 
-        let empty = self.references.iter().flat_map(|references| references.empty_slots()).map(|slot| (slot, false));
-        let absent = self.references.iter().flat_map(|references| references.no_payload_slots()).map(|slot| (slot, true));
+        let empty = references.iter().flat_map(|references| references.empty_slots()).map(|slot| (slot, false));
+        let absent = references.iter().flat_map(|references| references.no_payload_slots()).map(|slot| (slot, true));
 
         for (slot, absent) in empty.chain(absent) {
             let Some(root) = self.formal_root(slot.root) else { continue; };
@@ -222,29 +207,26 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 }),
         );
 
-        let (stored_values, physical_references) = self.stored_values()?;
-
         relations.extend(physical_references);
 
         Ok(summary
             .with_stored_values(stored_values)
             .with_requirements(requirements)
             .with_borrows(relations)
-            .with_normal_completion(self.references.is_some())
-            .with_carriers(published)
-            .with_owned_result(owned_result)
+            .with_normal_completion(references.is_some())
+            .with_captured_values(captured_values)
             .with_observed_result(observed_result))
     }
 
     // Map each exit while its allocation anchors and inactive payloads are still distinct.
-    fn stored_values(&self) -> crate::CheckerQueryResult<(Vec<bray_symbols::DependencyStoredValue>, Vec<bray_symbols::DependencyBorrowRelation>), C::UpstreamError> {
+    fn stored_values<'exit>(&self, references: impl Iterator<Item = &'exit crate::analysis::storage_flow::memory::ReferenceExit>) -> crate::CheckerQueryResult<(Vec<bray_symbols::DependencyStoredValue>, Vec<bray_symbols::DependencyBorrowRelation>), C::UpstreamError> {
 
         type Paths = BTreeMap<DependencyStoredValuePath, (BTreeSet<DependencyStoredValuePath>, bool)>;
         type Physical = BTreeMap<DependencyStoredValuePath, (BTreeSet<DependencyBorrowRelation>, bool)>;
 
-        let mut exits = Vec::<(Paths, Physical, BTreeSet<Place>)>::new();
+        let mut exits = Vec::<(Paths, Physical, &BTreeSet<Place>)>::new();
 
-        for (exit, absent) in &self.stored_exits {
+        for exit in references {
             let mut anchors = BTreeMap::<Place, Vec<(Place, Vec<bray_bound_tree::StorageProjection>, bool)>>::new();
 
             for (slot, origin, exact, bounds) in exit.targets() {
@@ -365,7 +347,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 }
             }
 
-            exits.push((paths, physical, absent.clone()));
+            exits.push((paths, physical, exit.absent_payloads()));
         }
 
         let destinations = exits.iter().flat_map(|(paths, _, _)| paths.keys().cloned()).collect::<BTreeSet<_>>();

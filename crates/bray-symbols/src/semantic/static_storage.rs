@@ -67,6 +67,14 @@ impl StaticReferenceSelection {
         }
     }
 
+    /// Returns the implementation choices retained by this exact selected reference.
+    pub fn selected_witnesses(&self) -> &[ImplementationInstanceId] {
+        match self {
+            Self::Open { selected_witnesses, .. } => selected_witnesses,
+            Self::Closed(instance) => instance.selected_witnesses(),
+        }
+    }
+
     /// Returns the selected target profile for this static reference.
     pub const fn target(&self) -> &TargetIdentity {
         match self {

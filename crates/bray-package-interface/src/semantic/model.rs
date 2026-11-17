@@ -11,7 +11,7 @@ mod ty;
 
 pub use application::{
     InterfaceCallableInstance, InterfaceGenericArgument, InterfaceGenericBinding,
-    InterfaceGenericSubstitution, InterfaceImplementationInstance, InterfaceTraitApplication,
+    InterfaceGenericSubstitution, InterfaceImplementationInstance, InterfaceStaticReference, InterfaceTraitApplication,
 };
 pub use bundle::InterfaceSemantics;
 pub use constant::{
@@ -28,7 +28,7 @@ pub use dependency::{
     InterfaceDependencyCallInput, InterfaceDependencyContract, InterfaceDependencyGuard,
     InterfaceDependencyProjection, InterfaceDependencyRequirement,
     InterfaceDependencyRequirementKind, InterfaceDependencyRequirementValue,
-    InterfaceDependencySubject, InterfaceDependencySubjectRoot,
+    InterfaceCapturedCallable, InterfaceNormalOutcome, InterfaceDependencySubject, InterfaceDependencySubjectRoot,
 };
 pub use id::{
     InterfaceCallableInstanceId, InterfaceCheckedTemplateId, InterfaceConstantTermId,

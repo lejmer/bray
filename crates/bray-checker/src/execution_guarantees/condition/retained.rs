@@ -92,19 +92,22 @@ impl RetainedSnapshots {
         })
     }
 
-    pub(super) fn same_contents(left: &ExecutionCondition, right: &ExecutionCondition) -> bool {
-        let left = Self::contents(left);
-        let right = Self::contents(right);
+    fn same_contents(left: &ExecutionCondition, right: &ExecutionCondition) -> bool {
+        let left = Self::contents(left).without_captured_storage();
+        let right = Self::contents(right).without_captured_storage();
 
         !left.contains_unknown() && !right.contains_unknown() && left == right
     }
 
     fn contents(mut value: &ExecutionCondition) -> &ExecutionCondition {
-        while let crate::ExecutionConditionKind::Observation { contents, kind: ObservationKind::Owned | ObservationKind::Scalar, .. } = value.kind() {
-            value = contents;
-        }
+        loop {
+            let inline = value.inline_contents();
 
-        value
+            match inline.kind() {
+                crate::ExecutionConditionKind::CapturedValue { value: contents, .. } | crate::ExecutionConditionKind::DeferredValue { value: contents, .. } => value = contents,
+                _ => return inline,
+            }
+        }
     }
 
     fn index(&self) -> &SnapshotIndex {

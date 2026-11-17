@@ -275,6 +275,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .expect("execution cleanup consumes checked body semantics")
             .storage_flow();
 
+        state.retire_captured_storage(flow.capture_retirements(mutation, bray_bound_tree::StorageValuePhase::Attempt, bray_bound_tree::StorageValueBoundary::Execution));
+
         self.invalidate_observations(
             state,
             mutation,
@@ -524,6 +526,7 @@ impl Lifecycle {
 
         // Entry assumptions must survive the mutations made by this lifecycle invocation.
         ExecutionCallEvidence {
+            outputs: Default::default(),
             implementation_witnesses: Default::default(),
             witness_inputs: Default::default(),
             extracted_values: Default::default(),

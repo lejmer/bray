@@ -430,6 +430,7 @@ impl ExecutionPlace {
 fn literal_array_extent(mut value: &super::ExecutionCondition) -> Option<usize> {
     for _ in 0..super::ExecutionCondition::WORK_LIMIT {
         match value.kind() {
+            super::ExecutionConditionKind::CapturedValue { value: contents, .. } | super::ExecutionConditionKind::DeferredValue { value: contents, .. } => value = contents,
             super::ExecutionConditionKind::Observation { contents, kind: super::ExecutionObservationKind::Owned | super::ExecutionObservationKind::Scalar, .. } => value = contents,
             super::ExecutionConditionKind::Constructed(base, _) => value = base,
             super::ExecutionConditionKind::Literal(value) => return match value.kind() {

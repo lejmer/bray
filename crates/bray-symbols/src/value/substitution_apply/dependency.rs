@@ -215,23 +215,6 @@ impl SemanticValueStore {
             })
             .collect::<Result<Vec<_>, SemanticValueStoreError>>()?;
 
-        let carriers = template
-            .carriers()
-            .iter()
-            .map(|carrier| {
-                Ok(super::super::DependencyWitnessCarrier::new(
-                    self.substitute_constant_term_data(carrier.guarantee(), substitution)?,
-                    carrier
-                        .path()
-                        .iter()
-                        .map(|projection| {
-                            self.substitute_dependency_projection(projection, substitution)
-                        })
-                        .collect::<Result<Vec<_>, _>>()?,
-                ))
-            })
-            .collect::<Result<Vec<_>, SemanticValueStoreError>>()?;
-
         let effects = template
             .effect_outcomes()
             .try_map(|effect| {
@@ -246,20 +229,20 @@ impl SemanticValueStore {
                     DependencyStorageEffect::Ambient => DependencyStorageEffect::Ambient,
                     DependencyStorageEffect::Unknown => DependencyStorageEffect::Unknown,
                     DependencyStorageEffect::Escape => DependencyStorageEffect::Escape,
-                    DependencyStorageEffect::Direct { subject, kind, access_type } => {
-                        DependencyStorageEffect::Direct {
+                    DependencyStorageEffect::Direct { addressed, subject, kind, access_type } => {
+                        DependencyStorageEffect::Direct { addressed: *addressed,
                             subject: self.substitute_dependency_subject(subject, substitution)?,
                             kind: kind
                                 .try_map_type(|ty| self.substitute_type_data(ty, substitution))?,
                             access_type: access_type.map(|ty| self.substitute_type_data(ty, substitution)).transpose()?,
                         }
                     }
-                    DependencyStorageEffect::Indirect {
+                    DependencyStorageEffect::Indirect { addressed, reads,
                         reference,
                         projections,
                         kind,
                         access_type,
-                    } => DependencyStorageEffect::Indirect {
+                    } => DependencyStorageEffect::Indirect { addressed: *addressed, reads: std::sync::Arc::clone(reads),
                         reference: self.substitute_dependency_subject(reference, substitution)?,
                         projections: projections
                             .iter()
@@ -284,14 +267,25 @@ impl SemanticValueStore {
                     ))
                 }).collect::<Result<Vec<_>, SemanticValueStoreError>>()?)
                 .with_borrows(borrows)
-                .with_carriers(carriers)
-                .with_observed_result(
-                    template
-                        .observed_result()
-                        .map(|term| self.substitute_constant_term_data(term, substitution))
-                        .transpose()?,
-                )
-                .with_owned_result(template.owned_result().try_map(
+                .with_captured_values(template.captured_values().iter().map(|outcome| {
+                    let guard = outcome.guard.map(|term| self.substitute_constant_term_data(term, substitution)).transpose()?;
+
+                    let bindings = outcome.bindings.iter().map(|(destination, value)| {
+                        Ok((self.substitute_dependency_subject(destination, substitution)?, value.try_map(
+                            &mut |term| self.substitute_constant_term_data(*term, substitution),
+                            &mut |projection| self.substitute_dependency_projection(projection, substitution),
+                            &mut |root| self.substitute_static_reference(root, substitution), &mut |callee| Ok(super::super::CapturedCallable {
+                                instance: self.substitute_callable_instance_data(callee.instance, substitution)?,
+                                signature: self.substitute_type_data(callee.signature, substitution)?,
+                                has_receiver: callee.has_receiver,
+                                requirement: callee.requirement.map(|r| Ok(crate::ImplementationRequirementKey::new(
+                                    self.substitute_type_data(r.subject(), substitution)?, self.substitute_trait_application_data(r.trait_application(), substitution)?))).transpose()?,
+                                dispatch: callee.dispatch.map(|w| self.substitute_implementation_instance_data(w, substitution)).transpose()?,
+                                witnesses: callee.witnesses.iter().map(|w| self.substitute_implementation_instance_data(*w, substitution)).collect::<Result<_, _>>()?,
+                            }))?))
+                    }).collect::<Result<Vec<_>, SemanticValueStoreError>>()?;
+
+                    let ownership = outcome.ownership.try_map(
                     &mut |transfer| {
                         Ok::<_, SemanticValueStoreError>(
                             super::super::DependencyOwnedResult::Transfer(
@@ -321,7 +315,32 @@ impl SemanticValueStore {
                         self.substitute_constant_term_data(*condition, substitution)
                             .map(Some)
                     },
-                )?)
+                )?;
+
+        let carriers = outcome.carriers
+            .iter()
+            .map(|carrier| {
+                Ok(super::super::DependencyWitnessCarrier::new(
+                    self.substitute_constant_term_data(carrier.guarantee(), substitution)?,
+                    carrier
+                        .path()
+                        .iter()
+                        .map(|projection| {
+                            self.substitute_dependency_projection(projection, substitution)
+                        })
+                        .collect::<Result<Vec<_>, _>>()?,
+                ))
+            })
+            .collect::<Result<Vec<_>, SemanticValueStoreError>>()?;
+
+                    Ok(super::super::CapturedValueOutcome::new(guard, bindings).with_carriers(carriers).with_ownership(ownership))
+                }).collect::<Result<Vec<_>, SemanticValueStoreError>>()?)
+                .with_observed_result(
+                    template
+                        .observed_result()
+                        .map(|term| self.substitute_constant_term_data(term, substitution))
+                        .transpose()?,
+                )
                 .with_effect_outcomes(effects),
         )
     }

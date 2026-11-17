@@ -11,6 +11,7 @@ mod substitution;
 mod traversal;
 mod values;
 mod tags;
+mod storage;
 
 #[cfg(test)]
 mod tests;

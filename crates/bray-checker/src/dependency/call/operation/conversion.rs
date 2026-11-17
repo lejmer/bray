@@ -153,13 +153,26 @@ pub(in crate::dependency::call) fn conversion_dependencies<C: CheckerRequestCont
                     ))
                     .expect("canonical conversion input belongs to the checked semantic store");
 
-                let output = matches!(conversion.target(), ConversionTarget::NullablePresent)
-                    .then_some(bray_symbols::ConstantProjectionKind::NullableValue);
+                let nullable = matches!(conversion.target(), ConversionTarget::NullablePresent);
+                let value = bray_symbols::CapturedValueTemplate::Input(input);
 
-                result = result.with_owned_result(bray_symbols::DependencyOwnedResult::Transfer(
-                    bray_symbols::DependencyOwnedTransfer::new(input, output)
-                        .with_preservation(bray_symbols::DependencyValuePreservation::all()),
-                ));
+                let value = if nullable {
+                    bray_symbols::CapturedValueTemplate::Operation(
+                        bray_symbols::CapturedValueOperation::Present, [value].into(),
+                    )
+                } else {
+                    value
+                };
+
+                let transfer = bray_symbols::DependencyOwnedTransfer::new(
+                    input, nullable.then_some(bray_symbols::ConstantProjectionKind::NullableValue),
+                ).with_preservation(bray_symbols::DependencyValuePreservation::all());
+
+                let outcome = bray_symbols::CapturedValueOutcome::new(None, [
+                    (DependencySubject::root(DependencySubjectRoot::Result), value),
+                ]).with_ownership(bray_symbols::DependencyOwnedResult::Transfer(transfer));
+
+                result = result.with_captured_values([outcome]);
             }
 
             Ok(result)
@@ -206,22 +219,22 @@ fn project_effect(
 ) -> DependencyStorageEffect {
     // Projection retains the callee's immutable reference suffix and mutation kind.
     match effect {
-        DependencyStorageEffect::Direct { subject, kind, access_type } => {
+        DependencyStorageEffect::Direct { addressed, subject, kind, access_type } => {
             project_subject(subject, ordinal, shape)
-                .map(|subject| DependencyStorageEffect::Direct {
+                .map(|subject| DependencyStorageEffect::Direct { addressed: *addressed,
                     subject,
                     kind: *kind,
                     access_type: *access_type,
                 })
                 .unwrap_or_else(|| DependencyStorageEffect::unresolved(*kind, *access_type))
         }
-        DependencyStorageEffect::Indirect {
+        DependencyStorageEffect::Indirect { addressed, reads,
             reference,
             projections,
             kind,
             access_type,
         } => project_subject(reference, ordinal, shape)
-            .map(|reference| DependencyStorageEffect::Indirect {
+            .map(|reference| DependencyStorageEffect::Indirect { addressed: *addressed, reads: std::sync::Arc::clone(reads),
                 reference,
                 projections: std::sync::Arc::clone(projections),
                 kind: *kind,

@@ -238,7 +238,7 @@ impl<'bytes, 'records> SelectionBuilder<'bytes, 'records> {
 
         if !self.records.callable_signatures.values().is_empty()
             && self.records.dependency_contracts.values().values().any(|contract| {
-            contract.owned_result.transfers().any(|transfer| !transfer.preservation().children().is_empty())
+            contract.captured_values.iter().flat_map(|row| row.ownership.transfers()).any(|transfer| !transfer.preservation().children().is_empty())
         }) {
             self.include_preservation_representations()?;
         }
@@ -1058,15 +1058,45 @@ impl<'bytes, 'records> SelectionBuilder<'bytes, 'records> {
             self.enqueue(PendingRecord::ConstantTerm(term.raw()));
         }
 
-        for condition in contract.owned_result.conditions() {
+        for binding in &*contract.captured_values {
+            if let Some(guard) = binding.guard { self.enqueue(PendingRecord::ConstantTerm(guard.raw())); }
+
+            for (destination, value) in binding.bindings.iter() {
+            self.include_dependency_subject(destination);
+
+            for input in value.terms() { self.enqueue(PendingRecord::ConstantTerm(input.raw())); }
+
+            for call in value.callees() {
+                self.enqueue(PendingRecord::CallableInstance(call.instance.raw()));
+                self.enqueue(PendingRecord::Type(call.signature.raw()));
+
+                if let Some((ty, application)) = call.requirement {
+                    self.enqueue(PendingRecord::Type(ty.raw()));
+                    self.enqueue(PendingRecord::TraitApplication(application.raw()));
+                }
+
+                for w in call.dispatch.iter().chain(&*call.witnesses) { self.enqueue(PendingRecord::ImplementationInstance(w.raw())); }
+            }
+
+            for root in value.static_roots() {
+                self.enqueue(PendingRecord::Substitution(root.substitution.raw()));
+
+                for witness in root.selected_witnesses.iter() { self.enqueue(PendingRecord::ImplementationInstance(witness.raw())); }
+            }
+
+            self.include_dependency_projections(&value.projections().cloned().collect::<Vec<_>>());
+            }
+        }
+
+        for condition in contract.captured_values.iter().flat_map(|row| row.ownership.conditions()) {
             self.enqueue(PendingRecord::ConstantTerm(condition.raw()));
         }
 
-        for transfer in contract.owned_result.transfers() {
+        for transfer in contract.captured_values.iter().flat_map(|row| row.ownership.transfers()) {
             self.enqueue(PendingRecord::ConstantTerm(transfer.input().raw()));
         }
 
-        for carrier in &*contract.carriers {
+        for carrier in contract.captured_values.iter().flat_map(|row| row.carriers.iter()) {
             self.enqueue(PendingRecord::ConstantTerm(carrier.guarantee().raw()));
             self.include_dependency_projections(carrier.path());
         }

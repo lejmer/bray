@@ -309,21 +309,20 @@ pub enum InterfaceDependencyRequirementKind {
     LifecycleObligation(LifecycleObligationKind),
 }
 
+/// Selected callable, signature and witnesses in the package interface.
+pub type InterfaceCapturedCallable = bray_symbols::CapturedCallable<crate::InterfaceCallableInstanceId, crate::InterfaceTypeId,
+    (crate::InterfaceTypeId, crate::InterfaceTraitApplicationId), crate::InterfaceImplementationInstanceId>;
+
+/// Guarded normal values and ownership using interface-local identities.
+pub type InterfaceNormalOutcome = bray_symbols::CapturedValueOutcome<InterfaceDependencySubject, InterfaceConstantTermId,
+    InterfaceDependencyProjection, super::InterfaceStaticReference, InterfaceConstantTermId, super::InterfaceConstantProjection, InterfaceCapturedCallable>;
+
 /// One normalized portable dependency contract.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct InterfaceDependencyContract {
-    pub(crate) owned_result: bray_symbols::DependencyOwnedResult<
-        super::InterfaceConstantProjection,
-        super::InterfaceConstantTermId,
-    >,
+    pub(crate) captured_values: Arc<[InterfaceNormalOutcome]>,
     pub(crate) observed_result: Option<super::InterfaceConstantTermId>,
     pub(crate) stored_values: Arc<[bray_symbols::DependencyStoredValue<InterfaceDependencySubject>]>,
-    pub(crate) carriers: Arc<
-        [bray_symbols::DependencyWitnessCarrier<
-            InterfaceDependencyProjection,
-            InterfaceConstantTermId,
-        >],
-    >,
     pub(crate) synchronous_cleanup: Arc<[InterfaceDependencyRequirement]>,
     pub(crate) normal_completion: bool,
     pub(crate) requirements: Arc<[InterfaceDependencyRequirement]>,
@@ -345,6 +344,13 @@ pub struct InterfaceDependencyContract {
 }
 
 impl InterfaceDependencyContract {
+    /// Records actual whole-value bindings produced by normal completion.
+    pub fn with_captured_values(mut self, values: impl IntoIterator<Item = InterfaceNormalOutcome>) -> Self {
+        self.captured_values = sorted_unique_shared_slice(values);
+
+        self
+    }
+
     /// Records possible values stored in normal-output subtrees.
     pub fn with_stored_values(mut self, values: impl IntoIterator<Item = bray_symbols::DependencyStoredValue<InterfaceDependencySubject>>) -> Self {
         self.stored_values = bray_symbols::DependencyStoredValue::normalize(values);
@@ -367,7 +373,8 @@ impl InterfaceDependencyContract {
             super::InterfaceConstantTermId,
         >,
     ) -> Self {
-        self.owned_result = result;
+        assert!(self.captured_values.is_empty(), "a standalone interface ownership layout describes one normal exit");
+        self.captured_values = [InterfaceNormalOutcome::new(None, []).with_ownership(result)].into();
 
         self
     }
@@ -376,14 +383,13 @@ impl InterfaceDependencyContract {
     pub fn new(requirements: impl IntoIterator<Item = InterfaceDependencyRequirement>) -> Self {
         Self {
             requirements: sorted_unique_shared_slice(requirements),
+            captured_values: Arc::from([]),
             completion_reports: None,
             abnormal_reports: None,
             synchronous_cleanup: Arc::new([]),
             normal_completion: true,
-            owned_result: bray_symbols::DependencyOwnedResult::default(),
             observed_result: None,
             stored_values: Arc::new([]),
-            carriers: Arc::new([]),
             borrows: Arc::new([]),
             effects: bray_symbols::DependencyEffectOutcomes::new(bray_symbols::DependencyStorageEffect::opaque_call()),
         }
@@ -424,21 +430,6 @@ impl InterfaceDependencyContract {
                     .flat_map(|requirements| requirements.iter()),
             )
             .chain(self.synchronous_cleanup.iter())
-    }
-
-    /// Attaches the complete returned carriers of declared trusted guarantees.
-    pub fn with_carriers(
-        mut self,
-        carriers: impl IntoIterator<
-            Item = bray_symbols::DependencyWitnessCarrier<
-                InterfaceDependencyProjection,
-                InterfaceConstantTermId,
-            >,
-        >,
-    ) -> Self {
-        self.carriers = sorted_unique_shared_slice(carriers);
-
-        self
     }
 
     /// Records whether execution can complete normally.

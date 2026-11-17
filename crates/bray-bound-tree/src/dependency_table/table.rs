@@ -81,6 +81,7 @@ pub struct CheckedDependencyContracts {
     borrows: Arc<[ContractEntry<BorrowCapabilityId>]>,
     pub(crate) lifecycle_consumers:
         Arc<BTreeMap<crate::StorageIdentityId, BTreeSet<crate::StorageIdentityId>>>,
+    frame_callees: Arc<BTreeMap<bray_symbols::CapturedCallable, crate::BoundDeferredCallable>>,
     lifecycle_dependencies: Arc<
         BTreeMap<bray_symbols::CallableInstanceData, bray_symbols::DependencyContractTemplateData>,
     >,
@@ -223,6 +224,7 @@ impl CheckedDependencyContracts {
             accesses: accesses.into(),
             borrows: borrows.into(),
             lifecycle_consumers: Arc::default(),
+            frame_callees: Arc::default(),
             lifecycle_dependencies: Arc::default(),
             condition_references: Arc::default(),
             is_recovered,
@@ -263,6 +265,18 @@ impl CheckedDependencyContracts {
     /// Returns direct call contracts without inherited child-expression requirements.
     pub fn calls(&self) -> &BTreeMap<crate::BoundExecutionSite, BoundCallDependencyContracts> {
         &self.calls
+    }
+
+    /// Stores the selected bodies of frames exposed by this unit's call contracts.
+    pub fn with_frame_callees(mut self, callees: BTreeMap<bray_symbols::CapturedCallable, crate::BoundDeferredCallable>) -> Self {
+        self.frame_callees = Arc::new(callees);
+
+        self
+    }
+
+    /// Body metadata shared by composite analysis and checked execution replay.
+    pub fn frame_callees(&self) -> &BTreeMap<bray_symbols::CapturedCallable, crate::BoundDeferredCallable> {
+        &self.frame_callees
     }
 
     /// Attaches the checked dependency and mutation summaries for selected cleanup callees.

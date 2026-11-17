@@ -468,20 +468,7 @@ fn body_result_dependencies(
     )
     .with_borrows(combined_result_borrows(checked, previous))
     .with_stored_values(combined_result_stored_values(checked, previous))
-    .with_carriers(
-        (if !previous.normal_completion() {
-            checked.carriers()
-        } else {
-            previous.carriers()
-        })
-        .iter()
-        .filter(|carrier| {
-            !previous.normal_completion()
-                || !checked.normal_completion()
-                || checked.carriers().binary_search(carrier).is_ok()
-        })
-        .cloned(),
-    )
+    .with_captured_values(combined_result_values(checked, previous))
     .with_observed_result(if !previous.normal_completion() {
         checked.observed_result()
     } else if !checked.normal_completion()
@@ -490,16 +477,6 @@ fn body_result_dependencies(
         previous.observed_result()
     } else {
         None
-    })
-    .with_owned_result(if !previous.normal_completion() {
-        checked.owned_result().clone()
-    } else if !checked.normal_completion() {
-        previous.owned_result().clone()
-    } else {
-        bray_symbols::DependencyOwnedResult::choice([
-            previous.owned_result().clone(),
-            checked.owned_result().clone(),
-        ])
     })
     .with_effects(previous.effects().iter().chain(checked.effects()).cloned())
     .with_synchronous_cleanup(
@@ -536,6 +513,16 @@ fn body_result_dependencies(
     }
 
     result
+}
+
+fn combined_result_values(
+    checked: &bray_symbols::DependencyContractTemplateData,
+    previous: &bray_symbols::DependencyContractTemplateData,
+) -> Vec<bray_symbols::CapturedValueOutcome> {
+    if !previous.normal_completion() { return checked.captured_values().to_vec(); }
+    if !checked.normal_completion() { return previous.captured_values().to_vec(); }
+
+    bray_symbols::CapturedValueOutcome::join_reachable(previous.captured_values(), checked.captured_values()).to_vec()
 }
 
 fn combined_result_stored_values(

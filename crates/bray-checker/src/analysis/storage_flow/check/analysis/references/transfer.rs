@@ -109,30 +109,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         if captures_inputs && let Some(result) = self.expression_result_storage(expression) {
             let captures = self.invocation_roots(state, expression.into());
 
-            if matches!(self.execution.semantics.selections().expression(expression),
-            Some(bray_bound_tree::SemanticSelection::Call(call))
-                if matches!(call.implementation_hook(), Some(
-                    bray_compiler_known::ImplementationHook::TaskJoin
-                        | bray_compiler_known::ImplementationHook::TaskCancel
-                )))
-            {
-                state
-                    .memory
-                    .publish_deferred_inputs(expression.into(), result.clone());
-            }
-
             state.memory.capture_inputs(result.clone(), captures);
 
-            if self
-                .dependencies
-                .calls()
-                .get(&expression.into())
-                .is_some_and(|call| call.deferred_effects().is_some())
-            {
-                state
-                    .memory
-                    .capture_deferred_transition(expression.into(), result);
-            }
         }
 
         if let Some(fields) = self.input.reference_constructions.get(&expression) {

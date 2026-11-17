@@ -22,6 +22,24 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }
     }
 
+    /// The established typed slot and whether a language loan is used to reach it.
+    pub(in crate::analysis::guarantee) fn current_target_place(&self, target: &StorageTarget, ty: TypeId) -> (ExecutionPlace, bool) {
+        let path = target.value_observation_path();
+
+        let view = path.as_ref().and_then(|path| {
+            if path.projections.is_empty() { self.storage.storage_type(path.root) }
+            else { self.storage_path_type(path) }
+        });
+
+        let borrowed = view.is_some_and(|view| matches!(self.request.semantic_values().type_data(view).as_ref(),
+            TypeData::Borrow { target, .. } if *target == ty));
+
+        let place = path.and_then(|path| ExecutionPlace::storage_path(self.storage, &path))
+            .unwrap_or_else(|| ExecutionPlace::pointee(self.storage, target, ty));
+
+        (place, borrowed)
+    }
+
     /// Physical contents exist only after an actual checked typed view published them.
     /// A pointer descriptor and a lifetime/alias bound are never a contents snapshot.
     pub(in crate::analysis::guarantee) fn current_target_value(
@@ -34,11 +52,15 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             return None;
         }
 
-        if let Some(path) = target.value_observation_path() {
-            return self.current_storage_value(state, &path);
-        }
+        let Some(ty) = pointee else { return self.current_storage_value(state, &target.value_observation_path()?); };
 
-        state.current.live_value(&ExecutionPlace::pointee(self.storage, target, pointee?))
+        let (place, borrowed) = self.current_target_place(target, ty);
+
+        let value = state.current.live_value(&place)?;
+
+        Some(if borrowed && value.is_reference() {
+            ExecutionCondition::storage_value(bray_symbols::CapturedValueOperation::Read, vec![value].into()).copied_value().clone()
+        } else { value })
     }
 
     pub(in crate::analysis::guarantee) fn publish_returned_pointees(
@@ -99,9 +121,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 continue;
             }
 
-            let value = place.projections[output.projections.len()..].iter()
-                .fold(result.clone(), |value, projection| value.component(*projection))
-                .into_referent();
+            let reference = place.projections[output.projections.len()..].iter()
+                .fold(result.clone(), |value, projection| value.component(*projection));
+
+            let value = ExecutionCondition::storage_value(bray_symbols::CapturedValueOperation::Read, vec![reference].into())
+                .copied_value().clone();
 
             if !value.is_unknown() {
                 state.current.insert(physical, value);

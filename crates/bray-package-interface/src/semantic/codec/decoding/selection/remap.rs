@@ -304,7 +304,38 @@ fn remap_dependency_contract(
         .map(|term| maps.constant_term_id(term))
         .transpose()?;
 
-    contract.owned_result = contract.owned_result.try_map(
+    contract.captured_values = contract.captured_values.iter().map(|outcome| {
+        let guard = outcome.guard.map(|term| maps.constant_term_id(term)).transpose()?;
+
+        let bindings = outcome.bindings.iter().map(|(destination, value)| {
+        let mut destination = destination.clone();
+
+        remap_dependency_subject(&mut destination, maps)?;
+
+        Ok((destination, value.try_map(&mut |input| maps.constant_term_id(*input), &mut |projection| {
+                let mut projection = projection.clone();
+
+                remap_dependency_projections(std::slice::from_mut(&mut projection), maps)?;
+
+                Ok::<_, InterfaceValidationError>(projection)
+            }, &mut |root| {
+                let mut root = root.clone();
+
+                root.substitution = maps.substitution_id(root.substitution)?;
+
+                root.selected_witnesses = root.selected_witnesses.iter().map(|witness|
+                    maps.implementation_instance_id(*witness)).collect::<Result<_, _>>()?;
+
+                Ok(root)
+            }, &mut |call| Ok(crate::InterfaceCapturedCallable {
+                instance: maps.callable_instance_id(call.instance)?, signature: maps.type_id(call.signature)?, has_receiver: call.has_receiver,
+                requirement: call.requirement.map(|(ty, app)| Ok((maps.type_id(ty)?, maps.trait_application_id(app)?))).transpose()?,
+                dispatch: call.dispatch.map(|w| maps.implementation_instance_id(w)).transpose()?,
+                witnesses: call.witnesses.iter().map(|w| maps.implementation_instance_id(*w)).collect::<Result<_, _>>()?,
+            }))?))
+        }).collect::<Result<Vec<_>, InterfaceValidationError>>()?;
+
+        let owned_result = outcome.ownership.try_map(
         &mut |transfer| {
             Ok::<_, InterfaceValidationError>(bray_symbols::DependencyOwnedResult::Transfer(
                 bray_symbols::DependencyOwnedTransfer::new(
@@ -323,8 +354,7 @@ fn remap_dependency_contract(
         &mut |condition| maps.constant_term_id(*condition).map(Some),
     )?;
 
-    let carriers = contract
-        .carriers
+    let carriers = outcome.carriers
         .iter()
         .map(|carrier| {
             // Selected records own their remapped paths independently of the decoded table.
@@ -338,6 +368,9 @@ fn remap_dependency_contract(
             ))
         })
         .collect::<Result<Vec<_>, InterfaceValidationError>>()?;
+
+        Ok(bray_symbols::CapturedValueOutcome::new(guard, bindings).with_carriers(carriers).with_ownership(owned_result))
+    }).collect::<Result<_, InterfaceValidationError>>()?;
 
     contract.effects = contract.effects.try_map(|original| {
         // Selected records own their remapped subjects and share immutable paths until changed.
@@ -375,8 +408,7 @@ fn remap_dependency_contract(
 
     Ok(contract
         .with_borrows(borrows)
-        .with_stored_values(stored_values)
-        .with_carriers(carriers))
+        .with_stored_values(stored_values))
 }
 
 fn remap_callable_contract(

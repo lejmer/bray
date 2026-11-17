@@ -1,5 +1,4 @@
 use crate::execution_guarantees::ExecutionAssumptions;
-use std::collections::BTreeMap;
 
 use super::super::{flow::ExecutionFlowDomain, state::ExecutionState};
 use crate::{CheckerRequestContext, ExecutionCondition};
@@ -11,38 +10,27 @@ use bray_symbols::{DependencyOwnedResult, DependencyOwnedTransfer};
 pub(in crate::analysis) enum OwnedReturnCondition {
     Unconditional,
     ActivePayload,
-    PresentValue,
 }
 
-/// Only ordinary result-shape facts are needed to compare normal ownership exits.
+/// Value, writes and ownership observed together at one reachable normal exit.
 #[derive(Eq, PartialEq)]
-pub(super) struct OwnedReturn {
-    value: ExecutionCondition,
-    assumptions: ExecutionAssumptions,
-    transfers: DependencyOwnedResult<StorageProjection>,
-}
-
-impl OwnedReturn {
-    pub(super) fn excludes(&self, path: &[StorageProjection], cache: &crate::execution_guarantees::ExecutionProofCache) -> bool {
-        activity(&self.value, path, &self.assumptions, cache).0 == Some(false)
-    }
+pub(in crate::analysis) struct NormalReturn {
+    pub(in crate::analysis) captured: bray_symbols::CapturedValueOutcome,
+    pub(in crate::analysis) carriers: std::collections::BTreeSet<bray_symbols::DependencyWitnessCarrier<StorageProjection>>,
+    pub(in crate::analysis) transfers: DependencyOwnedResult<StorageProjection, (bray_symbols::ConstantTermId, OwnedReturnCondition)>,
 }
 
 impl super::check::TrustedChecks {
-    pub(super) fn collect_owned_return<C: CheckerRequestContext + ?Sized>(
-        &mut self,
+    pub(super) fn normal_return<C: CheckerRequestContext + ?Sized>(
+        &self,
         domain: &ExecutionFlowDomain<'_, '_, C>,
         state: &ExecutionState,
         result: &ExecutionCondition,
-    ) {
-        if !domain
-            .request
-            .trusted_contracts()
-            .is_some_and(|inputs| inputs.infer_result_witnesses)
-        {
-            return;
-        }
+        writes: &std::collections::BTreeSet<bray_symbols::DependencySubjectRoot>,
+    ) -> Option<NormalReturn> {
+        let inputs = domain.request.trusted_contracts()?;
 
+        let result = if inputs.infer_result_witnesses {
         let result_type = domain.semantics.types().callable_result_type().unwrap_or_else(|| {
             let crate::CheckerUnitRoot::Expression(root) = domain.request.root() else {
                 unreachable!("a non-callable value producer retains its expression root");
@@ -52,26 +40,17 @@ impl super::check::TrustedChecks {
                 .expect("checked default or constant producer retains its result type").ty()
         });
 
-        let result = result.clone().coerce(domain.request.semantic_values(), result_type, result_type);
+        result.clone().coerce(domain.request.semantic_values(), result_type, result_type)
+        } else { result.clone() };
+
         let result = &result;
+        let guards = super::captured::exit_guards(domain, state, result, &self.owned_entry_conditions);
         let return_substitution = super::super::flow::return_substitution(result);
 
-        let mut returned = OwnedReturn {
-            value: result.clone(),
-            assumptions: state.proofs.ordinary_proof(&state.assumptions)
-                .ordinary_facts()
-                .filter(|(condition, holds)| {
-                    condition.nullable_absence(*holds).is_some()
-                        || condition.nullable_absence(!*holds).is_some()
-                        || matches!(condition.kind(), crate::ExecutionConditionKind::VariantTest(_, _))
-                })
-                .cloned()
-                .collect(),
-            transfers: super::super::flow::owned_alternatives(
-                (state, result),
-                (state, result),
-                &ExecutionCondition::result(),
-            )
+        Some(NormalReturn {
+            carriers: self.exit_carriers(domain.request, state, result),
+            captured: super::captured::captured_outcome(domain, state, result, writes, &guards),
+            transfers: if inputs.infer_result_witnesses { state.owned_result(result)
             .try_map(
                 &mut |transfer| {
                     let source = transfer.input();
@@ -79,13 +58,18 @@ impl super::check::TrustedChecks {
                     assert!(matches!(source.kind(), crate::ExecutionConditionKind::Input(_)),
                         "owned input lineage retains its formal place");
 
+                    let active = activity(result, transfer.output(), &state.assumptions, &domain.proofs);
+
+                    if active == Some(false) { return Ok(DependencyOwnedResult::default()); }
+
+                    let shape = if active.is_some() { OwnedReturnCondition::Unconditional } else { OwnedReturnCondition::ActivePayload };
                     let input = super::carriers::portable(domain.request, &source);
 
                     Ok::<_, std::convert::Infallible>(
                         input
                             .map(|input| {
                                 DependencyOwnedResult::Transfer(DependencyOwnedTransfer::new(
-                                    input,
+                                    (input, shape),
                                     transfer.output().iter().copied(),
                                 ).with_preservation(transfer.preservation().clone()))
                             })
@@ -99,247 +83,21 @@ impl super::check::TrustedChecks {
 
                     let mapped = return_substitution(condition);
 
-                    Ok(super::carriers::portable(domain.request, &mapped))
+                    Ok(super::carriers::portable(domain.request, &mapped).map(|condition| (condition, OwnedReturnCondition::Unconditional)))
                 },
             )
-            .expect("formal ownership publication is infallible"),
-        };
-
-        for (condition, holds) in state.assumptions.difference(&self.owned_entry_conditions) {
-            let formal = matches!(condition.kind(), crate::ExecutionConditionKind::Input(place) if place.is_callable_input());
-
-            let condition = if formal { condition.clone() } else {
-                if condition.contains_trusted() { continue; }
-
-                let mapped = condition.boolean_consequence(*holds, &mut |atom| {
-                    let mapped = return_substitution(atom);
-
-                    super::carriers::portable(domain.request, &mapped)?;
-
-                    // Mapping each atom keeps one clause's unrelated local terms
-                    // from consuming the current-snapshot rewrite budget.
-                    let actual = mapped.substitute(&|place| ExecutionCondition::new(crate::ExecutionConditionKind::Input(place.clone())), result,
-                        &mut { ExecutionCondition::WORK_LIMIT });
-
-                    (actual == *atom).then_some(mapped)
-                }, &mut { ExecutionCondition::WORK_LIMIT });
-
-                if !mapped.observes_completion_result() { continue; }
-
-                mapped
-            };
-
-            let condition = if !formal || *holds {
-                condition
-            } else {
-                ExecutionCondition::operation(
-                    bray_bound_tree::BoundOperator::LogicalNot,
-                    vec![condition],
-                )
-            };
-
-            let condition = match super::carriers::portable(domain.request, &condition) {
-                Some(condition) => condition,
-                None if formal => unreachable!("formal Boolean exit condition is portable"),
-                None => continue,
-            };
-
-            returned.transfers = DependencyOwnedResult::case(condition, returned.transfers);
-        }
-
-        if !self.owned_returns.contains(&returned) {
-            self.owned_returns.push(returned);
-        }
+            .expect("formal ownership publication is infallible") } else { Default::default() },
+        })
     }
-
-    pub(in crate::analysis) fn owned_result<C: CheckerRequestContext + ?Sized>(
-        &self,
-        domain: &ExecutionFlowDomain<'_, '_, C>,
-    ) -> DependencyOwnedResult<
-        StorageProjection,
-        (bray_symbols::ConstantTermId, OwnedReturnCondition),
-    > {
-        let mut candidates: Vec<DependencyOwnedTransfer<StorageProjection>> = Vec::new();
-
-        for transfer in self.owned_returns.iter().flat_map(|returned| returned.transfers.transfers()) {
-            if let Some(previous) = candidates.iter_mut().find(|previous| previous.same_identity(transfer)) {
-                *previous = previous.clone().with_preservation(
-                    previous.preservation().intersection(transfer.preservation()),
-                );
-            } else {
-                candidates.push(transfer.clone());
-            }
-        }
-
-        let mut shared = BTreeMap::new();
-        let mut shapes = BTreeMap::new();
-
-        for transfer in candidates {
-            let mut conditional = false;
-            let mut presence = false;
-
-            let mut valid = true;
-
-            for returned in &self.owned_returns {
-                let (active, leaf_absent) =
-                    activity(&returned.value, transfer.output(), &returned.assumptions, &domain.proofs);
-
-                let contains = returned
-                    .transfers
-                    .transfers()
-                    .any(|candidate| candidate.same_identity(&transfer));
-
-                if active == Some(false) {
-                    conditional = true;
-                    presence |= leaf_absent;
-                } else {
-                    conditional |= contains && active.is_none();
-
-                    valid &= every_active_layout_transfers(
-                        domain,
-                        &returned.transfers,
-                        &transfer,
-                        &Default::default(),
-                    );
-                }
-            }
-
-            let shape = if presence {
-                OwnedReturnCondition::PresentValue
-            } else if conditional {
-                OwnedReturnCondition::ActivePayload
-            } else {
-                OwnedReturnCondition::Unconditional
-            };
-
-            shapes.insert(transfer.clone(), shape);
-
-            if valid {
-                shared.insert(transfer, shape);
-            }
-        }
-
-        // Common conditional moves also describe inactive exits. Other exits retain
-        // their complete alternatives, including layouts that transfer no input.
-        let common = shared.keys().collect::<Vec<_>>();
-
-        DependencyOwnedResult::choice(self.owned_returns.iter().map(|returned| {
-            let factored = lift_shared_cases(&returned.transfers, &|transfer| {
-                shared.keys().any(|candidate| candidate.same_identity(transfer))
-            });
-
-            let factored = complete_shared_alternatives(&factored, &common, &[]);
-
-            fill_shared_alternative(factored, &common)
-                .try_map(
-                    &mut |transfer| {
-                        let (_, shape) = shapes.iter()
-                            .find(|(candidate, _)| candidate.same_identity(transfer))
-                            .expect("normal ownership layout retains its inferred shape");
-
-                        let shape = *shape;
-
-                        Ok::<_, std::convert::Infallible>(DependencyOwnedResult::Transfer(
-                            DependencyOwnedTransfer::new(
-                                (transfer.input(), shape),
-                                transfer.output().iter().copied(),
-                            ).with_preservation(transfer.preservation().clone()),
-                        ))
-                    },
-                    &mut |condition| Ok(Some((*condition, OwnedReturnCondition::Unconditional))),
-                )
-                .expect("ownership mapping is infallible")
-        }))
-    }
-}
-
-// Keep a common identity outside branch guards, while each complete alternative
-// retains its own contents mask and the guards that make that alternative feasible.
-fn lift_shared_cases(
-    layout: &DependencyOwnedResult<StorageProjection>,
-    shared: &impl Fn(&DependencyOwnedTransfer<StorageProjection>) -> bool,
-) -> DependencyOwnedResult<StorageProjection> {
-    match layout {
-        DependencyOwnedResult::Transfer(_) => layout.clone(),
-        DependencyOwnedResult::All(values) => DependencyOwnedResult::all(values.iter().map(|value| lift_shared_cases(value, shared))),
-        DependencyOwnedResult::Choice(values) => DependencyOwnedResult::choice(values.iter().map(|value| lift_shared_cases(value, shared))),
-        DependencyOwnedResult::Case { condition, result } => {
-            factor_guard(*condition, lift_shared_cases(result, shared), shared)
-        }
-    }
-}
-
-fn factor_guard(
-    condition: bray_symbols::ConstantTermId,
-    layout: DependencyOwnedResult<StorageProjection>,
-    shared: &impl Fn(&DependencyOwnedTransfer<StorageProjection>) -> bool,
-) -> DependencyOwnedResult<StorageProjection> {
-    match layout {
-        DependencyOwnedResult::Transfer(ref transfer) if shared(transfer) => DependencyOwnedResult::all([
-            layout, DependencyOwnedResult::case(condition, DependencyOwnedResult::default()),
-        ]),
-        DependencyOwnedResult::All(values) if !values.is_empty() => DependencyOwnedResult::all(values.iter()
-            .map(|value| factor_guard(condition, value.clone(), shared))),
-        DependencyOwnedResult::Choice(values) => DependencyOwnedResult::choice(values.iter()
-            .map(|value| factor_guard(condition, value.clone(), shared))),
-        layout => DependencyOwnedResult::case(condition, layout),
-    }
-}
-
-// Complete inactive alternatives before the caller retires unreturned inputs.
-// Simultaneous siblings can already provide an identity with a stronger mask.
-fn complete_shared_alternatives(
-    layout: &DependencyOwnedResult<StorageProjection>,
-    shared: &[&DependencyOwnedTransfer<StorageProjection>],
-    covered: &[&DependencyOwnedTransfer<StorageProjection>],
-) -> DependencyOwnedResult<StorageProjection> {
-    match layout {
-        DependencyOwnedResult::Transfer(_) => layout.clone(),
-        DependencyOwnedResult::Case { condition, result } => DependencyOwnedResult::case(
-            *condition, complete_shared_alternatives(result, shared, covered),
-        ),
-        DependencyOwnedResult::All(values) => {
-            let guaranteed = values.iter().map(DependencyOwnedResult::guaranteed_transfers).collect::<Vec<_>>();
-
-            DependencyOwnedResult::all(values.iter().enumerate().map(|(index, value)| {
-                let covered = covered.iter().copied().chain(guaranteed.iter().enumerate()
-                    .filter(|(other, _)| *other != index).flat_map(|(_, transfers)| transfers)).collect::<Vec<_>>();
-
-                complete_shared_alternatives(value, shared, &covered)
-            }))
-        }
-        DependencyOwnedResult::Choice(values) => {
-            let required = shared.iter().copied().filter(|transfer| {
-                !covered.iter().any(|other| other.same_identity(transfer))
-                    && layout.transfers().any(|actual| actual.same_identity(transfer))
-            }).collect::<Vec<_>>();
-
-            DependencyOwnedResult::choice(values.iter().map(|value| {
-                fill_shared_alternative(complete_shared_alternatives(value, shared, covered), &required)
-            }))
-        }
-    }
-}
-
-fn fill_shared_alternative(
-    layout: DependencyOwnedResult<StorageProjection>,
-    shared: &[&DependencyOwnedTransfer<StorageProjection>],
-) -> DependencyOwnedResult<StorageProjection> {
-    let guaranteed = layout.guaranteed_transfers();
-
-    let missing = shared.iter().filter(|transfer| !guaranteed.iter().any(|actual| actual.same_identity(transfer)))
-        .map(|transfer| DependencyOwnedResult::Transfer((*transfer).clone()));
-
-    DependencyOwnedResult::all(std::iter::once(layout).chain(missing))
 }
 
 /// An inactive alternative owns no payload and imposes no input-identity requirement.
-pub(super) fn activity(
+fn activity(
     result: &ExecutionCondition,
     path: &[StorageProjection],
     assumptions: &ExecutionAssumptions,
     cache: &crate::execution_guarantees::ExecutionProofCache,
-) -> (Option<bool>, bool) {
+) -> Option<bool> {
     let proof = cache.ordinary_proof(assumptions);
     let mut value = result.clone();
     let mut active = Some(true);
@@ -374,7 +132,7 @@ pub(super) fn activity(
         };
 
         if known == Some(false) {
-            return (Some(false), false);
+            return Some(false);
         }
 
         if known.is_none() {
@@ -391,49 +149,9 @@ pub(super) fn activity(
                 .is_some_and(|(subject, _)| subject == &value || subject == value.owner_identity())
         })
     {
-        (Some(false), true)
+        Some(false)
     } else {
-        (active, false)
-    }
-}
-
-fn every_active_layout_transfers<C: CheckerRequestContext + ?Sized>(
-    domain: &ExecutionFlowDomain<'_, '_, C>,
-    result: &DependencyOwnedResult<StorageProjection>,
-    transfer: &DependencyOwnedTransfer<StorageProjection>,
-    assumptions: &ExecutionAssumptions,
-) -> bool {
-    if activity(&ExecutionCondition::result(), transfer.output(), assumptions, &domain.proofs).0 == Some(false) {
-        return true;
-    }
-
-    match result {
-        DependencyOwnedResult::Transfer(candidate) => candidate.same_identity(transfer),
-        DependencyOwnedResult::All(values) => values
-            .iter()
-            .any(|value| every_active_layout_transfers(domain, value, transfer, assumptions)),
-        DependencyOwnedResult::Choice(values) => values
-            .iter()
-            .all(|value| every_active_layout_transfers(domain, value, transfer, assumptions)),
-        DependencyOwnedResult::Case { condition, result } => {
-            let inputs = domain
-                .request
-                .trusted_contracts()
-                .expect("owned normal return retains its formal inputs");
-
-            let condition = crate::execution_condition_from_type_term(
-                domain.request.semantic_values(),
-                *condition,
-                inputs.inputs.len(),
-            )
-            .expect("checked normal-result shape decodes in the same semantic store");
-
-            let mut assumptions = assumptions.clone();
-
-            condition.assume(true, &mut assumptions);
-
-            every_active_layout_transfers(domain, result, transfer, &assumptions)
-        }
+        active
     }
 }
 
@@ -449,29 +167,35 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             return true;
         };
 
-        let instantiate = |term| {
-            crate::execution_condition_from_type_term(
-                self.request.semantic_values(),
-                term,
-                contract.input_count(),
-            )
-            .expect("checked ownership condition decodes in the same semantic store")
-            .substitute(
-                &|place| {
-                    place
-                        .value_in(&entry.arguments)
-                        .unwrap_or_else(ExecutionCondition::unknown)
-                },
-                result,
-                &mut { ExecutionCondition::WORK_LIMIT },
-            )
+        self.outcome_reachable(assumptions, entry, result, contract.captured_values())
+    }
+
+    pub(in crate::analysis::guarantee) fn outcome_reachable(
+        &self, assumptions: &ExecutionAssumptions, entry: &crate::ExecutionCallEvidence, result: &ExecutionCondition,
+        outcomes: &[bray_symbols::CapturedValueOutcome],
+    ) -> bool {
+        let admits = |guard: ExecutionCondition, ownership: &DependencyOwnedResult| {
+            self.admits_output(assumptions, entry, result, &guard, ownership)
         };
 
-        let mut assumptions = assumptions.clone();
+        if !entry.outputs.0.is_empty() {
+            return entry.outputs.0.iter().any(|row| admits(row.guard.bind(entry, result), &row.ownership));
+        }
 
-        assumptions.extend(entry.assumptions.iter().cloned());
+        outcomes.is_empty() || outcomes.iter().any(|row| admits(
+            row.guard.map(|term| entry.bind_term(self.request.semantic_values(), term, result)).unwrap_or_else(|| ExecutionCondition::boolean(true)), &row.ownership,
+        ))
+    }
+    pub(in crate::analysis::guarantee) fn admits_output(&self, assumptions: &ExecutionAssumptions,
+        entry: &crate::ExecutionCallEvidence, result: &ExecutionCondition, guard: &ExecutionCondition, ownership: &DependencyOwnedResult,
+    ) -> bool {
+        let mut selected = assumptions.clone();
 
-        feasible_layout(contract.owned_result(), &assumptions, &instantiate)
+        selected.extend(entry.assumptions.iter().cloned());
+        if !self.proofs.ordinary_proof(&selected).can_assume(guard, true) { return false; }
+        guard.clone().assume(true, &mut selected);
+
+        feasible_layout(ownership, &selected, &|term| entry.bind_term(self.request.semantic_values(), term, result))
     }
 }
 
@@ -508,44 +232,29 @@ fn feasible_layout(
 mod tests {
     use bray_symbols::{ConstantTermData, DependencyOwnedResult, DependencyOwnedTransfer, DependencyValuePreservation, SymbolOrdinal};
 
-    use super::{complete_shared_alternatives, fill_shared_alternative, lift_shared_cases};
-
     #[test]
     fn inactive_alternatives_keep_common_identity_without_weakening_present_masks() {
-        let input = crate::test_support::semantic_values()
-            .intern_constant_term(ConstantTermData::CallableArgument(SymbolOrdinal::new(0)))
-            .expect("formal ownership input");
+        use bray_symbols::CapturedValueOutcome;
 
-        let guard = crate::test_support::semantic_values()
-            .intern_constant_term(ConstantTermData::CallableArgument(SymbolOrdinal::new(1)))
-            .expect("ordinary result guard");
+        let store = crate::test_support::semantic_values();
 
-        let complete = DependencyOwnedTransfer::new(input, [])
-            .with_preservation(DependencyValuePreservation::all());
+        let argument = |ordinal| store.intern_constant_term(ConstantTermData::CallableArgument(SymbolOrdinal::new(ordinal)))
+            .expect("formal exit input");
 
-        let changed = complete.clone().with_preservation(DependencyValuePreservation::none());
-        let guarded = DependencyOwnedResult::case(guard, DependencyOwnedResult::Transfer(complete.clone()));
-        let empty = DependencyOwnedResult::case(guard, DependencyOwnedResult::default());
-        let layout = DependencyOwnedResult::choice([guarded, empty.clone()]);
-        let lifted = lift_shared_cases(&layout, &|transfer| transfer.same_identity(&complete));
-        let common = [&changed];
-        let actual = fill_shared_alternative(complete_shared_alternatives(&lifted, &common, &[]), &common);
+        let present = argument(1);
+        let absent = argument(2);
+        let transferred = DependencyOwnedTransfer::new(argument(0), []).with_preservation(DependencyValuePreservation::all());
 
-        assert_eq!(actual, DependencyOwnedResult::choice([
-            DependencyOwnedResult::all([DependencyOwnedResult::Transfer(complete.clone()), empty.clone()]),
-            DependencyOwnedResult::all([DependencyOwnedResult::Transfer(changed.clone()), empty]),
+        let rows: [CapturedValueOutcome; 2] = [
+            CapturedValueOutcome::new(Some(present), []).with_ownership(DependencyOwnedResult::Transfer(transferred.clone())),
+            CapturedValueOutcome::new(Some(absent), []),
+        ];
+
+        assert_eq!(CapturedValueOutcome::ownership_layout(&rows), DependencyOwnedResult::choice([
+            DependencyOwnedResult::case(present, DependencyOwnedResult::Transfer(transferred)),
+            DependencyOwnedResult::case(absent, DependencyOwnedResult::default()),
         ]));
 
-        let simultaneous = DependencyOwnedResult::all([
-            DependencyOwnedResult::Transfer(complete),
-            DependencyOwnedResult::choice([
-                DependencyOwnedResult::Transfer(changed), DependencyOwnedResult::default(),
-            ]),
-        ]);
-
-        let common = simultaneous.transfers().collect::<Vec<_>>();
-
-        assert_eq!(complete_shared_alternatives(&simultaneous, &common, &[]), simultaneous,
-            "an enclosing simultaneous owner must not receive a weaker fallback in an inactive child");
+        assert!(rows[1].ownership.is_empty());
     }
 }

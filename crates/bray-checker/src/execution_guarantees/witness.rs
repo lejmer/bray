@@ -345,6 +345,7 @@ impl super::ExecutionCallEvidence {
         };
 
         let arguments = rename_arguments(&self.arguments);
+        let outputs = self.outputs.try_map(|value| Ok::<_, std::convert::Infallible>(rename(value))).expect("value substitution is total");
         let copy_sources = rename_arguments(&self.copy_sources);
 
         let witness_inputs = self
@@ -386,6 +387,7 @@ impl super::ExecutionCallEvidence {
             .collect();
 
         if arguments == self.arguments
+            && outputs == self.outputs
             && copy_sources == self.copy_sources
             && witness_inputs == self.witness_inputs
             && extracted_values == self.extracted_values
@@ -398,6 +400,7 @@ impl super::ExecutionCallEvidence {
 
         // Reuse each mapped field once, without copying the original historical context first.
         Some(Self {
+            outputs,
             implementation_witnesses: Arc::clone(&self.implementation_witnesses),
             arguments,
             copy_sources,

@@ -43,13 +43,13 @@ impl Source {
     pub(in crate::analysis::storage_flow) fn mutation_targets(
         &self,
         state: &State,
-    ) -> Option<Vec<super::super::effect::MutationTarget>> {
+    ) -> Option<Vec<super::super::MutationTarget>> {
         match self {
             Self::Value(source) => state.values.get(source)?.mutation_targets(),
             Self::Borrow(capability) => {
                 let address = state.borrows.get(capability)?;
 
-                Some(super::super::effect::MutationTarget::reference(Some(address), address.regions()?))
+                Some(super::super::MutationTarget::reference(Some(address), address.regions()?))
             }
         }
     }

@@ -90,7 +90,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
             let path = &path.projections[source.projections.len()..];
 
-            snapshots.entry((root, prefix.iter().copied().chain(path.iter().copied()).collect()))
+            snapshots.entry((bray_bound_tree::StorageSnapshotRoot::Input(root), prefix.iter().copied().chain(path.iter().copied()).collect()))
                 .and_modify(|previous| {
                     if kind.is_immutable_inline() { *previous = kind; }
                 }).or_insert(kind);
@@ -781,7 +781,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         let producers = self.execution.awaited_invocations(execution, expression)
             .map(|(producer, _)| producer)
-            .chain(self.execution.awaited_task_invocations(execution, expression).into_iter().flatten())
+            .chain(self.execution.awaited_task_frame(execution, expression)
+                .and_then(|frame| frame.known_sources(&execution.ordinary_proof())).into_iter().flatten())
             .chain(self.dependencies.calls().contains_key(&operation.occurrence()).then_some(operation.occurrence()))
             .collect::<std::collections::BTreeSet<_>>();
 
@@ -914,15 +915,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let completion = bray_bound_tree::StorageCompletion::new(
             observations,
             self.invocation_borrow_origins(occurrence),
-        );
-
-        if self.publish {
-            self.completions
-                .entry(bray_bound_tree::StorageMutation::Operation(occurrence))
-                .and_modify(|previous| previous.merge(&completion))
-                // Publication and the current transition retain independent maps of shared paths.
-                .or_insert_with(|| completion.clone());
-        }
+        ).with_values(self.value_transitions.get(&occurrence).cloned().unwrap_or_default())
+            .with_captures(self.value_captures.get(&occurrence).cloned().unwrap_or_default());
 
         completion
     }

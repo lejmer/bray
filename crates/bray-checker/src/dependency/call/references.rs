@@ -1,4 +1,4 @@
-use bray_symbols::{ConstantBinaryOperation, ConstantProjectionKind, ConstantTermData, ConstantValueData, ConstantValueKind};
+use bray_symbols::ConstantTermData;
 use crate::{CheckerQueryError, CheckerRequestContext, CheckerUnitView};
 use bray_bound_tree::{
     BoundCallDependencyContracts, BoundCallReference, BoundExpressionId, SelectedCall,
@@ -22,10 +22,21 @@ pub(super) fn with_references<C: CheckerRequestContext + ?Sized>(
     let contracts = if deferred {
         let (captures, result) = super::super::cleanup::prepare_future_effects(request, call)?;
 
+        let callee = call.resolution().declaration_source().map(|instance| {
+            let values = request.semantic_values();
+            let signature = call.callable_type();
+            let requirement = call.resolution().trait_dispatch().map(|dispatch| request.context().dispatch_requirement(dispatch)).transpose()?;
+
+            Ok::<_, CheckerQueryError<C::UpstreamError>>(bray_symbols::CapturedCallable {
+                instance: values.intern_callable_instance(instance).expect("selected deferred instance belongs to its semantic store"),
+                signature, has_receiver: call.receiver().is_some(), requirement, dispatch: call.dispatch_implementation(), witnesses: call.resolution().implementation_witnesses().into(),
+            })
+        }).transpose()?;
+
         contracts.with_deferred_cleanup(captures, result)
             .with_deferred_execution(
                 template.effect_outcomes().clone(),
-                template.normal_completion(),
+                template.normal_completion(), callee,
             )
     } else {
         contracts
@@ -40,8 +51,7 @@ pub(super) fn with_references<C: CheckerRequestContext + ?Sized>(
         })?
         .with_effects(template.effects().iter().filter(|_| !deferred && !pure).cloned())
         .with_synchronous_cleanup(template.synchronous_cleanup())
-        .with_carriers(template.carriers().iter().cloned())
-        .with_owned_result(template.owned_result().clone())
+        .with_captured_values(template.captured_values().iter().cloned())
         .with_normal_completion(deferred || template.normal_completion())
         .with_normal_effects(template.normal_effects().iter().filter(|_| !deferred && !pure).cloned()),
     )
@@ -65,8 +75,9 @@ fn result_retains_inputs<C: CheckerRequestContext + ?Sized>(
                     .iter()
                     .any(|(_, subject, _)| subject.observes_completion_result())
         })
-        || !template.carriers().is_empty()
+        || template.captured_values().iter().any(|row| !row.carriers.is_empty())
         || !template.owned_result().is_empty()
+        || template.captured_values().iter().flat_map(|outcome| outcome.bindings.iter()).any(|(_, value)| value.inputs().next().is_some())
         || template
             .borrows()
             .iter()
@@ -109,8 +120,7 @@ pub(super) fn with_hidden_references<C: CheckerRequestContext + ?Sized>(
         .with_effects(template.effects().iter().cloned())
         .with_normal_effects(template.normal_effects().iter().cloned())
         .with_synchronous_cleanup(template.synchronous_cleanup())
-        .with_carriers(template.carriers().iter().cloned())
-        .with_owned_result(template.owned_result().clone())
+        .with_captured_values(template.captured_values().iter().cloned())
 )
 }
 
@@ -367,9 +377,8 @@ fn returned_values<'a, C: CheckerRequestContext + ?Sized>(
         }
 
         let borrowed = matches!(request.semantic_values().type_data(output_type).as_ref(), bray_symbols::TypeData::Borrow { .. });
-        let mut conditions = Vec::new();
 
-        let (transferred, input_path) = prepare_returned_input(
+        let input_path = returned_input_path(
             request,
             transfer.input(),
             (!borrowed).then_some(output_type),
@@ -377,43 +386,15 @@ fn returned_values<'a, C: CheckerRequestContext + ?Sized>(
             &mut input_type,
         )?;
 
-        for condition in transferred {
-            let condition = if let Some(guard) = transfer.condition() {
-                let values = request.semantic_values();
-
-                let inactive = values
-                    .intern_constant_term(bray_symbols::ConstantTermData::Unary {
-                        operation: bray_symbols::ConstantUnaryOperation::LogicalNot,
-                        operand: guard,
-                    })
-                    .expect("checked result guard belongs to the same semantic store");
-
-                values
-                    .intern_constant_term(bray_symbols::ConstantTermData::Binary {
-                        operation: bray_symbols::ConstantBinaryOperation::LogicalOr,
-                        left: inactive,
-                        right: condition,
-                    })
-                    .expect("checked transport condition belongs to the same semantic store")
-            } else {
-                condition
-            };
-
-            conditions.push(condition);
-        }
-
-        conditions.sort_unstable();
-        conditions.dedup();
-
         result.insert(transfer.clone(), bray_bound_tree::BoundReturnedValue::new(
-            borrowed, input_path, conditions,
+            borrowed, input_path,
         ));
     }
 
     Ok(result)
 }
 
-fn prepare_returned_input<C: CheckerRequestContext + ?Sized>(
+fn returned_input_path<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     mut term: bray_symbols::ConstantTermId,
     reached_type: Option<bray_symbols::TypeId>,
@@ -424,7 +405,7 @@ fn prepare_returned_input<C: CheckerRequestContext + ?Sized>(
         Option<bray_symbols::TypeId>,
         CheckerQueryError<C::UpstreamError>,
     >,
-) -> Result<(Vec<bray_symbols::ConstantTermId>, bray_bound_tree::StorageReferencePath), CheckerQueryError<C::UpstreamError>> {
+) -> Result<bray_bound_tree::StorageReferencePath, CheckerQueryError<C::UpstreamError>> {
 
     let values = request.semantic_values();
     let mut projections = Vec::new();
@@ -433,7 +414,7 @@ fn prepare_returned_input<C: CheckerRequestContext + ?Sized>(
         match values.constant_term_data(term).as_ref() {
             ConstantTermData::CallableArgument(ordinal) => break ordinal.raw(),
             ConstantTermData::Projection(projection) => {
-                projections.push((projection.subject(), projection.kind()));
+                projections.push(projection.kind());
                 term = projection.subject();
             }
             _ => unreachable!("checked whole-value transport contains only input projections"),
@@ -445,64 +426,15 @@ fn prepare_returned_input<C: CheckerRequestContext + ?Sized>(
         "owned transfer refers to an actual input"
     );
 
-    let mut ty = input_type(ordinal)?
+    let ty = input_type(ordinal)?
         .expect("checked owned transfer retains its actual input type");
 
-    let path = crate::storage::resolve_owned_storage_projections(
-        request, &projections.iter().rev().map(|(_, projection)| *projection).collect::<Vec<_>>(),
-    )?;
+    projections.reverse();
+
+    let path = crate::storage::resolve_owned_storage_projections(request, &projections)?;
 
     let (_, input_path) = crate::storage::reference_path(request, ty, path.into(), reached_type)?
         .expect("checked owning return retains its physical input route");
 
-    let mut conditions = Vec::new();
-
-    for (subject, projection) in projections.into_iter().rev() {
-        let condition = match projection {
-            ConstantProjectionKind::UnionPayloadField(field) => {
-                let variant = request
-                    .union_payload_field(field)?
-                    .expect("checked transport field retains its variant")
-                    .variant();
-
-                Some(ConstantTermData::VariantTest { subject, variant })
-            }
-            ConstantProjectionKind::NullableValue => {
-                let absent = values
-                    .intern_constant_value(ConstantValueData::new(
-                        ty,
-                        ConstantValueKind::NullableAbsent,
-                    ))
-                    .expect("selected nullable type belongs to the same semantic store");
-
-                let absent = values
-                    .intern_constant_term(ConstantTermData::Value(absent))
-                    .expect("selected nullable literal belongs to the same semantic store");
-
-                Some(ConstantTermData::Binary {
-                    operation: ConstantBinaryOperation::NotEqual,
-                    left: subject,
-                    right: absent,
-                })
-            }
-            _ => None,
-        };
-
-        if let Some(condition) = condition {
-            conditions.push(
-                values
-                    .intern_constant_term(condition)
-                    .expect("selected transport condition belongs to the same semantic store"),
-            );
-        }
-
-        ty = crate::storage::projected_owned_type(request, ty, projection)?
-            .value()
-            .unwrap_or_else(|| panic!(
-                "checked returned input has no projected type: unit={:?}, input={ordinal}, subject={:?}, type={:?}, projection={projection:?}",
-                request.unit().unit(), values.constant_term_data(subject), values.type_data(ty),
-            ));
-    }
-
-    Ok((conditions, input_path))
+    Ok(input_path)
 }

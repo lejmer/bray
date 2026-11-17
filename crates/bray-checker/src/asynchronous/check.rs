@@ -735,6 +735,7 @@ mod tests {
 
             let selection = SemanticSelection::Call(SelectedCall::new(
                 resolution,
+            error_type(),
                 bray_symbols::CallableConstness::Runtime,
                 CallableAbi::Bray,
                 empty_callable_phase_behaviors(),

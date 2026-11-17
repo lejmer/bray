@@ -182,8 +182,6 @@ impl State {
                 .merge(&contents, &slot);
         }
 
-        super::references::merge_deferred(&mut self.deferred, &transfer.deferred);
-
         for (reference, bounds) in transfer.returned_inputs {
             self.returned_inputs
                 .entry((reference, false))

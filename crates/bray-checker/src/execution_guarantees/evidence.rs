@@ -26,8 +26,10 @@ impl UnprovenExecutionCondition {
 }
 
 /// Values captured at a selected call's entry, before callee mutation can occur.
-#[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ExecutionCallEvidence {
+    /// Actual normal publications formed from this admitted environment.
+    pub(crate) outputs: super::ExecutionOutputs,
     pub(crate) implementation_witnesses: std::sync::Arc<[bray_symbols::ImplementationInstanceId]>,
     /// Exact existing carriers admitted at invocation. Their ledger clauses stay
     /// private until completion uses this entry's captured truth and actual return.
@@ -54,6 +56,34 @@ pub struct ExecutionCallEvidence {
 }
 
 impl ExecutionCallEvidence {
+    pub(crate) fn bind_condition(&self, formal: &Condition, result: &Condition) -> Condition {
+        formal.substitute(&|place| place.value_in(&self.arguments).unwrap_or_else(Condition::unknown),
+            result, &mut { Condition::WORK_LIMIT })
+    }
+
+    pub(crate) fn bind_term(&self, values: &bray_symbols::SemanticValueStore, term: bray_symbols::ConstantTermId, result: &Condition) -> Condition {
+        let formal = crate::execution_condition_from_type_term(values, term, self.positional_arguments().count())
+            .expect("checked condition decodes in the admitted call environment");
+
+        self.bind_condition(&formal, result)
+    }
+
+    pub(crate) fn conditions(&self) -> impl Iterator<Item = &Condition> {
+        self.arguments.values().chain(self.outputs.conditions()).chain(self.copy_sources.values())
+            .chain(&self.witness_inputs).chain(&self.extracted_values)
+            .chain(self.addresses.values().flat_map(|addresses| addresses.keys()))
+            .chain(self.assumptions.iter().map(|(condition, _)| condition))
+            .chain(self.trusted_assumptions.iter().map(|(condition, _)| condition))
+    }
+
+    /// Evaluated arguments in receiver-first formal order, excluding declaration aliases.
+    pub(crate) fn positional_arguments(&self) -> impl Iterator<Item = (bray_symbols::SymbolOrdinal, &Condition)> {
+        self.arguments.iter().filter_map(|(place, value)| match place.root {
+            super::ExecutionInput::Argument(ordinal) if place.projections.is_empty() => Some((ordinal, value)),
+            _ => None,
+        })
+    }
+
     /// Actual values moved into the receiver-first noncopying input slots.
     pub(crate) fn owned_arguments(&self) -> impl Iterator<Item = super::ExecutionCondition> + '_ {
         self.owned_inputs.iter().filter_map(|ordinal| {
@@ -116,7 +146,7 @@ impl ExecutionCallEvidence {
 
         facts
             .iter()
-            .map(move |(condition, holds)| (condition.with_copy_origins(&bindings), *holds))
+            .map(move |(condition, holds)| (condition.without_captured_storage().with_copy_origins(&bindings), *holds))
     }
 
     fn copy_bindings(
@@ -128,6 +158,9 @@ impl ExecutionCallEvidence {
             let Some(captured) = place.value_in(&self.arguments) else {
                 continue;
             };
+
+            let source = source.without_captured_storage();
+            let captured = captured.without_captured_storage();
 
             bindings.insert(source.clone(), captured.clone());
 
@@ -197,6 +230,8 @@ impl ExecutionCallEvidence {
             .iter()
             .map(|(place, condition)| Ok((place.clone(), map(condition)?)))
             .collect::<Result<_, E>>()?;
+
+        mapped.outputs = self.outputs.try_map(&mut map)?;
 
         mapped.copy_sources = self
             .copy_sources
@@ -295,6 +330,7 @@ impl ExecutionCallEvidence {
         let mut joined_facts = Vec::new();
         let left = cache.ordinary_proof(&self.assumptions);
         let right = cache.ordinary_proof(&other.assumptions);
+        let outputs_changed = self.outputs.intersect(&other.outputs, (&left, &right));
 
         for (place, value) in &mut self.arguments {
             let incoming = other.arguments.get(place);
@@ -337,6 +373,7 @@ impl ExecutionCallEvidence {
         self.extracted_values.retain(|value| other.extracted_values.contains(value));
 
         addresses_changed
+            || outputs_changed
             || arguments_changed
             || assumptions_changed
             || before

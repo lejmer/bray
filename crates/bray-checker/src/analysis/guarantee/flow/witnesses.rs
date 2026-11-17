@@ -95,7 +95,7 @@ pub(super) fn conditional_facts(
         })
         .collect::<BTreeSet<_>>() };
 
-    let ordinary_proofs = [left.0, right.0].map(|state| state.proofs.ordinary_proof(&state.assumptions));
+    let ordinary_proofs = [left.0, right.0].map(|state| state.ordinary_proof());
     let all_guards = guards.iter().map(|(_, guard)| guard).chain(&path_guards).collect::<BTreeSet<_>>();
     let inactive = inactive_guards(&all_guards, [&left_inputs, &right_inputs], &ordinary_proofs, facts);
 
@@ -559,7 +559,7 @@ pub(in crate::analysis::guarantee) fn owned_alternatives(
 }
 
 fn absent_observations(state: &ExecutionState) -> BTreeMap<ExecutionCondition, std::sync::Arc<bray_symbols::ConstantValueData>> {
-    state.proofs.ordinary_proof(&state.assumptions).ordinary_facts()
+    state.ordinary_proof().ordinary_facts()
         .filter_map(|(condition, holds)| condition.nullable_absence(*holds))
         .map(|(subject, absent)| (subject.clone(), std::sync::Arc::clone(absent)))
         .collect()

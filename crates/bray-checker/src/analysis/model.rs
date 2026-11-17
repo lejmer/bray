@@ -29,6 +29,19 @@ pub(crate) enum AnalysisOperationKind {
 }
 
 impl AnalysisOperationKind {
+    pub(crate) const fn storage_value_phase(self) -> bray_bound_tree::StorageValuePhase {
+        use bray_bound_tree::StorageValuePhase;
+
+        match self {
+            Self::Call { phase: AnalysisCallPhase::Input, .. }
+                | Self::Result { phase: AnalysisResultPhase::Begin, .. } => StorageValuePhase::Input,
+            Self::Call { phase: AnalysisCallPhase::Completion, .. }
+                | Self::Result { phase: AnalysisResultPhase::Completion, .. } => StorageValuePhase::Completion,
+            Self::Result { phase: AnalysisResultPhase::Production, .. } => StorageValuePhase::Production,
+            _ => StorageValuePhase::Attempt,
+        }
+    }
+
     /// Selects physical accesses at their checked phase. Output definitions are
     /// successful publications, never reads that consume their own result slot.
     pub(crate) fn storage_plans(self, storage: &bray_bound_tree::StoragePlan) -> impl Iterator<Item = bray_bound_tree::StorageAccessPlan> + '_ {

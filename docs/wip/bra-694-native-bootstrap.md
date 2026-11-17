@@ -1,335 +1,265 @@
 # Compiler boundary refactor
 
-## Required outcome and ordering
+## Scope and ordering
 
-Start from05d2dc1b6 on feature/bra-694-native-bootstrap-contracts. No initial baseline tests.
-Keep CFG, composite flow, CurrentValues, proof, SCC and demand-driven computation. Replace independent interpretations
-with captured values, typed storage transitions and connected guarded outcomes. Function summaries abstract those same
-transitions. Possible regions never grant value equality, layout, allocation lifetime, initialization or authority.
-Unknown never becomes empty. Compiler value identity never implies one unique runtime allocation.
+Complete the full captured-value, typed-transition and guarded-outcome refactor on
+feature/bra-694-native-bootstrap-contracts, then fix remaining native failures. The user's full plan is in the
+pasted attachment from this chat. Start was05d2dc1b6. No baseline test run was requested at the start.
 
-The user explicitly requires completing every agreed refactor boundary before repairing dispatch_ready or start_frame.
-Correct regressions introduced by a slice, then continue even while those native failures remain. Do not retry or repair
-them now. Native acceptance follows the completed refactor. Keep PR717 draft and BRA-694 In Progress.
+The user explicitly forbids repairing or retrying dispatch_ready and start_frame until every agreed refactor boundary
+is complete. Correct regressions introduced by each slice, then continue the refactor. No native retry or native source
+repair is authorized now. Keep PR717 draft and BRA-694 In Progress until the full contract and review are complete.
+Do not end the task at a partial checkpoint, commit, push or clean unit-test run.
 
-Remaining work includes the complete portable captured-value graph, opaque generic transport, one phase-aware
-instantiator, actual effect addresses separate from footprints, typed read/follow/backing routes, connected guarded
-result bindings, unified observation survival and dependency-index invalidation. Remove replaced mechanisms completely
-within each migrated path. Do not infer permissions from alias bounds, pointer equality, nominal exemptions or the
-owned_allocation predicate. Lowering consumes checked storage decisions and does not repeat ownership reasoning.
+Latest user steering is mandatory. Stop treating intermediate local failures as gates for each separate boundary. Complete
+the cross-dependent model, source/import, deferred, cleanup and abnormal migration as a larger connected batch, remove
+the competing paths, then judge convergence. Use intermediate checks only for blockers that prevent further implementation.
+Reconstruction is a liability. Access authoritative captured values and resolved transitions directly. When data is missing,
+carry it from its producer. Do not infer it later from types, source slots, declaration identities or old summary fields.
+Existing reconstruction is code to replace, never a constraint requiring another reconstruction layer.
 
-Final joint gate is actual Linux/Windows bootstrap checking AND lowering on x86_64/AArch64 plus the fixed comparison
-on the same candidate. Complete the agreed graph first, then address any remaining native source/checker failures.
-BRA-695 execution and BRA-696 shutdown remain separate. No new issues or subagents have been created.
+Keep CFG, composite flow, CurrentValues, proof, SCC and demand-driven summaries. Possible regions establish no equality,
+actual location, allocation identity, initialization, lifetime or capability. Pointer equality grants no permission.
+Compiler definitions and older allocation classes do not establish one unique runtime object. Unknown never becomes
+empty. Nullable inactive alternatives and actual null addresses remain distinct. Root, product-static and exact-thread
+identities remain explicit. Lowering consumes checked decisions and does not repeat ownership reasoning.
 
-## Pushed checkpoints and current evidence
+## Pushed checkpoints
 
-The route checkpoint8be430cea, observation checkpoint338483c04 and captured-effect checkpoint584e0e266 are pushed.
-Earlier checkpoint551d12bb1 replaces References/StoredValue with AddressValue/ValueBinding,
-separates actual addresses from carried bounds, preserves nullable empty alternatives and distinct NoPayload, removes
-staged clone/merge/restore reconciliation and transports inactive slots through source/import/lifecycle/deferred code.
-Package interface revision2 and specialization hashing distinguish inactive, null and independent slots.
-Production growth is about300 lines plus tests. This is the internal binding boundary, not the full portable graph.
+The last checkpoint before the captured graph migration was 1c5770b2c.
 
-Checkpoint551d12bb1 passes564 checker,222 symbols,217 interface and57 returned-dependency tests plus the new slot-shape
-identity control. All1714 frozen comparison identities pass in303.88s with zero failures and zero missing identities.
-Mutating cargo xtask style and cargo xtask format pass. Source/build/binary fingerprints accompany the comparison.
+- d087dde8f replaces independent normal/deferred preservation booleans with immutable DependencyEffectOutcomes.
+  Admission captures possible failure effects before consumption. Deferred formation keeps body effects latent.
+- 551d12bb1 replaces References/StoredValue and their staged reconciliation with AddressValue/ValueBinding.
+  Actual address knowledge, dependency bounds, completeness, null and inactive slots remain separate. Interface revision2.
+- b27260893 separates private production from completion. take_outputs drains output fields only. produce_transition
+  retains input captures and abnormal/deferred metadata. Normal completion cannot replay pre-cleanup values.
+- 8be430 migrates typed Read/Backing StorageReferencePath interpretation and removes implicit address scans.
+- 338483 migrates shared StorageObservationTransition classification and removes independent guarantee reclassification.
+- 584e0e2666ac93fd332902c85ecb1f4b9d08b9f0 retains captured actual effect addresses separately from footprints.
+  Shared MutationTarget resolution serves calls, lifecycle and deferred cleanup. Bound-only Dispose becomes Cleanup.
+  Layout and definite initialization require an actual current address. Retirement updates both address and footprint.
+- 1c5770b2 removes BoundReturnedValue.observations and both substituted-return-type field inventories. Existing ownership
+  masks frame actual captured inline subtrees. Reference descriptors survive separately from refreshed reached data.
+  Nullable wrappers retain a tag and actual payload, without fabricating a wrapper owner.
 
-Checkpoint b27260893 separates private production from completion. Transfer::take_outputs moves output fields only.
-State::produce_transition installs private current values while retaining entry captures and abnormal/deferred metadata.
-Normal complete_transition produces anything still staged, then ends the capture. Cleanup uses produce_transition.
-Repeated production and normal completion cannot replay pre-cleanup values. This adds20 production lines and29 test lines.
-It passes564 checker and362 deferred, returned-value and cleanup compositions in9.88s, including source/import and MIR
-lowering. Mutating cargo xtask style passes. The maintained Bray sources are unchanged since the explicit format pass.
-The1714 comparison has not been rerun after this boundary. No native retry or native repair has occurred.
+Earlier evidence is version-specific. Latest full frozen comparison was551d12bb1,1714/1714 pass in303.88s, zero missing.
+Checkpoint584e0e passed564 checker,368 composition and36 raw/owner controls with3 existing ignored tests. Checkpoint1c577
+passed564 checker,222 symbols,136 bound-tree,368 compositions and36 raw/owner controls. Its added generic probe was red.
+Old native18 atd087dde8f failed only dispatch_ready/start_frame. None of that is current native or frozen evidence.
 
-Checkpoint d087dde8f already replaces independently supplied normal/deferred-storage booleans with immutable
-DependencyEffectOutcomes. Each effect binds once with shared possible/normal identities. Admission captures possible
-failure effects against incoming memory. Normal paths apply normal effects. Deferred formation keeps body effects latent,
-and inactive cancellation cleans only captures. Ordinary failure can retain incoming support justified by effects.
-Observing an already-running task has no fresh body-entry snapshot and cannot use normal-result transport on failure.
-The old normal_storage_preserved/deferred_storage_preserved/has_normal_effects promises are removed throughout the path.
-Its Windows native18 failed only dispatch_ready and start_frame. That is old-code evidence, not a current native run.
+## Current graph implementation
 
-## Active whole-value contract gate
+Pure Contents, Effect, Transfer, ValueBinding, deferred joins, selection and physical snapshot capture moved from checker
+memory into bray-bound-tree/storage/capture and storage/value. Checker aliases these records. may_retain_address stays
+checker policy. Split storage/flow is a thin root with model and phase-specific retirement metadata in child modules.
 
-Whole-value transport must retain actual data, dependencies, ownership and duties even when T is opaque. A captured
-value must be the same value CurrentValues publishes. Physical and logical return preparation must stop independently
-reconstructing fields from the substituted type. Bounds remain bounds. Completeness alone never proves value equality.
-A move removes source authority and relocates value support while source-storage support does not follow it.
+StorageCapturedValue shares an immutable physical transition and a projection coordinate. The coordinate is not runtime
+allocation identity. CapturedValue pairs that snapshot with ExecutionCondition data in CurrentValues. Component selection
+and replacement transport the corresponding snapshot. Metadata participates in current-value fixed-point equality but
+must be transparent to proof data. No separate current-data registry and no caller-side substituted-T field inventory.
 
-The active experiment extends raw_buffer_reachability_preserves_reference_bearing_payload_dependencies in
-compilation/export/build/tests/standard_library.rs. A witnessed Owner goes through generic store<T>, a buffer move,
-restore<T>/pop and normal cleanup, then inspect. Source and imported callers must retain the witness and lower.
-The fabricated-owner counterpart must remain unproved. The existing reference-bearing escape cases stay unchanged.
-This is a shared composition oracle, not a new fixture for a helper. The red test extension remains uncommitted.
+CapturedValueTemplate in bray-symbols is a portable immutable graph. Nodes distinguish actual Input from scalar Data and
+explicit Unknown. Operations include Select, Read, Reference, Owned, Scalar, Inline, Present, OwningStorage(pointer field),
+EmptyPrefix, Append, Last, Remainder and count arithmetic. Arc trees share expression structure. Guarded bindings retain
+ordinary entry/result-shape conditions. Codec, import/export, substitution, selection, validation and hashing have initial
+wiring. The compiler SCC combiner and operator-call binder now preserve these bindings too.
 
-Probe b27260893 plus that test builds in2m48s and fails in8.47s only at inspect for the witnessed source and imported
-callers. Provider bodies and both fabricated-owner controls pass. Positive lowering is unverified because checking
-rejects the callers. capture-probe-source.json records the exact source fingerprint. No production tracing is present.
+Input-phase StorageValueCapture pairs receiver-first evaluated inputs with inline snapshots and typed referent snapshots.
+StorageCompletion retains captures and StorageValueTransition definitions for replay. At Attempt the graph binds once
+against entry evidence before invalidation. ExecutionCallEvidence.outputs retains those bound values. Normal completion
+reuses outputs. Guaranteed Current writes require resolved normal write effects. Loss of abstract knowledge is not a store.
+Produced observation preservation uses the actual bound graph. Failures receive no normal produced preservation.
 
-The source summary evidence is decisive:
-- store has no owned_result transfer. Its complete stored dependency at Result.OwnedTarget.AnyElement names Parameter0.
-  Its output pointer has an allocation anchor. The root backing dependency is explicitly empty and complete.
-- restore has no owned_result transfer. Its complete result dependency names Parameter0.OwnedTarget.AnyElement.
-- round_trip has empty ownership, stored dependencies and borrows. Its concrete Owner has no pointer fields.
+Checked buffer allocation creates an explicit owning-prefix edge and records zero initialized count and capacity.
+Push/pop update count and prefix together, moving complete opaque T values through the graph. Count supplies no permission.
+Logical owned-components traversal follows explicit prefix children. Physical publication adds conservative AnyElement
+bounds from actual captured values. It never reads an AnyElement bound as actual T. Unknown prefix remains unknown.
+Zero-sized T still obeys element duties. Capacity zero requires no allocated resource. Do not invent zero-byte policy.
 
-The rule cannot be repaired by treating complete stored dependencies as ownership or by adding a RawBuffer exemption.
-The documented raw_buffer_push/pop operations transfer one actual T and its initialized-prefix duty. Their graph must
-carry that actual value separately from possible generic dependency bounds. The witness must survive because the same
-owner moves through storage, never because a predicate is reasserted after invalidation.
+Physical State queues producer/lifetime retirements. Operation/cleanup boundaries drain them to captured metadata and
+publish them by StorageMutation and StorageValuePhase. Replay consumes the same events. State.merge asserts the queue
+is empty. Four direct physical fixtures now explicitly drain their events before joins. No production invariant weakened.
 
-Authoritative producers and consumers traced so far:
-- initialize_entry_references seeds demanded opaque entry paths and buffer AnyElement lineage. seed_whole_source currently
-  describes possible dependencies. Do not reinterpret all those sources as exact copies.
-- memory.stage_buffer_push/stage_buffer_elements capture full physical binding subtrees. stage_whole_sources demotes them
-  to dependency bounds for portable summaries. stage_buffer_payload and stored_transfers skip reference-free concrete T,
-  which cannot express a witness-bearing owner with no pointer fields.
-- The return-snapshot candidate removes BoundReturnedValue.observations, its duplicate prepared preservation mask and
-  both physical/logical uses of the substituted-type inventory. It captures existing physical binding subtrees and
-  frames actual logical data, with borrow roles recorded at entry. See the closed return-snapshot contract below.
-- Physical captures are Transfer.inputs. Logical data, ownership, proof and duties are ExecutionCallEvidence.arguments,
-  owned_inputs, extracted_values and witness_inputs. CurrentValues is authoritative for current contents.
-- CFG begin_invocation has Input, then a possible precondition-failure edge, then Attempt. All argument evaluation and
-  conversions precede Input. Logical call_entry captures at Input. Physical preparation/capture occurs before admission
-  consumption at Attempt. Requirements must see incoming evidence before the operation changes it.
-- Memory effects stage buffer output before physical invalidation. Logical guarantee flow has no RawBufferPush/Pop
-  value transfer. owned_values/witness_values traverse actual CurrentValues components and deferred captures only.
-- retire_consumed_inputs and expire_trusted_scope retain evidence only through those actual value contexts. A full
-  captured graph must connect stored T to its real owning value without retaining every possible alias as an owner.
-- StorageFlowState.merge joins logical values once with the existing program-point identity, then physical bindings.
-  New graph identities must remain stable and finite through this join and recursive summary normalization.
-- Deferred formation captures by-value data and pointer descriptors. Execution-time pointee reads use current memory,
-  not formation-time pointee data. Cancellation before execution cleans captures only. Partial execution handles acquired
-  duties. An observer's normal RunResult.Failed is different from an ordinary call's abnormal outcome.
-- Cleanup instantiates against its current receiver and ordered scheduler. Private produced output is current while
-  captures remain retained. Normal completion uses its surviving value. Panic/cancellation cannot install normal output.
-- Checked RawBufferAllocate in memory/operations creates the physical allocation through memory.fresh and retains its
-  descriptor. Push/pop have physical staging but no logical value route. Allocation identity must originate from checked
-  allocation/entry transitions, never allocation_owners, which indexes witness conditions by their actual carrier.
-- ExecutionCondition::with_storage_component and project already support explicit Constructed storage components.
-  owned_components visits those actual children. ConstantProjection and ExecutionPlace still describe inline values.
-  Do not extend ordinary constant projections to pretend a pointer region is owning backing. A generic initialized
-  prefix needs actual value transfers, not promotion of its AnyElement may-dependencies into equality or ownership.
+Actual nodes can have multiple observation roles. StorageValueBinding.observations is now a set. Capture groups all roles
+per path and fills only missing actual role sets. An opaque receiving view cannot replace producing roles. Joins intersect
+roles and demotion to dependency bounds clears them. The former single Option dropped Marker behind Identity and ordinary
+InlineBits behind Mutable. Inline preservation now uses actual roles, without reasserting live or promoting alias bounds.
 
-The complete value graph contract remains open. The typed storage route prerequisite is now complete.
-Normal exits currently collect physical output bindings. Abnormal exits collect report dependencies and accumulated
-effects, without publishing normal output bindings. The graph migration must add observable abnormal storage bindings
-at those actual exit states. Return reconstruction also uses type observations to exclude protected and reached data.
-Deleting that inventory requires capturing those roles with the actual value first. Do not merely preserve its entire
-entry expression. Do not add a buffer-only value registry or infer owning edges from bounds.
+Normal exits carry ownership and current-value bindings together. Semantic and bound contracts derive their
+aggregate ownership layout from these rows. Completion applies the admitted row before joining alternatives.
+The separate buffer staging path is gone. Push, pop and prefix counts now use captured input values.
+Unknown elements retain dependency bounds and give no exact address or initialization. Private witness
+support, per-exit effects and reports, cleanup, abnormal publication and static instances remain open.
 
-## Captured effect operand boundary
+Deferred frames carry the selected instance, signature, dispatch, witnesses and receiver convention from call
+selection. The interface transports that record directly. Frame binding no longer invents call terms or
+ordinal arguments. The shared publication and paired exit candidate passed all 565 checker, 223 symbol, 136 bound-tree
+and 218 interface cases. Of 368 composition cases, 296 passed. Of 36 active owner controls, 33 passed
+with three more ignored. Source and imported callers both lose witnesses through branch-selected
+futures.
+The native and frozen acceptance gates remain pending.
 
-Every resolved mutation retains its actual evaluated address separately from its conservative footprint. A direct
-checked location provides its location. A pointer effect captures the actual descriptor from the incoming ValueBinding
-or borrow capability. Possible generic sources, displacement and unknown references provide bounds only. Projection
-applies to both the captured address and footprint without rereading the descriptor. No address or footprint grants
-permission or allocation freshness. A layout-specific Dispose without an actual address becomes Cleanup of the same
-type over that bound. Typed access metadata stays attached in either case.
+Normal-exit collection pairs the actual physical references and their inactive slots with the same
+exit's logical returns and witnesses. The remaining unconditional physical consumers still require a join.
+Both physical and logical publication use the produced snapshot, with installation and consumption
+retirements applied at the existing retirement boundary. Replay receives that same snapshot.
 
-The producers are call_effects, lifecycle_effects, buffer cleanup, deferred result cleanup and checked intrinsic effects.
-They all use resolve_effects and the same captured operand construction. Calls capture before admission consumption.
-Cleanup captures its current receiver. Deferred cleanup retains its already captured operand, and any expansion of a
-symbolic result to possible inputs loses actual-address identity. Failure effects retain the same captured mutations.
-Retirement updates both actual operands and footprints to the previous incarnation. Observation invalidation, escape,
-terminal checking and possible effect publication use footprints. Layout and complete-cell reasoning uses actual
-addresses only. Source summaries retain entry-reference origins when actual pointer values survive slot replacement.
+A reference effect starts from the descriptor captured at admission. Each subsequent descriptor read uses
+the location reached by the preceding steps in the same incoming memory. Only an actual descriptor location
+permits a read. A region alone leaves its pointee unresolved. An unrepresentable terminal selection widens
+within its region, but an unresolved intermediate read can reach beyond that region. Cleanup composition
+retains the outer scope and the callee's ordered reads. Carry the same steps through import, export, generic
+substitution, selected-record reachability and specialization. Nested saved-pointer, successive borrow and
+cleanup effects are positive controls. An ambiguous or retired descriptor must never establish a layout.
+Use the existing resolved physical operands and per-phase storage. Remove the single-indirection limitation.
 
-Remove resolve_effects callbacks returning unqualified target vectors and all indirect effects built from regions alone.
-Reuse AddressValue knowledge and existing typed routes. Keep one resolved mutation representation, with no alternate
-effect engine or new solver. Expected growth is below200 net production lines. Reconsider if bounds need promotion to
-actual values, or if this requires another state store. The complete opaque-value graph remains the next open contract.
+One immutable evaluated condition may have several handles. A condition held as a guard or an evidence-map key
+is the same condition after its handle is copied. Structural traversal must visit and transform the original
+children, and memoize by the shared node. Mapping shared frames through current values, expressions, private
+outputs and admitted arguments must return the same changed record to each holder. Distinct records with equal
+payloads remain independent. Owner retirement can drop a particular holder. It cannot confer runtime aliasing
+or permission from a compiler allocation address. Positive controls exercise moved frames and private captures,
+and the negative controls cover nested same-site frames and expired owners. Remove per-holder metadata
+reconstruction and duplicate retirement traversal. Reconsider if the pass needs global interning or authority.
 
-Extend the existing captured-failure and deferred-frame tests to assert saved descriptor stability and bound-only
-layout rejection. Existing source/imported raw-memory, owner transport, returned/deferred/cleanup compositions are the
-joint controls. Preserve the red generic oracle and frozen1714 identities. Native checking and repairs remain deferred.
+A yield, valued break or propagation to a result region supplies its evaluated operand to the same private
+result until cleanup completes. A join merges those operands, including their actual frame alternatives.
+Only result completion publishes the destination. Clear the private result on region entry. Source and
+imported active_partial must reject a missing witness, and captured_field_fact must retain its captured
+field witness. A trace confirmed both branch futures form but await reads Unknown in both source controls.
+The private result reaches the binding and the evaluated await operand. Suspension splits the producers
+and rejoins their entries. Completion, cancellation, reports and witness diagnostics must consume
+argument zero of the admitted await. The pre-admission split and physical attempt read the evaluated
+operand directly. Never extend the source slot lifetime or look up a frame by its site.
 
-The completed implementation uses MutationTarget during binding and Effect::Mutation with distinct address and footprint
-fields. Callbacks no longer return unqualified regions. Direct locations, actual reference descriptors and bounds have
-explicit constructors. Unknown or displaced descriptors cannot provide an actual address. A bound-only Dispose becomes
-Cleanup while preserving its checked type. Complete-cell initialization and backing layout publication require an actual
-address. Buffer owner and backing operands are captured together. A bound-only owner cannot upgrade a backing lookup.
-Retirement scans and updates both fields, including failure and deferred frames. Possible-region expansion of pending
-result cleanup retains no actual-address claim. The new effect module owns this logic and replaces its old model block.
+Both immediate and deferred binders use the admitted receiver-first descriptor for a current write.
+The fixed-point rule distinguishes an absent write from an unknown value written to a known destination.
+Exit collection must consume assignment addresses and actual current publications from that path.
+Track writes to an entry borrow through its established referent. Intersect at joins, and include only
+those destinations when exporting current values. A write on another return, a possible effect of a call
+or a region reached by a nested pointer cannot prove that this path writes the containing borrow.
+The guarded extraction, unsafe partial transfers and conditional write controls exercise this distinction.
 
-This adds115 net production lines and34 test lines. Mutating cargo xtask style passes. The joint checker/compilation
-lib-test build passes in3m24s. All564 checker tests pass,368 return/deferred/cleanup/buffer compositions pass in12.62s,
-and36 raw-memory/owner controls pass in20.68s with3 existing ignored tests. address-build-source.json records parent338483c04,
-diffc6160dd48b3906db1faecebfcf883c089d5948207fd9aa61c134858b879fccd8 and the new effect module's separate hash
-50de08bef7dfeda000a3c8869adcc0274e2896bc8239ec99c0e654f84e5d39cb. The source fingerprint was unchanged after validation.
-Logs use address-*-current.log. A final style pass and commit audit remove one trailing blank line from the new module.
-That formatting-only change reuses the behavioral evidence. The generic red oracle and frozen comparison were not
-rerun. No native retry occurred.
+A physical mutation retains the addressed operand separately from the invalidation footprint. Exporting a
+returned region, wildcard or truncated static selector can name the bounding route only. The semantic
+effect, codec, remapper, specialization hash and cleanup expansion carry route precision. An unrepresentable
+selector cannot dispose the enclosing layout. Owned nested pointers still need ordered typed reads.
+Round-trip the bounded route, keep exact explicit disposal, and use the existing physical bounds negative.
 
-This boundary preserves known evaluated address identities. An unknown pointer still has only explicit conservative
-bounds here. The full value graph must retain its producing value identity too. Buffer relocation's existing physical
-staging still uses the selected footprint under its descriptor-exactness check. Replace that path with the actual stored
-prefix binding during the graph migration, rather than treating a possible region as a value transfer.
+Bind entry-only guards at admission. Keep the checked predicate for a result-dependent guard until
+normal completion supplies its result. Evaluate it with that frame's admitted arguments and actual
+result for reachability, publication and ownership diagnostics. Joining different admissions must
+never substitute caller inputs a second time or let a different exit supply a witness.
 
-## Captured return snapshot boundary
+Capture one complete normal outcome at each checked exit before aggregation. Rows with the same
+portable guard can have different values. SCC iteration keeps identical sets of rows. If successive
+approximations for the same guard disagree, retain only common guaranteed bindings and record changed
+values as unknown. Never grow recursive identities to distinguish dynamic executions. Remapping, interface
+encoding, validation, specialization hashing, immediate calls and deferred execution must consume the same
+row. Concrete aliasing may bind two formal destinations to one actual location: differing predictions widen
+to unknown. Never retain the last enumerated prediction. Existing conditional owner, raw extraction, and
+source/import fixtures cover positive and negative routes. Each exit publishes the witness clauses supported by its own returned owners alongside its guard,
+values and duties. Guarded positive and fabrication-negative controls must agree through a package
+round trip. SCC widening intersects promises across approximations of the same guard. Read-only
+consumers needing unconditional facts intersect all reachable rows. Remove the independent carrier
+table in the model, interface, SCC combiner and binders. Effects, reports and cleanup duties remain open.
 
-An established ownership transfer transports its actual captured inline snapshot under the producer's portable contents
-mask. It does not rediscover reference fields or ordinary values from the substituted return type. Actual reference
-descriptors retain their identity while reached data is refreshed from current memory. A plain opaque value remains one
-opaque value. Retaining its identity supplies no previously unknown protected or reached contents. Physical whole-source
-bounds still describe possible dependencies, never equality or authority.
+The physical body runs against activation memory. Bind its effects to the actual frame when direct await
+or Future.start starts it. Local frames carry private result coordinates. Imported frames can carry
+the same effects without private coordinates. Join, cancellation and cleanup read the stored effects.
+A nested task already started when its observation future forms. Its observer cannot refresh its body
+effects. Unknown physical captures use conservative effects.
 
-The producer is the existing ownership summary and its preservation mask. BoundReturnedValue prepares its typed input
-route, borrowed role and ordinary conditions only. Physical prepare_returned_values selects
-the captured source and passes its whole actual binding subtree to memory staging. Staging filters each present binding
-using that same mask. Unchanged subtrees retain inactive shape, physical descriptors, initialization and deferred frames.
-Partially changed subtrees lose whole-source completeness and retain only permitted descendants. No actual initialized
-payload or deferred frame may be restored through a partially preserved subtree. Adaptation selects the mask relative to
-the actual wrapped input before staging. Guaranteed mappings alone establish physical replacement. Alternative deferred
-frames remain possible relations until their existing guards select them.
+Normal return ownership belongs to the actual exit. Use the value's existing ownership record at that
+exit, qualify transfers by the active payload on that path and publish the row. Remove the second pass
+that adds a common transfer to empty alternatives. Returning a nullable owner, moving a generic
+field, returning an unrelated value and returning an inactive payload are the distinguishing cases.
+A caller must apply the selected row's ownership to the produced value once.
 
-Logical prepare_returned_values frames the actual ExecutionCondition tree with the same portable mask. It traverses
-retained actual inline components and explicit mask overrides. Reference leaves preserve descriptors and refresh reached
-data. A whole opaque leaf is not expanded into invented fields. Existing current-value publication remains the data
-authority. Production, cleanup and normal completion ordering stay unchanged. Abnormal paths never install these normal
-bindings. Deferred completion supplies its captured entry values to this same return preparation and reads current
-pointees at execution. Ordered cleanup still observes the current private values of ordinary returned owners. Its
-separate lifecycle reference and stored-value binding path remains part of the full instantiator migration.
+For each boundary, actual checked operands remain authoritative. A possible effect overapproximates changed
+storage. An outcome publishes only established values, duties and initialized shape under its own guard.
+Keep the existing solver and reverse indexes. No new allocation identity from a code site or pointer comparison.
+Earlier fixed evidence and growth constraints apply: target at most 1000 net production lines excluding moves
+and tests. Source/import compositions, guarded extraction, pointer replacement, static domains, deferred
+start/observe/cancel, normal cleanup and abnormal duties are the integrated controls.
 
-The entry trace finds an implicit role that must become explicit first. CurrentValues seeds borrowed formal fields as
-plain Input projections, so is_reference alone cannot identify their boundary. ExecutionFlowDomain::boundary already
-has the checked observed types and owns entry construction. It will publish Reference observations for borrowed entry
-places, with the same formal descriptor identity and entry referent data. Nested borrowed fields update that one
-CurrentValues tree. Later captures transport that role with the actual value. Entry facts still name their original data.
-Do not construct a second role inventory at call completion. Expression producers already retain actual borrow roles.
+## Remaining full-refactor boundaries
 
-The audit also finds that prepare_variants visits ownership input and output projections but omits projections that
-occur only in preservation masks. Include those keys at this existing relationship-preparation boundary. Both physical
-and logical instantiation then translate the same portable mask using the checked projection table, without queries or
-type inspection. Remove BoundReturnedValue's duplicate resolved mask and its separate request-based mapper. This keeps
-one portable mask and one shared conversion, and offsets the necessary capture filtering rather than adding a cache.
+Await, scheduling, and opaque cleanup must consume the selected frame's transition directly. A capture can itself
+hold an unrelated frame formed at the same source site. Searching nested values by site can execute that other
+frame's effects. Only task observation follows receiver capture zero into another frame. Capture the private result
+coordinate with the prepared transition at formation and relocate only at execution. Preserve explicit unknown
+alternatives. Joining unknown with a known transition must reach a fixed point. The moved-frame/saved-pointer
+tests cover relocation and retirement. A nested same-site frame with a different captured address must stay latent.
 
-Remove BoundReturnedValue.observations, returned_observations and Shape.returned_values, the physical reference-only
-inventory loop and logical restriction of a separately reconstructed shape. Reuse capture_value, shared pending staging,
-ValuePreservation framing and returned-reference refresh. Do not replace the inventory with another type walker, or add
-a side registry. Expected net production code is non-growing. Reconsider if actual references cannot be identified from
-captured data and checked completion, or if removing the inventory would freeze protected contents. The full portable
-storage graph and generic prefix operations remain open after this prerequisite.
+The portable frame binder receives the actual argument graphs and an optional semantic call in capture scope.
+Keep the returned frame and bind its captures in receiver-first order, including opaque bodies. Local source
+provenance is optional. An imported alternative has an instantiation point and an alternative position for
+fixed-point joins, never a local deferred callee site. Callee metadata must retain formal capture positions
+through substitution. Private admission requires explicit exported evidence and must never inherit unrelated
+ambient caller facts. Source-site consumers cannot claim completion facts for an imported body.
 
-Use existing opaque, nullable, shallow-reference, protected framing, partial update, repeated identity, nested backing,
-source/imported return, deferred and cleanup controls. Keep fabricated owner and escape controls rejected. Extend existing
-snapshot tests to distinguish ordinary actual data from reached data. Preserve the red generic oracle and frozen1714
-identities. Validate the coherent batch once, then correct related regressions together. Native failures remain deferred.
+FutureStart transfers the receiver's actual environment to the produced Task. At start or direct await,
+refresh reached values in that environment before body effects. Observing a Task follows its retained
+body environment and must not refresh the inner body's entry a second time. Repeating a program point
+expires dependent logical terms in admitted arguments and outputs through the same rule as current values.
+Keep each formal slot, carried physical information, independent siblings, and captured duties.
 
-Framing retains an anonymous nullable's tag and actual payload as separate components instead of adopting the payload's
-owner as a complete wrapper owner. Explicit owned nullable contexts retain their identity. This uses existing snapshot
-forms. The unchanged nullable-layout oracle caught the initial regression and now passes, including the checks that an
-explicit no-transfer wrapper cannot recover an earlier payload mapping.
+Execution start consumes the latent body's result expression and its admitted argument record. A local
+selected call already has its checked body template. A returned named frame identifies the body by its
+semantic callee and selected witnesses. Bind receiver and parameter roots using the producer's input mapping.
+Prepare checked operations for replay without another query or another read of the old source slot. Body
+normal-completion facts apply to the body alone. Opaque completions remain feasible without guaranteed
+outputs. Conditional completion, reference overwrite, returned futures and imported generic extraction are
+the positive and negative controls for this path.
 
-The completed batch removes5 net production lines and adds21 net test lines. Mutating cargo xtask style passes. The
-corrected checker/compilation test build takes3m24s. All564 checker tests pass. The unchanged symbols and bound-tree
-parts retain their222 and136 passing tests from the first joint build. All368 return/deferred/cleanup/buffer compositions
-pass in13.02s. Another36 raw-memory/owner controls pass in21.06s, with3 pre-existing ignored tests. snapshot-build-source.json
-records parent584e0e266 plus diff30eb8f94a88eeae5a0645df906aa1ec69b5301ffc104f92fd4d13d4e87ed7587, verified unchanged
-after validation. Logs use snapshot-*-current.log. The final generic probe takes10.70s and still fails only at inspect
-for the witnessed source and imported round trips. Both fabricated-owner controls and all4 original escape cases pass.
-Its store/restore/round_trip summaries remain as recorded above. Positive probe lowering is unverified. The frozen
-comparison remains551d12 evidence. No native retry or repair occurred.
+- Finish conservative joins of unknown-prefix dependencies and possible duties across guarded outcomes.
+- Connect guards, values, effects, reports, initialized shape and obligations from the SAME exit. Current value joins lose correlation.
+- Preserve typed address-of-slot versus reading a stored pointer, all nested loan layers, and full selected static instance keys.
+- Capture complete deferred environments with stable callable/substitution/witness identities. Refresh formation descriptors at execution
+  start once. Await/join must reuse that outcome. Inactive and partial cancellation must retain only acquired duties.
+- Use the same phase-aware instantiator for ordinary, deferred, lifecycle and abnormal paths. Remove competing returned/reference/stored
+  preparation, special cleanup/deferred binders, and independent borrows/owned_result/stored_values/carriers/effects template fields.
+- Publish observable abnormal writes, reports and acquired duties without a normal result.
+- Stabilize loops and recursive summaries with existing joins, recency and dependency indexes. No arbitrary cutoff loses dependencies.
+- Finish typed external graph validation, immutable interning/sharing, public API documentation and structural/style audit.
 
-## Completed typed route boundary
+Build coherent completed batches. An unresolved contract blocks speculative expansion. Read-only source tracing and focused experiments
+remain allowed. Do not repeatedly guess a causal fix and rebuild for each helper. Mutating cargo xtask style is mandatory at batch
+finalization. Run cargo xtask format before final handoff. Unrun checks stay unverified. No native retry while any boundary is incomplete.
 
-Type preparation owns each route's pointer-read kind, reached type and owning-backing descriptor. Ordinary projections
-only select components. A pointer read follows the actual descriptor in the selected memory version. A backing step
-follows its prepared pointer field or the established structural backing of an owning indirection. Neither grants
-ownership, a fresh allocation or a layout from possible dependency bounds. Backing selection itself does not load an
-element or require an already established element layout. Typed pointer dereferences keep their layout check.
-Unknown and displaced descriptors cannot
-become exact typed locations. Empty nullable alternatives remain distinct from unknown.
+## Tools, resources and final gate
 
-Storage::reference_path produces these routes. Entry seeding, access resolution, source/imported calls, output staging,
-deferred captures and cleanup consume the same memory route interpreter. Captured inline descriptors use the chosen
-capture. Reads outside that captured inline root use current memory. No route interpreter scans candidate nominal
-buffer types or appends an owning projection in place of reading a buffer descriptor.
+Use the shared Cargo target from .cargo/config.toml, target/cargo. Before builds target/cargo/tooling measured232.83GiB
+and the drive had99GiB free. Never clean shared outputs. Build checker and compilation together to retain feature reuse.
+Release binaries under target/cargo/release/deps:
+- bray_checker-05848d70c4b314f7.exe
+- bray_compilation-4af58abd509cab18.exe
+- bray_bound_tree-c8ccf88d46ce9e45.exe
+- bray_symbols-04553e9aef447f44.exe
+- bray_package_interface-4ceed9dd563cf950.exe
+Use3 libtest threads. Builds and semantic tests have used approved require_escalated. Native LLVM/linker/executable work
+must run outside sandbox. No native child or agent is running. Observe the one active build before launching another.
 
-The representation retains structural projections for liveness and entry identity, plus ordered typed read/backing
-steps. Prefixes retain those prepared steps rather than reconstructing their meaning. Remove inferred address-load
-classification, the separate stored_locations segment interpreter, and its raw-buffer-type scan. Reuse actual-address
-lookup and typed_targets. Preserve incoming state and existing publication/cleanup phases. This batch adds no portable
-ownership promise and does not resolve the red generic witness oracle by itself.
+The frozen comparison-baseline.json has1718 identities. Four removed provider IDs are OPEN native replacements, never
+passes. Keep the fixed1714 remaining identities and counts. Existing comparison-run.py uses8 workers,3 libtest threads,
+isolates slow cases and runs attachment/admission tail separately. Refresh source fingerprints including untracked files.
+The final joint gate is actual Linux/Windows bootstrap checking AND lowering on x86_64/AArch64, plus all1714 comparison
+identities on the SAME candidate. Only after every refactor boundary is done may remaining native failures be repaired.
+BRA-695 execution and BRA-696 shutdown remain separate. No new issues.
 
-Positive controls are existing nested pointer, moved-buffer, source/imported backing, cleanup and deferred transport
-compositions. Negative controls cover bounds without actual descriptors, wrong layout, displaced descriptors, overwritten
-captured slots and changed pointees. Run checker controls and the affected returned/deferred compositions after the
-coherent batch. Keep the frozen1714 identities unchanged. Reconsider if this requires another state store, caller-side
-type reconstruction, or more than200 net production lines beyond the removed route implementations.
+Re-read AGENTS.md before the final mechanical audit. Audit every changed behavior and equivalent repo paths, ownership,
+architecture, DRY, sizes, public API/docs, errors, numerical policy, clones, invariants and tests. Run style and format,
+required behavioral checks, update draft PR, commit/push, complete fresh review, fix valid findings and make ready only
+when full implementation, acceptance and review pass. Follow the work-on-bray-issues contract gate after compaction.
 
-Checkpoint8be430cea implements this boundary and removes about51 net production lines while adding78 net test lines.
-Mutating cargo xtask style passes. All564 checker controls and368 source/imported return, cleanup, deferred and buffer
-compositions pass. The existing escape cases pass. The generic experiment fails only at inspect for the witnessed source
-and imported callers, with fabricated owners still rejected. The round-trip summaries remain unchanged from the earlier
-probe. No native retry occurred. The1714 comparison remains551d12 evidence and has not been rerun for this checkpoint.
-route-build-source.json records parent b27260893 plus diff84f9394019af07801852cd340ce7378a7a5120ea0eed7282f1217318df01b05d.
-route-build-current.log covers the final checker-test fixture correction, which took45.36s after the3m34s production build.
-route-checker-current.log, route-controls-current.log and route-capture-gap.log contain the corresponding results.
-
-## Observation-transition boundary
-
-Move operation change classification to the composite producer. Existing guarantee
-invalidation separately derives transfers and content_only from call tables, assignment plans and intrinsic kinds.
-Replace those booleans with a typed classification attached to the resolved StorageInvalidation. Transfer means source
-value consumption without an independent pointee mutation. Contents means backing lifetimes survive while contents
-can change. Unknown grants neither preservation. This records the existing distinctions, not a new permission promise.
-
-StorageFlowCollector::operation_observations receives incoming resolved effects, assignment targets and the checked
-operation. It produces scope, classified surviving observations and this change kind once, for normal and possible
-outcomes. Cleanup produces Unknown. A merge retains a kind only when both inputs agree, otherwise Unknown. Planned
-Paths retain no resolved kind and read as Unknown. All invalidation already follows the conservative global path.
-
-ExecutionFlowDomain::invalidate_call_effects and invalidate_observations consume this result. Remove their independent
-changes_contents, transfers and content_only classification and remove boolean arguments from cleanup/replay callers.
-Initial composite flow uses planned refinements but passes resolved observations at operation application. Final
-execution replay reads body.refinements().invalidations(). Failure captures retain the same resolved classification.
-Do not change witness reconstruction, effects or portable ownership as part of this bounded removal.
-
-Use existing physical/logical descriptor, raw contents, allocation lifetime, moved-source, cleanup and deferred controls
-as positive and negative oracles. The generic witness gap remains open. Reuse route validation for unchanged code.
-Expected production growth is below100 net lines. Reconsider rather than adding a parallel state store or a second
-classifier if a path cannot receive the common result. This prerequisite does not complete the full value graph.
-
-The classification is stored only in resolved Observed frames. All and planned Paths always report Unknown, so no
-meaningless promise is attached to an opaque frame. Atomic restriction happens inside resolved_observations before the
-operation classification is attached. Restriction preserves an existing classification. Valid selected memory calls
-receive dependency entries from dependency/check, including empty contracts. Contents takes precedence for intrinsic
-content changes. Actual source consumption still occurs at its existing checked move boundary.
-
-The completed batch passes mutating cargo xtask style,136 bound-tree tests and564 checker tests. All368 affected return,
-cleanup, deferred and buffer compositions pass in11.31s. Another36 raw-memory and owner-transport controls pass in18.79s,
-with3 existing tests ignored. The joint lib-test build took3m36s. observation-build-source.json records parent8be430cea
-plus diff153ae60022ec21ccc8d1aa37fe10e2045a3b4fab0d8135babf2f4da744be718a. Logs use observation-*-current.log.
-The generic graph oracle was not rerun for this classification-only batch. Native failures remain untouched.
-
-## Validation, storage and repository operation
-
-Use the shared Cargo target from .cargo/config.toml, target/cargo. Never clean shared outputs. Before builds,
-target/cargo/tooling measured232.83GiB and the drive had99GiB free. Keep one bounded current log per purpose in target/audit.
-No task-owned builds, tests, native workflows or agents are running. The next active boundary is the complete captured
-value graph, whose contract remains open above. The generic witness experiment remains uncommitted and red.
-
-Current unit executables are bray_checker-05848d70c4b314f7.exe and bray_compilation-4af58abd509cab18.exe under
- target/cargo/release/deps. Build checker and compilation together to retain feature reuse. snapshot-build-current.log
-is the latest corrected joint build. The full stored-value graph is not implemented yet.
-
-Run mutating cargo xtask style at completed Rust-batch finalization. Run cargo xtask format before the final handoff.
-Native LLVM/linker/executable workflows run outside the sandbox. The generic round-trip probe is a justified targeted
-experiment deciding the next design. Broader tests are deferred until its implementation batch is complete.
-
-The frozen comparison-baseline.json contains1718 identities. Four removed provider identities remain OPEN native-product
-replacements, never passes. comparison-run.py runs the remaining1714 with bounded subprocesses and source/binary hashes.
-It keeps8 workers,3 libtest threads, isolates known slow cases, then runs the attachment/admission tail separately.
-Do not change the frozen identities or counts. Do not use comparison-pending.json as current status.
+## Repository and review
 
 Issue https://linear.app/bray-lang/issue/BRA-694. Draft PR https://github.com/lejmer/bray/pull/717.
-Branch feature/bra-694-native-bootstrap-contracts. origin push is git@github.com:lejmer/bray.git. Verified public repo,
-owner lejmer, authenticated account lejmer with admin/push permission. SSH authenticated as lejmer. Push non-forced to
-that exact branch, already authorized by the user. Reuse trust evidence unless destination/auth changes.
-The retained review through4f767fbb2 has no findings at PR review5922465574. Current refactor is not ready for handoff.
-
-Before finishing the full task, re-read AGENTS.md, mechanically audit every changed behavior and equivalent repo paths,
-check architecture/visibility/DRY/size/contracts/errors/clones, run necessary tests and formatting, finish actual native
-products and the frozen comparison on the same candidate, update the PR description and complete required review.
+origin fetch/push is git@github.com:lejmer/bray.git. Verified public repository, owner lejmer, authenticated GitHub and SSH
+account lejmer, admin/push permission. Reuse evidence unless destination/auth changes. User already authorized exact
+non-forced push: git push origin HEAD:refs/heads/feature/bra-694-native-bootstrap-contracts. Git writes require escalation.
+PR title/body still describe older native framing and must be rewritten for final scope. The retained review through
+4f767fbb2 has no findings at review5922465574. Current code needs a fresh full PR review at finalization. The skill explicitly
+requires a reviewer subagent for that stage. No other subagents are authorized or running.

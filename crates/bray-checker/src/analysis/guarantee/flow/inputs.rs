@@ -29,7 +29,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             _ => unreachable!("implicit completion has a protocol invocation"),
         };
 
-        let (result, _) = self.complete_trusted_call(state, invocation, self.invocation_result_place(invocation).as_ref(), result, observations);
+        let result = self.complete_trusted_call(state, invocation, self.invocation_result_place(invocation).as_ref(), result, observations);
 
         if matches!(invocation, BoundExecutionSite::Iterate(_) | BoundExecutionSite::Next(_) | BoundExecutionSite::ScopedEnter(_)) {
             state.assign(
@@ -76,7 +76,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let value = if matches!(self.request.semantic_values().type_data(pointee).as_ref(), bray_symbols::TypeData::Borrow { .. }) {
             value
-        } else { value.into_referent() };
+        } else { value.argument_value(false) };
 
         if let Some(path) = path {
             self.observe_move(state, &path, pointee, &value);
@@ -308,16 +308,18 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         state: &ExecutionState,
         input: BoundExecutionSite,
     ) -> ExecutionCondition {
-        match input {
+        let value = match input {
             BoundExecutionSite::Node(bray_bound_tree::AnyBoundNodeId::Expression(expression)) => {
-                self.borrowed_value(state, expression)
+                self.value(state, expression)
             }
             BoundExecutionSite::CallInput { .. }
             | BoundExecutionSite::Iterate(_)
             | BoundExecutionSite::Next(_)
             | BoundExecutionSite::ScopedEnter(_) => self.invocation_value(state, input),
             _ => panic!("call input has an evaluated value site: {input:?}"),
-        }
+        };
+
+        self.refresh_captured_references(state, value, None)
     }
     pub(in crate::analysis::guarantee) fn staged_arguments(
         &self,
@@ -427,6 +429,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             self.call_trusted_assumptions(state, invocation, &arguments, &BTreeSet::new());
 
         ExecutionCallEvidence {
+            outputs: Default::default(),
             implementation_witnesses: match selection {
                 SemanticSelection::Call(call) => {
                     call.resolution().implementation_witnesses().into()

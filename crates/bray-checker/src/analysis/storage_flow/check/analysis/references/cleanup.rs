@@ -57,7 +57,7 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
             }
 
             let effects = crate::dependency::resolve_cleanup_effects(request, &[
-                bray_symbols::DependencyStorageEffect::Direct {
+                bray_symbols::DependencyStorageEffect::Direct { addressed: true,
                     subject: bray_symbols::DependencySubject::root(bray_symbols::DependencySubjectRoot::Receiver),
                     kind: bray_symbols::DependencyMutationKind::Dispose(ty), access_type: Some(ty),
                 },

@@ -7,6 +7,119 @@ use crate::analysis::storage_flow::model::StorageFlowState;
 use crate::CheckerRequestContext;
 
 impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
+    pub(super) fn start_frame_effects(
+        &self, memory: &crate::analysis::storage_flow::memory::State,
+        execution: &mut crate::analysis::guarantee::ExecutionState, invocation: BoundExecutionSite,
+    ) {
+        let Some(expression) = invocation.expression() else { return; };
+
+        let value = match self.request.view().expression(expression) {
+            Some(bray_bound_tree::BoundExpression::Await(awaited)) => self.execution.value(execution, awaited.operand()),
+            _ => {
+                let Some(value) = self.execution.started_future(execution, expression) else { return; };
+
+                value
+            }
+        };
+
+        let Some(frame) = value.deferred_value() else { return; };
+
+        let mut started = std::sync::Arc::clone(frame);
+        let proof = execution.ordinary_proof();
+
+        for (source, candidate) in &frame.producers {
+            if !crate::execution_guarantees::deferred_possible(&candidate.selection, &proof) { continue; }
+
+            let effects = if self.execution.is_task_observation(source.clone()) {
+                crate::ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(0)).value_in(&candidate.entry.arguments).and_then(|task| {
+                    let task = task.deferred_value()?;
+
+                    super::effects::task_effects(task.effects(&proof), task.cleanup_effects(false, &proof)?)
+                })
+            } else {
+                self.bind_frame_effects(memory, source, candidate)
+            };
+
+            if candidate.transition.as_deref().and_then(|transition| transition.transfer.deferred_effects.as_ref()) == effects.as_ref() {
+                continue;
+            }
+
+            let candidate = std::sync::Arc::make_mut(&mut started).producers.get_mut(source)
+                .expect("execution starts the selected frame");
+
+            let transition = candidate.transition.get_or_insert_with(|| std::sync::Arc::new(
+                bray_bound_tree::StorageDeferredTransition { output: None, transfer: Default::default() }
+            ));
+
+            std::sync::Arc::make_mut(transition).transfer.deferred_effects = effects;
+        }
+
+        if !std::sync::Arc::ptr_eq(&started, frame) {
+            execution.replace_deferred_value(frame, Some(started));
+        }
+    }
+
+    fn bind_frame_effects(
+        &self, memory: &crate::analysis::storage_flow::memory::State,
+        source: &crate::execution_guarantees::DeferredProducer,
+        candidate: &crate::execution_guarantees::ExecutionDeferredInvocation,
+    ) -> Option<crate::analysis::storage_flow::memory::EffectOutcomes> {
+        let summary;
+
+        let (templates, has_receiver) = if let Some(site) = source.local() {
+            let call = self.dependencies.calls().get(&site)?;
+
+            let receiver = site.expression().and_then(|expression| self.execution.semantics.selections().expression(expression))
+                .is_some_and(|selected| matches!(selected, bray_bound_tree::SemanticSelection::Call(call) if call.receiver().is_some()));
+
+            (call.deferred_effect_outcomes()?, receiver)
+        } else {
+            let callee = candidate.callee.as_deref()?;
+            let body = self.dependencies.frame_callees().get(callee)?;
+
+            summary = self.request.semantic_values().dependency_contract_template_data(body.summary);
+
+            (summary.effect_outcomes(), callee.has_receiver)
+        };
+
+        let effects = templates.try_flat_map(|effect| {
+            Ok::<_, std::convert::Infallible>(self.resolve_effects(std::slice::from_ref(effect), |slot| crate::analysis::storage_flow::memory::Source::Value(slot).mutation_targets(memory), |subject, indirect| {
+                if let Some(target) = self.static_location(subject) {
+                    return if indirect { crate::analysis::storage_flow::memory::Source::Value(target).mutation_targets(memory) }
+                        else { Some(vec![bray_bound_tree::StorageMutationTarget::bounded(target)]) };
+                }
+
+                let root = self.execution.entry_subject(&candidate.entry, subject.subject_root().input_ordinal(has_receiver)?,
+                    &bray_symbols::DependencySubject::root(subject.subject_root()))?;
+
+                let storage = root.inline_captured_storage()?;
+                let path = crate::storage::storage_projections(self.request.semantic_values(), self.dependencies, subject.projections())?;
+
+                if !bray_bound_tree::StoragePath::inline_projections(&path) { return None; }
+
+                if root.is_reference() && (!path.is_empty() || !indirect) {
+                    let targets = storage.mutation_targets()?;
+
+                    if !indirect { return Some(targets.into_iter().map(|target| target.project(&path)).collect()); }
+
+                    return targets.into_iter().try_fold(Vec::new(), |mut targets, target| {
+                        let slot = target.address?.project(&path);
+
+                        targets.extend(crate::analysis::storage_flow::memory::Source::Value(slot).mutation_targets(memory)?);
+
+                        Some(targets)
+                    });
+                }
+
+                if !indirect { return None; }
+
+                path.into_iter().fold(storage.clone(), |storage, projection| storage.project(projection)).mutation_targets()
+            }))
+        }).expect("unresolved frame effects retain conservative footprints");
+
+        Some(effects)
+    }
+
     pub(super) fn capture_deferred_cleanup(
         &self,
         state: &mut StorageFlowState,
@@ -27,7 +140,13 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         let captures = self.capture_opaque_effects(state, invocation, self.call_effects(state, invocation, captures), &roots, &private, &output);
 
-        let result = self.resolve_effects(result, |subject, indirect| {
+        let result = self.resolve_effects(result, |slot| {
+            if output.contains_storage(&slot) {
+                state.memory.staged_mutation_targets(invocation, &output, &slot)
+            } else {
+                crate::analysis::storage_flow::memory::Source::Value(slot).mutation_targets(&state.memory)
+            }
+        }, |subject, indirect| {
             let locations = if matches!(subject.subject_root(), DependencySubjectRoot::ProductStatic(_) | DependencySubjectRoot::ExactThreadStatic(_)) {
                 self.invocation_locations(state, invocation, subject)?
             } else {

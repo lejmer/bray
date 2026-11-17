@@ -4,7 +4,7 @@ use std::sync::{Arc, LazyLock};
 use super::ExecutionCondition;
 
 /// Shared evidence snapshots detach only when their established conditions change.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub(crate) struct ExecutionAssumptions(Arc<BTreeSet<(ExecutionCondition, bool)>>);
 
 impl Default for ExecutionAssumptions {

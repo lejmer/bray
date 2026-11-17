@@ -530,7 +530,7 @@ impl super::ValueInputs {
                 );
 
                 if template.template.requirements() != [expected]
-                    || !template.template.carriers().is_empty()
+                    || template.template.captured_values().iter().any(|row| !row.carriers.is_empty())
                 {
                     continue;
                 }

@@ -142,7 +142,10 @@ impl InterfaceSemantics {
             )?;
         }
 
-        for condition in result_dependencies.owned_result.conditions() {
+        self.validate_captured_execution(result_dependencies,
+            signature.parameters.len() + usize::from(signature.receiver.is_some()), surface)?;
+
+        for condition in result_dependencies.captured_values.iter().flat_map(|row| row.ownership.conditions()) {
             self.validate_execution_term(
                 *condition,
                 signature.parameters.len() + usize::from(signature.receiver.is_some()),
@@ -151,7 +154,7 @@ impl InterfaceSemantics {
             )?;
         }
 
-        for transfer in result_dependencies.owned_result.transfers() {
+        for transfer in result_dependencies.captured_values.iter().flat_map(|row| row.ownership.transfers()) {
             self.validate_owned_transfer(
                 transfer,
                 signature.parameters.len() + usize::from(signature.receiver.is_some()),
@@ -159,7 +162,7 @@ impl InterfaceSemantics {
             )?;
         }
 
-        for carrier in &*result_dependencies.carriers {
+        for carrier in result_dependencies.captured_values.iter().flat_map(|row| row.carriers.iter()) {
             self.validate_execution_term(
                 carrier.guarantee(),
                 signature.parameters.len() + usize::from(signature.receiver.is_some()),
@@ -189,7 +192,7 @@ impl InterfaceSemantics {
         let input_types = signature.receiver.iter().map(|receiver| receiver.ty)
             .chain(parameters.iter().map(|parameter| parameter.ty)).collect::<Vec<_>>();
 
-        for transfer in result_dependencies.owned_result.transfers() {
+        for transfer in result_dependencies.captured_values.iter().flat_map(|row| row.ownership.transfers()) {
             self.validate_owned_preservation(transfer, &input_types, surface)?;
         }
 

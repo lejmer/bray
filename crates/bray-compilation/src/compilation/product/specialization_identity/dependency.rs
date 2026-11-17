@@ -155,7 +155,7 @@ impl StructuralValueEncoder<'_, '_> {
             }
         }
 
-        self.dependency_owned_result(data.owned_result())?;
+        self.dependency_set(data.captured_values(), Self::dependency_captured_binding)?;
 
         self.digest
             .write_u8(u8::from(data.observed_result().is_some()));
@@ -166,7 +166,6 @@ impl StructuralValueEncoder<'_, '_> {
 
         self.dependency_set(data.stored_values(), Self::dependency_stored_value)?;
         self.dependency_set(data.borrows(), Self::dependency_borrow)?;
-        self.dependency_set(data.carriers(), Self::dependency_carrier)?;
 
         self.dependency_set(data.synchronous_cleanup(), Self::dependency_requirement)?;
 
@@ -200,6 +199,99 @@ impl StructuralValueEncoder<'_, '_> {
                 self.dependency_set(values, Self::dependency_owned_result)
             }
         }
+    }
+
+    pub(in crate::compilation) fn dependency_captured_binding(&mut self, binding: &bray_symbols::CapturedValueOutcome) -> Result<(), FactQueryError> {
+        self.dependency_owned_result(&binding.ownership)?;
+        self.dependency_set(&binding.carriers, Self::dependency_carrier)?;
+
+        match binding.guard {
+            Some(guard) => { self.tag(1); self.constant_term(guard)?; }
+            None => self.tag(0),
+        }
+
+        self.dependency_set(&binding.bindings, Self::dependency_captured_write)
+    }
+
+    pub(in crate::compilation) fn dependency_captured_write(&mut self,
+        (destination, value): &(bray_symbols::DependencySubject, bray_symbols::CapturedValueTemplate),
+    ) -> Result<(), FactQueryError> {
+        self.dependency_subject(destination)?;
+
+        self.dependency_captured_value(value)
+    }
+
+    fn dependency_captured_value(&mut self, value: &bray_symbols::CapturedValueTemplate) -> Result<(), FactQueryError> {
+        use bray_symbols::{CapturedValueOperation as Op, CapturedValueTemplate as Value};
+
+        match value {
+            Value::Input(input) => { self.tag(0); self.constant_term(*input)?; }
+            Value::Data(input) => { self.tag(4); self.constant_term(*input)?; }
+            Value::Static(root) => { self.tag(5); super::content::static_reference(self, root)?; }
+            Value::Deferred { alternatives, unknown } => {
+                self.tag(6);
+                self.tag(u8::from(*unknown));
+                self.length(alternatives.len());
+
+                for alternative in alternatives.iter() {
+                    self.tag(u8::from(alternative.guard.is_some()));
+
+                    if let Some(guard) = alternative.guard { self.constant_term(guard)?; }
+
+                    self.tag(u8::from(alternative.call.is_some()));
+
+                    if let Some(call) = &alternative.call {
+                        self.callable_instance(call.instance)?;
+                        self.ty(call.signature)?;
+                        self.tag(u8::from(call.has_receiver));
+                        self.tag(u8::from(call.requirement.is_some()));
+
+                        if let Some(r) = call.requirement {
+                            self.ty(r.subject())?;
+                            self.trait_application(r.trait_application())?;
+                        }
+
+                        self.tag(u8::from(call.dispatch.is_some()));
+                        if let Some(dispatch) = call.dispatch { self.implementation_instance(dispatch)?; }
+                        self.length(call.witnesses.len());
+
+                        for witness in &*call.witnesses { self.implementation_instance(*witness)?; }
+                    }
+
+                    self.length(alternative.captures.len());
+                    self.length(alternative.owned_inputs.len());
+
+                    for ordinal in alternative.owned_inputs.iter() { self.ordinal(*ordinal); }
+
+                    for value in alternative.captures.iter() { self.dependency_captured_value(value)?; }
+                }
+            }
+            Value::Unknown => self.tag(1),
+            Value::Operation(operation, values) => {
+                self.tag(2);
+
+                self.tag(match operation { Op::Select(_) => 0, Op::EmptyPrefix => 1, Op::Append => 2,
+                    Op::Last => 3, Op::Remainder => 4, Op::Read => 5, Op::Reference => 6, Op::Owned => 7, Op::Scalar => 8, Op::OwningStorage(_) => 9, Op::Add => 10, Op::Subtract => 11, Op::Inline => 12, Op::Present => 13 });
+
+                if let Op::Select(field) | Op::OwningStorage(field) = operation { self.dependency_projections(&[*field])?; }
+
+                self.length(values.len());
+
+                for value in values.iter() { self.dependency_captured_value(value)?; }
+            }
+            Value::Aggregate { base, fields } => {
+                self.tag(3);
+                self.dependency_captured_value(base)?;
+
+                self.dependency_set(fields, |encoder, (field, value)| {
+                    encoder.dependency_projections(&[*field])?;
+
+                    encoder.dependency_captured_value(value)
+                })?;
+            }
+        }
+
+        Ok(())
     }
 
     pub(in crate::compilation) fn dependency_stored_value(
@@ -329,20 +421,22 @@ impl StructuralValueEncoder<'_, '_> {
 
                 return Ok(());
             }
-            DependencyStorageEffect::Direct { subject, kind, access_type } => {
-                self.tag(1);
+            DependencyStorageEffect::Direct { addressed, subject, kind, access_type } => {
+                self.tag(if *addressed { 1 } else { 8 });
                 self.dependency_subject(subject)?;
 
                 (kind, access_type)
             }
-            DependencyStorageEffect::Indirect {
+            DependencyStorageEffect::Indirect { addressed, reads,
                 reference,
                 projections,
                 kind,
                 access_type,
             } => {
-                self.tag(2);
+                self.tag(if *addressed { 2 } else { 9 });
                 self.dependency_subject(reference)?;
+                self.length(reads.len());
+                for index in reads.iter() { self.ordinal(bray_symbols::SymbolOrdinal::new(*index)); }
                 self.dependency_projections(projections)?;
 
                 (kind, access_type)

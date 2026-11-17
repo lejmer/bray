@@ -14,14 +14,14 @@ pub(in crate::dependency) fn prepare_future_effects<C: CheckerRequestContext + ?
         .chain(call.receiver().map(bray_bound_tree::SelectedInput::Receiver));
 
     for input in inputs {
-        captures.extend(resolve_effects(request, &[Effect::Direct {
+        captures.extend(resolve_effects(request, &[Effect::Direct { addressed: true,
             subject: DependencySubject::root(input.root()), kind: Kind::Dispose(input.ty(request.semantic_values())), access_type: Some(input.ty(request.semantic_values())),
         }])?);
     }
 
     let ty = call.resolution().result().completion_type();
 
-    let result = resolve_effects(request, &[Effect::Direct {
+    let result = resolve_effects(request, &[Effect::Direct { addressed: true,
         subject: DependencySubject::root(DependencySubjectRoot::Result), kind: Kind::Dispose(ty), access_type: Some(ty),
     }])?;
 
@@ -62,7 +62,7 @@ pub(crate) fn cleanup_callees<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     types: impl IntoIterator<Item = TypeId>,
 ) -> Result<BTreeSet<bray_symbols::CallableSymbolId>, CheckerQueryError<C::UpstreamError>> {
-    let effects = types.into_iter().collect::<BTreeSet<_>>().into_iter().map(|ty| Effect::Direct {
+    let effects = types.into_iter().collect::<BTreeSet<_>>().into_iter().map(|ty| Effect::Direct { addressed: true,
         subject: DependencySubject::root(DependencySubjectRoot::Receiver),
         kind: Kind::Dispose(ty), access_type: Some(ty),
     }).collect::<Vec<_>>();
@@ -181,7 +181,7 @@ fn expand_region<C: CheckerRequestContext + ?Sized>(
 ) -> Result<(), CheckerQueryError<C::UpstreamError>> {
     // Expand the actual value layout once. Its receiver-relative projections
     // cannot be applied to a region that merely bounds possible cleanup effects.
-    let value = Effect::Direct {
+    let value = Effect::Direct { addressed: true,
         subject: DependencySubject::root(DependencySubjectRoot::Result),
         kind: Kind::Dispose(ty), access_type: Some(ty),
     };
@@ -198,8 +198,8 @@ fn expand_region<C: CheckerRequestContext + ?Sized>(
         };
 
         resolved.push(match kind {
-            Some(Kind::Dispose(ty)) => replace_kind(region, Kind::Cleanup(ty), None),
-            Some(kind) => replace_kind(region, kind, None),
+            Some(Kind::Dispose(ty)) => replace_kind(region, Kind::Cleanup(ty), None).into_region(),
+            Some(kind) => replace_kind(region, kind, None).into_region(),
             None => effect,
         });
     }
@@ -218,20 +218,8 @@ fn append_part<C: CheckerRequestContext + ?Sized>(
     if let Some(fields) = crate::representation::raw_buffer_fields(request, ty)? {
         let pointer = [Projection::ProductField(fields.pointer)];
 
-        let backing = match scope {
-            Effect::Direct { subject, .. } => Effect::Indirect {
-                reference: DependencySubject::new(subject.subject_root(), subject.projections().iter().copied().chain(pointer)),
-                projections: [].into(), access_type: None, kind: Kind::Retire,
-            },
-            _ => unbounded_scope(scope, Kind::Retire, None),
-        };
-
-        let elements = if matches!(scope, Effect::Direct { .. }) {
-            project(scope, &[Projection::OwnedTarget, Projection::AnyElement], Kind::Dispose(fields.element), Some(fields.element))
-        } else {
-            // A region bound does not locate the element descriptors within it.
-            replace_kind(&backing, Kind::Cleanup(fields.element), None)
-        };
+        let backing = follow(scope, &pointer, Kind::Retire, None);
+        let elements = project(&backing, &[Projection::AnyElement], Kind::Dispose(fields.element), Some(fields.element));
 
         effects.push(elements);
         effects.push(backing);
@@ -271,20 +259,30 @@ fn append_call<E>(
     let selected = resolve(callable)?;
 
     effects.extend(selected.iter().map(|effect| match effect {
-        Effect::Direct { subject, kind, access_type } if cleanup_receiver(subject.subject_root()) => {
-            project(scope, subject.projections(), *kind, *access_type)
+        Effect::Direct { addressed, subject, kind, access_type } if cleanup_receiver(subject.subject_root()) => {
+            let projected = project(scope, subject.projections(), *kind, *access_type);
+
+            if *addressed { projected } else { projected.into_region() }
         }
-        Effect::Indirect { reference, projections, kind, access_type } if cleanup_receiver(reference.subject_root()) => {
-            if reference.projections().is_empty() {
-                project(scope, projections, *kind, *access_type)
-            } else if let Effect::Direct { subject, .. } = scope {
-                Effect::Indirect {
-                    reference: DependencySubject::new(subject.subject_root(), subject.projections().iter().copied().chain(reference.projections().iter().copied())),
-                    projections: std::sync::Arc::clone(projections), kind: *kind, access_type: *access_type,
-                }
+        Effect::Indirect { addressed, reference, reads, projections, kind, access_type } if cleanup_receiver(reference.subject_root()) => {
+            // A selected lifecycle receives the addressed object as its receiver.
+            // Reading a field of that object is an additional descriptor load.
+            let mut target = if reference.projections().is_empty() {
+                scope.clone()
             } else {
-                unbounded_scope(scope, *kind, *access_type)
+                follow(scope, reference.projections(), *kind, *access_type)
+            };
+
+            let mut start = 0;
+
+            for end in reads.iter().map(|read| *read as usize) {
+                target = follow(&target, &projections[start..end], *kind, *access_type);
+                start = end;
             }
+
+            let target = project(&target, &projections[start..], *kind, *access_type);
+
+            if *addressed { target } else { target.into_region() }
         }
         // A selected destructor cannot retain its own terminal receiver address.
         // Unknown effects keep the supplied receiver scope instead of exposing it.
@@ -313,13 +311,28 @@ fn unbounded_scope(scope: &Effect, kind: Kind, access_type: Option<TypeId>) -> E
     }
 }
 
+fn follow(scope: &Effect, fields: &[Projection], kind: Kind, access_type: Option<TypeId>) -> Effect {
+    match project(scope, fields, kind, access_type) {
+        Effect::Direct { addressed: true, subject, .. } => Effect::Indirect {
+            reference: subject, reads: [].into(), projections: [].into(), addressed: true, kind, access_type,
+        },
+        Effect::Indirect { addressed: true, reference, reads, projections, .. } => {
+            let index = u32::try_from(projections.len()).expect("checked effect path fits the interface projection count");
+
+            Effect::Indirect { addressed: true, reference, reads: reads.iter().copied().chain([index]).collect(),
+                projections, kind, access_type }
+        }
+        _ => unbounded_scope(scope, kind.region_kind(), access_type),
+    }
+}
+
 fn project(scope: &Effect, suffix: &[Projection], kind: Kind, access_type: Option<TypeId>) -> Effect {
     match scope {
-        Effect::Direct { subject, .. } => Effect::Direct {
+        Effect::Direct { subject, addressed, .. } => Effect::Direct { addressed: *addressed,
             subject: DependencySubject::new(subject.subject_root(), subject.projections().iter().copied().chain(suffix.iter().copied())),
             kind, access_type,
         },
-        Effect::Indirect { reference, projections, .. } => Effect::Indirect {
+        Effect::Indirect { reference, reads, projections, addressed, .. } => Effect::Indirect { addressed: *addressed, reads: std::sync::Arc::clone(reads),
             reference: reference.clone(),
             projections: projections.iter().copied().chain(suffix.iter().copied()).collect(), kind, access_type,
         },
