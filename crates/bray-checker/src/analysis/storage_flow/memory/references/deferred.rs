@@ -3,7 +3,8 @@ use std::sync::Arc;
 
 use bray_bound_tree::{BoundExecutionSite, StoragePath};
 
-use super::super::model::{Effect, Origin, Retirement, State, Target, Transfer};
+use super::super::model::{Origin, Retirement, State, Target, Transfer};
+use super::super::Effect;
 use super::Source;
 use super::slots::storage_subtree;
 
@@ -169,7 +170,7 @@ impl State {
             .expect("deferred cleanup is captured with its prepared value transition");
 
         let result = result.into_iter().flat_map(|effect| {
-            let Effect::Mutation(target, kind, access_type) = &effect
+            let Effect::Mutation { footprint: target, kind, access_type, .. } = &effect
             else {
                 return vec![effect];
             };
@@ -187,7 +188,7 @@ impl State {
             // effects retain physical inputs and independent ambient storage.
             let (origins, unbounded) = Self::effect_origins_from(target, Some(bounds));
 
-            let mut effects = origins.cloned().map(|origin| Effect::Mutation(origin, *kind, *access_type))
+            let mut effects = origins.cloned().map(|origin| Effect::bounded(origin, *kind, *access_type))
                 .collect::<Vec<_>>();
 
             if unbounded {
@@ -354,11 +355,8 @@ impl Transfer {
                     .any(|target| retirement.contains(current, target))
             })
             || self.deferred_effects.iter().flat_map(|effects| effects.possible())
-                .chain([&self.captured_cleanup, &self.result_cleanup].into_iter().flatten().flatten()).any(|effect| {
-                effect
-                    .mutation()
-                    .is_some_and(|(target, _)| retirement.contains(current, target))
-            })
+                .chain([&self.captured_cleanup, &self.result_cleanup].into_iter().flatten().flatten())
+                .any(|effect| effect.references(current, retirement))
             || self
                 .failure_effects
                 .as_ref()

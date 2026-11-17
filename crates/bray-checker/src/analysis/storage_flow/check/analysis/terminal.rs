@@ -169,10 +169,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         // Unknown writes and opaque cleanup still need a reachability proof.
         let relevant = effects.is_none_or(|effects| {
             effects.iter().any(|effect| match effect {
-                Effect::Mutation(_, DependencyMutationKind::Replace(ty), _) | Effect::UnboundedMutation { kind: DependencyMutationKind::Replace(ty), .. } => {
+                Effect::Mutation { kind: DependencyMutationKind::Replace(ty), .. } | Effect::UnboundedMutation { kind: DependencyMutationKind::Replace(ty), .. } => {
                     self.input.graceful_types.contains(ty)
                 }
-                Effect::Mutation(_, DependencyMutationKind::Write | DependencyMutationKind::Escape | DependencyMutationKind::Dispose(_) | DependencyMutationKind::Cleanup(_), _)
+                Effect::Mutation { kind: DependencyMutationKind::Write | DependencyMutationKind::Escape | DependencyMutationKind::Dispose(_) | DependencyMutationKind::Cleanup(_), .. }
                 | Effect::UnboundedMutation { kind: DependencyMutationKind::Write | DependencyMutationKind::Escape | DependencyMutationKind::Dispose(_) | DependencyMutationKind::Cleanup(_), .. }
                 | Effect::Escape
                 | Effect::Unknown
@@ -212,7 +212,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             .into_iter()
             .flatten()
             .find_map(|effect| match effect {
-                Effect::Mutation(target, DependencyMutationKind::Replace(ty), _)
+                Effect::Mutation { footprint: target, kind: DependencyMutationKind::Replace(ty), .. }
                     if self.input.graceful_types.contains(ty) && overlaps(target) =>
                 {
                     Some(*ty)
@@ -243,7 +243,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let (reached, unknown_inputs) = memory.reachable_regions(roots.into_iter().filter(|_| inputs));
 
         let unproved = effects.into_iter().flatten().any(|effect| {
-            matches!(effect, Effect::Mutation(target, DependencyMutationKind::Write | DependencyMutationKind::Escape | DependencyMutationKind::Dispose(_) | DependencyMutationKind::Cleanup(_), _) if overlaps(target))
+            matches!(effect, Effect::Mutation { footprint: target, kind: DependencyMutationKind::Write | DependencyMutationKind::Escape | DependencyMutationKind::Dispose(_) | DependencyMutationKind::Cleanup(_), .. } if overlaps(target))
         }) || opaque && (unknown || reached.iter().any(overlaps)
             || unknown_inputs && protected.iter().any(|part| memory.unknown_reference_may_reach(part))
             || unbounded_overlap && effects.into_iter().flatten().any(|effect| matches!(effect, Effect::UnboundedMutation { .. })));

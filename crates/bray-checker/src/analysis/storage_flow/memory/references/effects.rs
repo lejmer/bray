@@ -1,4 +1,5 @@
-use super::super::model::{Effect, Origin, Place, AddressValue, State, Target};
+use super::super::model::{Origin, Place, AddressValue, State, Target};
+use super::super::Effect;
 use bray_bound_tree::StorageInvalidation;
 use bray_symbols::DependencyMutationKind;
 
@@ -43,7 +44,7 @@ impl State {
 
         // The target is the disposed value, not each differently typed referent.
         // Consumers follow its stored references while the value is still live.
-        vec![Effect::Mutation(receiver.clone(), kind, Some(ty))]
+        vec![Effect::at(receiver.clone(), kind, Some(ty))]
     }
 
     /// Normal ambient effects share external roots and this call's escaped inputs.
@@ -52,7 +53,7 @@ impl State {
         if effects.contains(&Effect::Escape) { return None; }
 
         let escaped = effects.iter().filter_map(|effect| match effect {
-            Effect::Mutation(target, DependencyMutationKind::Escape, _) => Some(target.clone()),
+            Effect::Mutation { footprint: target, kind: DependencyMutationKind::Escape, .. } => Some(target.clone()),
             _ => None,
         });
 
@@ -76,8 +77,8 @@ impl State {
 
         for effect in effects {
             match effect {
-                Effect::Escape | Effect::Mutation(_, DependencyMutationKind::Escape, _) => {}
-                Effect::Mutation(target, DependencyMutationKind::Dispose(_) | DependencyMutationKind::Cleanup(_), _) => {
+                Effect::Escape | Effect::Mutation { kind: DependencyMutationKind::Escape, .. } => {}
+                Effect::Mutation { footprint: target, kind: DependencyMutationKind::Dispose(_) | DependencyMutationKind::Cleanup(_), .. } => {
                     let (mut targets, unknown) = self.transitive_regions([target.clone()], |_, _| true);
 
                     self.include_unknown_targets(&mut targets, unknown);
@@ -88,8 +89,9 @@ impl State {
                         self.invalidate_target(&target, DependencyMutationKind::Retire, invalidation, false);
                     }
                 }
-                Effect::Mutation(target, kind, access_type) => {
-                    self.invalidate_target(target, *kind, invalidation, access_type.is_none())
+                Effect::Mutation { address, footprint: target, kind, access_type } => {
+                    self.invalidate_target(target, *kind, invalidation,
+                        access_type.is_none() && address.as_ref() == Some(target))
                 }
                 Effect::UnboundedMutation { kind, ambient: false, .. } => {
                     self.invalidate(invalidation, storage, *kind);

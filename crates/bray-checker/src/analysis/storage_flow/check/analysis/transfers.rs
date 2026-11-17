@@ -54,12 +54,12 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             let ty = self.storage.access(plan.access()).expect("a checked move retains its type").reached_type();
             let targets = self.input.reference_targets(self.request.semantic_values(), &state.memory, self.storage, plan.access())?;
 
-            effects.extend(targets.into_iter().map(|target| Effect::Mutation(target, Mutation::Consume, Some(ty))));
+            effects.extend(targets.into_iter().map(|target| Effect::at(target, Mutation::Consume, Some(ty))));
         }
 
         if let Some(phase) = kind.value_consumption_phase() {
             effects.extend(self.storage.value_retirements(kind.occurrence(), phase).map(|path| {
-                Effect::Mutation(Target::storage(path.clone()), Mutation::Consume, self.storage.storage_type(path.root))
+                Effect::at(Target::storage(path.clone()), Mutation::Consume, self.storage.storage_type(path.root))
             }));
         }
 
@@ -95,20 +95,20 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         for effect in effects.unwrap_or(&unknown) {
             let raw = raw_operation || match effect {
-                Effect::Mutation(_, _, Some(ty)) | Effect::UnboundedMutation { access_type: Some(ty), .. } => crate::representation::reference_kind(self.request, *ty)
+                Effect::Mutation { access_type: Some(ty), .. } | Effect::UnboundedMutation { access_type: Some(ty), .. } => crate::representation::reference_kind(self.request, *ty)
                     == Some(bray_symbols::DependencyReferenceKind::Address),
                 _ => false,
             };
 
             let ty = match effect {
-                Effect::Escape | Effect::Atomic | Effect::Mutation(_, Mutation::Escape | Mutation::Atomic, _)
+                Effect::Escape | Effect::Atomic | Effect::Mutation { kind: Mutation::Escape | Mutation::Atomic, .. }
                 | Effect::UnboundedMutation { kind: Mutation::Escape | Mutation::Atomic, .. } => continue,
-                Effect::Mutation(_, Mutation::Replace(ty), _) | Effect::UnboundedMutation { kind: Mutation::Replace(ty), .. } => Some(*ty),
-                Effect::Mutation(_, Mutation::Write | Mutation::Consume | Mutation::Clear, Some(ty))
+                Effect::Mutation { kind: Mutation::Replace(ty), .. } | Effect::UnboundedMutation { kind: Mutation::Replace(ty), .. } => Some(*ty),
+                Effect::Mutation { kind: Mutation::Write | Mutation::Consume | Mutation::Clear, access_type: Some(ty), .. }
                 | Effect::UnboundedMutation { kind: Mutation::Write | Mutation::Consume | Mutation::Clear, access_type: Some(ty), .. } if raw => {
                     crate::representation::reference_target_type(self.request, *ty)
                 }
-                Effect::Mutation(target, Mutation::Write | Mutation::Consume | Mutation::Clear, _) => {
+                Effect::Mutation { address: Some(target), kind: Mutation::Write | Mutation::Consume | Mutation::Clear, .. } => {
                     if let Some(ty) = typed_transfer { Some(ty) } else {
                         match memory.projected_type(self.request, target) {
                             Ok(ty) => ty,
@@ -148,7 +148,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                         // A typed move can retire only the nominal carriers it moves.
                         // Scalar fields alone provide no such ownership bound. Writes
                         // still change data through aliases of different nominal types.
-                        let moving = matches!(effect, Effect::Mutation(_, Mutation::Consume, _)
+                        let moving = matches!(effect, Effect::Mutation { kind: Mutation::Consume, .. }
                             | Effect::UnboundedMutation { kind: Mutation::Consume, .. });
 
                         !moving || !raw || transfers_owner(owner, *ty)
@@ -162,7 +162,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 if !transports { return true; }
 
                 let retained = match effect {
-                    Effect::Mutation(reached, _, _) => memory.target_relationship(reached, target) == StorageRelationship::Disjoint,
+                    Effect::Mutation { footprint: reached, .. } => memory.target_relationship(reached, target) == StorageRelationship::Disjoint,
                     Effect::UnboundedMutation { ambient: true, .. } | Effect::Ambient => ambient.as_ref()
                         .is_some_and(|(regions, unknown)| {
                             (!*unknown || !memory.unknown_reference_may_reach(target))

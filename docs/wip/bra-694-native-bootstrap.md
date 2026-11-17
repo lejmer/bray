@@ -24,7 +24,7 @@ BRA-695 execution and BRA-696 shutdown remain separate. No new issues or subagen
 
 ## Pushed checkpoints and current evidence
 
-The route checkpoint8be430cea is pushed. The validated observation-classification checkpoint follows it.
+The route checkpoint8be430cea and observation checkpoint338483c04 are pushed. The captured-effect checkpoint follows them.
 Earlier checkpoint551d12bb1 replaces References/StoredValue with AddressValue/ValueBinding,
 separates actual addresses from carried bounds, preserves nullable empty alternatives and distinct NoPayload, removes
 staged clone/merge/restore reconciliation and transports inactive slots through source/import/lifecycle/deferred code.
@@ -62,7 +62,7 @@ The active experiment extends raw_buffer_reachability_preserves_reference_bearin
 compilation/export/build/tests/standard_library.rs. A witnessed Owner goes through generic store<T>, a buffer move,
 restore<T>/pop and normal cleanup, then inspect. Source and imported callers must retain the witness and lower.
 The fabricated-owner counterpart must remain unproved. The existing reference-bearing escape cases stay unchanged.
-This is a shared composition oracle, not a new fixture for a helper. Test code and this record are uncommitted.
+This is a shared composition oracle, not a new fixture for a helper. The red test extension remains uncommitted.
 
 Probe b27260893 plus that test builds in2m48s and fails in8.47s only at inspect for the witnessed source and imported
 callers. Provider bodies and both fabricated-owner controls pass. Positive lowering is unverified because checking
@@ -114,7 +114,59 @@ Authoritative producers and consumers traced so far:
   prefix needs actual value transfers, not promotion of its AnyElement may-dependencies into equality or ownership.
 
 The complete value graph contract remains open. The typed storage route prerequisite is now complete.
-Do not add a buffer-only value registry or infer owning edges from bounds. Capture data and its carried graph together.
+Normal exits currently collect physical output bindings. Abnormal exits collect report dependencies and accumulated
+effects, without publishing normal output bindings. The graph migration must add observable abnormal storage bindings
+at those actual exit states. Return reconstruction also uses type observations to exclude protected and reached data.
+Deleting that inventory requires capturing those roles with the actual value first. Do not merely preserve its entire
+entry expression. Do not add a buffer-only value registry or infer owning edges from bounds.
+
+## Captured effect operand boundary
+
+Every resolved mutation retains its actual evaluated address separately from its conservative footprint. A direct
+checked location provides its location. A pointer effect captures the actual descriptor from the incoming ValueBinding
+or borrow capability. Possible generic sources, displacement and unknown references provide bounds only. Projection
+applies to both the captured address and footprint without rereading the descriptor. No address or footprint grants
+permission or allocation freshness. A layout-specific Dispose without an actual address becomes Cleanup of the same
+type over that bound. Typed access metadata stays attached in either case.
+
+The producers are call_effects, lifecycle_effects, buffer cleanup, deferred result cleanup and checked intrinsic effects.
+They all use resolve_effects and the same captured operand construction. Calls capture before admission consumption.
+Cleanup captures its current receiver. Deferred cleanup retains its already captured operand, and any expansion of a
+symbolic result to possible inputs loses actual-address identity. Failure effects retain the same captured mutations.
+Retirement updates both actual operands and footprints to the previous incarnation. Observation invalidation, escape,
+terminal checking and possible effect publication use footprints. Layout and complete-cell reasoning uses actual
+addresses only. Source summaries retain entry-reference origins when actual pointer values survive slot replacement.
+
+Remove resolve_effects callbacks returning unqualified target vectors and all indirect effects built from regions alone.
+Reuse AddressValue knowledge and existing typed routes. Keep one resolved mutation representation, with no alternate
+effect engine or new solver. Expected growth is below200 net production lines. Reconsider if bounds need promotion to
+actual values, or if this requires another state store. The complete opaque-value graph remains the next open contract.
+
+Extend the existing captured-failure and deferred-frame tests to assert saved descriptor stability and bound-only
+layout rejection. Existing source/imported raw-memory, owner transport, returned/deferred/cleanup compositions are the
+joint controls. Preserve the red generic oracle and frozen1714 identities. Native checking and repairs remain deferred.
+
+The completed implementation uses MutationTarget during binding and Effect::Mutation with distinct address and footprint
+fields. Callbacks no longer return unqualified regions. Direct locations, actual reference descriptors and bounds have
+explicit constructors. Unknown or displaced descriptors cannot provide an actual address. A bound-only Dispose becomes
+Cleanup while preserving its checked type. Complete-cell initialization and backing layout publication require an actual
+address. Buffer owner and backing operands are captured together. A bound-only owner cannot upgrade a backing lookup.
+Retirement scans and updates both fields, including failure and deferred frames. Possible-region expansion of pending
+result cleanup retains no actual-address claim. The new effect module owns this logic and replaces its old model block.
+
+This adds115 net production lines and34 test lines. Mutating cargo xtask style passes. The joint checker/compilation
+lib-test build passes in3m24s. All564 checker tests pass,368 return/deferred/cleanup/buffer compositions pass in12.62s,
+and36 raw-memory/owner controls pass in20.68s with3 existing ignored tests. address-build-source.json records parent338483c04,
+diffc6160dd48b3906db1faecebfcf883c089d5948207fd9aa61c134858b879fccd8 and the new effect module's separate hash
+50de08bef7dfeda000a3c8869adcc0274e2896bc8239ec99c0e654f84e5d39cb. The source fingerprint was unchanged after validation.
+Logs use address-*-current.log. A final style pass and commit audit remove one trailing blank line from the new module.
+That formatting-only change reuses the behavioral evidence. The generic red oracle and frozen comparison were not
+rerun. No native retry occurred.
+
+This boundary preserves known evaluated address identities. An unknown pointer still has only explicit conservative
+bounds here. The full value graph must retain its producing value identity too. Buffer relocation's existing physical
+staging still uses the selected footprint under its descriptor-exactness check. Replace that path with the actual stored
+prefix binding during the graph migration, rather than treating a possible region as a value transfer.
 
 ## Completed typed route boundary
 

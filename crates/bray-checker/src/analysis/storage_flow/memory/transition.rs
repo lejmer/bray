@@ -12,7 +12,7 @@ impl State {
         effects: &[super::Effect],
     ) {
         for effect in effects {
-            if let super::Effect::Mutation(target, bray_symbols::DependencyMutationKind::Replace(ty), _) = effect
+            if let super::Effect::Mutation { address: Some(target), kind: bray_symbols::DependencyMutationKind::Replace(ty), .. } = effect
                 && target
                     .projections()
                     .contains(&bray_bound_tree::StorageProjection::OwnedTarget)

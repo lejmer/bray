@@ -1,3 +1,4 @@
+mod effect;
 mod model;
 mod references;
 mod transition;
@@ -7,7 +8,8 @@ mod value;
 mod tests;
 
 pub(super) use model::{
-    CapturedEffects, Effect, EffectOutcomes, Origin, Place, ReferenceBounds, ReferenceExit, ReferenceExitValue, State, Target,
+    EffectOutcomes, Origin, Place, ReferenceBounds, ReferenceExit, ReferenceExitValue, State, Target,
 };
 
+pub(super) use effect::{CapturedEffects, Effect, MutationTarget};
 pub(super) use references::Source;

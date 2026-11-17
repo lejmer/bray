@@ -478,7 +478,7 @@ impl State {
     pub(in crate::analysis::storage_flow) fn capture_failure_effects(
         &mut self,
         call: bray_bound_tree::BoundExecutionSite,
-        effects: super::super::model::CapturedEffects,
+        effects: super::super::CapturedEffects,
     ) {
         self.pending.entry(call).or_default().failure_effects = Some(std::sync::Arc::new(effects));
     }
@@ -486,7 +486,7 @@ impl State {
     pub(in crate::analysis::storage_flow) fn take_failure_effects(
         &mut self,
         call: bray_bound_tree::BoundExecutionSite,
-    ) -> Option<std::sync::Arc<super::super::model::CapturedEffects>> {
+    ) -> Option<std::sync::Arc<super::super::CapturedEffects>> {
         self.pending.get_mut(&call)?.failure_effects.take()
     }
 
@@ -577,15 +577,15 @@ impl State {
         );
     }
 
-    fn owned_references(
+    fn owned_value(
         &self,
         owner: &Target,
         pointer: bray_bound_tree::StorageProjection,
-    ) -> Option<&AddressValue> {
+    ) -> Option<&ValueBinding> {
         self.values
             .get(&owner.project(&[pointer]))
-            .and_then(|value| value.reference())
-            .or_else(|| self.values.get(owner).and_then(|value| value.reference()).filter(|references| !references.is_unknown()))
+            .filter(|value| value.reference().is_some())
+            .or_else(|| self.values.get(owner).filter(|value| value.reference().is_some_and(|references| !references.is_unknown())))
     }
 
     pub(in crate::analysis::storage_flow) fn stage_owned_buffer_reference(
@@ -642,7 +642,21 @@ impl State {
         owner: &Target,
         pointer: bray_bound_tree::StorageProjection,
     ) -> Option<Vec<Target>> {
-        self.owned_references(owner, pointer)?.regions()
+        self.owned_value(owner, pointer)?.reference()?.regions()
+    }
+
+    pub(in crate::analysis::storage_flow) fn owned_mutation_targets(
+        &self,
+        owner: &super::super::MutationTarget,
+        pointer: bray_bound_tree::StorageProjection,
+    ) -> Option<Vec<super::super::MutationTarget>> {
+        let mut targets = self.owned_value(owner.footprint(), pointer)?.mutation_targets()?;
+
+        if owner.address.is_none() {
+            for target in &mut targets { target.address = None; }
+        }
+
+        Some(targets)
     }
 
     pub(in crate::analysis::storage_flow) fn owned_region(
@@ -658,7 +672,7 @@ impl State {
         if inexact { references.bound(); }
 
         for owner in owners {
-            if let Some(owned) = self.owned_references(owner, pointer) {
+            if let Some(owned) = self.owned_value(owner, pointer).and_then(ValueBinding::reference) {
                 references.merge(owned);
             } else {
                 references.forget_value();

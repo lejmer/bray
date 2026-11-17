@@ -41,15 +41,15 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             if indirect {
                 locations.into_iter().try_fold(Vec::new(), |mut targets, location| {
                     targets.extend(if subject.subject_root() == DependencySubjectRoot::Result {
-                        state.memory.staged_reference_regions(invocation, &output, &location)?
+                        state.memory.staged_mutation_targets(invocation, &output, &location)?
                     } else {
-                        state.memory.referenced_regions(&location)?
+                        crate::analysis::storage_flow::memory::Source::Value(location).mutation_targets(&state.memory)?
                     });
 
                     Some(targets)
                 })
             } else {
-                Some(locations)
+                Some(locations.into_iter().map(crate::analysis::storage_flow::memory::MutationTarget::location).collect())
             }
         });
 
@@ -71,7 +71,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         for effect in effects {
             match effect {
-                Effect::Mutation(target, Kind::Dispose(ty), _) => {
+                Effect::Mutation { footprint: target, kind: Kind::Dispose(ty), .. } => {
                     let (mut regions, unknown) = if output.contains_storage(&target) {
                         state.memory.staged_contained_regions(invocation, &target)
                     } else {
@@ -98,13 +98,13 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
                     // Region bounds identify captured referents. They do not claim
                     // that each referent has the disposed value's type or layout.
-                    captured.extend(regions.into_iter().map(|region| Effect::Mutation(region, Kind::Cleanup(ty), None)));
+                    captured.extend(regions.into_iter().map(|region| Effect::bounded(region, Kind::Cleanup(ty), None)));
                     captured.push(Effect::UnboundedMutation { kind: Kind::Dispose(ty), access_type: None, ambient: true });
                 }
                 Effect::Unknown | Effect::Escape => {
                     let kind = if effect == Effect::Escape { Kind::Escape } else { Kind::Write };
 
-                    captured.extend(captures.iter().cloned().map(|target| Effect::Mutation(target, kind, None)));
+                    captured.extend(captures.iter().cloned().map(|target| Effect::bounded(target, kind, None)));
                     captured.push(Effect::Ambient);
                 }
                 effect => captured.push(effect),

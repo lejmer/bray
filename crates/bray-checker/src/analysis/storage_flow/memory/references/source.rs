@@ -40,6 +40,20 @@ impl Source {
         }
     }
 
+    pub(in crate::analysis::storage_flow) fn mutation_targets(
+        &self,
+        state: &State,
+    ) -> Option<Vec<super::super::effect::MutationTarget>> {
+        match self {
+            Self::Value(source) => state.values.get(source)?.mutation_targets(),
+            Self::Borrow(capability) => {
+                let address = state.borrows.get(capability)?;
+
+                Some(super::super::effect::MutationTarget::reference(Some(address), address.regions()?))
+            }
+        }
+    }
+
     pub(in crate::analysis::storage_flow) fn transfer(self, state: &mut State, destination: Place) {
         match self {
             Self::Value(source) => state.transfer_value(&source, destination),

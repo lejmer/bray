@@ -117,10 +117,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 };
 
                 let kind = bray_symbols::DependencyMutationKind::Retire;
-                let targets = self.deallocation_source(state, operation).and_then(|source| source.regions(&state.memory));
+                let targets = self.deallocation_source(state, operation).and_then(|source| source.mutation_targets(&state.memory));
 
                 return Some(match targets {
-                    Some(targets) => targets.into_iter().map(|target| Effect::Mutation(target, kind, Some(ty))).collect(),
+                    Some(targets) => targets.into_iter().map(|target| Effect::through(target, kind, Some(ty))).collect(),
                     None => vec![Effect::unbounded(kind, Some(ty), false)],
                 });
             }
@@ -150,7 +150,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 targets
                     .into_iter()
                     .map(|target| {
-                        Effect::Mutation(target, bray_symbols::DependencyMutationKind::Atomic, None)
+                        Effect::at(target, bray_symbols::DependencyMutationKind::Atomic, None)
                     })
                     .collect(),
             );
@@ -176,13 +176,13 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             .expression(argument).expect("checked memory access retains its argument type").ty());
 
         let targets = if protected {
-            self.memory_uninit_target(state, operation, argument).map(|target| vec![target])
+            self.memory_uninit_target(state, operation, argument).map(|target| vec![crate::analysis::storage_flow::memory::MutationTarget::location(target)])
         } else {
-            self.memory_argument_reference(state, operation, argument).and_then(|source| source.regions(&state.memory))
+            self.memory_argument_reference(state, operation, argument).and_then(|source| source.mutation_targets(&state.memory))
         };
 
         Some(match targets {
-            Some(targets) => targets.into_iter().map(|target| Effect::Mutation(target, kind, access_type)).collect(),
+            Some(targets) => targets.into_iter().map(|target| Effect::through(target, kind, access_type)).collect(),
             None => vec![Effect::unbounded(kind, access_type, false)],
         })
     }

@@ -478,22 +478,20 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 )
             {
                 self.invocation_reference(state, occurrence, subject.subject_root())?
-                    .regions(&state.memory)
+                    .mutation_targets(&state.memory)
             } else {
                 let locations = self.invocation_locations(state, occurrence, subject)?;
 
                 if indirect {
                     locations
-                        .iter()
+                        .into_iter()
                         .try_fold(Vec::new(), |mut targets, location| {
-                            let regions = state.memory.referenced_regions(location);
-
-                            targets.extend(regions?);
+                            targets.extend(crate::analysis::storage_flow::memory::Source::Value(location).mutation_targets(&state.memory)?);
 
                             Some(targets)
                         })
                 } else {
-                    Some(locations)
+                    Some(locations.into_iter().map(crate::analysis::storage_flow::memory::MutationTarget::location).collect())
                 }
             }
         })
@@ -513,7 +511,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     pub(super) fn resolve_effects(
         &self,
         effects: &[DependencyStorageEffect],
-        mut resolve: impl FnMut(&DependencySubject, bool) -> Option<Vec<Target>>,
+        mut resolve: impl FnMut(&DependencySubject, bool) -> Option<Vec<crate::analysis::storage_flow::memory::MutationTarget>>,
     ) -> Vec<Effect> {
         let mut resolved = Vec::new();
 
@@ -584,7 +582,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             };
 
             for target in targets {
-                resolved.push(Effect::Mutation(target.project(&suffix), kind, access_type));
+                resolved.push(Effect::through(target.project(&suffix), kind, access_type));
             }
         }
 
@@ -606,8 +604,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         for effect in effects {
             match effect {
-                Effect::Escape | Effect::Mutation(_, DependencyMutationKind::Escape, _) => {}
-                Effect::Mutation(target, kind, access_type) => {
+                Effect::Escape | Effect::Mutation { kind: DependencyMutationKind::Escape, .. } => {}
+                Effect::Mutation { footprint: target, kind, access_type, .. } => {
                     self.record_target_effect(memory, target, *kind, *access_type, normal_effects)
                 }
                 Effect::UnboundedMutation { kind, access_type, ambient } => {

@@ -885,7 +885,7 @@ where
                 .as_ref()
                 .zip(assignment_mutation)
                 .map(|(targets, kind)| {
-                    targets.iter().map(|target| crate::analysis::storage_flow::memory::Effect::Mutation(target.clone(), kind, None)).collect::<Vec<_>>()
+                    targets.iter().map(|target| crate::analysis::storage_flow::memory::Effect::at(target.clone(), kind, None)).collect::<Vec<_>>()
                 });
 
         let assignment_roots = assignment_mutation.map(|_| self.assignment_roots(state, kind));

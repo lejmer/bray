@@ -173,7 +173,11 @@ fn projected_region_types_keep_array_elements_distinct_from_array_valued_cells()
 
     let backing = owner.project(&[StorageProjection::OwnedTarget]);
 
-    state.observe_effect_types(&[super::Effect::Mutation(backing.clone(), bray_symbols::DependencyMutationKind::Replace(array), None)]);
+    state.observe_effect_types(&[Effect::bounded(backing.clone(), DependencyMutationKind::Replace(array), None)]);
+
+    assert_eq!(state.declared_type(&backing), None, "a possible typed write grants no backing layout");
+
+    state.observe_effect_types(&[super::Effect::at(backing.clone(), bray_symbols::DependencyMutationKind::Replace(array), None)]);
 
     let cell = backing.project(&[StorageProjection::ElementFromStart(
         bray_symbols::SymbolOrdinal::new(0),
@@ -1958,7 +1962,7 @@ fn aggregate_mutation_revokes_reference_fields_without_address_metadata() {
     );
 
     state.apply_effects(
-        Some(&[super::Effect::Mutation(super::model::Target::storage(aggregate), bray_symbols::DependencyMutationKind::Write, None)]),
+        Some(&[super::Effect::at(super::model::Target::storage(aggregate), bray_symbols::DependencyMutationKind::Write, None)]),
         &bray_bound_tree::StorageInvalidation::unknown(),
         &StoragePlanBuilder::new(BoundUnitId::new(41), BoundUnitKind::CallableBody).finish(),
     );
@@ -3483,7 +3487,7 @@ fn effects_preserve_protected_entry_reference_slots_without_referent_authority()
 
         if resolved {
             state.apply_effects(
-                Some(&[super::Effect::Mutation(target.clone(), bray_symbols::DependencyMutationKind::Retire, None)]),
+                Some(&[super::Effect::at(target.clone(), bray_symbols::DependencyMutationKind::Retire, None)]),
                 &invalidation,
                 &storage,
             );
@@ -3948,11 +3952,11 @@ fn local_mutation_does_not_publish_an_invocation_address() {
         ..State::default()
     };
 
-    let local_write = super::model::Effect::Mutation(Target::storage(local.clone()), bray_symbols::DependencyMutationKind::Replace(error_type()), None);
+    let local_write = super::Effect::at(Target::storage(local.clone()), bray_symbols::DependencyMutationKind::Replace(error_type()), None);
 
-    let external_write = super::model::Effect::Mutation(Target::storage(external), bray_symbols::DependencyMutationKind::Replace(error_type()), None);
+    let external_write = super::Effect::at(Target::storage(external), bray_symbols::DependencyMutationKind::Replace(error_type()), None);
 
-    let heap_write = super::model::Effect::Mutation(Target::storage(local.clone()).project(&[StorageProjection::OwnedTarget]), bray_symbols::DependencyMutationKind::Write, None);
+    let heap_write = super::Effect::at(Target::storage(local.clone()).project(&[StorageProjection::OwnedTarget]), bray_symbols::DependencyMutationKind::Write, None);
 
     assert!(!local_write.may_retain_address(&state));
     assert!(external_write.may_retain_address(&state));
@@ -3977,7 +3981,7 @@ fn targeted_atomic_effects_preserve_reference_slots_under_possible_aliasing() {
     };
 
     state.apply_effects(
-        Some(&[super::Effect::Mutation(external.clone(), bray_symbols::DependencyMutationKind::Atomic, None)]),
+        Some(&[super::Effect::at(external.clone(), bray_symbols::DependencyMutationKind::Atomic, None)]),
         &bray_bound_tree::StorageInvalidation::unknown(),
         &StoragePlanBuilder::new(BoundUnitId::new(41), BoundUnitKind::CallableBody).finish(),
     );
@@ -3985,7 +3989,7 @@ fn targeted_atomic_effects_preserve_reference_slots_under_possible_aliasing() {
     assert_eq!(state.referent(&slot, error_type()), Some(source));
 
     state.apply_effects(
-        Some(&[super::Effect::Mutation(external.clone(), bray_symbols::DependencyMutationKind::Write, None)]),
+        Some(&[super::Effect::at(external.clone(), bray_symbols::DependencyMutationKind::Write, None)]),
         &bray_bound_tree::StorageInvalidation::unknown(),
         &StoragePlanBuilder::new(BoundUnitId::new(41), BoundUnitKind::CallableBody).finish(),
     );
@@ -4012,7 +4016,7 @@ fn private_production_retains_captures_until_normal_completion() {
     state.capture_failure_effects(
         occurrence,
         super::CapturedEffects {
-            mutations: [super::Effect::Mutation(source_target.clone(), bray_symbols::DependencyMutationKind::Write, None)]
+            mutations: [super::Effect::at(source_target.clone(), bray_symbols::DependencyMutationKind::Write, None)]
             .into(),
             escaped: [source_target.clone()].into(),
             invalidation: bray_bound_tree::StorageInvalidation::unknown(),
@@ -4054,8 +4058,30 @@ fn captured_failure_targets_follow_storage_retirement() {
     let occurrence = origins[1].into();
     let mut state = State::default();
 
-    state.address(source.clone(), slot, error_type(), origins[0]);
+    state.address(source.clone(), slot.clone(), error_type(), origins[0]);
     state.begin_transition(occurrence);
+
+    let operand = super::Source::Value(Target::storage(slot.clone())).mutation_targets(&state)
+        .expect("evaluated pointer has an effect operand").into_iter().next().expect("one pointer alternative");
+
+    let saved = Effect::through(operand, DependencyMutationKind::Write, None);
+
+    let mut bounds = AddressValue::one(Target::storage(source.clone()));
+
+    bounds.bound();
+    state.values.insert(Target::storage(slot.clone()), bounds.into());
+
+    let operand = super::Source::Value(Target::storage(slot.clone())).mutation_targets(&state)
+        .expect("the same finite bound has an effect operand").into_iter().next().expect("one bound");
+
+    let bounded = Effect::through(operand, DependencyMutationKind::Dispose(error_type()), Some(error_type()));
+
+    assert!(matches!(bounded, Effect::Mutation {
+        address: None, footprint, kind: DependencyMutationKind::Cleanup(ty), access_type: Some(access),
+    } if footprint == Target::storage(source.clone()) && ty == error_type() && access == error_type()),
+        "a possible region retains its cleanup footprint and checked type without claiming that layout");
+
+    state.null(slot);
 
     let previous = Target {
         previous: true,
@@ -4066,8 +4092,8 @@ fn captured_failure_targets_follow_storage_retirement() {
         occurrence,
         super::CapturedEffects {
             mutations: [
-                super::Effect::Mutation(previous.clone(), bray_symbols::DependencyMutationKind::Write, None),
-                super::Effect::Mutation(Target::storage(source.clone()), bray_symbols::DependencyMutationKind::Write, None),
+                super::Effect::at(previous.clone(), bray_symbols::DependencyMutationKind::Write, None),
+                saved,
             ]
             .into(),
             escaped: [previous, Target::storage(source.clone())].into(),
@@ -4088,7 +4114,7 @@ fn captured_failure_targets_follow_storage_retirement() {
 
     assert_eq!(
         effects.mutations.as_slice(),
-        &[super::Effect::Mutation(previous.clone(), bray_symbols::DependencyMutationKind::Write, None)]
+        &[super::Effect::at(previous.clone(), bray_symbols::DependencyMutationKind::Write, None)]
     );
 
     assert_eq!(effects.escaped.as_slice(), &[previous]);
@@ -5114,14 +5140,21 @@ fn staged_future_moves_retain_completion_effects_and_references() {
     let effect = super::Effect::unbounded(bray_symbols::DependencyMutationKind::Dispose(error_type()), None, false);
     let mut state = State::default();
 
+    state.address(payload.clone(), frame.clone(), error_type(), expressions[0]);
+
+    let operand = super::Source::Value(Target::storage(frame.clone())).mutation_targets(&state)
+        .expect("deferred entry captures its evaluated pointer").into_iter().next().expect("one pointer alternative");
+
+    let retirement = Effect::through(operand, DependencyMutationKind::Retire, None);
+
     state.begin_transition(producer);
 
-    let outcomes = super::EffectOutcomes::new([effect.clone()]).with_normal([]);
+    let outcomes = super::EffectOutcomes::new([effect.clone(), retirement]).with_normal([]);
 
     state.defer_effects(producer, Some(outcomes.clone()));
 
-    let captured_cleanup = super::Effect::Mutation(Target::storage(payload.clone()), bray_symbols::DependencyMutationKind::Clear, None);
-    let result_cleanup = super::Effect::Mutation(Target::storage(payload.clone()), bray_symbols::DependencyMutationKind::Escape, None);
+    let captured_cleanup = super::Effect::at(Target::storage(payload.clone()), bray_symbols::DependencyMutationKind::Clear, None);
+    let result_cleanup = super::Effect::at(Target::storage(payload.clone()), bray_symbols::DependencyMutationKind::Escape, None);
 
     state.capture_deferred_cleanup(producer, vec![captured_cleanup.clone()], vec![result_cleanup.clone()]);
 
@@ -5353,13 +5386,14 @@ fn mutation_summaries_preserve_initialization_only_for_complete_typed_cells() {
 
     // Identical types do not imply that two possible aliases name a complete cell.
     for (effect, valid) in [
-        (Effect::Mutation(target.clone(), DependencyMutationKind::Replace(ty), None), true),
-        (Effect::Mutation(alias.clone(), DependencyMutationKind::Replace(ty), None), false),
-        (Effect::Mutation(target.clone(), DependencyMutationKind::Replace(ty), Some(other)), false),
-        (Effect::Mutation(target.clone(), DependencyMutationKind::Replace(other), Some(other)), false),
+        (Effect::at(target.clone(), DependencyMutationKind::Replace(ty), None), true),
+        (Effect::bounded(target.clone(), DependencyMutationKind::Replace(ty), None), false),
+        (Effect::at(alias.clone(), DependencyMutationKind::Replace(ty), None), false),
+        (Effect::at(target.clone(), DependencyMutationKind::Replace(ty), Some(other)), false),
+        (Effect::at(target.clone(), DependencyMutationKind::Replace(other), Some(other)), false),
         (Effect::UnboundedMutation { kind: DependencyMutationKind::Replace(ty), access_type: Some(other), ambient: false }, false),
         (Effect::UnboundedMutation { kind: DependencyMutationKind::Replace(other), access_type: Some(other), ambient: true }, false),
-        (Effect::Mutation(target.clone(), DependencyMutationKind::Consume, None), false),
+        (Effect::at(target.clone(), DependencyMutationKind::Consume, None), false),
         (Effect::Atomic, true),
     ] {
         let mut state = State::default();

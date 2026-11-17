@@ -136,7 +136,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             .into_iter()
             .flatten()
             .filter_map(|effect| match effect {
-                Effect::Mutation(target, DependencyMutationKind::Escape, _) => Some(target),
+                Effect::Mutation { footprint: target, kind: DependencyMutationKind::Escape, .. } => Some(target),
                 _ => None,
             })
             .chain(roots.iter().filter(|_| all_inputs))
@@ -147,7 +147,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         // receiver address remains governed by the terminal receiver contract.
         let cleanup_references = effects.into_iter().flatten().flat_map(|effect| {
             match effect {
-                Effect::Mutation(target, kind @ (DependencyMutationKind::Dispose(_) | DependencyMutationKind::Cleanup(_)), _) => {
+                Effect::Mutation { footprint: target, kind: kind @ (DependencyMutationKind::Dispose(_) | DependencyMutationKind::Cleanup(_)), .. } => {
                     Some(matches!(kind, DependencyMutationKind::Cleanup(_)).then_some(target).into_iter().chain(memory.contained_regions(target)))
                 }
                 _ => None,

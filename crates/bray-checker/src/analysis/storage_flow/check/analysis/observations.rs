@@ -654,7 +654,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             let inputs = effects.contains(&Effect::Escape);
 
             let escaped = effects.iter().filter_map(|effect| match effect {
-                Effect::Mutation(target, bray_symbols::DependencyMutationKind::Escape, _) => Some(target.clone()),
+                Effect::Mutation { footprint: target, kind: bray_symbols::DependencyMutationKind::Escape, .. } => Some(target.clone()),
                 _ => None,
             });
 

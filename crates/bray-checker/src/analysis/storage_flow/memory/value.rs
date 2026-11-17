@@ -274,6 +274,10 @@ impl ValueBinding {
         Some(regions)
     }
 
+    pub(super) fn mutation_targets(&self) -> Option<Vec<super::effect::MutationTarget>> {
+        Some(super::effect::MutationTarget::reference(self.address.as_ref(), self.reference_regions()?))
+    }
+
     pub(super) fn references_mut(&mut self) -> impl Iterator<Item = &mut AddressValue> {
         self.address.iter_mut().chain(self.address_bounds.iter_mut())
     }

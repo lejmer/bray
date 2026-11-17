@@ -388,17 +388,17 @@ impl State {
             .expect("exact captured input has one referent").clone())
     }
 
-    pub(in crate::analysis::storage_flow) fn staged_reference_regions(
+    pub(in crate::analysis::storage_flow) fn staged_mutation_targets(
         &self,
         invocation: bray_bound_tree::BoundExecutionSite,
         root: &Target,
         location: &Target,
-    ) -> Option<Vec<Target>> {
+    ) -> Option<Vec<super::super::effect::MutationTarget>> {
         let staged = self.pending.get(&invocation)?;
 
         staged.values.get(location)
             .or_else(|| (!root.contains_storage(location)).then(|| self.values.get(location)).flatten())?
-            .address.as_ref()?.regions()
+            .mutation_targets()
     }
 
     pub(in crate::analysis::storage_flow) fn staged_contained_regions(

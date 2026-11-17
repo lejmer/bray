@@ -3,6 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::analysis::storage_flow::model::StorageAbsence;
 use bray_bound_tree::{BorrowCapabilityId, BoundExecutionSite, BoundExpressionId};
 use bray_symbols::TypeId;
+use super::effect::{CapturedEffects, Effect};
 
 pub(in crate::analysis::storage_flow) use bray_bound_tree::{
     StorageOrigin as Origin, StoragePath as Place, StorageTarget as Target,
@@ -31,93 +32,6 @@ impl Retirement {
         match self {
             Self::Storage => current.contains_storage(target),
             Self::Producer => current.contains(target),
-        }
-    }
-}
-
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub(in crate::analysis::storage_flow) enum Effect {
-    Unknown,
-    Ambient,
-    Escape,
-    Atomic,
-    // The original checked access type belongs to the mutation. An alias bound
-    // supplies its region, never a substitute raw access or transfer type.
-    Mutation(Target, bray_symbols::DependencyMutationKind, Option<TypeId>),
-    UnboundedMutation {
-        kind: bray_symbols::DependencyMutationKind,
-        access_type: Option<TypeId>,
-        ambient: bool,
-    },
-}
-
-impl Effect {
-    pub(in crate::analysis::storage_flow) fn is_ambient(&self) -> bool {
-        matches!(self, Self::Ambient | Self::UnboundedMutation { ambient: true, .. } | Self::Mutation(_, bray_symbols::DependencyMutationKind::Dispose(_) | bray_symbols::DependencyMutationKind::Cleanup(_), _))
-    }
-
-    pub(in crate::analysis::storage_flow) fn may_reach_all_inputs(&self) -> bool {
-        matches!(self, Self::Unknown | Self::UnboundedMutation { ambient: false, .. })
-    }
-
-    pub(in crate::analysis::storage_flow) fn unbounded(
-        kind: bray_symbols::DependencyMutationKind,
-        access_type: Option<TypeId>,
-        ambient: bool,
-    ) -> Self {
-        match kind {
-            bray_symbols::DependencyMutationKind::Atomic => Self::Atomic,
-            bray_symbols::DependencyMutationKind::Escape => Self::Escape,
-            _ => Self::UnboundedMutation { kind, access_type, ambient },
-        }
-    }
-
-    pub(in crate::analysis::storage_flow) fn is_atomic(&self) -> bool {
-        matches!(
-            self,
-            Self::Atomic | Self::Mutation(_, bray_symbols::DependencyMutationKind::Atomic, _)
-        )
-    }
-
-    pub(super) fn retire(&mut self, current: &Target, retirement: Retirement) {
-        if let Self::Mutation(target, _, _) = self
-            && retirement.contains(current, target)
-        {
-            target.previous = true;
-        }
-    }
-
-    pub(in crate::analysis::storage_flow) fn may_retain_address(&self, memory: &State) -> bool {
-        match self {
-            // Writes confined to an invocation-local slot do not publish an address.
-            // Stored reference relations still track later publication of that slot.
-            Self::Mutation(target, kind, _) => {
-                kind.is_write()
-                    && *kind != bray_symbols::DependencyMutationKind::Clear
-                    && target.storage_path().is_none_or(|path| {
-                        memory.owned_storage.binary_search(&path.root).is_err()
-                            || path
-                                .projections
-                                .contains(&bray_bound_tree::StorageProjection::OwnedTarget)
-                            || memory
-                                .contents
-                                .get(&Target::storage(Place::root(path.root)))
-                                .is_some_and(|contents| contents.escaped)
-                    })
-            }
-            Self::UnboundedMutation { kind, .. } => kind.is_write() && *kind != bray_symbols::DependencyMutationKind::Clear,
-            Self::Unknown | Self::Escape => true,
-            Self::Ambient | Self::Atomic => false,
-        }
-    }
-
-    pub(in crate::analysis::storage_flow) fn mutation(
-        &self,
-    ) -> Option<(&Target, bray_symbols::DependencyMutationKind)> {
-        match self {
-            Self::Mutation(_, bray_symbols::DependencyMutationKind::Escape, _) => None,
-            Self::Mutation(target, kind, _) => Some((target, *kind)),
-            Self::Unknown | Self::Ambient | Self::Escape | Self::Atomic | Self::UnboundedMutation { .. } => None,
         }
     }
 }
@@ -183,53 +97,6 @@ fn merge_origins(target: &mut Origins, incoming: &Origins) -> bool {
     target.extend(incoming.iter().copied());
 
     target.len() != count
-}
-
-/// Effects resolved before input ownership transfers, retained only until the call outcome.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::analysis::storage_flow) struct CapturedEffects {
-    pub(in crate::analysis::storage_flow) mutations: Vec<Effect>,
-    pub(in crate::analysis::storage_flow) escaped: Vec<Target>,
-    pub(in crate::analysis::storage_flow) invalidation: bray_bound_tree::StorageInvalidation,
-}
-
-impl CapturedEffects {
-    pub(super) fn references(&self, current: &Target, retirement: Retirement) -> bool {
-        self.escaped.iter().any(|target| retirement.contains(current, target))
-            || self.mutations.iter().any(
-                |effect| matches!(effect, Effect::Mutation(target, _, _) if retirement.contains(current, target)),
-            )
-    }
-
-    pub(super) fn retire(&mut self, current: &Target, retirement: Retirement) {
-        for effect in &mut self.mutations {
-            effect.retire(current, retirement);
-        }
-
-        for target in &mut self.escaped {
-            if retirement.contains(current, target) {
-                target.previous = true;
-            }
-        }
-
-        self.normalize();
-    }
-
-    fn normalize(&mut self) {
-        // Retiring or joining incarnations can merge already summarized targets.
-        self.mutations.sort_unstable();
-        self.mutations.dedup();
-        self.escaped.sort_unstable();
-        self.escaped.dedup();
-    }
-
-    fn merge(&mut self, incoming: &Self) {
-        // Outcome sets copy descriptors and share immutable projection paths.
-        self.mutations.extend(incoming.mutations.iter().cloned());
-        self.escaped.extend(incoming.escaped.iter().cloned());
-        self.normalize();
-        self.invalidation.merge(&incoming.invalidation);
-    }
 }
 
 /// A value captured before consumption, with inline protected payload state at its destination.

@@ -386,7 +386,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 self.synchronous_cleanup
                     .extend(effects.into_iter().flatten().filter_map(|effect| {
                         match effect {
-                            Effect::Mutation(_, DependencyMutationKind::Dispose(ty) | DependencyMutationKind::Cleanup(ty), _)
+                            Effect::Mutation { kind: DependencyMutationKind::Dispose(ty) | DependencyMutationKind::Cleanup(ty), .. }
                             | Effect::UnboundedMutation { kind: DependencyMutationKind::Dispose(ty) | DependencyMutationKind::Cleanup(ty), .. } => deferred(*ty)
                                 .map(bray_symbols::DependencyRequirement::SynchronousCleanup),
                             _ => None,
@@ -508,12 +508,12 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
             if indirect {
                 locations.into_iter().try_fold(Vec::new(), |mut targets, location| {
-                    targets.extend(memory.referenced_regions(&location)?);
+                    targets.extend(crate::analysis::storage_flow::memory::Source::Value(location).mutation_targets(memory)?);
 
                     Some(targets)
                 })
             } else {
-                Some(locations)
+                Some(locations.into_iter().map(crate::analysis::storage_flow::memory::MutationTarget::location).collect())
             }
         }))
     }
@@ -695,12 +695,12 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
                 if indirect {
                     locations.into_iter().try_fold(Vec::new(), |mut targets, location| {
-                        targets.extend(memory.referenced_regions(&location)?);
+                        targets.extend(crate::analysis::storage_flow::memory::Source::Value(location).mutation_targets(memory)?);
 
                         Some(targets)
                     })
                 } else {
-                    Some(locations)
+                    Some(locations.into_iter().map(crate::analysis::storage_flow::memory::MutationTarget::location).collect())
                 }
             }),
         )
