@@ -1656,7 +1656,7 @@ fn pending_payload_absence_survives_source_retirement_without_proving_unknown_or
             let mut other = State::default();
 
             if absent {
-                other.stage_no_payload(call, Target::storage(payload.clone()));
+                other.stage_no_payload_alternative(call, Target::storage(payload.clone()));
             } else {
                 other.stage_unknown(call, Target::storage(payload.clone()));
             }

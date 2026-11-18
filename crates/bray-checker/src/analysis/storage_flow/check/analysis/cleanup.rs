@@ -13,30 +13,6 @@ use crate::analysis::storage_flow::{
 };
 
 impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
-    fn prepare_cleanup_receiver(&self, memory: &mut State, mutation: &CleanupMutation<'_>) -> Option<Target> {
-        let (access, path) = match mutation {
-            CleanupMutation::Opaque { access, path, .. } => (*access, *path),
-            CleanupMutation::Lifecycle(call) => (call.access, call.path),
-            CleanupMutation::Unchanged | CleanupMutation::Recovery => return None,
-        };
-
-        let path = path?;
-
-        let producer = self.storage.identity(path.root).expect("cleanup path retains its planned root")
-            .definition_occurrence().and_then(bray_bound_tree::BoundExecutionSite::expression);
-
-        if let Some(producer) = producer
-            && self.storage.value_slot(producer) == Some(path.root)
-            && self.request.view().expression(producer).is_some_and(bray_bound_tree::BoundExpression::has_result_region)
-        {
-            // Cleanup uses current private output while the transition retains its
-            // entry captures until an outcome completes it.
-            memory.produce_transition(producer.into());
-        }
-
-        self.cleanup_receiver(memory, access, Some(path))
-    }
-
     pub(super) fn apply_cleanup(
         &mut self,
         state: &mut StorageFlowState,
@@ -72,7 +48,11 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
              mutation: crate::analysis::guarantee::CleanupMutation<'_>,
              conditional: bool| {
 
-                let receiver = self.prepare_cleanup_receiver(&mut memory, &mutation);
+                let receiver = match &mutation {
+                    CleanupMutation::Opaque { access, path, .. } => self.cleanup_receiver(&memory, *access, *path),
+                    CleanupMutation::Lifecycle(call) => self.cleanup_receiver(&memory, call.access, call.path),
+                    CleanupMutation::Unchanged | CleanupMutation::Recovery => None,
+                };
 
                 self.record_capture_retirements(execution, identity, bray_bound_tree::StorageValuePhase::Attempt, bray_bound_tree::StorageValueBoundary::Execution, memory.take_retirements());
 

@@ -11,7 +11,7 @@ use super::subjects::{
     dependency_subjects,
 };
 
-use crate::analysis::model::{AnalysisCallPhase, AnalysisOperation, AnalysisOperationKind};
+use crate::analysis::model::{AnalysisCallPhase, AnalysisOperation, AnalysisOperationKind, AnalysisResultPhase};
 use crate::dependency::ValueInputs;
 use crate::{CheckerRequestContext, CheckerUnitView};
 
@@ -27,6 +27,7 @@ pub(crate) struct OperationEffects {
     pub(super) by_occurrence: BTreeMap<bray_bound_tree::BoundExecutionSite, OperationEffect>,
     operation_result_definitions:
         BTreeMap<bray_bound_tree::BoundExecutionSite, BTreeSet<BoundDependencySubject>>,
+    private_results: BTreeMap<bray_bound_tree::BoundExecutionSite, BoundDependencySubject>,
     pub(in crate::analysis::liveness) universe: BTreeSet<BoundDependencySubject>,
     pub(in crate::analysis::liveness) owner_dependencies:
         BTreeMap<bray_bound_tree::BoundExecutionSite, BTreeSet<BoundDependencySubject>>,
@@ -234,6 +235,11 @@ impl OperationEffects {
                     .insert(subject);
             }
         }
+
+        effects.private_results.extend(storage.value_slots().filter_map(|(expression, slot)| {
+            unit.tree().expression(expression)?.has_result_region()
+                .then_some((expression.into(), BoundDependencySubject::Storage(slot)))
+        }));
 
         for (occurrence, phase, path) in storage.value_consumption_entries() {
             let subject = BoundDependencySubject::Storage(path.root);
@@ -576,12 +582,15 @@ impl OperationEffects {
     ) -> Option<OperationEffectView<'_>> {
         use crate::analysis::model::AnalysisSuspensionKind;
 
-        let phase = match operation.kind() {
+        let kind = operation.kind();
+        let occurrence = kind.occurrence();
+        let private_result = self.private_results.get(&occurrence);
+
+        let phase = match kind {
             AnalysisOperationKind::Result {
-                phase: crate::analysis::model::AnalysisResultPhase::Begin,
-                ..
-            }
-            | AnalysisOperationKind::ScopeExit { .. }
+                phase: AnalysisResultPhase::Begin, ..
+            } if private_result.is_none() => return None,
+            AnalysisOperationKind::ScopeExit { .. }
             | AnalysisOperationKind::Suspension {
                 kind: AnalysisSuspensionKind::ScopedCall,
                 ..
@@ -596,11 +605,11 @@ impl OperationEffects {
             } => Some(AnalysisCallPhase::Attempt),
             AnalysisOperationKind::Call { phase, .. } => Some(phase),
             AnalysisOperationKind::Result {
-                phase: crate::analysis::model::AnalysisResultPhase::Production,
+                phase: AnalysisResultPhase::Production,
                 ..
             } => Some(AnalysisCallPhase::Attempt),
             AnalysisOperationKind::Result {
-                phase: crate::analysis::model::AnalysisResultPhase::Completion,
+                phase: AnalysisResultPhase::Begin | AnalysisResultPhase::Completion,
                 ..
             } => Some(AnalysisCallPhase::Completion),
             AnalysisOperationKind::Bound(_)
@@ -609,21 +618,25 @@ impl OperationEffects {
         };
 
         // The index is sparse: literals and operations without storage uses have no entry.
-        let effect = self.by_occurrence.get(&operation.kind().occurrence())?;
+        let effect = self.by_occurrence.get(&occurrence)?;
+        let result_definitions = self.operation_result_definitions.get(&occurrence);
 
-        let result_definitions = self
-            .operation_result_definitions
-            .get(&operation.kind().occurrence());
+        let boundary_uses = kind.value_consumption_phase()
+            .and_then(|phase| self.boundary_uses.get(&(occurrence, phase)));
 
-        let boundary_uses = operation.kind().value_consumption_phase()
-            .and_then(|phase| self.boundary_uses.get(&(operation.kind().occurrence(), phase)));
+        let result_phase = match kind {
+            AnalysisOperationKind::Result { phase, .. } => Some(phase),
+            _ => None,
+        };
 
         Some(OperationEffectView {
             effect,
             boundary_uses,
             phase,
             result_definitions,
-            recovered: self.recovered_nodes.contains(&operation.kind().node()),
+            private_result,
+            result_phase,
+            recovered: self.recovered_nodes.contains(&kind.node()),
         })
     }
 
@@ -647,6 +660,8 @@ pub(in crate::analysis::liveness) struct OperationEffectView<'a> {
     boundary_uses: Option<&'a BTreeSet<BoundDependencySubject>>,
     phase: Option<AnalysisCallPhase>,
     result_definitions: Option<&'a BTreeSet<BoundDependencySubject>>,
+    private_result: Option<&'a BoundDependencySubject>,
+    result_phase: Option<AnalysisResultPhase>,
     recovered: bool,
 }
 
@@ -659,12 +674,21 @@ impl<'a> OperationEffectView<'a> {
             self.phase != Some(AnalysisCallPhase::Completion)
                 && (self.recovered || !self.effect.definitions.contains(subject))
         }).chain(self.boundary_uses.into_iter().flatten())
+            .chain(self.private_result.filter(|_| self.result_phase == Some(AnalysisResultPhase::Completion)))
     }
 
     pub(in crate::analysis::liveness) fn definitions(
         self,
     ) -> impl Iterator<Item = &'a BoundDependencySubject> + Clone + 'a {
         self.effect.definitions.iter().filter(move |subject| {
+            // Beginning a region ends backward demand for its old slot incarnation.
+            // Completion observes the existing result, which was initialized on a producer edge.
+            match self.result_phase {
+                Some(AnalysisResultPhase::Begin) => return self.private_result == Some(*subject),
+                Some(AnalysisResultPhase::Completion) if self.private_result == Some(*subject) => return false,
+                _ => {}
+            }
+
             let is_result = self
                 .result_definitions
                 .is_some_and(|definitions| definitions.contains(subject));
@@ -697,7 +721,7 @@ impl<'a> OperationEffectView<'a> {
         self,
     ) -> impl Iterator<Item = &'a BoundDependencySubject> + Clone + 'a {
         self.lifetime_subjects().filter(move |_| {
-            !matches!(
+            self.result_phase != Some(AnalysisResultPhase::Begin) && !matches!(
                 self.phase,
                 Some(AnalysisCallPhase::Input | AnalysisCallPhase::Attempt)
             )

@@ -42,6 +42,21 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         state.assign(place, value, None);
     }
 
+    pub(super) fn produce_region_result(
+        &self, state: &mut ExecutionState, expression: BoundExpressionId, value: ExecutionCondition,
+    ) {
+        let Some(slot) = self.storage.value_slot(expression) else {
+            // Recovered and uninhabited result regions have no value slot.
+            return;
+        };
+
+        let place = crate::ExecutionPlace::storage_identity(self.storage, slot)
+            .expect("result storage has a current value slot");
+
+        self.assume_produced_variant(state, expression, &value);
+        state.assign(place, value, None);
+    }
+
     pub(in crate::analysis::guarantee) fn assume_produced_variant(
         &self,
         state: &mut ExecutionState,

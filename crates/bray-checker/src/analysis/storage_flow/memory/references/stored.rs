@@ -154,14 +154,6 @@ impl State {
         self.stage_replacement(call, destination, AddressValue::empty().into());
     }
 
-    pub(in crate::analysis::storage_flow) fn stage_no_payload(
-        &mut self,
-        call: bray_bound_tree::BoundExecutionSite,
-        destination: Target,
-    ) {
-        self.stage_replacement(call, destination, ValueBinding::no_payload());
-    }
-
     pub(in crate::analysis::storage_flow) fn stage_no_payload_alternative(
         &mut self,
         call: bray_bound_tree::BoundExecutionSite,

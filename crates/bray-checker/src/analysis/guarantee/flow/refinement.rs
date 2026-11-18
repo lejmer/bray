@@ -278,7 +278,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     .get(&expression)
                     .expect("propagation retains its selected yield target");
 
-                state.pending_results.insert(*target, value);
+                self.produce_region_result(state, *target, value);
             }
         }
     }

@@ -329,9 +329,28 @@ observation and package-import compositions together.
 - Move privately produced control-transfer results into their actual planned current-value slots
   before cleanup. A positional saved expression is not the result's live owner. Yield, break,
   propagation and catch must preserve the same ownership and carried dependencies during scope
-  cleanup, before source evaluation can observe their result. Compare completion of nullable
-  and union alternatives with cancellation and panic that discard an already-produced value.
-  The enclosing-scope cleanup composition exposes the current loss of a private result owner.
+  cleanup, before source evaluation can observe their result. Backward liveness consumes the
+  planned private slot at completion and stops that demand at region entry. Production on the
+  actual transfer or propagation edge alone initializes the slot. Check normal and abnormal cleanup
+  against the live slot without forwarding the operand through a pending-expression map.
+  The liveness migration restores nullable propagation origins, generic projections, finite call
+  effect selection and guarded union ownership. The full release composition panel passes 319 of
+  368, one more than the preceding checkpoint. The owner panel passes 34 of 36 active tests and
+  has three ignored. All 568 checker, 223 symbol, 137 bound-tree and 218 interface tests passed.
+  A trace confirms the actual initialized nullable result and inactive alternative both reach
+  completion through the slot. Keep these checks while removing duplicated transfer destinations
+  and sharing the output contract across normal, deferred and abnormal paths. The storage plan
+  already identifies a control transfer's Initialize access. Physical transfer reads that slot
+  and its declared type after the access initializes it. Logical publication takes the live
+  private slot before scalar branch operands. A retired or uninitialized slot supplies no value.
+- Join conditional witness evidence from the two actual produced values. Ordinary call completion,
+  task observation and branch return already pass both values to merge_returned. Pass those values
+  through to the same conditional proof engine that joins current slots. Remove its synthetic
+  pending-result entries. Scalar branch expressions can still use the checked pending operation
+  values at this stage. The proof engine must keep a live unknown payload distinct from an
+  inactive alternative, and a borrowed referent supplies no owning witness. Compare the nullable
+  and guarded union owner controls, including the negative proof tests, against the 319 composition
+  and 34 owner passes. The change should eliminate writes and avoid another stored representation.
 - Stabilize loops and recursive summaries with existing joins, recency and dependency indexes. No arbitrary cutoff loses dependencies.
 - Finish typed external graph validation, immutable interning/sharing, public API documentation and structural/style audit.
 

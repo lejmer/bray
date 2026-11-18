@@ -478,7 +478,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         self.preserve_normal_snapshots(state, mutation, normal_snapshots, &mut snapshots);
 
-        let values = self.storage_preservations( stable_values);
+        let values = self.storage_preservations(stable_values);
         let pointees = self.pointee_preservations(state, invalidation, &mut snapshots);
 
         let mut masks = self.preservation_masks(
@@ -687,7 +687,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         );
 
         let values = match invalidation {
-            StorageInvalidation::Observed { stable_values, .. } => self.storage_preservations( stable_values),
+            StorageInvalidation::Observed { stable_values, .. } => self.storage_preservations(stable_values),
             _ => Vec::new(),
         };
 

@@ -701,12 +701,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     }
 
     fn publish_result(&self, state: &mut ExecutionState, expression: BoundExpressionId) {
-        let value = state
-            .pending_results
-            .remove(&expression)
-            .or_else(|| self.storage.value_slot(expression)
-                .and_then(|identity| crate::ExecutionPlace::storage_identity(self.storage, identity))
-                .and_then(|place| place.value_in(&state.current)))
+        let pending = state.pending_results.remove(&expression);
+
+        let value = self.storage.value_slot(expression)
+            .and_then(|identity| crate::ExecutionPlace::storage_identity(self.storage, identity))
+            .and_then(|place| state.current.live_value(&place))
+            .or(pending)
             .unwrap_or_else(|| self.value(state, expression));
 
         self.publish_expression(state, expression, value);
@@ -858,7 +858,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         })
                         .unwrap_or_else(ExecutionCondition::unknown);
 
-                    state.pending_results.insert(*target, value);
+                    self.produce_region_result(state, *target, value);
                 }
             }
             _ => {}

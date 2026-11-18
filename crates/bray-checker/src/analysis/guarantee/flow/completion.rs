@@ -60,12 +60,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             [(projection, value)].into(),
         );
 
-        self.assume_produced_variant(state, expression, &result);
-        state.pending_results.insert(expression, result);
+        self.produce_region_result(state, expression, result);
 
         if !panicked {
-            // The pending Ok payload owns this value before predecessor joins.
-            // Its terminal operand snapshot still feeds the physical commit.
+            // The result slot owns the Ok payload before joining predecessors.
+            // The physical transfer still uses the evaluated operand.
             self.consume_value_slots(state, expression.into(), bray_bound_tree::StorageValueConsumptionPhase::Completion);
         }
     }
