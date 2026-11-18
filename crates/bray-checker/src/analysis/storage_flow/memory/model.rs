@@ -164,7 +164,7 @@ pub(in crate::analysis::storage_flow) enum ReferenceExitValue<'a> {
     NoPayload,
 }
 
-/// Reference values at a unit boundary, with the live-payload conditions used by the same join.
+/// Physical values and their active payloads at one reachable unit boundary.
 #[derive(Clone, Debug, Default)]
 pub(in crate::analysis::storage_flow) struct ReferenceExit {
     pub(super) slots: BTreeMap<Place, ValueBinding>,
@@ -174,6 +174,10 @@ pub(in crate::analysis::storage_flow) struct ReferenceExit {
 }
 
 impl ReferenceExit {
+    pub(in crate::analysis::storage_flow) fn observed_slots(&self) -> impl Iterator<Item = &Place> {
+        self.slots.keys()
+    }
+
     pub(in crate::analysis::storage_flow) fn absent_payloads(&self) -> &BTreeSet<Place> {
         &self.absent
     }
@@ -209,37 +213,6 @@ impl ReferenceExit {
         self.slots.iter().filter_map(|(slot, value)| {
             (value.is_no_payload() || self.absent.iter().any(|absent| absent.contains_storage(slot))).then_some(slot)
         })
-    }
-
-    pub(in crate::analysis::storage_flow) fn merge(&mut self, incoming: &Self) {
-        merge_stored(
-            &mut self.stored,
-            &incoming.stored,
-            |target| target.storage_path().is_some_and(|slot| self.absent.iter().any(|path| path.contains_storage(slot))),
-            |target| target.storage_path().is_some_and(|slot| incoming.absent.iter().any(|path| path.contains_storage(slot))),
-        );
-
-        merge_stored(
-            &mut self.slots,
-            &incoming.slots,
-            |slot| self.absent.iter().any(|path| path.contains_storage(slot)),
-            |slot| incoming.absent.iter().any(|path| path.contains_storage(slot)),
-        );
-
-        self.input_regions
-            .extend(incoming.input_regions.iter().cloned());
-
-        // Retain only absence established by both predecessors, including enclosing payloads.
-        self.absent = self
-            .absent
-            .iter()
-            .chain(&incoming.absent)
-            .filter(|slot| {
-                self.absent.iter().any(|path| path.contains(slot))
-                    && incoming.absent.iter().any(|path| path.contains(slot))
-            })
-            .cloned()
-            .collect();
     }
 
     pub(in crate::analysis::storage_flow) fn targets(

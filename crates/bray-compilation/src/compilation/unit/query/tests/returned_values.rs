@@ -1155,8 +1155,10 @@ fn exact_returned_borrow_origins_follow_replacements_and_require_path_agreement(
             "test",
         );
 
-        let returns = template
-            .borrows()
+        let borrows = template
+            .borrows();
+
+        let returns = borrows
             .iter()
             .filter(|relation| relation.is_exact())
             .filter(|relation| {
@@ -1311,8 +1313,10 @@ fn nullable_borrow_origins_preserve_payload_paths() {
             "test",
         );
 
-        let returned = template
-            .borrows()
+        let borrows = template
+            .borrows();
+
+        let returned = borrows
             .iter()
             .filter(|relation| relation.is_exact())
             .filter(|relation| {
@@ -1713,10 +1717,12 @@ fn normal_exit_references_keep_original_stored_inputs() {
             flow.diagnostics()
         );
 
-        let references = flow
+        let borrows = flow
             .value()
             .dependencies()
-            .borrows()
+            .borrows();
+
+        let references = borrows
             .iter()
             .filter(|relation| {
                 relation.exit().subject_root() == bray_symbols::DependencySubjectRoot::Result
@@ -1754,7 +1760,7 @@ fn absent_return_payload_does_not_invent_a_conflicting_reference() {
     assert!(!flow.diagnostics().has_errors(), "{:?}", flow.diagnostics());
 
     assert_eq!(
-        flow.value().dependencies().borrows(),
+        flow.value().dependencies().borrows().as_ref(),
         &[bray_symbols::DependencyBorrowRelation::new(
             Some(bray_symbols::DependencySubject::root(
                 bray_symbols::DependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(0))
@@ -1796,8 +1802,10 @@ fn returned_field_addresses_differ_from_stored_reference_values() {
             name,
         );
 
-        let references = dependencies
-            .borrows()
+        let borrows = dependencies
+            .borrows();
+
+        let references = borrows
             .iter()
             .filter(|relation| {
                 relation.exit().subject_root() == bray_symbols::DependencySubjectRoot::Result
@@ -1989,8 +1997,10 @@ fn protected_payload_addresses_preserve_their_storage_origin() {
             name,
         );
 
-        let relations = dependencies
-            .borrows()
+        let borrows = dependencies
+            .borrows();
+
+        let relations = borrows
             .iter()
             .filter(|relation| {
                 relation.exit().subject_root() == bray_symbols::DependencySubjectRoot::Result
@@ -2113,8 +2123,10 @@ fn call_summary_reference_fields_follow_replacement_and_require_path_agreement()
             "caller",
         );
 
-        let origins = dependencies
-            .borrows()
+        let borrows = dependencies
+            .borrows();
+
+        let origins = borrows
             .iter()
             .filter(|relation| relation.is_exact())
             .filter(|relation| {
@@ -2154,8 +2166,10 @@ fn nested_borrow_results_keep_the_selected_reference_layer() {
             name,
         );
 
-        let relations = dependencies
-            .borrows()
+        let borrows = dependencies
+            .borrows();
+
+        let relations = borrows
             .iter()
             .filter(|relation| {
                 relation.exit().subject_root() == bray_symbols::DependencySubjectRoot::Result
@@ -2521,10 +2535,12 @@ fn construction_inputs_preserve_exact_nullable_reference_origins() {
 
         assert!(!flow.diagnostics().has_errors(), "{source}\n{flow:#?}");
 
-        let references = flow
+        let borrows = flow
             .value()
             .dependencies()
-            .borrows()
+            .borrows();
+
+        let references = borrows
             .iter()
             .filter(|relation| {
                 relation.exit().subject_root() == bray_symbols::DependencySubjectRoot::Result
@@ -2570,8 +2586,12 @@ fn conditional_null_pointer_returns_export_only_a_bounded_origin() {
         "selected",
     );
 
-    assert_eq!(summary.borrows().len(), 1, "{summary:#?}");
-    assert!(!summary.borrows()[0].is_exact(), "{summary:#?}");
+    let borrows = summary.borrows();
+
+    assert_eq!(borrows.len(), 2, "{summary:#?}");
+    assert!(borrows.iter().any(|relation| relation.is_empty_reference()));
+    assert!(borrows.iter().any(|relation| relation.entry().is_some() && !relation.is_exact()));
+    assert!(summary.captured_values().iter().any(|row| row.references.iter().any(|relation| relation.is_exact())));
 }
 
 #[test]

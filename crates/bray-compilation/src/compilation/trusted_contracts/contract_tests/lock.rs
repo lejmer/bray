@@ -363,8 +363,10 @@ fn production_guard_borrow_origin_reaches_the_protected_payload() {
 
     let template = callable_dependencies(&application, callable.into());
 
-    let relation = template
-        .borrows()
+    let borrows = template
+        .borrows();
+
+    let relation = borrows
         .iter()
         .find(|relation| {
             relation.exit().subject_root() == bray_symbols::DependencySubjectRoot::Result

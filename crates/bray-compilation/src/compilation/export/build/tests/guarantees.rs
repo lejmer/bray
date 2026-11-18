@@ -2195,6 +2195,7 @@ fn imported_union_variant_contracts_preserve_checked_tags() {
         r#"
         module api;
         func create() -> Result<u32, u32> ensures(result matches Ok(_)) executes(total) { return Ok(7); }
+        func inferred() -> Result<u32, u32> executes(total) { return Ok(7); }
         const func observe(pos value: &Result<u32, u32>) -> u32
             requires(value matches Ok(_)) executes(pure, total)
         {
@@ -2212,12 +2213,18 @@ fn imported_union_variant_contracts_preserve_checked_tags() {
             true,
         ),
         (
+            "let value = relay(); _ = example.package.api.observe(&value);",
+            true,
+        ),
+        (
             "let value: Result<u32, u32> = Error(7); _ = example.package.api.observe(&value);",
             false,
         ),
     ] {
         let source = format!(
-            "module app; using example.package.api; func root() executes(total) {{ {body} }}"
+            "module app; using example.package.api;
+             func relay() -> Result<u32, u32> executes(total) {{ return example.package.api.inferred(); }}
+             func root() executes(total) {{ {body} }}"
         );
 
         let consumer = execution_consumer(&provider, &source);
@@ -2228,6 +2235,13 @@ fn imported_union_variant_contracts_preserve_checked_tags() {
             "{body}: {:?}",
             consumer.check_diagnostics()
         );
+
+        if valid {
+            let summary = crate::compilation::result_dependencies::source_function_dependencies(&consumer, "relay");
+
+            assert!(summary.captured_values().iter().flat_map(|row| row.bindings.iter())
+                .any(|(_, value)| value.variants().next().is_some()), "{summary:#?}");
+        }
     }
 }
 

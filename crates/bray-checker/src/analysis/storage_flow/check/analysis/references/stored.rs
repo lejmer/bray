@@ -10,11 +10,11 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         &self,
         state: &mut StorageFlowState,
         occurrence: BoundExecutionSite,
+        contracts: &bray_bound_tree::BoundCallDependencyContracts,
+        stored_values: &[DependencyStoredValue],
     ) {
-        let Some(contracts) = self.dependencies.calls().get(&occurrence) else { return; };
-
         let transfers = self.stored_transfers(
-            contracts.stored_values(),
+            stored_values,
             |endpoint, output| {
                 let subject = endpoint.subject();
 
@@ -82,7 +82,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let paths = &self.input.lifecycle_stored_paths[&callable];
 
         let transfers = self.stored_transfers(
-            self.dependencies.lifecycle_dependencies()[&callable].stored_values(),
+            &self.dependencies.lifecycle_dependencies()[&callable].stored_values(),
             |endpoint, _| {
                 let (ty, path) = paths.get(endpoint)?;
 

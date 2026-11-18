@@ -118,7 +118,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         value.try_map(&mut |term| Ok::<_, ()>(StorageValueInput::Term(*term)), &mut |projection| {
             crate::storage::storage_projections(self.request.semantic_values(), self.dependencies, &[*projection])
                 .and_then(|values| values.into_iter().next()).ok_or(())
-        }, &mut |root| Ok(root.clone()), &mut |callee| Ok(callee.clone())).unwrap_or(Value::Unknown)
+        }, &mut |root| Ok(root.clone()), &mut |callee| Ok(callee.clone()), &mut |variant| Ok(*variant)).unwrap_or(Value::Unknown)
     }
 
     fn captured_destination(&self, invocation: bray_bound_tree::BoundExecutionSite,
@@ -442,6 +442,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 ExecutionCondition::unknown().with_deferred_value(std::sync::Arc::new(frame))
             }
             Value::Unknown => ExecutionCondition::unknown(),
+            Value::Tagged(variant, value) => ExecutionCondition::new(crate::ExecutionConditionKind::Tagged(*variant,
+                std::sync::Arc::new(self.bind_captured_value(state, entry, value, input, mutation, alternative)))),
             Value::Operation(bray_symbols::CapturedValueOperation::Read, values) => {
                 let reference = self.bind_captured_value(state, entry, &values[0], input, mutation, alternative);
                 let reference = self.refresh_captured_references(state, reference, None);

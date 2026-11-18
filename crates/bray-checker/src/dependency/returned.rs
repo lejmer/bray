@@ -160,7 +160,18 @@ pub(crate) fn callee_result_template<C: CheckerRequestContext + ?Sized>(
     }
 
     if let Some(relation) = relation {
-        template = template.with_borrows([relation]);
+        let references: std::sync::Arc<[_]> = [relation].into();
+        let mut outcomes = template.captured_values().to_vec();
+
+        if outcomes.is_empty() {
+            outcomes.push(bray_symbols::CapturedValueOutcome::new(None, []));
+        }
+
+        for outcome in &mut outcomes {
+            outcome.references = std::sync::Arc::clone(&references);
+        }
+
+        template = template.with_captured_values(outcomes);
     }
 
     if matches!(
@@ -462,7 +473,7 @@ impl super::ValueInputs {
 
             let mut sources = std::collections::BTreeSet::new();
 
-            for relation in template.template.borrows() {
+            for relation in template.template.borrows().iter() {
                 let Some(entry) = relation.entry() else {
                     continue;
                 };

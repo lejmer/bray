@@ -67,7 +67,8 @@ pub struct CapturedCallable<Callable = crate::CallableInstanceId, Type = crate::
 /// An immutable portable expression for a whole value and its owning children.
 /// Input nodes name actual entry values. They never denote may-dependency bounds.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum CapturedValueTemplate<Input = ConstantTermId, Projection = DependencyProjection, Static = crate::StaticReferenceSelection, Callee = CapturedCallable> {
+pub enum CapturedValueTemplate<Input = ConstantTermId, Projection = DependencyProjection, Static = crate::StaticReferenceSelection,
+    Callee = CapturedCallable, Variant = crate::UnionVariantSymbolId> {
     /// The actual value bound to a receiver-first formal term.
     Input(Input),
     /// Ordinary scalar data, with no ownership or cleanup duty from its inputs.
@@ -77,7 +78,7 @@ pub enum CapturedValueTemplate<Input = ConstantTermId, Projection = DependencyPr
     /// Feasible lazy invocations, each retaining its own guard and actual environment.
     Deferred {
         /// Complete selected environments. Callees do not supply runtime allocation identity.
-        alternatives: Arc<[CapturedDeferredInvocation<Input, Projection, Static, Callee>]>,
+        alternatives: Arc<[CapturedDeferredInvocation<Input, Projection, Static, Callee, Variant>]>,
         /// An opaque producer is also feasible. This does not assert an empty capture set.
         unknown: bool,
     },
@@ -86,6 +87,8 @@ pub enum CapturedValueTemplate<Input = ConstantTermId, Projection = DependencyPr
     Unknown,
     /// Evaluated whole-value storage operation.
     Operation(CapturedValueOperation<Projection>, Arc<[Self]>),
+    /// A constructed union carries its actual discriminant with its payload.
+    Tagged(Variant, Arc<Self>),
     /// Replace actual children while retaining the rest of the captured base.
     Aggregate {
         /// The evaluated base value, or explicit unknown for a fresh aggregate.
@@ -97,18 +100,19 @@ pub enum CapturedValueTemplate<Input = ConstantTermId, Projection = DependencyPr
 
 /// One guarded latent invocation over the complete values captured at formation.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct CapturedDeferredInvocation<Input = ConstantTermId, Projection = DependencyProjection, Static = crate::StaticReferenceSelection, Callee = CapturedCallable> {
+pub struct CapturedDeferredInvocation<Input = ConstantTermId, Projection = DependencyProjection, Static = crate::StaticReferenceSelection,
+    Callee = CapturedCallable, Variant = crate::UnionVariantSymbolId> {
     /// Ordinary selection facts in the containing value's entry scope.
     pub guard: Option<Input>,
     /// Exact semantic callee and witnesses. Formal arguments index this environment.
     pub call: Option<Arc<Callee>>,
     /// Complete captured inputs in receiver-first order.
-    pub captures: Arc<[CapturedValueTemplate<Input, Projection, Static, Callee>]>,
+    pub captures: Arc<[CapturedValueTemplate<Input, Projection, Static, Callee, Variant>]>,
     /// Captures whose ownership and cleanup duties belong to this frame.
     pub owned_inputs: Arc<[crate::SymbolOrdinal]>,
 }
 
-impl<Input, Projection, Static, Callee> CapturedValueTemplate<Input, Projection, Static, Callee> {
+impl<Input, Projection, Static, Callee, Variant> CapturedValueTemplate<Input, Projection, Static, Callee, Variant> {
     /// Visits shared expression structure in deterministic operand order.
     pub fn nodes(&self) -> impl Iterator<Item = &Self> {
         let mut pending = vec![self];
@@ -118,6 +122,7 @@ impl<Input, Projection, Static, Callee> CapturedValueTemplate<Input, Projection,
 
             match node {
                 Self::Operation(_, values) => pending.extend(values.iter().rev()),
+                Self::Tagged(_, value) => pending.push(value),
                 Self::Aggregate { base, fields } => {
                     pending.extend(fields.iter().rev().map(|(_, value)| value));
                     pending.push(base);
@@ -175,12 +180,18 @@ impl<Input, Projection, Static, Callee> CapturedValueTemplate<Input, Projection,
         self.nodes().filter_map(|node| match node { Self::Static(root) => Some(root), _ => None })
     }
 
+    /// Visits the actual union discriminants carried by this value expression.
+    pub fn variants(&self) -> impl Iterator<Item = &Variant> {
+        self.nodes().filter_map(|node| match node { Self::Tagged(variant, _) => Some(variant), _ => None })
+    }
+
     /// Remaps portable identities while preserving the complete value expression.
-    pub fn try_map<E, OtherInput, OtherProjection, OtherStatic, OtherCallee>(&self, input: &mut impl FnMut(&Input) -> Result<OtherInput, E>,
+    pub fn try_map<E, OtherInput, OtherProjection, OtherStatic, OtherCallee, OtherVariant>(&self, input: &mut impl FnMut(&Input) -> Result<OtherInput, E>,
         projection: &mut impl FnMut(&Projection) -> Result<OtherProjection, E>,
         static_root: &mut impl FnMut(&Static) -> Result<OtherStatic, E>,
         callee: &mut impl FnMut(&Callee) -> Result<OtherCallee, E>,
-    ) -> Result<CapturedValueTemplate<OtherInput, OtherProjection, OtherStatic, OtherCallee>, E> {
+        variant: &mut impl FnMut(&Variant) -> Result<OtherVariant, E>,
+    ) -> Result<CapturedValueTemplate<OtherInput, OtherProjection, OtherStatic, OtherCallee, OtherVariant>, E> {
         use CapturedValueTemplate as Value;
 
         Ok(match self {
@@ -191,12 +202,14 @@ impl<Input, Projection, Static, Callee> CapturedValueTemplate<Input, Projection,
                 alternatives: alternatives.iter().map(|alternative| Ok(CapturedDeferredInvocation {
                     guard: alternative.guard.as_ref().map(&mut *input).transpose()?,
                     call: alternative.call.as_deref().map(&mut *callee).transpose()?.map(Arc::new),
-                    captures: alternative.captures.iter().map(|value| value.try_map(input, projection, static_root, callee)).collect::<Result<_, E>>()?,
+                    captures: alternative.captures.iter().map(|value| value.try_map(input, projection, static_root, callee, variant)).collect::<Result<_, E>>()?,
                     owned_inputs: Arc::clone(&alternative.owned_inputs),
                 })).collect::<Result<_, E>>()?,
                 unknown: *unknown,
             },
             Self::Unknown => Value::Unknown,
+            Self::Tagged(tag, value) => Value::Tagged(variant(tag)?,
+                Arc::new(value.try_map(input, projection, static_root, callee, variant)?)),
             Self::Operation(operation, values) => Value::Operation(match operation {
                 CapturedValueOperation::Select(field) => CapturedValueOperation::Select(projection(field)?),
                 CapturedValueOperation::OwningStorage(field) => CapturedValueOperation::OwningStorage(projection(field)?),
@@ -212,11 +225,11 @@ impl<Input, Projection, Static, Callee> CapturedValueTemplate<Input, Projection,
                 CapturedValueOperation::Append => CapturedValueOperation::Append,
                 CapturedValueOperation::Last => CapturedValueOperation::Last,
                 CapturedValueOperation::Remainder => CapturedValueOperation::Remainder,
-            }, values.iter().map(|value| value.try_map(input, projection, static_root, callee)).collect::<Result<_, _>>()?),
+            }, values.iter().map(|value| value.try_map(input, projection, static_root, callee, variant)).collect::<Result<_, _>>()?),
             Self::Aggregate { base, fields } => Value::Aggregate {
-                base: Arc::new(base.try_map(input, projection, static_root, callee)?),
+                base: Arc::new(base.try_map(input, projection, static_root, callee, variant)?),
                 fields: fields.iter().map(|(field, value)|
-                    Ok((projection(field)?, value.try_map(input, projection, static_root, callee)?))).collect::<Result<_, E>>()?,
+                    Ok((projection(field)?, value.try_map(input, projection, static_root, callee, variant)?))).collect::<Result<_, E>>()?,
             },
         })
     }
@@ -225,19 +238,25 @@ impl<Input, Projection, Static, Callee> CapturedValueTemplate<Input, Projection,
 /// Values produced together on one feasible normal exit.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CapturedValueOutcome<Subject = super::DependencySubject, Input = ConstantTermId, Projection = DependencyProjection,
-    Static = crate::StaticReferenceSelection, Guard = Input, OwnedProjection = super::ConstantProjectionKind, Callee = CapturedCallable> {
+    Static = crate::StaticReferenceSelection, Guard = Input, OwnedProjection = super::ConstantProjectionKind, Callee = CapturedCallable, Variant = crate::UnionVariantSymbolId> {
     /// Checked guarantees and the returned owners supporting them on this exit.
     pub carriers: Arc<[super::DependencyWitnessCarrier<Projection, Guard>]>,
     /// Transfers of existing input ownership on this exit, sharing its guard and result.
     pub ownership: super::DependencyOwnedResult<OwnedProjection, Guard>,
+    /// Reference descriptors and their actual origins on this exit.
+    pub references: Arc<[super::DependencyBorrowRelation<Subject, Projection>]>,
+    /// Remaining storage dependencies and their completeness on this exit.
+    pub stored_values: Arc<[super::DependencyStoredValue<Subject>]>,
+    /// Payload subtrees known to be inactive on this exit.
+    pub inactive_payloads: Arc<[Subject]>,
     /// Ordinary entry or result-shape condition. An absent guard is feasible unconditionally.
     pub guard: Option<Guard>,
     /// Writes established on this exit. An unknown value still establishes a write.
     /// An omitted destination supplies no write guarantee.
-    pub bindings: Arc<[(Subject, CapturedValueTemplate<Input, Projection, Static, Callee>)]>,
+    pub bindings: Arc<[(Subject, CapturedValueTemplate<Input, Projection, Static, Callee, Variant>)]>,
 }
 
-impl<Subject, Input, Projection, Static, Guard, OwnedProjection, Callee: Eq> CapturedValueOutcome<Subject, Input, Projection, Static, Guard, OwnedProjection, Callee>
+impl<Subject, Input, Projection, Static, Guard, OwnedProjection, Callee: Eq, Variant: Eq> CapturedValueOutcome<Subject, Input, Projection, Static, Guard, OwnedProjection, Callee, Variant>
 where Subject: Ord, Input: Eq, Projection: Eq, Static: Eq {
     /// Attaches only guarantees established by this exit.
     pub fn with_carriers(mut self, carriers: impl IntoIterator<Item = super::DependencyWitnessCarrier<Projection, Guard>>) -> Self
@@ -254,8 +273,31 @@ where Subject: Ord, Input: Eq, Projection: Eq, Static: Eq {
         self
     }
 
+    /// Attaches the same exit's resolved physical observations.
+    pub fn with_storage(
+        mut self,
+        references: impl IntoIterator<Item = super::DependencyBorrowRelation<Subject, Projection>>,
+        stored_values: impl IntoIterator<Item = super::DependencyStoredValue<Subject>>,
+    ) -> Self
+    where
+        Subject: Clone,
+        Projection: Ord,
+    {
+        self.references = bray_base::sorted_unique_shared_slice(references);
+        self.stored_values = super::DependencyStoredValue::normalize(stored_values);
+
+        self
+    }
+
+    /// Records inactive payloads directly from the producing exit.
+    pub fn with_inactive_payloads(mut self, payloads: impl IntoIterator<Item = Subject>) -> Self {
+        self.inactive_payloads = bray_base::sorted_unique_shared_slice(payloads);
+
+        self
+    }
+
     /// Binds all writes of one exit. Aliased destinations retain only a common value.
-    pub fn new(guard: Option<Guard>, bindings: impl IntoIterator<Item = (Subject, CapturedValueTemplate<Input, Projection, Static, Callee>)>) -> Self {
+    pub fn new(guard: Option<Guard>, bindings: impl IntoIterator<Item = (Subject, CapturedValueTemplate<Input, Projection, Static, Callee, Variant>)>) -> Self {
         let mut writes = std::collections::BTreeMap::new();
 
         for (destination, value) in bindings {
@@ -268,12 +310,20 @@ where Subject: Ord, Input: Eq, Projection: Eq, Static: Eq {
             }
         }
 
-        Self { guard, carriers: Arc::default(), bindings: writes.into_iter().collect(), ownership: Default::default() }
+        Self {
+            guard,
+            carriers: Arc::default(),
+            bindings: writes.into_iter().collect(),
+            ownership: Default::default(),
+            references: Arc::default(),
+            stored_values: Arc::default(),
+            inactive_payloads: Arc::default(),
+        }
     }
 }
 
-impl<Subject: Ord + Clone, Input: Ord + Clone, Projection: Ord + Clone, Static: Ord + Clone, Guard: Ord + Clone, OwnedProjection: Ord + Clone, Callee: Ord + Clone>
-    CapturedValueOutcome<Subject, Input, Projection, Static, Guard, OwnedProjection, Callee>
+impl<Subject: Ord + Clone, Input: Ord + Clone, Projection: Ord + Clone, Static: Ord + Clone, Guard: Ord + Clone, OwnedProjection: Ord + Clone, Callee: Ord + Clone, Variant: Ord + Clone>
+    CapturedValueOutcome<Subject, Input, Projection, Static, Guard, OwnedProjection, Callee, Variant>
 {
     /// Guarantees every listed exit establishes on the same owner.
     pub fn common_carriers(rows: &[Self]) -> Arc<[super::DependencyWitnessCarrier<Projection, Guard>]> {
@@ -288,9 +338,84 @@ impl<Subject: Ord + Clone, Input: Ord + Clone, Projection: Ord + Clone, Static: 
         }))
     }
 
+    /// Joins the established reference origins for callers that cannot select an exit.
+    pub fn reference_origins<'a>(rows: impl IntoIterator<Item = &'a Self>, contains: impl Fn(&Subject, &Subject) -> bool) -> Arc<[super::DependencyBorrowRelation<Subject, Projection>]>
+    where Self: 'a {
+        use std::collections::{BTreeMap, BTreeSet};
+
+        let rows = rows.into_iter().collect::<Vec<_>>();
+        let mut destinations = BTreeMap::<_, (usize, BTreeSet<_>)>::new();
+
+        for row in &rows {
+            let mut established = BTreeSet::new();
+
+            for reference in row.references.iter() {
+                let group = destinations.entry(reference.exit()).or_default();
+
+                group.0 += usize::from(established.insert(reference.exit()));
+                group.1.insert(reference.clone());
+            }
+        }
+
+        bray_base::sorted_unique_shared_slice(destinations.into_iter().flat_map(|(destination, (established, mut relations))| {
+            if established != rows.len() && rows.iter().any(|row| {
+                !row.references.iter().any(|relation| relation.exit() == destination)
+                    && !row.inactive_payloads.iter().any(|payload| contains(payload, destination))
+            }) {
+                // An unobserved slot in a feasible exit is unknown, even when other exits have bounds.
+                relations.clear();
+            } else if relations.iter().any(|relation| !relation.is_no_payload()) {
+                relations.retain(|relation| !relation.is_no_payload());
+            }
+
+            let exact = relations.len() == 1;
+
+            relations.into_iter().map(move |relation| {
+                let exact = exact && relation.is_exact();
+
+                relation.with_exactness(exact)
+            })
+        }))
+    }
+
+    /// Joins known stored dependencies without treating a missing active slot as independent.
+    pub fn stored_dependencies<'a>(rows: impl IntoIterator<Item = &'a Self>, contains: impl Fn(&Subject, &Subject) -> bool) -> Arc<[super::DependencyStoredValue<Subject>]>
+    where Self: 'a {
+        let rows = rows.into_iter().collect::<Vec<_>>();
+
+        let merged = super::DependencyStoredValue::normalize(
+            rows.iter().flat_map(|row| row.stored_values.iter().cloned()),
+        );
+
+        merged.iter().cloned().map(|value| {
+            let destination = value.destination();
+
+            if rows.iter().all(|row| row.stored_values.binary_search_by(|incoming|
+                incoming.destination().cmp(destination)).is_ok()
+                || destination.dereferences() == 0 && row.references.iter().any(|reference|
+                    reference.exit() == destination.subject() && reference.is_no_payload())
+                || row.inactive_payloads.iter().any(|payload| contains(payload, destination.subject())))
+            {
+                value
+            } else {
+                value.incomplete()
+            }
+        }).collect()
+    }
+
+    /// Retains inactive subtrees established by every feasible normal exit.
+    pub fn common_inactive_payloads<'a>(rows: impl IntoIterator<Item = &'a Self>, contains: impl Fn(&Subject, &Subject) -> bool) -> Arc<[Subject]>
+    where Self: 'a {
+        let rows = rows.into_iter().collect::<Vec<_>>();
+
+        bray_base::sorted_unique_shared_slice(rows.iter().flat_map(|row| row.inactive_payloads.iter())
+            .filter(|payload| rows.iter().all(|row| row.inactive_payloads.iter().any(|ancestor| contains(ancestor, payload))))
+            .cloned())
+    }
+
     /// Widens successive approximations of reachable exits at a fixed point.
     /// An unspecified normal outcome supplies no guaranteed writes.
-    pub fn join_reachable(left: &[Self], right: &[Self]) -> Arc<[Self]> {
+    pub fn join_reachable(left: &[Self], right: &[Self], contains: impl Fn(&Subject, &Subject) -> bool) -> Arc<[Self]> {
         if left == right { return left.into(); }
 
         let opaque = Self::new(None, []);
@@ -321,9 +446,13 @@ impl<Subject: Ord + Clone, Input: Ord + Clone, Projection: Ord + Clone, Static: 
                 }).collect();
 
                 let carriers = Self::common_carriers(&old);
+                let references = Self::reference_origins(&old, &contains);
+                let stored_values = Self::stored_dependencies(&old, &contains);
+
+                let inactive_payloads = Self::common_inactive_payloads(&old, &contains);
                 let ownership = super::DependencyOwnedResult::choice(old.into_iter().map(|row| row.ownership));
 
-                result.push(Self { guard, bindings, ownership, carriers });
+                result.push(Self { guard, bindings, ownership, carriers, references, stored_values, inactive_payloads });
             }
         }
 
@@ -337,18 +466,50 @@ mod tests {
     type Row = Outcome<u8, u8, (), (), u8>;
 
     #[test]
+    fn inactive_payloads_and_unknown_observations_have_distinct_joins() {
+        use super::super::{DependencyBorrowRelation, DependencyReferenceKind, DependencyStoredValue, DependencyStoredValuePath};
+
+        let input = DependencyStoredValuePath::new(1, 0);
+        let destination = DependencyStoredValuePath::new(2, 0);
+
+        let origin = DependencyBorrowRelation::new(Some(1), 2, DependencyReferenceKind::Address);
+        let dependencies = DependencyStoredValue::new(destination, [input], true);
+
+        let active = Row::new(None, []).with_storage([origin.clone()], [dependencies.clone()]);
+
+        let inactive = Row::new(None, []).with_storage(
+            [DependencyBorrowRelation::new_no_payload(2, DependencyReferenceKind::Address)],
+            [],
+        );
+
+        let contains = |parent: &u8, child: &u8| parent == child || *parent == 3 && *child == 2;
+
+        for inactive in [inactive, Row::new(None, []).with_inactive_payloads([3])] {
+            let feasible = [active.clone(), inactive];
+
+            assert_eq!(Row::reference_origins(&feasible, contains).as_ref(), std::slice::from_ref(&origin));
+            assert_eq!(Row::stored_dependencies(&feasible, contains).as_ref(), std::slice::from_ref(&dependencies));
+        }
+
+        let feasible = [active, Row::new(None, [])];
+
+        assert!(Row::reference_origins(&feasible, PartialEq::eq).is_empty());
+        assert_eq!(Row::stored_dependencies(&feasible, PartialEq::eq).as_ref(), [dependencies.incomplete()]);
+    }
+
+    #[test]
     fn recursive_exits_widen_only_writes_established_by_every_alternative() {
         let first = Row::new(None, [(0, Value::Input(1)), (1, Value::Input(2))]);
         let second = Row::new(None, [(0, Value::Input(2)), (2, Value::Input(1))]);
         let other = Row::new(Some(1), [(1, Value::Input(3))]);
         let rows = [first.clone(), second.clone()];
 
-        assert_eq!(&*Row::join_reachable(&rows, &rows), &rows);
+        assert_eq!(&*Row::join_reachable(&rows, &rows, PartialEq::eq), &rows);
 
-        let widened = Row::join_reachable(&[first.clone(), other.clone()], &[second.clone()]);
+        let widened = Row::join_reachable(&[first.clone(), other.clone()], &[second.clone()], PartialEq::eq);
 
         assert_eq!(&*widened, &[Row::new(None, [(0, Value::Unknown)]), other]);
-        assert_eq!(Row::join_reachable(&widened, &[second]), widened);
-        assert_eq!(&*Row::join_reachable(&[], &[first]), &[Row::new(None, [])]);
+        assert_eq!(Row::join_reachable(&widened, &[second], PartialEq::eq), widened);
+        assert_eq!(&*Row::join_reachable(&[], &[first], PartialEq::eq), &[Row::new(None, [])]);
     }
 }

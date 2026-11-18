@@ -10,7 +10,7 @@ use crate::{InterfaceConstantTermId, InterfaceDependencyProjection,
 use crate::wire::{WireEncoder, WireReader};
 
 type Binding = crate::InterfaceNormalOutcome;
-type Template = Value<InterfaceConstantTermId, InterfaceDependencyProjection, InterfaceStaticReference, crate::InterfaceCapturedCallable>;
+type Template = Value<InterfaceConstantTermId, InterfaceDependencyProjection, InterfaceStaticReference, crate::InterfaceCapturedCallable, crate::InterfaceSymbolReference>;
 
 pub(super) fn encode_values(encoder: &mut WireEncoder, bindings: &[Binding]) {
     write_count(encoder, bindings.len());
@@ -23,6 +23,13 @@ pub(super) fn encode_values(encoder: &mut WireEncoder, bindings: &[Binding]) {
             encoder.write_u32(carrier.guarantee().raw());
             encoder.write_u32(u32::from(carrier.has_independent_support()));
             super::encoding::contract::encode_dependency_projections(encoder, carrier.path());
+        }
+
+        super::encoding::contract::encode_dependency_storage(encoder, &binding.references, &binding.stored_values);
+        write_count(encoder, binding.inactive_payloads.len());
+
+        for payload in binding.inactive_payloads.iter() {
+            super::encoding::contract::encode_dependency_subject(encoder, payload);
         }
 
         write_optional_u32(encoder, binding.guard.map(|term| term.raw()));
@@ -75,6 +82,11 @@ fn encode_value(encoder: &mut WireEncoder, value: &Template) {
                 pending.extend(alternatives.iter().rev().flat_map(|alternative| alternative.captures.iter().rev()));
             }
             Value::Unknown => encoder.write_u32(1),
+            Value::Tagged(variant, payload) => {
+                encoder.write_u32(7);
+                write_symbol_reference(encoder, variant);
+                pending.push(payload);
+            }
             Value::Operation(operation, values) => {
                 encoder.write_u32(2);
 
@@ -168,6 +180,15 @@ pub(super) fn decode_values(reader: &mut WireReader<'_>, limits: InterfaceValida
 
         }
 
+        let (references, stored_values) = super::decoding::contract::decode_dependency_storage(reader, limits, context)?;
+
+        let count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
+        let mut inactive_payloads = context.allocate_items(reader, count)?;
+
+        for _ in 0..count {
+            inactive_payloads.push(super::decoding::contract::decode_dependency_subject(reader, limits, context)?);
+        }
+
         let guard = read_optional_u32(reader)?.map(InterfaceConstantTermId::new);
         let count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
         let mut bindings = context.allocate_items(reader, count)?;
@@ -177,7 +198,11 @@ pub(super) fn decode_values(reader: &mut WireReader<'_>, limits: InterfaceValida
                 decode_value(reader, limits, context, 1)?));
         }
 
-        values.push(Binding { guard, bindings: bindings.into(), ownership, carriers: carriers.into() });
+        values.push(Binding {
+            guard, bindings: bindings.into(), ownership, carriers: carriers.into(),
+            references: references.into(), stored_values: stored_values.into(),
+            inactive_payloads: inactive_payloads.into(),
+        });
     }
 
     Ok(values)
@@ -248,6 +273,8 @@ fn decode_value(reader: &mut WireReader<'_>, limits: InterfaceValidationLimits,
             Value::Deferred { alternatives: alternatives.into(), unknown }
         }
         1 => Value::Unknown,
+        7 => Value::Tagged(read_symbol_reference(reader, context)?,
+            Arc::new(decode_value(reader, limits, context, depth + 1)?)),
         2 => {
             let operation = match read_u32(reader)? {
                 0 => Op::Select(decode_projection(reader, limits, context)?),

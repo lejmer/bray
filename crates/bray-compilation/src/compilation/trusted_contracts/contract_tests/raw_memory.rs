@@ -108,7 +108,7 @@ fn returned_address_origin_is_independent_of_its_lifetime_anchor() {
     let template = callable_dependencies(&application, callable.into());
 
     assert_eq!(
-        template.borrows(),
+        template.borrows().as_ref(),
         &[bray_symbols::DependencyBorrowRelation::new(
             Some(bray_symbols::DependencySubject::root(
                 bray_symbols::DependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(1))

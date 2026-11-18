@@ -20,6 +20,10 @@ impl OutputGuard {
         }
     }
 
+    fn is_reachable(&self) -> bool {
+        !matches!(self, Self::Bound(value) if matches!(value.kind(), super::ExecutionConditionKind::Boolean(false)))
+    }
+
     fn bound(&self) -> Option<&Condition> {
         match self {
             Self::Bound(value) => Some(value),
@@ -60,7 +64,12 @@ impl ExecutionOutputs {
     }
 
     fn reachable_rows(&self) -> impl Clone + Iterator<Item = &ExecutionOutput> {
-        self.0.iter().filter(|row| !matches!(row.guard.bound().map(Condition::kind), Some(super::ExecutionConditionKind::Boolean(false))))
+        self.0.iter().filter(|row| row.guard.is_reachable())
+    }
+
+    /// Shares the admission decision with the matching physical summary row.
+    pub(crate) fn is_admitted(&self, index: usize) -> bool {
+        self.0.is_empty() || self.0.get(index).expect("admitted outcomes retain the portable row order").guard.is_reachable()
     }
 
     pub(crate) fn possible_region_values(&self) -> impl Iterator<Item = (&bray_bound_tree::StorageTarget, &Condition)> {

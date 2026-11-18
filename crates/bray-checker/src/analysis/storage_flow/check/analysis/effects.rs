@@ -69,7 +69,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             return Some(EffectOutcomes::new([]));
         }
 
-        self.prepare_call_references(state, invocation);
+        self.prepare_call_references(state, invocation, execution.admitted_call(invocation));
 
         let contracts = self.dependencies.calls().get(&invocation)?;
 

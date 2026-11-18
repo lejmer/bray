@@ -194,10 +194,8 @@ fn expand<C: CheckerRequestContext + ?Sized>(
         );
     }
 
-    let omitted_origins = template
-        .borrows()
-        .iter()
-        .filter(|relation| {
+    let outcomes = template.captured_values().iter().cloned().map(|mut outcome| {
+        let omitted_origins = outcome.references.iter().filter(|relation| {
             relation.entry().is_some_and(|entry| {
                 selection
                     .input_ordinal(entry.subject_root())
@@ -205,18 +203,18 @@ fn expand<C: CheckerRequestContext + ?Sized>(
                     .and_then(|input| input.expression())
                     .is_none()
             })
-        })
-        .map(|relation| relation.exit().clone())
-        .collect::<std::collections::BTreeSet<_>>();
+        }).map(|relation| relation.exit()).collect::<std::collections::BTreeSet<_>>();
+
+        if !omitted_origins.is_empty() {
+            outcome.references = outcome.references.iter().filter(|relation|
+                !omitted_origins.contains(relation.exit())).cloned().collect();
+        }
+
+        outcome
+    });
 
     Ok(CallResultDependencies {
-        template: template.with_requirements(result).with_borrows(
-            template
-                .borrows()
-                .iter()
-                .filter(|relation| !omitted_origins.contains(relation.exit()))
-                .cloned(),
-        ),
+        template: template.with_requirements(result).with_captured_values(outcomes),
         escaping_evaluation_inputs: escaping_evaluation_inputs.into_iter().collect(),
     })
 }

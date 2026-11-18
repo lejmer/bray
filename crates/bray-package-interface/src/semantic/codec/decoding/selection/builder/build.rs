@@ -1037,7 +1037,7 @@ impl<'bytes, 'records> SelectionBuilder<'bytes, 'records> {
             self.include_dependency_requirement(requirement);
         }
 
-        for stored in &*contract.stored_values {
+        for stored in contract.captured_values.iter().flat_map(|outcome| outcome.stored_values.iter()) {
             self.include_dependency_subject(stored.destination().subject());
 
             for source in stored.sources() {
@@ -1045,7 +1045,7 @@ impl<'bytes, 'records> SelectionBuilder<'bytes, 'records> {
             }
         }
 
-        for relation in &*contract.borrows {
+        for relation in contract.captured_values.iter().flat_map(|outcome| outcome.references.iter()) {
             if let Some(entry) = relation.source_subject() {
                 self.include_dependency_subject(entry);
             }
@@ -1059,6 +1059,10 @@ impl<'bytes, 'records> SelectionBuilder<'bytes, 'records> {
         }
 
         for binding in &*contract.captured_values {
+            for payload in binding.inactive_payloads.iter() {
+                self.include_dependency_subject(payload);
+            }
+
             if let Some(guard) = binding.guard { self.enqueue(PendingRecord::ConstantTerm(guard.raw())); }
 
             for (destination, value) in binding.bindings.iter() {

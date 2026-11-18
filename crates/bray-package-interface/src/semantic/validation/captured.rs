@@ -72,6 +72,10 @@ impl InterfaceSemantics {
                         }
                     }
                     Value::Unknown => {}
+                    Value::Tagged(variant, payload) => {
+                        super::surface::validate_symbol(variant, symbol_count, dependency_count)?;
+                        pending.push((payload, depth + 1));
+                    }
                     Value::Operation(operation, values) => {
                         if operation.operand_count() != values.len() { return Err(invalid()); }
 
@@ -138,6 +142,7 @@ impl InterfaceSemantics {
                             }
                         }
                     }
+                    Value::Tagged(variant, _) if super::surface::validate_symbol_kind(variant, surface)? != bray_symbols::SymbolKind::UnionVariant => return Err(invalid()),
                     Value::Static(root) if super::surface::validate_symbol_kind(&root.declaration, surface)? != bray_symbols::SymbolKind::Static => return Err(invalid()),
                     _ => {}
                 }

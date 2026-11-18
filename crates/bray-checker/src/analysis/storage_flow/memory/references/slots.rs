@@ -342,7 +342,7 @@ impl State {
         let mut input_regions = BTreeSet::new();
 
         // Boundary summaries retain only observable reference values, not the body state.
-        let slots = self
+        let slots: BTreeMap<_, _> = self
             .values
             .iter()
             .filter_map(|(target, references)| {
@@ -387,18 +387,16 @@ impl State {
             })
             .collect();
 
+        let absent = absent.iter().filter_map(|(slot, reason)| {
+            (*reason == crate::analysis::storage_flow::model::StorageAbsence::NoPayload).then_some(slot)
+        }).chain(slots.iter().filter_map(|(slot, value)| value.is_no_payload().then_some(slot))).cloned().collect();
+
         ReferenceExit {
             slots,
             stored: self.values.iter().filter(|(target, _)| !target.previous)
                 .map(|(target, value)| (target.clone(), value.clone())).collect(),
             input_regions,
-            absent: absent
-                .iter()
-                .filter(|(_, reason)| {
-                    **reason == crate::analysis::storage_flow::model::StorageAbsence::NoPayload
-                })
-                .map(|(slot, _)| slot.clone())
-                .collect(),
+            absent,
         }
     }
 

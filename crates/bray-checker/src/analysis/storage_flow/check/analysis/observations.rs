@@ -18,45 +18,23 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             return;
         };
 
-        let Some(selection) = occurrence.expression()
-            .and_then(|expression| self.execution.semantics.selections().expression(expression)) else {
-            return;
-        };
+        for transfer in contracts.owned_result().guaranteed_transfers() {
+            let route = contracts.returned_value(&transfer);
 
-        let ownership = contracts.owned_result();
-
-        for transfer in ownership.guaranteed_transfers() {
-            let original = ownership.transfers()
-                .find(|original| original.same_identity(&transfer))
-                .expect("guaranteed return retains an original value route");
-
-            if contracts.returned_value(original).is_borrowed() {
+            if route.is_borrowed() {
                 continue;
             }
 
-            let decoded = crate::execution_condition_from_type_term(
-                self.request.semantic_values(), transfer.input(), contracts.input_count(),
-            ).expect("checked ownership source decodes in the same semantic store");
-
-            let crate::ExecutionConditionKind::Input(input) = decoded.kind() else {
-                unreachable!("an ownership source names an input projection");
-            };
-
-            let crate::execution_guarantees::ExecutionInput::Argument(ordinal) = input.root else {
-                unreachable!("an ownership source uses receiver-first argument ordinals");
-            };
-
-            let root = selection.invocation_input_root(occurrence, ordinal)
-                .expect("a checked ownership source retains its formal input");
+            let root = route.input_root();
 
             let Some(mut source) = self.invocation_place(occurrence, root) else { continue; };
 
-            let projections = crate::storage::owned_storage_projections(self.dependencies, &input.projections);
+            let projections = route.input_path().projections();
             let wrapping = self.invocation_wrapping(occurrence, root);
 
             let (actual, formal) = if let Some(actual) = projections.strip_prefix(wrapping.as_slice()) {
-                (actual, projections.as_slice())
-            } else if wrapping.starts_with(&projections) {
+                (actual, projections)
+            } else if wrapping.starts_with(projections) {
                 (&[][..], wrapping.as_slice())
             } else { continue; };
 

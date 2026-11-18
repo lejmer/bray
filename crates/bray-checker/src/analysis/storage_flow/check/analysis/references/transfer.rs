@@ -462,6 +462,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         &self,
         state: &mut StorageFlowState,
         occurrence: BoundExecutionSite,
+        entry: Option<&crate::ExecutionCallEvidence>,
     ) {
         if matches!(occurrence, BoundExecutionSite::Node(_))
             && occurrence
@@ -523,7 +524,11 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         // Install allocation anchors before their payloads, and independent
         // alternatives before input alternatives at the same physical depth.
-        let mut references = contracts.references().iter().collect::<Vec<_>>();
+        let outcomes = contracts.captured_values().iter().enumerate()
+            .filter(|(index, _)| entry.is_none_or(|entry| entry.outputs.is_admitted(*index)))
+            .map(|(_, row)| row);
+
+        let mut references = contracts.reference_outputs(outcomes.clone());
 
         references.sort_by_key(|reference| {
             let relation = reference.relation();
@@ -536,15 +541,30 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         });
 
         for reference in references {
-            self.prepare_call_reference(state, occurrence, reference);
+            self.prepare_call_reference(state, occurrence, &reference);
         }
 
         if let Some(destination) = self.invocation_result(occurrence) {
-            self.prepare_returned_values(state, occurrence, contracts, &destination);
+            let ownership = bray_symbols::DependencyOwnedResult::choice(outcomes.clone().map(|row| row.ownership.clone()));
+
+            self.prepare_returned_values(state, occurrence, contracts, &destination, &ownership);
         }
 
-        self.prepare_result_references(state, occurrence);
-        self.prepare_stored_values(state, occurrence);
+        let inactive = bray_symbols::CapturedValueOutcome::common_inactive_payloads(outcomes.clone(), bray_symbols::DependencySubject::contains);
+
+        let inactive = inactive.iter().filter(|subject| subject.subject_root() == DependencySubjectRoot::Result)
+            .filter_map(|subject| self.invocation_logical_path(occurrence, subject))
+            .collect::<Vec<_>>();
+
+        for payload in &inactive {
+            state.memory.stage_no_payload_alternative(occurrence, Target::storage(payload.clone()));
+        }
+
+        self.prepare_result_references(state, occurrence, &inactive);
+
+        let stored_values = bray_symbols::CapturedValueOutcome::stored_dependencies(outcomes, bray_symbols::DependencySubject::contains);
+
+        self.prepare_stored_values(state, occurrence, contracts, &stored_values);
     }
 
     fn prepare_call_reference(
@@ -834,6 +854,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         &self,
         state: &mut StorageFlowState,
         occurrence: bray_bound_tree::BoundExecutionSite,
+        inactive: &[Place],
     ) {
         if let Some(destination) = self.invocation_result(occurrence) {
             let root = self
@@ -869,9 +890,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 let references = contained
                     .into_iter()
                     .flat_map(|paths| paths.iter())
-                    .filter(|(path, _)| path.projections.is_empty() || !state.definitely_absent.iter().any(|(absent, reason)| {
-                        *reason == crate::analysis::storage_flow::model::StorageAbsence::NoPayload && absent.contains_storage(path)
-                    }))
+                    .filter(|(path, _)| !inactive.iter().any(|payload| payload.contains_storage(path))
+                        && (path.projections.is_empty() || !state.definitely_absent.iter().any(|(absent, reason)| {
+                            *reason == crate::analysis::storage_flow::model::StorageAbsence::NoPayload && absent.contains_storage(path)
+                        })))
                     .map(|(path, ty)| (path.clone(), *ty))
                     .chain(root.filter(|(path, _)| {
                         !contained.is_some_and(|paths| paths.contains_key(path))

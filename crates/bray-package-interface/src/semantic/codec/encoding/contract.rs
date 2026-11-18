@@ -52,60 +52,6 @@ pub(super) fn encode_contracts(semantics: &InterfaceSemantics) -> EncodedSemanti
                 }
             }
 
-            write_count(encoder, contract.borrows.len());
-
-            for relation in &*contract.borrows {
-                let mut attributes = relation.kind().to_wire() << REFERENCE_KIND_SHIFT;
-
-                if relation.is_exact() {
-                    attributes |= REFERENCE_EXACT;
-                }
-
-                if relation.provenance()
-                    == bray_symbols::DependencyReferenceProvenance::InputRegions
-                {
-                    attributes |= REFERENCE_INPUT_REGIONS;
-                }
-
-                if relation.source_subject().is_none() {
-                    attributes |= REFERENCE_INPUT_ABSENT;
-                }
-
-                if relation.allocation().is_some() { attributes |= REFERENCE_ALLOCATION; }
-                if relation.is_empty_reference() { attributes |= REFERENCE_EMPTY; }
-                if relation.is_no_payload() { attributes |= REFERENCE_NO_PAYLOAD; }
-
-                encoder.write_u32(attributes);
-
-                if let Some(entry) = relation.source_subject() {
-                    encode_dependency_subject(encoder, entry);
-                }
-
-                encode_dependency_subject(encoder, relation.exit());
-
-                if relation.source_subject().is_some() {
-                    encoder.write_u32(relation.dereferences());
-                    encode_dependency_projections(encoder, relation.target_projections());
-                }
-            }
-
-            write_count(encoder, contract.stored_values.len());
-
-            for value in &*contract.stored_values {
-                encode_dependency_subject(encoder, value.destination().subject());
-
-                encoder.write_u32(value.destination().dereferences());
-                encoder.write_u32(u32::from(value.is_complete()));
-
-                write_count(encoder, value.sources().len());
-
-                for source in value.sources() {
-                    encode_dependency_subject(encoder, source.subject());
-
-                    encoder.write_u32(source.dereferences());
-                }
-            }
-
             super::super::captured::encode_values(encoder, &contract.captured_values);
 
             write_optional_u32(encoder, contract.observed_result.map(|term| term.raw()));
@@ -410,6 +356,66 @@ fn encode_dependency_call_inputs(
             for nested in requirements.iter() {
                 encode_dependency_requirement(encoder, nested);
             }
+        }
+    }
+}
+
+pub(in crate::semantic::codec) fn encode_dependency_storage(
+    encoder: &mut WireEncoder,
+    references: &[bray_symbols::DependencyBorrowRelation<crate::InterfaceDependencySubject, crate::InterfaceDependencyProjection>],
+    stored_values: &[bray_symbols::DependencyStoredValue<crate::InterfaceDependencySubject>],
+) {
+    write_count(encoder, references.len());
+
+    for relation in references {
+        let mut attributes = relation.kind().to_wire() << REFERENCE_KIND_SHIFT;
+
+        if relation.is_exact() {
+            attributes |= REFERENCE_EXACT;
+        }
+
+        if relation.provenance()
+            == bray_symbols::DependencyReferenceProvenance::InputRegions
+        {
+            attributes |= REFERENCE_INPUT_REGIONS;
+        }
+
+        if relation.source_subject().is_none() {
+            attributes |= REFERENCE_INPUT_ABSENT;
+        }
+
+        if relation.allocation().is_some() { attributes |= REFERENCE_ALLOCATION; }
+        if relation.is_empty_reference() { attributes |= REFERENCE_EMPTY; }
+        if relation.is_no_payload() { attributes |= REFERENCE_NO_PAYLOAD; }
+
+        encoder.write_u32(attributes);
+
+        if let Some(entry) = relation.source_subject() {
+            encode_dependency_subject(encoder, entry);
+        }
+
+        encode_dependency_subject(encoder, relation.exit());
+
+        if relation.source_subject().is_some() {
+            encoder.write_u32(relation.dereferences());
+            encode_dependency_projections(encoder, relation.target_projections());
+        }
+    }
+
+    write_count(encoder, stored_values.len());
+
+    for value in stored_values {
+        encode_dependency_subject(encoder, value.destination().subject());
+
+        encoder.write_u32(value.destination().dereferences());
+        encoder.write_u32(u32::from(value.is_complete()));
+
+        write_count(encoder, value.sources().len());
+
+        for source in value.sources() {
+            encode_dependency_subject(encoder, source.subject());
+
+            encoder.write_u32(source.dereferences());
         }
     }
 }

@@ -457,8 +457,10 @@ fn body_result_dependencies(
     checked: &bray_symbols::DependencyContractTemplateData,
     previous: &bray_symbols::DependencyContractTemplateData,
 ) -> bray_symbols::DependencyContractTemplateData {
-    // Normal outcomes and mutations grow. Complete origin bounds grow with them,
-    // while value and authority promises must hold on every normal outcome.
+    // Normal outcomes and mutations grow. Value and authority promises hold
+    // only where the same widening retains their supporting observations.
+    let outcomes = combined_result_values(checked, previous);
+
     let mut result = bray_symbols::DependencyContractTemplateData::new(
         previous
             .requirements()
@@ -466,9 +468,7 @@ fn body_result_dependencies(
             .chain(checked.requirements())
             .cloned(),
     )
-    .with_borrows(combined_result_borrows(checked, previous))
-    .with_stored_values(combined_result_stored_values(checked, previous))
-    .with_captured_values(combined_result_values(checked, previous))
+    .with_captured_values(outcomes)
     .with_observed_result(if !previous.normal_completion() {
         checked.observed_result()
     } else if !checked.normal_completion()
@@ -522,81 +522,7 @@ fn combined_result_values(
     if !previous.normal_completion() { return checked.captured_values().to_vec(); }
     if !checked.normal_completion() { return previous.captured_values().to_vec(); }
 
-    bray_symbols::CapturedValueOutcome::join_reachable(previous.captured_values(), checked.captured_values()).to_vec()
-}
-
-fn combined_result_stored_values(
-    checked: &bray_symbols::DependencyContractTemplateData,
-    previous: &bray_symbols::DependencyContractTemplateData,
-) -> Vec<bray_symbols::DependencyStoredValue> {
-    if !previous.normal_completion() {
-        return checked.stored_values().to_vec();
-    }
-
-    if !checked.normal_completion() {
-        return previous.stored_values().to_vec();
-    }
-
-    let destinations = |summary: &bray_symbols::DependencyContractTemplateData| {
-        summary.stored_values().iter().map(|stored| stored.destination().clone())
-            .collect::<BTreeSet<_>>()
-    };
-
-    let checked_destinations = destinations(checked);
-    let previous_destinations = destinations(previous);
-
-    previous.stored_values().iter().chain(checked.stored_values()).map(|stored| {
-        // A missing record on a reachable outcome leaves unknown contents, not an empty value.
-        if checked_destinations.contains(stored.destination())
-            && previous_destinations.contains(stored.destination()) {
-            stored.clone()
-        } else {
-            stored.clone().incomplete()
-        }
-    }).collect()
-}
-
-fn combined_result_borrows(
-    checked: &bray_symbols::DependencyContractTemplateData,
-    previous: &bray_symbols::DependencyContractTemplateData,
-) -> Vec<bray_symbols::DependencyBorrowRelation> {
-    let both = checked.normal_completion() && previous.normal_completion();
-
-    let bounded = |summary: &bray_symbols::DependencyContractTemplateData| {
-        summary
-            .borrows()
-            .iter()
-            .map(|relation| relation.exit().clone())
-            .collect::<BTreeSet<_>>()
-    };
-
-    let checked_exits = both.then(|| bounded(checked));
-    let previous_exits = both.then(|| bounded(previous));
-
-    previous
-        .borrows()
-        .iter()
-        .filter(|_| previous.normal_completion())
-        .chain(
-            checked
-                .borrows()
-                .iter()
-                .filter(|_| checked.normal_completion()),
-        )
-        .filter(|relation| {
-            !both
-                || checked_exits
-                    .as_ref()
-                    .expect("both outcomes have origin sets")
-                    .contains(relation.exit())
-                    && previous_exits
-                        .as_ref()
-                        .expect("both outcomes have origin sets")
-                        .contains(relation.exit())
-        })
-        // The next approximation owns its relations and shares their immutable projection paths.
-        .cloned()
-        .collect()
+    bray_symbols::CapturedValueOutcome::join_reachable(previous.captured_values(), checked.captured_values(), bray_symbols::DependencySubject::contains).to_vec()
 }
 
 fn body_key(

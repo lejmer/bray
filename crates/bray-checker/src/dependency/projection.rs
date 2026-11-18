@@ -498,7 +498,7 @@ pub(super) fn prepare_variants<C: crate::CheckerRequestContext + ?Sized>(
             retain(subject.projections());
         }
 
-        for relation in contract.borrows() {
+        for relation in contract.borrows().iter() {
             retain(relation.target_projections());
         }
 

@@ -268,7 +268,9 @@ fn nested_buffer_views_preserve_checked_storage_effects() {
         assert_eq!(flow.value().dependencies().preserves_storage_on_normal_return(), name != "inspect_replaced");
         assert!(flow.value().dependencies().normal_completion());
 
-        let returned = flow.value().dependencies().borrows().iter().filter(|relation|
+        let borrows = flow.value().dependencies().borrows();
+
+        let returned = borrows.iter().filter(|relation|
             relation.exit().subject_root() == bray_symbols::DependencySubjectRoot::Result).collect::<Vec<_>>();
 
         assert!(!returned.is_empty(), "{name} publishes its actual result reference");

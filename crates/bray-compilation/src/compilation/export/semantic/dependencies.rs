@@ -33,27 +33,6 @@ impl<'a> SemanticExporter<'a> {
 
         let requirements = self.dependency_requirements(data.requirements())?;
 
-        let borrows = self
-            .dependency_order(data.borrows(), |encoder, item| {
-                encoder.dependency_borrow(item)
-            })?
-            .into_iter()
-            .map(|relation| {
-                Ok(relation.remap(
-                    relation
-                        .source_subject()
-                        .map(|entry| self.dependency_subject(entry))
-                        .transpose()?,
-                    self.dependency_subject(relation.exit())?,
-                    relation
-                        .target_projections()
-                        .iter()
-                        .map(|projection| self.dependency_projection(projection))
-                        .collect::<Result<Vec<_>, _>>()?,
-                ))
-            })
-            .collect::<Result<Vec<_>, PackageInterfaceExportError>>()?;
-
         let mut normal_effects = Vec::new();
 
         let effects = self
@@ -118,16 +97,6 @@ impl<'a> SemanticExporter<'a> {
 
         let contract = contract
             .with_captured_values(self.dependency_captured_bindings(data.captured_values())?)
-            .with_borrows(borrows)
-            .with_stored_values(self.dependency_order(data.stored_values(), |encoder, stored| encoder.dependency_stored_value(stored))?
-                .into_iter().map(|stored| {
-                    let sources = self.dependency_order(stored.sources(), |encoder, source| encoder.dependency_stored_value_path(source))?
-                        .into_iter().map(|source| Ok(bray_symbols::DependencyStoredValuePath::new(self.dependency_subject(source.subject())?, source.dereferences()))).collect::<Result<Vec<_>, PackageInterfaceExportError>>()?;
-
-                    Ok(bray_symbols::DependencyStoredValue::new(
-                        bray_symbols::DependencyStoredValuePath::new(self.dependency_subject(stored.destination().subject())?, stored.destination().dereferences()), sources, stored.is_complete(),
-                    ))
-                }).collect::<Result<Vec<_>, PackageInterfaceExportError>>()?)
             .with_observed_result(
                 data.observed_result()
                     .map(|term| self.constant_term_id(term))
@@ -145,6 +114,47 @@ impl<'a> SemanticExporter<'a> {
         self.dependency_contract_ids.insert(id, exported);
 
         Ok(exported)
+    }
+
+    fn dependency_borrow_relations(
+        &mut self,
+        borrows: &[bray_symbols::DependencyBorrowRelation],
+    ) -> Result<Vec<bray_symbols::DependencyBorrowRelation<InterfaceDependencySubject, InterfaceDependencyProjection>>, PackageInterfaceExportError> {
+        self
+            .dependency_order(borrows, |encoder, item| {
+                encoder.dependency_borrow(item)
+            })?
+            .into_iter()
+            .map(|relation| {
+                Ok(relation.remap(
+                    relation
+                        .source_subject()
+                        .map(|entry| self.dependency_subject(entry))
+                        .transpose()?,
+                    self.dependency_subject(relation.exit())?,
+                    relation
+                        .target_projections()
+                        .iter()
+                        .map(|projection| self.dependency_projection(projection))
+                        .collect::<Result<Vec<_>, _>>()?,
+                ))
+            })
+            .collect::<Result<Vec<_>, PackageInterfaceExportError>>()
+    }
+
+    fn dependency_stored_values(
+        &mut self,
+        values: &[bray_symbols::DependencyStoredValue],
+    ) -> Result<Vec<bray_symbols::DependencyStoredValue<InterfaceDependencySubject>>, PackageInterfaceExportError> {
+        self.dependency_order(values, |encoder, stored| encoder.dependency_stored_value(stored))?
+                .into_iter().map(|stored| {
+                    let sources = self.dependency_order(stored.sources(), |encoder, source| encoder.dependency_stored_value_path(source))?
+                        .into_iter().map(|source| Ok(bray_symbols::DependencyStoredValuePath::new(self.dependency_subject(source.subject())?, source.dereferences()))).collect::<Result<Vec<_>, PackageInterfaceExportError>>()?;
+
+                    Ok(bray_symbols::DependencyStoredValue::new(
+                        bray_symbols::DependencyStoredValuePath::new(self.dependency_subject(stored.destination().subject())?, stored.destination().dereferences()), sources, stored.is_complete(),
+                    ))
+                }).collect::<Result<Vec<_>, PackageInterfaceExportError>>()
     }
 
     fn dependency_captured_bindings(&mut self, bindings: &[bray_symbols::CapturedValueOutcome]) -> Result<Vec<bray_package_interface::InterfaceNormalOutcome>, PackageInterfaceExportError> {
@@ -165,6 +175,12 @@ impl<'a> SemanticExporter<'a> {
                     if !projections.contains_key(projection) { projections.insert(*projection, self.dependency_projection(projection)?); }
                 }
 
+                let mut variants = std::collections::BTreeMap::new();
+
+                for variant in value.variants() {
+                    if !variants.contains_key(variant) { variants.insert(*variant, self.symbol_reference((*variant).into())?); }
+                }
+
                 let mut callees = std::collections::BTreeMap::new();
 
                 for call in value.callees() {
@@ -180,7 +196,8 @@ impl<'a> SemanticExporter<'a> {
 
                 Ok((self.dependency_subject(destination)?, value.try_map(&mut |input| Ok::<_, PackageInterfaceExportError>(inputs[input]),
                         &mut |projection| Ok(projections[projection].clone()),
-                        &mut |root| self.captured_static_reference(root), &mut |callee| Ok(callees[callee].clone()))?))
+                        &mut |root| self.captured_static_reference(root), &mut |callee| Ok(callees[callee].clone()),
+                        &mut |variant| Ok(variants[variant].clone()))?))
                 }).collect::<Result<Vec<_>, PackageInterfaceExportError>>()?;
 
         let carriers = self
@@ -200,7 +217,13 @@ impl<'a> SemanticExporter<'a> {
             })
             .collect::<Result<Vec<_>, PackageInterfaceExportError>>()?;
 
-                Ok(bray_symbols::CapturedValueOutcome::new(guard, bindings).with_carriers(carriers).with_ownership(self.dependency_owned_result(&outcome.ownership)?))
+                Ok(bray_symbols::CapturedValueOutcome::new(guard, bindings).with_carriers(carriers)
+                    .with_ownership(self.dependency_owned_result(&outcome.ownership)?)
+                    .with_storage(self.dependency_borrow_relations(&outcome.references)?,
+                        self.dependency_stored_values(&outcome.stored_values)?)
+                    .with_inactive_payloads(self.dependency_order(&outcome.inactive_payloads, |encoder, subject| encoder.dependency_subject(subject))?
+                        .into_iter().map(|subject| self.dependency_subject(subject))
+                        .collect::<Result<Vec<_>, _>>()?))
             }).collect()
     }
 

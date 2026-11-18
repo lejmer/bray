@@ -107,7 +107,6 @@ pub(crate) fn selected_operation_contracts<C: CheckerRequestContext + ?Sized>(
             .with_input_count(inputs.len())
             .with_effects(template.template.effects().iter().cloned())
             .with_synchronous_cleanup(template.template.synchronous_cleanup())
-            .with_captured_values(template.template.captured_values().iter().cloned())
             .with_normal_completion(template.template.normal_completion())
             .with_normal_effects(template.template.normal_effects().iter().cloned());
 

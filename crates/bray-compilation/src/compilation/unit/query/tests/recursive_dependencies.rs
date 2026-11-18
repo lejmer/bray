@@ -652,8 +652,10 @@ fn recursive_reference_summaries_require_a_normal_base_and_agreeing_targets() {
             "{name}: {dependencies:#?}"
         );
 
-        let origins = dependencies
-            .borrows()
+        let borrows = dependencies
+            .borrows();
+
+        let origins = borrows
             .iter()
             .filter(|relation| relation.is_exact())
             .filter(|relation| {
@@ -705,8 +707,10 @@ fn deferred_results_keep_exact_borrow_origins_and_defaults_execute_at_creation()
             name,
         );
 
-        let origins = result
-            .borrows()
+        let borrows = result
+            .borrows();
+
+        let origins = borrows
             .iter()
             .filter(|relation| {
                 relation.exit().subject_root() == bray_symbols::DependencySubjectRoot::Result

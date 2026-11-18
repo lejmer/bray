@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use bray_bound_tree::StorageProjection;
 use super::super::core::StorageFlowCollector;
 use crate::CheckerRequestContext;
-use crate::analysis::storage_flow::memory::{Origin, Place, ReferenceBounds, ReferenceExitValue};
+use crate::analysis::storage_flow::memory::{Origin, Place, ReferenceBounds, ReferenceExit, ReferenceExitValue};
 use crate::storage::{dependency_projection, dependency_projections};
 use bray_symbols::{
     ConstantBinaryOperation, ConstantTermData, ConstantUnaryOperation, DependencySubjectRoot,
@@ -21,17 +21,29 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         let exits = std::mem::take(&mut self.normal_exits);
 
-        let (stored_values, physical_references) = self.stored_values(exits.iter().map(|(references, _)| references))?;
+        let result_slots = exits.iter().flat_map(|(physical, _, _)| physical.observed_slots())
+            .filter(|path| self.formal_root(path.root) == Some(DependencySubjectRoot::Result))
+            .cloned().collect::<BTreeSet<_>>();
 
-        let mut references: Option<crate::analysis::storage_flow::memory::ReferenceExit> = None;
+        for (physical, value, returned) in exits {
+            let (stored_values, embedded) = self.stored_values(&physical)?;
 
-        for (physical, returned) in exits {
-            match &mut references {
-                None => references = Some(physical),
-                Some(previous) => previous.merge(&physical),
-            }
+            let exit_references = self.borrow_relations(&physical)?.into_iter().chain(embedded);
 
-            let Some(crate::analysis::guarantee::NormalReturn { captured: outcome, carriers, transfers: ownership }) = returned else { continue; };
+            let inactive_payloads = physical.absent_payloads().iter().filter_map(|absent| {
+                let root = self.formal_root(absent.root)?;
+                let path = dependency_projections(&absent.projections)?;
+
+                Some(DependencySubject::new(root, path))
+            }).chain(result_slots.iter().filter_map(|slot| self.inactive_result_payload(slot, &value)))
+                .collect::<Vec<_>>();
+
+            let Some(crate::analysis::guarantee::NormalReturn { captured: outcome, carriers, transfers: ownership }) = returned else {
+                captured_values.push(bray_symbols::CapturedValueOutcome::new(None, [])
+                    .with_storage(exit_references, stored_values).with_inactive_payloads(inactive_payloads));
+
+                continue;
+            };
 
             let mut published = Vec::with_capacity(carriers.len());
 
@@ -77,7 +89,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 ));
             }
 
-            captured_values.push(outcome.with_ownership(self.owned_result(ownership)?).with_carriers(published));
+            captured_values.push(outcome.with_ownership(self.owned_result(ownership)?)
+                .with_carriers(published).with_storage(exit_references, stored_values)
+                .with_inactive_payloads(inactive_payloads));
         }
 
         self.diagnostics
@@ -87,15 +101,72 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             return Err(error);
         }
 
+        let relations = bray_symbols::CapturedValueOutcome::reference_origins(&captured_values, DependencySubject::contains);
+        let normal = !captured_values.is_empty();
+
+        let summary = std::mem::take(&mut self.results).summary();
+
+        let mut requirements = summary.requirements().to_vec();
+
+        // Established borrow origins retain references installed by mutation.
+        // Possible physical input regions do not establish a borrow origin.
+        requirements.extend(
+            relations
+                .iter()
+                .filter(|relation| {
+                    relation.kind() == bray_symbols::DependencyReferenceKind::Borrow
+                        && relation.provenance()
+                            != bray_symbols::DependencyReferenceProvenance::InputRegions
+                        && relation.entry().is_some()
+                        && relation.exit().subject_root() == DependencySubjectRoot::Result
+                })
+                .map(|relation| {
+                    bray_symbols::DependencyRequirement::direct(
+                        relation
+                            .entry()
+                            .expect("complete borrow origin has its input")
+                            .clone(),
+                        bray_symbols::DependencyRequirementKind::ValueDependencies,
+                    )
+                }),
+        );
+
+        Ok(summary
+            .with_requirements(requirements)
+            .with_normal_completion(normal)
+            .with_captured_values(captured_values)
+            .with_observed_result(observed_result))
+    }
+
+    fn inactive_result_payload(&self, slot: &Place, value: &crate::ExecutionCondition) -> Option<DependencySubject> {
+        let mut value = value.clone();
+
+        for (depth, projection) in slot.projections.iter().copied().enumerate() {
+            let inactive = match projection {
+                StorageProjection::ActiveUnionPayloadField { variant, .. } =>
+                    value.known_variant().is_some_and(|active| active != variant),
+                StorageProjection::NullableValue => value.known_presence() == Some(false),
+                _ => false,
+            };
+
+            if inactive {
+                return Some(DependencySubject::new(DependencySubjectRoot::Result, dependency_projections(&slot.projections[..=depth])?));
+            }
+
+            value = value.project(projection);
+        }
+
+        None
+    }
+
+    fn borrow_relations(&self, references: &ReferenceExit)
+        -> crate::CheckerQueryResult<Vec<DependencyBorrowRelation>, C::UpstreamError>
+    {
         let mut relations = Vec::new();
         let mut unbounded = std::collections::BTreeSet::new();
         let mut allocations = std::collections::BTreeMap::new();
-        let summary = std::mem::take(&mut self.results).summary();
 
-        for (slot, target, exact, bounds) in references
-            .iter()
-            .flat_map(|references| references.targets())
-        {
+        for (slot, target, exact, bounds) in references.targets() {
             if self.formal_root(slot.root).is_none() {
                 continue;
             }
@@ -157,8 +228,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             }
         }
 
-        let empty = references.iter().flat_map(|references| references.empty_slots()).map(|slot| (slot, false));
-        let absent = references.iter().flat_map(|references| references.no_payload_slots()).map(|slot| (slot, true));
+        let empty = references.empty_slots().map(|slot| (slot, false));
+        let absent = references.no_payload_slots().map(|slot| (slot, true));
 
         for (slot, absent) in empty.chain(absent) {
             let Some(root) = self.formal_root(slot.root) else { continue; };
@@ -177,223 +248,150 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             relations.push((slot.clone(), relation));
         }
 
-        let mut relations = relations
-            .into_iter()
+        Ok(relations.into_iter()
             .filter_map(|(slot, relation)| (!unbounded.contains(&slot)).then_some(relation))
-            .collect::<Vec<_>>();
-
-        let mut requirements = summary.requirements().to_vec();
-
-        // Established borrow origins retain references installed by mutation.
-        // Possible physical input regions do not establish a borrow origin.
-        requirements.extend(
-            relations
-                .iter()
-                .filter(|relation| {
-                    relation.kind() == bray_symbols::DependencyReferenceKind::Borrow
-                        && relation.provenance()
-                            != bray_symbols::DependencyReferenceProvenance::InputRegions
-                        && relation.entry().is_some()
-                        && relation.exit().subject_root() == DependencySubjectRoot::Result
-                })
-                .map(|relation| {
-                    bray_symbols::DependencyRequirement::direct(
-                        relation
-                            .entry()
-                            .expect("complete borrow origin has its input")
-                            .clone(),
-                        bray_symbols::DependencyRequirementKind::ValueDependencies,
-                    )
-                }),
-        );
-
-        relations.extend(physical_references);
-
-        Ok(summary
-            .with_stored_values(stored_values)
-            .with_requirements(requirements)
-            .with_borrows(relations)
-            .with_normal_completion(references.is_some())
-            .with_captured_values(captured_values)
-            .with_observed_result(observed_result))
+            .collect())
     }
 
-    // Map each exit while its allocation anchors and inactive payloads are still distinct.
-    fn stored_values<'exit>(&self, references: impl Iterator<Item = &'exit crate::analysis::storage_flow::memory::ReferenceExit>) -> crate::CheckerQueryResult<(Vec<bray_symbols::DependencyStoredValue>, Vec<bray_symbols::DependencyBorrowRelation>), C::UpstreamError> {
-
+    // Map storage within the producing exit while its allocation anchors are still distinct.
+    fn stored_values(&self, exit: &ReferenceExit) -> crate::CheckerQueryResult<(Vec<DependencyStoredValue>, Vec<DependencyBorrowRelation>), C::UpstreamError> {
         type Paths = BTreeMap<DependencyStoredValuePath, (BTreeSet<DependencyStoredValuePath>, bool)>;
         type Physical = BTreeMap<DependencyStoredValuePath, (BTreeSet<DependencyBorrowRelation>, bool)>;
 
-        let mut exits = Vec::<(Paths, Physical, &BTreeSet<Place>)>::new();
+        let mut anchors = BTreeMap::<Place, Vec<(Place, Vec<bray_bound_tree::StorageProjection>, bool)>>::new();
 
-        for exit in references {
-            let mut anchors = BTreeMap::<Place, Vec<(Place, Vec<bray_bound_tree::StorageProjection>, bool)>>::new();
+        for (slot, origin, exact, bounds) in exit.targets() {
+            let Origin::Allocation { allocation, projections } = origin else { continue; };
 
-            for (slot, origin, exact, bounds) in exit.targets() {
-                let Origin::Allocation { allocation, projections } = origin else { continue; };
+            if !exact || bounds != ReferenceBounds::Known { continue; }
 
-                if !exact || bounds != ReferenceBounds::Known { continue; }
+            let Some(ty) = self.storage.identity_type(slot.root) else { continue; };
 
-                let Some(ty) = self.storage.identity_type(slot.root) else { continue; };
+            let Some(root) = self.formal_root(slot.root) else { continue; };
 
-                let Some(root) = self.formal_root(slot.root) else { continue; };
+            let observable = root == DependencySubjectRoot::Result
+                || root.is_static()
+                || matches!(self.request.semantic_values().type_data(ty).as_ref(), TypeData::Borrow { .. })
+                || slot.projections.contains(&bray_bound_tree::StorageProjection::AddressTarget);
 
-                let observable = root == DependencySubjectRoot::Result
-                    || root.is_static()
-                    || matches!(self.request.semantic_values().type_data(ty).as_ref(), TypeData::Borrow { .. })
-                    || slot.projections.contains(&bray_bound_tree::StorageProjection::AddressTarget);
+            if observable && self.reference_kind(slot, ty)? == Some(bray_symbols::DependencyReferenceKind::Address) {
+                let mut anchor = slot.clone();
+                let mut owned = false;
 
-                if observable && self.reference_kind(slot, ty)? == Some(bray_symbols::DependencyReferenceKind::Address) {
-                    let mut anchor = slot.clone();
-                    let mut owned = false;
+                if let Some(bray_bound_tree::StorageProjection::ProductField(pointer)) = slot.projections.last() {
+                    let owner = &slot.projections[..slot.projections.len() - 1];
 
-                    if let Some(bray_bound_tree::StorageProjection::ProductField(pointer)) = slot.projections.last() {
-                        let owner = &slot.projections[..slot.projections.len() - 1];
+                    if let Some((owner_ty, _)) = crate::storage::reference_path(self.request, ty, owner.into(), None)? {
+                        let owner_ty = self.request.semantic_values().unborrowed_type(owner_ty);
 
-                        if let Some((owner_ty, _)) = crate::storage::reference_path(self.request, ty, owner.into(), None)? {
-                            let owner_ty = self.request.semantic_values().unborrowed_type(owner_ty);
-
-                            if self.input.raw_buffers.get(&owner_ty).is_some_and(|fields| fields.pointer == *pointer) {
-                                anchor.projections = owner.into();
-                                owned = true;
-                            }
+                        if self.input.raw_buffers.get(&owner_ty).is_some_and(|fields| fields.pointer == *pointer) {
+                            anchor.projections = owner.into();
+                            owned = true;
                         }
                     }
-
-                    anchors.entry(allocation.clone()).or_default().push((anchor, projections.to_vec(), owned));
                 }
+
+                anchors.entry(allocation.clone()).or_default().push((anchor, projections.to_vec(), owned));
+            }
+        }
+
+        let mut paths = Paths::new();
+
+        for (destination, sources, complete) in exit.whole_sources() {
+            let Some((destination, _, precise)) = self.stored_endpoint(destination, false, &anchors)? else { continue; };
+
+            let mut mapped = BTreeSet::new();
+            let mut complete = complete && precise;
+
+            for source in sources {
+                if let Some((source, _, precise)) = self.stored_endpoint(source, true, &anchors)? {
+                    mapped.insert(source);
+                    complete &= precise;
+                } else { complete = false; }
             }
 
-            let mut paths = Paths::new();
+            let entry = paths.entry(destination).or_insert_with(|| (BTreeSet::new(), true));
 
-            for (destination, sources, complete) in exit.whole_sources() {
-                let Some((destination, _, precise)) = self.stored_endpoint(destination, false, &anchors)? else { continue; };
+            entry.0.extend(mapped);
+            entry.1 &= complete;
+        }
 
-                let mut mapped = BTreeSet::new();
-                let mut complete = complete && precise;
+        // Physical reference payloads keep their actual reference origins.
+        // These bounds do not forward borrow authority to the caller.
+        let mut physical = Physical::new();
 
-                for source in sources {
-                    if let Some((source, _, precise)) = self.stored_endpoint(source, true, &anchors)? {
-                        mapped.insert(source);
-                        complete &= precise;
-                    } else { complete = false; }
-                }
-
-                let entry = paths.entry(destination).or_insert_with(|| (BTreeSet::new(), true));
-
-                entry.0.extend(mapped);
-                entry.1 &= complete;
+        for (destination, value) in exit.stored_bindings() {
+            if !matches!(&destination.origin, Origin::Allocation { .. })
+                && !destination.projections().contains(&bray_bound_tree::StorageProjection::OwnedTarget) {
+                continue;
             }
 
-            // Physical reference payloads keep their actual reference origins.
-            // These bounds do not forward borrow authority to the caller.
-            let mut physical = Physical::new();
+            let Some((endpoint, place, precise)) = self.stored_endpoint(destination, false, &anchors)? else { continue; };
 
-            for (destination, value) in exit.stored_bindings() {
-                if !matches!(&destination.origin, Origin::Allocation { .. })
-                    && !destination.projections().contains(&bray_bound_tree::StorageProjection::OwnedTarget) {
-                    continue;
-                }
+            let entry = physical.entry(endpoint.clone()).or_insert_with(|| (BTreeSet::new(), true));
 
-                let Some((endpoint, place, precise)) = self.stored_endpoint(destination, false, &anchors)? else { continue; };
+            let Some(ty) = self.storage.identity_type(place.root) else { entry.1 = false; continue; };
 
-                let entry = physical.entry(endpoint.clone()).or_insert_with(|| (BTreeSet::new(), true));
+            let Some(kind) = self.physical_reference_kind(&place, ty)? else { entry.1 = false; continue; };
 
-                let Some(ty) = self.storage.identity_type(place.root) else { entry.1 = false; continue; };
+            if !precise || endpoint.dereferences() != 0 {
+                entry.1 = false;
+                continue;
+            }
 
-                let Some(kind) = self.physical_reference_kind(&place, ty)? else { entry.1 = false; continue; };
+            let ReferenceExitValue::Address { targets, nullable, bounds } = value else {
+                entry.0.insert(DependencyBorrowRelation::new_no_payload(endpoint.subject().clone(), kind));
+                continue;
+            };
 
-                if !precise || endpoint.dereferences() != 0 {
+            if bounds != ReferenceBounds::Known { entry.1 = false; continue; }
+
+            if nullable {
+                if destination.is_exact() {
+                    entry.0.insert(DependencyBorrowRelation::new_empty(endpoint.subject().clone(), kind));
+                } else { entry.1 = false; }
+            }
+
+            for target in targets {
+                if target.previous { entry.1 = false; continue; }
+
+                let precise_source = match &target.origin {
+                    Origin::Entry { reference, projections, .. } =>
+                        self.stored_projections(&reference.projections).is_some_and(|(_, precise)| precise)
+                            && self.stored_projections(projections).is_some_and(|(_, precise)| precise),
+                    Origin::Storage(place) => self.stored_projections(&place.projections).is_some_and(|(_, precise)| precise),
+                    _ => true,
+                };
+
+                if !precise_source { entry.1 = false; continue; }
+
+                let Some(relation) = self.result_reference(&place, &target.origin, ty, false, true)? else {
                     entry.1 = false;
-                    continue;
-                }
-
-                let ReferenceExitValue::Address { targets, nullable, bounds } = value else {
-                    entry.0.insert(DependencyBorrowRelation::new_no_payload(endpoint.subject().clone(), kind));
                     continue;
                 };
 
-                if bounds != ReferenceBounds::Known { entry.1 = false; continue; }
-
-                if nullable {
-                    if destination.is_exact() {
-                        entry.0.insert(DependencyBorrowRelation::new_empty(endpoint.subject().clone(), kind));
-                    } else { entry.1 = false; }
-                }
-
-                for target in targets {
-                    if target.previous { entry.1 = false; continue; }
-
-                    let precise_source = match &target.origin {
-                        Origin::Entry { reference, projections, .. } =>
-                            self.stored_projections(&reference.projections).is_some_and(|(_, precise)| precise)
-                                && self.stored_projections(projections).is_some_and(|(_, precise)| precise),
-                        Origin::Storage(place) => self.stored_projections(&place.projections).is_some_and(|(_, precise)| precise),
-                        _ => true,
-                    };
-
-                    if !precise_source { entry.1 = false; continue; }
-
-                    let Some(relation) = self.result_reference(&place, &target.origin, ty, false, true)? else {
-                        entry.1 = false;
-                        continue;
-                    };
-
-                    if relation.entry().is_none() {
-                        entry.1 = false;
-                    } else {
-                        entry.0.insert(relation.with_provenance(DependencyReferenceProvenance::InputRegions));
-                    }
+                if relation.entry().is_none() {
+                    entry.1 = false;
+                } else {
+                    entry.0.insert(relation.with_provenance(DependencyReferenceProvenance::InputRegions));
                 }
             }
-
-            exits.push((paths, physical, exit.absent_payloads()));
         }
 
-        let destinations = exits.iter().flat_map(|(paths, _, _)| paths.keys().cloned()).collect::<BTreeSet<_>>();
-        let mut result = Vec::new();
+        let mut values = paths.into_iter().map(|(destination, (sources, complete))|
+            DependencyStoredValue::new(destination, sources, complete)).collect::<Vec<_>>();
 
-        for destination in destinations {
-            let mut sources = BTreeSet::new();
-            let mut complete = true;
-
-            for (paths, _, absent) in &exits {
-                if let Some((incoming, bounded)) = paths.get(&destination) {
-                    sources.extend(incoming.iter().cloned());
-                    complete &= bounded;
-                } else if !absent.iter().any(|place| self.formal_root(place.root) == Some(destination.subject().subject_root())
-                    && self.stored_projections(&place.projections).is_some_and(|(prefix, precise)|
-                        precise && destination.subject().projections().starts_with(&prefix))) {
-                    complete = false;
-                }
-            }
-
-            result.push(DependencyStoredValue::new(destination, sources, complete));
-        }
-
-        let destinations = exits.iter().flat_map(|(_, paths, _)| paths.keys().cloned()).collect::<BTreeSet<_>>();
         let mut references = Vec::new();
 
-        for destination in destinations {
-            let mut incoming = BTreeSet::new();
-            let mut complete = true;
-
-            for (_, paths, absent) in &exits {
-                if let Some((relations, bounded)) = paths.get(&destination) {
-                    incoming.extend(relations.iter().cloned());
-                    complete &= bounded;
-                } else if !absent.iter().any(|place| self.formal_root(place.root) == Some(destination.subject().subject_root())
-                    && self.stored_projections(&place.projections).is_some_and(|(prefix, precise)|
-                        precise && destination.subject().projections().starts_with(&prefix))) {
-                    complete = false;
-                }
+        for (destination, (relations, complete)) in physical {
+            if complete {
+                references.extend(relations);
+            } else {
+                values.push(DependencyStoredValue::new(destination, [], false));
             }
-
-            if complete { references.extend(incoming); }
-            else { result.push(DependencyStoredValue::new(destination, [], false)); }
         }
 
-        Ok((result, references))
+        Ok((values, references))
     }
 
     fn stored_endpoint(

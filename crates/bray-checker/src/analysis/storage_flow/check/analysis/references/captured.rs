@@ -71,7 +71,12 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 }
             };
 
-            let mut snapshot = value.inline_captured_storage().cloned().unwrap_or_else(|| {
+            let produced = (destination == StorageValueDestination::Result)
+                .then(|| state.memory.capture_produced_reference(&target)).flatten();
+
+            let already_installed = produced.is_some();
+
+            let mut snapshot = produced.or_else(|| value.inline_captured_storage().cloned()).unwrap_or_else(|| {
                 let mut snapshot = state.memory.capture_reached_value(&target);
 
                 if !value.is_reference()
@@ -97,7 +102,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             let snapshot = std::sync::Arc::new(snapshot);
             let value = value.captured_value(snapshot.as_ref().clone());
 
-            self.publish_value_graph(state, target, value.clone());
+            if !already_installed {
+                self.publish_value_graph(state, target, value.clone());
+            }
 
             self.execution.publish_captured_output(state.execution.as_mut().expect("publication retains its paired execution state"),
                 invocation, &destination, value);

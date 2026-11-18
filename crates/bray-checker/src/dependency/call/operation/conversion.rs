@@ -77,7 +77,7 @@ pub(in crate::dependency::call) fn conversion_dependencies<C: CheckerRequestCont
                     Ok::<_, std::convert::Infallible>(project_effect(effect, ordinal, shape.as_ref()))
                 }).expect("conversion projection preserves effect outcome guards");
 
-                let stored_values = child.stored_values().iter().map(|stored| {
+                let outcomes = child.captured_values().iter().cloned().map(|mut outcome| {
                     let project = |path: &bray_symbols::DependencyStoredValuePath| {
                         let subject = path.subject();
 
@@ -95,14 +95,18 @@ pub(in crate::dependency::call) fn conversion_dependencies<C: CheckerRequestCont
                         }
                     };
 
-                    bray_symbols::DependencyStoredValue::new(
-                        project(stored.destination()),
-                        stored.sources().iter().map(project),
-                        stored.is_complete() && !matches!(shape.as_ref(), TypeData::Array { .. }),
-                    )
+                    outcome.stored_values = bray_symbols::DependencyStoredValue::normalize(
+                        outcome.stored_values.iter().map(|stored| bray_symbols::DependencyStoredValue::new(
+                            project(stored.destination()),
+                            stored.sources().iter().map(project),
+                            stored.is_complete() && !matches!(shape.as_ref(), TypeData::Array { .. }),
+                        )),
+                    );
+
+                    outcome
                 }).collect::<Vec<_>>();
 
-                let child = child.with_effect_outcomes(effects).with_stored_values(stored_values);
+                let child = child.with_effect_outcomes(effects).with_captured_values(outcomes);
 
                 let child = if matches!(shape.as_ref(), TypeData::Nullable(_)) {
                     child
@@ -261,8 +265,9 @@ pub(super) fn sequence_dependencies(
         .chain(next.requirements())
         .cloned();
 
+    let normal = first.normal_completion() && next.normal_completion();
+
     let mut result = DependencyContractTemplateData::new(requirements)
-        .with_stored_values(first.stored_values().iter().chain(next.stored_values()).cloned())
         .with_effects(first.effects().iter().chain(next.effects()).cloned())
         .with_synchronous_cleanup(
             first
@@ -271,8 +276,12 @@ pub(super) fn sequence_dependencies(
                 .chain(next.synchronous_cleanup())
                 .cloned(),
         )
-        .with_normal_completion(first.normal_completion() && next.normal_completion())
+        .with_normal_completion(normal)
         .with_normal_effects(first.normal_effects().iter().chain(next.normal_effects()).cloned());
+
+    if normal {
+        result = result.with_stored_values(first.stored_values().iter().chain(next.stored_values().iter()).cloned());
+    }
 
     if first.completion_reports().is_some() || next.completion_reports().is_some() {
         result = result.with_completion_reports(

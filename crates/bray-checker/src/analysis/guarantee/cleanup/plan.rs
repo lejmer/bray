@@ -323,6 +323,7 @@ impl Plan {
                                 })
                                 .flatten()
                         })
+                        .collect::<Vec<_>>()
                 })
             })
             .collect()

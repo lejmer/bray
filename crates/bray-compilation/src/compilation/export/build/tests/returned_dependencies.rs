@@ -1837,8 +1837,10 @@ fn exact_borrow_origin_survives_generic_export_and_import() {
         (0, bray_symbols::DependencyReferenceKind::Borrow),
         (1, bray_symbols::DependencyReferenceKind::Address),
     ] {
-        let relation = template
-            .borrows()
+        let borrows = template
+            .borrows();
+
+        let relation = borrows
             .iter()
             .find(|relation| relation.kind() == kind)
             .unwrap_or_else(|| panic!("imported origin must retain {kind:?}: {template:#?}"));
@@ -2150,10 +2152,12 @@ fn imported_field_addresses_keep_the_projection_from_the_original_reference() {
 
     assert!(!flow.diagnostics().has_errors(), "{:?}", flow.diagnostics());
 
-    let references = flow
+    let borrows = flow
         .value()
         .dependencies()
-        .borrows()
+        .borrows();
+
+    let references = borrows
         .iter()
         .filter(|relation| {
             relation.exit().subject_root() == bray_symbols::DependencySubjectRoot::Result
@@ -2997,8 +3001,10 @@ fn returned_address_fields_keep_their_origin_through_anonymous_factories() {
     let dependencies =
         crate::compilation::result_dependencies::source_function_dependencies(&provider, "forward");
 
-    let returned = dependencies
-        .borrows()
+    let borrows = dependencies
+        .borrows();
+
+    let returned = borrows
         .iter()
         .filter(|relation| {
             relation.exit().subject_root() == bray_symbols::DependencySubjectRoot::Result
@@ -3183,8 +3189,10 @@ fn propagation_preserves_the_selected_payload_reference_relation() {
                     &provider, "forward",
                 );
 
-            let returned = dependencies
-                .borrows()
+            let borrows = dependencies
+                .borrows();
+
+            let returned = borrows
                 .iter()
                 .filter(|relation| {
                     relation.exit().subject_root() == bray_symbols::DependencySubjectRoot::Result
@@ -3904,7 +3912,8 @@ fn imported_conditional_null_pointer_bounds_never_become_exact_identity() {
     assert_eq!(dependencies.borrows().iter().filter(|relation| relation.is_empty_reference()).count(), 1,
         "{dependencies:#?}");
 
-    let input = dependencies.borrows().iter().find(|relation| relation.entry().is_some()).expect("retained input origin");
+    let borrows = dependencies.borrows();
+    let input = borrows.iter().find(|relation| relation.entry().is_some()).expect("retained input origin");
 
     assert!(!input.is_exact(), "{dependencies:#?}");
 }

@@ -29,7 +29,11 @@ identities remain explicit. Lowering consumes checked decisions and does not rep
 The remote checkpoint is 1c5770b2c. Local checkpoints retain the captured graph and paired
 publication at 11b860fa2, selected deferred frames and statics at 675d89c21, and produced
 region results at d08975a30. Checkpoint 594180b13 admits implicit loans and joins actual
-produced results directly. The current slice shares implicit physical input captures.
+produced results directly. Checkpoint 3c9b4845a shares checked implicit input captures.
+The guarded-output checkpoint moves physical references, stored dependencies and inactive payloads
+onto the producing exit and carries actual union tags through interface revision 5. Call admission
+uses the same feasibility decision for physical and logical outputs. Established physical descriptors
+survive logical joins, and ownership transport reads the checked routes directly.
 
 - d087dde8f replaces independent normal/deferred preservation booleans with immutable DependencyEffectOutcomes.
   Admission captures possible failure effects before consumption. Deferred formation keeps body effects latent.
@@ -393,6 +397,57 @@ observation and package-import compositions together.
   the forwarded nullable origins, distinct branch escape roots, generic stored dependencies
   and guarded-owner negatives through the same source and import path. Reconsider if
   conversion must look back into caller syntax or needs a second independently joined table.
+  Source conversion and package row encoding are in place, including specialization hashing,
+  substitution and selected graph remapping. Interface revision 5 includes the new row data.
+  The semantic and interface contract-level fields are gone. The 368-case composition and
+  owner panels retain the same failures as 3c9b4845a. The additional query panel exposes a
+  recursive forwarding precision loss and a loss of inactive variant information on a
+  fallible result. An explicit null is now exported separately from the live address.
+- Consume guarded physical rows with the admitted call. The typed output paths are indexed by
+  the actual summary relations and stored endpoints. A provably false input guard must leave
+  neither an output nor an authority bound. Unresolved completion guards remain feasible.
+  Use the same guard binding as logical output instantiation. Retain the actual inactive
+  payload after production and through moves. No second unconditional table of origins or
+  stored dependencies is retained. Check mutual recursion, fallible nullable wrappers, and
+  exact-versus-null through source and import, including the existing negative cases.
+  A result guard cannot be tested against the slot's old value. Until its private result
+  exists, use a conservative join. Determine inactivity from the actual produced tag and
+  physical output coordinates already observed on reachable exits. This also handles result
+  paths absent from the local access plan. Do not enumerate the result type to reconstruct
+  its carried dependencies. The fallible-wrapper control passes. Do not weaken validation
+  or treat missing data as absence.
+  Encode the actual constructed union tag in the captured value itself. The payload and tag
+  share one producer and survive source and imported moves. Preserve variant identity through
+  specialization, package validation and interning. A guard may select a value, but cannot
+  substitute for the tag of a produced value.
+  The mutual-recursion trace shows both current normal rows still return the exact same
+  borrow before the forwarding caller loses its origin. Prefer the descriptor already
+  installed by normal physical production. A joined logical value can be less precise.
+  It must never overwrite an established address with bounds or install that payload
+  a second time. Opaque returned footprints cannot stand in for a produced address.
+  The mutual-recursion and imported tag controls pass. The extra query panel passes
+  58 of 59 tests. Its transitive witness diagnostic also fails in the earlier tooling
+  binary. The full 368-case composition and owner panels still match 3c9b4845a.
+- Carry the checked moving-read target into ownership and replay. A typed current physical
+  target already establishes the view for that load. The logical consumer may consult its
+  current value to transfer lineage and vacate the source. It must not separately reject
+  the target because no syntax access expresses that same projection. Keep raw-read,
+  double-read, fabricated witness, nullable and deferred extraction cases together.
+  Keep the checked input root and typed route with each owning transfer. Admission and
+  survival consume that route directly. Identify the route by its input and output, which
+  remain the same when different feasible exits intersect their preservation masks. Staging
+  shares only transfers established on every admitted normal row, including nested guards.
+- Normal report dependencies belong to the same exit row. The result-dependency solver
+  already has the report requirements and definition bindings at each reached exit after
+  cleanup. Close those actual equations at the exit. Absence of a report and a report with
+  no dependencies remain distinct. Across feasible alternatives, reports and their
+  dependencies are possible outputs. At invocation capture the admitted report dependencies
+  before consumption, then publish only the applicable completed report. Abnormal edges
+  keep their own report and possible effects. A caught or suppressed report must retain
+  its actual owner and borrowed dependencies. Replace the independent normal report field
+  through SCC widening, substitution, the interface and checked calls. The synchronous
+  cleanup reporters and both borrowed report controls exercise this through source and
+  import. Reconsider if binding needs the source expression after admission.
 - Stabilize loops and recursive summaries with existing joins, recency and dependency indexes. No arbitrary cutoff loses dependencies.
 - Finish typed external graph validation, immutable interning/sharing, public API documentation and structural/style audit.
 

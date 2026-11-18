@@ -685,6 +685,10 @@ mod tests {
             bray_symbols::DependencyReferenceKind::Borrow,
         );
 
+        let outcome = bray_symbols::CapturedValueOutcome::new(None, [])
+            .with_storage([relation.clone()], []);
+
+        let phases = phases.with_captured_values([outcome]);
         let references = vec![super::BoundCallReference::new(relation, true, None)];
 
         let retained = Some(std::collections::BTreeSet::from([expression.into()]));
@@ -700,7 +704,7 @@ mod tests {
         assert_eq!(call.result(), &result);
         assert_eq!(call.deferred(), Some(&deferred));
         assert_eq!(call.deferred_result(), Some(&deferred_result));
-        assert_eq!(call.references(), &references);
+        assert_eq!(call.references(), references);
         assert_eq!(call.retained_inputs(), retained.as_ref());
 
         let missing = BoundExpressionId::from_slot(unit, 1);

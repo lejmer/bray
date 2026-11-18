@@ -194,27 +194,6 @@ impl SemanticValueStore {
                 .collect::<Result<Vec<_>, _>>()
         })?;
 
-        let borrows = template
-            .borrows()
-            .iter()
-            .map(|relation| {
-                Ok(relation.remap(
-                    relation
-                        .source_subject()
-                        .map(|entry| self.substitute_dependency_subject(entry, substitution))
-                        .transpose()?,
-                    self.substitute_dependency_subject(relation.exit(), substitution)?,
-                    relation
-                        .target_projections()
-                        .iter()
-                        .map(|projection| {
-                            self.substitute_dependency_projection(projection, substitution)
-                        })
-                        .collect::<Result<Vec<_>, _>>()?,
-                ))
-            })
-            .collect::<Result<Vec<_>, SemanticValueStoreError>>()?;
-
         let effects = template
             .effect_outcomes()
             .try_map(|effect| {
@@ -259,14 +238,6 @@ impl SemanticValueStore {
 
         self.intern_dependency_contract_template(
             substituted
-                .with_stored_values(template.stored_values().iter().map(|stored| {
-                    Ok(super::super::DependencyStoredValue::new(
-                        super::super::DependencyStoredValuePath::new(self.substitute_dependency_subject(stored.destination().subject(), substitution)?, stored.destination().dereferences()),
-                        stored.sources().iter().map(|source| Ok(super::super::DependencyStoredValuePath::new(self.substitute_dependency_subject(source.subject(), substitution)?, source.dereferences()))).collect::<Result<Vec<_>, SemanticValueStoreError>>()?,
-                        stored.is_complete(),
-                    ))
-                }).collect::<Result<Vec<_>, SemanticValueStoreError>>()?)
-                .with_borrows(borrows)
                 .with_captured_values(template.captured_values().iter().map(|outcome| {
                     let guard = outcome.guard.map(|term| self.substitute_constant_term_data(term, substitution)).transpose()?;
 
@@ -282,7 +253,7 @@ impl SemanticValueStore {
                                     self.substitute_type_data(r.subject(), substitution)?, self.substitute_trait_application_data(r.trait_application(), substitution)?))).transpose()?,
                                 dispatch: callee.dispatch.map(|w| self.substitute_implementation_instance_data(w, substitution)).transpose()?,
                                 witnesses: callee.witnesses.iter().map(|w| self.substitute_implementation_instance_data(*w, substitution)).collect::<Result<_, _>>()?,
-                            }))?))
+                            }), &mut |variant| Ok(*variant))?))
                     }).collect::<Result<Vec<_>, SemanticValueStoreError>>()?;
 
                     let ownership = outcome.ownership.try_map(
@@ -333,7 +304,12 @@ impl SemanticValueStore {
             })
             .collect::<Result<Vec<_>, SemanticValueStoreError>>()?;
 
-                    Ok(super::super::CapturedValueOutcome::new(guard, bindings).with_carriers(carriers).with_ownership(ownership))
+                    Ok(super::super::CapturedValueOutcome::new(guard, bindings).with_carriers(carriers).with_ownership(ownership)
+                        .with_storage(self.substitute_dependency_borrows(&outcome.references, substitution)?,
+                            self.substitute_stored_dependencies(&outcome.stored_values, substitution)?)
+                        .with_inactive_payloads(outcome.inactive_payloads.iter().map(|payload|
+                            self.substitute_dependency_subject(payload, substitution))
+                            .collect::<Result<Vec<_>, _>>()?))
                 }).collect::<Result<Vec<_>, SemanticValueStoreError>>()?)
                 .with_observed_result(
                     template
@@ -502,6 +478,46 @@ impl SemanticValueStore {
                 })
             }
         }
+    }
+
+    fn substitute_dependency_borrows(
+        &self,
+        references: &[super::super::DependencyBorrowRelation],
+        substitution: &Substitution<'_>,
+    ) -> Result<Vec<super::super::DependencyBorrowRelation>, SemanticValueStoreError> {
+        references
+            .iter()
+            .map(|relation| {
+                Ok(relation.remap(
+                    relation
+                        .source_subject()
+                        .map(|entry| self.substitute_dependency_subject(entry, substitution))
+                        .transpose()?,
+                    self.substitute_dependency_subject(relation.exit(), substitution)?,
+                    relation
+                        .target_projections()
+                        .iter()
+                        .map(|projection| {
+                            self.substitute_dependency_projection(projection, substitution)
+                        })
+                        .collect::<Result<Vec<_>, _>>()?,
+                ))
+            })
+            .collect::<Result<Vec<_>, SemanticValueStoreError>>()
+    }
+
+    fn substitute_stored_dependencies(
+        &self,
+        values: &[super::super::DependencyStoredValue],
+        substitution: &Substitution<'_>,
+    ) -> Result<Vec<super::super::DependencyStoredValue>, SemanticValueStoreError> {
+        values.iter().map(|stored| {
+                    Ok(super::super::DependencyStoredValue::new(
+                        super::super::DependencyStoredValuePath::new(self.substitute_dependency_subject(stored.destination().subject(), substitution)?, stored.destination().dereferences()),
+                        stored.sources().iter().map(|source| Ok(super::super::DependencyStoredValuePath::new(self.substitute_dependency_subject(source.subject(), substitution)?, source.dereferences()))).collect::<Result<Vec<_>, SemanticValueStoreError>>()?,
+                        stored.is_complete(),
+                    ))
+                }).collect::<Result<Vec<_>, SemanticValueStoreError>>()
     }
 
     fn substitute_dependency_subject(

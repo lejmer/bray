@@ -58,18 +58,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let path = target.value_observation_path();
 
-        if let Some(path) = &path {
-            let ty = self.storage_path_type(path);
-
-            // An address slot is not the value stored at that address. Only a
-            // matching checked value or one direct loan supplies owned lineage.
-            if !ty.is_some_and(|ty| ty == pointee || matches!(
-                self.request.semantic_values().type_data(ty).as_ref(),
-                bray_symbols::TypeData::Borrow { target, .. } if *target == pointee)) {
-                return false;
-            }
-        }
-
         let Some(value) = self.current_target_value(state, target, Some(pointee)) else {
             return false;
         };

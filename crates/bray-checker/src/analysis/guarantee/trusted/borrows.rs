@@ -85,15 +85,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .into_iter().map(|(transfer, _)| transfer)
             .filter(|transfer| !dependencies.returned_value(transfer).is_borrowed())
             .filter_map(|transfer| {
-                let decoded = crate::execution_condition_from_type_term(
-                    self.request.semantic_values(), transfer.input(), dependencies.input_count(),
-                ).expect("checked extraction source names its formal input");
-
-                let crate::ExecutionConditionKind::Input(input) = decoded.kind() else {
-                    unreachable!("checked extraction source contains only input projections");
-                };
-
-                let source = input.value_in(&entry.arguments)?;
+                let source = entry.bind_term(self.request.semantic_values(), transfer.input(), &ExecutionCondition::unknown());
 
                 if !source.is_reference() { return None; }
 

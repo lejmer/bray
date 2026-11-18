@@ -35,7 +35,9 @@ fn rewritten_raw_pointer_fields_publish_opaque_output_identities() {
     let callable = crate::test_support::source_function(&application, "replace_pointer");
     let template = callable_dependencies(&application, callable.into());
 
-    let [reference] = template.borrows() else {
+    let origins = template.borrows();
+
+    let [reference] = origins.as_ref() else {
         panic!("rewritten pointer retains one typed output identity: {template:#?}");
     };
 

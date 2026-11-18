@@ -1487,7 +1487,7 @@ mod tests {
             [],
         );
 
-        let contract = crate::InterfaceDependencyContract::new([]).with_borrows([
+        let outcome = crate::InterfaceNormalOutcome::new(None, []).with_storage([
             bray_symbols::DependencyBorrowRelation::new(
                 None,
                 result.clone(),
@@ -1525,7 +1525,7 @@ mod tests {
                     crate::InterfaceDependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(0)),
                     [crate::InterfaceDependencyProjection::AddressTarget])),
                 result.clone(), bray_symbols::DependencyReferenceKind::Borrow),
-        ]).with_stored_values([bray_symbols::DependencyStoredValue::new(
+        ], [bray_symbols::DependencyStoredValue::new(
             bray_symbols::DependencyStoredValuePath::new(result, 1),
             [0, 1].map(|depth| bray_symbols::DependencyStoredValuePath::new(crate::InterfaceDependencySubject::new(
                 crate::InterfaceDependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(0)), [],
@@ -1533,6 +1533,7 @@ mod tests {
             true,
         )]);
 
+        let contract = crate::InterfaceDependencyContract::new([]).with_captured_values([outcome]);
         let semantics = InterfaceSemantics::new().with_values([contract], [], [], []);
         let limits = InterfaceValidationLimits::default();
 
@@ -1548,7 +1549,7 @@ mod tests {
         let imported = semantics.intern(&store, &resolver(&surface)).expect("closed regions intern");
         let contract = store.dependency_contract_template_data(imported.dependency_contracts()[0]);
 
-        assert_eq!(contract.stored_values(), &[bray_symbols::DependencyStoredValue::new(
+        assert_eq!(contract.stored_values().as_ref(), &[bray_symbols::DependencyStoredValue::new(
             bray_symbols::DependencyStoredValuePath::new(bray_symbols::DependencySubject::root(bray_symbols::DependencySubjectRoot::Result), 1),
             [0, 1].map(|depth| bray_symbols::DependencyStoredValuePath::new(bray_symbols::DependencySubject::root(
                 bray_symbols::DependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(0)),

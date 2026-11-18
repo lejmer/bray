@@ -164,9 +164,6 @@ impl StructuralValueEncoder<'_, '_> {
             self.constant_term(term)?;
         }
 
-        self.dependency_set(data.stored_values(), Self::dependency_stored_value)?;
-        self.dependency_set(data.borrows(), Self::dependency_borrow)?;
-
         self.dependency_set(data.synchronous_cleanup(), Self::dependency_requirement)?;
 
         self.dependency_set(data.effects(), Self::dependency_effect)
@@ -204,6 +201,9 @@ impl StructuralValueEncoder<'_, '_> {
     pub(in crate::compilation) fn dependency_captured_binding(&mut self, binding: &bray_symbols::CapturedValueOutcome) -> Result<(), FactQueryError> {
         self.dependency_owned_result(&binding.ownership)?;
         self.dependency_set(&binding.carriers, Self::dependency_carrier)?;
+        self.dependency_set(&binding.references, Self::dependency_borrow)?;
+        self.dependency_set(&binding.stored_values, Self::dependency_stored_value)?;
+        self.dependency_set(&binding.inactive_payloads, Self::dependency_subject)?;
 
         match binding.guard {
             Some(guard) => { self.tag(1); self.constant_term(guard)?; }
@@ -267,6 +267,11 @@ impl StructuralValueEncoder<'_, '_> {
                 }
             }
             Value::Unknown => self.tag(1),
+            Value::Tagged(variant, payload) => {
+                self.tag(7);
+                self.symbol((*variant).into())?;
+                self.dependency_captured_value(payload)?;
+            }
             Value::Operation(operation, values) => {
                 self.tag(2);
 

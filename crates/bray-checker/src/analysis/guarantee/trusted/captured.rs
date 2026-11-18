@@ -146,7 +146,7 @@ fn captured_data<C: CheckerRequestContext + ?Sized>(domain: &ExecutionFlowDomain
                 Value::Operation(Op::Reference, [descriptor, captured(domain, state, contents, memo)].into())
             }
         }
-        K::Tagged(_, contents) => captured(domain, state, contents, memo),
+        K::Tagged(variant, contents) => Value::Tagged(*variant, Arc::new(captured(domain, state, contents, memo))),
         K::StorageValue(operation, operands) => {
             let operation = match operation {
                 Op::Select(field) => {

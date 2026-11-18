@@ -161,7 +161,7 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
 
             let references = crate::dependency::prepare_references(
                 request,
-                dependencies.lifecycle_dependencies()[&lifecycle.call.callable].borrows(),
+                &dependencies.lifecycle_dependencies()[&lifecycle.call.callable].borrows(),
                 |subject| self.lifecycle_paths.get(&(lifecycle.call.callable, subject.clone()))
                     .map(|(ty, _)| *ty),
             )?;
@@ -171,7 +171,8 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
 
             let stored = crate::dependency::prepare_stored_value_paths(
                 request.semantic_values(),
-                dependencies.lifecycle_dependencies()[&lifecycle.call.callable].stored_values(),
+                dependencies.lifecycle_dependencies()[&lifecycle.call.callable].captured_values().iter()
+                    .flat_map(|outcome| outcome.stored_values.iter()),
                 |subject| self.lifecycle_paths.get(&(lifecycle.call.callable, subject.clone())).cloned(),
             );
 

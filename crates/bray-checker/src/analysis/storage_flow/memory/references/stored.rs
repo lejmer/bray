@@ -27,6 +27,17 @@ impl State {
         bray_bound_tree::StorageCapturedValue::new(source.clone(), self.capture_value(source, source))
     }
 
+    /// Shares an already produced descriptor with the logical value and replay.
+    pub(in crate::analysis::storage_flow) fn capture_produced_reference(&self, slot: &Target) -> Option<bray_bound_tree::StorageCapturedValue> {
+        let reference = self.values.get(slot)?.reference()?;
+
+        if !reference.is_exact() { return None; }
+
+        let target = reference.targets.first().expect("an exact descriptor has one address");
+
+        (!matches!(target.origin, super::super::model::Origin::Returned { .. })).then(|| self.capture_reached_value(slot))
+    }
+
     pub(in crate::analysis::storage_flow) fn publish_captured_value(&mut self, destination: &Target,
         value: &bray_bound_tree::StorageCapturedValue,
     ) {

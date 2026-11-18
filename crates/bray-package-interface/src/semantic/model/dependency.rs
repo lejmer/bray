@@ -317,14 +317,13 @@ pub type InterfaceCapturedCallable = bray_symbols::CapturedCallable<crate::Inter
 
 /// Guarded normal values and ownership using interface-local identities.
 pub type InterfaceNormalOutcome = bray_symbols::CapturedValueOutcome<InterfaceDependencySubject, InterfaceConstantTermId,
-    InterfaceDependencyProjection, super::InterfaceStaticReference, InterfaceConstantTermId, super::InterfaceConstantProjection, InterfaceCapturedCallable>;
+    InterfaceDependencyProjection, super::InterfaceStaticReference, InterfaceConstantTermId, super::InterfaceConstantProjection, InterfaceCapturedCallable, crate::InterfaceSymbolReference>;
 
 /// One normalized portable dependency contract.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct InterfaceDependencyContract {
     pub(crate) captured_values: Arc<[InterfaceNormalOutcome]>,
     pub(crate) observed_result: Option<super::InterfaceConstantTermId>,
-    pub(crate) stored_values: Arc<[bray_symbols::DependencyStoredValue<InterfaceDependencySubject>]>,
     pub(crate) synchronous_cleanup: Arc<[InterfaceDependencyRequirement]>,
     pub(crate) normal_completion: bool,
     pub(crate) requirements: Arc<[InterfaceDependencyRequirement]>,
@@ -337,25 +336,12 @@ pub struct InterfaceDependencyContract {
             crate::InterfaceTypeId,
         >,
     >,
-    pub(crate) borrows: Arc<
-        [bray_symbols::DependencyBorrowRelation<
-            InterfaceDependencySubject,
-            InterfaceDependencyProjection,
-        >],
-    >,
 }
 
 impl InterfaceDependencyContract {
     /// Records actual whole-value bindings produced by normal completion.
     pub fn with_captured_values(mut self, values: impl IntoIterator<Item = InterfaceNormalOutcome>) -> Self {
         self.captured_values = sorted_unique_shared_slice(values);
-
-        self
-    }
-
-    /// Records possible values stored in normal-output subtrees.
-    pub fn with_stored_values(mut self, values: impl IntoIterator<Item = bray_symbols::DependencyStoredValue<InterfaceDependencySubject>>) -> Self {
-        self.stored_values = bray_symbols::DependencyStoredValue::normalize(values);
 
         self
     }
@@ -377,8 +363,6 @@ impl InterfaceDependencyContract {
             synchronous_cleanup: Arc::new([]),
             normal_completion: true,
             observed_result: None,
-            stored_values: Arc::new([]),
-            borrows: Arc::new([]),
             effects: bray_symbols::DependencyEffectOutcomes::new(bray_symbols::DependencyStorageEffect::opaque_call()),
         }
     }
@@ -467,20 +451,6 @@ impl InterfaceDependencyContract {
         self
     }
 
-    /// Attaches checked borrow identities across normal completion.
-    pub fn with_borrows(
-        mut self,
-        borrows: impl IntoIterator<
-            Item = bray_symbols::DependencyBorrowRelation<
-                InterfaceDependencySubject,
-                InterfaceDependencyProjection,
-            >,
-        >,
-    ) -> Self {
-        self.borrows = sorted_unique_shared_slice(borrows);
-
-        self
-    }
 }
 
 #[cfg(test)]

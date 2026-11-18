@@ -243,21 +243,15 @@ pub(super) fn remap_selected_records(
         .with_runtime_requirements(runtime_requirements))
 }
 
-fn remap_dependency_contract(
-    mut contract: crate::InterfaceDependencyContract,
+fn remap_dependency_storage(
+    borrows: &[bray_symbols::DependencyBorrowRelation<crate::InterfaceDependencySubject, crate::InterfaceDependencyProjection>],
+    stored_values: &[bray_symbols::DependencyStoredValue<crate::InterfaceDependencySubject>],
     maps: &RecordMaps,
-) -> Result<crate::InterfaceDependencyContract, InterfaceValidationError> {
-    for requirements in std::iter::once(&mut contract.requirements)
-        .chain(contract.completion_reports.iter_mut())
-        .chain(contract.abnormal_reports.iter_mut())
-        .chain(std::iter::once(&mut contract.synchronous_cleanup))
-    {
-        for requirement in Arc::make_mut(requirements) {
-            remap_dependency_requirement(requirement, maps)?;
-        }
-    }
-
-    let stored_values = contract.stored_values.iter().map(|stored| {
+) -> Result<(
+    Vec<bray_symbols::DependencyBorrowRelation<crate::InterfaceDependencySubject, crate::InterfaceDependencyProjection>>,
+    Vec<bray_symbols::DependencyStoredValue<crate::InterfaceDependencySubject>>,
+), InterfaceValidationError> {
+    let stored_values = stored_values.iter().map(|stored| {
         let mut subject = stored.destination().subject().clone();
 
         remap_dependency_subject(&mut subject, maps)?;
@@ -275,8 +269,7 @@ fn remap_dependency_contract(
         Ok(bray_symbols::DependencyStoredValue::new(destination, sources, stored.is_complete()))
     }).collect::<Result<Vec<_>, InterfaceValidationError>>()?;
 
-    let borrows = contract
-        .borrows
+    let borrows = borrows
         .iter()
         .map(|relation| {
             // The selected record owns remapped paths independently of the decoded table.
@@ -298,6 +291,23 @@ fn remap_dependency_contract(
             )
         })
         .collect::<Result<Vec<_>, InterfaceValidationError>>()?;
+
+    Ok((borrows, stored_values))
+}
+
+fn remap_dependency_contract(
+    mut contract: crate::InterfaceDependencyContract,
+    maps: &RecordMaps,
+) -> Result<crate::InterfaceDependencyContract, InterfaceValidationError> {
+    for requirements in std::iter::once(&mut contract.requirements)
+        .chain(contract.completion_reports.iter_mut())
+        .chain(contract.abnormal_reports.iter_mut())
+        .chain(std::iter::once(&mut contract.synchronous_cleanup))
+    {
+        for requirement in Arc::make_mut(requirements) {
+            remap_dependency_requirement(requirement, maps)?;
+        }
+    }
 
     contract.observed_result = contract
         .observed_result
@@ -329,7 +339,7 @@ fn remap_dependency_contract(
                 requirement: call.requirement.map(|(ty, app)| Ok((maps.type_id(ty)?, maps.trait_application_id(app)?))).transpose()?,
                 dispatch: call.dispatch.map(|w| maps.implementation_instance_id(w)).transpose()?,
                 witnesses: call.witnesses.iter().map(|w| maps.implementation_instance_id(*w)).collect::<Result<_, _>>()?,
-            }))?))
+            }), &mut |variant| Ok(variant.clone()))?))
         }).collect::<Result<Vec<_>, InterfaceValidationError>>()?;
 
         let owned_result = outcome.ownership.try_map(
@@ -366,7 +376,17 @@ fn remap_dependency_contract(
         })
         .collect::<Result<Vec<_>, InterfaceValidationError>>()?;
 
-        Ok(bray_symbols::CapturedValueOutcome::new(guard, bindings).with_carriers(carriers).with_ownership(owned_result))
+        let (references, stored_values) = remap_dependency_storage(&outcome.references, &outcome.stored_values, maps)?;
+
+        let mut inactive_payloads = outcome.inactive_payloads.to_vec();
+
+        for payload in &mut inactive_payloads {
+            remap_dependency_subject(payload, maps)?;
+        }
+
+        Ok(bray_symbols::CapturedValueOutcome::new(guard, bindings).with_carriers(carriers)
+            .with_ownership(owned_result).with_storage(references, stored_values)
+            .with_inactive_payloads(inactive_payloads))
     }).collect::<Result<_, InterfaceValidationError>>()?;
 
     contract.effects = contract.effects.try_map(|original| {
@@ -404,8 +424,7 @@ fn remap_dependency_contract(
     })?;
 
     Ok(contract
-        .with_borrows(borrows)
-        .with_stored_values(stored_values))
+)
 }
 
 fn remap_callable_contract(

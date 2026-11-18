@@ -580,7 +580,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             return bray_bound_tree::StorageCompletion::default();
         };
 
-        for relation in contracts.borrows() {
+        for relation in contracts.borrows().iter() {
             if !relation.is_exact()
                 || relation.kind() != bray_symbols::DependencyReferenceKind::Borrow
                 || relation.dereferences() != 0

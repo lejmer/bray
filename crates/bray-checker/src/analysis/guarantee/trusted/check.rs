@@ -203,6 +203,7 @@ impl TrustedChecks {
         &mut self,
         domain: &ExecutionFlowDomain<'_, '_, C>,
         state: &ExecutionState,
+        result: &ExecutionCondition,
         writes: &BTreeSet<bray_symbols::DependencySubjectRoot>,
     ) -> Option<super::owned::NormalReturn> {
         super::super::postcondition::check_postconditions(
@@ -211,13 +212,6 @@ impl TrustedChecks {
             &self.guarantees,
             &mut self.guarantee_failures,
         );
-
-        let result = match domain.request.unit().root() {
-            bray_bound_tree::BoundUnitRoot::Expression(expression) => {
-                domain.value(state, expression)
-            }
-            _ => domain.returned_value(state),
-        };
 
         if domain.request.unit().key().kind() == bray_bound_tree::BoundUnitKind::RuntimeDefault {
             let observed = super::carriers::portable(domain.request, result.copied_value());
@@ -229,7 +223,7 @@ impl TrustedChecks {
             }
         }
 
-        self.normal_return(domain, state, &result, writes)
+        self.normal_return(domain, state, result, writes)
     }
 
     pub(in crate::analysis) fn finish<C: CheckerRequestContext + ?Sized>(

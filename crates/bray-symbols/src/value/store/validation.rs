@@ -417,7 +417,11 @@ pub(super) fn validate_dependency_template_data(
         validate_dependency_projections(tables, store, carrier.path());
     }
 
-    for stored in data.stored_values() {
+    for payload in data.captured_values().iter().flat_map(|row| row.inactive_payloads.iter()) {
+        validate_dependency_subject(tables, store, payload);
+    }
+
+    for stored in data.captured_values().iter().flat_map(|row| row.stored_values.iter()) {
         for (endpoint, destination) in std::iter::once((stored.destination(), true))
             .chain(stored.sources().iter().map(|source| (source, false))) {
             let root = endpoint.subject().subject_root();
@@ -435,7 +439,7 @@ pub(super) fn validate_dependency_template_data(
         }
     }
 
-    for relation in data.borrows() {
+    for relation in data.captured_values().iter().flat_map(|row| row.references.iter()) {
         if let Some(entry) = relation.entry() {
             validate_dependency_subject(tables, store, entry);
         }

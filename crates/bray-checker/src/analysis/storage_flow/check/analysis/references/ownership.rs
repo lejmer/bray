@@ -9,99 +9,53 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         occurrence: bray_bound_tree::BoundExecutionSite,
         contracts: &bray_bound_tree::BoundCallDependencyContracts,
         destination: &bray_bound_tree::StoragePath,
+        ownership: &bray_symbols::DependencyOwnedResult,
     ) {
         use crate::analysis::storage_flow::memory::Target;
 
-        let ownership = contracts.owned_result();
-
-        if matches!(
-            occurrence,
-            bray_bound_tree::BoundExecutionSite::CallInput { .. }
-        ) || ownership.is_empty()
-        {
+        if matches!(occurrence, bray_bound_tree::BoundExecutionSite::CallInput { .. }) {
             return;
         }
 
-        // Both reference descriptors and deferred frames use the checked value route.
-        let selection = self
-            .execution
-            .semantics
-            .selections()
-            .expression(
-                occurrence
-                    .expression()
-                    .expect("owned return has its invocation"),
-            )
-            .expect("owned return retains its selected invocation");
+        for transfer in ownership.guaranteed_transfers() {
+            let route = contracts.returned_value(&transfer);
+            let root = route.input_root();
 
-        let transfers = ownership.transfers().filter_map(|transfer| {
-            let decoded = crate::execution_condition_from_type_term(
-                    self.request.semantic_values(),
-                    transfer.input(),
-                    contracts.input_count(),
-                )
-                .expect("checked ownership source decodes in the same store");
+            let Some(source) = self.invocation_place(occurrence, root) else { continue; };
 
-            let crate::ExecutionConditionKind::Input(input) = decoded.kind()
-            else {
-                unreachable!("checked ownership source contains only input projections");
-            };
-
-            let crate::execution_guarantees::ExecutionInput::Argument(ordinal) = input.root else {
-                unreachable!("checked ownership source names a receiver-first input");
-            };
-
-            let root = selection
-                .invocation_input_root(occurrence, ordinal)
-                .expect("owned return retains its actual input");
-
-            let source = self.invocation_place(occurrence, root)?;
-
-            let path = contracts.returned_value(transfer).input_path();
+            let path = route.input_path();
             let input = path.projections();
-
-            let mut output =
-                crate::storage::owned_storage_projections(self.dependencies, transfer.output());
-
+            let mut output = crate::storage::owned_storage_projections(self.dependencies, transfer.output());
             let wrapping = self.invocation_wrapping(occurrence, root);
 
             let adaptation = if input.starts_with(wrapping.as_slice()) {
                 &[][..]
             } else {
                 // Returning the complete adapted owner also returns its wrapper.
-                let adaptation = wrapping.strip_prefix(input)?;
+                let Some(adaptation) = wrapping.strip_prefix(input) else { continue; };
 
                 output.extend_from_slice(adaptation);
 
                 adaptation
             };
 
-            let sources = if contracts.returned_value(transfer).is_borrowed() {
+            let sources = if route.is_borrowed() {
                 let input = input.strip_prefix(wrapping.as_slice()).unwrap_or_default();
 
                 vec![Target::storage(source).project(input)]
             } else if adaptation.is_empty() {
-                self.invocation_stored_locations(state, occurrence, &bray_symbols::DependencySubject::root(root), path, false)?
+                let Some(sources) = self.invocation_stored_locations(state, occurrence,
+                    &bray_symbols::DependencySubject::root(root), path, false) else { continue; };
+
+                sources
             } else {
                 vec![Target::storage(source)]
             };
 
-            Some((
-                transfer,
-                sources,
-                Target::storage(destination.clone()).project(&output),
-                adaptation.to_vec(),
-            ))
-        }).collect::<Vec<_>>();
+            let output = Target::storage(destination.clone()).project(&output);
 
-        let guaranteed = ownership.guaranteed_transfers();
-
-        for (transfer, sources, output, adaptation) in &transfers {
-            let Some(common) = guaranteed.iter().find(|common| common.same_identity(transfer)) else { continue; };
-
-            self.stage_preserved_value(state, occurrence, common, sources, output, adaptation);
+            self.stage_preserved_value(state, occurrence, &transfer, &sources, &output, adaptation);
         }
-
     }
 
     fn stage_preserved_value(

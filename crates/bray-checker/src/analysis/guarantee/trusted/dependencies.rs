@@ -50,6 +50,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 continue;
             };
 
+            let references = dependencies.references();
+
             if source.borrowed.is_empty() {
                 let sources = &source.addresses;
 
@@ -58,9 +60,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     .filter(|(condition, _, _)| condition == guarantee)
                     .map(|(_, subject, _)| subject.clone())
                     .chain(
-                        dependencies
-                            .references()
-                            .iter()
+                        references.iter()
                             .filter(|reference| {
                                 !(owning && reference.relation().provenance() == bray_symbols::DependencyReferenceProvenance::InputRegions)
                                     && reference.relation().kind()
@@ -85,7 +85,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         .retained_inputs()
                         .is_none_or(|inputs| inputs.contains(input))
                         || !owning
-                            && dependencies.references().iter().any(|reference| {
+                            && references.iter().any(|reference| {
                                 reference.relation().exit().subject_root()
                                     == bray_symbols::DependencySubjectRoot::Result
                                     && reference.relation().entry().and_then(|entry| {
@@ -93,9 +93,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                                     }) == Some(*input)
                             });
 
-                    let mut origins = dependencies
-                        .references()
-                        .iter()
+                    let mut origins = references.iter()
                         .filter(|reference| {
                             reference.relation().kind()
                                 == bray_symbols::DependencyReferenceKind::Address
@@ -144,9 +142,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 continue;
             }
 
-            let mut references = dependencies
-                .references()
-                .iter()
+            let mut references = references.iter()
                 .filter(|reference| {
                     let relation = reference.relation();
 

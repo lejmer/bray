@@ -387,7 +387,7 @@ where
     report_collections: BTreeSet<Option<BoundExpressionId>>,
     pub(super) reporting_completions: BTreeSet<bray_bound_tree::BoundExecutionSite>,
     pub(super) normal_effects: BTreeSet<bray_symbols::DependencyStorageEffect>,
-    pub(super) normal_exits: Vec<(crate::analysis::storage_flow::memory::ReferenceExit, Option<crate::analysis::guarantee::NormalReturn>)>,
+    pub(super) normal_exits: Vec<(crate::analysis::storage_flow::memory::ReferenceExit, crate::ExecutionCondition, Option<crate::analysis::guarantee::NormalReturn>)>,
     pub(super) cleanup_mutations:
         BTreeMap<bray_bound_tree::StorageMutation, bray_bound_tree::StorageInvalidation>,
     pub(super) completions:
@@ -412,17 +412,25 @@ where
             panic!("planned body has result storage");
         };
 
+        let execution = state.execution.as_ref().expect("reachable storage state has execution facts");
+
+        let value = match self.request.root() {
+            crate::CheckerUnitRoot::Expression(expression) => self.execution.value(execution, expression),
+            _ => self.execution.returned_value(execution),
+        };
+
         let references = state.memory.exit_references(result, &state.definitely_absent);
 
         self.results.merge_returns(&state.result_dependencies);
 
         let returned = self.trusted.exit(
             self.execution,
-            state.execution.as_ref().expect("reachable storage state has execution facts"),
+            execution,
+            &value,
             &state.written_inputs,
         );
 
-        self.normal_exits.push((references, returned));
+        self.normal_exits.push((references, value, returned));
     }
 
     fn collect_conditions(
@@ -927,9 +935,16 @@ where
             self.start_frame_effects(&state.memory, &mut execution, invocation);
         }
 
+        let bind_values = single_phase.is_some() || matches!(kind, AnalysisOperationKind::Call { phase: AnalysisCallPhase::Attempt, .. });
+        let intrinsic = kind.explicit_attempt_expression().is_some_and(|expression| self.memory.operation(expression).is_some());
+
+        if bind_values && !intrinsic {
+            self.begin_value_transition(&mut execution, occurrence, &[]);
+        }
+
         let outcomes = self.begin_transition(state, kind, assignment.as_deref(), &execution);
 
-        if single_phase.is_some() || matches!(kind, AnalysisOperationKind::Call { phase: AnalysisCallPhase::Attempt, .. }) {
+        if bind_values && intrinsic {
             self.begin_value_transition(&mut execution, occurrence, outcomes.as_ref().map_or(&[], bray_symbols::DependencyEffectOutcomes::possible));
         }
 
@@ -1641,7 +1656,7 @@ where
                 }
 
                 // A completed reference has an identity even when its origin is opaque.
-                self.prepare_result_references(state, occurrence);
+                self.prepare_result_references(state, occurrence, &[]);
             }
 
             if !deferred {

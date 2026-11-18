@@ -53,7 +53,6 @@ pub(super) fn with_references<C: CheckerRequestContext + ?Sized>(
         })?
         .with_effects(template.effects().iter().filter(|_| !deferred && !pure).cloned())
         .with_synchronous_cleanup(template.synchronous_cleanup())
-        .with_captured_values(template.captured_values().iter().cloned())
         .with_normal_completion(deferred || template.normal_completion())
         .with_normal_effects(template.normal_effects().iter().filter(|_| !deferred && !pure).cloned()),
     )
@@ -79,9 +78,7 @@ fn result_retains_inputs<C: CheckerRequestContext + ?Sized>(
         })
         || template.captured_values().iter().any(|row| !row.carriers.is_empty() || !row.ownership.is_empty())
         || template.captured_values().iter().flat_map(|outcome| outcome.bindings.iter()).any(|(_, value)| value.inputs().next().is_some())
-        || template
-            .borrows()
-            .iter()
+        || template.captured_values().iter().flat_map(|outcome| outcome.references.iter())
             .any(|relation| relation.exit().subject_root() == DependencySubjectRoot::Result)
 }
 
@@ -121,7 +118,6 @@ pub(super) fn with_hidden_references<C: CheckerRequestContext + ?Sized>(
         .with_effects(template.effects().iter().cloned())
         .with_normal_effects(template.normal_effects().iter().cloned())
         .with_synchronous_cleanup(template.synchronous_cleanup())
-        .with_captured_values(template.captured_values().iter().cloned())
 )
 }
 
@@ -178,31 +174,38 @@ pub(super) fn with_reference_inputs<C: CheckerRequestContext + ?Sized>(
         let root = if receiver && ordinal == 0 { DependencySubjectRoot::Receiver }
             else { DependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(ordinal - u32::from(receiver))) };
 
-        Ok(input_type(&bray_symbols::DependencySubject::root(root))?.map(|(ty, _)| ty))
+        Ok(input_type(&bray_symbols::DependencySubject::root(root))?.map(|(ty, _)| (root, ty)))
     })?;
 
-    let references = prepare_references(request, template.borrows(), |subject| {
-        inputs.get(subject).map(|(ty, _)| *ty)
-    })?;
+    let mut references = Vec::new();
+    let types = |subject: &bray_symbols::DependencySubject| inputs.get(subject).map(|(ty, _)| *ty);
+
+    for relation in template.captured_values().iter().flat_map(|outcome| outcome.references.iter())
+        .map(|relation| relation.clone().with_exactness(false)).collect::<std::collections::BTreeSet<_>>() {
+        references.extend(prepare_reference(request, &relation, &types)?);
+    }
 
     let stored_paths = prepare_stored_value_paths(
-        request.semantic_values(), template.stored_values(), |subject| inputs.get(subject).cloned(),
+        request.semantic_values(),
+        template.captured_values().iter().flat_map(|outcome| outcome.stored_values.iter()),
+        |subject| inputs.get(subject).cloned(),
     );
 
     Ok(contracts
+        .with_captured_values(template.captured_values().iter().cloned())
         .with_returned_values(returned)
-        .with_stored_values(template.stored_values(), stored_paths)
+        .with_stored_value_paths(stored_paths)
         .with_reference_subjects(inputs)
         .with_references(references, retained_inputs))
 }
 
-pub(crate) fn prepare_stored_value_paths(
+pub(crate) fn prepare_stored_value_paths<'a>(
     values: &bray_symbols::SemanticValueStore,
-    stored: &[bray_symbols::DependencyStoredValue],
+    stored: impl IntoIterator<Item = &'a bray_symbols::DependencyStoredValue>,
     input: impl Fn(&bray_symbols::DependencySubject) -> Option<(bray_symbols::TypeId, bray_bound_tree::StorageReferencePath)>,
 ) -> std::collections::BTreeMap<bray_symbols::DependencyStoredValuePath,
     (bray_symbols::TypeId, bray_bound_tree::StorageReferencePath)> {
-    stored.iter().flat_map(|stored| std::iter::once(stored.destination()).chain(stored.sources()))
+    stored.into_iter().flat_map(|stored| std::iter::once(stored.destination()).chain(stored.sources()))
         .collect::<std::collections::BTreeSet<_>>().into_iter().filter_map(|endpoint| {
             let (mut ty, path) = input(endpoint.subject())?;
 
@@ -230,18 +233,7 @@ pub(crate) fn prepare_references<C: CheckerRequestContext + ?Sized>(
     let mut incomplete = std::collections::BTreeSet::new();
 
     for relation in relations {
-        let subject =
-            if relation.provenance() == bray_symbols::DependencyReferenceProvenance::InputRegions {
-                relation.exit()
-            } else {
-                relation.entry().unwrap_or_else(|| relation.exit())
-            };
-
-        if relation
-            .entry()
-            .is_none_or(|entry| input_type(entry).is_some())
-            && let Some(ty) = input_type(subject)
-            && let Some(reference) = prepare_reference(request, relation, ty)?
+        if let Some(reference) = prepare_reference(request, relation, &input_type)?
         {
             references.push(reference);
         } else {
@@ -257,8 +249,20 @@ pub(crate) fn prepare_references<C: CheckerRequestContext + ?Sized>(
 fn prepare_reference<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     relation: &bray_symbols::DependencyBorrowRelation,
-    mut ty: bray_symbols::TypeId,
+    input_type: &impl Fn(&bray_symbols::DependencySubject) -> Option<bray_symbols::TypeId>,
 ) -> Result<Option<BoundCallReference>, CheckerQueryError<C::UpstreamError>> {
+    let subject = if relation.provenance() == bray_symbols::DependencyReferenceProvenance::InputRegions {
+        relation.exit()
+    } else {
+        relation.entry().unwrap_or_else(|| relation.exit())
+    };
+
+    let Some(mut ty) = input_type(subject) else { return Ok(None); };
+
+    if relation.entry() != Some(subject) && relation.entry().is_some_and(|entry| input_type(entry).is_none()) {
+        return Ok(None);
+    }
+
     if relation.entry().is_some_and(|entry| entry.subject_root().is_static()) {
         return Ok(Some(BoundCallReference::new(relation.clone(), false, Some(ty))));
     }
@@ -305,8 +309,7 @@ fn prepare_reference<C: CheckerRequestContext + ?Sized>(
     // The bound call retains the immutable relation independently of its source template.
     Ok(Some(BoundCallReference::new(
         relation.clone(),
-        relation.is_exact()
-            && kind == Some(relation.kind())
+        kind == Some(relation.kind())
             && relation.target_projections().is_empty(),
         addressed_type,
     )))
@@ -363,19 +366,19 @@ fn returned_values<'a, C: CheckerRequestContext + ?Sized>(
     mut input_type: impl FnMut(
         u32,
     ) -> Result<
-        Option<bray_symbols::TypeId>,
+        Option<(DependencySubjectRoot, bray_symbols::TypeId)>,
         CheckerQueryError<C::UpstreamError>,
     >,
 ) -> Result<
-    std::collections::BTreeMap<
-        bray_symbols::DependencyOwnedTransfer,
-        bray_bound_tree::BoundReturnedValue,
-    >,
+    Vec<(bray_symbols::DependencyOwnedTransfer, bray_bound_tree::BoundReturnedValue)>,
     CheckerQueryError<C::UpstreamError>,
 > {
-    let mut result = std::collections::BTreeMap::new();
+    let mut result = Vec::new();
+    let mut seen = std::collections::BTreeSet::new();
 
     for transfer in transfers {
+        if !seen.insert((transfer.input(), transfer.output())) { continue; }
+
         let mut output_type = result_type.expect("an owning return retains its instantiated result type");
 
         for projection in transfer.output() {
@@ -385,7 +388,7 @@ fn returned_values<'a, C: CheckerRequestContext + ?Sized>(
 
         let borrowed = matches!(request.semantic_values().type_data(output_type).as_ref(), bray_symbols::TypeData::Borrow { .. });
 
-        let input_path = returned_input_path(
+        let (root, path) = returned_input_path(
             request,
             transfer.input(),
             (!borrowed).then_some(output_type),
@@ -393,9 +396,7 @@ fn returned_values<'a, C: CheckerRequestContext + ?Sized>(
             &mut input_type,
         )?;
 
-        result.insert(transfer.clone(), bray_bound_tree::BoundReturnedValue::new(
-            borrowed, input_path,
-        ));
+        result.push((transfer.clone(), bray_bound_tree::BoundReturnedValue::new(root, borrowed, path)));
     }
 
     Ok(result)
@@ -409,11 +410,10 @@ fn returned_input_path<C: CheckerRequestContext + ?Sized>(
     input_type: &mut impl FnMut(
         u32,
     ) -> Result<
-        Option<bray_symbols::TypeId>,
+        Option<(DependencySubjectRoot, bray_symbols::TypeId)>,
         CheckerQueryError<C::UpstreamError>,
     >,
-) -> Result<bray_bound_tree::StorageReferencePath, CheckerQueryError<C::UpstreamError>> {
-
+) -> Result<(DependencySubjectRoot, bray_bound_tree::StorageReferencePath), CheckerQueryError<C::UpstreamError>> {
     let values = request.semantic_values();
     let mut projections = Vec::new();
 
@@ -433,8 +433,8 @@ fn returned_input_path<C: CheckerRequestContext + ?Sized>(
         "owned transfer refers to an actual input"
     );
 
-    let ty = input_type(ordinal)?
-        .expect("checked owned transfer retains its actual input type");
+    let (root, ty) = input_type(ordinal)?
+        .expect("checked owned transfer retains its actual input");
 
     projections.reverse();
 
@@ -443,5 +443,5 @@ fn returned_input_path<C: CheckerRequestContext + ?Sized>(
     let (_, input_path) = crate::storage::reference_path(request, ty, path.into(), reached_type)?
         .expect("checked owning return retains its physical input route");
 
-    Ok(input_path)
+    Ok((root, input_path))
 }

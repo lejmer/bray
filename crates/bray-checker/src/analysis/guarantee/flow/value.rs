@@ -19,7 +19,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .unwrap_or_else(ExecutionCondition::unknown)
     }
 
-    pub(in crate::analysis::guarantee) fn returned_value(&self, state: &ExecutionState) -> ExecutionCondition {
+    pub(in crate::analysis) fn returned_value(&self, state: &ExecutionState) -> ExecutionCondition {
         self.storage.binding(bray_bound_tree::StorageBindingTarget::Result)
             .and_then(|binding| match binding {
                 bray_bound_tree::StorageBinding::Identity(identity) =>

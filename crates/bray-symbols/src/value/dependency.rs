@@ -128,6 +128,11 @@ impl DependencySubject {
     pub fn projections(&self) -> &[DependencyProjection] {
         &self.projections
     }
+
+    /// Whether the other subject is the same subtree or a descendant with the same formal root.
+    pub fn contains(&self, other: &Self) -> bool {
+        self.root == other.root && other.projections.starts_with(&self.projections)
+    }
 }
 
 /// A formal stored-value subtree and terminal borrow layers after its projections.
@@ -762,9 +767,7 @@ pub struct DependencyContractTemplateData {
     requirements: Arc<[DependencyRequirement]>,
     completion_reports: Option<Arc<[DependencyRequirement]>>,
     abnormal_reports: Option<Arc<[DependencyRequirement]>>,
-    borrows: Arc<[DependencyBorrowRelation]>,
     captured_values: Arc<[super::CapturedValueOutcome]>,
-    stored_values: Arc<[DependencyStoredValue]>,
     observed_result: Option<ConstantTermId>,
     effects: super::DependencyEffectOutcomes<DependencyStorageEffect>,
     synchronous_cleanup: Arc<[DependencyRequirement]>,
@@ -782,15 +785,24 @@ impl DependencyContractTemplateData {
     /// Returns the whole-value expression, with explicit unknown for lost precision.
     pub fn captured_values(&self) -> &[super::CapturedValueOutcome] { &self.captured_values }
 
-    /// Records possible captured values stored in normal-output subtrees.
+    /// Creates the stored dependency shape for an explicitly authored normal outcome.
     pub fn with_stored_values(mut self, values: impl IntoIterator<Item = DependencyStoredValue>) -> Self {
-        self.stored_values = DependencyStoredValue::normalize(values);
+        let values = DependencyStoredValue::normalize(values);
+
+        if !values.is_empty() || !self.captured_values.is_empty() {
+            let mut row = self.take_authored_outcome();
+
+            row.stored_values = values;
+            self.captured_values = [row].into();
+        }
 
         self
     }
 
-    /// Returns normal-output stored-value bounds.
-    pub fn stored_values(&self) -> &[DependencyStoredValue] { &self.stored_values }
+    /// Derives possible stored-value dependencies across normal outcomes.
+    pub fn stored_values(&self) -> Arc<[DependencyStoredValue]> {
+        super::CapturedValueOutcome::stored_dependencies(self.captured_values.iter(), DependencySubject::contains)
+    }
 
     /// Records a value observation shared by every mutation-free normal completion.
     /// This carries no ownership, storage identity or trusted authority.
@@ -902,8 +914,7 @@ impl DependencyContractTemplateData {
     /// Enumerates paths needed to prepare references, effects and stored-value bounds.
     /// A stored-value path does not itself establish reference authority.
     pub fn reference_subjects(&self) -> impl Iterator<Item = &DependencySubject> {
-        self.borrows()
-            .iter()
+        self.captured_values().iter().flat_map(|row| row.references.iter())
             .flat_map(|relation| {
                 relation
                     .source_subject()
@@ -911,10 +922,12 @@ impl DependencyContractTemplateData {
                     .chain(std::iter::once(relation.exit()))
             })
             .chain(self.effects().iter().filter_map(DependencyStorageEffect::subject))
-            .chain(self.stored_values().iter().flat_map(|stored| {
+            .chain(self.captured_values().iter().flat_map(|row| row.stored_values.iter()).flat_map(|stored| {
                 std::iter::once(stored.destination().subject()).chain(stored.sources().iter().map(DependencyStoredValuePath::subject))
             }))
-            .chain(self.captured_values().iter().flat_map(|outcome| outcome.bindings.iter().map(|(subject, _)| subject)))
+            .chain(self.captured_values().iter().flat_map(|outcome| {
+                outcome.bindings.iter().map(|(subject, _)| subject).chain(outcome.inactive_payloads.iter())
+            }))
     }
 
     /// Returns requirements for one selected output.
@@ -934,9 +947,7 @@ impl DependencyContractTemplateData {
             requirements: sorted_unique_shared_slice(requirements),
             completion_reports: None,
             abnormal_reports: None,
-            borrows: Arc::new([]),
             captured_values: Arc::new([]),
-            stored_values: Arc::new([]),
             observed_result: None,
             effects: super::DependencyEffectOutcomes::new(DependencyStorageEffect::opaque_call()),
             synchronous_cleanup: Arc::new([]),
@@ -955,9 +966,7 @@ impl DependencyContractTemplateData {
             completion_reports: self.completion_reports.as_ref().map(Arc::clone),
             abnormal_reports: self.abnormal_reports.as_ref().map(Arc::clone),
             // Transformations own a new contract while retaining the immutable checked summary.
-            borrows: Arc::clone(&self.borrows),
             captured_values: Arc::clone(&self.captured_values),
-            stored_values: Arc::clone(&self.stored_values),
             observed_result: self.observed_result,
             effects: self.effects.clone(),
             synchronous_cleanup: Arc::clone(&self.synchronous_cleanup),
@@ -994,37 +1003,31 @@ impl DependencyContractTemplateData {
         self.effects.preserves_storage_on_normal_return()
     }
 
-    /// Attaches complete entry-to-exit origin bounds and exact identities in deterministic order.
-    pub fn with_borrows(
-        mut self,
-        borrows: impl IntoIterator<Item = DependencyBorrowRelation>,
-    ) -> Self {
+    /// Creates the reference shape for an explicitly authored normal outcome.
+    pub fn with_borrows(mut self, borrows: impl IntoIterator<Item = DependencyBorrowRelation>) -> Self {
         let borrows = sorted_unique_shared_slice(borrows);
 
-        if borrows.len() < 2 {
-            self.borrows = borrows;
+        if !borrows.is_empty() || !self.captured_values.is_empty() {
+            let mut row = self.take_authored_outcome();
 
-            return self;
+            row.references = borrows;
+            self.captured_values = [row].into();
         }
-
-        let mut alternatives = std::collections::BTreeMap::new();
-
-        for relation in borrows.iter() {
-            *alternatives.entry(relation.exit()).or_insert(0usize) += 1;
-        }
-
-        self.borrows = sorted_unique_shared_slice(borrows.iter().cloned().map(|relation| {
-            let exact = relation.is_exact() && alternatives[relation.exit()] == 1;
-
-            relation.with_exactness(exact)
-        }));
 
         self
     }
 
-    /// Returns checked origin bounds and exact identities, independently of lifetime requirements.
-    pub fn borrows(&self) -> &[DependencyBorrowRelation] {
-        &self.borrows
+    fn take_authored_outcome(&self) -> super::CapturedValueOutcome {
+        match self.captured_values.as_ref() {
+            [] => super::CapturedValueOutcome::new(None, []),
+            [row] if row.guard.is_none() => row.clone(),
+            _ => panic!("explicit physical observations require one unguarded outcome"),
+        }
+    }
+
+    /// Derives established origins before selecting a normal outcome.
+    pub fn borrows(&self) -> Arc<[DependencyBorrowRelation]> {
+        super::CapturedValueOutcome::reference_origins(self.captured_values.iter(), DependencySubject::contains)
     }
 
     /// Attaches the complete may-mutation summary proved by the owning body analysis.
