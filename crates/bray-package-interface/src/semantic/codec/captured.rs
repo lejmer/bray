@@ -65,7 +65,7 @@ fn encode_value(encoder: &mut WireEncoder, value: &Template) {
 
                     if let Some(call) = &alternative.call {
                         encoder.write_u32(call.signature.raw());
-                        encoder.write_u32(u32::from(call.has_receiver));
+                        write_optional_u32(encoder, call.receiver.map(|ty| ty.raw()));
                         write_optional_u32(encoder, call.requirement.map(|(ty, _)| ty.raw()));
                         if let Some((_, app)) = call.requirement { encoder.write_u32(app.raw()); }
                         write_optional_u32(encoder, call.dispatch.map(|w| w.raw()));
@@ -234,9 +234,7 @@ fn decode_value(reader: &mut WireReader<'_>, limits: InterfaceValidationLimits,
                 let call = if let Some(instance) = read_optional_u32(reader)? {
                     let signature = crate::InterfaceTypeId::new(read_u32(reader)?);
 
-                    let has_receiver = match read_u32(reader)? {
-                        0 => false, 1 => true, raw => return Err(super::invalid_discriminant(InterfaceValidationField::Dependency, raw)),
-                    };
+                    let receiver = read_optional_u32(reader)?.map(crate::InterfaceTypeId::new);
 
                     let requirement = match read_optional_u32(reader)? {
                         Some(ty) => Some((crate::InterfaceTypeId::new(ty), crate::InterfaceTraitApplicationId::new(read_u32(reader)?))),
@@ -250,7 +248,7 @@ fn decode_value(reader: &mut WireReader<'_>, limits: InterfaceValidationLimits,
                     for _ in 0..count { witnesses.push(InterfaceImplementationInstanceId::new(read_u32(reader)?)); }
 
                     Some(Arc::new(crate::InterfaceCapturedCallable { instance: crate::InterfaceCallableInstanceId::new(instance),
-                        signature, has_receiver, requirement, dispatch, witnesses: witnesses.into() }))
+                        signature, receiver, requirement, dispatch, witnesses: witnesses.into() }))
                 } else { None };
 
                 let captures = read_count(reader, limits, InterfaceLimit::RecordCount)?;

@@ -56,7 +56,9 @@ impl InterfaceSemantics {
 
                                 let Some(crate::InterfaceType::Callable { parameters, variadic, .. }) = call.signature.to_index().and_then(|index| self.types.get(index)) else { return Err(invalid()); };
 
-                                let required = parameters.len() + usize::from(call.has_receiver);
+                                if let Some(receiver) = call.receiver { validate_index(receiver.to_index(), self.types.len())?; }
+
+                                let required = parameters.len() + usize::from(call.receiver.is_some());
 
                                 if alternative.captures.len() != required && (!variadic || alternative.captures.len() < required) { return Err(invalid()); }
 

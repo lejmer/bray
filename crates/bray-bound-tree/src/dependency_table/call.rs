@@ -116,6 +116,8 @@ impl BoundReturnedValue {
 pub struct BoundDeferredCallable {
     /// The selected body's specialized summary in the current semantic store.
     pub summary: bray_symbols::DependencyContractTemplateId,
+    /// Typed routes from the frame's selected input and result signature.
+    pub storage: BoundCallStorage,
     /// Selected runtime behavior, including task observation.
     pub hook: Option<bray_compiler_known::ImplementationHook>,
 }

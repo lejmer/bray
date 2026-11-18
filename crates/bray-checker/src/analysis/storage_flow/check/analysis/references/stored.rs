@@ -85,7 +85,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             |endpoint, _| {
                 let (ty, path) = storage.stored_value_path(endpoint)?;
 
-                let locations = self.cleanup_subject_locations(memory, receiver, endpoint.subject(), Some(path))?;
+                let locations = self.cleanup_subject_locations(memory, Some(receiver), endpoint.subject(), Some(path))?;
 
                 Some((ty, locations.into_iter().map(Source::Value).collect()))
             },

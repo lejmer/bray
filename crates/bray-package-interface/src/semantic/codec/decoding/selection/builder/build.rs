@@ -1074,6 +1074,8 @@ impl<'bytes, 'records> SelectionBuilder<'bytes, 'records> {
                 self.enqueue(PendingRecord::CallableInstance(call.instance.raw()));
                 self.enqueue(PendingRecord::Type(call.signature.raw()));
 
+                if let Some(receiver) = call.receiver { self.enqueue(PendingRecord::Type(receiver.raw())); }
+
                 if let Some((ty, application)) = call.requirement {
                     self.enqueue(PendingRecord::Type(ty.raw()));
                     self.enqueue(PendingRecord::TraitApplication(application.raw()));

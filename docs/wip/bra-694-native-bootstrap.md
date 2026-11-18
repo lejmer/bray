@@ -255,6 +255,31 @@ start/observe/cancel, normal cleanup and abnormal duties are the integrated cont
   growth within the existing target and replace duplicate descriptor interpretation.
 
 
+- Record portable effects as a prefix of the reached composite state. The same operation
+  already resolves its address, possible bounds and mutation kind before it modifies
+  memory. Export that descriptor there. Success adds normal effects to that successor.
+  The captured failure transition adds performed or possible prefix effects on the
+  abnormal successor, including on a later caught path. Hypothetical failure capture
+  must not contaminate the successor that returned normally. At a join, union may-effects.
+  Never infer a definite write, layout, ownership or lifetime from that union.
+  At a reached normal exit after cleanup, attach its prefix to the same output row.
+  Keep a separate conservative possible envelope for failure and unselected alternatives.
+  Bind possible effects once while entry descriptors are live. Select the subset on
+  admitted normal rows using the same row identity as reference and report outputs.
+  Widen SCC approximations by unioning possible effects within a guard while keeping
+  guaranteed writes as intersections. Preserve each effect's actual route and bound
+  across generic substitution, codec validation/remapping and specialization identity.
+  Remove the independent normal classification accumulated across the CFG. An aggregate
+  normal slice is only a derived shortcut for phases with no selection evidence.
+  The conditional finalizer, borrowed cleanup and captured saved-pointer controls cover
+  these directions. The panel must demonstrate no extra retirement on a disjoint exit
+  and no fabricated preservation on a feasible writing path. Keep caught abnormal and
+  inactive cancellation effects separate from normal outputs. The fixed comparison and
+  bootstrap gates remain pending. Reconsider if this requires replaying effects from
+  original slots, a separate CFG traversal, or adding branch histories to loop identity.
+  Internal joins may still need to carry guarded stores and prefixes from their
+  predecessor snapshots before a single exit can publish branch-specific outputs.
+
 Await, scheduling, and opaque cleanup must consume the selected frame's transition directly. A capture can itself
 hold an unrelated frame formed at the same source site. Searching nested values by site can execute that other
 frame's effects. Only task observation follows receiver capture zero into another frame. Capture the private result

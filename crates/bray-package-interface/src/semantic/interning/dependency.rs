@@ -99,7 +99,8 @@ impl InternState<'_> {
                     self.convert_dependency_projections(std::slice::from_ref(projection), symbols).map_err(Some)?
                         .and_then(|projections| projections.into_iter().next()).ok_or(None)
                 }, &mut |root| self.convert_captured_static(root, symbols), &mut |call| Ok(bray_symbols::CapturedCallable {
-                    instance: self.callable_instance_id(call.instance).ok_or(None)?, signature: self.type_id(call.signature).ok_or(None)?, has_receiver: call.has_receiver,
+                    instance: self.callable_instance_id(call.instance).ok_or(None)?, signature: self.type_id(call.signature).ok_or(None)?,
+                    receiver: call.receiver.map(|ty| self.type_id(ty).ok_or(None)).transpose()?,
                     requirement: call.requirement.map(|(ty, app)| Ok::<_, Option<InterfaceSemanticInternError>>(bray_symbols::ImplementationRequirementKey::new(
                         self.type_id(ty).ok_or(None)?, self.trait_application_id(app).ok_or(None)?))).transpose()?,
                     dispatch: call.dispatch.map(|w| self.implementation_instance_id(w).ok_or(None)).transpose()?,

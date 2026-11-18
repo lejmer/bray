@@ -54,8 +54,8 @@ pub struct CapturedCallable<Callable = crate::CallableInstanceId, Type = crate::
     pub instance: Callable,
     /// Instantiated callable signature of the selected declaration.
     pub signature: Type,
-    /// Whether capture zero holds the receiver.
-    pub has_receiver: bool,
+    /// The checked receiver type when capture zero holds a receiver.
+    pub receiver: Option<Type>,
     /// Generic constraint providing dispatch, when applicable.
     pub requirement: Option<Requirement>,
     /// Implementation selected for this call.

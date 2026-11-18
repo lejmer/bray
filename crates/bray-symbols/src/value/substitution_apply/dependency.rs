@@ -246,7 +246,7 @@ impl SemanticValueStore {
                             &mut |root| self.substitute_static_reference(root, substitution), &mut |callee| Ok(super::super::CapturedCallable {
                                 instance: self.substitute_callable_instance_data(callee.instance, substitution)?,
                                 signature: self.substitute_type_data(callee.signature, substitution)?,
-                                has_receiver: callee.has_receiver,
+                                receiver: callee.receiver.map(|ty| self.substitute_type_data(ty, substitution)).transpose()?,
                                 requirement: callee.requirement.map(|r| Ok(crate::ImplementationRequirementKey::new(
                                     self.substitute_type_data(r.subject(), substitution)?, self.substitute_trait_application_data(r.trait_application(), substitution)?))).transpose()?,
                                 dispatch: callee.dispatch.map(|w| self.substitute_implementation_instance_data(w, substitution)).transpose()?,

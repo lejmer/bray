@@ -51,7 +51,7 @@ pub struct ExecutionDeferredInvocation<Entry = Arc<ExecutionCallEvidence>> {
 
 impl<Entry> ExecutionDeferredInvocation<Entry> {
     pub(crate) fn has_receiver(&self) -> bool {
-        self.callee.as_ref().is_some_and(|callee| callee.has_receiver)
+        self.callee.as_ref().is_some_and(|callee| callee.receiver.is_some())
     }
 }
 

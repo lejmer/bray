@@ -341,7 +341,8 @@ fn remap_dependency_contract(
 
                 Ok(root)
             }, &mut |call| Ok(crate::InterfaceCapturedCallable {
-                instance: maps.callable_instance_id(call.instance)?, signature: maps.type_id(call.signature)?, has_receiver: call.has_receiver,
+                instance: maps.callable_instance_id(call.instance)?, signature: maps.type_id(call.signature)?,
+                receiver: call.receiver.map(|ty| maps.type_id(ty)).transpose()?,
                 requirement: call.requirement.map(|(ty, app)| Ok((maps.type_id(ty)?, maps.trait_application_id(app)?))).transpose()?,
                 dispatch: call.dispatch.map(|w| maps.implementation_instance_id(w)).transpose()?,
                 witnesses: call.witnesses.iter().map(|w| maps.implementation_instance_id(*w)).collect::<Result<_, _>>()?,

@@ -412,14 +412,14 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             let route = |subject| storage.subject(subject).map(|(_, path)| path);
 
             let Some((path, destinations)) = route(relation.exit()).and_then(|path| {
-                Some((path, self.cleanup_subject_locations(memory, receiver, relation.exit(), Some(path))?))
+                Some((path, self.cleanup_subject_locations(memory, Some(receiver), relation.exit(), Some(path))?))
             }) else {
                 memory.stage_whole_sources(occurrence, receiver.clone(), [], false, false);
                 continue;
             };
 
             let sources = relation.entry().and_then(|subject| {
-                self.cleanup_subject_locations(memory, receiver, subject, Some(route(subject)?))
+                self.cleanup_subject_locations(memory, Some(receiver), subject, Some(route(subject)?))
             });
 
             let mut logical = call.path.expect("resolved cleanup receiver has its logical path").clone();
@@ -514,9 +514,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let read = |slot| crate::analysis::storage_flow::memory::Source::Value(slot).mutation_targets(memory);
 
         self.resolve_effects(effects, read, |subject, indirect| {
-            let locations = self.cleanup_subject_locations(memory, receiver?, subject, route(subject))?;
+            let locations = self.cleanup_subject_locations(memory, receiver, subject, route(subject))?;
 
-            super::effects::effect_locations(locations, indirect, read)
+            bray_bound_tree::StorageMutationTarget::resolve_locations(locations, indirect, read)
         })
     }
 
@@ -539,12 +539,12 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     pub(in crate::analysis::storage_flow::check::analysis) fn cleanup_subject_locations(
         &self,
         memory: &State,
-        receiver: &Target,
+        receiver: Option<&Target>,
         subject: &bray_symbols::DependencySubject,
         path: Option<&bray_bound_tree::StorageReferencePath>,
     ) -> Option<Vec<Target>> {
         let start = if subject.subject_root() == DependencySubjectRoot::Receiver {
-            receiver.clone()
+            receiver?.clone()
         } else {
             self.static_location(&bray_symbols::DependencySubject::root(subject.subject_root()))?
         };

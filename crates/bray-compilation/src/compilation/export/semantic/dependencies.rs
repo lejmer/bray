@@ -185,7 +185,8 @@ impl<'a> SemanticExporter<'a> {
                     if callees.contains_key(call) { continue; }
 
                     callees.insert(call, bray_package_interface::InterfaceCapturedCallable {
-                        instance: self.callable_instance_id(call.instance)?, signature: self.type_id(call.signature)?, has_receiver: call.has_receiver,
+                        instance: self.callable_instance_id(call.instance)?, signature: self.type_id(call.signature)?,
+                        receiver: call.receiver.map(|ty| self.type_id(ty)).transpose()?,
                         requirement: call.requirement.map(|r| Ok((self.type_id(r.subject())?, self.trait_application_id(r.trait_application())?))).transpose()?,
                         dispatch: call.dispatch.map(|w| self.implementation_instance_id(w)).transpose()?,
                         witnesses: call.witnesses.iter().map(|w| self.implementation_instance_id(*w)).collect::<Result<_, _>>()?,

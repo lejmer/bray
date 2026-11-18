@@ -246,7 +246,10 @@ impl StructuralValueEncoder<'_, '_> {
                     if let Some(call) = &alternative.call {
                         self.callable_instance(call.instance)?;
                         self.ty(call.signature)?;
-                        self.tag(u8::from(call.has_receiver));
+                        self.tag(u8::from(call.receiver.is_some()));
+
+                        if let Some(receiver) = call.receiver { self.ty(receiver)?; }
+
                         self.tag(u8::from(call.requirement.is_some()));
 
                         if let Some(r) = call.requirement {

@@ -42,6 +42,25 @@ pub struct StorageMutationTarget {
 }
 
 impl StorageMutationTarget {
+    /// Binds direct locations or the descriptors stored in them.
+    pub fn resolve_locations(
+        locations: Vec<Target>,
+        indirect: bool,
+        mut read: impl FnMut(Target) -> Option<Vec<Self>>,
+    ) -> Option<Vec<Self>> {
+        if !indirect {
+            return Some(locations.into_iter().map(Self::location).collect());
+        }
+
+        let mut targets = Vec::new();
+
+        for location in locations {
+            targets.extend(read(location)?);
+        }
+
+        Some(targets)
+    }
+
     /// Returns the conservative mutation region without asserting an actual address.
     pub fn footprint(&self) -> &Target { &self.footprint }
 

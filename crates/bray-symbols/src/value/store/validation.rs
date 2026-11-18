@@ -359,7 +359,9 @@ fn validate_captured_bindings(tables: &SemanticTables, store: SemanticValueStore
                                 panic!("a deferred selection carries its callable signature");
                             };
 
-                            let required = signature.parameters().len() + usize::from(call.has_receiver);
+                            if let Some(receiver) = call.receiver { tables.types.get(store, receiver); }
+
+                            let required = signature.parameters().len() + usize::from(call.receiver.is_some());
 
                             assert!(alternative.captures.len() == required || signature.is_variadic() && alternative.captures.len() >= required,
                                 "captured arguments match the selected deferred signature");

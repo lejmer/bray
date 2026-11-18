@@ -25,11 +25,12 @@ pub(super) fn with_references<C: CheckerRequestContext + ?Sized>(
         let callee = call.resolution().declaration_source().map(|instance| {
             let values = request.semantic_values();
             let signature = call.callable_type();
+            let receiver = call.receiver().map(|receiver| bray_bound_tree::SelectedInput::Receiver(receiver).ty(values));
             let requirement = call.resolution().trait_dispatch().map(|dispatch| request.context().dispatch_requirement(dispatch)).transpose()?;
 
             Ok::<_, CheckerQueryError<C::UpstreamError>>(bray_symbols::CapturedCallable {
                 instance: values.intern_callable_instance(instance).expect("selected deferred instance belongs to its semantic store"),
-                signature, has_receiver: call.receiver().is_some(), requirement, dispatch: call.dispatch_implementation(), witnesses: call.resolution().implementation_witnesses().into(),
+                signature, receiver, requirement, dispatch: call.dispatch_implementation(), witnesses: call.resolution().implementation_witnesses().into(),
             })
         }).transpose()?;
 

@@ -3120,7 +3120,17 @@ fn nested_backing_survives_descriptor_moves_and_pruning() {
     state.stage_preserved_value(call, &Target::storage(moved.clone()), Target::storage(owner.clone()),
         &bray_symbols::DependencyValuePreservation::all());
 
+    let captured = state.capture_reached_value(&Target::storage(moved.clone()));
+
     state.null(Place { root: moved.root, projections: [buffer_pointer].into() });
+
+    assert_eq!(
+        state.captured_effect_targets(values, &captured, &route, false),
+        Some(vec![bray_bound_tree::StorageMutationTarget::bounded(inner.clone())]),
+        "activation uses the captured descriptor and keeps the selected element region inexact",
+    );
+    assert!(state.captured_effect_targets(values, &captured.bounded(), &route, false).is_none(),
+        "a bound on the captured descriptor cannot name a location for the next read");
 
     assert_eq!(state.reference_locations(values, Target::storage(moved), &route, None), Some(Vec::new()),
         "an overwritten descriptor cannot be followed using its former backing region");
@@ -3129,6 +3139,9 @@ fn nested_backing_survives_descriptor_moves_and_pruning() {
         Some(vec![inner.clone()]), "captured inline descriptors survive source replacement");
 
     state.clear_value(&element.project(&[buffer_pointer]));
+
+    assert!(state.captured_effect_targets(values, &captured, &route, false).is_none(),
+        "only the first descriptor came from the evaluated capture");
 
     assert!(state.staged_reference_locations(call, values, &Target::storage(owner.clone()), &Target::storage(owner), &route).is_none(),
         "capturing a descriptor does not freeze nested pointees");

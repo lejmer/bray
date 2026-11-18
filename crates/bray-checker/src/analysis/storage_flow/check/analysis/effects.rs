@@ -415,11 +415,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         occurrence: bray_bound_tree::BoundExecutionSite,
         effects: &[DependencyStorageEffect],
     ) -> Vec<Effect> {
-        self.resolve_effects(effects, |slot| crate::analysis::storage_flow::memory::Source::Value(slot).mutation_targets(&state.memory), |subject, indirect| {
-            if indirect
-                && subject.projections().is_empty()
-                && !subject.subject_root().is_static()
-            {
+        let read = |slot| crate::analysis::storage_flow::memory::Source::Value(slot).mutation_targets(&state.memory);
+
+        self.resolve_effects(effects, read, |subject, indirect| {
+            if indirect && !subject.subject_root().is_static() {
                 let ordinal = occurrence.expression().and_then(|expression| {
                     self.execution.semantics.selections().expression(expression)?
                         .invocation_input_ordinal(occurrence, subject.subject_root())
@@ -428,16 +427,19 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 let entry = execution.admitted_call(occurrence);
 
                 if let Some(captured) = entry.zip(ordinal).and_then(|(entry, ordinal)| entry.argument_storage(ordinal)) {
-                    captured.mutation_targets()
-                } else {
-                    self.invocation_reference(state, occurrence, subject.subject_root())?
-                        .mutation_targets(&state.memory)
+                    let path = self.dependencies.calls().get(&occurrence)?.storage().subject(subject)?.1;
+
+                    return state.memory.captured_effect_targets(self.request.semantic_values(), captured, path, true);
                 }
-            } else {
-                effect_locations(self.invocation_locations(state, occurrence, subject)?, indirect, |slot| {
-                    crate::analysis::storage_flow::memory::Source::Value(slot).mutation_targets(&state.memory)
-                })
+
+                if subject.projections().is_empty() {
+                    return self.invocation_reference(state, occurrence, subject.subject_root())?
+                        .mutation_targets(&state.memory);
+                }
             }
+
+            bray_bound_tree::StorageMutationTarget::resolve_locations(
+                self.invocation_locations(state, occurrence, subject)?, indirect, read)
         })
     }
 
@@ -514,7 +516,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 continue;
             };
 
-            let targets = if static_subject {
+            let targets = if static_subject && !matches!(subject.subject_root(), bray_symbols::DependencySubjectRoot::StaticInstance(..)) {
                 self.static_effect_targets(subject).and_then(|targets| {
                     if indirect {
                         targets.into_iter().try_fold(Vec::new(), |mut reached, target| {
@@ -811,24 +813,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             }
         })
     }
-}
-
-pub(super) fn effect_locations(
-    locations: Vec<Target>,
-    indirect: bool,
-    mut read: impl FnMut(Target) -> Option<Vec<bray_bound_tree::StorageMutationTarget>>,
-) -> Option<Vec<bray_bound_tree::StorageMutationTarget>> {
-    if !indirect {
-        return Some(locations.into_iter().map(bray_bound_tree::StorageMutationTarget::location).collect());
-    }
-
-    let mut targets = Vec::new();
-
-    for location in locations {
-        targets.extend(read(location)?);
-    }
-
-    Some(targets)
 }
 
 pub(super) fn task_effects(

@@ -410,7 +410,7 @@ impl<C: CheckerRequestContext + ?Sized> super::super::core::StorageFlowCollector
                 continue;
             };
 
-            let Some(locations) = self.cleanup_subject_locations(memory, receiver, subject, Some(path)) else {
+            let Some(locations) = self.cleanup_subject_locations(memory, Some(receiver), subject, Some(path)) else {
                 continue;
             };
 

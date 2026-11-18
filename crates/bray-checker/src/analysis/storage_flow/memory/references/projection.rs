@@ -1,7 +1,26 @@
 use super::super::model::{Origin, Place, AddressValue, State, Target};
 use super::slots::storage_subtree;
-use bray_bound_tree::{BorrowCapabilityId, StorageIdentityId, StorageProjection};
+use bray_bound_tree::{
+    BorrowCapabilityId, StorageCapturedValue, StorageIdentityId, StorageMutationTarget,
+    StorageProjection, StorageReferencePath, StorageReferenceStep,
+};
 use bray_symbols::TypeId;
+
+enum ReferenceRouteValue {
+    Capture(StorageCapturedValue),
+    Locations(Vec<Target>),
+}
+
+impl ReferenceRouteValue {
+    fn project(self, projections: &[StorageProjection]) -> Self {
+        match self {
+            Self::Capture(value) => Self::Capture(projections.iter().copied()
+                .fold(value, |value, projection| value.project(projection))),
+            Self::Locations(targets) => Self::Locations(targets.into_iter()
+                .map(|target| target.project(projections)).collect()),
+        }
+    }
+}
 
 impl State {
     pub(in crate::analysis::storage_flow) fn for_storage(
@@ -420,67 +439,129 @@ impl State {
         (targets, unknown)
     }
 
+    pub(in crate::analysis::storage_flow) fn captured_effect_targets(
+        &self,
+        values: &bray_symbols::SemanticValueStore,
+        value: &StorageCapturedValue,
+        path: &StorageReferencePath,
+        indirect: bool,
+    ) -> Option<Vec<StorageMutationTarget>> {
+        let lookup = |target: &Target| self.values.get(target).and_then(|value| value.reference());
+        let root = ReferenceRouteValue::Capture(value.clone());
+
+        match self.follow_reference_route(values, root, path, None, lookup)? {
+            ReferenceRouteValue::Capture(value) if indirect => value.mutation_targets(),
+            ReferenceRouteValue::Capture(_) => None,
+            ReferenceRouteValue::Locations(locations) => StorageMutationTarget::resolve_locations(
+                locations, indirect, |location| self.values.get(&location)?.mutation_targets()),
+        }
+    }
+
     fn reference_locations_in<'a>(
         &'a self,
         values: &bray_symbols::SemanticValueStore,
         target: Target,
-        path: &bray_bound_tree::StorageReferencePath,
-        mut root_borrow: Option<Target>,
+        path: &StorageReferencePath,
+        root_borrow: Option<Target>,
         lookup: impl Fn(&Target) -> Option<&'a AddressValue>,
     ) -> Option<Vec<Target>> {
-        let mut targets = vec![target];
-        let mut copied = 0;
+        let start = ReferenceRouteValue::Locations(vec![target]);
+
+        let ReferenceRouteValue::Locations(locations) =
+            self.follow_reference_route(values, start, path, root_borrow, lookup)?
+        else {
+            unreachable!("an actual storage route remains in memory");
+        };
+
+        Some(locations)
+    }
+
+    fn follow_reference_route<'a>(
+        &'a self,
+        values: &bray_symbols::SemanticValueStore,
+        mut reached: ReferenceRouteValue,
+        path: &StorageReferencePath,
+        mut root_borrow: Option<Target>,
+        lookup: impl Fn(&Target) -> Option<&'a AddressValue>,
+    ) -> Option<ReferenceRouteValue> {
+        let mut selected = 0;
 
         for (step, operation) in path.steps().iter().copied().enumerate() {
-            use bray_bound_tree::StorageReferenceStep;
-
             let index = operation.index();
 
-            if copied != index {
-                targets = targets.into_iter().map(|target| target.project(&path.projections()[copied..index])).collect();
+            if selected != index {
+                reached = reached.project(&path.projections()[selected..index]);
             }
 
-            let (ty, pointer, consumes) = match operation {
-                StorageReferenceStep::Read { target, kind, .. } =>
-                    (target, None, kind == bray_symbols::DependencyReferenceKind::Address),
-                StorageReferenceStep::Backing { target, pointer: Some(pointer), .. } =>
-                    (target, Some(StorageProjection::ProductField(pointer)), true),
+            let (pointer, consumes) = match operation {
+                StorageReferenceStep::Read { kind, .. } =>
+                    (None, kind == bray_symbols::DependencyReferenceKind::Address),
+                StorageReferenceStep::Backing { pointer: Some(pointer), .. } =>
+                    (Some(StorageProjection::ProductField(pointer)), true),
                 StorageReferenceStep::Backing { pointer: None, .. } => {
-                    targets = targets.into_iter().map(|target| target.project(&[StorageProjection::OwnedTarget])).collect();
-                    copied = index + 1;
+                    if matches!(reached, ReferenceRouteValue::Capture(_)) {
+                        return None;
+                    }
+
+                    reached = reached.project(&[StorageProjection::OwnedTarget]);
+                    selected = index + 1;
                     continue;
                 }
             };
 
-            targets = if let Some(root) = root_borrow.take().filter(|_| step == 0 && index == 0 && !consumes) {
-                vec![root]
+            if let Some(root) = root_borrow.take().filter(|_| step == 0 && index == 0 && !consumes) {
+                reached = ReferenceRouteValue::Locations(vec![root]);
             } else {
-                let mut reached = std::collections::BTreeSet::new();
-
-                for target in targets {
-                    let target = match pointer { Some(pointer) => target.project(&[pointer]), None => target };
-                    let reference = lookup(&target)?;
-
-                    let typed = if pointer.is_some() {
-                        // Backing selection follows the actual allocation descriptor.
-                        // It neither loads an element nor establishes its layout.
-                        reference.has_values().then_some(&reference.targets)
-                    } else {
-                        self.route_pointer_targets(values, reference, ty)
-                    }?;
-
-                    reached.extend(typed.iter().cloned());
+                if let Some(pointer) = pointer {
+                    reached = reached.project(&[pointer]);
                 }
 
-                reached.into_iter().collect()
-            };
+                let targets = match reached {
+                    ReferenceRouteValue::Capture(value) => {
+                        let reference = value.binding()?.reference()?;
 
-            copied = index + usize::from(consumes);
+                        self.reference_step_targets(values, operation, reference)?.iter().cloned().collect()
+                    }
+                    ReferenceRouteValue::Locations(locations) => {
+                        let mut targets = std::collections::BTreeSet::new();
+
+                        for location in locations {
+                            let reference = lookup(&location)?;
+
+                            targets.extend(self.reference_step_targets(values, operation, reference)?.iter().cloned());
+                        }
+
+                        targets.into_iter().collect()
+                    }
+                };
+
+                // A captured descriptor is read once. Further steps read activation memory.
+                reached = ReferenceRouteValue::Locations(targets);
+            }
+
+            selected = index + usize::from(consumes);
         }
 
-        Some(if copied == path.projections().len() { targets } else {
-            targets.into_iter().map(|target| target.project(&path.projections()[copied..])).collect()
+        Some(if selected == path.projections().len() { reached } else {
+            reached.project(&path.projections()[selected..])
         })
+    }
+
+    fn reference_step_targets<'a>(
+        &self,
+        values: &bray_symbols::SemanticValueStore,
+        operation: StorageReferenceStep,
+        reference: &'a AddressValue,
+    ) -> Option<&'a std::collections::BTreeSet<Target>> {
+        match operation {
+            StorageReferenceStep::Read { target, .. } => self.route_pointer_targets(values, reference, target),
+            StorageReferenceStep::Backing { pointer: Some(_), .. } => {
+                // Backing selection follows the actual allocation descriptor without loading its elements.
+                reference.has_values().then_some(&reference.targets)
+            }
+            StorageReferenceStep::Backing { pointer: None, .. } =>
+                unreachable!("structural backing has no descriptor read"),
+        }
     }
 
     fn route_pointer_targets<'a>(

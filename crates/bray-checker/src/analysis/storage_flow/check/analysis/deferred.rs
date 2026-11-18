@@ -68,48 +68,38 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     ) -> Option<crate::analysis::storage_flow::memory::EffectOutcomes> {
         let summary;
 
-        let templates = if let Some(site) = source.local() {
+        let (templates, routes) = if let Some(site) = source.local() {
             let call = self.dependencies.calls().get(&site)?;
 
-            call.deferred_effect_outcomes()?
+            (call.deferred_effect_outcomes()?, call.storage())
         } else {
             let callee = candidate.callee.as_deref()?;
             let body = self.dependencies.frame_callees().get(callee)?;
 
             summary = self.request.semantic_values().dependency_contract_template_data(body.summary);
 
-            summary.effect_outcomes()
+            (summary.effect_outcomes(), &body.storage)
         };
 
+        let values = self.request.semantic_values();
+        let read = |slot| crate::analysis::storage_flow::memory::Source::Value(slot).mutation_targets(memory);
+
         let effects = templates.try_flat_map(|effect| {
-            Ok::<_, std::convert::Infallible>(self.resolve_effects(std::slice::from_ref(effect), |slot| crate::analysis::storage_flow::memory::Source::Value(slot).mutation_targets(memory), |subject, indirect| {
-                let ordinal = subject.subject_root().input_ordinal(candidate.has_receiver())?;
-                let storage = candidate.entry.argument_storage(ordinal)?;
+            Ok::<_, std::convert::Infallible>(self.resolve_effects(std::slice::from_ref(effect), read, |subject, indirect| {
+                let root = subject.subject_root();
+                let (_, path) = routes.subject(subject)?;
 
-                if indirect && subject.projections().is_empty() { return storage.mutation_targets(); }
+                if root.is_static() {
+                    let start = self.static_location(&bray_symbols::DependencySubject::root(root))?;
+                    let locations = memory.reference_locations(values, start, path, None)?;
 
-                let root = candidate.entry.arguments.get(&crate::ExecutionPlace::argument(ordinal))?;
-                let path = crate::storage::storage_projections(self.request.semantic_values(), self.dependencies, subject.projections())?;
-
-                if !bray_bound_tree::StoragePath::inline_projections(&path) { return None; }
-
-                if root.is_reference() && (!path.is_empty() || !indirect) {
-                    let targets = storage.mutation_targets()?;
-
-                    if !indirect { return Some(targets.into_iter().map(|target| target.project(&path)).collect()); }
-
-                    return targets.into_iter().try_fold(Vec::new(), |mut targets, target| {
-                        let slot = target.address?.project(&path);
-
-                        targets.extend(crate::analysis::storage_flow::memory::Source::Value(slot).mutation_targets(memory)?);
-
-                        Some(targets)
-                    });
+                    return bray_bound_tree::StorageMutationTarget::resolve_locations(locations, indirect, read);
                 }
 
-                if !indirect { return None; }
+                let ordinal = root.input_ordinal(candidate.has_receiver())?;
+                let captured = candidate.entry.argument_storage(ordinal)?;
 
-                path.into_iter().fold(storage.clone(), |storage, projection| storage.project(projection)).mutation_targets()
+                memory.captured_effect_targets(values, captured, path, indirect)
             }))
         }).expect("unresolved frame effects retain conservative footprints");
 
@@ -153,7 +143,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 _ => return None,
             };
 
-            super::effects::effect_locations(locations, indirect, read_result)
+            bray_bound_tree::StorageMutationTarget::resolve_locations(locations, indirect, read_result)
         });
 
         let result = self.capture_opaque_effects(state, invocation, result, &roots, &private, &output);

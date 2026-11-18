@@ -446,7 +446,31 @@ where C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQ
             callable: instance, contextual_self, output: bray_symbols::DependencyCallOutput::Value,
         })?;
 
+        let selected_type = values.type_data(callee.signature);
+        let bray_symbols::TypeData::Callable(signature) = selected_type.as_ref() else {
+            panic!("a carried selection retains its checked callable signature");
+        };
+
+        let storage = super::prepare_call_storage(request, &summary, [], [], |subject| {
+            use bray_symbols::DependencySubjectRoot;
+
+            let root = subject.subject_root();
+            let ty = match root {
+                DependencySubjectRoot::Receiver => callee.receiver,
+                DependencySubjectRoot::Parameter(ordinal) => ordinal.to_index()
+                    .and_then(|index| signature.parameters().get(index)).map(|parameter| parameter.ty()),
+                DependencySubjectRoot::Result => Some(signature.result()),
+                root => crate::storage::static_subject_type(request, root)?,
+            };
+
+            match ty {
+                Some(ty) => super::reference_subject_path(request, subject, ty),
+                None => Ok(None),
+            }
+        })?;
+
         callees.insert(callee.clone(), bray_bound_tree::BoundDeferredCallable {
+            storage,
             summary: values.intern_dependency_contract_template(summary.as_ref().clone()).expect("selected body belongs to its store"),
             hook: request.implementation_hook(instance.definition().symbol())?
                 .filter(|resolution| resolution.is_available()).map(|resolution| resolution.hook()),
