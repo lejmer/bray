@@ -153,19 +153,18 @@ impl ExecutionCondition {
 
     /// The copied descriptor, independently of its scalar slot and reached contents.
     pub(crate) fn descriptor_identity(&self) -> &Self {
-        let mut pointer = self.copied_value();
+        use crate::ExecutionConditionKind as Kind;
 
-        // An owning context can survive replacement of the address stored in it.
-        // Read that descriptor's current data before selecting its identity.
-        while let crate::ExecutionConditionKind::Observation { contents, kind: ObservationKind::Owned, .. } = pointer.kind() {
-            pointer = contents.copied_value();
+        let mut pointer = self;
+
+        loop {
+            pointer = match pointer.kind() {
+                Kind::CapturedValue { value, .. } | Kind::DeferredValue { value, .. }
+                | Kind::Observation { contents: value, kind: ObservationKind::Owned | ObservationKind::Scalar, .. }
+                | Kind::Borrowed(value) => value,
+                _ => return pointer.owner_identity(),
+            };
         }
-
-        while let crate::ExecutionConditionKind::Borrowed(reached) = pointer.kind() {
-            pointer = reached.copied_value();
-        }
-
-        pointer.owner_identity()
     }
 
     /// The carrier's identity survives changes to the component snapshot.

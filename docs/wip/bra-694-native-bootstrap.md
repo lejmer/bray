@@ -728,6 +728,61 @@ finalization. Run cargo xtask format before final handoff. Unrun checks stay unv
 
 ## Tools, resources and final gate
 
+The narrow panels are no longer the comparison baseline. Keep the exact frozen
+manifest and its retained all-green receipt at d087dde8f. The prior task record
+also records an all-green replay at 551d12bb1. The clean candidate 806fe36ca was
+built and checked against the retained manifest before more source changes. After
+isolating unfinished cases on the same binary, 1508 passed, 202 failed assertions,
+one crashed with a query-worker stack overflow, and three timed out. The exact
+results and binary identity are retained under comparison-806fe36ca in the audit
+directory. The fixed denominator is 1714.
+The largest observed cluster is 45 ownership compositions failing in both source
+and import. The address controls include both unnecessary rejection of live
+authority and incorrect acceptance after lifetime expiry. Five lowering controls
+also fail. Four removed native identities remain separate from that count.
+
+Use the fixed results to identify the first lost producer fact. Pair valid and
+invalid ownership with borrowed descriptor mutation and lifetime retirement.
+Trace actual checked output, selected guard, active cleanup and package/query
+binding before changing their shared mechanism. The native record independently
+locates earlier failures at `context(selected)` after the task-failure update and
+at `commit_start` after `register_task`. Those records name where proof was
+required. They do not establish that a specific allocation was incorrectly
+retired. An actual pair of reached allocation and acquisition identities remains
+necessary to make that determination.
+
+The coupled probe traces generic selected ownership, raw-address support through
+mutation and scope exit, and a scoped result lowering control from the verified
+candidate. It records the emitted summary rows, their admitted operands, the
+private result, the retained witness ledger, and the owners attached to the
+published descriptors. The paired abnormal-exit fixture is saved outside the
+tracked tree so it cannot change the fixed comparison. No abnormal migration
+patch has been applied.
+
+The address trace shows the reached owner at admission and at the input
+postcondition. A physical capture wrapper around a scalar observation makes
+`descriptor_identity` read the enclosing observation's owner instead of its
+copied descriptor. The normalized predicate instead reads the copied operand.
+The ledger therefore records the clause with no matching address support, and
+scope exit cannot revoke it. A physical capture must preserve the exact logical
+descriptor identity already used by the predicate. Keep reference observations
+as descriptor boundaries. Use the same selection for admission, explicit and
+inferred publication, witness support binding and invalidation. Check live and
+expired fields and mutations through source and import before accepting the
+change, including the Windows environment storage boundary on the fixed suite.
+The descriptor change restores the independent-field lifetime tests through
+source and import. The mutation tests now reach their last method-return case
+before they fail. Their direct call, returned free-function and mutable receiver
+cases all pass. The borrowed-result control passes. The forwarder, conditional
+record, imported address retirement and Windows environment failures remain.
+The generic join trace separately shows one exit with a placeholder payload and
+three ownership alternatives. The valid source argument is admitted with its
+witness, but the private result and its guarded ownership alternatives publish
+without that witness. Preserve actual produced values and their transitions at
+the join. Reconstructing a tagged result from an ownership path would lose the
+other outcome's data and cleanup. The scoped lowering failure is reproduced on
+a unit result with no witness, which requires its own private-production trace.
+
 Use the shared Cargo target from .cargo/config.toml, target/cargo. Before builds target/cargo/tooling measured232.83GiB
 and the drive had99GiB free. Never clean shared outputs. Build checker and compilation together to retain feature reuse.
 Release binaries under target/cargo/release/deps:
