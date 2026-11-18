@@ -344,10 +344,10 @@ impl StorageFlowState {
         }
     }
 
-    pub(in crate::analysis::storage_flow) fn merge(
+    pub(in crate::analysis::storage_flow) fn merge<'join>(
         &mut self,
         incoming: &Self,
-        block: Option<crate::analysis::id::AnalysisBlockId>,
+        join: impl Into<crate::analysis::guarantee::ExecutionJoin<'join>>,
     ) -> bool {
         if !incoming.reachable {
             return false;
@@ -363,7 +363,7 @@ impl StorageFlowState {
         let execution_changed = crate::analysis::guarantee::merge_execution(
             &mut self.execution,
             &incoming.execution,
-            crate::analysis::guarantee::ExecutionJoin::from(block),
+            join.into(),
         );
 
         let effects_changed = !Arc::ptr_eq(&self.effect_prefix, &incoming.effect_prefix)

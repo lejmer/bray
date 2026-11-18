@@ -236,13 +236,6 @@ impl BoundCallDependencyContracts {
         self.normal_completion
     }
 
-    /// Retains the normal transitions of the selected invocation.
-    pub fn with_normal_effects(mut self, effects: impl IntoIterator<Item = bray_symbols::DependencyStorageEffect>) -> Self {
-        self.effects = self.effects.with_normal(effects);
-
-        self
-    }
-
     /// Whether normal invocation preserves storage, apart from input ownership transfers.
     pub fn preserves_storage_on_normal_return(&self) -> bool {
         self.effects.preserves_storage_on_normal_return()
@@ -386,12 +379,12 @@ impl BoundCallDependencyContracts {
         &self.synchronous_cleanup
     }
 
-    /// Retains the selected callable's checked formal mutation effects.
+    /// Retains the selected callable's checked effects for this invocation phase.
     pub fn with_effects(
         mut self,
-        effects: impl IntoIterator<Item = bray_symbols::DependencyStorageEffect>,
+        effects: bray_symbols::DependencyEffectOutcomes<bray_symbols::DependencyStorageEffect>,
     ) -> Self {
-        self.effects = bray_symbols::DependencyEffectOutcomes::new(bray_symbols::DependencyStorageEffect::normalize(effects).iter().cloned());
+        self.effects = effects;
 
         self
     }

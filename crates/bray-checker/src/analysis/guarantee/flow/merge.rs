@@ -16,6 +16,7 @@ pub(in crate::analysis) enum ExecutionJoin<'a> {
     Boundary,
     Selection(&'a ExecutionCondition),
     Block(AnalysisBlockId),
+    Production(bray_bound_tree::BoundExpressionId),
     Result(bray_bound_tree::BoundExpressionId),
 }
 
@@ -29,15 +30,19 @@ impl ExecutionJoin<'_> {
     fn block(self) -> Option<AnalysisBlockId> {
         match self {
             Self::Block(block) => Some(block),
-            Self::Boundary | Self::Selection(_) | Self::Result(_) => None,
+            Self::Boundary | Self::Selection(_) | Self::Production(_) | Self::Result(_) => None,
         }
+    }
+
+    fn joins_private_result(self, expression: bray_bound_tree::BoundExpressionId) -> bool {
+        self.block().is_some() || matches!(self, Self::Production(produced) if produced == expression)
     }
 
     fn snapshot(self, place: &crate::ExecutionPlace) -> ExecutionCondition {
         match self {
             Self::Block(block) => joined_observation(block, place),
             Self::Result(expression) => ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expression)),
-            Self::Boundary | Self::Selection(_) => ExecutionCondition::boolean(true),
+            Self::Boundary | Self::Selection(_) | Self::Production(_) => ExecutionCondition::boolean(true),
         }
     }
 }
@@ -300,7 +305,7 @@ fn join_observations<'a>(
         .chain(incoming.pending_results.keys())
         .copied()
         .collect::<std::collections::BTreeSet<_>>()
-        .into_iter().filter(|_| join.block().is_some())
+        .into_iter().filter(|expression| join.joins_private_result(*expression))
     {
         let unknown = ExecutionCondition::unknown();
 

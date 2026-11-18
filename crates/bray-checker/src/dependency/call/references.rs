@@ -48,14 +48,19 @@ pub(super) fn with_references<C: CheckerRequestContext + ?Sized>(
     let retained_inputs = result_retains_inputs(request, expression.into(), template)
         .then(|| crate::dependency::result_inputs(expression, call, template));
 
+    let effects = if deferred || pure {
+        bray_symbols::DependencyEffectOutcomes::new([])
+    } else {
+        template.effect_outcomes().clone()
+    };
+
     Ok(
         with_reference_inputs(request, contracts, template, retained_inputs, |subject| {
             reference_input_type(request, call, subject)
         })?
-        .with_effects(template.effects().iter().filter(|_| !deferred && !pure).cloned())
+        .with_effects(effects)
         .with_synchronous_cleanup(template.synchronous_cleanup())
-        .with_normal_completion(deferred || template.normal_completion())
-        .with_normal_effects(template.normal_effects().iter().filter(|_| !deferred && !pure).cloned()),
+        .with_normal_completion(deferred || template.normal_completion()),
     )
 }
 
@@ -116,8 +121,7 @@ pub(super) fn with_hidden_references<C: CheckerRequestContext + ?Sized>(
 
     Ok(contracts
         .with_normal_completion(template.normal_completion())
-        .with_effects(template.effects().iter().cloned())
-        .with_normal_effects(template.normal_effects().iter().cloned())
+        .with_effects(template.effect_outcomes().clone())
         .with_synchronous_cleanup(template.synchronous_cleanup())
 )
 }

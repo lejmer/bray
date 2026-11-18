@@ -297,8 +297,55 @@ start/observe/cancel, normal cleanup and abnormal duties are the integrated cont
   contract. After updating those fixtures, all 218 interface tests pass. Style and
   maintained-source formatting also completed. Keep the conditional finalizer case
   open while internal joins still drop its selected reference.
-  A later trace should observe actual private Task entries and their witness availability
-  when entering and leaving the selected body. Use generic joined-task controls only.
+  The first Task trace finds the actual future body and its private witness at start.
+  The wrapper later reaches observation without that body in capture zero. Direct await
+  reaches the body and resumes the same witness. Preserving result metadata in normal
+  output selection did not change the failures. The split attempts each produce the
+  actual Task into pending_results. StorageFlowCollector rejoins those branches with
+  ExecutionJoin::Boundary, which drops differing pending results. Join the actual
+  pending value at this operation's existing expression before normal completion.
+  Retain each producer, predecessor selection and opaque alternative. Keep this value
+  private until the normal completion boundary. The opaque and opposite-branch task
+  cases must still reject fabrication. The private result join now keeps both actual
+  Task alternatives. All ten focused positive and rejection cases pass. The wider
+  panel gained twelve source and imported Task cases with no new failures. It now
+  passes 335 of 368 compositions and 35 of 36 active owner controls. All four unit
+  suites pass. The remaining Task cases carry nullable or nested formal witnesses,
+  imported produced results, same-site iterations and an effectful owned body.
+  The raw trace finds the joined nullable value in admission's extracted set and the
+  checked owning transfer from the same formal term at completion. The borrowed source
+  in the completed transfer still lacks extraction. Selecting the checked output kind
+  and stripping the output loan for an admitted extraction did not change the result.
+  Trace whether the reached payload is still in private witness admission and whether
+  its exact identity is retained after raw retirement. Do not seed it from a type or
+  postcondition. Borrowed outputs, inactive payloads, fabricated owners and a second
+  raw read cannot inherit the admitted witness.
+  Both repairs must reuse captured handles. Reconsider any approach that allocates a
+  new frame or owner identity or revisits a pointer's source after admission.
+
+- Carry external support for a returned witness from its owning ledger entry.
+  ExecutionWitness.dependencies and each selected ExecutionGuarantee.addresses
+  are authoritative. Export only support whose storage owner is reachable through
+  a checked entry, result or exact static route. Each address requirement retains
+  its evaluated descriptor separately from the owner that bounds its lifetime.
+  Distinguish missing support from an empty, independent support set. Remap these
+  identities with the witness and guarded row. If every alternative establishes the
+  same guarantee, a conservative join retains the union of possible supporting
+  owners. Any unsupported alternative removes the claim to portable completeness.
+  At admission bind formal support directly from the captured descriptor and its
+  admitted storage. At completion install a clause only if its complete carrier and
+  all required owners and descriptor observations are still present. Reuse the
+  existing witness dependency indexes for invalidation, including on cancellation.
+  Never recover an owner from the predicate name, naked value equality or a
+  substitute type. Declared result clauses can use multiple support clauses of
+  the same concrete carrier, but unrelated carriers cannot jointly create one
+  transferable authority. Use the guarded producer, nullable extraction and
+  borrowed reference controls through source and package import. A source positive
+  must stay valid while its actual owner is alive, and the retired-owner and
+  fabricated-owner negatives must continue to fail. Replace the independent-support
+  bit when the checked and portable forms can both represent these relations.
+  Reconsider if the design requires storing duplicate logical ownership snapshots
+  or evaluating the original source operand after its consumption.
 
 Await, scheduling, and opaque cleanup must consume the selected frame's transition directly. A capture can itself
 hold an unrelated frame formed at the same source site. Searching nested values by site can execute that other

@@ -105,10 +105,9 @@ pub(crate) fn selected_operation_contracts<C: CheckerRequestContext + ?Sized>(
         BoundCallDependencyContracts::new(BoundDependencyContract::new([]), result, None)
             .with_reports(reports)
             .with_input_count(inputs.len())
-            .with_effects(template.template.effects().iter().cloned())
+            .with_effects(template.template.effect_outcomes().clone())
             .with_synchronous_cleanup(template.template.synchronous_cleanup())
-            .with_normal_completion(template.template.normal_completion())
-            .with_normal_effects(template.template.normal_effects().iter().cloned());
+            .with_normal_completion(template.template.normal_completion());
 
     let contracts = super::super::references::with_reference_inputs(
         request,

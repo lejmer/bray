@@ -660,7 +660,16 @@ where
                             .expect("deferred completion retains its await expression"),
                     );
                 } else {
-                    state.merge(&branch, None);
+                    let join = if matches!(operation.kind(),
+                        AnalysisOperationKind::Call { phase: AnalysisCallPhase::Attempt, .. } | AnalysisOperationKind::Bound(_))
+                    {
+                        crate::analysis::guarantee::ExecutionJoin::Production(
+                            operation.kind().occurrence().expression().expect("split attempt retains its result expression"))
+                    } else {
+                        crate::analysis::guarantee::ExecutionJoin::Boundary
+                    };
+
+                    state.merge(&branch, join);
                 }
             } else {
                 *state = branch;
