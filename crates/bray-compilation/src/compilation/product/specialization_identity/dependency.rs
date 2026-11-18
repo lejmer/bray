@@ -395,7 +395,21 @@ impl StructuralValueEncoder<'_, '_> {
         carrier: &bray_symbols::DependencyWitnessCarrier,
     ) -> Result<(), FactQueryError> {
         self.constant_term(carrier.guarantee())?;
-        self.tag(u8::from(carrier.has_independent_support()));
+        self.tag(u8::from(carrier.support().is_some()));
+
+        if let Some(support) = carrier.support() {
+            let owners = support.owners().iter().collect::<Vec<_>>();
+            let addresses = support.addresses().iter().collect::<Vec<_>>();
+
+            self.dependency_set(&owners, |encoder, owner| encoder.dependency_subject(owner))?;
+            self.dependency_set(&addresses, |encoder, (descriptor, owners)| {
+                encoder.constant_term(**descriptor)?;
+
+                let owners = owners.iter().collect::<Vec<_>>();
+
+                encoder.dependency_set(&owners, |encoder, owner| encoder.dependency_subject(owner))
+            })?;
+        }
 
         self.dependency_projections(carrier.path())
     }

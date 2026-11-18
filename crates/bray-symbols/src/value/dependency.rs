@@ -2,6 +2,8 @@ use super::DependencyOwnedResult;
 use crate::DependencyStorageEffect;
 use std::sync::Arc;
 
+use super::DependencyWitnessCarrier;
+
 use bray_base::{shared_slice, sorted_unique_shared_slice};
 
 use crate::{
@@ -684,83 +686,6 @@ impl<Subject, Projection> DependencyBorrowRelation<Subject, Projection> {
     }
 }
 
-/// A checked trusted condition carried by a complete returned owner.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct DependencyWitnessCarrier<Projection = DependencyProjection, Condition = ConstantTermId> {
-    guarantee: Condition,
-    path: Arc<[Projection]>,
-    independent_support: bool,
-}
-
-impl<Projection, Condition: Copy> DependencyWitnessCarrier<Projection, Condition> {
-    /// Records a checked carrier path relative to the complete returned value.
-    pub fn new(guarantee: Condition, path: impl IntoIterator<Item = Projection>) -> Self {
-        Self {
-            guarantee,
-            path: path.into_iter().collect(),
-            independent_support: false,
-        }
-    }
-
-    /// Remaps the condition and carrier path while retaining the established support.
-    pub fn remap<P, T: Copy>(
-        &self, guarantee: T, path: impl IntoIterator<Item = P>,
-    ) -> DependencyWitnessCarrier<P, T> {
-        DependencyWitnessCarrier::new(guarantee, path).with_independent_support(self.independent_support)
-    }
-
-    /// Whether the complete carrier needs no external lifetime or address supports.
-    pub const fn has_independent_support(&self) -> bool {
-        self.independent_support
-    }
-
-    /// Returns the portable condition independently supported by this owner.
-    pub const fn guarantee(&self) -> Condition {
-        self.guarantee
-    }
-
-    /// Returns the complete carrier's owned path within the result.
-    pub fn path(&self) -> &[Projection] {
-        &self.path
-    }
-}
-
-impl<Projection, Condition> DependencyWitnessCarrier<Projection, Condition> {
-    /// Records whether the producer proved the owning clause without external storage support.
-    pub fn with_independent_support(mut self, independent: bool) -> Self {
-        self.independent_support = independent;
-
-        self
-    }
-}
-
-impl<Projection: Ord + Clone, Condition: Ord + Clone> DependencyWitnessCarrier<Projection, Condition> {
-    /// Keeps clauses supported on every exit and independent support only when every exit proves it.
-    pub fn common<'row>(
-        mut rows: impl Clone + Iterator<Item = &'row Arc<[Self]>>,
-    ) -> Arc<[Self]>
-    where Self: 'row {
-        let Some(first) = rows.next() else { return Arc::default(); };
-
-        if rows.clone().next().is_none() { return Arc::clone(first); }
-
-        sorted_unique_shared_slice(first.iter().filter_map(|carrier| {
-            let independent = carrier.clone().with_independent_support(true);
-            let dependent = carrier.clone().with_independent_support(false);
-            let mut all_independent = first.binary_search(&independent).is_ok();
-
-            for row in rows.clone() {
-                if row.binary_search(&independent).is_ok() { continue; }
-
-                row.binary_search(&dependent).ok()?;
-                all_independent = false;
-            }
-
-            Some(carrier.clone().with_independent_support(all_independent))
-        }))
-    }
-}
-
 /// A normalized source-independent dependency-contract template.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct DependencyContractTemplateData {
@@ -941,6 +866,8 @@ impl DependencyContractTemplateData {
             .chain(self.captured_values().iter().flat_map(|outcome| {
                 outcome.bindings.iter().map(|(subject, _)| subject).chain(outcome.inactive_payloads.iter())
             }))
+            .chain(self.captured_values().iter().flat_map(|row| row.carriers.iter())
+                .filter_map(DependencyWitnessCarrier::support).flat_map(super::DependencyWitnessSupport::owner_subjects))
     }
 
     /// Returns requirements for one selected output.

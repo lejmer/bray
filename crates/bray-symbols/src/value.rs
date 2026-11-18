@@ -14,6 +14,7 @@ mod store;
 mod substitution;
 mod substitution_apply;
 mod ty;
+mod witness;
 
 pub use application::{
     CallableDefinitionId, CallableInstanceData, ImplementationInstanceData, PredicateInstanceData,
@@ -29,9 +30,10 @@ pub use dependency::{
     DependencyBorrowRelation, DependencyCallInput, DependencyCallOutput,
     DependencyContractTemplateData, DependencyGuard, DependencyProjection, DependencyReferenceKind,
     DependencyReferenceProvenance, DependencyRequirement, DependencyRequirementKind,
-    DependencyStoredValue, DependencyStoredValuePath, DependencySubject, DependencySubjectRoot, DependencyWitnessCarrier,
+    DependencyStoredValue, DependencyStoredValuePath, DependencySubject, DependencySubjectRoot,
     GuardedDependencyRequirement, LifecycleObligationKind,
 };
+pub use witness::{DependencyWitnessCarrier, DependencyWitnessSupport};
 pub use error::{SemanticValueStoreCreateError, SemanticValueStoreError};
 pub use id::{
     CallableInstanceId, ConstantTermId, ConstantValueId, DependencyContractTemplateId,

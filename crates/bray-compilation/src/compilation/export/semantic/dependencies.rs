@@ -169,14 +169,19 @@ impl<'a> SemanticExporter<'a> {
             })?
             .into_iter()
             .map(|carrier| {
-                Ok(carrier.remap(
+                let support = carrier.support().map(|support| support.try_map(
+                    self, Self::dependency_subject,
+                    |exporter, address| exporter.constant_term_id(*address),
+                )).transpose()?;
+
+                Ok(bray_symbols::DependencyWitnessCarrier::new(
                     self.constant_term_id(carrier.guarantee())?,
                     carrier
                         .path()
                         .iter()
                         .map(|projection| self.dependency_projection(projection))
                         .collect::<Result<Vec<_>, _>>()?,
-                ))
+                ).with_support(support))
             })
             .collect::<Result<Vec<_>, PackageInterfaceExportError>>()?;
 

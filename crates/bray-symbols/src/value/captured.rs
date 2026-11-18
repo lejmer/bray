@@ -239,13 +239,13 @@ impl<Input, Projection, Static, Callee, Variant> CapturedValueTemplate<Input, Pr
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CapturedValueOutcome<Subject = super::DependencySubject, Input = ConstantTermId, Projection = DependencyProjection,
     Static = crate::StaticReferenceSelection, Guard = Input, OwnedProjection = super::ConstantProjectionKind, Callee = CapturedCallable, Variant = crate::UnionVariantSymbolId,
-    Report = super::DependencyRequirement, Effect = super::DependencyStorageEffect> {
+    Report = super::DependencyRequirement, Effect = super::DependencyStorageEffect, WitnessSubject = super::DependencySubject> {
     /// The report produced on this exit, including any storage dependencies it carries.
     pub report: Option<Arc<[Report]>>,
     /// Possible transitions on paths reaching this exit.
     pub effects: Arc<[Effect]>,
     /// Checked guarantees and the returned owners supporting them on this exit.
-    pub carriers: Arc<[super::DependencyWitnessCarrier<Projection, Guard>]>,
+    pub carriers: Arc<[super::DependencyWitnessCarrier<Projection, Guard, WitnessSubject>]>,
     /// Transfers of existing input ownership on this exit, sharing its guard and result.
     pub ownership: super::DependencyOwnedResult<OwnedProjection, Guard>,
     /// Reference descriptors and their actual origins on this exit.
@@ -261,7 +261,7 @@ pub struct CapturedValueOutcome<Subject = super::DependencySubject, Input = Cons
     pub bindings: Arc<[(Subject, CapturedValueTemplate<Input, Projection, Static, Callee, Variant>)]>,
 }
 
-impl<Subject, Input, Projection, Static, Guard, OwnedProjection, Callee: Eq, Variant: Eq, Report, Effect> CapturedValueOutcome<Subject, Input, Projection, Static, Guard, OwnedProjection, Callee, Variant, Report, Effect>
+impl<Subject, Input, Projection, Static, Guard, OwnedProjection, Callee: Eq, Variant: Eq, Report, Effect, WitnessSubject> CapturedValueOutcome<Subject, Input, Projection, Static, Guard, OwnedProjection, Callee, Variant, Report, Effect, WitnessSubject>
 where Subject: Ord, Input: Eq, Projection: Eq, Static: Eq {
     /// Retains the report accompanying this normal result.
     pub fn with_report(mut self, report: Option<Arc<[Report]>>) -> Self {
@@ -279,8 +279,8 @@ where Subject: Ord, Input: Eq, Projection: Eq, Static: Eq {
     }
 
     /// Attaches only guarantees established by this exit.
-    pub fn with_carriers(mut self, carriers: impl IntoIterator<Item = super::DependencyWitnessCarrier<Projection, Guard>>) -> Self
-    where Projection: Ord, Guard: Ord {
+    pub fn with_carriers(mut self, carriers: impl IntoIterator<Item = super::DependencyWitnessCarrier<Projection, Guard, WitnessSubject>>) -> Self
+    where Projection: Ord, Guard: Ord, WitnessSubject: Ord {
         self.carriers = bray_base::sorted_unique_shared_slice(carriers);
 
         self
@@ -344,11 +344,11 @@ where Subject: Ord, Input: Eq, Projection: Eq, Static: Eq {
     }
 }
 
-impl<Subject: Ord + Clone, Input: Ord + Clone, Projection: Ord + Clone, Static: Ord + Clone, Guard: Ord + Clone, OwnedProjection: Ord + Clone, Callee: Ord + Clone, Variant: Ord + Clone, Report: Ord + Clone, Effect: Ord + Clone>
-    CapturedValueOutcome<Subject, Input, Projection, Static, Guard, OwnedProjection, Callee, Variant, Report, Effect>
+impl<Subject: Ord + Clone, Input: Ord + Clone, Projection: Ord + Clone, Static: Ord + Clone, Guard: Ord + Copy, OwnedProjection: Ord + Clone, Callee: Ord + Clone, Variant: Ord + Clone, Report: Ord + Clone, Effect: Ord + Clone, WitnessSubject: Ord + Clone>
+    CapturedValueOutcome<Subject, Input, Projection, Static, Guard, OwnedProjection, Callee, Variant, Report, Effect, WitnessSubject>
 {
     /// Guarantees every listed exit establishes on the same owner.
-    pub fn common_carriers(rows: &[Self]) -> Arc<[super::DependencyWitnessCarrier<Projection, Guard>]> {
+    pub fn common_carriers(rows: &[Self]) -> Arc<[super::DependencyWitnessCarrier<Projection, Guard, WitnessSubject>]> {
         super::DependencyWitnessCarrier::common(rows.iter().map(|row| &row.carriers))
     }
 

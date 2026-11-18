@@ -395,10 +395,20 @@ fn remap_dependency_contract(
 
             remap_dependency_projections(&mut path, maps)?;
 
-            Ok(carrier.remap(
-                maps.constant_term_id(carrier.guarantee())?,
-                path,
-            ))
+            let support = carrier.support().map(|support| support.try_map(
+                &mut (),
+                |_, owner| {
+                    // A selected artifact owns its remapped support routes.
+                    let mut owner = owner.clone();
+
+                    remap_dependency_subject(&mut owner, maps)?;
+
+                    Ok(owner)
+                },
+                |_, address| maps.constant_term_id(*address),
+            )).transpose()?;
+
+            Ok(carrier.remap(maps.constant_term_id(carrier.guarantee())?, path).with_support(support))
         })
         .collect::<Result<Vec<_>, InterfaceValidationError>>()?;
 

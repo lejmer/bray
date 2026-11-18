@@ -536,11 +536,13 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 self.complete_trusted_call(&mut branch, source, expression.into(), output, result, observations)
             } else {
                 branch.resume_owned_witnesses(entry);
+                let selected = candidate.callee.as_deref().and_then(|callee|
+                    self.dependencies.frame_callees().get(callee).map(|body| (&body.storage, callee.receiver.is_some())));
 
                 self.complete_entry_outputs(&mut branch, None, expression.into(), result, entry, |branch, value, ownership, carriers| {
                     let value = self.complete_transferred_ownership(branch, expression.into(), None, entry, value, ownership);
 
-                    self.complete_frame_carriers(branch, entry, &value, carriers);
+                    self.complete_frame_carriers(branch, entry, &value, carriers, selected, output);
 
                     value
                 })

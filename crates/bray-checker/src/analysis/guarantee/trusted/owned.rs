@@ -16,7 +16,7 @@ pub(in crate::analysis) enum OwnedReturnCondition {
 #[derive(Eq, PartialEq)]
 pub(in crate::analysis) struct NormalReturn {
     pub(in crate::analysis) captured: bray_symbols::CapturedValueOutcome,
-    pub(in crate::analysis) carriers: std::collections::BTreeSet<bray_symbols::DependencyWitnessCarrier<StorageProjection>>,
+    pub(in crate::analysis) carriers: std::collections::BTreeSet<super::carriers::ReturnedCarrier>,
     pub(in crate::analysis) transfers: DependencyOwnedResult<StorageProjection, (bray_symbols::ConstantTermId, OwnedReturnCondition)>,
 }
 

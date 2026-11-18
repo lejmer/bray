@@ -1532,11 +1532,21 @@ mod tests {
             true,
         )]);
 
+        let owner = crate::InterfaceDependencySubject::new(
+            crate::InterfaceDependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(0)), [],
+        );
+
+        let support = bray_symbols::DependencyWitnessSupport::new(
+            [owner.clone()], [(crate::InterfaceConstantTermId::new(1), [owner].into())],
+        );
+        let carrier = bray_symbols::DependencyWitnessCarrier::new(crate::InterfaceConstantTermId::new(0), [])
+            .with_support(Some(support));
         let contract = crate::InterfaceDependencyContract::new([])
             .with_effects([crate::InterfaceStorageEffect::Ambient, crate::InterfaceStorageEffect::Escape])
-            .with_captured_values([outcome.with_effects([crate::InterfaceStorageEffect::Ambient])]);
+            .with_captured_values([outcome.with_effects([crate::InterfaceStorageEffect::Ambient]).with_carriers([carrier])]);
 
-        let semantics = InterfaceSemantics::new().with_values([contract], [], [], []);
+        let terms = [0, 1].map(|ordinal| crate::InterfaceConstantTerm::CallableArgument(bray_symbols::SymbolOrdinal::new(ordinal)));
+        let semantics = InterfaceSemantics::new().with_values([contract], [], [], terms);
         let limits = InterfaceValidationLimits::default();
 
         let sections = encode_semantics(&semantics, &surface, limits)
@@ -1553,6 +1563,15 @@ mod tests {
 
         assert_eq!(contract.normal_effects(), &[bray_symbols::DependencyStorageEffect::Ambient]);
         assert!(contract.effects().contains(&bray_symbols::DependencyStorageEffect::Escape));
+
+        let carrier = &contract.captured_values()[0].carriers[0];
+        let support = carrier.support().expect("imported witness retains its external support");
+        let owner = bray_symbols::DependencySubject::root(
+            bray_symbols::DependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(0)),
+        );
+
+        assert_eq!(support.owners(), &[owner.clone()].into());
+        assert_eq!(support.addresses().values().next(), Some(&[owner].into()));
 
         assert_eq!(contract.stored_values().as_ref(), &[bray_symbols::DependencyStoredValue::new(
             bray_symbols::DependencyStoredValuePath::new(bray_symbols::DependencySubject::root(bray_symbols::DependencySubjectRoot::Result), 1),

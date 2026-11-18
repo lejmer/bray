@@ -417,6 +417,19 @@ pub(super) fn validate_dependency_template_data(
     for carrier in data.captured_values().iter().flat_map(|row| row.carriers.iter()) {
         tables.constant_terms.get(store, carrier.guarantee());
         validate_dependency_projections(tables, store, carrier.path());
+
+        if let Some(support) = carrier.support() {
+            for owner in support.owner_subjects() {
+                assert!(matches!(owner.subject_root(),
+                    crate::DependencySubjectRoot::Receiver | crate::DependencySubjectRoot::Parameter(_)
+                    | crate::DependencySubjectRoot::Result | crate::DependencySubjectRoot::StaticInstance(..)),
+                    "a portable witness owner has an exact external storage root");
+
+                validate_dependency_subject(tables, store, owner);
+            }
+
+            for address in support.addresses().keys() { tables.constant_terms.get(store, *address); }
+        }
     }
 
     for payload in data.captured_values().iter().flat_map(|row| row.inactive_payloads.iter()) {

@@ -2,9 +2,12 @@ use crate::execution_guarantees::ExecutionObservationKind as ObservationKind;
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::super::state::ExecutionState;
-use crate::ExecutionCondition;
+use crate::{ExecutionCondition, ExecutionPlace};
 use bray_bound_tree::StorageProjection;
-use bray_symbols::{DependencyProjection, DependencyWitnessCarrier};
+use bray_symbols::{ConstantTermId, DependencyProjection, DependencyWitnessCarrier, DependencyWitnessSupport};
+use crate::execution_guarantees::{ExecutionGuarantee, ExecutionWitness};
+
+pub(in crate::analysis) type ReturnedCarrier = DependencyWitnessCarrier<StorageProjection, ConstantTermId, ExecutionPlace>;
 
 impl<C: crate::CheckerRequestContext + ?Sized> super::super::flow::ExecutionFlowDomain<'_, '_, C> {
     /// A loan's completion contract belongs to that loan, including observations of reached children.
@@ -147,7 +150,7 @@ impl<C: crate::CheckerRequestContext + ?Sized> super::super::flow::ExecutionFlow
 impl super::check::TrustedChecks {
     pub(super) fn exit_carriers<C: crate::CheckerRequestContext + ?Sized>(&self, request: crate::CheckerUnitView<'_, C>,
         state: &ExecutionState, result: &ExecutionCondition,
-    ) -> BTreeSet<DependencyWitnessCarrier<StorageProjection>> {
+    ) -> BTreeSet<ReturnedCarrier> {
         let Some(inputs) = request.trusted_contracts() else { return BTreeSet::new(); };
 
         if state.witnesses.is_empty() { return BTreeSet::new(); }
@@ -158,8 +161,8 @@ impl super::check::TrustedChecks {
         for ((declared, _), (checked, _)) in inputs.guarantees.iter().zip(&self.guarantees) {
             let Some(term) = portable(request, declared) else { continue; };
 
-            for (path, independent) in declared_carriers(state, result, &owners, checked) {
-                carriers.insert(DependencyWitnessCarrier::new(term, path).with_independent_support(independent));
+            for (path, support) in declared_carriers(request, state, result, &owners, checked) {
+                carriers.insert(DependencyWitnessCarrier::new(term, path).with_support(support));
             }
         }
 
@@ -194,7 +197,7 @@ fn inferred_carriers<C: crate::CheckerRequestContext + ?Sized>(
     state: &ExecutionState,
     returned: &ExecutionCondition,
     owners: &BTreeMap<ExecutionCondition, Vec<StorageProjection>>,
-) -> BTreeSet<DependencyWitnessCarrier<StorageProjection>> {
+) -> BTreeSet<ReturnedCarrier> {
     let mut result = BTreeSet::new();
     let proof = state.proof();
     let return_substitution = super::super::flow::return_substitution(returned);
@@ -221,8 +224,9 @@ fn inferred_carriers<C: crate::CheckerRequestContext + ?Sized>(
             let condition = return_substitution(condition);
 
             if let Some(term) = portable(request, &condition) {
-                result.insert(DependencyWitnessCarrier::new(term, path.iter().copied())
-                    .with_independent_support(witness.dependencies.is_empty() && support.addresses.is_empty()));
+                let support = portable_support(request, witness, [support], &return_substitution);
+
+                result.insert(DependencyWitnessCarrier::new(term, path.iter().copied()).with_support(support));
             }
         }
     }
@@ -243,10 +247,10 @@ pub(in crate::analysis::guarantee) fn result_projection(
         })
 }
 
-fn declared_carriers(
-    state: &ExecutionState, result: &ExecutionCondition, owners: &BTreeMap<ExecutionCondition, Vec<StorageProjection>>,
-    guarantee: &ExecutionCondition,
-) -> BTreeSet<(Vec<StorageProjection>, bool)> {
+fn declared_carriers<C: crate::CheckerRequestContext + ?Sized>(
+    request: crate::CheckerUnitView<'_, C>, state: &ExecutionState, result: &ExecutionCondition,
+    owners: &BTreeMap<ExecutionCondition, Vec<StorageProjection>>, guarantee: &ExecutionCondition,
+) -> BTreeSet<(Vec<StorageProjection>, Option<DependencyWitnessSupport<ExecutionPlace>>)> {
         let proof = state.proof();
 
         let guarantee = guarantee.substitute(
@@ -267,6 +271,7 @@ fn declared_carriers(
         }
 
         let mut paths = BTreeSet::new();
+        let return_substitution = super::super::flow::return_substitution(result);
 
         for (carrier, witness) in &state.witnesses {
             let Some(path) = owners.get(carrier) else {
@@ -279,6 +284,7 @@ fn declared_carriers(
 
             let mut evidence = BTreeSet::new();
             let mut independent_evidence = BTreeSet::new();
+            let mut supports = Vec::new();
 
             for (condition, support) in witness
                 .conditions
@@ -291,6 +297,7 @@ fn declared_carriers(
             {
                 // The temporary proof set owns its conditions independently of the exit state.
                 condition.clone().assume(true, &mut evidence);
+                supports.push(support);
 
                 if support.addresses.is_empty() {
                     condition.clone().assume(true, &mut independent_evidence);
@@ -308,11 +315,31 @@ fn declared_carriers(
                         ExecutionCondition::WORK_LIMIT
                     }) == Some(true);
 
-                paths.insert((path.clone(), independent));
+                let support = if independent {
+                    Some(DependencyWitnessSupport::new([], []))
+                } else {
+                    portable_support(request, witness, supports, &return_substitution)
+                };
+
+                paths.insert((path.clone(), support));
             }
         }
 
         paths
+}
+
+fn portable_support<'a, C: crate::CheckerRequestContext + ?Sized>(
+    request: crate::CheckerUnitView<'_, C>,
+    witness: &ExecutionWitness,
+    guarantees: impl IntoIterator<Item = &'a ExecutionGuarantee>,
+    rebase: &impl Fn(&ExecutionCondition) -> ExecutionCondition,
+) -> Option<DependencyWitnessSupport<ExecutionPlace>> {
+    let addresses = guarantees.into_iter().flat_map(|guarantee| &guarantee.addresses).map(|(address, owners)| {
+        // The portable clause owns the required places independently of the ledger.
+        Some((portable(request, &rebase(address))?, owners.clone()))
+    }).collect::<Option<Vec<_>>>()?;
+
+    Some(DependencyWitnessSupport::new(witness.dependencies.iter().cloned(), addresses))
 }
 
 fn returned_owners(

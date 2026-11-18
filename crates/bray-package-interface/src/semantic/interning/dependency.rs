@@ -139,7 +139,14 @@ impl InternState<'_> {
                 let carriers = outcome.carriers.iter().map(|carrier| {
                     let path = self.convert_dependency_projections(carrier.path(), symbols).map_err(Some)?.ok_or(None)?;
 
-                    Ok(carrier.remap(self.constant_term_id(carrier.guarantee()).ok_or(None)?, path))
+                    let support = carrier.support().map(|support| support.try_map(
+                        &mut (),
+                        |_, owner| self.convert_dependency_subject(owner, symbols).map_err(Some)?.ok_or(None),
+                        |_, address| self.constant_term_id(*address).ok_or(None),
+                    )).transpose()?;
+
+                    Ok(bray_symbols::DependencyWitnessCarrier::new(
+                        self.constant_term_id(carrier.guarantee()).ok_or(None)?, path).with_support(support))
                 }).collect::<Result<Vec<_>, Option<crate::InterfaceSemanticInternError>>>()?;
 
                 let (references, stored_values) = self.convert_dependency_storage(&outcome.references, &outcome.stored_values, symbols)

@@ -316,10 +316,17 @@ start/observe/cancel, normal cleanup and abnormal duties are the integrated cont
   checked owning transfer from the same formal term at completion. The borrowed source
   in the completed transfer still lacks extraction. Selecting the checked output kind
   and stripping the output loan for an admitted extraction did not change the result.
-  Trace whether the reached payload is still in private witness admission and whether
-  its exact identity is retained after raw retirement. Do not seed it from a type or
-  postcondition. Borrowed outputs, inactive payloads, fabricated owners and a second
-  raw read cannot inherit the admitted witness.
+  Admission currently stores extracted values in an unkeyed set. Physical capture can
+  subsequently add metadata to the logical operand. Completion binds the same term
+  again and requires equality with the earlier whole snapshot. Store each admitted
+  extraction under the checked transfer's input term. Completion reads that snapshot
+  directly and uses the prepared output kind to distinguish an owning transfer from
+  a borrow. Deferred custody already visits actual nested captures. Remove the second
+  enumeration that copies their extraction entries into the observer. At a join,
+  retain a keyed extraction only when the actual admitted snapshots agree. Borrowed
+  outputs, inactive payloads, fabricated owners and a second raw read cannot inherit
+  the admitted witness. Verify the unchanged sibling extraction and existing deferred
+  cases alongside the nullable positive and rejection cases.
   Both repairs must reuse captured handles. Reconsider any approach that allocates a
   new frame or owner identity or revisits a pointer's source after admission.
 
@@ -346,6 +353,12 @@ start/observe/cancel, normal cleanup and abnormal duties are the integrated cont
   bit when the checked and portable forms can both represent these relations.
   Reconsider if the design requires storing duplicate logical ownership snapshots
   or evaluating the original source operand after its consumption.
+  Producer support now survives package encoding, selection, interning and
+  specialization. Deferred completion binds it from the admitted arguments and
+  the actual result place. All four unit suites pass, including the extended
+  interface round trip. The two behavioral panels retain the same 34 failures.
+  Ordinary completion still uses its existing observation binding. The focused
+  nullable and nested formal controls still fail.
 
 Await, scheduling, and opaque cleanup must consume the selected frame's transition directly. A capture can itself
 hold an unrelated frame formed at the same source site. Searching nested values by site can execute that other

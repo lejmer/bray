@@ -387,10 +387,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         entry: &crate::ExecutionCallEvidence,
         value: &ExecutionCondition,
         carriers: &[bray_symbols::DependencyWitnessCarrier<bray_bound_tree::StorageProjection>],
+        selected: Option<(&bray_bound_tree::BoundCallStorage, bool)>,
+        output: Option<&crate::ExecutionPlace>,
     ) {
         use crate::execution_guarantees::ExecutionObservationKind;
 
-        for carrier in carriers.iter().filter(|carrier| carrier.has_independent_support()) {
+        for carrier in carriers {
             let owner = carrier.path().iter().copied().fold(value.clone(), ExecutionCondition::project);
 
             if !matches!(owner.ownership_identity(), Some((ExecutionObservationKind::Owned, _))) {
@@ -405,9 +407,80 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 continue;
             }
 
-            self.carry_result_guarantee(state, &owner, &condition, false, true, Default::default());
+            let Some(support) = carrier.support().and_then(|support|
+                self.bind_frame_witness_support(state, entry, value, support, selected, output)) else {
+                continue;
+            };
+
+            self.carry_result_guarantee(state, &owner, &condition, false, true, support);
             assume_completion(state, [condition].into_iter(), std::iter::empty());
         }
+    }
+
+    fn bind_frame_witness_support(
+        &self,
+        state: &ExecutionState,
+        entry: &crate::ExecutionCallEvidence,
+        result: &ExecutionCondition,
+        support: &bray_symbols::DependencyWitnessSupport,
+        selected: Option<(&bray_bound_tree::BoundCallStorage, bool)>,
+        output: Option<&crate::ExecutionPlace>,
+    ) -> Option<(BTreeSet<crate::ExecutionPlace>, crate::execution_guarantees::AddressDependencies)> {
+        use bray_symbols::DependencySubjectRoot;
+
+        let values = self.request.semantic_values();
+
+        let bind_owner = |subject: &bray_symbols::DependencySubject| {
+            let root = subject.subject_root();
+
+            if let DependencySubjectRoot::StaticInstance(id, _) = root {
+                let path = crate::storage::storage_projections(values, self.dependencies, subject.projections())?;
+
+                return crate::ExecutionPlace::static_instance(values.static_reference(id).as_ref().clone()).project(&path);
+            }
+
+            if root == DependencySubjectRoot::Result {
+                let path = crate::storage::storage_projections(values, self.dependencies, subject.projections())?;
+
+                return output?.clone().project(&path);
+            }
+
+            let (storage, receiver) = selected?;
+            let (_, route) = storage.subject(subject)?;
+            let ordinal = root.input_ordinal(receiver)?;
+            let argument = entry.arguments.get(&crate::ExecutionPlace::argument(ordinal))?;
+
+            // An owned argument is held by this frame. It cannot supply the
+            // caller's original storage lifetime after admission.
+            if !argument.is_reference()
+                || !bray_bound_tree::StoragePath::inline_projections(route.projections())
+                || route.steps().len() > 1
+                || route.steps().first().is_some_and(|step| !matches!(step,
+                    bray_bound_tree::StorageReferenceStep::Read { index: 0, kind: bray_symbols::DependencyReferenceKind::Borrow, .. }))
+            {
+                return None;
+            }
+
+            let address = entry.argument_storage(ordinal)?.known_address()?.project(route.projections());
+            let place = crate::ExecutionPlace::storage_path(self.storage, &address.value_observation_path()?)?;
+
+            state.current.live_value(&place).is_some().then_some(place)
+        };
+
+        let owners = support.owners().iter().map(&bind_owner).collect::<Option<BTreeSet<_>>>()?;
+        let mut addresses = crate::execution_guarantees::AddressDependencies::new();
+
+        for (term, sources) in support.addresses() {
+            let descriptor = entry.bind_term(values, *term, result);
+
+            if descriptor.contains_unknown() { return None; }
+
+            let places = sources.iter().map(&bind_owner).collect::<Option<BTreeSet<_>>>()?;
+
+            addresses.entry(descriptor.descriptor_identity().clone()).or_default().extend(places);
+        }
+
+        Some((owners, addresses))
     }
 
     fn carry_result_guarantee(

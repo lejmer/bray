@@ -122,6 +122,20 @@ impl InterfaceSemantics {
         for outcome in &*contract.captured_values {
             if let Some(guard) = outcome.guard { self.validate_execution_term(guard, inputs, true, surface)?; }
 
+            for support in outcome.carriers.iter().filter_map(bray_symbols::DependencyWitnessCarrier::support) {
+                for owner in support.owner_subjects() {
+                    if matches!(owner.subject_root(), crate::InterfaceDependencySubjectRoot::Parameter(ordinal)
+                        if ordinal.to_index().is_none_or(|index| index >= inputs))
+                    {
+                        return Err(invalid());
+                    }
+                }
+
+                for address in support.addresses().keys() {
+                    self.validate_execution_term(*address, inputs, true, surface)?;
+                }
+            }
+
             for (_, value) in outcome.bindings.iter() {
             for input in value.inputs() {
                 self.validate_returned_input(*input, inputs, surface)?;

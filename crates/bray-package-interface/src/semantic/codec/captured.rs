@@ -23,7 +23,17 @@ pub(super) fn encode_values(encoder: &mut WireEncoder, bindings: &[Binding]) {
 
         for carrier in binding.carriers.iter() {
             encoder.write_u32(carrier.guarantee().raw());
-            encoder.write_u32(u32::from(carrier.has_independent_support()));
+            encoder.write_u32(u32::from(carrier.support().is_some()));
+            if let Some(support) = carrier.support() {
+                encode_support_owners(encoder, support.owners());
+                write_count(encoder, support.addresses().len());
+
+                for (address, owners) in support.addresses() {
+                    encoder.write_u32(address.raw());
+                    encode_support_owners(encoder, owners);
+                }
+            }
+
             super::encoding::contract::encode_dependency_projections(encoder, carrier.path());
         }
 
@@ -41,6 +51,17 @@ pub(super) fn encode_values(encoder: &mut WireEncoder, bindings: &[Binding]) {
             super::encoding::contract::encode_dependency_subject(encoder, destination);
             encode_value(encoder, value);
         }
+    }
+}
+
+fn encode_support_owners(
+    encoder: &mut WireEncoder,
+    owners: &std::collections::BTreeSet<crate::InterfaceDependencySubject>,
+) {
+    write_count(encoder, owners.len());
+
+    for owner in owners {
+        super::encoding::contract::encode_dependency_subject(encoder, owner);
     }
 }
 
@@ -172,15 +193,31 @@ pub(super) fn decode_values(reader: &mut WireReader<'_>, limits: InterfaceValida
         for _ in 0..count {
             let guarantee = InterfaceConstantTermId::new(read_u32(reader)?);
 
-            let independent = match read_u32(reader)? {
-                0 => false,
-                1 => true,
+            let support = match read_u32(reader)? {
+                0 => None,
+                1 => {
+                    let owners = decode_support_owners(reader, limits, context)?;
+                    let count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
+                    let mut addresses = context.allocate_items(reader, count)?;
+
+                    for _ in 0..count {
+                        let address = InterfaceConstantTermId::new(read_u32(reader)?);
+
+                        if addresses.last().is_some_and(|(last, _)| *last >= address) {
+                            return Err(super::invalid_value(InterfaceValidationField::Dependency));
+                        }
+
+                        addresses.push((address, decode_support_owners(reader, limits, context)?));
+                    }
+
+                    Some(bray_symbols::DependencyWitnessSupport::new(owners, addresses))
+                }
                 raw => return Err(super::invalid_discriminant(InterfaceValidationField::Dependency, raw)),
             };
 
             carriers.push(bray_symbols::DependencyWitnessCarrier::new(guarantee,
                 super::decoding::contract::decode_dependency_projections(reader, limits, context)?)
-                .with_independent_support(independent));
+                .with_support(support));
 
         }
 
@@ -210,6 +247,27 @@ pub(super) fn decode_values(reader: &mut WireReader<'_>, limits: InterfaceValida
     }
 
     Ok(values)
+}
+
+fn decode_support_owners(
+    reader: &mut WireReader<'_>,
+    limits: InterfaceValidationLimits,
+    context: &mut SemanticDecodeContext,
+) -> Result<std::collections::BTreeSet<crate::InterfaceDependencySubject>, InterfaceValidationError> {
+    let count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
+    let mut owners = context.allocate_items(reader, count)?;
+
+    for _ in 0..count {
+        let owner = super::decoding::contract::decode_dependency_subject(reader, limits, context)?;
+
+        if owners.last().is_some_and(|last| last >= &owner) {
+            return Err(super::invalid_value(InterfaceValidationField::Dependency));
+        }
+
+        owners.push(owner);
+    }
+
+    Ok(owners.into_iter().collect())
 }
 
 fn decode_value(reader: &mut WireReader<'_>, limits: InterfaceValidationLimits,

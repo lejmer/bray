@@ -83,10 +83,16 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     carrier.guarantee()
                 };
 
-                published.push(carrier.remap(
+                let support = carrier.support().and_then(|support| support.try_map(
+                    &mut (),
+                    |_, place| self.witness_owner_subject(place).ok_or(()),
+                    |_, term| Ok(*term),
+                ).ok());
+
+                published.push(bray_symbols::DependencyWitnessCarrier::new(
                     condition,
                     crate::analysis::guarantee::portable_carrier_path(self.request, carrier.path()),
-                ));
+                ).with_support(support));
             }
 
             captured_values.push(outcome.with_report(report).with_effects(effects.iter().cloned()).with_ownership(self.owned_result(ownership)?)
@@ -136,6 +142,44 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             .with_normal_completion(normal)
             .with_captured_values(captured_values)
             .with_observed_result(observed_result))
+    }
+
+    fn witness_owner_subject(&self, place: &crate::ExecutionPlace) -> Option<DependencySubject> {
+        use crate::execution_guarantees::ExecutionInput;
+        use bray_symbols::ConstantProjectionKind;
+
+        let (root, base) = match &place.root {
+            ExecutionInput::Reference(reference) => (crate::dependency::parameter_root(self.request, *reference)?, Vec::new()),
+            ExecutionInput::Storage(identity) => (self.formal_root(*identity)?, Vec::new()),
+            ExecutionInput::Static(selection) => {
+                let declaration = selection.template().declaration();
+                let duration = self.request.static_dependencies().get(&declaration)?.static_duration()?;
+                let reference = self.request.semantic_values().intern_static_reference(selection.as_ref().clone())
+                    .expect("a checked static selection belongs to the semantic store");
+
+                (DependencySubjectRoot::StaticInstance(reference, duration), Vec::new())
+            }
+            ExecutionInput::Pointee { target, .. } if target.is_exact() => {
+                match &target.origin {
+                    Origin::Storage(path) => (self.formal_root(path.root)?, dependency_projections(&path.projections)?),
+                    Origin::Static { root, projections, .. } if root.is_static() =>
+                        (*root, dependency_projections(projections)?),
+                    _ => return None,
+                }
+            }
+            _ => return None,
+        };
+
+        let tail = place.projections.iter().copied().map(|projection| Some(match projection {
+            ConstantProjectionKind::ProductField(field) => DependencyProjection::ProductField(field),
+            ConstantProjectionKind::UnionPayloadField(field) => DependencyProjection::UnionPayloadField(field),
+            ConstantProjectionKind::TupleElement(index) => DependencyProjection::TupleElement(index),
+            ConstantProjectionKind::NullableValue => DependencyProjection::NullableValue,
+            ConstantProjectionKind::ArrayElement(index) => DependencyProjection::Element(index),
+            ConstantProjectionKind::ArrayElementOrdinal(_) | ConstantProjectionKind::ArraySlice { .. } => return None,
+        })).collect::<Option<Vec<_>>>()?;
+
+        Some(DependencySubject::new(root, base.into_iter().chain(tail)))
     }
 
     fn inactive_result_payload(&self, slot: &Place, value: &crate::ExecutionCondition) -> Option<DependencySubject> {

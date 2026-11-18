@@ -1103,6 +1103,16 @@ impl<'bytes, 'records> SelectionBuilder<'bytes, 'records> {
         for carrier in contract.captured_values.iter().flat_map(|row| row.carriers.iter()) {
             self.enqueue(PendingRecord::ConstantTerm(carrier.guarantee().raw()));
             self.include_dependency_projections(carrier.path());
+
+            if let Some(support) = carrier.support() {
+                for owner in support.owners() { self.include_dependency_subject(owner); }
+
+                for (address, owners) in support.addresses() {
+                    self.enqueue(PendingRecord::ConstantTerm(address.raw()));
+
+                    for owner in owners { self.include_dependency_subject(owner); }
+                }
+            }
         }
 
         for effect in &*contract.effects {

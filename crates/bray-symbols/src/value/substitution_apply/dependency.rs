@@ -257,6 +257,12 @@ impl SemanticValueStore {
         let carriers = outcome.carriers
             .iter()
             .map(|carrier| {
+                let support = carrier.support().map(|support| support.try_map(
+                    &mut (),
+                    |_, owner| self.substitute_dependency_subject(owner, substitution),
+                    |_, address| self.substitute_constant_term_data(*address, substitution),
+                )).transpose()?;
+
                 Ok(carrier.remap(
                     self.substitute_constant_term_data(carrier.guarantee(), substitution)?,
                     carrier
@@ -266,7 +272,7 @@ impl SemanticValueStore {
                             self.substitute_dependency_projection(projection, substitution)
                         })
                         .collect::<Result<Vec<_>, _>>()?,
-                ))
+                ).with_support(support))
             })
             .collect::<Result<Vec<_>, SemanticValueStoreError>>()?;
 
