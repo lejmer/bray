@@ -246,6 +246,17 @@ impl ExecutionDeferredValue {
         }
     }
 
+    /// Retains the incoming branch's ordinary selection on the actual frame alternatives.
+    pub(crate) fn constrain_selection(&mut self, facts: &Selection) {
+        let facts = deferred_selection(facts);
+
+        for guard in self.producers.values_mut().map(|candidate| &mut candidate.selection)
+            .chain(self.unknown.iter_mut().map(|candidate| &mut candidate.selection))
+        {
+            guard.extend(facts.iter().cloned());
+        }
+    }
+
     pub(crate) fn unknown_possible(&self, proof: &crate::execution_guarantees::ExecutionProof<'_>) -> bool {
         self.unknown
             .as_ref()

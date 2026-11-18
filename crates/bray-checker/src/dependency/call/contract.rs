@@ -82,6 +82,7 @@ where
 
     let recursive = super::super::witness::recursive_call_result(request, call)
         .map_err(DependencyContractInstantiationError::Resolution)?;
+
     let reports = instantiate_reports(&template, recursive.as_ref(), &mut result_context)?;
 
     let instantiated = if matches!(
@@ -319,6 +320,7 @@ pub(super) fn instantiate_reports<C: CheckerRequestContext + ?Sized>(
     };
 
     let recursive_completion = recursive.and_then(DependencyContractTemplateData::completion_reports);
+
     let completed = template.captured_values().iter().map(|row| {
         row.report.as_ref().map(|requirements| {
             let portable = recursive_completion.as_ref().unwrap_or(requirements);
@@ -326,6 +328,7 @@ pub(super) fn instantiate_reports<C: CheckerRequestContext + ?Sized>(
             instantiate(requirements, std::sync::Arc::clone(portable))
         }).transpose()
     }).collect::<Result<_, DependencyContractInstantiationError<_>>>()?;
+
     let abnormal = template.abnormal_reports().map(|requirements| {
         let portable = recursive.and_then(DependencyContractTemplateData::abnormal_reports).unwrap_or(requirements);
 

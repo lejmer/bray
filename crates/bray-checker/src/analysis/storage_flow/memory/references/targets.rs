@@ -167,13 +167,17 @@ impl State {
     }
 
     pub(in crate::analysis::storage_flow) fn invalidated(&self, slot: &Target) -> bool {
-        self.values.get(slot).is_some_and(|value| value.possible_references().any(|references| {
+        self.values.get(slot).is_some_and(|value| self.invalidated_capture(value))
+    }
+
+    pub(in crate::analysis::storage_flow::memory) fn invalidated_capture(&self, value: &super::super::model::ValueBinding) -> bool {
+        value.possible_references().any(|references| {
             references.targets.iter().any(|target| {
                 self.contents
                     .get(target)
                     .is_some_and(|contents| !contents.invalidations.is_empty())
             })
-        }))
+        })
     }
 
     pub(in crate::analysis::storage_flow::memory) fn initialized(
@@ -236,7 +240,17 @@ impl State {
         &self,
         slot: &Target,
     ) -> Vec<(Place, Option<TypeId>, bool)> {
-        let references = self.references(slot);
+        self.reached_reference_storage(&self.references(slot))
+    }
+
+    pub(in crate::analysis::storage_flow) fn reached_captured_storage(
+        &self,
+        binding: &super::super::model::ValueBinding,
+    ) -> Vec<(Place, Option<TypeId>, bool)> {
+        self.reached_reference_storage(&binding.captured_reference().unwrap_or_else(AddressValue::unknown))
+    }
+
+    fn reached_reference_storage(&self, references: &AddressValue) -> Vec<(Place, Option<TypeId>, bool)> {
         let exact = references.is_exact();
 
         // Exact paths already compare overlap. Unknown regions may reach any exposed storage.

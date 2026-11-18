@@ -117,7 +117,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                         task_source.as_deref(), inactive_captures.is_some(), &execution.ordinary_proof(),
                     )),
                     CleanupMutation::Lifecycle(ref call) => {
-                        self.lifecycle_effects(&memory, call)
+                        self.lifecycle_effects(&memory, receiver.as_ref(), call)
                     }
                 };
 
@@ -188,7 +188,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 if let Some(call) = &invocation
                     && call.completes
                 {
-                    self.prepare_cleanup_references(&mut memory, operation.occurrence(), call);
+                    self.prepare_cleanup_references(&mut memory, operation.occurrence(), receiver.as_ref(), call);
                 }
 
                 if let Some(effects) = &effects {
@@ -209,7 +209,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 self.record_capture_retirements(execution, identity, bray_bound_tree::StorageValuePhase::Attempt, bray_bound_tree::StorageValueBoundary::Execution, memory.take_retirements());
 
                 let completion = if let (Some(call), Some(effects)) = (&invocation, &effects) {
-                    self.cleanup_observations(&memory, call, effects, &mut invalidation)
+                    self.cleanup_observations(&memory, receiver.as_ref(), call, effects, &mut invalidation)
                 } else {
                     bray_bound_tree::StorageCompletion::default()
                 };
@@ -382,11 +382,12 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         &self,
         memory: &mut State,
         occurrence: bray_bound_tree::BoundExecutionSite,
+        receiver: Option<&Target>,
         call: &crate::analysis::guarantee::LifecycleInvocation<'_>,
     ) {
         memory.begin_transition(occurrence);
 
-        let Some(receiver) = self.cleanup_receiver(memory, call.access, call.path) else {
+        let Some(receiver) = receiver else {
             return;
         };
 
@@ -399,40 +400,25 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 continue;
             }
 
-            let location = |subject: &bray_symbols::DependencySubject| {
-                let (_, path) = self
-                    .input
-                    .lifecycle_paths
-                    .get(&(call.lifecycle.call.callable, subject.clone()))?;
-
-                self.cleanup_subject_locations(memory, &receiver, subject, Some(path))
+            let route = |subject: &bray_symbols::DependencySubject| {
+                self.input.lifecycle_paths.get(&(call.lifecycle.call.callable, subject.clone()))
+                    .map(|(_, path)| path)
             };
 
-            let Some(destinations) = location(relation.exit()) else {
+            let Some((path, destinations)) = route(relation.exit()).and_then(|path| {
+                Some((path, self.cleanup_subject_locations(memory, receiver, relation.exit(), Some(path))?))
+            }) else {
                 memory.stage_whole_sources(occurrence, receiver.clone(), [], false, false);
                 continue;
             };
 
-            let sources = relation.entry().and_then(location);
+            let sources = relation.entry().and_then(|subject| {
+                self.cleanup_subject_locations(memory, receiver, subject, Some(route(subject)?))
+            });
 
-            let mut logical = call
-                .path
-                .expect("cleanup receiver has its logical path")
-                .clone();
+            let mut logical = call.path.expect("resolved cleanup receiver has its logical path").clone();
 
-            logical.projections = logical
-                .projections
-                .iter()
-                .copied()
-                .chain(
-                    crate::storage::storage_projections(
-                        self.request.semantic_values(),
-                        self.dependencies,
-                        relation.exit().projections(),
-                    )
-                    .expect("prepared lifecycle reference retains its projections"),
-                )
-                .collect();
+            logical.projections = logical.projections.iter().chain(path.projections()).copied().collect();
 
             for destination in destinations {
                 if relation.entry().is_none() {
@@ -450,7 +436,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             }
         }
 
-        self.prepare_lifecycle_stored_values(memory, occurrence, call.lifecycle.call.callable, &receiver);
+        self.prepare_lifecycle_stored_values(memory, occurrence, call.lifecycle.call.callable, receiver);
     }
 
     fn opaque_cleanup_effects(
@@ -564,21 +550,18 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     fn cleanup_observations(
         &self,
         memory: &State,
+        receiver: Option<&Target>,
         call: &crate::analysis::guarantee::LifecycleInvocation<'_>,
         effects: &[Effect],
         invalidation: &mut StorageInvalidation,
     ) -> bray_bound_tree::StorageCompletion {
         let mut observations = std::collections::BTreeMap::new();
 
-        let Some(path) = call.path else {
+        let (Some(path), Some(receiver)) = (call.path, receiver) else {
             return bray_bound_tree::StorageCompletion::default();
         };
 
         let contracts = &self.dependencies.lifecycle_dependencies()[&call.lifecycle.call.callable];
-
-        let Some(receiver) = self.cleanup_receiver(memory, call.access, call.path) else {
-            return bray_bound_tree::StorageCompletion::default();
-        };
 
         for relation in contracts.borrows().iter() {
             if !relation.is_exact()
@@ -685,20 +668,19 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     fn lifecycle_effects(
         &self,
         memory: &State,
+        receiver: Option<&Target>,
         call: &crate::analysis::guarantee::LifecycleInvocation<'_>,
     ) -> Option<Vec<Effect>> {
         let contracts = &self.dependencies.lifecycle_dependencies()[&call.lifecycle.call.callable];
 
         Some(
             self.resolve_effects(if call.completes { contracts.normal_effects() } else { contracts.effects() }, |slot| crate::analysis::storage_flow::memory::Source::Value(slot).mutation_targets(memory), |subject, indirect| {
-                let receiver = self.cleanup_receiver(memory, call.access, call.path)?;
-
                 let prepared = self
                     .input
                     .lifecycle_paths
                     .get(&(call.lifecycle.call.callable, subject.clone())).map(|(_, path)| path);
 
-                let locations = self.cleanup_subject_locations(memory, &receiver, subject, prepared)?;
+                let locations = self.cleanup_subject_locations(memory, receiver?, subject, prepared)?;
 
                 if indirect {
                     locations.into_iter().try_fold(Vec::new(), |mut targets, location| {

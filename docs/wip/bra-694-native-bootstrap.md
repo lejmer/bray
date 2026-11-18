@@ -30,7 +30,9 @@ The remote checkpoint is 1c5770b2c. Local checkpoints retain the captured graph 
 publication at 11b860fa2, selected deferred frames and statics at 675d89c21, and produced
 region results at d08975a30. Checkpoint 594180b13 admits implicit loans and joins actual
 produced results directly. Checkpoint 3c9b4845a shares checked implicit input captures.
-The guarded-output checkpoint moves physical references, stored dependencies and inactive payloads
+Checkpoint 570915f20 carries normal reports with guarded outcomes and preserves symbolic
+report equations during recursive checking.
+Checkpoint 21324247c moves physical references, stored dependencies and inactive payloads
 onto the producing exit and carries actual union tags through interface revision 5. Call admission
 uses the same feasibility decision for physical and logical outputs. Established physical descriptors
 survive logical joins, and ownership transport reads the checked routes directly.
@@ -330,6 +332,15 @@ observation and package-import compositions together.
   start once. Await/join must reuse that outcome. Inactive and partial cancellation must retain only acquired duties.
 - Use the same phase-aware instantiator for ordinary, deferred, lifecycle and abnormal paths. Remove competing returned/reference/stored
   preparation, special cleanup/deferred binders, and independent borrows/owned_result/stored_values/carriers/effects template fields.
+  The cleanup scheduler selects one lifecycle step and obtains its reached receiver before
+  any effects. Effect binding, physical outputs and observation publication consume that
+  target. They can read current contents at the appropriate phase without following the
+  source slot again. Use the prepared output path to publish logical coordinates. A broad or
+  unknown receiver cannot establish exact outputs. A skipped conditional cleanup cannot
+  publish a completed output or retire its receiver. Check scoped cleanup, stored reference
+  replacement and deferred cleanup in the existing source/import and ownership panels.
+  Continue toward one instantiator. Reconsider if a consumer still needs the original
+  receiver access to find its physical target after effects.
 - Publish observable abnormal writes, reports and acquired duties without a normal result.
 - Move privately produced control-transfer results into their actual planned current-value slots
   before cleanup. A positional saved expression is not the result's live owner. Yield, break,
@@ -442,6 +453,20 @@ observation and package-import compositions together.
   lose the formal lineage before changing ownership conditions. A conservative region or
   scalar observation cannot supply missing ownership. Reconsider if the physical and
   logical paths still need separate resolution of the pointer operand.
+  Captured raw-read operands now supply mutation effects, the logical move and the physical
+  read and initialization update. The 368 composition and 36 active owner panel retains its
+  49 failures. The focused raw buffer reachability control also fails. Its result on the
+  preceding report checkpoint was not measured. Both direct extraction failures persist.
+  The moving-read trace shows the exact typed borrowed input is reached and its live
+  formal value is captured. Its ownership layout is still empty after the move. The
+  move must record original-input lineage for that same live snapshot even if earlier
+  observation recorded a non-owning layout. Existing equality to the actual current
+  formal value and successful move into a non-borrow type bound this authority.
+  The guarded sibling extraction now passes. Nullable extraction still rejects the case
+  that observes the moved active payload. Traversing initialized components at admission
+  instead of checking the aggregate root did not restore the witness. Locate the
+  prepared transfer and the actual payload's evidence before changing admission.
+  Keep the double-read and fabricated-owner negatives.
   Keep the checked input root and typed route with each owning transfer. Admission and
   survival consume that route directly. Identify the route by its input and output, which
   remain the same when different feasible exits intersect their preservation masks. Staging
@@ -473,6 +498,22 @@ observation and package-import compositions together.
   abstract recursive query pass. All four unit suites pass. The broad panels match the
   49 existing failures on 21324247c. The returned-value and recursion panel passes 59 of
   60 tests. Its one failure also occurs on 21324247c and in the earlier tooling binary.
+- Preserve the actual predecessor selection when joining previously formed frames. The
+  result and current-value joins receive both incoming proof contexts. Their opposing
+  stable branch facts distinguish which existing frame reaches the joined slot. Attach
+  those facts to the existing producer and an opaque alternative, when present, without
+  replacing either frame. Only actual opposite ordinary facts can distinguish
+  predecessors. Mutable observations and trusted claims cannot select a frame. When
+  either predecessor remains feasible, effects and dependencies still cover it. A
+  join at the same producer may conservatively widen without making another frame
+  identity. Use preformed future and task selection and fabrication, the opaque
+  alternatives and same-site loop cases through source and import as controls.
+  Preformed future selection now passes through source and import. The broad panel passes
+  323 of 368 compositions and 35 of 36 active owner controls with three ignored.
+  Preserving the Task wrapper result after inner completion did not change the selected
+  Task cases. The next trace must show whether the selected body reaches observation
+  and whether its captured proof is available there. Preserve the inactive panic
+  and cancellation outcomes and keep the false-branch fabrication cases in the panel.
 - Stabilize loops and recursive summaries with existing joins, recency and dependency indexes. No arbitrary cutoff loses dependencies.
 - Finish typed external graph validation, immutable interning/sharing, public API documentation and structural/style audit.
 

@@ -39,14 +39,24 @@ pub(crate) fn common_components(
     if matches!(left.kind(), crate::ExecutionConditionKind::DeferredValue { .. })
         || matches!(right.kind(), crate::ExecutionConditionKind::DeferredValue { .. })
     {
-        let split = |value: &ExecutionCondition| match value.kind() {
-            crate::ExecutionConditionKind::DeferredValue { value, frame } => (value.as_ref().clone(), frame.as_ref().clone()),
-            _ => (value.clone(), super::ExecutionDeferredValue::unknown(&Default::default())),
+        let split = |value: &ExecutionCondition, proof: &ExecutionProof<'_>, other: &ExecutionProof<'_>| {
+            let guard = proof.distinguishing_facts(other);
+
+            match value.kind() {
+                crate::ExecutionConditionKind::DeferredValue { value, frame } => {
+                    let mut frame = frame.as_ref().clone();
+
+                    frame.constrain_selection(&guard);
+
+                    (value.as_ref().clone(), frame)
+                }
+                _ => (value.clone(), super::ExecutionDeferredValue::unknown(&guard)),
+            }
         };
 
-        let (left, mut frame) = split(left);
+        let (left, mut frame) = split(left, conditions.0, conditions.1);
 
-        let (right, incoming) = split(right);
+        let (right, incoming) = split(right, conditions.1, conditions.0);
 
         let fallback = super::ExecutionProofCache::default();
 

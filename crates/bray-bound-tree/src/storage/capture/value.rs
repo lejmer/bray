@@ -60,21 +60,26 @@ impl StorageCapturedValue {
             &BTreeMap::new(), &self.root, destination)
     }
 
+    /// The value binding at this snapshot's current projection coordinate.
+    pub fn binding(&self) -> Option<&StorageValueBinding> {
+        self.state.values.get(&self.root)
+    }
+
     /// Returns the captured address only when it establishes one current actual target.
     pub fn known_address(&self) -> Option<&Target> {
-        let address = self.state.values.get(&self.root)?.reference()?;
+        let address = self.binding()?.reference()?;
 
         address.is_exact().then(|| address.targets.first()).flatten().filter(|target| target.is_exact() && !target.previous)
     }
 
     /// Mutation operands of the evaluated descriptor, including independent conservative bounds.
     pub fn mutation_targets(&self) -> Option<Vec<crate::StorageMutationTarget>> {
-        self.state.values.get(&self.root)?.mutation_targets()
+        self.binding()?.mutation_targets()
     }
 
     /// Conservative address regions carried by this descriptor, with no ownership conversion.
     pub fn address_regions(&self) -> Option<Vec<Target>> {
-        self.state.values.get(&self.root)?.reference_regions()
+        self.binding()?.reference_regions()
     }
 
     /// Retains possible dependencies and duties after the actual descriptor or contents become unknown.

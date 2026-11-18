@@ -64,6 +64,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         &mut self,
         state: &mut StorageFlowState,
         expression: BoundExpressionId,
+        execution: &crate::analysis::guarantee::ExecutionState,
     ) -> Option<Vec<Effect>> {
         let operation = self.memory.operation(expression)?;
 
@@ -169,7 +170,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let access_type = (!protected).then(|| self.execution.semantics.types()
             .expression(argument).expect("checked memory access retains its argument type").ty());
 
-        let targets = if protected {
+        let targets = if operation.kind().moving_read_type().is_some() {
+            self.captured_memory_read(execution, expression).and_then(|read| read.mutation_targets())
+        } else if protected {
             self.memory_uninit_target(state, operation, argument).map(|target| vec![crate::analysis::storage_flow::memory::MutationTarget::location(target)])
         } else {
             self.memory_argument_reference(state, operation, argument).and_then(|source| source.mutation_targets(&state.memory))

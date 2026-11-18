@@ -270,6 +270,13 @@ impl<'a> ExecutionProof<'a> {
             .filter(|(condition, _)| !condition.contains_trusted())
     }
 
+    /// Actual ordinary branch premises with opposite values on the other predecessor.
+    pub(in crate::execution_guarantees) fn distinguishing_facts(&self, other: &Self) -> BTreeSet<(ExecutionCondition, bool)> {
+        self.ordinary.iter().filter(|(condition, holds)| {
+            other.ordinary.contains(&(condition.clone(), !holds))
+        }).cloned().collect()
+    }
+
     pub(in crate::execution_guarantees) fn cache(&self) -> Option<&ExecutionProofCache> {
         self.cache.map(|(cache, _, _)| cache)
     }

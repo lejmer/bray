@@ -633,6 +633,14 @@ impl State {
         self.typed_target(self.values.get(location)?.address.as_ref()?, ty)
     }
 
+    pub(in crate::analysis::storage_flow) fn captured_value_target(
+        &self,
+        binding: &super::super::model::ValueBinding,
+        ty: TypeId,
+    ) -> Option<Target> {
+        self.typed_target(binding.reference()?, ty)
+    }
+
     pub(in crate::analysis::storage_flow) fn declared_type(&self, target: &Target) -> Option<TypeId> {
         self.contents.get(target)?.storage_type
     }

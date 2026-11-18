@@ -44,7 +44,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 return Some(EffectOutcomes::new([]));
             }
 
-            return self.memory_effects(state, expression).map(EffectOutcomes::new);
+            return self.memory_effects(state, expression, execution).map(EffectOutcomes::new);
         }
 
         let invocation = self.call_attempt(operation)?;

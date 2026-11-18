@@ -246,6 +246,7 @@ impl State {
         self.read_targets(AddressValue::one(target), ty, kind, proven, result)
     }
 
+    #[cfg(test)]
     pub(in crate::analysis::storage_flow) fn read(
         &mut self,
         slot: &Target,
@@ -259,6 +260,24 @@ impl State {
         }
 
         self.read_targets(self.references(slot), ty, kind, proven, result)
+    }
+
+    pub(in crate::analysis::storage_flow) fn read_captured(
+        &mut self,
+        source: Option<&super::model::ValueBinding>,
+        ty: TypeId,
+        kind: MemoryReadKind,
+        proven: Option<BoundExpressionId>,
+        result: Option<Place>,
+    ) -> MemoryOperationStatus {
+        if source.is_some_and(|source| self.invalidated_capture(source)) {
+            return MemoryOperationStatus::InvalidatedAllocation;
+        }
+
+        let references = source.and_then(super::model::ValueBinding::captured_reference)
+            .unwrap_or_else(AddressValue::unknown);
+
+        self.read_targets(references, ty, kind, proven, result)
     }
 
     fn read_targets(

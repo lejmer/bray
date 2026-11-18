@@ -29,7 +29,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 // The successful move owns this transition. A current post-state
                 // or another slot's snapshot cannot invent original input ownership.
                 if value.without_captured_storage() == input && place.is_callable_input() {
-                    state.owned_results.entry(value.clone()).or_insert_with(|| bray_symbols::DependencyOwnedResult::Transfer(
+                    state.owned_results.insert(value, bray_symbols::DependencyOwnedResult::Transfer(
                         bray_symbols::DependencyOwnedTransfer::new(input, [])
                             .with_preservation(bray_symbols::DependencyValuePreservation::all()),
                     ));

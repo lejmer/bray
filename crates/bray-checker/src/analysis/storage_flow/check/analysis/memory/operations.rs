@@ -50,8 +50,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             return;
         };
 
-        let target = self.memory_argument_target(state, operation, operation.arguments()[0])
-            .and_then(|slot| state.memory.value_target(&slot, pointee));
+        let target = self.captured_memory_read(execution, expression)
+            .and_then(|read| state.memory.captured_value_target(read.binding()?, pointee));
 
         if self.execution.observe_memory_read(execution, expression, target.as_ref())
             && !matches!(self.request.semantic_values().type_data(pointee).as_ref(), bray_symbols::TypeData::Borrow { .. })
@@ -79,6 +79,14 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         }
     }
 
+    pub(in crate::analysis::storage_flow::check::analysis) fn captured_memory_read(
+        &self,
+        execution: &crate::analysis::guarantee::ExecutionState,
+        expression: bray_bound_tree::BoundExpressionId,
+    ) -> Option<bray_bound_tree::StorageCapturedValue> {
+        execution.admitted_receiver(expression.into()).inline_captured_storage().cloned()
+    }
+
     pub(in crate::analysis::storage_flow::check::analysis) fn apply_memory_operation<
         'refinements,
     >(
@@ -97,6 +105,13 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         let proven = self.memory_evidence.as_ref().filter(|evidence| evidence.initialized)
             .map(|evidence| evidence.empty_copy);
+
+        let read = if matches!(operation.kind(), CheckedMemoryOperationKind::Read { .. } | CheckedMemoryOperationKind::VolatileRead { .. }) {
+            self.captured_memory_read(state.execution.as_ref()
+                .expect("completed read retains its admitted execution"), expression)
+        } else {
+            None
+        };
 
         let mut write_target = None;
 
@@ -126,6 +141,12 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                             return None;
                         }
 
+                        if operation.kind().moving_read_type().is_some() {
+                            return read.as_ref().and_then(|read| read.binding()).map(|binding| {
+                                (state.memory.reached_captured_storage(binding), element, purpose)
+                            });
+                        }
+
                         self.memory_argument_target(state, operation, argument).map(|place| {
                             if self.publish
                                 && matches!(
@@ -140,7 +161,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                         })
                     });
 
-            let status = self.apply_valid_memory_operation(state, operation, proven);
+            let status = self.apply_valid_memory_operation(state, operation, proven, read.as_ref());
 
             if status == MemoryOperationStatus::Valid
                 && proven != Some(true)
@@ -194,6 +215,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         state: &mut StorageFlowState,
         operation: &bray_bound_tree::CheckedMemoryOperation,
         proven: Option<bool>,
+        read: Option<&bray_bound_tree::StorageCapturedValue>,
     ) -> MemoryOperationStatus {
         let arguments = operation.arguments();
 
@@ -270,12 +292,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             }
             CheckedMemoryOperationKind::Read { pointee, kind }
             | CheckedMemoryOperationKind::VolatileRead { pointee, kind, .. } => {
-                let Some(pointer) = argument(0) else {
-                    return MemoryOperationStatus::Recovered;
-                };
-
-                return state.memory.read(
-                    &pointer,
+                return state.memory.read_captured(
+                    read.and_then(|read| read.binding()),
                     pointee,
                     kind,
                     proven.map(|_| operation.expression()),
