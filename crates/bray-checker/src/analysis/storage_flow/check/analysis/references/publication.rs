@@ -160,10 +160,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
                 (DependencySubjectRoot::StaticInstance(reference, duration), Vec::new())
             }
-            ExecutionInput::Pointee { target, .. } if target.is_exact() => {
+            ExecutionInput::Pointee { target, .. } if target.is_exact() && !target.previous => {
                 match &target.origin {
                     Origin::Storage(path) => (self.formal_root(path.root)?, dependency_projections(&path.projections)?),
-                    Origin::Static { root, projections, .. } if root.is_static() =>
+                    Origin::Static { root: root @ DependencySubjectRoot::StaticInstance(..), projections, .. } =>
                         (*root, dependency_projections(projections)?),
                     _ => return None,
                 }

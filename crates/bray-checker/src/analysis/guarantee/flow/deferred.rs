@@ -537,13 +537,18 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             } else {
                 branch.resume_owned_witnesses(entry);
 
-                let selected = candidate.callee.as_deref().and_then(|callee|
-                    self.dependencies.frame_callees().get(callee).map(|body| (&body.storage, callee.receiver.is_some())));
+                let selected = candidate.callee.as_deref().and_then(|callee| {
+                    let body = self.dependencies.frame_callees().get(callee)?;
+
+                    Some((&body.storage, move |root: bray_symbols::DependencySubjectRoot| root.input_ordinal(callee.receiver.is_some())))
+                });
 
                 self.complete_entry_outputs(&mut branch, None, expression.into(), result, entry, |branch, value, ownership, carriers| {
                     let value = self.complete_transferred_ownership(branch, expression.into(), None, entry, value, ownership);
 
-                    self.complete_frame_carriers(branch, entry, &value, carriers, selected, output);
+                    self.complete_returned_carriers(branch, entry, &value, carriers, selected, output, &|formal| {
+                        entry.bind_condition(formal, &value).pointer_observations(&self.pointer_predicates)
+                    });
 
                     value
                 })

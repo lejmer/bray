@@ -61,11 +61,23 @@ impl ExecutionCallEvidence {
             result, &mut { Condition::WORK_LIMIT })
     }
 
-    pub(crate) fn bind_term(&self, values: &bray_symbols::SemanticValueStore, term: bray_symbols::ConstantTermId, result: &Condition) -> Condition {
-        let formal = crate::execution_condition_from_type_term(values, term, self.positional_arguments().count())
-            .expect("checked condition decodes in the admitted call environment");
+    pub(crate) fn formal_condition(&self, values: &bray_symbols::SemanticValueStore, term: bray_symbols::ConstantTermId) -> Condition {
+        crate::execution_condition_from_type_term(values, term, self.positional_arguments().count())
+            .expect("checked condition decodes in the admitted call environment")
+    }
 
-        self.bind_condition(&formal, result)
+    pub(crate) fn bind_term(&self, values: &bray_symbols::SemanticValueStore, term: bray_symbols::ConstantTermId, result: &Condition) -> Condition {
+        self.bind_condition(&self.formal_condition(values, term), result)
+    }
+
+    /// Resolves entry observations before binding current arguments or the result.
+    pub(crate) fn capture_condition(&self, formal: &Condition) -> Condition {
+        formal.capture_entry(
+            &|place| place.value_in(&self.arguments).unwrap_or_else(Condition::unknown),
+            &self.trusted_assumptions,
+            &self.assumptions,
+            &mut { Condition::WORK_LIMIT },
+        )
     }
 
     /// Shares the admitted row decision, binding only when no publications were prepared.

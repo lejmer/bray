@@ -29,16 +29,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             (&contract.postconditions, false),
         ] {
             for condition in conditions {
-                let condition = condition.capture_entry(
-                    &|place| {
-                        place
-                            .value_in(&entry.arguments)
-                            .unwrap_or_else(ExecutionCondition::unknown)
-                    },
-                    &entry.trusted_assumptions,
-                    &entry.assumptions,
-                    &mut { ExecutionCondition::WORK_LIMIT },
-                );
+                let condition = entry.capture_condition(condition);
 
                 let condition = condition.substitute(
                     &|input| {
@@ -158,30 +149,24 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         };
 
         self.complete_entry_outputs(state, Some(invocation), publication, result, &entry, |state, result, ownership, carriers|
-            self.complete_admitted_call(state, invocation, output, result, observations, contract, entry.clone(), ownership, carriers))
+            self.complete_admitted_call(state, invocation, output, result, observations, contract, &entry, ownership, carriers))
     }
 
     fn complete_admitted_call(
         &self, state: &mut ExecutionState, invocation: bray_bound_tree::BoundExecutionSite,
         output: Option<&crate::ExecutionPlace>, result: ExecutionCondition, observations: &bray_bound_tree::StorageCompletion,
-        contract: &crate::TrustedCallContract, entry: crate::ExecutionCallEvidence, ownership: &bray_symbols::DependencyOwnedResult,
+        contract: &crate::TrustedCallContract, entry: &crate::ExecutionCallEvidence, ownership: &bray_symbols::DependencyOwnedResult,
         carriers: &[bray_symbols::DependencyWitnessCarrier<bray_bound_tree::StorageProjection>],
     ) -> ExecutionCondition {
 
-        let capture = |condition: &ExecutionCondition| {
-            condition.capture_entry(
-                &|place| {
-                    place
-                        .value_in(&entry.arguments)
-                        .unwrap_or_else(ExecutionCondition::unknown)
-                },
-                &entry.trusted_assumptions,
-                &entry.assumptions,
-                &mut { ExecutionCondition::WORK_LIMIT },
-            )
-        };
+        let capture = |condition: &ExecutionCondition| entry.capture_condition(condition);
+        let guarantees = contract.guarantees.iter().flat_map(ExecutionCondition::conjuncts).map(capture).collect::<Vec<_>>();
 
-        let (guarantees, subjects) = self.completion_guarantees(entry.positional_arguments().count(), carriers, contract, &capture);
+        let subjects = contract.witness_subjects.iter().filter_map(|(guarantee, subject)| {
+            let guarantee = capture(guarantee);
+
+            guarantee.contains_trusted().then_some((guarantee, subject))
+        }).collect::<Vec<_>>();
 
         let address_subjects = contract
             .address_subjects
@@ -203,7 +188,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         };
 
         // Publish the admitted entry snapshot independently of current mutable contents.
-        state.resume_owned_witnesses(&entry);
+        state.resume_owned_witnesses(entry);
 
         let completed = state
             .entries
@@ -213,9 +198,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         completed.assumptions.clone_from(&entry.assumptions);
         completed.trusted_assumptions.clone_from(&entry.trusted_assumptions);
 
-        let result = self.complete_transferred_ownership(state, invocation, Some(invocation), &entry, result, ownership);
+        let result = self.complete_transferred_ownership(state, invocation, Some(invocation), entry, result, ownership);
 
-        let mut arguments = entry.arguments;
+        let mut arguments = entry.arguments.clone();
 
         state.invalidate_trusted_values(contract.transferred_inputs.iter().map(|input| {
             // The transferred owner values retain their immutable entry observations.
@@ -271,6 +256,16 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             }.pointer_observations(&self.pointer_predicates)
         };
 
+        let selection = invocation.expression().and_then(|expression| self.semantics.selections().expression(expression));
+
+        let selected = self.dependencies.calls().get(&invocation).map(|call| {
+            (call.storage(), |root| selection?.invocation_input_ordinal(invocation, root))
+        });
+
+        let supported = self.complete_returned_carriers(
+            state, entry, &result, carriers, selected, output, &instantiate,
+        );
+
         let carry_result = |state: &mut ExecutionState,
                             template: &ExecutionCondition,
                             guarantee: &ExecutionCondition,
@@ -303,6 +298,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         for (template, subject) in &subjects {
             let guarantee = instantiate(template);
             let condition = instantiate(subject);
+
+            if subject.observes_completion_result() && supported.iter().any(|proof| proof.implies(&guarantee)) {
+                continue;
+            }
 
             // A guarantee discharged solely by its ordinary guard carries no trusted authority.
             if condition == ExecutionCondition::unknown()
@@ -366,8 +365,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             let guarantee = instantiate(template);
 
-            if guarantee.prove_ordinary(&state.assumptions, Some(&state.proofs))
-                != Some(true)
+            if !supported.iter().any(|proof| proof.implies(&guarantee))
+                && guarantee.prove_ordinary(&state.assumptions, Some(&state.proofs)) != Some(true)
             {
                 carry_result(state, template, &guarantee, &result, false);
             }
@@ -381,16 +380,19 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         result
     }
-    pub(in crate::analysis::guarantee) fn complete_frame_carriers(
+    pub(in crate::analysis::guarantee) fn complete_returned_carriers(
         &self,
         state: &mut ExecutionState,
         entry: &crate::ExecutionCallEvidence,
         value: &ExecutionCondition,
         carriers: &[bray_symbols::DependencyWitnessCarrier<bray_bound_tree::StorageProjection>],
-        selected: Option<(&bray_bound_tree::BoundCallStorage, bool)>,
+        selected: Option<(&bray_bound_tree::BoundCallStorage, impl Fn(bray_symbols::DependencySubjectRoot) -> Option<bray_symbols::SymbolOrdinal>)>,
         output: Option<&crate::ExecutionPlace>,
-    ) {
+        instantiate: &impl Fn(&ExecutionCondition) -> ExecutionCondition,
+    ) -> BTreeSet<ExecutionCondition> {
         use crate::execution_guarantees::ExecutionObservationKind;
+
+        let mut installed = BTreeSet::new();
 
         for carrier in carriers {
             let owner = carrier.path().iter().copied().fold(value.clone(), ExecutionCondition::project);
@@ -399,8 +401,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 continue;
             }
 
-            let condition = entry.bind_term(self.request.semantic_values(), carrier.guarantee(), value)
-                .pointer_observations(&self.pointer_predicates);
+            let formal = entry.formal_condition(self.request.semantic_values(), carrier.guarantee());
+            let condition = instantiate(&entry.capture_condition(&formal));
 
             if !condition.contains_trusted() || condition.contains_unknown()
                 || condition.prove_ordinary(&state.assumptions, Some(&state.proofs)) == Some(true) {
@@ -408,22 +410,26 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             }
 
             let Some(support) = carrier.support().and_then(|support|
-                self.bind_frame_witness_support(state, entry, value, support, selected, output)) else {
+                self.bind_returned_witness_support(state, entry, value, support, selected.as_ref(), output)) else {
                 continue;
             };
 
             self.carry_result_guarantee(state, &owner, &condition, false, true, support);
-            assume_completion(state, [condition].into_iter(), std::iter::empty());
+            installed.insert(condition);
         }
+
+        assume_completion(state, installed.iter().cloned(), std::iter::empty());
+
+        installed
     }
 
-    fn bind_frame_witness_support(
+    fn bind_returned_witness_support(
         &self,
         state: &ExecutionState,
         entry: &crate::ExecutionCallEvidence,
         result: &ExecutionCondition,
         support: &bray_symbols::DependencyWitnessSupport,
-        selected: Option<(&bray_bound_tree::BoundCallStorage, bool)>,
+        selected: Option<&(&bray_bound_tree::BoundCallStorage, impl Fn(bray_symbols::DependencySubjectRoot) -> Option<bray_symbols::SymbolOrdinal>)>,
         output: Option<&crate::ExecutionPlace>,
     ) -> Option<(BTreeSet<crate::ExecutionPlace>, crate::execution_guarantees::AddressDependencies)> {
         use bray_symbols::DependencySubjectRoot;
@@ -442,14 +448,18 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             if root == DependencySubjectRoot::Result {
                 let path = crate::storage::storage_projections(values, self.dependencies, subject.projections())?;
 
+                let value = path.iter().copied().fold(result.clone(), ExecutionCondition::project);
+
+                if value.is_unknown() { return None; }
+
                 return output?.clone().project(&path);
             }
 
-            let (storage, receiver) = selected?;
+            let (storage, input_ordinal) = selected?;
 
             let (_, route) = storage.subject(subject)?;
 
-            let ordinal = root.input_ordinal(receiver)?;
+            let ordinal = input_ordinal(root)?;
             let argument = entry.arguments.get(&crate::ExecutionPlace::argument(ordinal))?;
 
             // An owned argument is held by this frame. It cannot supply the

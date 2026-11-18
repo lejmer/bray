@@ -225,21 +225,13 @@ pub(super) fn independent_result_owner<C: CheckerRequestContext + ?Sized>(
     result: Option<&crate::ExecutionCondition>,
     parent: &crate::execution_guarantees::ExecutionWitness,
 ) -> bool {
-    let capture = |condition: &crate::ExecutionCondition| condition.capture_entry(
-        &|place| place.value_in(&entry.arguments).unwrap_or(crate::ExecutionCondition::unknown()),
-        &entry.trusted_assumptions, &entry.assumptions,
-        &mut { crate::ExecutionCondition::WORK_LIMIT },
-    );
-
     let ordinary = crate::TrustedCallContract::default();
 
     let declared = domain.request.trusted_contracts()
         .and_then(|contracts| contracts.calls.get(&invocation?)).unwrap_or(&ordinary);
 
-    // Use the same checked carrier selection as completion. An independently
-    // introduced result owner may receive a component, but cannot transport the
-    // parent's authority through that component.
-    let (_, subjects) = domain.completion_guarantees(entry.positional_arguments().count(), carriers, declared, &capture);
+    // A possible new carrier cannot justify moving a component of a complete owner.
+    let subjects = domain.possible_completion_carriers(entry, carriers, declared);
 
     let path = crate::storage::owned_storage_projections(domain.dependencies, transfer.output());
     let output = path.iter().copied().fold(crate::ExecutionCondition::result(), |value, projection| value.project(projection));

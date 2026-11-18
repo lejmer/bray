@@ -94,38 +94,26 @@ impl<C: crate::CheckerRequestContext + ?Sized> super::super::flow::ExecutionFlow
         carriers
     }
 
-    /// Combine declared completion clauses with checked portable carrier promises.
-    pub(super) fn completion_guarantees(
+    /// Potential carriers for checking whether a partial move can escape a complete owner.
+    pub(super) fn possible_completion_carriers(
         &self,
-        input_count: usize, carriers: &[DependencyWitnessCarrier<StorageProjection>],
+        entry: &crate::ExecutionCallEvidence,
+        carriers: &[DependencyWitnessCarrier<StorageProjection>],
         contract: &crate::TrustedCallContract,
-        capture: &impl Fn(&ExecutionCondition) -> ExecutionCondition,
-    ) -> (
-        Vec<ExecutionCondition>,
-        Vec<(ExecutionCondition, ExecutionCondition)>,
-    ) {
+    ) -> Vec<(ExecutionCondition, ExecutionCondition)> {
         let inferred = carriers.iter().flat_map(|carrier| {
-            let condition = crate::execution_condition_from_type_term(self.request.semantic_values(), carrier.guarantee(), input_count)
-                .expect("checked carrier condition decodes in the same semantic store");
+            let condition = entry.formal_condition(self.request.semantic_values(), carrier.guarantee());
 
             let subject = carrier.path().iter().copied().fold(ExecutionCondition::result(), ExecutionCondition::project);
 
-            condition.conjuncts().map(|condition| (capture(condition), subject.clone())).collect::<Vec<_>>()
+            condition.conjuncts().map(|condition| (entry.capture_condition(condition), subject.clone())).collect::<Vec<_>>()
         }).collect::<Vec<_>>();
-
-        let guarantees = contract
-            .guarantees
-            .iter()
-            .flat_map(ExecutionCondition::conjuncts)
-            .map(capture)
-            .chain(inferred.iter().map(|(condition, _)| condition.clone()))
-            .collect::<Vec<_>>();
 
         let mut subjects = contract
             .witness_subjects
             .iter()
             .filter_map(|(guarantee, subject)| {
-                let guarantee = capture(guarantee);
+                let guarantee = entry.capture_condition(guarantee);
 
                 if subject.observes_completion_result()
                     && inferred
@@ -143,7 +131,7 @@ impl<C: crate::CheckerRequestContext + ?Sized> super::super::flow::ExecutionFlow
         subjects.extend(inferred);
         subjects.retain(|(condition, _)| condition.contains_trusted());
 
-        (guarantees, subjects)
+        subjects
     }
 }
 

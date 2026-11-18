@@ -36,6 +36,9 @@ descriptors, one resolved cleanup receiver, and stable predecessor conditions on
 Checkpoint 33fd987bb shares typed subject and endpoint routes between calls and scheduled
 cleanup. Checkpoint 18eac85b0 carries the selected receiver type through interface revision 7
 and uses the same typed reader for captured and current memory.
+Checkpoint fb61a7397 carries performed effects on normal outcome rows. Checkpoint 730dc963e
+joins private Task results before normal publication. Checkpoints 8215a5920 and f043cd412
+retain portable witness support and index admitted extraction snapshots by their input terms.
 Checkpoint 21324247c moves physical references, stored dependencies and inactive payloads
 onto the producing exit and carries actual union tags through interface revision 5. Call admission
 uses the same feasibility decision for physical and logical outputs. Established physical descriptors
@@ -375,6 +378,15 @@ start/observe/cancel, normal cleanup and abnormal duties are the integrated cont
   distinct from refreshed current borrowed contents. Compare the source/import
   fresh owner, borrowed result, invalidation and fabricated-capability controls on
   the same candidate. Reconsider if sharing discards an actual current referent.
+  The fresh-carrier and post-completion fabrication cases cover the same producer
+  through both source and import. The source borrowed-result and mutation controls
+  exercise lifetime retention and invalidation. Preserve only an exact selected
+  static instance or current pointee as external support. A declaration or earlier
+  allocation can bound a footprint without establishing the current owner.
+  Shared publication now passes the six live-carrier, fabrication, borrowed-result
+  and mutation controls and all four unit suites. The wider panels retain the same
+  34 failing identities. The conditional cleanup and scoped-exit authority controls
+  remain open. Interface carrier validation now lives with captured-value validation.
 
 Await, scheduling, and opaque cleanup must consume the selected frame's transition directly. A capture can itself
 hold an unrelated frame formed at the same source site. Searching nested values by site can execute that other
@@ -513,6 +525,28 @@ observation and package-import compositions together.
   Continue toward one instantiator. Reconsider if a consumer still needs the original
   receiver access to find its physical target after effects.
 - Publish observable abnormal writes, reports and acquired duties without a normal result.
+  The composite state at the reached panic or cancellation exit owns the performed
+  effect prefix and the report that survives cleanup. Today `collect_completion`
+  reads that state only for normal exits. Abnormal collection separately unions
+  reports, and invocation captures the all-path effect envelope for the caught
+  failure edge. The envelope is needed to check entry conflicts. It can include
+  effects that occur only on successful execution.
+  Reuse the captured outcome shape for abnormal exits. A reached row retains its
+  entry guard, performed effects and report. Its destinations and duties refer to
+  the surviving external state. It has no normal result, result carrier or result
+  ownership. Absence of checked abnormal rows represents unavailable evidence for
+  opaque and provisional bodies. Known absence of an abnormal path is distinct.
+  Source calculation, recursive summary widening, specializing and package import
+  must preserve that difference. Resolve selected normal and abnormal effects
+  from the same admitted environment. Apply the abnormal prefix and its external
+  outputs before caller cleanup, with original addresses and without reenacting
+  operand evaluation. Retain the possible envelope solely as the upper bound for
+  admission and unavailable bodies. The existing catch fixture covers an actual
+  write before panic. Extend it with a write confined to the normal branch and a
+  caught panic before that write. Both controls must share the same consumers
+  through source and package import. Reconsider a design that duplicates result
+  preparation, loses the distinction between absent and opaque, or tracks effects
+  independently of the row that supplies its writes and report.
 - Move privately produced control-transfer results into their actual planned current-value slots
   before cleanup. A positional saved expression is not the result's live owner. Yield, break,
   propagation and catch must preserve the same ownership and carried dependencies during scope
