@@ -300,7 +300,6 @@ fn remap_dependency_contract(
     maps: &RecordMaps,
 ) -> Result<crate::InterfaceDependencyContract, InterfaceValidationError> {
     for requirements in std::iter::once(&mut contract.requirements)
-        .chain(contract.completion_reports.iter_mut())
         .chain(contract.abnormal_reports.iter_mut())
         .chain(std::iter::once(&mut contract.synchronous_cleanup))
     {
@@ -316,6 +315,13 @@ fn remap_dependency_contract(
 
     contract.captured_values = contract.captured_values.iter().map(|outcome| {
         let guard = outcome.guard.map(|term| maps.constant_term_id(term)).transpose()?;
+        let mut report = outcome.report.clone();
+
+        if let Some(requirements) = &mut report {
+            for requirement in Arc::make_mut(requirements) {
+                remap_dependency_requirement(requirement, maps)?;
+            }
+        }
 
         let bindings = outcome.bindings.iter().map(|(destination, value)| {
         let mut destination = destination.clone();
@@ -384,7 +390,7 @@ fn remap_dependency_contract(
             remap_dependency_subject(payload, maps)?;
         }
 
-        Ok(bray_symbols::CapturedValueOutcome::new(guard, bindings).with_carriers(carriers)
+        Ok(bray_symbols::CapturedValueOutcome::new(guard, bindings).with_carriers(carriers).with_report(report)
             .with_ownership(owned_result).with_storage(references, stored_values)
             .with_inactive_payloads(inactive_payloads))
     }).collect::<Result<_, InterfaceValidationError>>()?;

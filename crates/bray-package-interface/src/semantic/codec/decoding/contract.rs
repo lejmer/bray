@@ -92,15 +92,7 @@ pub(super) fn decode_dependency_contract(
         super::common::decode_bool(reader, crate::InterfaceValidationField::Dependency)?;
 
     let requirements = decode_dependency_requirements(reader, limits, context, 0)?;
-    let mut reports = [None, None];
-
-    for output in &mut reports {
-        if super::common::decode_bool(reader, crate::InterfaceValidationField::Dependency)? {
-            *output = Some(decode_dependency_requirements(reader, limits, context, 0)?);
-        }
-    }
-
-    let [completion_reports, abnormal_reports] = reports;
+    let abnormal_reports = decode_optional_requirements(reader, limits, context)?;
 
     let captured_values = super::super::captured::decode_values(reader, limits, context)?;
 
@@ -167,10 +159,6 @@ pub(super) fn decode_dependency_contract(
     let [effects, normal_effects] = outcomes;
 
     let mut contract = InterfaceDependencyContract::new(requirements);
-
-    if let Some(requirements) = completion_reports {
-        contract = contract.with_completion_reports(requirements);
-    }
 
     if let Some(requirements) = abnormal_reports {
         contract = contract.with_abnormal_reports(requirements);
@@ -663,6 +651,18 @@ fn decode_dependency_call_inputs(
     Ok(inputs)
 }
 
+pub(in crate::semantic::codec) fn decode_optional_requirements(
+    reader: &mut WireReader<'_>,
+    limits: InterfaceValidationLimits,
+    context: &mut SemanticDecodeContext,
+) -> Result<Option<Vec<InterfaceDependencyRequirement>>, InterfaceValidationError> {
+    if super::common::decode_bool(reader, crate::InterfaceValidationField::Dependency)? {
+        Ok(Some(decode_dependency_requirements(reader, limits, context, 0)?))
+    } else {
+        Ok(None)
+    }
+}
+
 fn decode_dependency_requirements(
     reader: &mut WireReader<'_>,
     limits: InterfaceValidationLimits,
@@ -1012,7 +1012,7 @@ mod tests {
     fn synchronous_cleanup_types_decode_with_bounded_counts() {
         let limits = InterfaceValidationLimits::default();
 
-        let decoded = decode_words(&[1, 7, 3, 1, 0, 0, 0, 0, 0, 2, 0, 5, 2, 0, 5], limits)
+        let decoded = decode_words(&[1, 7, 3, 1, 0, 0, 0, 0, 2, 0, 5, 2, 0, 5], limits)
             .expect("fixture encoded words must decode");
 
         assert_eq!(
@@ -1037,7 +1037,14 @@ mod tests {
     fn report_outputs_preserve_presence_and_separate_requirements() {
         let decoded = decode_words(
             &[
-                0, 1, 0, 1, 0, 1, 1, 1, 2, 3, 0, 7, 0, 0, 2, 0, 5, 2, 0, 5,
+                0, 1, 0, // No synchronous cleanup or explicit result dependencies.
+                1, 1, 1, 2, 3, 0, 7, // An abnormal report borrowing parameter three.
+                1, // One normal outcome.
+                1, 0, // An independent normal report.
+                1, 0, // Empty ownership layout.
+                0, 0, 0, 0, 0, 0, // No carriers, references, stored values, inactive slots, guard or writes.
+                0, // No observed result.
+                2, 0, 5, 2, 0, 5, // Possible and normal effects.
             ],
             InterfaceValidationLimits::default(),
         )
@@ -1067,7 +1074,7 @@ mod tests {
             1, 0, // Receiver input with no projection.
             1, 1, 2, 5, 0, 7, // Values carried by parameter five.
             1, 1, 8, 0, 1, // Evaluation-owned storage.
-            0, 0, // No normal or abnormal report output.
+            0, // No abnormal report output.
             0, 0, // No captured outcomes or observed result.
             2, 0, 5, // Unknown effects and input escapes.
             2, 0, 5, // Normal completion can also have unknown effects and input escapes.
@@ -1160,7 +1167,7 @@ mod tests {
     #[test]
     fn dependency_equations_decode_with_bounded_nesting() {
         let words = [
-            0, 1, 1, 6, 1, 1, 5, 0, 0, 1, 5, 0, 0, 0, 0, 0, 0, 2, 0, 5, 2, 0, 5,
+            0, 1, 1, 6, 1, 1, 5, 0, 0, 1, 5, 0, 0, 0, 0, 0, 2, 0, 5, 2, 0, 5,
         ];
 
         let variable = InterfaceDependencyRequirement::variable(0, SymbolOrdinal::new(0));

@@ -40,17 +40,7 @@ pub(super) fn encode_contracts(semantics: &InterfaceSemantics) -> EncodedSemanti
                 encode_dependency_requirement(encoder, requirement);
             }
 
-            for reports in [&contract.completion_reports, &contract.abnormal_reports] {
-                encoder.write_u32(u32::from(reports.is_some()));
-
-                if let Some(requirements) = reports {
-                    write_count(encoder, requirements.len());
-
-                    for requirement in requirements.iter() {
-                        encode_dependency_requirement(encoder, requirement);
-                    }
-                }
-            }
+            encode_optional_requirements(encoder, contract.abnormal_reports.as_deref());
 
             super::super::captured::encode_values(encoder, &contract.captured_values);
 
@@ -237,6 +227,19 @@ pub(super) fn encode_callable_behavior(
         &behavior.execution_domains,
         |encoder, predicate| encode_predicate_summary(encoder, *predicate),
     );
+}
+
+pub(in crate::semantic::codec) fn encode_optional_requirements(
+    encoder: &mut WireEncoder,
+    requirements: Option<&[InterfaceDependencyRequirement]>,
+) {
+    encoder.write_u32(u32::from(requirements.is_some()));
+
+    if let Some(requirements) = requirements {
+        write_count(encoder, requirements.len());
+
+        for requirement in requirements { encode_dependency_requirement(encoder, requirement); }
+    }
 }
 
 pub(super) fn encode_dependency_requirement(

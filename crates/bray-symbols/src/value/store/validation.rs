@@ -478,26 +478,19 @@ pub(super) fn validate_dependency_template_data(
     validate_dependency_variables(data.requirements(), &mut Vec::new());
     validate_dependency_variables(data.synchronous_cleanup(), &mut Vec::new());
 
-    for requirements in [data.completion_reports(), data.abnormal_reports()]
-        .into_iter()
-        .flatten()
-    {
+    use crate::DependencyCallOutput as Output;
+
+    let reports = data.captured_values().iter().filter_map(|row| row.report.as_deref());
+
+    for requirements in reports.clone().chain(data.abnormal_reports()) {
         validate_dependency_variables(requirements, &mut Vec::new());
     }
 
-    let mut pending = [
-        crate::DependencyCallOutput::Value,
-        crate::DependencyCallOutput::CompletionReport,
-        crate::DependencyCallOutput::AbnormalReport,
-        crate::DependencyCallOutput::SynchronousCleanup,
-    ]
-    .into_iter()
-    .flat_map(|output| {
-        data.output_requirements(output)
-            .iter()
-            .map(move |item| (output, item))
-    })
-    .collect::<Vec<_>>();
+    let mut pending = data.requirements().iter().map(|item| (Output::Value, item))
+        .chain(reports.flatten().map(|item| (Output::CompletionReport, item)))
+        .chain(data.abnormal_reports().into_iter().flatten().map(|item| (Output::AbnormalReport, item)))
+        .chain(data.synchronous_cleanup().iter().map(|item| (Output::SynchronousCleanup, item)))
+        .collect::<Vec<_>>();
 
     while let Some((output, requirement)) = pending.pop() {
         let cleanup = match requirement {

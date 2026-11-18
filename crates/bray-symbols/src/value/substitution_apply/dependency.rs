@@ -236,9 +236,7 @@ impl SemanticValueStore {
                 })
             })?;
 
-        self.intern_dependency_contract_template(
-            substituted
-                .with_captured_values(template.captured_values().iter().map(|outcome| {
+        let captured_values = substituted.captured_values().iter().map(|outcome| {
                     let guard = outcome.guard.map(|term| self.substitute_constant_term_data(term, substitution)).transpose()?;
 
                     let bindings = outcome.bindings.iter().map(|(destination, value)| {
@@ -304,14 +302,16 @@ impl SemanticValueStore {
             })
             .collect::<Result<Vec<_>, SemanticValueStoreError>>()?;
 
-                    Ok(super::super::CapturedValueOutcome::new(guard, bindings).with_carriers(carriers).with_ownership(ownership)
+                    Ok(super::super::CapturedValueOutcome::new(guard, bindings).with_carriers(carriers).with_ownership(ownership).with_report(outcome.report.clone())
                         .with_storage(self.substitute_dependency_borrows(&outcome.references, substitution)?,
                             self.substitute_stored_dependencies(&outcome.stored_values, substitution)?)
                         .with_inactive_payloads(outcome.inactive_payloads.iter().map(|payload|
                             self.substitute_dependency_subject(payload, substitution))
                             .collect::<Result<Vec<_>, _>>()?))
-                }).collect::<Result<Vec<_>, SemanticValueStoreError>>()?)
-                .with_observed_result(
+                }).collect::<Result<Vec<_>, SemanticValueStoreError>>()?;
+
+        self.intern_dependency_contract_template(
+            substituted.with_captured_values(captured_values).with_observed_result(
                     template
                         .observed_result()
                         .map(|term| self.substitute_constant_term_data(term, substitution))

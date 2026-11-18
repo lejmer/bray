@@ -810,7 +810,7 @@ mod tests {
         semantics.dependency_contracts = vec![
             InterfaceDependencyContract::new([])
                 .with_effects(effects)
-                .with_completion_reports([
+                .with_abnormal_reports([
                     crate::InterfaceDependencyRequirement::cleanup_dependencies(
                         crate::InterfaceTypeId::new(0),
                         [crate::InterfaceDependencyRequirement::new(

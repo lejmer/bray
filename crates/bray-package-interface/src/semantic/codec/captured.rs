@@ -16,6 +16,7 @@ pub(super) fn encode_values(encoder: &mut WireEncoder, bindings: &[Binding]) {
     write_count(encoder, bindings.len());
 
     for binding in bindings {
+        super::encoding::contract::encode_optional_requirements(encoder, binding.report.as_deref());
         super::ownership::encode_owned_result(encoder, &binding.ownership);
         write_count(encoder, binding.carriers.len());
 
@@ -161,6 +162,7 @@ pub(super) fn decode_values(reader: &mut WireReader<'_>, limits: InterfaceValida
     let mut values = context.allocate_items(reader, count)?;
 
     for _ in 0..count {
+        let report = super::decoding::contract::decode_optional_requirements(reader, limits, context)?.map(Arc::from);
         let ownership = super::ownership::decode_owned_result(reader, limits, context)?;
         let count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
         let mut carriers = context.allocate_items(reader, count)?;
@@ -199,7 +201,7 @@ pub(super) fn decode_values(reader: &mut WireReader<'_>, limits: InterfaceValida
         }
 
         values.push(Binding {
-            guard, bindings: bindings.into(), ownership, carriers: carriers.into(),
+            guard, report, bindings: bindings.into(), ownership, carriers: carriers.into(),
             references: references.into(), stored_values: stored_values.into(),
             inactive_payloads: inactive_payloads.into(),
         });

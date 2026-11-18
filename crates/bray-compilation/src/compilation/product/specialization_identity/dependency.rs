@@ -147,13 +147,7 @@ impl StructuralValueEncoder<'_, '_> {
 
         self.dependency_requirements(data.requirements())?;
 
-        for reports in [data.completion_reports(), data.abnormal_reports()] {
-            self.digest.write_u8(u8::from(reports.is_some()));
-
-            if let Some(requirements) = reports {
-                self.dependency_requirements(requirements)?;
-            }
-        }
+        self.dependency_optional_report(data.abnormal_reports())?;
 
         self.dependency_set(data.captured_values(), Self::dependency_captured_binding)?;
 
@@ -198,7 +192,16 @@ impl StructuralValueEncoder<'_, '_> {
         }
     }
 
+    fn dependency_optional_report(&mut self, requirements: Option<&[bray_symbols::DependencyRequirement]>)
+        -> Result<(), FactQueryError> {
+        self.digest.write_u8(u8::from(requirements.is_some()));
+        if let Some(requirements) = requirements { self.dependency_requirements(requirements)?; }
+
+        Ok(())
+    }
+
     pub(in crate::compilation) fn dependency_captured_binding(&mut self, binding: &bray_symbols::CapturedValueOutcome) -> Result<(), FactQueryError> {
+        self.dependency_optional_report(binding.report.as_deref())?;
         self.dependency_owned_result(&binding.ownership)?;
         self.dependency_set(&binding.carriers, Self::dependency_carrier)?;
         self.dependency_set(&binding.references, Self::dependency_borrow)?;

@@ -387,7 +387,7 @@ where
     report_collections: BTreeSet<Option<BoundExpressionId>>,
     pub(super) reporting_completions: BTreeSet<bray_bound_tree::BoundExecutionSite>,
     pub(super) normal_effects: BTreeSet<bray_symbols::DependencyStorageEffect>,
-    pub(super) normal_exits: Vec<(crate::analysis::storage_flow::memory::ReferenceExit, crate::ExecutionCondition, Option<crate::analysis::guarantee::NormalReturn>)>,
+    pub(super) normal_exits: Vec<NormalExit>,
     pub(super) cleanup_mutations:
         BTreeMap<bray_bound_tree::StorageMutation, bray_bound_tree::StorageInvalidation>,
     pub(super) completions:
@@ -401,6 +401,13 @@ where
     pub(super) publish: bool,
     pub(super) is_recovered: bool,
     pub(super) query_failure: Option<CheckerQueryError<C::UpstreamError>>,
+}
+
+pub(super) struct NormalExit {
+    pub(super) storage: crate::analysis::storage_flow::memory::ReferenceExit,
+    pub(super) value: crate::ExecutionCondition,
+    pub(super) returned: Option<crate::analysis::guarantee::NormalReturn>,
+    pub(super) report: Option<std::sync::Arc<[bray_symbols::DependencyRequirement]>>,
 }
 
 impl<'analysis, C> StorageFlowCollector<'analysis, C>
@@ -430,7 +437,12 @@ where
             &state.written_inputs,
         );
 
-        self.normal_exits.push((references, value, returned));
+        self.normal_exits.push(NormalExit {
+            storage: references,
+            value,
+            returned,
+            report: state.result_dependencies.completed_report(),
+        });
     }
 
     fn collect_conditions(
@@ -1366,7 +1378,7 @@ where
 
                 if let Err(error) = self.execution.capture_deferred_outputs(execution, expression,
                     || transfer.deferred_completion_values(expression),
-                    |source, output| self.deferred_report_dependencies(&transfer, expression, source, output)) {
+                    |source| self.deferred_report_dependencies(&transfer, expression, source)) {
                     self.query_failure = Some(error);
                 }
             }

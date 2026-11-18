@@ -35,6 +35,8 @@ impl OutputGuard {
 /// Values bound from one normal exit against the actual call entry.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub(crate) struct ExecutionOutput {
+    // A synthetic or opaque outcome cannot exclude portable rows.
+    pub(crate) sources: Option<Arc<[usize]>>,
     pub(crate) guard: OutputGuard,
     pub(crate) carriers: Arc<[bray_symbols::DependencyWitnessCarrier<bray_bound_tree::StorageProjection>]>,
     pub(crate) ownership: bray_symbols::DependencyOwnedResult,
@@ -52,6 +54,7 @@ impl ExecutionOutputs {
 
     pub(crate) fn try_map<E>(&self, mut map: impl FnMut(&Condition) -> Result<Condition, E>) -> Result<Self, E> {
         Ok(Self(self.0.iter().map(|row| Ok(ExecutionOutput {
+            sources: row.sources.clone(),
             guard: match &row.guard { OutputGuard::Bound(value) => OutputGuard::Bound(map(value)?), formal => formal.clone() },
             carriers: Arc::clone(&row.carriers),
             ownership: row.ownership.clone(),
@@ -69,7 +72,9 @@ impl ExecutionOutputs {
 
     /// Shares the admission decision with the matching physical summary row.
     pub(crate) fn is_admitted(&self, index: usize) -> bool {
-        self.0.is_empty() || self.0.get(index).expect("admitted outcomes retain the portable row order").guard.is_reachable()
+        self.0.is_empty() || self.reachable_rows().any(|row| {
+            row.sources.as_deref().is_none_or(|sources| sources.binary_search(&index).is_ok())
+        })
     }
 
     pub(crate) fn possible_region_values(&self) -> impl Iterator<Item = (&bray_bound_tree::StorageTarget, &Condition)> {
@@ -98,7 +103,7 @@ impl ExecutionOutputs {
 
     pub(crate) fn publish(&mut self, destination: Destination, value: Condition) {
         if self.0.is_empty() {
-            self.0 = [ExecutionOutput { guard: OutputGuard::Bound(Condition::boolean(true)), carriers: Arc::default(), ownership: Default::default(), writes: [(destination, value)].into() }].into();
+            self.0 = [ExecutionOutput { sources: None, guard: OutputGuard::Bound(Condition::boolean(true)), carriers: Arc::default(), ownership: Default::default(), writes: [(destination, value)].into() }].into();
         } else {
             for row in Arc::make_mut(&mut self.0) {
                 row.writes.insert(destination.clone(), value.clone());
@@ -130,7 +135,9 @@ impl ExecutionOutputs {
                 let ownership = bray_symbols::DependencyOwnedResult::choice([left.ownership.clone(), right.ownership.clone()]);
                 let carriers = bray_symbols::DependencyWitnessCarrier::common([&left.carriers, &right.carriers].into_iter());
 
-                rows.push(ExecutionOutput { guard: left.guard.clone(), carriers, ownership, writes });
+                let sources = merged_sources([left, right]);
+
+                rows.push(ExecutionOutput { sources, guard: left.guard.clone(), carriers, ownership, writes });
             }
         } else {
             let common = |table: &Self, key: &Destination, proof| {
@@ -169,7 +176,15 @@ impl ExecutionOutputs {
                 )
             };
 
-            rows.push(ExecutionOutput { guard: OutputGuard::Bound(Condition::boolean(true)), carriers,
+            let sources = if self.0.is_empty() || incoming.0.is_empty() {
+                None
+            } else {
+                merged_sources(self.reachable_rows().chain(incoming.reachable_rows()))
+            };
+
+            let guard = OutputGuard::Bound(Condition::boolean(sources.as_deref() != Some(&[])));
+
+            rows.push(ExecutionOutput { sources, guard, carriers,
                 ownership: bray_symbols::DependencyOwnedResult::choice([ownership(self), ownership(incoming)]), writes });
         }
 
@@ -181,10 +196,45 @@ impl ExecutionOutputs {
     }
 }
 
+fn merged_sources<'a>(rows: impl IntoIterator<Item = &'a ExecutionOutput>) -> Option<Arc<[usize]>> {
+    let mut sources = std::collections::BTreeSet::new();
+
+    for row in rows {
+        sources.extend(row.sources.as_deref()?.iter().copied());
+    }
+
+    Some(sources.into_iter().collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::{Condition, ExecutionOutput, ExecutionOutputs, OutputGuard};
     use bray_symbols::{ConstantTermData, DependencyWitnessCarrier, SymbolOrdinal};
+
+    #[test]
+    fn joining_admissions_retains_only_the_possible_source_rows() {
+        let row = |source, reachable| ExecutionOutput {
+            sources: Some([source].into()),
+            guard: OutputGuard::Bound(Condition::boolean(reachable)),
+            carriers: Default::default(),
+            ownership: Default::default(),
+            writes: Default::default(),
+        };
+
+        let cache = crate::execution_guarantees::ExecutionProofCache::default();
+        let assumptions = Default::default();
+        let proof = cache.ordinary_proof(&assumptions);
+        let mut outputs = ExecutionOutputs([row(0, false), row(1, true), row(2, false)].into());
+
+        outputs.intersect(
+            &ExecutionOutputs([row(0, false), row(1, false), row(2, true)].into()),
+            (&proof, &proof),
+        );
+
+        assert!(!outputs.is_admitted(0));
+        assert!(outputs.is_admitted(1));
+        assert!(outputs.is_admitted(2));
+    }
 
     #[test]
     fn an_opaque_outcome_does_not_carry_another_outcomes_witness() {
@@ -194,6 +244,7 @@ mod tests {
             .expect("fixture term belongs to its semantic store");
 
         let row = ExecutionOutput {
+            sources: None,
             guard: OutputGuard::Bound(Condition::boolean(true)),
             carriers: [DependencyWitnessCarrier::new(condition, [])].into(),
             ownership: Default::default(),

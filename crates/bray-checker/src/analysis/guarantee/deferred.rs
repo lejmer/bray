@@ -163,24 +163,37 @@ mod tests {
             requirements: [requirement(ordinal)].into(), ..Default::default()
         });
 
+        let reports = |row, report| {
+            let mut candidates = crate::dependency::ReportCandidates::default();
+
+            candidates.insert(row, report);
+
+            candidates
+        };
+
         let completed = captured(0);
         let abnormal = captured(1);
 
         let mut first = DeferredInvocation { callee: None, transition: None,
             entry: (), selection: Default::default(), completed: None,
-            reports: [(DeferredCompleted, Arc::clone(&completed)), (DeferredAbnormal, Arc::clone(&abnormal))].into(),
+            reports: [(DeferredCompleted, reports(Some(0), Arc::clone(&completed))),
+                (DeferredAbnormal, reports(None, Arc::clone(&abnormal)))].into(),
         };
 
         let second = DeferredInvocation { callee: None, transition: None,
             entry: (), selection: Default::default(), completed: None,
-            reports: [(DeferredCompleted, captured(2))].into(),
+            reports: [(DeferredCompleted, reports(Some(1), captured(2)))].into(),
         };
 
         assert!(first.merge_capture(&second));
-        assert_eq!(first.reports[&DeferredCompleted].requirements, [requirement(0), requirement(2)].into());
-        assert_eq!(first.reports[&DeferredAbnormal].requirements, [requirement(1)].into());
+
+        let possible = first.reports[&DeferredCompleted].admitted(None).unwrap();
+        let retained_abnormal = first.reports[&DeferredAbnormal].admitted(None).unwrap();
+
+        assert_eq!(possible.requirements, [requirement(0), requirement(2)].into());
+        assert_eq!(retained_abnormal.requirements, [requirement(1)].into());
         assert_eq!(completed.requirements, [requirement(0)].into());
-        assert!(Arc::ptr_eq(&first.reports[&DeferredAbnormal], &abnormal));
+        assert!(Arc::ptr_eq(&retained_abnormal, &abnormal));
         assert!(!first.merge_capture(&second));
     }
 

@@ -125,7 +125,7 @@ impl StorageFlowInput {
         for call in dependencies.calls().values() {
             collect_retained_storage(call.result().requirements(), &mut retained_storage);
 
-            for (_, report) in call.report_outputs() {
+            for report in call.report_contracts() {
                 collect_retained_storage(report.requirements(), &mut retained_storage);
             }
         }

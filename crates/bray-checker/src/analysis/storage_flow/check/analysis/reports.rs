@@ -27,13 +27,7 @@ impl StorageFlowInput {
             .calls()
             .iter()
             .flat_map(|(occurrence, call)| {
-                call.reports()
-                    .completed()
-                    .into_iter()
-                    .chain(call.reports().abnormal())
-                    .chain(call.deferred_reports().into_iter().flat_map(|reports| {
-                        reports.completed().into_iter().chain(reports.abnormal())
-                    }))
+                call.report_contracts()
                     .chain(
                         matches!(occurrence, BoundExecutionSite::ScopedExit(_))
                             .then_some(call.result()),
@@ -62,9 +56,7 @@ impl StorageFlowInput {
             .lifecycle_dependencies()
             .values()
             .any(|contract| {
-                contract
-                    .completion_reports()
-                    .into_iter()
+                contract.captured_values().iter().filter_map(|outcome| outcome.report.as_deref())
                     .chain(contract.abnormal_reports())
                     .any(|requirements| !requirements.is_empty())
             })
@@ -250,7 +242,17 @@ impl<'analysis, C: CheckerRequestContext + ?Sized> StorageFlowCollector<'analysi
         let pending = !matches!(invocation, BoundExecutionSite::ScopedExit(_))
             || operation.is_normal_cleanup();
 
-        self.retain_call_reports(state, invocation, CallReportOutput::Completed, pending);
+        if let Some(expression) = invocation.expression()
+            && let Some(dependencies) = self.execution.awaited_report_dependencies(
+                execution, expression, CallReportOutput::Completed,
+            )
+        {
+            state.result_dependencies.prepare_reports(invocation, CallReportOutput::Completed, None, dependencies);
+        }
+
+        let outputs = execution.admitted_call(invocation).map(|entry| &entry.outputs);
+
+        self.retain_selected_reports(state, invocation, CallReportOutput::Completed, pending, outputs);
 
         let BoundExecutionSite::ScopedExit(expression) = invocation else {
             return;
@@ -310,29 +312,29 @@ impl<'analysis, C: CheckerRequestContext + ?Sized> StorageFlowCollector<'analysi
         output: CallReportOutput,
         pending: bool,
     ) {
-        let Some(dependencies) = state
-            .result_dependencies
-            .report_candidate(occurrence, output)
-        else {
-            state
-                .result_dependencies
-                .discard_report_candidates(occurrence);
+        self.retain_selected_reports(state, occurrence, output, pending, None);
+    }
 
-            return;
-        };
+    fn retain_selected_reports(
+        &mut self,
+        state: &mut StorageFlowState,
+        occurrence: BoundExecutionSite,
+        output: CallReportOutput,
+        pending: bool,
+        outputs: Option<&crate::execution_guarantees::ExecutionOutputs>,
+    ) {
+        let candidates = state.result_dependencies.take_report_candidates(occurrence, output);
+
+        let Some(dependencies) = candidates.admitted(outputs) else { return; };
 
         // Scope checking and exported summaries consume the same formation snapshot.
-        let subjects = dependencies.subjects.clone();
-
-        state.retain_reports(self.report_boundary, subjects, pending);
+        state.retain_reports(self.report_boundary, dependencies.subjects.clone(), pending);
 
         if !output.is_abnormal() {
             self.reporting_completions.insert(occurrence);
         }
 
-        state
-            .result_dependencies
-            .commit_reports(occurrence, output, self.report_boundary);
+        state.result_dependencies.retain_reports(self.report_boundary, dependencies.requirements.iter().cloned());
     }
 
     fn prepare_await_reports(
@@ -351,15 +353,10 @@ impl<'analysis, C: CheckerRequestContext + ?Sized> StorageFlowCollector<'analysi
             panic!("await suspension retains its consumed Future")
         };
 
-        for output in [CallReportOutput::Completed, CallReportOutput::Abnormal] {
-            let Some(dependencies) = self.execution
-                .awaited_report_dependencies(execution, expression, output) else {
-                continue;
-            };
+        let output = CallReportOutput::Abnormal;
 
-            state
-                .result_dependencies
-                .prepare_reports(occurrence, output, dependencies);
+        if let Some(dependencies) = self.execution.awaited_report_dependencies(execution, expression, output) {
+            state.result_dependencies.prepare_reports(occurrence, output, None, dependencies);
         }
     }
 
@@ -367,25 +364,27 @@ impl<'analysis, C: CheckerRequestContext + ?Sized> StorageFlowCollector<'analysi
         &self,
         transfer: &crate::dependency::ResultTransfer<'_, '_, C>,
         expression: bray_bound_tree::BoundExpressionId,
-        source: Option<BoundExecutionSite>,
-        output: CallReportOutput,
+        source: Option<(BoundExecutionSite, &bray_bound_tree::BoundCallReport)>,
     ) -> Result<crate::dependency::ReportDependencies, crate::CheckerQueryError<C::UpstreamError>> {
-        let Some(source) = source else {
+        let Some((source, report)) = source else {
             return Ok(crate::dependency::ReportDependencies {
                 subjects: self.liveness.retained_by(expression).collect(),
                 requirements: transfer.operand_dependencies(expression).cloned().collect(),
             });
         };
 
-        let requirements = transfer.report_values(source, output)?
-            .expect("a formed future's selected report has its portable contract");
+        self.report_snapshot(transfer, source, report)
+    }
 
-        let contract = self.dependencies.calls()[&source].report(output)
-            .expect("a formed future's selected report has its checked contract");
-
+    fn report_snapshot(
+        &self,
+        transfer: &crate::dependency::ResultTransfer<'_, '_, C>,
+        occurrence: BoundExecutionSite,
+        report: &bray_bound_tree::BoundCallReport,
+    ) -> Result<crate::dependency::ReportDependencies, crate::CheckerQueryError<C::UpstreamError>> {
         Ok(crate::dependency::ReportDependencies {
-            subjects: self.report_subjects(contract),
-            requirements,
+            subjects: self.report_subjects(report.storage()),
+            requirements: transfer.report_values(occurrence, report.requirements())?,
         })
     }
 
@@ -394,16 +393,16 @@ impl<'analysis, C: CheckerRequestContext + ?Sized> StorageFlowCollector<'analysi
         state: &mut StorageFlowState,
         occurrence: BoundExecutionSite,
     ) {
-        let Some(call) = self.report_call_contract(occurrence) else {
+        let Some(call) = self.dependencies.calls().get(&occurrence) else {
             return;
         };
 
-        for (output, _) in call.report_outputs().filter(|(output, _)| {
-            matches!(
-                output,
-                CallReportOutput::Completed | CallReportOutput::Abnormal
-            )
-        }) {
+        let reports = call.reports();
+
+        let candidates = reports.completed().map(|(row, report)| (CallReportOutput::Completed, Some(row), report))
+            .chain(reports.abnormal().map(|report| (CallReportOutput::Abnormal, None, report)));
+
+        for (output, row, report) in candidates {
             let transfer = crate::dependency::ResultTransfer::new(
                 self.request,
                 self.execution.semantics.types(),
@@ -414,48 +413,10 @@ impl<'analysis, C: CheckerRequestContext + ?Sized> StorageFlowCollector<'analysi
                 &mut state.result_dependencies,
             );
 
-            match transfer.report_values(occurrence, output) {
-                Ok(Some(requirements)) => state.result_dependencies.prepare_reports(
-                    occurrence,
-                    output,
-                    std::sync::Arc::new(crate::dependency::ReportDependencies {
-                        subjects: self.report_subjects(
-                            call.report(output)
-                                .expect("prepared report has its bound output contract"),
-                        ),
-                        requirements,
-                    }),
-                ),
-                Ok(None) => panic!("bound report output retains its portable dependency summary"),
+            match self.report_snapshot(&transfer, occurrence, report) {
+                Ok(snapshot) => state.result_dependencies.prepare_reports(occurrence, output, row, std::sync::Arc::new(snapshot)),
                 Err(error) => self.query_failure = Some(error),
             }
-        }
-    }
-
-    fn report_call_contract(
-        &self,
-        occurrence: BoundExecutionSite,
-    ) -> Option<&'analysis bray_bound_tree::BoundCallDependencyContracts> {
-        match occurrence {
-            BoundExecutionSite::Node(bray_bound_tree::AnyBoundNodeId::Expression(expression)) => {
-                let contract = self.dependencies.calls().get(&occurrence);
-
-                if matches!(self.execution.semantics.selections().expression(expression), Some(SemanticSelection::Call(_))) {
-                    return Some(contract.expect("selected source invocation retains its dependency contracts"));
-                }
-
-                // Call phases also delimit compiler-owned evaluation without a source invocation.
-                contract
-            }
-            BoundExecutionSite::Iterate(_) | BoundExecutionSite::Next(_) | BoundExecutionSite::CallInput { .. } | BoundExecutionSite::ScopedEnter(_) | BoundExecutionSite::ScopedExit(_) => {
-                Some(self.dependencies.calls().get(&occurrence).unwrap_or_else(|| {
-                    panic!("selected scoped invocation retains its dependency contracts: {occurrence:?}")
-                }))
-            }
-            // Replacement failure follows the committed source invocation. Its reports
-            // come from the selected lifecycle transition, not the source call snapshot.
-            BoundExecutionSite::Cleanup(_) => None,
-            _ => panic!("call phase requires an expression invocation: {occurrence:?}"),
         }
     }
 

@@ -765,7 +765,6 @@ impl<Projection: Ord + Clone, Condition: Ord + Clone> DependencyWitnessCarrier<P
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct DependencyContractTemplateData {
     requirements: Arc<[DependencyRequirement]>,
-    completion_reports: Option<Arc<[DependencyRequirement]>>,
     abnormal_reports: Option<Arc<[DependencyRequirement]>>,
     captured_values: Arc<[super::CapturedValueOutcome]>,
     observed_result: Option<ConstantTermId>,
@@ -828,14 +827,21 @@ impl DependencyContractTemplateData {
         mut self,
         requirements: impl IntoIterator<Item = DependencyRequirement>,
     ) -> Self {
-        self.completion_reports = Some(sorted_unique_shared_slice(requirements));
+        let report = sorted_unique_shared_slice(requirements);
+
+        if self.captured_values.is_empty() {
+            self.captured_values = [super::CapturedValueOutcome::new(None, []).with_report(Some(report))].into();
+        } else {
+            self.captured_values = sorted_unique_shared_slice(self.captured_values.iter().cloned()
+                .map(|row| row.with_report(Some(Arc::clone(&report)))));
+        }
 
         self
     }
 
     /// Returns report dependencies for normal completion, absent when no report is produced.
-    pub fn completion_reports(&self) -> Option<&[DependencyRequirement]> {
-        self.completion_reports.as_deref()
+    pub fn completion_reports(&self) -> Option<Arc<[DependencyRequirement]>> {
+        super::CapturedValueOutcome::possible_report(self.captured_values.iter())
     }
 
     /// Attaches dependencies of reports propagated with panic or cancellation.
@@ -857,7 +863,11 @@ impl DependencyContractTemplateData {
     /// Removes implicit report outputs consumed by a native ABI boundary.
     /// Explicit value dependencies, reference relations and effects remain unchanged.
     pub fn without_reports(mut self) -> Self {
-        self.completion_reports = None;
+        if self.captured_values.iter().any(|row| row.report.is_some()) {
+            self.captured_values = sorted_unique_shared_slice(self.captured_values.iter().cloned()
+                .map(|row| row.with_report(None)));
+        }
+
         self.abnormal_reports = None;
 
         self
@@ -874,11 +884,16 @@ impl DependencyContractTemplateData {
         let mut result =
             self.with_requirements(map(DependencyCallOutput::Value, self.requirements())?);
 
-        if let Some(requirements) = self.completion_reports() {
-            result = result.with_completion_reports(map(
-                DependencyCallOutput::CompletionReport,
-                requirements,
-            )?);
+        if self.captured_values.iter().any(|row| row.report.is_some()) {
+            let rows = self.captured_values.iter().cloned().map(|row| {
+                let report = row.report.as_deref().map(|requirements|
+                    map(DependencyCallOutput::CompletionReport, requirements).map(sorted_unique_shared_slice)
+                ).transpose()?;
+
+                Ok(row.with_report(report))
+            }).collect::<Result<Vec<_>, E>>()?;
+
+            result = result.with_captured_values(rows);
         }
 
         if let Some(requirements) = self.abnormal_reports() {
@@ -899,9 +914,7 @@ impl DependencyContractTemplateData {
         self.requirements
             .iter()
             .chain(
-                self.completion_reports
-                    .iter()
-                    .flat_map(|requirements| requirements.iter()),
+                self.captured_values.iter().flat_map(|row| row.report.iter().flat_map(|requirements| requirements.iter())),
             )
             .chain(
                 self.abnormal_reports
@@ -932,12 +945,12 @@ impl DependencyContractTemplateData {
 
     /// Returns requirements for one selected output.
     /// Absence and an independent report both have no lifetime requirements.
-    pub fn output_requirements(&self, output: DependencyCallOutput) -> &[DependencyRequirement] {
+    pub fn output_requirements(&self, output: DependencyCallOutput) -> Arc<[DependencyRequirement]> {
         match output {
-            DependencyCallOutput::Value => self.requirements(),
-            DependencyCallOutput::CompletionReport => self.completion_reports().unwrap_or(&[]),
-            DependencyCallOutput::AbnormalReport => self.abnormal_reports().unwrap_or(&[]),
-            DependencyCallOutput::SynchronousCleanup => self.synchronous_cleanup(),
+            DependencyCallOutput::Value => Arc::clone(&self.requirements),
+            DependencyCallOutput::CompletionReport => self.completion_reports().unwrap_or_default(),
+            DependencyCallOutput::AbnormalReport => self.abnormal_reports.clone().unwrap_or_default(),
+            DependencyCallOutput::SynchronousCleanup => Arc::clone(&self.synchronous_cleanup),
         }
     }
 
@@ -945,7 +958,6 @@ impl DependencyContractTemplateData {
     pub fn new(requirements: impl IntoIterator<Item = DependencyRequirement>) -> Self {
         Self {
             requirements: sorted_unique_shared_slice(requirements),
-            completion_reports: None,
             abnormal_reports: None,
             captured_values: Arc::new([]),
             observed_result: None,
@@ -962,8 +974,6 @@ impl DependencyContractTemplateData {
     ) -> Self {
         Self {
             requirements: sorted_unique_shared_slice(requirements),
-            // Each output retains the same immutable report summary during value-only refinement.
-            completion_reports: self.completion_reports.as_ref().map(Arc::clone),
             abnormal_reports: self.abnormal_reports.as_ref().map(Arc::clone),
             // Transformations own a new contract while retaining the immutable checked summary.
             captured_values: Arc::clone(&self.captured_values),
@@ -1157,8 +1167,7 @@ mod tests {
             .with_abnormal_reports([DependencyRequirement::direct(
                 subject.clone(),
                 DependencyRequirementKind::StorageAlive,
-            )])
-            .with_normal_completion(false);
+            )]);
 
         let requirement =
             DependencyRequirement::direct(subject, DependencyRequirementKind::StorageAlive);
@@ -1168,9 +1177,9 @@ mod tests {
         assert_eq!(changed.requirements(), &[requirement]);
         assert_eq!(changed.borrows(), template.borrows());
         assert_eq!(changed.effects(), template.effects());
-        assert_eq!(changed.completion_reports(), Some([].as_slice()));
+        assert_eq!(changed.completion_reports().as_deref(), Some([].as_slice()));
         assert_eq!(changed.abnormal_reports(), template.abnormal_reports());
-        assert!(!changed.normal_completion());
+        assert!(changed.normal_completion());
         assert!(template.requirements().is_empty());
     }
 }

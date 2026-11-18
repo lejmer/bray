@@ -149,7 +149,7 @@ fn input_contract<C: CheckerRequestContext + ?Sized>(
     ));
 
     let retained = BoundDependencyContract::try_instantiate(&concrete, &mut context)?;
-    let reports = super::contract::instantiate_reports(template, &mut context)?;
+    let reports = super::contract::instantiate_reports(template, None, &mut context)?;
 
     let invocation = BoundDependencyContract::new(inputs.iter().map(|(_, access, _)| {
         BoundDependencyRequirement::Direct {

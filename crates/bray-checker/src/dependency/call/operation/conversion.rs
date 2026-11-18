@@ -283,15 +283,10 @@ pub(super) fn sequence_dependencies(
         result = result.with_stored_values(first.stored_values().iter().chain(next.stored_values().iter()).cloned());
     }
 
-    if first.completion_reports().is_some() || next.completion_reports().is_some() {
-        result = result.with_completion_reports(
-            first
-                .completion_reports()
-                .into_iter()
-                .flatten()
-                .chain(next.completion_reports().into_iter().flatten())
-                .cloned(),
-        );
+    let reports = [first.completion_reports(), next.completion_reports()];
+
+    if normal && reports.iter().any(Option::is_some) {
+        result = result.with_completion_reports(reports.iter().flatten().flat_map(|report| report.iter().cloned()));
     }
 
     if first.abnormal_reports().is_some() || next.abnormal_reports().is_some() {
@@ -302,11 +297,10 @@ pub(super) fn sequence_dependencies(
                 .flatten()
                 .chain(next.abnormal_reports().into_iter().flatten())
                 .chain(
-                    first
-                        .completion_reports()
+                    reports[0].as_deref()
+                        .filter(|_| next.abnormal_reports().is_some())
                         .into_iter()
-                        .flatten()
-                        .filter(|_| next.abnormal_reports().is_some()),
+                        .flatten(),
                 )
                 .cloned(),
         );

@@ -317,7 +317,7 @@ pub type InterfaceCapturedCallable = bray_symbols::CapturedCallable<crate::Inter
 
 /// Guarded normal values and ownership using interface-local identities.
 pub type InterfaceNormalOutcome = bray_symbols::CapturedValueOutcome<InterfaceDependencySubject, InterfaceConstantTermId,
-    InterfaceDependencyProjection, super::InterfaceStaticReference, InterfaceConstantTermId, super::InterfaceConstantProjection, InterfaceCapturedCallable, crate::InterfaceSymbolReference>;
+    InterfaceDependencyProjection, super::InterfaceStaticReference, InterfaceConstantTermId, super::InterfaceConstantProjection, InterfaceCapturedCallable, crate::InterfaceSymbolReference, InterfaceDependencyRequirement>;
 
 /// One normalized portable dependency contract.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -327,7 +327,6 @@ pub struct InterfaceDependencyContract {
     pub(crate) synchronous_cleanup: Arc<[InterfaceDependencyRequirement]>,
     pub(crate) normal_completion: bool,
     pub(crate) requirements: Arc<[InterfaceDependencyRequirement]>,
-    pub(crate) completion_reports: Option<Arc<[InterfaceDependencyRequirement]>>,
     pub(crate) abnormal_reports: Option<Arc<[InterfaceDependencyRequirement]>>,
     pub(crate) effects: bray_symbols::DependencyEffectOutcomes<
         bray_symbols::DependencyStorageEffect<
@@ -358,7 +357,6 @@ impl InterfaceDependencyContract {
         Self {
             requirements: sorted_unique_shared_slice(requirements),
             captured_values: Arc::from([]),
-            completion_reports: None,
             abnormal_reports: None,
             synchronous_cleanup: Arc::new([]),
             normal_completion: true,
@@ -373,7 +371,14 @@ impl InterfaceDependencyContract {
         mut self,
         requirements: impl IntoIterator<Item = InterfaceDependencyRequirement>,
     ) -> Self {
-        self.completion_reports = Some(sorted_unique_shared_slice(requirements));
+        let report = sorted_unique_shared_slice(requirements);
+
+        if self.captured_values.is_empty() {
+            self.captured_values = [InterfaceNormalOutcome::new(None, []).with_report(Some(report))].into();
+        } else {
+            self.captured_values = sorted_unique_shared_slice(self.captured_values.iter().cloned()
+                .map(|row| row.with_report(Some(Arc::clone(&report)))));
+        }
 
         self
     }
@@ -392,9 +397,7 @@ impl InterfaceDependencyContract {
         self.requirements
             .iter()
             .chain(
-                self.completion_reports
-                    .iter()
-                    .flat_map(|requirements| requirements.iter()),
+                self.captured_values.iter().flat_map(|row| row.report.iter().flat_map(|requirements| requirements.iter())),
             )
             .chain(
                 self.abnormal_reports

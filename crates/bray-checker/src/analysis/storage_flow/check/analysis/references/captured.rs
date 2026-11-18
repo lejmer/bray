@@ -317,20 +317,20 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         &mut self, execution: &mut crate::analysis::guarantee::ExecutionState,
         invocation: BoundExecutionSite, effects: &[crate::analysis::storage_flow::memory::Effect],
     ) {
-        let values: Arc<[StorageValueTransition]> =
+        let (values, portable_order): (Arc<[StorageValueTransition]>, bool) =
             if let BoundExecutionSite::Node(bray_bound_tree::AnyBoundNodeId::Expression(expression)) = invocation
             && let Some(operation) = self.memory.operation(expression)
         {
-            self.resolve_memory_values(execution, operation, effects)
+            (self.resolve_memory_values(execution, operation, effects), false)
         } else if let Some(contract) = self.dependencies.calls().get(&invocation)
             && contract.deferred_effects().is_none()
         {
-            self.execution.invocation_value_transitions(execution, invocation, contract.captured_values()).into()
+            (self.execution.invocation_value_transitions(execution, invocation, contract.captured_values()).into(), true)
         } else {
             return;
         };
 
-        self.execution.prepare_captured_values(execution, invocation, &values);
+        self.execution.prepare_captured_values(execution, invocation, &values, portable_order);
 
         if self.publish {
             self.value_transitions.entry(invocation).and_modify(|previous| {

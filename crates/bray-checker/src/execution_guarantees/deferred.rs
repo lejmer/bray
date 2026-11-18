@@ -45,7 +45,7 @@ pub struct ExecutionDeferredInvocation<Entry = Arc<ExecutionCallEvidence>> {
     pub(crate) entry: Entry,
     /// Result dependencies bound when this frame captures its evaluated inputs.
     pub(crate) completed: Option<Arc<BTreeSet<bray_symbols::DependencyRequirement>>>,
-    pub(crate) reports: BTreeMap<bray_bound_tree::CallReportOutput, Arc<crate::dependency::ReportDependencies>>,
+    pub(crate) reports: BTreeMap<bray_bound_tree::CallReportOutput, crate::dependency::ReportCandidates>,
     pub(crate) selection: BTreeSet<(ExecutionCondition, bool)>,
 }
 
@@ -177,7 +177,7 @@ impl<Entry> ExecutionDeferredInvocation<Entry> {
             if let Some(reports) = self.reports.get_mut(output) {
                 changed |= reports.merge(incoming);
             } else {
-                self.reports.insert(*output, Arc::clone(incoming));
+                self.reports.insert(*output, incoming.clone());
                 changed = true;
             }
         }

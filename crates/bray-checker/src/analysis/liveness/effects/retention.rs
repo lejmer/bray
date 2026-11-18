@@ -19,7 +19,7 @@ impl OperationEffects {
         cleanup: &crate::analysis::guarantee::CleanupPlan,
     ) {
         use crate::analysis::model::{AnalysisCallPhase, AnalysisOperationKind};
-        use bray_bound_tree::{BoundExecutionSite, CallReportOutput, SemanticSelection};
+        use bray_bound_tree::{BoundExecutionSite, SemanticSelection};
 
         let reporting = cleanup
             .reporting_accesses(dependencies)
@@ -132,7 +132,9 @@ impl OperationEffects {
                 }
 
                 if phase == AnalysisCallPhase::Attempt {
-                    if let Some(contract) = call.report(CallReportOutput::Abnormal) {
+                    if let Some(report) = call.reports().abnormal() {
+                        let contract = report.storage();
+
                         self.value_requirements
                             .entry(boundary.into())
                             .or_default()
@@ -153,9 +155,8 @@ impl OperationEffects {
                     continue;
                 }
 
-                let mut reports = call
-                    .report(CallReportOutput::Completed)
-                    .into_iter()
+                let mut reports = call.reports().completed()
+                    .map(|(_, report)| report.storage())
                     .collect::<Vec<_>>();
 
                 if let (BoundExecutionSite::ScopedExit(expression), Some(exit)) =

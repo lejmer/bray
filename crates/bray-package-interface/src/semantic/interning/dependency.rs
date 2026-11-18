@@ -51,16 +51,6 @@ impl InternState<'_> {
 
             let mut contract = DependencyContractTemplateData::new(requirements);
 
-            if let Some(requirements) = &input.completion_reports {
-                let Some(requirements) =
-                    self.convert_dependency_requirements(requirements, symbols)?
-                else {
-                    continue;
-                };
-
-                contract = contract.with_completion_reports(requirements);
-            }
-
             if let Some(requirements) = &input.abnormal_reports {
                 let Some(requirements) =
                     self.convert_dependency_requirements(requirements, symbols)?
@@ -97,6 +87,10 @@ impl InternState<'_> {
 
             let captured_values = input.captured_values.iter().map(|outcome| {
                 let guard = outcome.guard.map(|term| self.constant_term_id(term).ok_or(None)).transpose()?;
+
+                let report = outcome.report.as_ref().map(|requirements|
+                    self.convert_dependency_requirements(requirements, symbols).map_err(Some)?.map(bray_base::sorted_unique_shared_slice).ok_or(None))
+                    .transpose()?;
 
                 let bindings = outcome.bindings.iter().map(|(destination, value)| {
                 let destination = self.convert_dependency_subject(destination, symbols).map_err(Some)?.ok_or(None)?;
@@ -158,7 +152,7 @@ impl InternState<'_> {
                     self.convert_dependency_subject(payload, symbols).map_err(Some)?.ok_or(None))
                     .collect::<Result<Vec<_>, _>>()?;
 
-                Ok(bray_symbols::CapturedValueOutcome::new(guard, bindings).with_carriers(carriers)
+                Ok(bray_symbols::CapturedValueOutcome::new(guard, bindings).with_carriers(carriers).with_report(report)
                     .with_ownership(owned_result).with_storage(references, stored_values)
                     .with_inactive_payloads(inactive_payloads))
             }).collect::<Result<Vec<_>, Option<InterfaceSemanticInternError>>>();

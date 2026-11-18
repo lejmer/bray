@@ -99,7 +99,7 @@ pub(crate) fn selected_operation_contracts<C: CheckerRequestContext + ?Sized>(
 
     let result = BoundDependencyContract::try_instantiate(&concrete, &mut context)?;
 
-    let reports = super::super::contract::instantiate_reports(&template.template, &mut context)?;
+    let reports = super::super::contract::instantiate_reports(&template.template, None, &mut context)?;
 
     let contracts =
         BoundCallDependencyContracts::new(BoundDependencyContract::new([]), result, None)

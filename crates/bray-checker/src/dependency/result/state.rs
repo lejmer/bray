@@ -27,6 +27,46 @@ impl ReportDependencies {
     }
 }
 
+/// Snapshots retain the outcome they came from through joins and frame capture.
+/// An unindexed snapshot represents the abnormal output or an opaque producer.
+#[derive(Clone, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub(crate) struct ReportCandidates(BTreeMap<Option<usize>, Arc<ReportDependencies>>);
+
+impl ReportCandidates {
+    pub(crate) fn insert(&mut self, row: Option<usize>, report: Arc<ReportDependencies>) {
+        self.0.insert(row, report);
+    }
+
+    pub(crate) fn merge(&mut self, incoming: &Self) -> bool {
+        let mut changed = false;
+
+        for (row, report) in &incoming.0 {
+            if let Some(prior) = self.0.get_mut(row) {
+                changed |= prior.merge(report);
+            } else {
+                self.0.insert(*row, Arc::clone(report));
+                changed = true;
+            }
+        }
+
+        changed
+    }
+
+    pub(crate) fn admitted(&self, outputs: Option<&crate::execution_guarantees::ExecutionOutputs>) -> Option<Arc<ReportDependencies>> {
+        let mut selected = self.0.iter().filter_map(|(row, report)| {
+            row.is_none_or(|row| outputs.is_none_or(|outputs| outputs.is_admitted(row))).then_some(report)
+        });
+
+        let mut report = Arc::clone(selected.next()?);
+
+        for other in selected {
+            report.merge(other);
+        }
+
+        Some(report)
+    }
+}
+
 /// Possible retained dependencies travel with the same control-flow state as storage.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct State {
@@ -44,9 +84,8 @@ pub(crate) struct State {
             bray_bound_tree::BoundExecutionSite,
             bray_bound_tree::CallReportOutput,
         ),
-        Arc<ReportDependencies>,
+        ReportCandidates,
     >,
-    completed_reports: Option<BTreeSet<DependencyRequirement>>,
     abnormal_reports: Option<BTreeSet<DependencyRequirement>>,
 }
 
@@ -64,7 +103,7 @@ impl State {
             if let Some(previous) = self.report_candidates.get_mut(output) {
                 changed |= previous.merge(dependencies);
             } else {
-                self.report_candidates.insert(*output, Arc::clone(dependencies));
+                self.report_candidates.insert(*output, dependencies.clone());
                 changed = true;
             }
         }
@@ -88,7 +127,10 @@ impl State {
     pub(crate) fn merge_returns(&mut self, incoming: &Self) {
         merge_map(&mut self.call_definitions, &incoming.call_definitions);
         self.returned.extend(incoming.returned.iter().cloned());
-        merge_reports(&mut self.completed_reports, &incoming.reports);
+    }
+
+    pub(crate) fn completed_report(&self) -> Option<Arc<[DependencyRequirement]>> {
+        (!self.reports.is_empty()).then(|| self.closed_requirements(self.reports.values().flatten().cloned().collect()).into())
     }
 
     pub(crate) fn merge_abnormal(&mut self, incoming: &Self) {
@@ -101,18 +143,25 @@ impl State {
         &mut self,
         occurrence: bray_bound_tree::BoundExecutionSite,
         output: bray_bound_tree::CallReportOutput,
+        row: Option<usize>,
         dependencies: Arc<ReportDependencies>,
     ) {
-        self.report_candidates
-            .insert((occurrence, output), dependencies);
+        self.report_candidates.entry((occurrence, output)).or_default().insert(row, dependencies);
     }
 
-    pub(crate) fn report_candidate(
-        &self,
+    pub(crate) fn take_report_candidates(
+        &mut self,
         occurrence: bray_bound_tree::BoundExecutionSite,
         output: bray_bound_tree::CallReportOutput,
-    ) -> Option<&Arc<ReportDependencies>> {
-        self.report_candidates.get(&(occurrence, output))
+    ) -> ReportCandidates {
+        use bray_bound_tree::CallReportOutput;
+
+        let selected = self.report_candidates.remove(&(occurrence, output)).unwrap_or_default();
+
+        self.report_candidates.remove(&(occurrence, CallReportOutput::Completed));
+        self.report_candidates.remove(&(occurrence, CallReportOutput::Abnormal));
+
+        selected
     }
 
     pub(crate) fn owner_requirements(
@@ -172,39 +221,6 @@ impl State {
         self.values.get(&expression.into()).into_iter().flatten()
     }
 
-    pub(crate) fn commit_reports(
-        &mut self,
-        occurrence: bray_bound_tree::BoundExecutionSite,
-        output: bray_bound_tree::CallReportOutput,
-        boundary: Option<BoundExpressionId>,
-    ) {
-        let dependencies = self
-            .report_candidates
-            .remove(&(occurrence, output))
-            .expect("a checked report output has its entry dependency snapshot");
-
-        self.discard_report_candidates(occurrence);
-
-        let requirements = match Arc::try_unwrap(dependencies) {
-            Ok(dependencies) => dependencies.requirements,
-            Err(shared) => shared.requirements.clone(),
-        };
-
-        self.retain_reports(boundary, requirements);
-    }
-
-    pub(crate) fn discard_report_candidates(
-        &mut self,
-        occurrence: bray_bound_tree::BoundExecutionSite,
-    ) {
-        for output in [
-            bray_bound_tree::CallReportOutput::Completed,
-            bray_bound_tree::CallReportOutput::Abnormal,
-        ] {
-            self.report_candidates.remove(&(occurrence, output));
-        }
-    }
-
     pub(crate) fn retain_reports(
         &mut self,
         boundary: Option<BoundExpressionId>,
@@ -236,10 +252,6 @@ impl State {
 
         let mut summary =
             bray_symbols::DependencyContractTemplateData::new(self.closed_requirements(returned));
-
-        if let Some(requirements) = self.completed_reports.take() {
-            summary = summary.with_completion_reports(self.closed_requirements(requirements));
-        }
 
         if let Some(requirements) = self.abnormal_reports.take() {
             summary = summary.with_abnormal_reports(self.closed_requirements(requirements));

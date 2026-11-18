@@ -21,11 +21,11 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         let exits = std::mem::take(&mut self.normal_exits);
 
-        let result_slots = exits.iter().flat_map(|(physical, _, _)| physical.observed_slots())
+        let result_slots = exits.iter().flat_map(|exit| exit.storage.observed_slots())
             .filter(|path| self.formal_root(path.root) == Some(DependencySubjectRoot::Result))
             .cloned().collect::<BTreeSet<_>>();
 
-        for (physical, value, returned) in exits {
+        for super::super::core::NormalExit { storage: physical, value, returned, report } in exits {
             let (stored_values, embedded) = self.stored_values(&physical)?;
 
             let exit_references = self.borrow_relations(&physical)?.into_iter().chain(embedded);
@@ -39,7 +39,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 .collect::<Vec<_>>();
 
             let Some(crate::analysis::guarantee::NormalReturn { captured: outcome, carriers, transfers: ownership }) = returned else {
-                captured_values.push(bray_symbols::CapturedValueOutcome::new(None, [])
+                captured_values.push(bray_symbols::CapturedValueOutcome::new(None, []).with_report(report)
                     .with_storage(exit_references, stored_values).with_inactive_payloads(inactive_payloads));
 
                 continue;
@@ -89,7 +89,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 ));
             }
 
-            captured_values.push(outcome.with_ownership(self.owned_result(ownership)?)
+            captured_values.push(outcome.with_report(report).with_ownership(self.owned_result(ownership)?)
                 .with_carriers(published).with_storage(exit_references, stored_values)
                 .with_inactive_payloads(inactive_payloads));
         }

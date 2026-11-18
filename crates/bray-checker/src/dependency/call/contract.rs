@@ -80,7 +80,9 @@ where
         ]));
     }
 
-    let reports = instantiate_reports(&template, &mut result_context)?;
+    let recursive = super::super::witness::recursive_call_result(request, call)
+        .map_err(DependencyContractInstantiationError::Resolution)?;
+    let reports = instantiate_reports(&template, recursive.as_ref(), &mut result_context)?;
 
     let instantiated = if matches!(
         call.resolution().result(),
@@ -282,7 +284,7 @@ where
             &concrete,
             &mut context,
         )?)
-        .with_reports(instantiate_reports(&template, &mut context)?);
+        .with_reports(instantiate_reports(&template, None, &mut context)?);
 
     let ty = crate::storage::implicit_input_type(request.semantic_values(), storage, input);
 
@@ -301,26 +303,36 @@ where
 
 pub(super) fn instantiate_reports<C: CheckerRequestContext + ?Sized>(
     template: &DependencyContractTemplateData,
+    recursive: Option<&DependencyContractTemplateData>,
     context: &mut CallInstantiationContext<'_, C>,
 ) -> Result<
     bray_bound_tree::BoundCallReports,
     DependencyContractInstantiationError<CheckerQueryError<C::UpstreamError>>,
 > {
-    let mut instantiate = |requirements: Option<&[DependencyRequirement]>| {
-        requirements
-            .map(|requirements| {
-                let concrete =
-                    DependencyContractTemplateData::new(concrete_requirements(requirements));
+    // Storage is checked against the current approximation. Exported equations
+    // keep recursive calls abstract so iteration does not inline growing types.
+    let mut instantiate = |requirements: &[DependencyRequirement], portable: std::sync::Arc<[DependencyRequirement]>| {
+        let concrete = DependencyContractTemplateData::new(concrete_requirements(requirements));
+        let storage = BoundDependencyContract::try_instantiate(&concrete, context)?;
 
-                BoundDependencyContract::try_instantiate(&concrete, context)
-            })
-            .transpose()
+        Ok(bray_bound_tree::BoundCallReport::new(portable, storage))
     };
 
-    Ok(bray_bound_tree::BoundCallReports::new(
-        instantiate(template.completion_reports())?,
-        instantiate(template.abnormal_reports())?,
-    ))
+    let recursive_completion = recursive.and_then(DependencyContractTemplateData::completion_reports);
+    let completed = template.captured_values().iter().map(|row| {
+        row.report.as_ref().map(|requirements| {
+            let portable = recursive_completion.as_ref().unwrap_or(requirements);
+
+            instantiate(requirements, std::sync::Arc::clone(portable))
+        }).transpose()
+    }).collect::<Result<_, DependencyContractInstantiationError<_>>>()?;
+    let abnormal = template.abnormal_reports().map(|requirements| {
+        let portable = recursive.and_then(DependencyContractTemplateData::abnormal_reports).unwrap_or(requirements);
+
+        instantiate(requirements, portable.into())
+    }).transpose()?;
+
+    Ok(bray_bound_tree::BoundCallReports::new(completed, abnormal))
 }
 
 pub(super) fn concrete_requirements(

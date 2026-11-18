@@ -76,8 +76,10 @@ fn production_awaited_writer_does_not_return_its_completed_receiver_loan() {
     let key = crate::test_support::source_type_callable_member_body_key(&compilation, "into_sink_async");
     let flow = compilation.storage_flow(key).expect("the writer publishes its portable reports");
 
-    for reports in [flow.value().dependencies().completion_reports(), flow.value().dependencies().abnormal_reports()]
-        .into_iter().flatten() {
+    let dependencies = flow.value().dependencies();
+
+    for reports in dependencies.captured_values().iter().filter_map(|outcome| outcome.report.as_deref())
+        .chain(dependencies.abnormal_reports()) {
         assert!(!reports.iter().any(|requirement| matches!(requirement,
             bray_symbols::DependencyRequirement::Direct { subject, kind: bray_symbols::DependencyRequirementKind::StorageAlive }
                 if subject.subject_root() == bray_symbols::DependencySubjectRoot::Receiver)),

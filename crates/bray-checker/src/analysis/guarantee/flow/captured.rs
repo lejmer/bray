@@ -232,6 +232,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     pub(in crate::analysis) fn prepare_captured_values(
         &self, state: &mut ExecutionState, invocation: bray_bound_tree::BoundExecutionSite,
         transitions: &[bray_bound_tree::StorageValueTransition],
+        portable_order: bool,
     ) {
         if transitions.is_empty() { return; }
 
@@ -247,13 +248,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 .map(|selection| selection.inputs().count()))
             .expect("captured transition has a checked receiver-first input environment");
 
-        entry.outputs = self.bind_entry_outputs(state, &entry, invocation, input_count, producer, transitions);
+        entry.outputs = self.bind_entry_outputs(state, &entry, invocation, input_count, producer, transitions, portable_order);
         state.entries.insert(invocation, entry);
     }
 
     pub(super) fn bind_entry_outputs(&self, state: &ExecutionState, entry: &crate::ExecutionCallEvidence,
         invocation: bray_bound_tree::BoundExecutionSite, input_count: usize, producer: ExecutionCondition,
         transitions: &[bray_bound_tree::StorageValueTransition],
+        portable_order: bool,
     ) -> crate::execution_guarantees::ExecutionOutputs {
         let decode = |term| crate::execution_condition_from_type_term(self.request.semantic_values(), term, input_count)
             .expect("checked captured term belongs to its call environment");
@@ -269,8 +271,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let mut alternative = 0;
 
-        for transition in transitions {
+        for (index, transition) in transitions.iter().enumerate() {
             use crate::execution_guarantees::OutputGuard;
+
+            let sources = portable_order.then(|| [index].into());
 
             let guard = match transition.guard.map(&decode) {
                 Some(formal) if formal.observes_completion_result() => OutputGuard::Completion(formal),
@@ -278,12 +282,16 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 None => OutputGuard::Bound(ExecutionCondition::boolean(true)),
             };
 
-            if matches!(&guard, OutputGuard::Bound(bound) if !state.proofs.ordinary_proof(&entry.assumptions).can_assume(bound, true)) {
+            // A compound exit guard may already fail its input conditions even
+            // while its result condition awaits private production.
+            let admission = guard.bind(entry, &ExecutionCondition::unknown());
+
+            if !state.proofs.ordinary_proof(&entry.assumptions).can_assume(&admission, true) {
                 alternative += transition.bindings.iter().flat_map(|(_, value)| value.nodes()).map(|node| match node {
                     Value::Deferred { alternatives, .. } => alternatives.len(), _ => 0,
                 }).sum::<usize>();
 
-                outcomes.push(crate::execution_guarantees::ExecutionOutput { guard: OutputGuard::Bound(ExecutionCondition::boolean(false)), carriers: Default::default(), ownership: Default::default(), writes: Default::default() });
+                outcomes.push(crate::execution_guarantees::ExecutionOutput { sources, guard: OutputGuard::Bound(ExecutionCondition::boolean(false)), carriers: Default::default(), ownership: Default::default(), writes: Default::default() });
                 continue;
             }
 
@@ -307,7 +315,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             (destination.clone(), value)
             }).collect::<std::collections::BTreeMap<_, _>>();
 
-            outcomes.push(crate::execution_guarantees::ExecutionOutput { guard, carriers: std::sync::Arc::clone(&transition.carriers), ownership: transition.ownership.clone(), writes });
+            outcomes.push(crate::execution_guarantees::ExecutionOutput { sources, guard, carriers: std::sync::Arc::clone(&transition.carriers), ownership: transition.ownership.clone(), writes });
         }
 
         crate::execution_guarantees::ExecutionOutputs(outcomes.into())
@@ -363,6 +371,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     ) -> ExecutionCondition {
         if let Some(entry) = admission.and_then(|admission| state.entries.get_mut(&admission)) {
             entry.outputs = crate::execution_guarantees::ExecutionOutputs([crate::execution_guarantees::ExecutionOutput {
+                sources: None,
                 guard: crate::execution_guarantees::OutputGuard::Bound(guard.clone()), ..row.clone()
             }].into());
         }

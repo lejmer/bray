@@ -93,7 +93,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             if let Some(completion) = self.checked_body.and_then(|body| body.storage_flow()
                 .completion(bray_bound_tree::StorageMutation::Operation(expression.into()))) {
                 self.capture_entry_values(state, expression.into(), completion.captures());
-                self.prepare_captured_values(state, expression.into(), completion.values());
+                self.prepare_captured_values(state, expression.into(), completion.values(), false);
             }
         }
 
@@ -249,7 +249,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     if let Some(completion) = self.checked_body.and_then(|body|
                         body.storage_flow().completion(bray_bound_tree::StorageMutation::Operation(invocation)))
                     {
-                        self.prepare_captured_values(state, invocation, completion.values());
+                        self.prepare_captured_values(state, invocation, completion.values(), false);
                     }
 
                     let observed = match invocation {

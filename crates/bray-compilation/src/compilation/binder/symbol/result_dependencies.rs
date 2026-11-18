@@ -490,17 +490,6 @@ fn body_result_dependencies(
     .with_normal_effects(previous.normal_effects().iter().filter(|_| previous.normal_completion())
         .chain(checked.normal_effects().iter().filter(|_| checked.normal_completion())).cloned());
 
-    if previous.completion_reports().is_some() || checked.completion_reports().is_some() {
-        result = result.with_completion_reports(
-            previous
-                .completion_reports()
-                .into_iter()
-                .flatten()
-                .chain(checked.completion_reports().into_iter().flatten())
-                .cloned(),
-        );
-    }
-
     if previous.abnormal_reports().is_some() || checked.abnormal_reports().is_some() {
         result = result.with_abnormal_reports(
             previous

@@ -23,7 +23,7 @@ pub(crate) use cleanup::resolve_effects as resolve_cleanup_effects;
 pub(crate) use cleanup::cleanup_callees;
 pub use implementation::generator_result_dependencies;
 pub(crate) use implementation::implementation_dependency_source;
-pub(crate) use result::{ReportDependencies, State as ResultState, Transfer as ResultTransfer};
+pub(crate) use result::{ReportCandidates, ReportDependencies, State as ResultState, Transfer as ResultTransfer};
 pub(crate) use returned::{
     callee_result_template, invocation_result_template, opaque_result, parameter_root,
     resolved_result_template, result_input, result_inputs,

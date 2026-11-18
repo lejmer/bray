@@ -10,8 +10,8 @@ use bray_testing::assert_goal_state_diagnostic_kind;
 #[test]
 fn normal_reports_follow_calls_and_consumed_futures() {
     for (execution, invocation) in [
-        ("", "collect(resource)"),
-        ("async ", "await collect(resource)"),
+        ("", "collect"),
+        ("async ", "await collect"),
     ] {
         let source = r#"
         module app;
@@ -43,8 +43,13 @@ fn normal_reports_follow_calls_and_consumed_futures() {
                 return Error(Failure { value = lease });
             }
         }
-        Executionfunc collect(pos resource: &Resource) -> Result<unit, Failure>
+        Executionfunc collect(pos resource: &Resource, pos reporting: bool) -> Result<unit, Failure>
         {
+            if !reporting
+            {
+                return Ok(unit);
+            }
+
             _ = with lease = resource
             {
                 return Ok(unit);
@@ -53,7 +58,12 @@ fn normal_reports_follow_calls_and_consumed_futures() {
         }
         async func caller(pos resource: &Resource)
         {
-            _ = Invocation;
+            _ = Invocation(resource, true);
+        }
+
+        async func quiet(pos resource: &Resource)
+        {
+            _ = Invocation(resource, false);
         }
         "#
         .replace("Execution", execution)
@@ -63,6 +73,13 @@ fn normal_reports_follow_calls_and_consumed_futures() {
         let diagnostics = compilation.check_diagnostics();
 
         assert!(!diagnostics.has_errors(), "{execution}: {diagnostics:#?}");
+
+        let quiet = crate::compilation::result_dependencies::source_function_dependencies(
+            &compilation,
+            "quiet",
+        );
+
+        assert!(quiet.completion_reports().is_none(), "{execution}: {quiet:#?}");
 
         for name in ["collect", "caller"] {
             let summary = crate::compilation::result_dependencies::source_function_dependencies(
@@ -1329,13 +1346,17 @@ fn native_callbacks_consume_only_their_implicit_report_outputs() {
             ))
             .expect("fixture `dependency_contracts` call must succeed");
 
-        let calls = contracts.value().calls().values().collect::<Vec<_>>();
+        let calls = contracts.value().calls().iter().filter_map(|(occurrence, call)| {
+            matches!(occurrence, bray_bound_tree::BoundExecutionSite::Node(
+                bray_bound_tree::AnyBoundNodeId::Expression(_)
+            )).then_some(call)
+        }).collect::<Vec<_>>();
 
         let [call] = calls.as_slice() else {
-            panic!("callback invocation retains its single call contract");
+            panic!("callback body retains its explicit invocation contract");
         };
 
-        assert_eq!(call.reports().completed().is_none(), native);
+        assert_eq!(call.reports().completed().next().is_none(), native);
         assert_eq!(call.reports().abnormal().is_none(), native);
 
         assert!(

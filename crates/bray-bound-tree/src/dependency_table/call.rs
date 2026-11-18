@@ -27,38 +27,56 @@ impl CallReportOutput {
     }
 }
 
-/// Dependencies owned by the normal and abnormal report outputs of one execution phase.
-/// An absent output produces no report. An empty present contract produces an independent report.
+/// The portable equations and checked storage obligations of one produced report.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct BoundCallReport {
+    requirements: Arc<[bray_symbols::DependencyRequirement]>,
+    storage: BoundDependencyContract,
+}
+
+impl BoundCallReport {
+    /// Retains the producer's equations alongside their instantiated storage obligations.
+    pub const fn new(requirements: Arc<[bray_symbols::DependencyRequirement]>, storage: BoundDependencyContract) -> Self {
+        Self { requirements, storage }
+    }
+
+    /// The producer's portable report lifetime requirements.
+    pub fn requirements(&self) -> &[bray_symbols::DependencyRequirement] {
+        &self.requirements
+    }
+
+    /// The checked obligations in the invocation's storage plan.
+    pub const fn storage(&self) -> &BoundDependencyContract {
+        &self.storage
+    }
+}
+
+/// Report dependencies of one execution phase. An empty present contract produces an independent report.
 #[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
 pub struct BoundCallReports {
-    completed: Option<BoundDependencyContract>,
-    abnormal: Option<BoundDependencyContract>,
+    completed: Arc<[Option<BoundCallReport>]>,
+    abnormal: Option<BoundCallReport>,
 }
 
 impl BoundCallReports {
-    /// Creates the checked report outputs for one selected execution phase.
-    pub const fn new(
-        completed: Option<BoundDependencyContract>,
-        abnormal: Option<BoundDependencyContract>,
-    ) -> Self {
-        Self {
-            completed,
-            abnormal,
-        }
+    /// Creates the report contracts in the same order as the normal outcome rows.
+    pub const fn new(completed: Arc<[Option<BoundCallReport>]>, abnormal: Option<BoundCallReport>) -> Self {
+        Self { completed, abnormal }
     }
 
-    /// Returns dependencies retained by reports accompanying normal completion.
-    pub const fn completed(&self) -> Option<&BoundDependencyContract> {
-        self.completed.as_ref()
+    /// Enumerates completed report contracts with their normal outcome index.
+    pub fn completed(&self) -> impl Iterator<Item = (usize, &BoundCallReport)> {
+        self.completed.iter().enumerate().filter_map(|(index, report)| Some((index, report.as_ref()?)))
     }
 
     /// Returns dependencies retained by reports accompanying panic or cancellation.
-    pub const fn abnormal(&self) -> Option<&BoundDependencyContract> {
+    pub const fn abnormal(&self) -> Option<&BoundCallReport> {
         self.abnormal.as_ref()
     }
 
+    /// Enumerates all possible report obligations at this phase.
     fn contracts(&self) -> impl Iterator<Item = &BoundDependencyContract> {
-        self.completed.iter().chain(self.abnormal.iter())
+        self.completed().map(|(_, report)| report.storage()).chain(self.abnormal().map(BoundCallReport::storage))
     }
 }
 
@@ -415,38 +433,9 @@ impl BoundCallDependencyContracts {
         self
     }
 
-    /// Enumerates the owned reports this selected call can produce.
-    pub fn report_outputs(
-        &self,
-    ) -> impl Iterator<Item = (CallReportOutput, &BoundDependencyContract)> {
-        [
-            (CallReportOutput::Completed, self.reports.completed()),
-            (CallReportOutput::Abnormal, self.reports.abnormal()),
-            (
-                CallReportOutput::DeferredCompleted,
-                self.deferred_reports
-                    .as_ref()
-                    .and_then(BoundCallReports::completed),
-            ),
-            (
-                CallReportOutput::DeferredAbnormal,
-                self.deferred_reports
-                    .as_ref()
-                    .and_then(BoundCallReports::abnormal),
-            ),
-        ]
-        .into_iter()
-        .filter_map(|(output, contract)| Some((output, contract?)))
-    }
-
-    /// Returns the checked dependency contract for one report output.
-    pub fn report(&self, output: CallReportOutput) -> Option<&BoundDependencyContract> {
-        match output {
-            CallReportOutput::Completed => self.reports.completed(),
-            CallReportOutput::Abnormal => self.reports.abnormal(),
-            CallReportOutput::DeferredCompleted => self.deferred_reports.as_ref()?.completed(),
-            CallReportOutput::DeferredAbnormal => self.deferred_reports.as_ref()?.abnormal(),
-        }
+    /// Enumerates the checked obligations of all possible reports.
+    pub fn report_contracts(&self) -> impl Iterator<Item = &BoundDependencyContract> {
+        self.reports.contracts().chain(self.deferred_reports.iter().flat_map(BoundCallReports::contracts))
     }
 
     /// Returns report outputs from evaluating this invocation.
@@ -561,12 +550,7 @@ impl BoundCallDependencyContracts {
             .into_iter()
             .chain(self.deferred.as_ref())
             .chain(self.deferred_result.as_ref())
-            .chain(self.reports.contracts())
-            .chain(
-                self.deferred_reports
-                    .iter()
-                    .flat_map(BoundCallReports::contracts),
-            )
+            .chain(self.report_contracts())
     }
 
     pub(super) fn is_valid_for(&self, unit: BoundUnitId) -> bool {

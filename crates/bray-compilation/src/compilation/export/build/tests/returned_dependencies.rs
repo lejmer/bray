@@ -1197,7 +1197,7 @@ fn imported_immutable_function_values_reuse_the_producers_report_contract() {
     assert_eq!(invocations.len(), 2);
 
     for call in invocations {
-        assert!(call.reports().completed().is_none(), "{call:#?}");
+        assert!(call.reports().completed().next().is_none(), "{call:#?}");
     }
 
     let lowered = consumer

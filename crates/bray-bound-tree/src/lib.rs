@@ -54,7 +54,7 @@ pub use dependency::{
     GuardedBoundDependencyRequirement, LifecycleObligationId, ScopedCapabilityId,
 };
 pub use dependency_table::{
-    BoundCallDependencyContracts, BoundCallReference, BoundCallReports, BoundDeferredCallable, BoundReturnedValue, CallReportOutput,
+    BoundCallDependencyContracts, BoundCallReference, BoundCallReport, BoundCallReports, BoundDeferredCallable, BoundReturnedValue, CallReportOutput,
     CheckedDependencyContracts, ConditionCallReferences, DependencyContractsBuildError,
 };
 pub use lifecycle::{CompletedFinalizer, LifecycleAction, LifecycleCallable, LifecyclePhase};

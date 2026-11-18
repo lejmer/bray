@@ -433,6 +433,15 @@ observation and package-import compositions together.
   current value to transfer lineage and vacate the source. It must not separately reject
   the target because no syntax access expresses that same projection. Keep raw-read,
   double-read, fabricated witness, nullable and deferred extraction cases together.
+  The move currently reads the descriptor separately for effect resolution, logical
+  observation, physical transfer and ordinary initialized-state tracking. Resolve the
+  admitted pointer descriptor once. Use its precise typed view for the logical snapshot,
+  its full address knowledge for the physical move, and its conservative footprint for
+  conflicts and partial effects. Read the current pointee before vacating it. Replay keeps
+  the checked target and no second source path. Check where the two extraction fixtures
+  lose the formal lineage before changing ownership conditions. A conservative region or
+  scalar observation cannot supply missing ownership. Reconsider if the physical and
+  logical paths still need separate resolution of the pointer operand.
   Keep the checked input root and typed route with each owning transfer. Admission and
   survival consume that route directly. Identify the route by its input and output, which
   remain the same when different feasible exits intersect their preservation masks. Staging
@@ -447,7 +456,23 @@ observation and package-import compositions together.
   its actual owner and borrowed dependencies. Replace the independent normal report field
   through SCC widening, substitution, the interface and checked calls. The synchronous
   cleanup reporters and both borrowed report controls exercise this through source and
-  import. Reconsider if binding needs the source expression after admission.
+  import. Bind each report's storage obligations once alongside its portable requirements.
+  Use the existing selected input-site map to translate the portable equations while the
+  inputs are still available. Carry row identity through execution joins so consumers can
+  filter the frozen report snapshot using the same admission as physical outputs. Retaining
+  a report from an excluded row or dropping one after a conservative join both violate the
+  contract. A normal report with an unresolved result condition remains possible until the
+  produced result is available. Reconsider if binding needs a second query of the callee
+  summary, a second guard interpreter, or a later read of the original operands.
+  Report rows now cross interface revision 6. The bound report retains both checked
+  storage obligations and the portable equations. Recursive calls keep their existing
+  symbolic equations, with concrete obligations checked against the SCC approximation.
+  Ignore a row when the admitted input disproves its compound guard even if the result
+  clause remains unresolved. The true and false report calls pass through immediate
+  execution and await. Source and import borrowing, callback report channels and the
+  abstract recursive query pass. All four unit suites pass. The broad panels match the
+  49 existing failures on 21324247c. The returned-value and recursion panel passes 59 of
+  60 tests. Its one failure also occurs on 21324247c and in the earlier tooling binary.
 - Stabilize loops and recursive summaries with existing joins, recency and dependency indexes. No arbitrary cutoff loses dependencies.
 - Finish typed external graph validation, immutable interning/sharing, public API documentation and structural/style audit.
 

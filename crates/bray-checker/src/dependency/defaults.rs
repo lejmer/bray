@@ -33,34 +33,24 @@ pub(crate) fn expand_result_defaults<C: CheckerRequestContext + ?Sized>(
     }
 
     let mut expanded = expand(request, selection, template, &defaults, false)?;
+    let mut outcomes = expanded.template.captured_values().to_vec();
 
-    for (completion, requirements) in [
-        (true, template.completion_reports()),
-        (false, template.abnormal_reports()),
-    ] {
-        if let Some(requirements) = requirements {
-            let reports = expand(
-                request,
-                selection,
-                &DependencyContractTemplateData::new(requirements.iter().cloned()),
-                &defaults,
-                false,
-            )?;
+    for outcome in &mut outcomes {
+        let Some(requirements) = &outcome.report else { continue; };
 
-            expanded
-                .escaping_evaluation_inputs
-                .extend(reports.escaping_evaluation_inputs);
+        let reports = expand(request, selection, &DependencyContractTemplateData::new(requirements.iter().cloned()), &defaults, false)?;
 
-            expanded.template = if completion {
-                expanded
-                    .template
-                    .with_completion_reports(reports.template.requirements().iter().cloned())
-            } else {
-                expanded
-                    .template
-                    .with_abnormal_reports(reports.template.requirements().iter().cloned())
-            };
-        }
+        expanded.escaping_evaluation_inputs.extend(reports.escaping_evaluation_inputs);
+        outcome.report = Some(reports.template.requirements().into());
+    }
+
+    expanded.template = expanded.template.with_captured_values(outcomes);
+
+    if let Some(requirements) = template.abnormal_reports() {
+        let reports = expand(request, selection, &DependencyContractTemplateData::new(requirements.iter().cloned()), &defaults, false)?;
+
+        expanded.escaping_evaluation_inputs.extend(reports.escaping_evaluation_inputs);
+        expanded.template = expanded.template.with_abnormal_reports(reports.template.requirements().iter().cloned());
     }
 
     expanded.escaping_evaluation_inputs.sort();

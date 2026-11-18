@@ -207,7 +207,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         state: &mut ExecutionState,
         expression: BoundExpressionId,
         completed: impl FnOnce() -> Result<std::collections::BTreeSet<bray_symbols::DependencyRequirement>, E>,
-        mut report: impl FnMut(Option<BoundExecutionSite>, bray_bound_tree::CallReportOutput)
+        mut report: impl FnMut(Option<(BoundExecutionSite, &bray_bound_tree::BoundCallReport)>)
             -> Result<crate::dependency::ReportDependencies, E>,
     ) -> Result<(), E> {
         let value = self.value(state, expression);
@@ -227,11 +227,16 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             && formed.is_some() {
             producer.completed = Some(Arc::new(completed()?));
 
-            for output in [bray_bound_tree::CallReportOutput::DeferredCompleted,
-                bray_bound_tree::CallReportOutput::DeferredAbnormal] {
-                if self.dependencies.calls()[&source].report(output).is_some() {
-                    producer.reports.insert(output, Arc::new(report(Some(source), output)?));
-                }
+            use bray_bound_tree::CallReportOutput;
+
+            let reports = self.dependencies.calls()[&source].deferred_reports()
+                .expect("formed frame retains its checked execution phase");
+
+            let candidates = reports.completed().map(|(row, report)| (CallReportOutput::DeferredCompleted, Some(row), report))
+                .chain(reports.abnormal().map(|report| (CallReportOutput::DeferredAbnormal, None, report)));
+
+            for (output, row, contract) in candidates {
+                producer.reports.entry(output).or_default().insert(row, Arc::new(report(Some((source, contract)))?));
             }
         }
 
@@ -240,7 +245,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             for output in [bray_bound_tree::CallReportOutput::DeferredCompleted,
                 bray_bound_tree::CallReportOutput::DeferredAbnormal] {
-                producer.reports.insert(output, Arc::new(report(None, output)?));
+                producer.reports.entry(output).or_default().insert(None, Arc::new(report(None)?));
             }
         }
 
@@ -271,19 +276,21 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             bray_bound_tree::CallReportOutput::DeferredCompleted
         };
 
-        for captured in deferred
-            .producers
-            .values()
-            .filter_map(|candidate| candidate.reports.get(&output).map(|report| (&candidate.selection, report)))
-            .chain(deferred.unknown.iter().filter_map(|candidate| candidate.reports.get(&output)
-                .map(|report| (&candidate.selection, report))))
-            .filter(|(guard, _)| super::super::deferred::possible(guard, &state.ordinary_proof()))
-            .map(|(_, reports)| reports)
-        {
+        let proof = state.ordinary_proof();
+
+        let formed = deferred.producers.values()
+            .filter(|candidate| super::super::deferred::possible(&candidate.selection, &proof))
+            .filter_map(|candidate| candidate.reports.get(&output)?.admitted(Some(&candidate.entry.outputs)));
+
+        let opaque = deferred.unknown.iter()
+            .filter(|candidate| super::super::deferred::possible(&candidate.selection, &proof))
+            .filter_map(|candidate| candidate.reports.get(&output)?.admitted(None));
+
+        for captured in formed.chain(opaque) {
             if let Some(previous) = &mut reports {
-                crate::dependency::ReportDependencies::merge(previous, captured);
+                crate::dependency::ReportDependencies::merge(previous, &captured);
             } else {
-                reports = Some(Arc::clone(captured));
+                reports = Some(captured);
             }
         }
 
@@ -336,7 +343,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 |root| root.input_ordinal(producer.has_receiver()));
 
             let count = entry.positional_arguments().count();
-            let outputs = self.bind_entry_outputs(state, entry, execution, count, ExecutionCondition::unknown(), &transitions);
+            let outputs = self.bind_entry_outputs(state, entry, execution, count, ExecutionCondition::unknown(), &transitions, true);
 
             if entry.outputs != outputs {
                 let producer = Arc::make_mut(&mut started).producers.get_mut(source).expect("selected body retains its entry");

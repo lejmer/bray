@@ -224,10 +224,8 @@ impl Plan {
                         let contract =
                             &dependencies.lifecycle_dependencies()[&lifecycle.call.callable];
 
-                        contract
-                            .completion_reports()
-                            .into_iter()
-                            .chain(contract.abnormal_reports())
+                        contract.captured_values().iter().filter_map(|outcome| outcome.report.as_deref())
+                    .chain(contract.abnormal_reports())
                             .any(|requirements| !requirements.is_empty())
                             || (lifecycle
                                 .call

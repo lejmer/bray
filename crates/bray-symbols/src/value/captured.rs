@@ -238,7 +238,10 @@ impl<Input, Projection, Static, Callee, Variant> CapturedValueTemplate<Input, Pr
 /// Values produced together on one feasible normal exit.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CapturedValueOutcome<Subject = super::DependencySubject, Input = ConstantTermId, Projection = DependencyProjection,
-    Static = crate::StaticReferenceSelection, Guard = Input, OwnedProjection = super::ConstantProjectionKind, Callee = CapturedCallable, Variant = crate::UnionVariantSymbolId> {
+    Static = crate::StaticReferenceSelection, Guard = Input, OwnedProjection = super::ConstantProjectionKind, Callee = CapturedCallable, Variant = crate::UnionVariantSymbolId,
+    Report = super::DependencyRequirement> {
+    /// The report produced on this exit, including any storage dependencies it carries.
+    pub report: Option<Arc<[Report]>>,
     /// Checked guarantees and the returned owners supporting them on this exit.
     pub carriers: Arc<[super::DependencyWitnessCarrier<Projection, Guard>]>,
     /// Transfers of existing input ownership on this exit, sharing its guard and result.
@@ -256,8 +259,15 @@ pub struct CapturedValueOutcome<Subject = super::DependencySubject, Input = Cons
     pub bindings: Arc<[(Subject, CapturedValueTemplate<Input, Projection, Static, Callee, Variant>)]>,
 }
 
-impl<Subject, Input, Projection, Static, Guard, OwnedProjection, Callee: Eq, Variant: Eq> CapturedValueOutcome<Subject, Input, Projection, Static, Guard, OwnedProjection, Callee, Variant>
+impl<Subject, Input, Projection, Static, Guard, OwnedProjection, Callee: Eq, Variant: Eq, Report> CapturedValueOutcome<Subject, Input, Projection, Static, Guard, OwnedProjection, Callee, Variant, Report>
 where Subject: Ord, Input: Eq, Projection: Eq, Static: Eq {
+    /// Retains the report accompanying this normal result.
+    pub fn with_report(mut self, report: Option<Arc<[Report]>>) -> Self {
+        self.report = report;
+
+        self
+    }
+
     /// Attaches only guarantees established by this exit.
     pub fn with_carriers(mut self, carriers: impl IntoIterator<Item = super::DependencyWitnessCarrier<Projection, Guard>>) -> Self
     where Projection: Ord, Guard: Ord {
@@ -312,6 +322,7 @@ where Subject: Ord, Input: Eq, Projection: Eq, Static: Eq {
 
         Self {
             guard,
+            report: None,
             carriers: Arc::default(),
             bindings: writes.into_iter().collect(),
             ownership: Default::default(),
@@ -322,8 +333,8 @@ where Subject: Ord, Input: Eq, Projection: Eq, Static: Eq {
     }
 }
 
-impl<Subject: Ord + Clone, Input: Ord + Clone, Projection: Ord + Clone, Static: Ord + Clone, Guard: Ord + Clone, OwnedProjection: Ord + Clone, Callee: Ord + Clone, Variant: Ord + Clone>
-    CapturedValueOutcome<Subject, Input, Projection, Static, Guard, OwnedProjection, Callee, Variant>
+impl<Subject: Ord + Clone, Input: Ord + Clone, Projection: Ord + Clone, Static: Ord + Clone, Guard: Ord + Clone, OwnedProjection: Ord + Clone, Callee: Ord + Clone, Variant: Ord + Clone, Report: Ord + Clone>
+    CapturedValueOutcome<Subject, Input, Projection, Static, Guard, OwnedProjection, Callee, Variant, Report>
 {
     /// Guarantees every listed exit establishes on the same owner.
     pub fn common_carriers(rows: &[Self]) -> Arc<[super::DependencyWitnessCarrier<Projection, Guard>]> {
@@ -413,6 +424,20 @@ impl<Subject: Ord + Clone, Input: Ord + Clone, Projection: Ord + Clone, Static: 
             .cloned())
     }
 
+    /// Joins possible reports across normal exits, retaining independent reports.
+    pub fn possible_report<'a>(rows: impl IntoIterator<Item = &'a Self>) -> Option<Arc<[Report]>>
+    where Self: 'a {
+        let mut reports = rows.into_iter().filter_map(|row| row.report.as_ref());
+        let first = reports.next()?;
+
+        if let Some(second) = reports.next() {
+            Some(bray_base::sorted_unique_shared_slice(first.iter().chain(second.iter())
+                .chain(reports.flat_map(|report| report.iter())).cloned()))
+        } else {
+            Some(Arc::clone(first))
+        }
+    }
+
     /// Widens successive approximations of reachable exits at a fixed point.
     /// An unspecified normal outcome supplies no guaranteed writes.
     pub fn join_reachable(left: &[Self], right: &[Self], contains: impl Fn(&Subject, &Subject) -> bool) -> Arc<[Self]> {
@@ -450,9 +475,10 @@ impl<Subject: Ord + Clone, Input: Ord + Clone, Projection: Ord + Clone, Static: 
                 let stored_values = Self::stored_dependencies(&old, &contains);
 
                 let inactive_payloads = Self::common_inactive_payloads(&old, &contains);
+                let report = Self::possible_report(&old);
                 let ownership = super::DependencyOwnedResult::choice(old.into_iter().map(|row| row.ownership));
 
-                result.push(Self { guard, bindings, ownership, carriers, references, stored_values, inactive_payloads });
+                result.push(Self { guard, report, bindings, ownership, carriers, references, stored_values, inactive_payloads });
             }
         }
 

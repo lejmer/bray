@@ -86,11 +86,6 @@ impl<'a> SemanticExporter<'a> {
 
         let mut contract = InterfaceDependencyContract::new(requirements);
 
-        if let Some(requirements) = data.completion_reports() {
-            contract =
-                contract.with_completion_reports(self.dependency_requirements(requirements)?);
-        }
-
         if let Some(requirements) = data.abnormal_reports() {
             contract = contract.with_abnormal_reports(self.dependency_requirements(requirements)?);
         }
@@ -162,6 +157,9 @@ impl<'a> SemanticExporter<'a> {
             .into_iter().map(|outcome| {
                 let guard = outcome.guard.map(|term| self.constant_term_id(term)).transpose()?;
 
+                let report = outcome.report.as_ref().map(|requirements|
+                    self.dependency_requirements(requirements).map(bray_base::sorted_unique_shared_slice)).transpose()?;
+
                 let bindings = self.dependency_order(&outcome.bindings, |encoder, write| encoder.dependency_captured_write(write))?
                     .into_iter().map(|(destination, value)| {
                 let mut inputs = std::collections::BTreeMap::new();
@@ -217,7 +215,7 @@ impl<'a> SemanticExporter<'a> {
             })
             .collect::<Result<Vec<_>, PackageInterfaceExportError>>()?;
 
-                Ok(bray_symbols::CapturedValueOutcome::new(guard, bindings).with_carriers(carriers)
+                Ok(bray_symbols::CapturedValueOutcome::new(guard, bindings).with_carriers(carriers).with_report(report)
                     .with_ownership(self.dependency_owned_result(&outcome.ownership)?)
                     .with_storage(self.dependency_borrow_relations(&outcome.references)?,
                         self.dependency_stored_values(&outcome.stored_values)?)

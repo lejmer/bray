@@ -77,10 +77,8 @@ impl InterfaceSemantics {
 
             if !is_strictly_sorted(&contract.requirements)
                 || !is_strictly_sorted(&contract.synchronous_cleanup)
-                || contract
-                    .completion_reports
-                    .as_deref()
-                    .is_some_and(|requirements| !is_strictly_sorted(requirements))
+                || contract.captured_values.iter().flat_map(|row| row.report.iter())
+                    .any(|report| !is_strictly_sorted(report))
                 || contract
                     .abnormal_reports
                     .as_deref()
@@ -222,10 +220,7 @@ impl InterfaceSemantics {
                 .requirements
                 .iter()
                 .chain(
-                    contract
-                        .completion_reports
-                        .iter()
-                        .flat_map(|items| items.iter()),
+                    contract.captured_values.iter().flat_map(|row| row.report.iter().flat_map(|report| report.iter())),
                 )
                 .chain(
                     contract
