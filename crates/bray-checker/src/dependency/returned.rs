@@ -270,7 +270,7 @@ pub(crate) fn resolved_result_template<C: CheckerRequestContext + ?Sized>(
         .iter()
         .any(|effect| matches!(effect, bray_symbols::DependencyStorageEffect::Direct { kind: bray_symbols::DependencyMutationKind::Dispose(_) | bray_symbols::DependencyMutationKind::Cleanup(_), .. } | bray_symbols::DependencyStorageEffect::Indirect { kind: bray_symbols::DependencyMutationKind::Dispose(_) | bray_symbols::DependencyMutationKind::Cleanup(_), .. } | bray_symbols::DependencyStorageEffect::UnboundedMutation { kind: bray_symbols::DependencyMutationKind::Dispose(_) | bray_symbols::DependencyMutationKind::Cleanup(_), .. }))
     {
-        result = result.with_effect_outcomes(super::cleanup::resolve_effect_outcomes(request, template.effect_outcomes())?);
+        result = super::cleanup::resolve_contract_effects(request, result)?;
     }
 
     if let Some(instance) = cleanup_call {

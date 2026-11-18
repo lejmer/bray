@@ -25,7 +25,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             .filter(|path| self.formal_root(path.root) == Some(DependencySubjectRoot::Result))
             .cloned().collect::<BTreeSet<_>>();
 
-        for super::super::core::NormalExit { storage: physical, value, returned, report } in exits {
+        for super::super::core::NormalExit { storage: physical, value, returned, report, effects } in exits {
             let (stored_values, embedded) = self.stored_values(&physical)?;
 
             let exit_references = self.borrow_relations(&physical)?.into_iter().chain(embedded);
@@ -39,7 +39,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 .collect::<Vec<_>>();
 
             let Some(crate::analysis::guarantee::NormalReturn { captured: outcome, carriers, transfers: ownership }) = returned else {
-                captured_values.push(bray_symbols::CapturedValueOutcome::new(None, []).with_report(report)
+                captured_values.push(bray_symbols::CapturedValueOutcome::new(None, []).with_report(report).with_effects(effects.iter().cloned())
                     .with_storage(exit_references, stored_values).with_inactive_payloads(inactive_payloads));
 
                 continue;
@@ -89,7 +89,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 ));
             }
 
-            captured_values.push(outcome.with_report(report).with_ownership(self.owned_result(ownership)?)
+            captured_values.push(outcome.with_report(report).with_effects(effects.iter().cloned()).with_ownership(self.owned_result(ownership)?)
                 .with_carriers(published).with_storage(exit_references, stored_values)
                 .with_inactive_payloads(inactive_payloads));
         }

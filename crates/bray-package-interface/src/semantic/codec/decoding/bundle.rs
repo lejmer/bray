@@ -955,7 +955,7 @@ mod tests {
         assert_ne!(*remapped, selected_term, "unused preceding term must not survive selection");
         assert_eq!(decoded.constant_terms()[remapped.raw() as usize], crate::InterfaceConstantTerm::CallableArgument(SymbolOrdinal::new(143)));
 
-        for effect in decoded.dependency_contracts[0].effects.possible() {
+        for effect in &*decoded.dependency_contracts[0].effects {
             let (ty, original) = match effect {
                 DependencyStorageEffect::Direct { kind: DependencyMutationKind::Replace(ty), access_type: Some(original), .. }
                 | DependencyStorageEffect::Indirect { kind: DependencyMutationKind::Replace(ty), access_type: Some(original), .. } => (Some(ty), original),

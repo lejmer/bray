@@ -1,4 +1,3 @@
-use bray_symbols::DependencyStorageEffect;
 use std::sync::Arc;
 
 use super::mapping::RecordMaps;
@@ -313,6 +312,26 @@ fn remap_dependency_contract(
         .map(|term| maps.constant_term_id(term))
         .transpose()?;
 
+    let remap_effect = |effect: &crate::InterfaceStorageEffect| effect.try_map(
+        &mut (),
+        |_, subject| {
+            // The selected artifact owns its remapped subject.
+            let mut subject = subject.clone();
+
+            remap_dependency_subject(&mut subject, maps)?;
+
+            Ok(subject)
+        },
+        |_, projections| {
+            let mut projections = projections.to_vec();
+
+            remap_dependency_projections(&mut projections, maps)?;
+
+            Ok(projections.into())
+        },
+        |_, ty| maps.type_id(ty),
+    );
+
     contract.captured_values = contract.captured_values.iter().map(|outcome| {
         let guard = outcome.guard.map(|term| maps.constant_term_id(term)).transpose()?;
         let mut report = outcome.report.clone();
@@ -391,44 +410,15 @@ fn remap_dependency_contract(
             remap_dependency_subject(payload, maps)?;
         }
 
-        Ok(bray_symbols::CapturedValueOutcome::new(guard, bindings).with_carriers(carriers).with_report(report)
+        let effects = outcome.effects.iter().map(remap_effect).collect::<Result<Vec<_>, _>>()?;
+
+        Ok(bray_symbols::CapturedValueOutcome::new(guard, bindings).with_effects(effects).with_carriers(carriers).with_report(report)
             .with_ownership(owned_result).with_storage(references, stored_values)
             .with_inactive_payloads(inactive_payloads))
     }).collect::<Result<_, InterfaceValidationError>>()?;
 
-    contract.effects = contract.effects.try_map(|original| {
-        // Selected records own their remapped subjects and share immutable paths until changed.
-        let mut effect = original.clone();
-
-        if let DependencyStorageEffect::Direct { kind, access_type, .. }
-        | DependencyStorageEffect::Indirect { kind, access_type, .. }
-        | DependencyStorageEffect::UnboundedMutation { kind, access_type, .. } = &mut effect
-        {
-            *kind = kind.try_map_type(|ty| maps.type_id(ty))?;
-            *access_type = access_type.map(|ty| maps.type_id(ty)).transpose()?;
-        }
-
-        match &mut effect {
-            DependencyStorageEffect::UnboundedMutation { .. }
-                | DependencyStorageEffect::Atomic
-            | DependencyStorageEffect::Ambient
-            | DependencyStorageEffect::Unknown
-            | DependencyStorageEffect::Escape => {}
-            DependencyStorageEffect::Direct { subject, .. } => {
-                remap_dependency_subject(subject, maps)?
-            }
-            DependencyStorageEffect::Indirect {
-                reference,
-                projections,
-                ..
-            } => {
-                remap_dependency_subject(reference, maps)?;
-                remap_dependency_projections(Arc::make_mut(projections), maps)?;
-            }
-        }
-
-        Ok::<_, InterfaceValidationError>(effect)
-    })?;
+    contract.effects = bray_base::sorted_unique_shared_slice(
+        contract.effects.iter().map(remap_effect).collect::<Result<Vec<_>, _>>()?);
 
     Ok(contract
 )

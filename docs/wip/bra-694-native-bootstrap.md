@@ -33,6 +33,9 @@ produced results directly. Checkpoint 3c9b4845a shares checked implicit input ca
 Checkpoint 570915f20 carries normal reports with guarded outcomes and preserves symbolic
 report equations during recursive checking. Checkpoint 15abf8f8a uses admitted raw read
 descriptors, one resolved cleanup receiver, and stable predecessor conditions on joined frames.
+Checkpoint 33fd987bb shares typed subject and endpoint routes between calls and scheduled
+cleanup. Checkpoint 18eac85b0 carries the selected receiver type through interface revision 7
+and uses the same typed reader for captured and current memory.
 Checkpoint 21324247c moves physical references, stored dependencies and inactive payloads
 onto the producing exit and carries actual union tags through interface revision 5. Call admission
 uses the same feasibility decision for physical and logical outputs. Established physical descriptors
@@ -253,6 +256,11 @@ start/observe/cancel, normal cleanup and abnormal duties are the integrated cont
   lifecycle controls. Reconsider if routing demands materializing the captured snapshot
   into current memory or fabricating a location for an inline value. Keep production
   growth within the existing target and replace duplicate descriptor interpretation.
+  The nested backing regression passes, the four unit suites are clean, and the source,
+  import and owner panels retain the same 46 failing identities. The cleanup reference
+  replacement control passes with its original fixture. The extra cleanup panel passes 18
+  of 20 active cases with two ignored. Its two open failures are the missing scoped exit
+  authority diagnostic and conditional payload cleanup.
 
 
 - Record portable effects as a prefix of the reached composite state. The same operation
@@ -279,6 +287,18 @@ start/observe/cancel, normal cleanup and abnormal duties are the integrated cont
   original slots, a separate CFG traversal, or adding branch histories to loop identity.
   Internal joins may still need to carry guarded stores and prefixes from their
   predecessor snapshots before a single exit can publish branch-specific outputs.
+  Source flow records portable may-effects in the reached state and publishes them on
+  each exit. Calls, cleanup and activation now select the feasible normal effects from
+  those rows. The package codec, record selection, interning, type substitution and
+  specialization use interface revision 8. A checked envelope covers every row.
+  The release candidate kept all 46 failing identities in the two behavioral panels.
+  Checker, symbols and bound-tree tests pass. Four handwritten wire fixtures still
+  had the old aggregate normal field, and one encoded a normal row for a noncompleting
+  contract. After updating those fixtures, all 218 interface tests pass. Style and
+  maintained-source formatting also completed. Keep the conditional finalizer case
+  open while internal joins still drop its selected reference.
+  A later trace should observe actual private Task entries and their witness availability
+  when entering and leaving the selected body. Use generic joined-task controls only.
 
 Await, scheduling, and opaque cleanup must consume the selected frame's transition directly. A capture can itself
 hold an unrelated frame formed at the same source site. Searching nested values by site can execute that other

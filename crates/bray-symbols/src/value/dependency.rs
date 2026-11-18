@@ -778,7 +778,7 @@ impl DependencyContractTemplateData {
     pub fn with_captured_values(mut self, values: impl IntoIterator<Item = super::CapturedValueOutcome>) -> Self {
         self.captured_values = sorted_unique_shared_slice(values);
 
-        self
+        self.refresh_normal_effects()
     }
 
     /// Returns the whole-value expression, with explicit unknown for lost precision.
@@ -830,7 +830,7 @@ impl DependencyContractTemplateData {
         let report = sorted_unique_shared_slice(requirements);
 
         if self.captured_values.is_empty() {
-            self.captured_values = [super::CapturedValueOutcome::new(None, []).with_report(Some(report))].into();
+            self.captured_values = [self.take_authored_outcome().with_report(Some(report))].into();
         } else {
             self.captured_values = sorted_unique_shared_slice(self.captured_values.iter().cloned()
                 .map(|row| row.with_report(Some(Arc::clone(&report)))));
@@ -993,7 +993,7 @@ impl DependencyContractTemplateData {
     pub fn with_normal_completion(mut self, possible: bool) -> Self {
         self.normal_completion = possible;
 
-        self
+        self.refresh_normal_effects()
     }
 
     /// False proves that execution has no normal result. Unknown callees default to true.
@@ -1001,9 +1001,14 @@ impl DependencyContractTemplateData {
         self.normal_completion
     }
 
-    /// Records the possible transitions on paths reaching normal completion.
-    pub fn with_normal_effects(mut self, effects: impl IntoIterator<Item = DependencyStorageEffect>) -> Self {
-        self.effects = self.effects.with_normal(effects);
+    fn refresh_normal_effects(mut self) -> Self {
+        if !self.normal_completion {
+            self.effects = self.effects.with_normal([]);
+        } else if self.captured_values.is_empty() {
+            self.effects = super::DependencyEffectOutcomes::new(self.effects.possible().iter().cloned());
+        } else {
+            self.effects = self.effects.with_normal(self.captured_values.iter().flat_map(|row| row.effects.iter().cloned()));
+        }
 
         self
     }
@@ -1029,7 +1034,7 @@ impl DependencyContractTemplateData {
 
     fn take_authored_outcome(&self) -> super::CapturedValueOutcome {
         match self.captured_values.as_ref() {
-            [] => super::CapturedValueOutcome::new(None, []),
+            [] => super::CapturedValueOutcome::new(None, []).with_effects(self.normal_effects().iter().cloned()),
             [row] if row.guard.is_none() => row.clone(),
             _ => panic!("explicit physical observations require one unguarded outcome"),
         }
@@ -1040,14 +1045,26 @@ impl DependencyContractTemplateData {
         super::CapturedValueOutcome::reference_origins(self.captured_values.iter(), DependencySubject::contains)
     }
 
-    /// Attaches the complete may-mutation summary proved by the owning body analysis.
+    /// Attaches possible transitions common to the authored normal outcomes.
     pub fn with_effects(
         mut self,
         effects: impl IntoIterator<Item = DependencyStorageEffect>,
     ) -> Self {
+        let effects = DependencyStorageEffect::normalize(effects);
+
+        if !self.captured_values.is_empty() {
+            self.captured_values = sorted_unique_shared_slice(self.captured_values.iter().cloned()
+                .map(|row| row.with_effects(effects.iter().cloned())));
+        }
+
+        self.with_possible_effects(effects.iter().cloned())
+    }
+
+    /// Attaches the conservative transition envelope, retaining every normal row.
+    pub fn with_possible_effects(mut self, effects: impl IntoIterator<Item = DependencyStorageEffect>) -> Self {
         self.effects = super::DependencyEffectOutcomes::new(DependencyStorageEffect::normalize(effects).iter().cloned());
 
-        self
+        self.refresh_normal_effects()
     }
 
     /// Records remaining cleanup that must be admissible in a synchronous callee.
@@ -1073,13 +1090,6 @@ impl DependencyContractTemplateData {
 
     /// Returns possible transitions on normal completion.
     pub fn normal_effects(&self) -> &[DependencyStorageEffect] { self.effects.normal() }
-
-    /// Retains effect outcomes after translating their identities.
-    pub fn with_effect_outcomes(mut self, effects: super::DependencyEffectOutcomes<DependencyStorageEffect>) -> Self {
-        self.effects = effects;
-
-        self
-    }
 
     /// Returns the connected effect contract for every completion boundary.
     pub const fn effect_outcomes(&self) -> &super::DependencyEffectOutcomes<DependencyStorageEffect> { &self.effects }

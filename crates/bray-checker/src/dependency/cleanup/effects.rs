@@ -35,12 +35,40 @@ pub(crate) fn resolve_effects<C: CheckerRequestContext + ?Sized>(
     resolve_effects_using(request, effects, bray_symbols::DependencyContractTemplateData::effects)
 }
 
-pub(crate) fn resolve_effect_outcomes<C: CheckerRequestContext + ?Sized>(
+pub(crate) fn resolve_contract_effects<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
-    effects: &bray_symbols::DependencyEffectOutcomes<Effect>,
-) -> Result<bray_symbols::DependencyEffectOutcomes<Effect>, CheckerQueryError<C::UpstreamError>> {
-    Ok(bray_symbols::DependencyEffectOutcomes::new(resolve_effects(request, effects.possible())?)
-        .with_normal(resolve_effects_using(request, effects.normal(), bray_symbols::DependencyContractTemplateData::normal_effects)?))
+    template: bray_symbols::DependencyContractTemplateData,
+) -> Result<bray_symbols::DependencyContractTemplateData, CheckerQueryError<C::UpstreamError>> {
+    let possible = resolve_effects(request, template.effects())?;
+    let mut normal = std::collections::BTreeMap::<&Effect, Vec<Effect>>::new();
+    let mut outcomes = Vec::new();
+
+    for row in template.captured_values() {
+        let mut effects = Vec::new();
+
+        for effect in row.effects.iter() {
+            let resolved = match normal.entry(effect) {
+                std::collections::btree_map::Entry::Occupied(entry) => entry.into_mut(),
+                std::collections::btree_map::Entry::Vacant(entry) => entry.insert(resolve_effects_using(
+                    request, std::slice::from_ref(effect), bray_symbols::DependencyContractTemplateData::normal_effects)?),
+            };
+
+            effects.extend(resolved.iter().cloned());
+        }
+
+        // Layout, reports and value bindings belong to the same specialized exit.
+        outcomes.push(row.clone().with_effects(effects));
+    }
+
+    if outcomes.is_empty() && template.normal_completion() {
+        let effects = resolve_effects_using(request, template.normal_effects(), bray_symbols::DependencyContractTemplateData::normal_effects)?;
+
+        if effects != possible {
+            outcomes.push(bray_symbols::CapturedValueOutcome::new(None, []).with_effects(effects));
+        }
+    }
+
+    Ok(template.with_captured_values(outcomes).with_possible_effects(possible))
 }
 
 fn resolve_effects_using<C: CheckerRequestContext + ?Sized>(

@@ -3,6 +3,9 @@ use bray_bound_tree::{
     BorrowCapabilityId, BoundExpressionId, StorageAccessId, StorageIdentityId, StoragePlan,
 };
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
+
+pub(in crate::analysis::storage_flow) type EffectPrefix = Arc<BTreeSet<bray_symbols::DependencyStorageEffect>>;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::analysis) enum StorageAbsence {
@@ -29,6 +32,7 @@ pub(in crate::analysis) struct StorageFlowState {
     pub(in crate::analysis::storage_flow) definitely_active_borrows: BTreeSet<BorrowCapabilityId>,
     // Entry referents whose inline contents were written on every path to this state.
     pub(in crate::analysis::storage_flow) written_inputs: BTreeSet<bray_symbols::DependencySubjectRoot>,
+    pub(in crate::analysis::storage_flow) effect_prefix: EffectPrefix,
     pub(in crate::analysis::storage_flow) result_dependencies: crate::dependency::ResultState,
     pub(in crate::analysis::storage_flow) memory: crate::analysis::storage_flow::memory::State,
     reports: BTreeMap<Option<BoundExpressionId>, RetainedReports>,
@@ -333,6 +337,7 @@ impl StorageFlowState {
             active_borrows,
             memory,
             written_inputs: BTreeSet::new(),
+            effect_prefix: EffectPrefix::default(),
             result_dependencies: Default::default(),
             reports: BTreeMap::new(),
             recovered: false,
@@ -360,6 +365,14 @@ impl StorageFlowState {
             &incoming.execution,
             crate::analysis::guarantee::ExecutionJoin::from(block),
         );
+
+        let effects_changed = !Arc::ptr_eq(&self.effect_prefix, &incoming.effect_prefix)
+            && !incoming.effect_prefix.is_subset(&self.effect_prefix);
+
+        if effects_changed {
+            // Both predecessor effect sets retain the immutable portable descriptions.
+            Arc::make_mut(&mut self.effect_prefix).extend(incoming.effect_prefix.iter().cloned());
+        }
 
         let written_count = self.written_inputs.len();
 
@@ -449,7 +462,8 @@ impl StorageFlowState {
 
         self.recovered |= incoming.recovered;
 
-        self.written_inputs.len() != written_count
+        effects_changed
+            || self.written_inputs.len() != written_count
             || dependencies_changed
             || reports_changed
             || execution_changed

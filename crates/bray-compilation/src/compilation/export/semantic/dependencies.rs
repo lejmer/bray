@@ -33,56 +33,7 @@ impl<'a> SemanticExporter<'a> {
 
         let requirements = self.dependency_requirements(data.requirements())?;
 
-        let mut normal_effects = Vec::new();
-
-        let effects = self
-            .dependency_order(data.effects(), |encoder, item| {
-                encoder.dependency_effect(item)
-            })?
-            .into_iter()
-            .map(|effect| {
-
-                let mapped = match effect {
-                    DependencyStorageEffect::UnboundedMutation { kind, access_type, ambient } => DependencyStorageEffect::UnboundedMutation {
-                        kind: kind.try_map_type(|ty| self.type_id(ty))?,
-                        access_type: access_type.map(|ty| self.type_id(ty)).transpose()?,
-                        ambient: *ambient,
-                    },
-                    DependencyStorageEffect::Atomic => DependencyStorageEffect::Atomic,
-                    DependencyStorageEffect::Ambient => DependencyStorageEffect::Ambient,
-                    DependencyStorageEffect::Unknown => DependencyStorageEffect::Unknown,
-                    DependencyStorageEffect::Escape => DependencyStorageEffect::Escape,
-                    DependencyStorageEffect::Direct { addressed, subject, kind, access_type } => {
-                        DependencyStorageEffect::Direct { addressed: *addressed,
-                            subject: self.dependency_subject(subject)?,
-                            kind: kind.try_map_type(|ty| self.type_id(ty))?,
-                            access_type: access_type.map(|ty| self.type_id(ty)).transpose()?,
-                        }
-                    }
-                    DependencyStorageEffect::Indirect { addressed, reads,
-                        reference,
-                        projections,
-                        kind,
-                        access_type,
-                    } => DependencyStorageEffect::Indirect { addressed: *addressed, reads: std::sync::Arc::clone(reads),
-                        reference: self.dependency_subject(reference)?,
-                        projections: projections
-                            .iter()
-                            .map(|projection| self.dependency_projection(projection))
-                            .collect::<Result<_, PackageInterfaceExportError>>()?,
-                        kind: kind.try_map_type(|ty| self.type_id(ty))?,
-                        access_type: access_type.map(|ty| self.type_id(ty)).transpose()?,
-                    },
-                };
-
-                if data.normal_effects().binary_search(effect).is_ok() {
-                    // The outcome shares translated subjects and immutable projection paths.
-                    normal_effects.push(mapped.clone());
-                }
-
-                Ok(mapped)
-            })
-            .collect::<Result<Vec<_>, PackageInterfaceExportError>>()?;
+        let effects = self.dependency_effects(data.effects())?;
 
         let mut contract = InterfaceDependencyContract::new(requirements);
 
@@ -98,7 +49,6 @@ impl<'a> SemanticExporter<'a> {
                     .transpose()?,
             )
             .with_effects(effects)
-            .with_normal_effects(normal_effects)
             .with_synchronous_cleanup(self.dependency_requirements(data.synchronous_cleanup())?)
             .with_normal_completion(data.normal_completion());
 
@@ -150,6 +100,20 @@ impl<'a> SemanticExporter<'a> {
                         bray_symbols::DependencyStoredValuePath::new(self.dependency_subject(stored.destination().subject())?, stored.destination().dereferences()), sources, stored.is_complete(),
                     ))
                 }).collect::<Result<Vec<_>, PackageInterfaceExportError>>()
+    }
+
+    fn dependency_effects(
+        &mut self,
+        effects: &[DependencyStorageEffect],
+    ) -> Result<Vec<bray_package_interface::InterfaceStorageEffect>, PackageInterfaceExportError> {
+        self.dependency_order(effects, |encoder, effect| encoder.dependency_effect(effect))?
+            .into_iter().map(|effect| effect.try_map(
+                self,
+                Self::dependency_subject,
+                |exporter, projections| projections.iter()
+                    .map(|projection| exporter.dependency_projection(projection)).collect(),
+                Self::type_id,
+            )).collect()
     }
 
     fn dependency_captured_bindings(&mut self, bindings: &[bray_symbols::CapturedValueOutcome]) -> Result<Vec<bray_package_interface::InterfaceNormalOutcome>, PackageInterfaceExportError> {
@@ -216,7 +180,9 @@ impl<'a> SemanticExporter<'a> {
             })
             .collect::<Result<Vec<_>, PackageInterfaceExportError>>()?;
 
-                Ok(bray_symbols::CapturedValueOutcome::new(guard, bindings).with_carriers(carriers).with_report(report)
+                let effects = self.dependency_effects(&outcome.effects)?;
+
+                Ok(bray_symbols::CapturedValueOutcome::new(guard, bindings).with_effects(effects).with_carriers(carriers).with_report(report)
                     .with_ownership(self.dependency_owned_result(&outcome.ownership)?)
                     .with_storage(self.dependency_borrow_relations(&outcome.references)?,
                         self.dependency_stored_values(&outcome.stored_values)?)

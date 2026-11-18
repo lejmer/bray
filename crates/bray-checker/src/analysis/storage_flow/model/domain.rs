@@ -175,7 +175,7 @@ where
                 edge.refinement()
         {
             self.collector()
-                .apply_failure_effects(&mut incoming, occurrence, false);
+                .apply_failure_effects(&mut incoming, occurrence);
         }
 
         if !incoming.reachable

@@ -478,7 +478,7 @@ fn body_result_dependencies(
     } else {
         None
     })
-    .with_effects(previous.effects().iter().chain(checked.effects()).cloned())
+    .with_possible_effects(previous.effects().iter().chain(checked.effects()).cloned())
     .with_synchronous_cleanup(
         previous
             .synchronous_cleanup()
@@ -486,9 +486,7 @@ fn body_result_dependencies(
             .chain(checked.synchronous_cleanup())
             .cloned(),
     )
-    .with_normal_completion(previous.normal_completion() || checked.normal_completion())
-    .with_normal_effects(previous.normal_effects().iter().filter(|_| previous.normal_completion())
-        .chain(checked.normal_effects().iter().filter(|_| checked.normal_completion())).cloned());
+    .with_normal_completion(previous.normal_completion() || checked.normal_completion());
 
     if previous.abnormal_reports().is_some() || checked.abnormal_reports().is_some() {
         result = result.with_abnormal_reports(

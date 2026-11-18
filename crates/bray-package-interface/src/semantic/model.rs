@@ -28,7 +28,7 @@ pub use dependency::{
     InterfaceDependencyCallInput, InterfaceDependencyContract, InterfaceDependencyGuard,
     InterfaceDependencyProjection, InterfaceDependencyRequirement,
     InterfaceDependencyRequirementKind, InterfaceDependencyRequirementValue,
-    InterfaceCapturedCallable, InterfaceNormalOutcome, InterfaceDependencySubject, InterfaceDependencySubjectRoot,
+    InterfaceCapturedCallable, InterfaceNormalOutcome, InterfaceStorageEffect, InterfaceDependencySubject, InterfaceDependencySubjectRoot,
 };
 pub use id::{
     InterfaceCallableInstanceId, InterfaceCheckedTemplateId, InterfaceConstantTermId,

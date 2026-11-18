@@ -194,47 +194,15 @@ impl SemanticValueStore {
                 .collect::<Result<Vec<_>, _>>()
         })?;
 
-        let effects = template
-            .effect_outcomes()
-            .try_map(|effect| {
+        let effect = |effect: &DependencyStorageEffect| effect.try_map(
+            &mut (),
+            |_, subject| self.substitute_dependency_subject(subject, substitution),
+            |_, projections| projections.iter()
+                .map(|projection| self.substitute_dependency_projection(projection, substitution)).collect(),
+            |_, ty| self.substitute_type_data(ty, substitution),
+        );
 
-                Ok(match effect {
-                    DependencyStorageEffect::UnboundedMutation { kind, access_type, ambient } => DependencyStorageEffect::UnboundedMutation {
-                        kind: kind.try_map_type(|ty| self.substitute_type_data(ty, substitution))?,
-                        access_type: access_type.map(|ty| self.substitute_type_data(ty, substitution)).transpose()?,
-                        ambient: *ambient,
-                    },
-                    DependencyStorageEffect::Atomic => DependencyStorageEffect::Atomic,
-                    DependencyStorageEffect::Ambient => DependencyStorageEffect::Ambient,
-                    DependencyStorageEffect::Unknown => DependencyStorageEffect::Unknown,
-                    DependencyStorageEffect::Escape => DependencyStorageEffect::Escape,
-                    DependencyStorageEffect::Direct { addressed, subject, kind, access_type } => {
-                        DependencyStorageEffect::Direct { addressed: *addressed,
-                            subject: self.substitute_dependency_subject(subject, substitution)?,
-                            kind: kind
-                                .try_map_type(|ty| self.substitute_type_data(ty, substitution))?,
-                            access_type: access_type.map(|ty| self.substitute_type_data(ty, substitution)).transpose()?,
-                        }
-                    }
-                    DependencyStorageEffect::Indirect { addressed, reads,
-                        reference,
-                        projections,
-                        kind,
-                        access_type,
-                    } => DependencyStorageEffect::Indirect { addressed: *addressed, reads: std::sync::Arc::clone(reads),
-                        reference: self.substitute_dependency_subject(reference, substitution)?,
-                        projections: projections
-                            .iter()
-                            .map(|projection| {
-                                self.substitute_dependency_projection(projection, substitution)
-                            })
-                            .collect::<Result<_, SemanticValueStoreError>>()?,
-                        kind: kind
-                            .try_map_type(|ty| self.substitute_type_data(ty, substitution))?,
-                        access_type: access_type.map(|ty| self.substitute_type_data(ty, substitution)).transpose()?,
-                    },
-                })
-            })?;
+        let effects = template.effects().iter().map(effect).collect::<Result<Vec<_>, _>>()?;
 
         let captured_values = substituted.captured_values().iter().map(|outcome| {
                     let guard = outcome.guard.map(|term| self.substitute_constant_term_data(term, substitution)).transpose()?;
@@ -302,7 +270,9 @@ impl SemanticValueStore {
             })
             .collect::<Result<Vec<_>, SemanticValueStoreError>>()?;
 
-                    Ok(super::super::CapturedValueOutcome::new(guard, bindings).with_carriers(carriers).with_ownership(ownership).with_report(outcome.report.clone())
+                    let effects = outcome.effects.iter().map(effect).collect::<Result<Vec<_>, _>>()?;
+
+                    Ok(super::super::CapturedValueOutcome::new(guard, bindings).with_effects(effects).with_carriers(carriers).with_ownership(ownership).with_report(outcome.report.clone())
                         .with_storage(self.substitute_dependency_borrows(&outcome.references, substitution)?,
                             self.substitute_stored_dependencies(&outcome.stored_values, substitution)?)
                         .with_inactive_payloads(outcome.inactive_payloads.iter().map(|payload|
@@ -317,7 +287,7 @@ impl SemanticValueStore {
                         .map(|term| self.substitute_constant_term_data(term, substitution))
                         .transpose()?,
                 )
-                .with_effect_outcomes(effects),
+                .with_possible_effects(effects),
         )
     }
 

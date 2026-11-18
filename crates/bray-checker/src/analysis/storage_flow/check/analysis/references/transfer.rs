@@ -462,20 +462,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         &self,
         state: &mut StorageFlowState,
         occurrence: BoundExecutionSite,
-        entry: Option<&crate::ExecutionCallEvidence>,
+        contracts: &bray_bound_tree::BoundCallDependencyContracts,
+        admitted: &[&bray_symbols::CapturedValueOutcome],
     ) {
-        if matches!(occurrence, BoundExecutionSite::Node(_))
-            && occurrence
-                .expression()
-                .is_some_and(|expression| self.memory.operation(expression).is_some())
-        {
-            return;
-        }
-
-        let Some(contracts) = self.dependencies.calls().get(&occurrence) else {
-            return;
-        };
-
         state.memory.begin_transition(occurrence);
 
         let roots = contracts.storage().subjects()
@@ -524,9 +513,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         // Install allocation anchors before their payloads, and independent
         // alternatives before input alternatives at the same physical depth.
-        let outcomes = contracts.captured_values().iter().enumerate()
-            .filter(|(index, _)| entry.is_none_or(|entry| entry.outputs.is_admitted(*index)))
-            .map(|(_, row)| row);
+        let outcomes = admitted.iter().copied();
 
         let mut references = contracts.storage().reference_outputs(outcomes.clone());
 

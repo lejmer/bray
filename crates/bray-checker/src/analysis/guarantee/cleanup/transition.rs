@@ -490,14 +490,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             if let Some(mutate) = mutate {
                 let template = &self.dependencies.lifecycle_dependencies()[&lifecycle.call.callable];
                 let proof = state.ordinary_proof();
-                let outcomes = template.captured_values().iter().filter(|row| {
-                    row.guard.is_none_or(|guard| {
-                        let condition = evidence.bind_term(
-                            self.request.semantic_values(), guard, &crate::ExecutionCondition::unknown());
 
-                        proof.can_assume(&condition, true)
-                    })
-                }).collect();
+                let outcomes = template.captured_values().iter().enumerate()
+                    .filter(|(index, row)| evidence.admits_outcome(self.request.semantic_values(), &proof, *index, row.guard))
+                    .map(|(_, row)| row).collect();
 
                 mutate(
                     state,

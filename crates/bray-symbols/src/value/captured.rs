@@ -239,9 +239,11 @@ impl<Input, Projection, Static, Callee, Variant> CapturedValueTemplate<Input, Pr
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CapturedValueOutcome<Subject = super::DependencySubject, Input = ConstantTermId, Projection = DependencyProjection,
     Static = crate::StaticReferenceSelection, Guard = Input, OwnedProjection = super::ConstantProjectionKind, Callee = CapturedCallable, Variant = crate::UnionVariantSymbolId,
-    Report = super::DependencyRequirement> {
+    Report = super::DependencyRequirement, Effect = super::DependencyStorageEffect> {
     /// The report produced on this exit, including any storage dependencies it carries.
     pub report: Option<Arc<[Report]>>,
+    /// Possible transitions on paths reaching this exit.
+    pub effects: Arc<[Effect]>,
     /// Checked guarantees and the returned owners supporting them on this exit.
     pub carriers: Arc<[super::DependencyWitnessCarrier<Projection, Guard>]>,
     /// Transfers of existing input ownership on this exit, sharing its guard and result.
@@ -259,11 +261,19 @@ pub struct CapturedValueOutcome<Subject = super::DependencySubject, Input = Cons
     pub bindings: Arc<[(Subject, CapturedValueTemplate<Input, Projection, Static, Callee, Variant>)]>,
 }
 
-impl<Subject, Input, Projection, Static, Guard, OwnedProjection, Callee: Eq, Variant: Eq, Report> CapturedValueOutcome<Subject, Input, Projection, Static, Guard, OwnedProjection, Callee, Variant, Report>
+impl<Subject, Input, Projection, Static, Guard, OwnedProjection, Callee: Eq, Variant: Eq, Report, Effect> CapturedValueOutcome<Subject, Input, Projection, Static, Guard, OwnedProjection, Callee, Variant, Report, Effect>
 where Subject: Ord, Input: Eq, Projection: Eq, Static: Eq {
     /// Retains the report accompanying this normal result.
     pub fn with_report(mut self, report: Option<Arc<[Report]>>) -> Self {
         self.report = report;
+
+        self
+    }
+
+    /// Records the possible transition prefix of this exit.
+    pub fn with_effects(mut self, effects: impl IntoIterator<Item = Effect>) -> Self
+    where Effect: Ord {
+        self.effects = bray_base::sorted_unique_shared_slice(effects);
 
         self
     }
@@ -323,6 +333,7 @@ where Subject: Ord, Input: Eq, Projection: Eq, Static: Eq {
         Self {
             guard,
             report: None,
+            effects: Arc::default(),
             carriers: Arc::default(),
             bindings: writes.into_iter().collect(),
             ownership: Default::default(),
@@ -333,8 +344,8 @@ where Subject: Ord, Input: Eq, Projection: Eq, Static: Eq {
     }
 }
 
-impl<Subject: Ord + Clone, Input: Ord + Clone, Projection: Ord + Clone, Static: Ord + Clone, Guard: Ord + Clone, OwnedProjection: Ord + Clone, Callee: Ord + Clone, Variant: Ord + Clone, Report: Ord + Clone>
-    CapturedValueOutcome<Subject, Input, Projection, Static, Guard, OwnedProjection, Callee, Variant, Report>
+impl<Subject: Ord + Clone, Input: Ord + Clone, Projection: Ord + Clone, Static: Ord + Clone, Guard: Ord + Clone, OwnedProjection: Ord + Clone, Callee: Ord + Clone, Variant: Ord + Clone, Report: Ord + Clone, Effect: Ord + Clone>
+    CapturedValueOutcome<Subject, Input, Projection, Static, Guard, OwnedProjection, Callee, Variant, Report, Effect>
 {
     /// Guarantees every listed exit establishes on the same owner.
     pub fn common_carriers(rows: &[Self]) -> Arc<[super::DependencyWitnessCarrier<Projection, Guard>]> {
@@ -476,9 +487,10 @@ impl<Subject: Ord + Clone, Input: Ord + Clone, Projection: Ord + Clone, Static: 
 
                 let inactive_payloads = Self::common_inactive_payloads(&old, &contains);
                 let report = Self::possible_report(&old);
+                let effects = bray_base::sorted_unique_shared_slice(old.iter().flat_map(|row| row.effects.iter().cloned()));
                 let ownership = super::DependencyOwnedResult::choice(old.into_iter().map(|row| row.ownership));
 
-                result.push(Self { guard, report, bindings, ownership, carriers, references, stored_values, inactive_payloads });
+                result.push(Self { guard, report, effects, bindings, ownership, carriers, references, stored_values, inactive_payloads });
             }
         }
 

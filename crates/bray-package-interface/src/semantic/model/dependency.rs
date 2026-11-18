@@ -315,9 +315,14 @@ pub enum InterfaceDependencyRequirementKind {
 pub type InterfaceCapturedCallable = bray_symbols::CapturedCallable<crate::InterfaceCallableInstanceId, crate::InterfaceTypeId,
     (crate::InterfaceTypeId, crate::InterfaceTraitApplicationId), crate::InterfaceImplementationInstanceId>;
 
+/// Portable effect with interface-local subject, projection and type identities.
+pub type InterfaceStorageEffect = bray_symbols::DependencyStorageEffect<
+    InterfaceDependencySubject, InterfaceDependencyProjection, crate::InterfaceTypeId,
+>;
+
 /// Guarded normal values and ownership using interface-local identities.
 pub type InterfaceNormalOutcome = bray_symbols::CapturedValueOutcome<InterfaceDependencySubject, InterfaceConstantTermId,
-    InterfaceDependencyProjection, super::InterfaceStaticReference, InterfaceConstantTermId, super::InterfaceConstantProjection, InterfaceCapturedCallable, crate::InterfaceSymbolReference, InterfaceDependencyRequirement>;
+    InterfaceDependencyProjection, super::InterfaceStaticReference, InterfaceConstantTermId, super::InterfaceConstantProjection, InterfaceCapturedCallable, crate::InterfaceSymbolReference, InterfaceDependencyRequirement, InterfaceStorageEffect>;
 
 /// One normalized portable dependency contract.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -328,13 +333,7 @@ pub struct InterfaceDependencyContract {
     pub(crate) normal_completion: bool,
     pub(crate) requirements: Arc<[InterfaceDependencyRequirement]>,
     pub(crate) abnormal_reports: Option<Arc<[InterfaceDependencyRequirement]>>,
-    pub(crate) effects: bray_symbols::DependencyEffectOutcomes<
-        bray_symbols::DependencyStorageEffect<
-            InterfaceDependencySubject,
-            InterfaceDependencyProjection,
-            crate::InterfaceTypeId,
-        >,
-    >,
+    pub(crate) effects: Arc<[InterfaceStorageEffect]>,
 }
 
 impl InterfaceDependencyContract {
@@ -361,7 +360,7 @@ impl InterfaceDependencyContract {
             synchronous_cleanup: Arc::new([]),
             normal_completion: true,
             observed_result: None,
-            effects: bray_symbols::DependencyEffectOutcomes::new(bray_symbols::DependencyStorageEffect::opaque_call()),
+            effects: sorted_unique_shared_slice(InterfaceStorageEffect::opaque_call()),
         }
     }
 
@@ -374,7 +373,8 @@ impl InterfaceDependencyContract {
         let report = sorted_unique_shared_slice(requirements);
 
         if self.captured_values.is_empty() {
-            self.captured_values = [InterfaceNormalOutcome::new(None, []).with_report(Some(report))].into();
+            self.captured_values = [InterfaceNormalOutcome::new(None, [])
+                .with_effects(self.effects.iter().cloned()).with_report(Some(report))].into();
         } else {
             self.captured_values = sorted_unique_shared_slice(self.captured_values.iter().cloned()
                 .map(|row| row.with_report(Some(Arc::clone(&report)))));
@@ -414,13 +414,9 @@ impl InterfaceDependencyContract {
         self
     }
 
-    /// Records possible storage transitions on paths reaching normal completion.
-    pub fn with_normal_effects(mut self, effects: impl IntoIterator<Item = bray_symbols::DependencyStorageEffect<
-        InterfaceDependencySubject, InterfaceDependencyProjection, crate::InterfaceTypeId,
-    >>) -> Self {
-        self.effects = self.effects.with_normal(effects);
-
-        self
+    pub(crate) fn normal_effects(&self) -> impl Iterator<Item = &InterfaceStorageEffect> {
+        self.effects.iter().filter(|_| self.normal_completion && self.captured_values.is_empty())
+            .chain(self.captured_values.iter().filter(|_| self.normal_completion).flat_map(|row| row.effects.iter()))
     }
 
     /// Records cleanup that must be synchronous after generic substitution.
@@ -438,18 +434,9 @@ impl InterfaceDependencyContract {
         &self.synchronous_cleanup
     }
 
-    /// Attaches the complete checked mutation summary.
-    pub fn with_effects(
-        mut self,
-        effects: impl IntoIterator<
-            Item = bray_symbols::DependencyStorageEffect<
-                InterfaceDependencySubject,
-                InterfaceDependencyProjection,
-                crate::InterfaceTypeId,
-            >,
-        >,
-    ) -> Self {
-        self.effects = bray_symbols::DependencyEffectOutcomes::new(bray_symbols::DependencyStorageEffect::normalize(effects).iter().cloned());
+    /// Attaches the conservative transition envelope across all outcomes.
+    pub fn with_effects(mut self, effects: impl IntoIterator<Item = InterfaceStorageEffect>) -> Self {
+        self.effects = sorted_unique_shared_slice(effects);
 
         self
     }

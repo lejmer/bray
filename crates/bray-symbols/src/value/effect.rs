@@ -59,13 +59,22 @@ impl<Effect: Ord + Clone> DependencyEffectOutcomes<Effect> {
     /// Binds each transition once, retaining its outcome guards on every resolved alternative.
     pub fn try_flat_map<Mapped: Ord + Clone, Produced: IntoIterator<Item = Mapped>, Error>(
         &self,
+        map: impl FnMut(&Effect) -> Result<Produced, Error>,
+    ) -> Result<DependencyEffectOutcomes<Mapped>, Error> {
+        self.try_flat_map_admitted(|_| true, map)
+    }
+
+    /// Binds all effects against entry memory while selecting feasible normal effects.
+    pub fn try_flat_map_admitted<Mapped: Ord + Clone, Produced: IntoIterator<Item = Mapped>, Error>(
+        &self,
+        mut admitted: impl FnMut(&Effect) -> bool,
         mut map: impl FnMut(&Effect) -> Result<Produced, Error>,
     ) -> Result<DependencyEffectOutcomes<Mapped>, Error> {
         let mut possible = Vec::with_capacity(self.possible.len());
         let mut normal = Vec::with_capacity(self.normal.len());
 
         for effect in &*self.possible {
-            let on_normal_path = self.normal.binary_search(effect).is_ok();
+            let on_normal_path = self.normal.binary_search(effect).is_ok() && admitted(effect);
 
             for mapped in map(effect)? {
                 if on_normal_path {
@@ -92,9 +101,7 @@ impl<Effect> DependencyEffectOutcomes<Effect> {
 impl<Subject, Projection, Type> DependencyEffectOutcomes<DependencyStorageEffect<Subject, Projection, Type>> {
     /// Whether normal execution changes no storage beyond admitted input ownership.
     pub fn preserves_storage_on_normal_return(&self) -> bool {
-        self.normal.iter().all(|effect| matches!(effect, DependencyStorageEffect::Direct {
-            kind: DependencyMutationKind::Consume, ..
-        }))
+        self.normal.iter().all(DependencyStorageEffect::preserves_storage)
     }
 }
 
@@ -187,6 +194,44 @@ pub enum DependencyStorageEffect<
 }
 
 impl<Subject, Projection, Type> DependencyStorageEffect<Subject, Projection, Type> {
+    /// Translates an effect without changing its captured reads, precision or transition kind.
+    pub fn try_map<C, S, P, T, E>(
+        &self,
+        context: &mut C,
+        mut subject: impl FnMut(&mut C, &Subject) -> Result<S, E>,
+        mut projections: impl FnMut(&mut C, &[Projection]) -> Result<Arc<[P]>, E>,
+        mut ty: impl FnMut(&mut C, Type) -> Result<T, E>,
+    ) -> Result<DependencyStorageEffect<S, P, T>, E>
+    where Type: Copy {
+        use DependencyStorageEffect as Effect;
+
+        Ok(match self {
+            Self::Atomic => Effect::Atomic,
+            Self::Ambient => Effect::Ambient,
+            Self::Unknown => Effect::Unknown,
+            Self::Escape => Effect::Escape,
+            Self::UnboundedMutation { kind, access_type, ambient } => Effect::UnboundedMutation {
+                kind: kind.try_map_type(|value| ty(context, value))?,
+                access_type: access_type.map(|value| ty(context, value)).transpose()?,
+                ambient: *ambient,
+            },
+            Self::Direct { subject: root, addressed, kind, access_type } => Effect::Direct {
+                subject: subject(context, root)?,
+                addressed: *addressed,
+                kind: kind.try_map_type(|value| ty(context, value))?,
+                access_type: access_type.map(|value| ty(context, value)).transpose()?,
+            },
+            Self::Indirect { reference, addressed, reads, projections: path, kind, access_type } => Effect::Indirect {
+                reference: subject(context, reference)?,
+                addressed: *addressed,
+                reads: Arc::clone(reads),
+                projections: projections(context, path)?,
+                kind: kind.try_map_type(|value| ty(context, value))?,
+                access_type: access_type.map(|value| ty(context, value)).transpose()?,
+            },
+        })
+    }
+
     /// Keeps this route as a footprint after losing the actual operand.
     pub fn into_region(self) -> Self {
         match self {
@@ -198,6 +243,11 @@ impl<Subject, Projection, Type> DependencyStorageEffect<Subject, Projection, Typ
             },
             effect => effect,
         }
+    }
+
+    /// Whether the effect only transfers an admitted input value.
+    pub fn preserves_storage(&self) -> bool {
+        matches!(self, Self::Direct { kind: DependencyMutationKind::Consume, .. })
     }
 
     /// Whether the route can be executed in order and its precision admits the requested layout.

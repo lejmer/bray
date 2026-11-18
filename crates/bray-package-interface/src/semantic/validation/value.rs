@@ -92,7 +92,7 @@ impl InterfaceSemantics {
             if let Some(term) = contract.observed_result {
                 validate_index(term.to_index(), self.constant_terms.len())?;
 
-                if !contract.normal_completion || !contract.effects.preserves_storage_on_normal_return() {
+                if !contract.normal_completion || !contract.normal_effects().all(bray_symbols::DependencyStorageEffect::preserves_storage) {
                     return Err(crate::semantic::codec::invalid_value(
                         crate::InterfaceValidationField::Constant,
                     ));
@@ -100,6 +100,12 @@ impl InterfaceSemantics {
             }
 
             for outcome in &*contract.captured_values {
+                if !outcome.effects.windows(2).all(|pair| pair[0] < pair[1])
+                    || outcome.effects.iter().any(|effect| contract.effects.binary_search(effect).is_err())
+                {
+                    return Err(crate::semantic::codec::invalid_value(crate::InterfaceValidationField::Dependency));
+                }
+
                 for payload in outcome.inactive_payloads.iter() {
                     self.validate_dependency_subject(payload, symbol_count, dependency_count)?;
                 }
@@ -178,7 +184,7 @@ impl InterfaceSemantics {
                 )?;
             }
 
-            for effect in contract.effects.possible() {
+            for effect in &*contract.effects {
                 if !effect.is_valid_route() {
                     return Err(crate::semantic::codec::invalid_value(crate::InterfaceValidationField::Dependency));
                 }

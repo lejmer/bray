@@ -21,6 +21,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     ) {
         let domain = self.execution;
         let mut memory = std::mem::take(&mut state.memory);
+        let mut effect_prefix = std::mem::take(&mut state.effect_prefix);
         let mut trusted = std::mem::take(&mut self.trusted);
 
         let publish = self.publish;
@@ -162,7 +163,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     effects.as_deref(),
                     receiver.as_slice(),
                     false,
-                    self.on_normal_path,
+                    Some(&mut effect_prefix),
                 );
 
                 memory.escape_regions(escaped);
@@ -197,11 +198,12 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 }
 
                 if let Some(effects) = &effects {
-                    self.record_resolved_effects(&memory, effects, self.on_normal_path);
+                    self.record_resolved_effects(&memory, effects, Some(&mut effect_prefix));
                 } else {
                     self.record_effects(
                         &StorageInvalidation::unknown(),
                         DependencyMutationKind::Retire,
+                        &mut effect_prefix,
                     );
                 }
 
@@ -255,6 +257,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         self.trusted = trusted;
         state.memory = memory;
+        state.effect_prefix = effect_prefix;
 
         for (access, requirements, pending) in report_outputs {
             self.retain_cleanup_reports(state, access, &requirements, pending);
@@ -675,9 +678,20 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let contracts = &self.dependencies.lifecycle_dependencies()[&call.lifecycle.call.callable];
 
         let storage = &self.input.lifecycle_storage[&call.lifecycle.call.callable];
-        let effects = if call.completes { contracts.normal_effects() } else { contracts.effects() };
+        let effects;
 
-        Some(self.resolve_cleanup_effects(memory, receiver, effects, |subject| {
+        let templates = if !call.completes {
+            contracts.effects()
+        } else if contracts.captured_values().is_empty() {
+            contracts.normal_effects()
+        } else {
+            effects = bray_symbols::DependencyStorageEffect::normalize(
+                call.outcomes.iter().flat_map(|row| row.effects.iter().cloned()));
+
+            &effects
+        };
+
+        Some(self.resolve_cleanup_effects(memory, receiver, templates, |subject| {
             storage.subject(subject).map(|(_, path)| path)
         }))
     }

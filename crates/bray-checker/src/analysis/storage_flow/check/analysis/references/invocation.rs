@@ -6,7 +6,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use super::super::core::StorageFlowCollector;
 use crate::CheckerRequestContext;
 use crate::analysis::storage_flow::memory::{Origin, Place, Source, Target};
-use crate::analysis::storage_flow::model::StorageFlowState;
+use crate::analysis::storage_flow::model::{EffectPrefix, StorageFlowState};
 use bray_bound_tree::{BoundExecutionSite, BoundExpressionId, SemanticSelection};
 use bray_symbols::DependencySubjectRoot;
 
@@ -17,7 +17,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         operation: crate::analysis::model::AnalysisOperationKind,
         effects: Option<&[crate::analysis::storage_flow::memory::Effect]>,
         roots: &[Target],
-        normal_effects: bool,
+        capture_prefix: bool,
     ) -> BTreeSet<Target> {
         let memory = matches!(operation.occurrence(), BoundExecutionSite::Node(_))
             .then(|| {
@@ -66,7 +66,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 | bray_bound_tree::CheckedMemoryOperationKind::RawBufferRelease { .. }
         )) {
             // The owning primitive supplies the stored payload's exact escape roots.
-            return self.escape_effects(&state.memory, effects, &[], false, normal_effects);
+            return self.escape_effects(&state.memory, effects, &[], false, capture_prefix.then_some(&mut state.effect_prefix));
         }
 
         let direct_write = memory.is_some()
@@ -104,14 +104,14 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 &mut stored,
             );
 
-            self.escape_effects(&state.memory, Some(&[]), &stored, may_store, normal_effects)
+            self.escape_effects(&state.memory, Some(&[]), &stored, may_store, capture_prefix.then_some(&mut state.effect_prefix))
         } else {
             self.escape_effects(
                 &state.memory,
                 effects,
                 roots,
                 exposed_integer || may_store,
-                normal_effects,
+                capture_prefix.then_some(&mut state.effect_prefix),
             )
         }
     }
@@ -122,7 +122,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         effects: Option<&[crate::analysis::storage_flow::memory::Effect]>,
         roots: &[Target],
         retain_inputs: bool,
-        normal_effects: bool,
+        mut prefix: Option<&mut EffectPrefix>,
     ) -> BTreeSet<Target> {
 
         let all_inputs = retain_inputs
@@ -165,7 +165,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 false,
                 DependencyMutationKind::Escape,
                 None,
-                normal_effects,
+                prefix.as_deref_mut(),
             );
         }
 
@@ -629,7 +629,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         subject: &bray_symbols::DependencySubject,
     ) -> Option<Place> {
         let mut base = self.invocation_place(occurrence, subject.subject_root())?;
+
         let (_, path) = self.dependencies.calls().get(&occurrence)?.storage().subject(subject)?;
+
         let path = self.invocation_reference_path(occurrence, subject.subject_root(), path)?;
 
         base.projections = base.projections.iter().chain(path.projections()).copied().collect();

@@ -39,7 +39,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     super::effects::task_effects(task.effects(&proof), task.cleanup_effects(false, &proof)?)
                 })
             } else {
-                self.bind_frame_effects(memory, source, candidate)
+                self.bind_frame_effects(memory, source, candidate, &proof)
             };
 
             if candidate.transition.as_deref().and_then(|transition| transition.transfer.deferred_effects.as_ref()) == effects.as_ref() {
@@ -65,28 +65,34 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         &self, memory: &crate::analysis::storage_flow::memory::State,
         source: &crate::execution_guarantees::DeferredProducer,
         candidate: &crate::execution_guarantees::ExecutionDeferredInvocation,
+        proof: &crate::execution_guarantees::ExecutionProof<'_>,
     ) -> Option<crate::analysis::storage_flow::memory::EffectOutcomes> {
         let summary;
 
-        let (templates, routes) = if let Some(site) = source.local() {
+        let (templates, routes, rows) = if let Some(site) = source.local() {
             let call = self.dependencies.calls().get(&site)?;
 
-            (call.deferred_effect_outcomes()?, call.storage())
+            (call.deferred_effect_outcomes()?, call.storage(), call.captured_values())
         } else {
             let callee = candidate.callee.as_deref()?;
             let body = self.dependencies.frame_callees().get(callee)?;
 
             summary = self.request.semantic_values().dependency_contract_template_data(body.summary);
 
-            (summary.effect_outcomes(), &body.storage)
+            (summary.effect_outcomes(), &body.storage, summary.captured_values())
         };
 
         let values = self.request.semantic_values();
         let read = |slot| crate::analysis::storage_flow::memory::Source::Value(slot).mutation_targets(memory);
 
-        let effects = templates.try_flat_map(|effect| {
+        let admitted = rows.iter().enumerate().filter(|(index, row)| {
+            candidate.entry.admits_outcome(values, proof, *index, row.guard)
+        }).flat_map(|(_, row)| row.effects.iter()).collect::<std::collections::BTreeSet<_>>();
+
+        let effects = templates.try_flat_map_admitted(|effect| rows.is_empty() || admitted.contains(effect), |effect| {
             Ok::<_, std::convert::Infallible>(self.resolve_effects(std::slice::from_ref(effect), read, |subject, indirect| {
                 let root = subject.subject_root();
+
                 let (_, path) = routes.subject(subject)?;
 
                 if root.is_static() {

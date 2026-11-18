@@ -61,11 +61,7 @@ impl InternState<'_> {
                 contract = contract.with_abnormal_reports(requirements);
             }
 
-            let Some(effects) = self.convert_dependency_effects(input.effects.possible(), symbols)? else {
-                continue;
-            };
-
-            let Some(normal_effects) = self.convert_dependency_effects(input.effects.normal(), symbols)? else {
+            let Some(effects) = self.convert_dependency_effects(&input.effects, symbols)? else {
                 continue;
             };
 
@@ -153,7 +149,9 @@ impl InternState<'_> {
                     self.convert_dependency_subject(payload, symbols).map_err(Some)?.ok_or(None))
                     .collect::<Result<Vec<_>, _>>()?;
 
-                Ok(bray_symbols::CapturedValueOutcome::new(guard, bindings).with_carriers(carriers).with_report(report)
+                let effects = self.convert_dependency_effects(&outcome.effects, symbols).map_err(Some)?.ok_or(None)?;
+
+                Ok(bray_symbols::CapturedValueOutcome::new(guard, bindings).with_effects(effects).with_carriers(carriers).with_report(report)
                     .with_ownership(owned_result).with_storage(references, stored_values)
                     .with_inactive_payloads(inactive_payloads))
             }).collect::<Result<Vec<_>, Option<InterfaceSemanticInternError>>>();
@@ -169,8 +167,7 @@ impl InternState<'_> {
                     contract
                         .with_captured_values(captured_values)
                         .with_observed_result(observed_result)
-                        .with_effects(effects)
-                        .with_normal_effects(normal_effects)
+                        .with_possible_effects(effects)
                         .with_synchronous_cleanup(synchronous_cleanup)
                         .with_normal_completion(input.normal_completion),
                 )?,
@@ -515,75 +512,19 @@ impl InternState<'_> {
 
     fn convert_dependency_effects(
         &self,
-        input: &[bray_symbols::DependencyStorageEffect<
-            InterfaceDependencySubject,
-            InterfaceDependencyProjection,
-            crate::InterfaceTypeId,
-        >],
+        input: &[crate::InterfaceStorageEffect],
         symbols: &impl InterfaceSymbolResolver,
-    ) -> Result<Option<Vec<bray_symbols::DependencyStorageEffect>>, InterfaceSemanticInternError>
-    {
-
-        let mut effects = Vec::with_capacity(input.len());
-
-        for effect in input {
-            effects.push(match effect {
-                DependencyStorageEffect::UnboundedMutation { kind, access_type, ambient } => DependencyStorageEffect::UnboundedMutation {
-                    kind: match kind.try_map_type(|ty| self.type_id(ty).ok_or(())) { Ok(kind) => kind, Err(()) => return Ok(None) },
-                    access_type: match access_type.map(|ty| self.type_id(ty).ok_or(())).transpose() { Ok(ty) => ty, Err(()) => return Ok(None) },
-                    ambient: *ambient,
-                },
-                DependencyStorageEffect::Atomic => DependencyStorageEffect::Atomic,
-                DependencyStorageEffect::Ambient => DependencyStorageEffect::Ambient,
-                DependencyStorageEffect::Unknown => DependencyStorageEffect::Unknown,
-                DependencyStorageEffect::Escape => DependencyStorageEffect::Escape,
-                DependencyStorageEffect::Direct { addressed, subject, kind, access_type } => {
-                    let Some(subject) = self.convert_dependency_subject(subject, symbols)? else {
-                        return Ok(None);
-                    };
-
-                    DependencyStorageEffect::Direct { addressed: *addressed,
-                        subject,
-                        kind: match kind.try_map_type(|ty| self.type_id(ty).ok_or(())) {
-                            Ok(kind) => kind,
-                            Err(()) => return Ok(None),
-                        },
-                        access_type: match access_type.map(|ty| self.type_id(ty).ok_or(())).transpose() {
-                            Ok(ty) => ty,
-                            Err(()) => return Ok(None),
-                        },
-                    }
-                }
-                DependencyStorageEffect::Indirect { addressed, reads,
-                    reference,
-                    projections,
-                    kind,
-                    access_type,
-                } => {
-                    let (Some(reference), Some(projections)) = (
-                        self.convert_dependency_subject(reference, symbols)?,
-                        self.convert_dependency_projections(projections, symbols)?,
-                    ) else {
-                        return Ok(None);
-                    };
-
-                    DependencyStorageEffect::Indirect { addressed: *addressed, reads: std::sync::Arc::clone(reads),
-                        reference,
-                        projections: projections.into(),
-                        kind: match kind.try_map_type(|ty| self.type_id(ty).ok_or(())) {
-                            Ok(kind) => kind,
-                            Err(()) => return Ok(None),
-                        },
-                        access_type: match access_type.map(|ty| self.type_id(ty).ok_or(())).transpose() {
-                            Ok(ty) => ty,
-                            Err(()) => return Ok(None),
-                        },
-                    }
-                }
-            });
-        }
-
-        Ok(Some(effects))
+    ) -> Result<Option<Vec<DependencyStorageEffect>>, InterfaceSemanticInternError> {
+        input.iter().map(|effect| effect.try_map(
+            &mut (),
+            |_, subject| self.convert_dependency_subject(subject, symbols).map_err(Some)?.ok_or(None),
+            |_, projections| self.convert_dependency_projections(projections, symbols)
+                .map_err(Some)?.map(std::sync::Arc::from).ok_or(None),
+            |_, ty| self.type_id(ty).ok_or(None),
+        )).collect::<Result<Vec<_>, _>>().map(Some).or_else(|error| match error {
+            Some(error) => Err(error),
+            None => Ok(None),
+        })
     }
 
     pub(super) fn convert_dependency_guard(

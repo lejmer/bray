@@ -143,8 +143,6 @@ impl StructuralValueEncoder<'_, '_> {
 
         self.digest.write_u8(u8::from(data.normal_completion()));
 
-        self.dependency_set(data.normal_effects(), Self::dependency_effect)?;
-
         self.dependency_requirements(data.requirements())?;
 
         self.dependency_optional_report(data.abnormal_reports())?;
@@ -202,6 +200,7 @@ impl StructuralValueEncoder<'_, '_> {
 
     pub(in crate::compilation) fn dependency_captured_binding(&mut self, binding: &bray_symbols::CapturedValueOutcome) -> Result<(), FactQueryError> {
         self.dependency_optional_report(binding.report.as_deref())?;
+        self.dependency_set(&binding.effects, Self::dependency_effect)?;
         self.dependency_owned_result(&binding.ownership)?;
         self.dependency_set(&binding.carriers, Self::dependency_carrier)?;
         self.dependency_set(&binding.references, Self::dependency_borrow)?;

@@ -827,8 +827,7 @@ mod tests {
                         crate::InterfaceTypeId::new(0),
                     ),
                 ])
-                .with_normal_completion(false)
-                .with_normal_effects([]),
+                .with_normal_completion(false),
             InterfaceDependencyContract::new([]).with_effects([DependencyStorageEffect::Atomic]),
         ]
         .into();
@@ -1533,7 +1532,10 @@ mod tests {
             true,
         )]);
 
-        let contract = crate::InterfaceDependencyContract::new([]).with_captured_values([outcome]);
+        let contract = crate::InterfaceDependencyContract::new([])
+            .with_effects([crate::InterfaceStorageEffect::Ambient, crate::InterfaceStorageEffect::Escape])
+            .with_captured_values([outcome.with_effects([crate::InterfaceStorageEffect::Ambient])]);
+
         let semantics = InterfaceSemantics::new().with_values([contract], [], [], []);
         let limits = InterfaceValidationLimits::default();
 
@@ -1548,6 +1550,9 @@ mod tests {
         let store = SemanticValueStore::try_new().expect("fixture semantic value store");
         let imported = semantics.intern(&store, &resolver(&surface)).expect("closed regions intern");
         let contract = store.dependency_contract_template_data(imported.dependency_contracts()[0]);
+
+        assert_eq!(contract.normal_effects(), &[bray_symbols::DependencyStorageEffect::Ambient]);
+        assert!(contract.effects().contains(&bray_symbols::DependencyStorageEffect::Escape));
 
         assert_eq!(contract.stored_values().as_ref(), &[bray_symbols::DependencyStoredValue::new(
             bray_symbols::DependencyStoredValuePath::new(bray_symbols::DependencySubject::root(bray_symbols::DependencySubjectRoot::Result), 1),

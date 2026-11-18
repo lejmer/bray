@@ -692,6 +692,7 @@ mod tests {
         let references = vec![super::BoundCallReference::new(relation, true, None)];
 
         let retained = Some(std::collections::BTreeSet::from([expression.into()]));
+
         let phases = phases.with_storage(super::super::BoundCallStorage::new(Default::default(), references.clone(), Default::default()))
             .with_retained_inputs(retained.clone());
 

@@ -247,8 +247,7 @@ where
     .with_capture_retirements(collector.capture_retirements)
     .with_dependencies(
         dependencies
-            .with_effects(effects)
-            .with_normal_effects(collector.normal_effects)
+            .with_possible_effects(effects)
             .with_synchronous_cleanup(collector.synchronous_cleanup),
     )
     .with_report_collections(collector.report_collections)
@@ -386,7 +385,6 @@ where
     pub(in crate::analysis::storage_flow) report_boundary: Option<BoundExpressionId>,
     report_collections: BTreeSet<Option<BoundExpressionId>>,
     pub(super) reporting_completions: BTreeSet<bray_bound_tree::BoundExecutionSite>,
-    pub(super) normal_effects: BTreeSet<bray_symbols::DependencyStorageEffect>,
     pub(super) normal_exits: Vec<NormalExit>,
     pub(super) cleanup_mutations:
         BTreeMap<bray_bound_tree::StorageMutation, bray_bound_tree::StorageInvalidation>,
@@ -408,6 +406,7 @@ pub(super) struct NormalExit {
     pub(super) value: crate::ExecutionCondition,
     pub(super) returned: Option<crate::analysis::guarantee::NormalReturn>,
     pub(super) report: Option<std::sync::Arc<[bray_symbols::DependencyRequirement]>>,
+    pub(super) effects: crate::analysis::storage_flow::model::EffectPrefix,
 }
 
 impl<'analysis, C> StorageFlowCollector<'analysis, C>
@@ -442,6 +441,7 @@ where
             value,
             returned,
             report: state.result_dependencies.completed_report(),
+            effects: std::sync::Arc::clone(&state.effect_prefix),
         });
     }
 
@@ -539,7 +539,6 @@ where
             report_boundary: None,
             report_collections: BTreeSet::new(),
             reporting_completions: BTreeSet::new(),
-            normal_effects: BTreeSet::new(),
             normal_exits: Vec::new(),
             memory_decisions: BTreeMap::new(),
             diagnostics: DiagnosticBag::new(),
@@ -861,7 +860,7 @@ where
             && self.execution.task_completion(&execution, expression) == Some(false)
         {
             state.execution = Some(execution);
-            self.apply_failure_effects(state, occurrence, self.on_normal_path);
+            self.apply_failure_effects(state, occurrence);
 
             execution = state
                 .execution
@@ -941,8 +940,6 @@ where
             .flatten()
             .map(|_| self.invocation_roots(state, occurrence));
 
-        let normal_effects = self.on_normal_path;
-
         if let Some(invocation) = self.call_attempt(kind) {
             self.start_frame_effects(&state.memory, &mut execution, invocation);
         }
@@ -975,7 +972,7 @@ where
                 kind,
                 assignment_effects.as_deref(),
                 roots,
-                self.on_normal_path,
+                true,
             );
 
             state.memory.escape_regions(escaped);
@@ -984,7 +981,7 @@ where
         let escaped = invocation_roots
             .as_ref()
             .map(|roots| {
-                self.address_escapes(state, kind, call_effects, roots, normal_effects)
+                self.address_escapes(state, kind, call_effects, roots, true)
             })
             .unwrap_or_default();
 
@@ -1048,7 +1045,7 @@ where
                 }
 
                 if let Some(effects) = possible_effects {
-                    self.record_resolved_effects(&state.memory, effects, false);
+                    self.record_resolved_effects(&state.memory, effects, None);
                 }
 
                 // Both outcomes capture addresses before admission consumes their input slots.
@@ -1056,11 +1053,10 @@ where
             }
 
             self.record_operation_effects(
-                &state.memory,
+                state,
                 kind,
                 call_effects,
                 assignment_effects.as_deref(),
-                normal_effects,
             );
 
             let unique_assignment = assignment.as_deref().and_then(|targets| match targets {

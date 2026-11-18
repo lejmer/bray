@@ -3129,6 +3129,7 @@ fn nested_backing_survives_descriptor_moves_and_pruning() {
         Some(vec![bray_bound_tree::StorageMutationTarget::bounded(inner.clone())]),
         "activation uses the captured descriptor and keeps the selected element region inexact",
     );
+
     assert!(state.captured_effect_targets(values, &captured.bounded(), &route, false).is_none(),
         "a bound on the captured descriptor cannot name a location for the next read");
 

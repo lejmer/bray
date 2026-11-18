@@ -447,6 +447,7 @@ where C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQ
         })?;
 
         let selected_type = values.type_data(callee.signature);
+
         let bray_symbols::TypeData::Callable(signature) = selected_type.as_ref() else {
             panic!("a carried selection retains its checked callable signature");
         };
@@ -455,6 +456,7 @@ where C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQ
             use bray_symbols::DependencySubjectRoot;
 
             let root = subject.subject_root();
+
             let ty = match root {
                 DependencySubjectRoot::Receiver => callee.receiver,
                 DependencySubjectRoot::Parameter(ordinal) => ordinal.to_index()

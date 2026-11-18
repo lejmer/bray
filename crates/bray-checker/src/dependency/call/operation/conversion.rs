@@ -73,9 +73,8 @@ pub(in crate::dependency::call) fn conversion_dependencies<C: CheckerRequestCont
                     })
                     .expect("conversion projection preserves checked dependency equation bindings");
 
-                let effects = child.effect_outcomes().try_map(|effect| {
-                    Ok::<_, std::convert::Infallible>(project_effect(effect, ordinal, shape.as_ref()))
-                }).expect("conversion projection preserves effect outcome guards");
+                let project_effect = |effect: &DependencyStorageEffect| project_effect(effect, ordinal, shape.as_ref());
+                let effects = child.effects().iter().map(project_effect).collect::<Vec<_>>();
 
                 let outcomes = child.captured_values().iter().cloned().map(|mut outcome| {
                     let project = |path: &bray_symbols::DependencyStoredValuePath| {
@@ -103,10 +102,12 @@ pub(in crate::dependency::call) fn conversion_dependencies<C: CheckerRequestCont
                         )),
                     );
 
-                    outcome
+                    let effects = outcome.effects.iter().map(project_effect).collect::<Vec<_>>();
+
+                    outcome.with_effects(effects)
                 }).collect::<Vec<_>>();
 
-                let child = child.with_effect_outcomes(effects).with_captured_values(outcomes);
+                let child = child.with_captured_values(outcomes).with_possible_effects(effects);
 
                 let child = if matches!(shape.as_ref(), TypeData::Nullable(_)) {
                     child
@@ -268,7 +269,7 @@ pub(super) fn sequence_dependencies(
     let normal = first.normal_completion() && next.normal_completion();
 
     let mut result = DependencyContractTemplateData::new(requirements)
-        .with_effects(first.effects().iter().chain(next.effects()).cloned())
+        .with_possible_effects(first.effects().iter().chain(next.effects()).cloned())
         .with_synchronous_cleanup(
             first
                 .synchronous_cleanup()
@@ -276,10 +277,12 @@ pub(super) fn sequence_dependencies(
                 .chain(next.synchronous_cleanup())
                 .cloned(),
         )
-        .with_normal_completion(normal)
-        .with_normal_effects(first.normal_effects().iter().chain(next.normal_effects()).cloned());
+        .with_normal_completion(normal);
 
     if normal {
+        let effects = first.normal_effects().iter().chain(next.normal_effects()).cloned();
+
+        result = result.with_captured_values([bray_symbols::CapturedValueOutcome::new(None, []).with_effects(effects)]);
         result = result.with_stored_values(first.stored_values().iter().chain(next.stored_values().iter()).cloned());
     }
 

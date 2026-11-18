@@ -68,6 +68,25 @@ impl ExecutionCallEvidence {
         self.bind_condition(&formal, result)
     }
 
+    /// Shares the admitted row decision, binding only when no publications were prepared.
+    pub(crate) fn admits_outcome(
+        &self,
+        values: &bray_symbols::SemanticValueStore,
+        proof: &super::ExecutionProof<'_>,
+        index: usize,
+        guard: Option<bray_symbols::ConstantTermId>,
+    ) -> bool {
+        if self.outputs.0.is_empty() {
+            guard.is_none_or(|term| {
+                let condition = self.bind_term(values, term, &Condition::unknown());
+
+                proof.can_assume(&condition, true)
+            })
+        } else {
+            self.outputs.is_admitted(index)
+        }
+    }
+
     pub(crate) fn conditions(&self) -> impl Iterator<Item = &Condition> {
         self.arguments.values().chain(self.outputs.conditions()).chain(self.copy_sources.values())
             .chain(&self.witness_inputs).chain(&self.extracted_values)
