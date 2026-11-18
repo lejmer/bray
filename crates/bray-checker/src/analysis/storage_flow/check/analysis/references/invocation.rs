@@ -536,8 +536,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
             return self
                 .storage
-                .occurrence_plans(occurrence)
-                .find(|plan| plan.purpose() != bray_bound_tree::StorageAccessPurpose::Initialize)
+                .implicit_input_plan(occurrence)
                 .and_then(|plan| self.storage.logical_path(plan.access()))
                 .cloned();
         }
@@ -745,8 +744,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
             let plan = self
                 .storage
-                .occurrence_plans(occurrence)
-                .find(|plan| plan.purpose() != bray_bound_tree::StorageAccessPurpose::Initialize)
+                .implicit_input_plan(occurrence)
                 .expect("implicit invocation retains its actual input");
 
             if let Some(capability) = self.storage.borrow_for_plan(plan)

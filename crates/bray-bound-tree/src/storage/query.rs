@@ -21,6 +21,18 @@ impl StoragePlan {
         self.access_at(identity, &[])
     }
 
+    /// Returns the sole checked input access of an implicit scope or iteration call.
+    pub fn implicit_input_plan(&self, occurrence: crate::BoundExecutionSite) -> Option<crate::StorageAccessPlan> {
+        match occurrence {
+            crate::BoundExecutionSite::Iterate(_)
+            | crate::BoundExecutionSite::Next(_)
+            | crate::BoundExecutionSite::ScopedEnter(_)
+            | crate::BoundExecutionSite::ScopedExit(_) => self.occurrence_plans(occurrence)
+                .find(|plan| plan.purpose() != crate::StorageAccessPurpose::Initialize),
+            _ => None,
+        }
+    }
+
     /// Returns the owned receiver-first input slot staged for one selected call.
     pub fn invocation_input(
         &self,

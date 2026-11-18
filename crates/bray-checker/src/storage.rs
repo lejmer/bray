@@ -16,7 +16,7 @@ pub(crate) use projection::{
     reference_path, unadapted_projections, resolve_owned_storage_projections, resolve_storage_projections, storage_projections,
     static_subject_type,
 };
-pub(crate) use protocol::selected_storage_protocol_call;
+pub(crate) use protocol::{implicit_input_type, selected_storage_protocol_call};
 pub(crate) use scope::{
     pattern_binding_sources, storage_scope_owners,
     value_transfer_destinations,

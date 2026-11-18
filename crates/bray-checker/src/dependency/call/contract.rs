@@ -192,8 +192,7 @@ where
     use bray_bound_tree::{BoundExecutionSite as Site, SemanticSelection};
 
     let input = storage
-        .occurrence_plans(occurrence)
-        .find(|plan| plan.purpose() != bray_bound_tree::StorageAccessPurpose::Initialize)
+        .implicit_input_plan(occurrence)
         .expect("implicit invocation retains its sole input");
 
     let (callable, root, result, source_expression, source_site) = match (selection, occurrence) {
@@ -285,21 +284,7 @@ where
         )?)
         .with_reports(instantiate_reports(&template, &mut context)?);
 
-    let ty = storage
-        .access(input.access())
-        .expect("implicit input retains its checked access")
-        .reached_type();
-
-    let ty = match input.purpose() {
-        bray_bound_tree::StorageAccessPurpose::Borrow(kind) => request
-            .semantic_values()
-            .intern_type(TypeData::Borrow {
-                kind,
-                target: request.semantic_values().unborrowed_type(ty),
-            })
-            .expect("implicit receiver input retains its passed borrow type"),
-        _ => ty,
-    };
+    let ty = crate::storage::implicit_input_type(request.semantic_values(), storage, input);
 
     super::references::with_hidden_references(
         request,

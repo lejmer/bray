@@ -279,8 +279,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let plan = self
             .storage
-            .occurrence_plans(invocation)
-            .find(|plan| plan.purpose() != bray_bound_tree::StorageAccessPurpose::Initialize)
+            .implicit_input_plan(invocation)
             .expect("implicit invocation retains its input transfer");
 
         let consumes = !matches!(

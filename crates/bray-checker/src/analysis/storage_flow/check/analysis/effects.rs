@@ -24,7 +24,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         self.prepare_assignment_reference(state, operation, assignment);
 
         if let Some(invocation) = self.call_attempt(operation)
-            && !matches!(invocation, bray_bound_tree::BoundExecutionSite::Node(bray_bound_tree::AnyBoundNodeId::Expression(_)))
+            && matches!(invocation, bray_bound_tree::BoundExecutionSite::CallInput { .. })
         {
             self.observe_call_reference_inputs(state, invocation);
         }

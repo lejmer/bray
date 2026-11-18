@@ -28,7 +28,8 @@ identities remain explicit. Lowering consumes checked decisions and does not rep
 
 The remote checkpoint is 1c5770b2c. Local checkpoints retain the captured graph and paired
 publication at 11b860fa2, selected deferred frames and statics at 675d89c21, and produced
-region results at d08975a30. The current slice binds implicit scopes' actual borrowed inputs.
+region results at d08975a30. Checkpoint 594180b13 admits implicit loans and joins actual
+produced results directly. The current slice shares implicit physical input captures.
 
 - d087dde8f replaces independent normal/deferred preservation booleans with immutable DependencyEffectOutcomes.
   Admission captures possible failure effects before consumption. Deferred formation keeps body effects latent.
@@ -378,6 +379,20 @@ observation and package-import compositions together.
   record. Do not inherit owning inline observations from a receiver's storage into its borrow
   descriptor. Keep the scoped report, borrowing an inline receiver, consuming iteration and
   latent scoped execution controls. Reconsider if the protocol needs a separate capture table.
+  The final capture implementation passes eight focused report, propagation, cleanup and
+  deferred controls. All four compiler unit suites pass and the broad panel has the same 321
+  composition and 34 owner passes. The capture loop shares a receiver-first iterator.
+- Keep physical output origins and stored dependencies on the ordinary guarded exit that
+  produced them. The collector already pairs the resolved ReferenceExit with its actual
+  symbolic return. Convert that physical snapshot before merging exit rows. Use row-local
+  allocation anchors and explicit inactive payload information. Before selecting a row,
+  exactness requires the same established origin on all feasible active exits. An unknown
+  active exit cannot act like an absent payload. The common view is derived from the rows.
+  Package remapping and SCC widening preserve the row and its conditions. Replace the
+  unconditional borrows and stored-values fields as the checked consumers migrate. Use
+  the forwarded nullable origins, distinct branch escape roots, generic stored dependencies
+  and guarded-owner negatives through the same source and import path. Reconsider if
+  conversion must look back into caller syntax or needs a second independently joined table.
 - Stabilize loops and recursive summaries with existing joins, recency and dependency indexes. No arbitrary cutoff loses dependencies.
 - Finish typed external graph validation, immutable interning/sharing, public API documentation and structural/style audit.
 

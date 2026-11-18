@@ -219,38 +219,64 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         let invocation = operation.occurrence();
 
-        let BoundExecutionSite::Node(bray_bound_tree::AnyBoundNodeId::Expression(expression)) = invocation else { return None; };
-
+        let expression = invocation.expression()?;
         let selection = self.execution.semantics.selections().expression(expression)?;
+        let implicit = invocation != expression.into();
+        let values = self.request.semantic_values();
+
+        let implicit_input = if implicit {
+            let plan = self.storage.implicit_input_plan(invocation)?;
+            let ordinal = bray_symbols::SymbolOrdinal::new(0);
+
+            let root = selection.invocation_input_root(invocation, ordinal)
+                .expect("implicit storage input has a receiver-first ordinal");
+
+            Some((root, ordinal, crate::storage::implicit_input_type(values, self.storage, plan)))
+        } else {
+            None
+        };
 
         self.observe_call_reference_inputs(state, invocation);
 
+        let inputs = selection.inputs().map(|input| {
+            let root = input.root();
+
+            let ordinal = selection.input_ordinal(root)
+                .expect("selected input has a receiver-first ordinal");
+
+            (root, ordinal, input.ty(values))
+        }).chain(implicit_input);
+
         let mut captures = Vec::new();
 
-        for input in selection.inputs() {
-            let Some(ordinal) = selection.input_ordinal(input.root()) else { continue; };
+        for (root, ordinal, ty) in inputs {
+            let Some(source) = self.invocation_reference(state, invocation, root) else { continue; };
 
-            let Some(source) = self.invocation_reference(state, invocation, input.root()) else { continue; };
-
-            let coordinate = self.invocation_place(invocation, input.root()).or_else(|| self.invocation_result(invocation))
+            let coordinate = self.invocation_place(invocation, root).or_else(|| self.invocation_result(invocation))
                 .expect("checked input capture retains planned storage coordinates");
 
-            let value = state.memory.capture_evaluated_value(&source, bray_bound_tree::StorageTarget::storage(coordinate.clone()), input.ty(self.request.semantic_values()))
-                .with_observations(self.value_observations(&coordinate));
+            let value = state.memory.capture_evaluated_value(&source, bray_bound_tree::StorageTarget::storage(coordinate.clone()), ty);
 
-            let referent = match self.request.semantic_values().type_data(input.ty(self.request.semantic_values())).as_ref() {
-                TypeData::Borrow { target: ty, .. } => value.known_address().map(|target|
-                    (*ty, std::sync::Arc::new(state.memory.capture_reached_value(target)
-                        .with_observations(self.input.footprint.typed_observations(*ty).map(|(path, kind)| (path.to_vec(), kind)))))),
+            let borrowed = match *values.type_data(ty) {
+                TypeData::Borrow { target, .. } => Some(target),
                 _ => None,
             };
 
-            let ty = input.ty(self.request.semantic_values());
+            let value = if implicit && borrowed.is_some() {
+                // The descriptor is the passed loan. Its contents are captured separately.
+                value.with_observations([(Vec::new(), bray_bound_tree::StorageObservationKind::Reference(ty))])
+            } else {
+                value.with_observations(self.value_observations(&coordinate))
+            };
 
-            let element_bounds = self.input.raw_buffers.get(&self.request.semantic_values().unborrowed_type(ty)).and_then(|fields| {
+            let referent = borrowed.and_then(|ty| value.known_address().map(|target|
+                (ty, std::sync::Arc::new(state.memory.capture_reached_value(target)
+                    .with_observations(self.input.footprint.typed_observations(ty).map(|(path, kind)| (path.to_vec(), kind)))))));
+
+            let element_bounds = self.input.raw_buffers.get(&values.unborrowed_type(ty)).and_then(|fields| {
                 let pointer = bray_bound_tree::StorageProjection::ProductField(fields.pointer);
 
-                let regions = if matches!(self.request.semantic_values().type_data(ty).as_ref(), TypeData::Borrow { .. }) {
+                let regions = if borrowed.is_some() {
                     value.address_regions()?.into_iter().map(|owner| state.memory.owned_regions(&owner, pointer))
                         .collect::<Option<Vec<_>>>()?.into_iter().flatten().collect()
                 } else {
