@@ -1443,7 +1443,7 @@ mod tests {
             {
                 progress = 0;
                 if length == 0 { return 0; }
-                let count: i32 = trusted native_read(request_length(length));
+                let count: i32 = native_read(request_length(length));
                 return transfer_result(count, progress = progress);
             }
 
@@ -1452,16 +1452,16 @@ mod tests {
             {
                 progress = 0;
                 if length == 0 { return 0; }
-                let count: i32 = trusted native_write(request_length(length));
+                let count: i32 = native_write(request_length(length));
                 return transfer_result(count, progress = progress);
             }
         "#;
 
         for operation in ["read", "write"] {
             let source = format!(
-                "trusted module app; using example.dependency.transfers; \
+                "module app; using example.dependency.transfers; \
                  func main() -> i32 {{ let mut progress: i32 = 0; \
-                 return trusted example.dependency.transfers.{operation}(4, progress = &mut progress); }}"
+                 return example.dependency.transfers.{operation}(4, progress = &mut progress); }}"
             );
 
             let consumer = imported_consumer_with_native_inputs(library, &source, &native_links);

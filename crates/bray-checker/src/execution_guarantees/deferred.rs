@@ -124,10 +124,24 @@ impl ExecutionDeferredValue {
     pub(crate) fn effects(&self, proof: &super::ExecutionProof<'_>)
         -> Option<bray_symbols::DependencyEffectOutcomes<bray_bound_tree::StorageEffect>>
     {
+        if self.unknown_possible(proof) { return None; }
+
         let mut effects = bray_symbols::DependencyEffectOutcomes::new([]);
 
-        for transition in self.transitions(proof)? {
-            effects.merge(transition.transfer.deferred_effects.as_ref()?);
+        for producer in self.producers.values().filter(|producer| deferred_possible(&producer.selection, proof)) {
+            let transfer = &producer.transition.as_ref()?.transfer;
+            let resolved = transfer.deferred_effects.as_ref()?;
+
+            if let Some(rows) = &transfer.deferred_normal_rows
+                && rows.keys().any(|index| !producer.entry.outputs.is_admitted(*index))
+            {
+                let selected = rows.iter().filter(|(index, _)| producer.entry.outputs.is_admitted(**index))
+                    .flat_map(|(_, effects)| effects.iter().cloned());
+
+                effects.merge(&resolved.clone().with_normal(selected));
+            } else {
+                effects.merge(resolved);
+            }
         }
 
         Some(effects)

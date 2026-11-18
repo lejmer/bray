@@ -3,6 +3,16 @@ use std::sync::Arc;
 use super::{ExecutionCondition, ExecutionConditionKind as K};
 
 impl ExecutionCondition {
+    /// An established tag can rule out a component without observing its payload.
+    pub(crate) fn excludes_component(&self, projection: bray_bound_tree::StorageProjection) -> bool {
+        match projection {
+            bray_bound_tree::StorageProjection::ActiveUnionPayloadField { variant, .. } =>
+                self.known_variant().is_some_and(|active| active != variant),
+            bray_bound_tree::StorageProjection::NullableValue => self.known_presence() == Some(false),
+            _ => false,
+        }
+    }
+
     /// Retain the same physical tag snapshot independently of changed payload data.
     pub(crate) fn common_retained_discriminant(&self, other: &Self) -> Option<Self> {
         fn source(mut value: &ExecutionCondition) -> &ExecutionCondition {

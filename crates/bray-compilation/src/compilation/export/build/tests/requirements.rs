@@ -150,12 +150,13 @@ fn requirement_templates_preserve_named_argument_mapping() {
         }
 
         func selected(pos value: i32, pos limit: i32)
-            requires(order(second = limit, first = value)) {}
+            requires(order(second = limit, first = value))
+            executes(total)
+        {}
     "#,
     );
 
-    let consumer = crate::test_support::compilation_with_dependencies(
-        r#"
+    let source = r#"
         module app;
 
         using example.package.api;
@@ -169,9 +170,17 @@ fn requirement_templates_preserve_named_argument_mapping() {
         {
             caller(2, 1);
         }
-    "#,
-        [implementation_dependency(export(&provider))],
-    );
+
+        func prove_order(pos value: i32, pos limit: i32)
+            requires(example.package.api.order(value, second = limit))
+            executes(total)
+        {
+            example.package.api.selected(value, limit);
+        }
+    "#;
+
+    let dependency = implementation_dependency(export(&provider));
+    let consumer = crate::test_support::compilation_with_dependencies(source, [dependency.clone()]);
 
     assert!(
         !consumer.check_diagnostics().has_errors(),
@@ -184,6 +193,14 @@ fn requirement_templates_preserve_named_argument_mapping() {
         .expect("imported requirement helpers must reach concrete code generation");
 
     assert_eq!(count, 1);
+
+    let rejected_source = source.replace("selected(value, limit)", "selected(limit, value)");
+    let rejected = crate::test_support::compilation_with_dependencies(&rejected_source, [dependency]);
+
+    bray_testing::assert_goal_state_diagnostic_kind(
+        rejected.check_diagnostics(),
+        bray_diagnostics::DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+    );
 }
 
 #[test]
@@ -906,7 +923,7 @@ fn byte_address_preserves_only_the_supplied_allocation_authority() {
         ("pointer", true, false),
     ] {
         let second = if repeated {
-            "trusted core.memory.deallocate(address, bytes = 4, align = 2);"
+            "core.memory.deallocate(address, bytes = 4, align = 2);"
         } else {
             ""
         };
@@ -929,25 +946,28 @@ fn byte_address_preserves_only_the_supplied_allocation_authority() {
                 {{
                     let address = core.memory.byte_address<u16>({argument});
 
-                    trusted core.memory.deallocate(address, bytes = 4, align = 2);
+                    core.memory.deallocate(address, bytes = 4, align = 2);
                     {second}
                 }}
             "#
         );
 
         let checked = compilation(&source);
+        let diagnostics = checked.check_diagnostics();
 
         if valid {
             assert!(
-                !checked.check_diagnostics().has_errors(),
+                !diagnostics.has_errors(),
                 "{:#?}",
-                checked.check_diagnostics()
+                diagnostics
             );
         } else {
-            bray_testing::assert_goal_state_diagnostic_kind(
-                checked.check_diagnostics(),
-                bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven,
-            );
+            let call = "core.memory.deallocate(address, bytes = 4, align = 2)";
+
+            assert!(diagnostics.by_kind(bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven)
+                .any(|diagnostic| diagnostic.primary_span().is_some_and(|span| {
+                    crate::test_support::diagnostic_at_call(diagnostic, span.source_id(), &source, call)
+                })), "{argument}, repeated={repeated}: {diagnostics:?}");
         }
     }
 }
@@ -977,8 +997,7 @@ fn byte_address_rejects_function_pointers() {
 
 #[test]
 fn byte_address_cannot_hide_a_function_pointer_in_a_generic_wrapper() {
-    let checked = compilation(
-        r#"
+    let source = r#"
             module app;
 
             using core.memory;
@@ -994,13 +1013,17 @@ fn byte_address_cannot_hide_a_function_pointer_in_a_generic_wrapper() {
             {
                 let address = project<Callback>(pointer);
             }
-        "#,
-    );
+        "#;
 
-    assert!(
-        checked.check_diagnostics().has_errors(),
-        "a generic data-pointer parameter must reject a raw function pointer",
-    );
+    let checked = compilation(source);
+    let diagnostics = checked.check_diagnostics();
+
+    bray_testing::assert_goal_state_diagnostic_kind(diagnostics, bray_diagnostics::DiagnosticKind::CheckingIncompatibleExpressionType);
+
+    assert!(diagnostics.by_kind(bray_diagnostics::DiagnosticKind::CheckingIncompatibleExpressionType).any(|diagnostic| {
+        diagnostic.primary_span().is_some_and(|span|
+            crate::test_support::diagnostic_at_call(diagnostic, span.source_id(), source, "project<Callback>(pointer)"))
+    }), "{diagnostics:?}");
 }
 
 #[test]
@@ -1222,6 +1245,8 @@ fn compound_execution_requirements_do_not_emit_runtime_authority_queries() {
         "#,
     );
 
+    let dependency = implementation_dependency(export(&provider));
+
     let consumer = crate::test_support::compilation_with_dependencies(
         r#"
             module app;
@@ -1239,7 +1264,7 @@ fn compound_execution_requirements_do_not_emit_runtime_authority_queries() {
                 guarded(true);
             }
         "#,
-        [implementation_dependency(export(&provider))],
+        [dependency.clone()],
     );
 
     assert!(
@@ -1254,6 +1279,27 @@ fn compound_execution_requirements_do_not_emit_runtime_authority_queries() {
             .expect("established execution requirements must reach native realization"),
         0
     );
+
+    let source = r#"
+        module app;
+        using example.package.api;
+
+        async func rejected()
+            requires(main_thread_execution())
+        {
+            example.package.api.selected(false);
+        }
+    "#;
+
+    let rejected = crate::test_support::compilation_with_dependencies(source, [dependency]);
+    let key = crate::test_support::source_function_body_key(&rejected, "rejected");
+    let source_id = key.source().syntax().source_id();
+    let diagnostics = rejected.check_diagnostics();
+
+    assert!(diagnostics.iter().any(|diagnostic| {
+        diagnostic.kind() == bray_diagnostics::DiagnosticKind::CheckingExecutionRequirementNotProven
+            && crate::test_support::diagnostic_at_call(diagnostic, source_id, source, "selected(false)")
+    }), "{diagnostics:?}");
 }
 
 #[test]
@@ -1263,12 +1309,15 @@ fn imported_nested_array_and_nullable_conversions_evaluate_and_realize() {
             module api;
 
             predicate widened(value: ([u8; 2], u8?)) =
-                (value as ([u16; 2], u16?)).0[1] > 0;
+                (value as ([u16; 2], u16?)).0[1] == 7
+                && (value as ([u16; 2], u16?)).1 matches ?248;
 
             const func check(pos value: ([u8; 2], u8?)) -> bool
                 executes(pure, total)
             {
-                return (value as ([u16; 2], u16?)).0[1] > 0;
+                let converted = value as ([u16; 2], u16?);
+
+                return converted.0[1] == 7 && converted.1 matches ?248;
             }
 
             func selected(pos value: ([u8; 2], u8?))
@@ -1303,7 +1352,11 @@ fn imported_nested_array_and_nullable_conversions_evaluate_and_realize() {
 
             using example.package.api;
 
-            const CHECKED: bool = example.package.api.check(([0, 1], none));
+            const VALUES: [u8; 2] = [0, 7];
+            const PRESENT: u8? = 248;
+            const MISSING: u8? = none;
+            const CHECKED: bool = example.package.api.check((VALUES, PRESENT));
+            const ABSENT: bool = example.package.api.check((VALUES, MISSING));
 
             func caller(pos value: ([u8; 2], u8?))
                 requires(CHECKED)
@@ -1313,7 +1366,7 @@ fn imported_nested_array_and_nullable_conversions_evaluate_and_realize() {
 
             func main()
             {
-                caller(([0, 1], none));
+                caller((VALUES, PRESENT));
             }
         "#,
         [implementation_dependency(bundle)],
@@ -1324,6 +1377,8 @@ fn imported_nested_array_and_nullable_conversions_evaluate_and_realize() {
         "{:#?}",
         consumer.check_diagnostics()
     );
+
+    crate::test_support::assert_boolean_constants(&consumer, &[("CHECKED", true), ("ABSENT", false)]);
 
     assert!(
         consumer
@@ -1389,6 +1444,8 @@ fn imported_const_local_updates_preserve_branch_values_and_snapshots() {
                     value = 4;
                 }
 
+                let branch: i32 = value;
+
                 match first
                 {
                     case true
@@ -1398,11 +1455,11 @@ fn imported_const_local_updates_preserve_branch_values_and_snapshots() {
                     case false {}
                 }
 
-                return original * 10 + value;
+                return original * 100 + branch * 10 + value;
             }
 
             func require_selected(pos first: bool, pos second: bool)
-                requires(selected(first, second) == 15)
+                requires(selected(first, second) == 125)
             {
             }
         "#,
@@ -1425,7 +1482,7 @@ fn imported_const_local_updates_preserve_branch_values_and_snapshots() {
             const LAST: i32 = example.package.api.selected(false, false);
 
             func main()
-                requires(FIRST == 15, SECOND == 13, LAST == 14)
+                requires(FIRST == 125, SECOND == 133, LAST == 144)
             {
                 example.package.api.require_selected(true, false);
             }
@@ -1438,6 +1495,14 @@ fn imported_const_local_updates_preserve_branch_values_and_snapshots() {
         "{:#?}",
         consumer.check_diagnostics()
     );
+
+    for (name, expected) in [("FIRST", 125), ("SECOND", 133), ("LAST", 144)] {
+        let constant = crate::test_support::source_constant_value(&consumer, name);
+
+        assert_eq!(constant.kind(), &bray_symbols::ConstantValueKind::Integer(
+            bray_symbols::IntegerConstant::from_u64(expected),
+        ));
+    }
 
     assert!(
         consumer
@@ -1845,7 +1910,7 @@ fn exact_memory_writes_establish_nullable_contents_across_interfaces() {
         let consumer = execution_consumer(
             &provider,
             r#"
-            trusted module app;
+            module app;
 
             using example.package.api;
 
@@ -1857,7 +1922,7 @@ fn exact_memory_writes_establish_nullable_contents_across_interfaces() {
             func clear(pos record: &mut Record)
                 ensures(record.value matches none)
             {
-                let previous = trusted example.package.api.take<u32>(&mut record.value);
+                let previous = example.package.api.take<u32>(&mut record.value);
             }
         "#,
         );
@@ -1872,6 +1937,8 @@ fn exact_memory_writes_establish_nullable_contents_across_interfaces() {
 
 #[test]
 fn protected_initializers_in_runtime_requirements_reach_native_operations() {
+    use bray_bound_tree::CheckedMemoryOperationKind as Memory;
+
     for (storage, initializer) in [
         ("Uninit<u8>", "core.memory.uninit<u8>()"),
         ("Uninit<u8>", "core.memory.uninit_from<u8>(1)"),
@@ -1927,15 +1994,20 @@ fn protected_initializers_in_runtime_requirements_reach_native_operations() {
             consumer.check_diagnostics()
         );
 
-        assert!(
-            consumer
-                .codegen_instance_count_for_test(|key| matches!(
-                    key,
-                    bray_ir::MirUnitKey::Predicate(_)
-                ))
-                .expect("protected initialization lowers to its existing native operation")
-                > 0
-        );
+        let graph = consumer.codegen_graph_for_test().expect("the protected initializer lowers");
+
+        let predicate_operations = graph.instances().iter()
+            .filter(|instance| matches!(instance.mir().key(), bray_ir::MirUnitKey::Predicate(_)))
+            .flat_map(|instance| instance.mir().operations());
+
+        assert!(predicate_operations.filter_map(|operation| match operation.kind() {
+            bray_ir::MirOperationKind::Memory(memory) => Some(memory.kind()),
+            _ => None,
+        }).any(|operation| matches!((initializer, operation),
+            ("core.memory.uninit<u8>()", Memory::UninitNew { .. })
+            | ("core.memory.uninit_from<u8>(1)", Memory::UninitFrom { .. })
+            | ("core.atomic.initialize<u64>(1)", Memory::AtomicInitialize { .. })
+        )), "the runtime predicate must use {initializer}");
     }
 }
 

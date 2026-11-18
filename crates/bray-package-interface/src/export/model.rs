@@ -464,10 +464,16 @@ fn require_owned_semantic_record(
 
 fn canonicalize_owner_addressed_semantics(mut semantics: InterfaceSemantics) -> InterfaceSemantics {
     for contract in Arc::make_mut(&mut semantics.dependency_contracts) {
-        for requirements in std::iter::once(&mut contract.requirements)
-            .chain(contract.abnormal_reports.iter_mut())
-        {
-            Arc::make_mut(requirements).sort();
+        Arc::make_mut(&mut contract.requirements).sort();
+
+        if let Some(rows) = &mut contract.failure_outcomes {
+            let mut ordered = rows.to_vec();
+
+            for report in ordered.iter_mut().filter_map(|row| row.report.as_mut()) {
+                Arc::make_mut(report).sort();
+            }
+
+            *rows = bray_base::sorted_unique_shared_slice(ordered);
         }
 
         if contract.captured_values.iter().any(|row| row.report.is_some()) {

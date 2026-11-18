@@ -9,5 +9,10 @@ func main() -> i32
     let exhausted: char? = cursor(Iterator).next();
     let still_exhausted: char? = cursor(Iterator).next();
 
+    assert(first matches ?'A');
+    assert(second matches ?'é');
+    assert(exhausted matches none);
+    assert(still_exhausted matches none);
+
     return 42;
 }

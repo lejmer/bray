@@ -107,6 +107,7 @@ impl StorageFlowInput {
 }
 
 impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
+    #[expect(clippy::too_many_arguments, reason = "terminal checking uses resolved destinations, effects and reachability")]
     pub(super) fn check_terminal_operation(
         &mut self,
         state: &StorageFlowState,
@@ -115,6 +116,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         mutation: Option<DependencyMutationKind>,
         effects: Option<&[Effect]>,
         roots: &[Target],
+        escaped: &std::collections::BTreeSet<Target>,
     ) {
         if !self.publish || state.recovered || self.input.terminal_receiver.is_none() {
             return;
@@ -128,6 +130,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     operation,
                     Some(effects),
                     [],
+                    escaped,
                 );
             } else if matches!(mutation, DependencyMutationKind::Replace(ty) if self.input.graceful_types.contains(&ty))
             {
@@ -144,6 +147,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 operation,
                 effects,
                 roots.iter().cloned(),
+                escaped,
             );
         }
     }
@@ -155,6 +159,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         operation: AnalysisOperationKind,
         effects: Option<&[Effect]>,
         roots: impl IntoIterator<Item = Target>,
+        escaped: &std::collections::BTreeSet<Target>,
     ) {
         let Some(receiver) = self
             .input
@@ -240,7 +245,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             })
         });
 
-        let (reached, unknown_inputs) = memory.reachable_regions(roots.into_iter().filter(|_| inputs));
+        let (reached, unknown_inputs) = memory.reachable_regions(
+            roots.into_iter().filter(|_| inputs).chain(escaped.iter().cloned()),
+        );
 
         let unproved = effects.into_iter().flatten().any(|effect| {
             matches!(effect, Effect::Mutation { footprint: target, kind: DependencyMutationKind::Write | DependencyMutationKind::Escape | DependencyMutationKind::Dispose(_) | DependencyMutationKind::Cleanup(_), .. } if overlaps(target))

@@ -372,6 +372,16 @@ pub(crate) fn intern_named_type(
         })
 }
 
+pub(crate) fn union_variant<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>, variant: &str,
+) -> bray_symbols::UnionVariantSymbolId {
+    let key = bray_compiler_known::CompilerKnownDeclarationKey::try_new(variant)
+        .expect("union selection uses a compiler-known variant");
+
+    request.available_compiler_known_symbols().declaration_symbol(&key)
+        .expect("recognized union retains its variant")
+}
+
 pub(crate) fn union_payload<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     variant: &str,
@@ -382,16 +392,11 @@ pub(crate) fn union_payload<C: CheckerRequestContext + ?Sized>(
 ) {
     let symbols = request.available_compiler_known_symbols();
 
-    let variant = bray_compiler_known::CompilerKnownDeclarationKey::try_new(variant)
-        .expect("union payload uses a compiler-known variant");
-
     let field = bray_compiler_known::CompilerKnownDeclarationKey::try_new(field)
         .expect("union payload uses a compiler-known payload");
 
     (
-        symbols
-            .declaration_symbol(&variant)
-            .expect("recognized union retains its variant"),
+        union_variant(request, variant),
         symbols
             .declaration_symbol(&field)
             .expect("recognized union retains its payload"),

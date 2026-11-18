@@ -459,7 +459,7 @@ fn timed_synchronous_entries_repeat_inside_one_runtime_root() {
         "extern trusted func native_status() -> i32 uses(foreign_call);\n",
         "trusted func main() -> i32 uses(foreign_call)\n",
         "{\n",
-        "    let status: i32 = trusted native_status();\n",
+        "    let status: i32 = native_status();\n",
         "    if status < 0 { panic(\"negative native status\"); }\n",
         "    return status;\n",
         "}\n",
@@ -1018,56 +1018,6 @@ fn task_observation_resolves_returned_futures_through_cleanup_frames() {
                     ..
                 }
             ))
-    );
-
-    assert!(
-        !generated_artifacts_of_kind(&backend, &plan, BackendArtifactKind::BackendIr).is_empty()
-    );
-}
-
-#[test]
-#[ignore = "tier:native"]
-fn task_observation_retained_finalizer_errors_use_cleanup_frames() {
-    let (backend, plan) = runtime_native_plan(
-        r#"
-            module app;
-
-            async func inactive() {}
-
-            async func child() -> Future<unit>
-            {
-                return inactive();
-            }
-
-            struct Failure
-            {
-                pending: Future<RunResult<Future<unit>>>;
-            }
-
-            struct Owner
-            {
-                async finalize() -> Result<unit, Failure>
-                {
-                    return Error(Failure { pending = child().start().join() });
-                }
-            }
-
-            async func main()
-            {
-                let owner = Owner {};
-                panic("");
-            }
-        "#,
-    );
-
-    assert!(
-        plan.mappings()
-            .iter()
-            .flat_map(bray_codegen::CodegenMappings::symbols)
-            .any(
-                |mapping| matches!(mapping.key(), bray_codegen::CodegenSymbolKey::Runtime(reference)
-            if reference.role() == RuntimeAbiRole::ProviderReferenceRelease)
-            )
     );
 
     assert!(

@@ -8,7 +8,7 @@ use crate::representation::type_representation;
 
 use super::build::ControlFlowGraphBuilder;
 use super::id::AnalysisBlockId;
-use super::model::{AnalysisEdgeKind, AnalysisExitKind, AnalysisRefinement};
+use super::model::{AnalysisEdgeKind, AnalysisExitKind, AnalysisPropagationOutcome as Outcome, AnalysisRefinement};
 
 impl<C> ControlFlowGraphBuilder<'_, C>
 where
@@ -28,7 +28,7 @@ where
             AnalysisEdgeKind::ResultSuccess,
             Some(AnalysisRefinement::PropagationOutcome {
                 expression,
-                succeeded: true,
+                outcome: Outcome::Success,
             }),
         );
 
@@ -38,7 +38,7 @@ where
             AnalysisEdgeKind::ResultErrorPropagation,
             Some(AnalysisRefinement::PropagationOutcome {
                 expression,
-                succeeded: false,
+                outcome: Outcome::Failure,
             }),
         );
 
@@ -72,7 +72,7 @@ where
             AnalysisEdgeKind::NullablePresent,
             Some(AnalysisRefinement::PropagationOutcome {
                 expression,
-                succeeded: true,
+                outcome: Outcome::Success,
             }),
         );
 
@@ -82,7 +82,7 @@ where
             AnalysisEdgeKind::NullableAbsent,
             Some(AnalysisRefinement::PropagationOutcome {
                 expression,
-                succeeded: false,
+                outcome: Outcome::Failure,
             }),
         );
 
@@ -192,7 +192,7 @@ where
             AnalysisEdgeKind::RunResultCompleted,
             Some(AnalysisRefinement::PropagationOutcome {
                 expression,
-                succeeded: true,
+                outcome: Outcome::Success,
             }),
         );
 
@@ -202,7 +202,7 @@ where
             AnalysisEdgeKind::RunResultPanicked,
             Some(AnalysisRefinement::PropagationOutcome {
                 expression,
-                succeeded: false,
+                outcome: Outcome::RunFailure(bray_symbols::DependencyFailureKind::Panic),
             }),
         );
 
@@ -212,7 +212,7 @@ where
             AnalysisEdgeKind::RunResultCancelled,
             Some(AnalysisRefinement::PropagationOutcome {
                 expression,
-                succeeded: false,
+                outcome: Outcome::RunFailure(bray_symbols::DependencyFailureKind::Cancellation),
             }),
         );
 

@@ -416,7 +416,7 @@ fn pure_assembly_preserves_read_only_memory_inputs() {
                 )
                 uses(device_memory, intrinsic, raw_memory, unchecked_alias, unchecked_init)
             {{
-                let observed: (usize, ) = trusted core.target.assembly<
+                let observed: (usize, ) = core.target.assembly<
                     (usize, DataPointer<[u8; 16]>), (usize, )
                 >(
                     template = "",

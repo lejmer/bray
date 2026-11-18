@@ -353,7 +353,7 @@ pub struct StorageFlow {
     report_collections: Arc<[Option<BoundExpressionId>]>,
     reporting_completions: Arc<[crate::BoundExecutionSite]>,
     receiver_cleanup: Arc<[bray_symbols::TypeId]>,
-    cleanup_mutations:
+    outcome_mutations:
         std::collections::BTreeMap<crate::StorageMutation, crate::StorageInvalidation>,
     completions: std::collections::BTreeMap<crate::StorageMutation, crate::StorageCompletion>,
     reachable_exits: Arc<[StorageExitPoint]>,
@@ -481,33 +481,47 @@ impl StorageFlow {
             report_collections: Arc::from([]),
             reporting_completions: Arc::from([]),
             receiver_cleanup: Arc::from([]),
-            cleanup_mutations: Default::default(),
+            outcome_mutations: Default::default(),
             completions: Default::default(),
             replacements: Arc::from([]),
             is_recovered,
         })
     }
 
-    /// Publishes resolved observations for cancellation and ordered cleanup steps.
-    pub fn with_cleanup_mutations(
+    /// Publishes resolved observations for task results, invocation failure and ordered cleanup.
+    pub fn with_outcome_mutations(
         mut self,
         mutations: std::collections::BTreeMap<crate::StorageMutation, crate::StorageInvalidation>,
     ) -> Self {
-        self.cleanup_mutations = mutations;
+        self.outcome_mutations = mutations;
 
         self
     }
 
-    /// Returns the storage analysis result for one prepared cleanup transition.
-    pub fn cleanup_mutation(
+    /// Returns the observations resolved for one selected transition.
+    pub fn outcome_mutation(
         &self,
         mutation: crate::StorageMutation,
-    ) -> &crate::StorageInvalidation {
-        self.cleanup_mutations.get(&mutation).unwrap_or_else(|| {
-            panic!(
-                "selected cleanup {mutation:?} in unit {:?} has no published mutation",
-                self.unit
-            )
+    ) -> Option<&crate::StorageInvalidation> {
+        self.outcome_mutations.get(&mutation)
+    }
+
+    /// Iterates the reached mutation records for a single task observation site.
+    pub fn task_outcome_mutations(
+        &self,
+        occurrence: crate::BoundExecutionSite,
+    ) -> impl Iterator<Item = (crate::StorageTaskOutcome, &crate::StorageInvalidation)> {
+        use crate::{StorageMutation, StorageTaskOutcome};
+
+        let first = StorageMutation::TaskObservation { occurrence, outcome: StorageTaskOutcome::Completed { row: None } };
+        let last = StorageMutation::TaskObservation { occurrence, outcome: StorageTaskOutcome::Widened };
+
+        self.outcome_mutations.range(first..=last).map(|(mutation, invalidation)| {
+            let StorageMutation::TaskObservation { outcome, .. } = mutation else {
+                unreachable!("the task outcome range contains only task observations");
+            };
+
+            (*outcome, invalidation)
         })
     }
 
@@ -917,6 +931,7 @@ mod tests {
         let expression = BoundExpressionId::from_slot(unit, 0);
         let access = StorageAccessId::from_slot(unit, 0);
         let storage = StorageIdentityId::from_slot(unit, 0);
+        let moved = StorageIdentityId::from_slot(unit, 1);
         let scope = BoundBlockId::from_slot(unit, 0);
 
         let operation = StorageOperationDecision::new(
@@ -932,11 +947,11 @@ mod tests {
             [storage, storage],
             [storage, storage],
             [
-                crate::StoragePath::root(storage),
-                crate::StoragePath::root(storage),
+                crate::StoragePath::root(moved),
+                crate::StoragePath::root(moved),
             ],
             [],
-            [storage, storage],
+            [moved, moved],
             [],
             false,
         );
@@ -975,10 +990,10 @@ mod tests {
 
         assert_eq!(
             storage_flow.exits()[0].moved(),
-            &[crate::StoragePath::root(storage)]
+            &[crate::StoragePath::root(moved)]
         );
 
-        assert_eq!(storage_flow.exits()[0].fully_moved(), &[storage]);
+        assert_eq!(storage_flow.exits()[0].fully_moved(), &[moved]);
         assert!(!storage_flow.is_recovered());
     }
 

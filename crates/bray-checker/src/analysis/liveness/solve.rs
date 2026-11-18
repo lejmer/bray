@@ -334,7 +334,7 @@ fn collect_edge_lifetime_ends(
                             invocation,
                             phase: AnalysisCallPhase::Attempt,
                         },
-                        Some(crate::analysis::model::AnalysisRefinement::InvocationFailure(failed)),
+                        Some(crate::analysis::model::AnalysisRefinement::InvocationFailure(failed, _)),
                     )
                     | (
                         AnalysisOperationKind::Call {

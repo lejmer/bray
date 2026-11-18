@@ -299,12 +299,9 @@ fn remap_dependency_contract(
     maps: &RecordMaps,
 ) -> Result<crate::InterfaceDependencyContract, InterfaceValidationError> {
     for requirements in std::iter::once(&mut contract.requirements)
-        .chain(contract.abnormal_reports.iter_mut())
         .chain(std::iter::once(&mut contract.synchronous_cleanup))
     {
-        for requirement in Arc::make_mut(requirements) {
-            remap_dependency_requirement(requirement, maps)?;
-        }
+        remap_dependency_requirements(requirements, maps)?;
     }
 
     contract.observed_result = contract
@@ -332,14 +329,29 @@ fn remap_dependency_contract(
         |_, ty| maps.type_id(ty),
     );
 
+    if let Some(rows) = &contract.failure_outcomes {
+        let rows = rows.iter().cloned().map(|mut row| {
+            row.guard = row.guard.map(|term| maps.constant_term_id(term)).transpose()?;
+
+            row.effects = row.effects.as_deref().map(|effects| effects.iter().map(&remap_effect)
+                .collect::<Result<Vec<_>, _>>().map(bray_base::sorted_unique_shared_slice)).transpose()?;
+
+            if let Some(report) = &mut row.report {
+                remap_dependency_requirements(report, maps)?;
+            }
+
+            Ok(row)
+        }).collect::<Result<Vec<_>, InterfaceValidationError>>()?;
+
+        contract.failure_outcomes = Some(bray_base::sorted_unique_shared_slice(rows));
+    }
+
     contract.captured_values = contract.captured_values.iter().map(|outcome| {
         let guard = outcome.guard.map(|term| maps.constant_term_id(term)).transpose()?;
         let mut report = outcome.report.clone();
 
         if let Some(requirements) = &mut report {
-            for requirement in Arc::make_mut(requirements) {
-                remap_dependency_requirement(requirement, maps)?;
-            }
+            remap_dependency_requirements(requirements, maps)?;
         }
 
         let bindings = outcome.bindings.iter().map(|(destination, value)| {
@@ -723,6 +735,21 @@ fn remap_constant_term(
     Ok(())
 }
 
+fn remap_dependency_requirements(
+    requirements: &mut Arc<[InterfaceDependencyRequirement]>,
+    maps: &RecordMaps,
+) -> Result<(), InterfaceValidationError> {
+    let requirements = Arc::make_mut(requirements);
+
+    for requirement in &mut *requirements {
+        remap_dependency_requirement(requirement, maps)?;
+    }
+
+    requirements.sort_unstable();
+
+    Ok(())
+}
+
 fn remap_dependency_requirement(
     requirement: &mut InterfaceDependencyRequirement,
     maps: &RecordMaps,
@@ -731,9 +758,7 @@ fn remap_dependency_requirement(
         InterfaceDependencyRequirementValue::CleanupDependencies { ty, requirements } => {
             *ty = maps.type_id(*ty)?;
 
-            for nested in Arc::make_mut(requirements) {
-                remap_dependency_requirement(nested, maps)?;
-            }
+            remap_dependency_requirements(requirements, maps)?;
         }
         InterfaceDependencyRequirementValue::SynchronousCleanup(ty)
         | InterfaceDependencyRequirementValue::FinalizerBodyCleanup(ty) => {

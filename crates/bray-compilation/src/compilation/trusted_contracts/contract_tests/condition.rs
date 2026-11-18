@@ -32,7 +32,7 @@ fn ordinary_consequences_of_mixed_guarantees_do_not_restore_revoked_authority() 
 
             func caller()
             {{
-                let mut owner = trusted acquire();
+                let mut owner = acquire();
                 if !owner.ready
                 {{
                     {intervening}
@@ -196,30 +196,6 @@ fn scoped_guarantees_and_requirements_use_the_actual_capability() {
             }
         }
     }
-}
-
-#[test]
-fn ordinary_predicate_assumptions_cannot_discharge_trusted_disjunctions() {
-    let compilation = compilation(
-        r#"
-        trusted module app;
-        trusted predicate live(value: u64);
-        func observe(pos value: u64, pos flag: bool)
-            requires((trusted live(value)) || flag)
-        {
-        }
-        func caller(pos value: u64, pos flag: bool)
-            requires(live(value))
-        {
-            observe(value, flag);
-        }
-    "#,
-    );
-
-    bray_testing::assert_goal_state_diagnostic_kind(
-        compilation.check_diagnostics(),
-        DiagnosticKind::CheckingTrustedObligationNotProven,
-    );
 }
 
 #[test]

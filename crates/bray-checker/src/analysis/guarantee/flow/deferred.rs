@@ -7,6 +7,14 @@ use super::ExecutionFlowDomain;
 use crate::{CheckerRequestContext, ExecutionCondition, ExecutionPlace};
 
 impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
+    pub(in crate::analysis) fn select_frame_failures(
+        &self,
+        entry: &crate::ExecutionCallEvidence,
+        rows: Option<&[bray_symbols::CapturedFailureOutcome]>,
+    ) -> Option<Arc<[usize]>> {
+        entry.select_failure_rows(self.request.semantic_values(), &self.proofs, rows)
+    }
+
     pub(in crate::analysis::guarantee) fn awaited_entry(
         &self,
         state: &ExecutionState,
@@ -60,10 +68,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let completion = matches!(operation, AnalysisOperationKind::Call { phase: AnalysisCallPhase::Completion, .. });
 
-        let value = if let Some(bray_bound_tree::BoundExpression::Await(awaited)) =
+        let value = if let Some(bray_bound_tree::BoundExpression::Await(_)) =
             self.request.view().expression(expression)
         {
-            if completion { state.admitted_receiver(expression.into()) } else { self.value(state, awaited.operand()) }
+            state.admitted_receiver(expression.into())
         } else {
             if completion { return None; }
 
@@ -232,8 +240,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             let reports = self.dependencies.calls()[&source].deferred_reports()
                 .expect("formed frame retains its checked execution phase");
 
+            let entry = Arc::make_mut(&mut producer.entry);
+
+            entry.failure_rows = entry.select_failure_rows(self.request.semantic_values(), &self.proofs, reports.failures());
+
             let candidates = reports.completed().map(|(row, report)| (CallReportOutput::DeferredCompleted, Some(row), report))
-                .chain(reports.abnormal().map(|report| (CallReportOutput::DeferredAbnormal, None, report)));
+                .chain(reports.abnormal().map(|(row, kind, report)| (CallReportOutput::DeferredAbnormal(kind), Some(row), report)));
 
             for (output, row, contract) in candidates {
                 producer.reports.entry(output).or_default().insert(row, Arc::new(report(Some((source, contract)))?));
@@ -244,7 +256,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             let producer = deferred.unknown.as_mut().expect("opaque frame retains its alternative");
 
             for output in [bray_bound_tree::CallReportOutput::DeferredCompleted,
-                bray_bound_tree::CallReportOutput::DeferredAbnormal] {
+                bray_bound_tree::CallReportOutput::DeferredAbnormal(None)] {
                 producer.reports.entry(output).or_default().insert(None, Arc::new(report(None)?));
             }
         }
@@ -268,23 +280,59 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let value = state.admitted_receiver(expression.into());
         let deferred = value.deferred_value()?;
-        let mut reports = None;
 
-        let output = if output.is_abnormal() {
-            bray_bound_tree::CallReportOutput::DeferredAbnormal
-        } else {
-            bray_bound_tree::CallReportOutput::DeferredCompleted
+        let output = match output {
+            bray_bound_tree::CallReportOutput::Abnormal(kind) => bray_bound_tree::CallReportOutput::DeferredAbnormal(kind),
+            _ => bray_bound_tree::CallReportOutput::DeferredCompleted,
         };
 
+        self.captured_frame_reports(state, deferred, output)
+    }
+
+    pub(in crate::analysis) fn observed_task_reports(
+        &self,
+        state: &ExecutionState,
+        expression: BoundExpressionId,
+        outcome: bray_bound_tree::StorageTaskOutcome,
+    ) -> Option<Arc<crate::dependency::ReportDependencies>> {
+        use bray_bound_tree::{CallReportOutput, StorageTaskOutcome};
+
+        let (frame, output) = match outcome {
+            StorageTaskOutcome::Completed { .. } => {
+                let (_, _, frame) = self.deferred_body(state, state.admitted_receiver(expression.into()))?;
+
+                (frame, CallReportOutput::DeferredCompleted)
+            }
+            StorageTaskOutcome::Abnormal { depth, kind } => {
+                (self.observed_task_at(state, expression, depth)?, CallReportOutput::DeferredAbnormal(Some(kind)))
+            }
+            StorageTaskOutcome::Widened => return None,
+        };
+
+        self.captured_frame_reports(state, &frame, output)
+    }
+
+    fn captured_frame_reports(
+        &self,
+        state: &ExecutionState,
+        deferred: &crate::ExecutionDeferredValue,
+        output: bray_bound_tree::CallReportOutput,
+    ) -> Option<Arc<crate::dependency::ReportDependencies>> {
+        let mut reports = None;
         let proof = state.ordinary_proof();
+        let matching = |key| key == output || output.opaque() == Some(key);
 
         let formed = deferred.producers.values()
             .filter(|candidate| super::super::deferred::possible(&candidate.selection, &proof))
-            .filter_map(|candidate| candidate.reports.get(&output)?.admitted(Some(&candidate.entry.outputs)));
+            .flat_map(|candidate| candidate.reports.iter().filter(move |(key, _)| matching(**key)).filter_map(move |(_, reports)| {
+                reports.admitted(|row| {
+                    if output.is_abnormal() { candidate.entry.admits_failure(row) } else { candidate.entry.outputs.is_admitted(row) }
+                })
+            }));
 
         let opaque = deferred.unknown.iter()
             .filter(|candidate| super::super::deferred::possible(&candidate.selection, &proof))
-            .filter_map(|candidate| candidate.reports.get(&output)?.admitted(None));
+            .flat_map(|candidate| candidate.reports.iter().filter(move |(key, _)| matching(**key)).filter_map(|(_, reports)| reports.admitted(|_| true)));
 
         for captured in formed.chain(opaque) {
             if let Some(previous) = &mut reports {
@@ -308,7 +356,65 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         state.suspend_owned_witnesses(&carriers);
     }
 
-    pub(super) fn start_frame_execution(
+    pub(in crate::analysis) fn frame_execution_value(
+        &self, state: &ExecutionState, operation: crate::analysis::AnalysisOperationKind,
+    ) -> Option<ExecutionCondition> {
+        if let Some(expression) = operation.awaited_expression() {
+            return Some(state.admitted_receiver(expression.into()));
+        }
+
+        self.started_future(state, operation.explicit_attempt_expression()?)
+    }
+
+    pub(in crate::analysis) fn prepare_await_execution(&self, state: &mut ExecutionState, operation: crate::analysis::AnalysisOperationKind) {
+        if let Some(expression) = operation.awaited_expression() {
+            self.admit_inline_invocation(state, expression);
+            self.prepare_frame_execution(state, operation);
+        }
+    }
+
+    pub(in crate::analysis) fn direct_await_outputs(
+        &self, state: &ExecutionState, operation: crate::analysis::AnalysisOperationKind,
+    ) -> Option<(Arc<crate::ExecutionDeferredValue>, crate::execution_guarantees::DeferredProducer, Vec<usize>)> {
+        let value = state.admitted_receiver(operation.awaited_expression()?.into());
+        let frame = value.deferred_value()?;
+        let proof = state.ordinary_proof();
+
+        if frame.unknown_possible(&proof) { return None; }
+
+        let mut candidates = frame.producers.iter().filter(|(_, candidate)| super::super::deferred::possible(&candidate.selection, &proof));
+
+        let (source, producer) = candidates.next()?;
+
+        if producer.entry.outputs.0.len() <= 1 || candidates.next().is_some() || self.is_task_observation(source.clone()) { return None; }
+
+        let rows = self.feasible_entry_outputs(state, &producer.entry);
+
+        Some((Arc::clone(frame), source.clone(), rows))
+    }
+
+    /// Resolve the body entry before either consumer binds its execution effects.
+    pub(in crate::analysis) fn prepare_frame_execution(
+        &self, state: &mut ExecutionState, operation: crate::analysis::AnalysisOperationKind,
+    ) {
+        let Some(value) = self.frame_execution_value(state, operation) else { return; };
+
+        let Some(frame) = value.deferred_value() else { return; };
+
+        let mut reached = self.bind_frame_entry(state, frame, operation.occurrence());
+
+        if operation.awaited_expression().is_some() {
+            for candidate in Arc::make_mut(&mut reached).producers.values_mut() {
+                Arc::make_mut(&mut candidate.entry).pending_execution = false;
+            }
+        }
+
+        if !Arc::ptr_eq(frame, &reached) {
+            state.replace_deferred_value(frame, Some(reached));
+        }
+    }
+
+    fn bind_frame_entry(
         &self, state: &ExecutionState, frame: &Arc<crate::ExecutionDeferredValue>, execution: BoundExecutionSite,
     ) -> Arc<crate::ExecutionDeferredValue> {
         let mut started = Arc::clone(frame);
@@ -355,22 +461,21 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         started
     }
 
-    pub(super) fn set_awaited_execution(
+    pub(in crate::analysis) fn suspend_awaited_execution(
         &self,
         state: &mut ExecutionState,
         expression: BoundExpressionId,
-        pending: bool,
     ) {
         let value = state.admitted_receiver(expression.into());
 
-        if let Some(frame) = value.deferred_value().cloned() {
-            let mut entries = if pending { Arc::clone(&frame) } else { self.start_frame_execution(state, &frame, expression.into()) };
+        if let Some(frame) = value.deferred_value() {
+            let mut entries = Arc::clone(frame);
 
             for candidate in Arc::make_mut(&mut entries).producers.values_mut() {
-                Arc::make_mut(&mut candidate.entry).pending_execution = pending;
+                Arc::make_mut(&mut candidate.entry).pending_execution = true;
             }
 
-            state.replace_deferred_value(&frame, Some(entries));
+            state.replace_deferred_value(frame, Some(entries));
         }
     }
 
@@ -594,7 +699,18 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let completed = ExecutionCondition::new(crate::ExecutionConditionKind::VariantTest(variant, Arc::new(root.clone())));
 
         match completed.prove_ordinary(&state.assumptions, Some(&state.proofs)) {
-            Some(false) => return root,
+            Some(false) => {
+                let proof = state.ordinary_proof();
+
+                if let Some(variant) = bray_symbols::DependencyFailureKind::ALL.into_iter()
+                    .map(|kind| self.task_result_variant(Some(kind)))
+                    .find(|variant| proof.prove_trusted(&root.clone().matches_variant(*variant)) == Some(true))
+                {
+                    return ExecutionCondition::new(crate::ExecutionConditionKind::Tagged(variant, Arc::new(root)));
+                }
+
+                return root;
+            }
             Some(true) => {
                 let payload = root.clone().project(projection);
 
@@ -602,6 +718,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     .unwrap_or_else(|| panic!("completed task observation has no feasible body producer: {expression:?}, producers={:?}", deferred.producers.keys().collect::<Vec<_>>()));
 
                 *state = normal;
+
+                let root = ExecutionCondition::new(crate::ExecutionConditionKind::Tagged(variant, Arc::new(root)));
 
                 return ExecutionCondition::constructed(root, [(projection, value)].into());
             }
@@ -626,8 +744,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             return root;
         };
 
-        let value =
-            ExecutionCondition::constructed(root.clone(), [(projection, value)].into());
+        let tagged = ExecutionCondition::new(crate::ExecutionConditionKind::Tagged(variant, Arc::new(root.clone())));
+        let value = ExecutionCondition::constructed(tagged, [(projection, value)].into());
 
         let joined =
             super::merge_returned(&mut normal, &abnormal, &value, &root, &root, expression);
@@ -635,5 +753,17 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         *state = normal;
 
         joined
+    }
+}
+
+impl ExecutionState {
+    pub(in crate::analysis) fn select_frame_output(
+        &mut self, frame: &Arc<crate::ExecutionDeferredValue>, source: &crate::execution_guarantees::DeferredProducer, row: usize,
+    ) {
+        let mut selected = frame.as_ref().clone();
+        let producer = selected.producers.get_mut(source).expect("selected output belongs to the reached frame");
+
+        Arc::make_mut(&mut producer.entry).select_output(row);
+        self.replace_deferred_value(frame, Some(Arc::new(selected)));
     }
 }

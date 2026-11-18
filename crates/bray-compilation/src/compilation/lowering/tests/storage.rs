@@ -184,10 +184,8 @@ fn structured_values_lower_to_aggregates_construction_and_projections() {
             return false;
         };
 
-        construction
-            .inputs()
-            .iter()
-            .all(|input| matches!(input.value(), MirOperand::Move(_)))
+        construction.inputs().len() == 2
+            && construction.inputs().iter().all(|input| matches!(input.value(), MirOperand::Move(_)))
     }));
 
     assert!(

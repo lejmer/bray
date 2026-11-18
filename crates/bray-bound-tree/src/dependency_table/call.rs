@@ -12,11 +12,11 @@ pub enum CallReportOutput {
     /// A report accompanying the immediate value.
     Completed,
     /// A report accompanying immediate panic or cancellation.
-    Abnormal,
+    Abnormal(Option<bray_symbols::DependencyFailureKind>),
     /// A report accompanying the lazy body's eventual value.
     DeferredCompleted,
     /// A report accompanying the lazy body's panic or cancellation.
-    DeferredAbnormal,
+    DeferredAbnormal(Option<bray_symbols::DependencyFailureKind>),
 }
 
 impl CallReportOutput {
@@ -24,7 +24,16 @@ impl CallReportOutput {
     pub const fn is_abnormal(self) -> bool {
         match self {
             Self::Completed | Self::DeferredCompleted => false,
-            Self::Abnormal | Self::DeferredAbnormal => true,
+            Self::Abnormal(_) | Self::DeferredAbnormal(_) => true,
+        }
+    }
+
+    /// The conservative report channel that also covers this selected outcome.
+    pub const fn opaque(self) -> Option<Self> {
+        match self {
+            Self::Abnormal(Some(_)) => Some(Self::Abnormal(None)),
+            Self::DeferredAbnormal(Some(_)) => Some(Self::DeferredAbnormal(None)),
+            _ => None,
         }
     }
 }
@@ -53,17 +62,20 @@ impl BoundCallReport {
     }
 }
 
-/// Report dependencies of one execution phase. An empty present contract produces an independent report.
+/// Failure effects and their report with checked invocation storage obligations.
+pub type BoundCallFailure = bray_symbols::CapturedFailureOutcome<bray_symbols::ConstantTermId, BoundCallReport>;
+
+/// Normal report dependencies and abnormal outcomes of an invocation phase.
 #[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
 pub struct BoundCallReports {
     completed: Arc<[Option<BoundCallReport>]>,
-    abnormal: Option<BoundCallReport>,
+    failures: Option<Arc<[BoundCallFailure]>>,
 }
 
 impl BoundCallReports {
     /// Creates the report contracts in the same order as the normal outcome rows.
-    pub const fn new(completed: Arc<[Option<BoundCallReport>]>, abnormal: Option<BoundCallReport>) -> Self {
-        Self { completed, abnormal }
+    pub const fn new(completed: Arc<[Option<BoundCallReport>]>, failures: Option<Arc<[BoundCallFailure]>>) -> Self {
+        Self { completed, failures }
     }
 
     /// Enumerates completed report contracts with their normal outcome index.
@@ -71,14 +83,20 @@ impl BoundCallReports {
         self.completed.iter().enumerate().filter_map(|(index, report)| Some((index, report.as_ref()?)))
     }
 
-    /// Returns dependencies retained by reports accompanying panic or cancellation.
-    pub const fn abnormal(&self) -> Option<&BoundCallReport> {
-        self.abnormal.as_ref()
+    /// Reached failure prefixes with their associated report obligations.
+    pub fn failures(&self) -> Option<&[BoundCallFailure]> {
+        self.failures.as_deref()
+    }
+
+    /// Reports accompanying failure with their outcome indices.
+    pub fn abnormal(&self) -> impl Iterator<Item = (usize, Option<bray_symbols::DependencyFailureKind>, &BoundCallReport)> {
+        self.failures().into_iter().flatten().enumerate().filter_map(|(index, row)| Some((index, row.kind, row.report.as_ref()?)))
     }
 
     /// Enumerates all possible report obligations at this phase.
     fn contracts(&self) -> impl Iterator<Item = &BoundDependencyContract> {
-        self.completed().map(|(_, report)| report.storage()).chain(self.abnormal().map(BoundCallReport::storage))
+        self.completed().map(|(_, report)| report.storage())
+            .chain(self.abnormal().map(|(_, _, report)| report.storage()))
     }
 }
 
@@ -234,16 +252,6 @@ impl BoundCallDependencyContracts {
     /// Whether normal completion is possible for this selected invocation phase.
     pub const fn normal_completion(&self) -> bool {
         self.normal_completion
-    }
-
-    /// Whether normal invocation preserves storage, apart from input ownership transfers.
-    pub fn preserves_storage_on_normal_return(&self) -> bool {
-        self.effects.preserves_storage_on_normal_return()
-    }
-
-    /// Whether normal deferred execution preserves storage.
-    pub fn deferred_preserves_storage_on_normal_return(&self) -> bool {
-        self.deferred_effects.as_ref().is_some_and(bray_symbols::DependencyEffectOutcomes::preserves_storage_on_normal_return)
     }
 
     /// Records the body effects and outcome separately from lazy frame creation.

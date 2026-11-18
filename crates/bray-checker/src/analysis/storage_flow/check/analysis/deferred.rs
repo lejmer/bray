@@ -1,28 +1,22 @@
+use std::collections::BTreeMap;
+use std::sync::Arc;
+
 use bray_bound_tree::BoundExecutionSite;
 use bray_symbols::{DependencyMutationKind as Kind, DependencySubjectRoot};
 
 use super::core::StorageFlowCollector;
-use crate::analysis::storage_flow::memory::{Effect, Target};
+use crate::analysis::storage_flow::memory::{Effect, EffectOutcomes, Target};
 use crate::analysis::storage_flow::model::StorageFlowState;
 use crate::CheckerRequestContext;
+
+type NormalEffectRows = BTreeMap<usize, Arc<[Effect]>>;
 
 impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     pub(super) fn start_frame_effects(
         &self, memory: &crate::analysis::storage_flow::memory::State,
-        execution: &mut crate::analysis::guarantee::ExecutionState, invocation: BoundExecutionSite,
+        execution: &mut crate::analysis::guarantee::ExecutionState, operation: crate::analysis::AnalysisOperationKind,
     ) {
-        let BoundExecutionSite::Node(bray_bound_tree::AnyBoundNodeId::Expression(expression)) = invocation else {
-            return;
-        };
-
-        let value = match self.request.view().expression(expression) {
-            Some(bray_bound_tree::BoundExpression::Await(_)) => execution.admitted_receiver(invocation),
-            _ => {
-                let Some(value) = self.execution.started_future(execution, expression) else { return; };
-
-                value
-            }
-        };
+        let Some(value) = self.execution.frame_execution_value(execution, operation) else { return; };
 
         let Some(frame) = value.deferred_value() else { return; };
 
@@ -32,17 +26,24 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         for (source, candidate) in &frame.producers {
             if !crate::execution_guarantees::deferred_possible(&candidate.selection, &proof) { continue; }
 
-            let effects = if self.execution.is_task_observation(source.clone()) {
-                crate::ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(0)).value_in(&candidate.entry.arguments).and_then(|task| {
+            let (effects, rows) = if self.execution.is_task_observation(source.clone()) {
+                let effects = crate::ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(0)).value_in(&candidate.entry.arguments).and_then(|task| {
                     let task = task.deferred_value()?;
 
                     super::effects::task_effects(task.effects(&proof), task.cleanup_effects(false, &proof)?)
-                })
+                });
+
+                (effects, None)
             } else {
                 self.bind_frame_effects(memory, source, candidate, &proof)
+                    .map_or((None, None), |(effects, rows)| (Some(effects), rows))
             };
 
-            if candidate.transition.as_deref().and_then(|transition| transition.transfer.deferred_effects.as_ref()) == effects.as_ref() {
+            let previous = candidate.transition.as_deref().map(|transition| &transition.transfer);
+
+            if previous.and_then(|transfer| transfer.deferred_effects.as_ref()) == effects.as_ref()
+                && previous.and_then(|transfer| transfer.deferred_normal_rows.as_ref()) == rows.as_ref()
+            {
                 continue;
             }
 
@@ -53,7 +54,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 bray_bound_tree::StorageDeferredTransition { output: None, transfer: Default::default() }
             ));
 
-            std::sync::Arc::make_mut(transition).transfer.deferred_effects = effects;
+            let transfer = &mut Arc::make_mut(transition).transfer;
+
+            transfer.deferred_effects = effects;
+            transfer.deferred_normal_rows = rows;
         }
 
         if !std::sync::Arc::ptr_eq(&started, frame) {
@@ -66,31 +70,51 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         source: &crate::execution_guarantees::DeferredProducer,
         candidate: &crate::execution_guarantees::ExecutionDeferredInvocation,
         proof: &crate::execution_guarantees::ExecutionProof<'_>,
-    ) -> Option<crate::analysis::storage_flow::memory::EffectOutcomes> {
+    ) -> Option<(EffectOutcomes, Option<NormalEffectRows>)> {
         let summary;
+
+        let values = self.request.semantic_values();
 
         let (templates, routes, rows) = if let Some(site) = source.local() {
             let call = self.dependencies.calls().get(&site)?;
 
-            (call.deferred_effect_outcomes()?, call.storage(), call.captured_values())
+            let failures = call.deferred_reports()?.failures();
+
+            let templates = call.deferred_effect_outcomes()?.clone()
+                .with_selected_failures(failures, |row| candidate.entry.admits_failure(row));
+
+            (templates, call.storage(), call.captured_values())
         } else {
             let callee = candidate.callee.as_deref()?;
             let body = self.dependencies.frame_callees().get(callee)?;
 
             summary = self.request.semantic_values().dependency_contract_template_data(body.summary);
 
-            (summary.effect_outcomes(), &body.storage, summary.captured_values())
+            let indices = self.execution.select_frame_failures(&candidate.entry, summary.failure_outcomes());
+
+            let templates = summary.effect_outcomes().clone().with_selected_failures(summary.failure_outcomes(), |row|
+                indices.as_deref().is_none_or(|rows| rows.binary_search(&row).is_ok()));
+
+            (templates, &body.storage, summary.captured_values())
         };
 
-        let values = self.request.semantic_values();
         let read = |slot| crate::analysis::storage_flow::memory::Source::Value(slot).mutation_targets(memory);
 
-        let admitted = rows.iter().enumerate().filter(|(index, row)| {
-            candidate.entry.admits_outcome(values, proof, *index, row.guard)
-        }).flat_map(|(_, row)| row.effects.iter()).collect::<std::collections::BTreeSet<_>>();
+        let mut sources = BTreeMap::<_, Vec<_>>::new();
+        let mut resolved_rows = BTreeMap::<_, Vec<_>>::new();
 
-        let effects = templates.try_flat_map_admitted(|effect| rows.is_empty() || admitted.contains(effect), |effect| {
-            Ok::<_, std::convert::Infallible>(self.resolve_effects(std::slice::from_ref(effect), read, |subject, indirect| {
+        for (index, row) in rows.iter().enumerate().filter(|(index, row)| {
+            candidate.entry.admits_outcome(values, proof, *index, row.guard)
+        }) {
+            resolved_rows.insert(index, Vec::new());
+
+            for effect in row.effects.iter() {
+                sources.entry(effect).or_default().push(index);
+            }
+        }
+
+        let effects = templates.try_flat_map_admitted(|effect| rows.is_empty() || sources.contains_key(effect), |effect| {
+            let resolved = self.resolve_effects(std::slice::from_ref(effect), read, |subject, indirect| {
                 let root = subject.subject_root();
 
                 let (_, path) = routes.subject(subject)?;
@@ -106,10 +130,23 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 let captured = candidate.entry.argument_storage(ordinal)?;
 
                 memory.captured_effect_targets(values, captured, path, indirect)
-            }))
+            });
+
+            if let Some(indices) = sources.get(effect) {
+                for index in indices {
+                    resolved_rows.get_mut(index).expect("an admitted effect retains its normal row")
+                        .extend(resolved.iter().cloned());
+                }
+            }
+
+            Ok::<_, std::convert::Infallible>(resolved)
         }).expect("unresolved frame effects retain conservative footprints");
 
-        Some(effects)
+        let resolved_rows = (!rows.is_empty()).then(|| resolved_rows.into_iter().map(|(index, effects)| {
+            (index, bray_base::sorted_unique_shared_slice(effects))
+        }).collect());
+
+        Some((effects, resolved_rows))
     }
 
     pub(super) fn capture_deferred_cleanup(

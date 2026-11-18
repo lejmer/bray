@@ -123,7 +123,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                         task_source.as_deref(), inactive_captures.is_some(), &execution.ordinary_proof(),
                     )),
                     CleanupMutation::Lifecycle(ref call) => {
-                        self.lifecycle_effects(&memory, receiver.as_ref(), call)
+                        Some(self.lifecycle_effects(&memory, receiver.as_ref(), call))
                     }
                 };
 
@@ -146,6 +146,14 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     effects = Some(vec![Effect::Unknown, Effect::Escape]);
                 }
 
+                let escaped = self.escape_effects(
+                    &memory,
+                    effects.as_deref(),
+                    receiver.as_slice(),
+                    false,
+                    Some(&mut effect_prefix),
+                );
+
                 // Remaining receiver parts use the selected tail disposition. Their
                 // ordinary finalizers execute after the body, while abandonment omits them.
                 if !inherited_tail {
@@ -155,16 +163,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                         operation,
                         effects.as_deref(),
                         receiver.iter().cloned(),
+                        &escaped,
                     );
                 }
-
-                let escaped = self.escape_effects(
-                    &memory,
-                    effects.as_deref(),
-                    receiver.as_slice(),
-                    false,
-                    Some(&mut effect_prefix),
-                );
 
                 memory.escape_regions(escaped);
 
@@ -229,11 +230,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                             .or_insert_with(|| completion.clone());
                     }
 
-                    self.cleanup_mutations
-                        .entry(identity)
-                        .and_modify(|previous| previous.merge(&invalidation))
-                        // Publication owns observations while the current proof transition consumes them.
-                        .or_insert_with(|| invalidation.clone());
+                    self.record_outcome_mutation(identity, &invalidation);
                 }
 
                 domain.invalidate_observations(execution, identity, &invalidation);
@@ -674,26 +671,29 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         memory: &State,
         receiver: Option<&Target>,
         call: &crate::analysis::guarantee::LifecycleInvocation<'_>,
-    ) -> Option<Vec<Effect>> {
-        let contracts = &self.dependencies.lifecycle_dependencies()[&call.lifecycle.call.callable];
-
+    ) -> Vec<Effect> {
         let storage = &self.input.lifecycle_storage[&call.lifecycle.call.callable];
-        let effects;
+        let normal = call.outcomes.iter().flat_map(|row| row.effects.iter()).collect::<std::collections::BTreeSet<_>>();
 
-        let templates = if !call.completes {
-            contracts.effects()
-        } else if contracts.captured_values().is_empty() {
-            contracts.normal_effects()
-        } else {
-            effects = bray_symbols::DependencyStorageEffect::normalize(
-                call.outcomes.iter().flat_map(|row| row.effects.iter().cloned()));
+        let templates = call.contract.effect_outcomes().clone().with_selected_failures(call.contract.failure_outcomes(),
+            |index| call.entry.admits_failure(index));
 
-            &effects
-        };
+        let resolved = templates.try_flat_map_admitted(|effect| call.contract.captured_values().is_empty() || normal.contains(effect), |effect| {
+            Ok::<_, std::convert::Infallible>(self.resolve_cleanup_effects(memory, receiver, std::slice::from_ref(effect), |subject| {
+                storage.subject(subject).map(|(_, path)| path)
+            }))
+        }).expect("unresolved cleanup effects retain a conservative bound");
 
-        Some(self.resolve_cleanup_effects(memory, receiver, templates, |subject| {
-            storage.subject(subject).map(|(_, path)| path)
-        }))
+        if call.completes {
+            return resolved.normal().to_vec();
+        }
+
+        let mut paths = resolved.normal().iter().chain(resolved.abnormal()).cloned().collect::<Vec<_>>();
+
+        paths.sort_unstable();
+        paths.dedup();
+
+        paths
     }
 }
 

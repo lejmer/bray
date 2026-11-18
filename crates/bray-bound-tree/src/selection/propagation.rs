@@ -39,6 +39,10 @@ pub enum SelectedPropagation {
     CurrentRun {
         /// The completed variant and its retained payload.
         success: (UnionVariantSymbolId, UnionPayloadFieldSymbolId),
+        /// The panicked variant and its owned report.
+        panicked: (UnionVariantSymbolId, UnionPayloadFieldSymbolId),
+        /// The payload-free cancellation variant.
+        cancelled: UnionVariantSymbolId,
     },
 }
 
@@ -47,7 +51,7 @@ impl SelectedPropagation {
     pub const fn success(&self) -> Option<(UnionVariantSymbolId, UnionPayloadFieldSymbolId)> {
         match self {
             Self::Nullable { .. } => None,
-            Self::Result { success, .. } | Self::CurrentRun { success } => Some(*success),
+            Self::Result { success, .. } | Self::CurrentRun { success, .. } => Some(*success),
         }
     }
 

@@ -109,10 +109,10 @@ fn opaque_attachment_ordinals_complete_without_becoming_pure_observations() {
     ] {
         for (property, expected) in [("total", true), ("pure", false)] {
             let source = format!(
-                r#"module app;
+                r#"trusted module app;
 
 using core.target;
- func production_probe(pos {parameter}) -> {result}
+ trusted func production_probe(pos {parameter}) -> {result}
      executes({property})
      uses(intrinsic)
                 {{

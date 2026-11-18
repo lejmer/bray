@@ -132,7 +132,7 @@ impl OperationEffects {
                 }
 
                 if phase == AnalysisCallPhase::Attempt {
-                    if let Some(report) = call.reports().abnormal() {
+                    for (_, _, report) in call.reports().abnormal() {
                         let contract = report.storage();
 
                         self.value_requirements

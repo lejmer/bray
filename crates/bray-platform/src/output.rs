@@ -430,6 +430,8 @@ mod tests {
 
     #[test]
     fn redirected_operations_release_on_panic() {
+        struct OperationPanic;
+
         let output = RunOutputContext::discarded();
 
         with_run_output_context(output, || {
@@ -444,10 +446,10 @@ mod tests {
                     Err(RunOutputOperationError::Reentrant)
                 ));
 
-                panic!("leave the operation through panic");
+                std::panic::panic_any(OperationPanic);
             });
 
-            assert!(panic.is_err());
+            assert!(panic.is_err_and(|payload| payload.is::<OperationPanic>()));
 
             let operation =
                 super::begin_current_run_output_operation(RunOutputStream::StandardOutput)

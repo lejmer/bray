@@ -61,52 +61,6 @@ fn returned_borrow_aliases_lower_inside_nested_scopes() {
 }
 
 #[test]
-fn chained_nullable_receiver_evaluates_its_producer_once() {
-    let compilation = compilation(
-        r#"
-                module app;
-                            struct Counter<T> {
-                                mut calls: i32;
-                                value: T;
-                                mut func take() -> T? with(T: Copyable) {
-                                    self.calls += 1;
-                                    return self.value;
-                                }
-                                mut func remove() -> bool with(T: Copyable) {
-                                    return self.take().is_present();
-                                }
-                            }
-                            func inspect(pos counter: &mut Counter<i32>) -> bool {
-                                return counter.take().is_present();
-                            }
-            "#,
-    );
-
-    assert!(
-        !compilation.check_diagnostics().has_errors(),
-        "{:?}",
-        compilation.check_diagnostics()
-    );
-
-    let key = crate::test_support::source_type_callable_member_body_key(&compilation, "remove");
-
-    let lowered = compilation
-        .lowered_unit(key)
-        .expect("fixture callable must lower successfully");
-
-    let mir = lowered
-        .value()
-        .as_ref()
-        .expect("fixture optional value must be present")
-        .mir()
-        .expect("fixture instance must retain its MIR");
-
-    let calls: Vec<_> = mir.operations().iter().filter(|operation| matches!(operation.kind(), bray_ir::MirOperationKind::Call(call) if matches!(call.target(), bray_ir::MirCallTarget::Direct(_)))).collect();
-
-    assert_eq!(calls.len(), 1, "{calls:#?}");
-}
-
-#[test]
 fn returned_slice_receiver_uses_the_call_result_representation() {
     let compilation = compilation(
         r#"

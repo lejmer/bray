@@ -329,13 +329,19 @@ pub(super) fn instantiate_reports<C: CheckerRequestContext + ?Sized>(
         }).transpose()
     }).collect::<Result<_, DependencyContractInstantiationError<_>>>()?;
 
-    let abnormal = template.abnormal_reports().map(|requirements| {
-        let portable = recursive.and_then(DependencyContractTemplateData::abnormal_reports).unwrap_or(requirements);
+    let recursive_abnormal = recursive.and_then(DependencyContractTemplateData::abnormal_reports);
 
-        instantiate(requirements, portable.into())
-    }).transpose()?;
+    let failures = template.failure_outcomes().map(|rows| rows.iter().map(|row| {
+        let report = row.report.as_ref().map(|requirements| {
+            let portable = recursive_abnormal.as_ref().unwrap_or(requirements);
 
-    Ok(bray_bound_tree::BoundCallReports::new(completed, abnormal))
+            instantiate(requirements, std::sync::Arc::clone(portable))
+        }).transpose()?;
+
+        Ok(bray_symbols::CapturedFailureOutcome { kind: row.kind, guard: row.guard, effects: row.effects.clone(), report })
+    }).collect::<Result<_, DependencyContractInstantiationError<_>>>()).transpose()?;
+
+    Ok(bray_bound_tree::BoundCallReports::new(completed, failures))
 }
 
 pub(super) fn concrete_requirements(

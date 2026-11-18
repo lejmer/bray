@@ -3,9 +3,7 @@ trusted module memory.readiness;
 using core.memory;
 
 trusted func main()
-    uses(manual_alloc, raw_memory)
+    uses(manual_alloc)
 {
-    let pointer: DataPointer<u8> = trusted core.memory.allocate(bytes = 8, align = 1);
-
-    trusted core.memory.deallocate(pointer = pointer, bytes = 8, align = 1);
+    _ = core.memory.allocate(bytes = 8, align = 1);
 }

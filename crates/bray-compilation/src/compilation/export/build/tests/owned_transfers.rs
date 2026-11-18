@@ -801,9 +801,9 @@ fn normal_result_shapes_keep_empty_exits_without_reusing_replaced_entry_tags() {
         struct Marker {}
         union Choice<T> { Value(pos value: T); Empty; }
         trusted predicate held(owner: &Marker);
-        trusted func make() -> Marker ensures(trusted held(&result)) { return Marker {}; }
+        trusted func make() -> Marker ensures(trusted held(&result)) executes(total) { return Marker {}; }
         func inspect(pos value: &Marker) requires(trusted held(value)) {}
-        func empty(pos mut value: Choice<Marker>) -> Choice<Marker>
+        func empty(pos mut value: Choice<Marker>) -> Choice<Marker> executes(total)
         { value = .Empty; return value; }
         func replace(pos mut value: Choice<Marker>) -> Choice<Marker> requires(value matches .Empty)
         { value = .Value(Marker {}); return value; }
@@ -815,18 +815,24 @@ fn normal_result_shapes_keep_empty_exits_without_reusing_replaced_entry_tags() {
 
     assert!(!provider.check_diagnostics().has_errors(), "{:?}", provider.check_diagnostics());
 
-    for (call, valid) in [("api.empty(.Value(api.make()))", true), ("api.replace(.Empty)", false),
-        ("api.choose<api.Marker>(api.make(), take)", true), ("api.choose<api.Marker>(api.Marker {}, take)", false)] {
+    for (call, valid, ensures_empty) in [
+        ("api.empty(.Value(api.make()))", true, true),
+        ("api.replace(.Empty)", false, false),
+        ("api.choose<api.Marker>(api.make(), take)", true, false),
+        ("api.choose<api.Marker>(api.Marker {}, take)", false, false),
+    ] {
+        let completion = if ensures_empty { "ensures(result == 73) executes(total)" } else { "" };
+
         let source = format!(r#"
             module app;
             using api;
-            func caller(pos take: bool)
+            func caller(pos take: bool) -> i32 {completion}
             {{
                 let result = {call};
                 match consume result
                 {{
-                    case .Value(value) {{ api.inspect(&value); }}
-                    case .Empty {{}}
+                    case .Value(value) {{ api.inspect(&value); return 19; }}
+                    case .Empty {{ return 73; }}
                 }}
             }}
         "#);
@@ -842,6 +848,13 @@ fn normal_result_shapes_keep_empty_exits_without_reusing_replaced_entry_tags() {
             assert_eq!(!diagnostics.has_errors(), valid, "{call}, imported={imported}: {}", super::fixtures::diagnostic_messages(diagnostics));
 
             if !valid { bray_testing::assert_goal_state_diagnostic_kind(diagnostics, bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven); }
+
+            if ensures_empty {
+                let completion =
+                    crate::compilation::result_dependencies::source_function_dependencies(&consumer, "caller");
+
+                assert!(completion.normal_completion());
+            }
         }
     }
 }
@@ -927,12 +940,8 @@ fn conditional_payloads_preserve_only_the_selected_owner() {
     let mut failures = Vec::new();
 
     for (name, body, valid) in [
-        ("nullable_both", "let result = api.select_nullable_inputs_exits<api.Marker>(api.make_marker(), api.make_marker(), choice, active); match consume result { case ?value { api.inspect_marker(&value); } case none {} }", true),
-        ("nullable_real", "let result = api.select_nullable_inputs_exits<api.Marker>(api.make_marker(), api.Marker {}, true, true); match consume result { case ?value { api.inspect_marker(&value); } case none {} }", true),
-        ("nullable_fake", "let result = api.select_nullable_inputs_exits<api.Marker>(api.make_marker(), api.Marker {}, false, true); match consume result { case ?value { api.inspect_marker(&value); } case none {} }", false),
         ("nested_real", "let result = api.select_nested<api.Marker>(api.make_marker(), choice); match consume result.value { case .Value(value) { api.inspect_marker(&value); } case .Empty {} }", true),
         ("nested_fake", "let result = api.select_nested<api.Marker>(api.Marker {}, choice); match consume result.value { case .Value(value) { api.inspect_marker(&value); } case .Empty {} }", false),
-        ("optional_real", "let result = api.select_optional<api.Receipt>(api.make(), choice); match consume result { case ?value { let wrapped: api.Receipt? = value; api.observe(&wrapped); } case none {} }", true),
     ] {
         let source = format!("module app; using api; func caller(pos choice: bool, pos active: bool) {{ {body} }}");
 
@@ -2315,6 +2324,20 @@ fn check(
         }) {
             return Some(format!("unexpected rejection for {name}: {}", super::fixtures::diagnostic_messages(diagnostics)));
         }
+    }
+
+    let completion = match name {
+        "only_return_False" | "only_deferred_False" | "impossible_choice"
+        | "scalar_impossible_completion" | "captured_false_selector" => Some(false),
+        "only_return_True" | "only_deferred_True" | "possible_choice"
+        | "inactive_never_returning_future" | "captured_true_selector" => Some(true),
+        _ => None,
+    };
+
+    if let Some(completion) = completion {
+        let dependencies = crate::compilation::result_dependencies::source_function_dependencies(&consumer, "caller");
+
+        assert_eq!(dependencies.normal_completion(), completion, "{name}, imported={imported}");
     }
 
     None

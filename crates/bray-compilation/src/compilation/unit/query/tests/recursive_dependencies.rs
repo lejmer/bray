@@ -470,10 +470,10 @@ fn recursive_dependencies_retain_transitive_witness_arguments() {
                 }
             }
 
-            func first<T, U>(pos left: &T, pos right: &U, pos input: &bool) -> &bool
+            func first<T, U>(pos left: &T, pos right: &U, pos input: &bool, pos stop: bool) -> &bool
                 with(T: Project, U: Project)
             {
-                return second<U, T>(right, left, input, false);
+                return second<U, T>(right, left, input, stop);
             }
 
             func second<V, W>(pos left: &V, pos right: &W, pos input: &bool, pos stop: bool) -> &bool
@@ -484,19 +484,19 @@ fn recursive_dependencies_retain_transitive_witness_arguments() {
                     return left.project(input);
                 }
 
-                return first<V, W>(left, right, input);
+                return first<V, W>(left, right, input, true);
             }
 
             func bad(pos forwarder: &Forwarder, pos holder: &Holder) -> &bool
             {
                 let local: bool = true;
 
-                return first<Forwarder, Holder>(forwarder, holder, &local);
+                return first<Forwarder, Holder>(forwarder, holder, &local, false);
             }
 
             func good(pos forwarder: &Forwarder, pos holder: &Holder, pos input: &bool) -> &bool
             {
-                return first<Forwarder, Holder>(forwarder, holder, input);
+                return first<Forwarder, Holder>(forwarder, holder, input, false);
             }
         "#,
     );

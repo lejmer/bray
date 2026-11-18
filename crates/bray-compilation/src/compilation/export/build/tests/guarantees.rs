@@ -50,10 +50,10 @@ fn exclusive_entry_tags_require_bounded_effects_or_private_storage() {
 
     for (operation, capabilities, valid) in [
         ("API.checked_observe(&owner.sibling);", "", true),
-        ("trusted API.observe(&owner.sibling);", "", false),
-        ("trusted API.opaque(owner);", "", false),
-        ("trusted API.publish_tag(core.memory.address_of_mut<(usize?)>(&mut owner.registration));", "", false),
-        ("trusted API.publish_owner(core.memory.address_of_mut<API.Owner>(owner));", "", false),
+        ("API.observe(&owner.sibling);", "", false),
+        ("API.opaque(owner);", "", false),
+        ("API.publish_tag(core.memory.address_of_mut<(usize?)>(&mut owner.registration));", "", false),
+        ("API.publish_owner(core.memory.address_of_mut<API.Owner>(owner));", "", false),
         ("API.clear(owner);", "", false),
         (r#"let pointer = core.memory.address_of_mut<(usize?)>(&mut owner.registration);
                     trusted core.memory.write<(usize?)>(pointer, none);"#,
@@ -350,8 +350,7 @@ fn bodyless_execution_promises_require_an_external_assertion() {
 
 #[test]
 fn disjoint_raw_slot_moves_still_invalidate_opaque_reachable_observations() {
-    let provider = compilation(
-        r"
+    let source = r"
         trusted module api;
         using core.memory;
         struct Header { value: usize; }
@@ -372,17 +371,24 @@ fn disjoint_raw_slot_moves_still_invalidate_opaque_reachable_observations() {
             uses(raw_memory)
         {
             let first = trusted core.memory.read<Header>(primary);
-            trusted inspect(incident);
+            inspect(incident);
             let second = trusted core.memory.read<Header>(incident);
             return first.value + second.value;
         }
-    ",
-    );
+    ";
+
+    let provider = compilation(source);
+    let diagnostics = provider.check_diagnostics();
 
     bray_testing::assert_goal_state_diagnostic_kind(
-        provider.check_diagnostics(),
+        diagnostics,
         bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven,
     );
+
+    assert!(diagnostics.by_kind(bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven).any(|diagnostic| {
+        diagnostic.primary_span().is_some_and(|span|
+            crate::test_support::diagnostic_at_call(diagnostic, span.source_id(), source, "inspect(incident)"))
+    }), "{diagnostics:?}");
 }
 
 #[test]
@@ -1058,11 +1064,11 @@ fn imported_execution_domains_require_live_authority_and_ordinary_conditions() {
 
     for (body, valid) in [
         (
-            "let owner = trusted produce(1); return trusted observe(&owner);",
+            "let owner = produce(1); return trusted observe(&owner);",
             true,
         ),
         (
-            "let owner = trusted produce(2); return trusted observe(&owner);",
+            "let owner = produce(2); return trusted observe(&owner);",
             false,
         ),
         (
@@ -1070,7 +1076,7 @@ fn imported_execution_domains_require_live_authority_and_ordinary_conditions() {
             false,
         ),
         (
-            "let mut owner = trusted produce(1); change(&mut owner); return trusted observe(&owner);",
+            "let mut owner = produce(1); change(&mut owner); return trusted observe(&owner);",
             false,
         ),
     ] {
@@ -1825,7 +1831,7 @@ fn imported_trusted_contracts_preserve_requirements_and_live_witnesses() {
             &provider,
             &format!(
                 r#"
-            trusted module app;
+            module app;
             using example.package.api;
             func caller() {{ {body} }}
         "#
@@ -1914,7 +1920,7 @@ fn imported_mixed_predicate_conditions_preserve_trusted_occurrences() {
 
         let source = format!(
             r#"
-            trusted module app;
+            module app;
             using example.package.api;
             func caller(pos value: u64, pos flag: bool) {precondition} {{ {body} }}
         "#
@@ -1956,7 +1962,7 @@ fn imported_mixed_predicate_conditions_preserve_trusted_occurrences() {
     ] {
         let source = format!(
             r#"
-            trusted module app;
+            module app;
             using example.package.api;
             func caller(pos mut value: u8) requires(example.package.api.borrow_ready(&value)) {{ {body} }}
         "#
@@ -1987,7 +1993,7 @@ fn imported_mixed_predicate_conditions_preserve_trusted_occurrences() {
     ] {
         let source = format!(
             r#"
-            trusted module app;
+            module app;
             using example.package.api;
             func caller(pos value: &(bool, bool)) {precondition} {{ example.package.api.observe_component(value); }}
         "#
@@ -2018,7 +2024,7 @@ fn imported_mixed_predicate_conditions_preserve_trusted_occurrences() {
     ] {
         let source = format!(
             r#"
-            trusted module app;
+            module app;
             using example.package.api;
             func caller(pos value: &[u8; 1]) {precondition} {{ example.package.api.observe_array(value); }}
         "#
@@ -2692,7 +2698,7 @@ fn imported_checked_edges_preserve_the_selected_conditional_property() {
 #[test]
 fn checked_total_calls_support_imported_static_termination() {
     let declarations = r"
-        trusted module api;
+        module api;
 
         using core.memory;
 
@@ -2752,7 +2758,7 @@ fn checked_total_calls_support_imported_static_termination() {
     let consumer = execution_consumer(
         &provider,
         r"
-        trusted module app;
+        module app;
 
         using core.memory;
         using example.package.api;
@@ -3403,7 +3409,7 @@ fn imported_input_and_sibling_address_guarantees_keep_their_storage_bounds() {
                 r#"
             module app;
             using example.package.api;
-            func caller() {{ let mut receipt = trusted example.package.api.empty(); {body} }}
+            func caller() {{ let mut receipt = example.package.api.empty(); {body} }}
         "#
             ),
         );
@@ -3479,11 +3485,9 @@ fn imported_address_store_keeps_destination_initialization_independent_of_the_po
 
     for (after, valid) in [
         ("_ = bits;", true),
-        ("_ = trusted core.memory.read<u32>(bits);", false),
+        ("_ = core.memory.read<u32>(bits);", false),
     ] {
-        let consumer = execution_consumer(
-            &provider,
-            &format!(
+        let source = format!(
                 r#"
                 trusted module app;
                 using core.memory;
@@ -3499,9 +3503,9 @@ fn imported_address_store_keeps_destination_initialization_independent_of_the_po
                     {after}
                 }}
                 "#
-            ),
         );
 
+        let consumer = execution_consumer(&provider, &source);
         let diagnostics = consumer.check_diagnostics();
 
         assert_eq!(
@@ -3511,10 +3515,15 @@ fn imported_address_store_keeps_destination_initialization_independent_of_the_po
         );
 
         if !valid {
-            bray_testing::assert_goal_state_diagnostic_kind(
-                diagnostics,
-                bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven,
-            );
+            let caller = crate::test_support::source_function_body_key(&consumer, "caller");
+            let source_id = caller.source().syntax().source_id();
+
+            assert!(diagnostics.iter().any(|diagnostic| {
+                diagnostic.kind() == bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven
+                    && crate::test_support::diagnostic_at_call(
+                        diagnostic, source_id, &source, "core.memory.read<u32>(bits)",
+                    )
+            }), "{diagnostics:#?}");
         }
     }
 }
@@ -3663,7 +3672,7 @@ trusted func derive_borrowed(pos values: &mut Addresses, pos sources: &Addresses
             let consumer = execution_consumer(
                 &provider,
                 &format!(
-                    "trusted module app; using core.memory; using example.package.api; func caller() {{ {body} }}"
+                    "module app; using core.memory; using example.package.api; func caller() {{ {body} }}"
                 ),
             );
 
@@ -3759,7 +3768,7 @@ impl Addresses {
                 let consumer = execution_consumer(
                     &provider,
                     &format!(
-                        "trusted module app; using example.package.api; func caller() {{ {body} }}"
+                        "module app; using example.package.api; func caller() {{ {body} }}"
                     ),
                 );
 

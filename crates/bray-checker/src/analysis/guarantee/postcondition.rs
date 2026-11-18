@@ -13,13 +13,9 @@ pub(super) fn unproven_postcondition<C: CheckerRequestContext + ?Sized>(
     let mut failed = vec![None; postconditions.len()];
 
     for exit in flow.domain.graph.completion_exits() {
-        let output = flow.output(exit.block());
-
-        let Some(state) = output else {
-            continue;
-        };
-
-        check_postconditions(&flow.domain, state, postconditions, &mut failed);
+        for state in flow.output_states(exit.block()) {
+            check_postconditions(&flow.domain, state, postconditions, &mut failed);
+        }
     }
 
     postconditions

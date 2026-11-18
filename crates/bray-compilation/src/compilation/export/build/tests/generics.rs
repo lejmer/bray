@@ -176,7 +176,7 @@ fn abstract_trait_results_survive_package_interfaces() {
                 r#"
             func caller(pos value: &Holder) -> &bool
             {
-                return example.package.api.forward(value);
+                return example.package.api.forward(value, true);
             }
         "#,
                 true,
@@ -190,7 +190,7 @@ fn abstract_trait_results_survive_package_interfaces() {
                     value = true,
                 };
 
-                return example.package.api.forward(&local);
+                return example.package.api.forward(&local, true);
             }
         "#,
                 false,
@@ -398,7 +398,7 @@ fn public_callable_and_type_semantics_round_trip_without_source() {
 fn callable_signatures_export_fixed_array_lengths() {
     let compilation = compilation(
         r#"
-            module app;
+            module api;
 
             internal func first(pos values: &[u8; 32]
             ) -> u8
@@ -411,6 +411,18 @@ fn callable_signatures_export_fixed_array_lengths() {
     let bundle = export(&compilation);
 
     assert_eq!(bundle.semantics().callable_signatures().len(), 1);
+
+    let consumer = execution_consumer(&compilation, r#"
+        module app;
+        using internal example.package.api.first;
+
+        func read(pos array: &[u8; 32]) -> u8
+        {
+            return example.package.api.first(array);
+        }
+    "#);
+
+    assert!(consumer.check_diagnostics().is_empty(), "{:?}", consumer.check_diagnostics());
 }
 
 #[test]
@@ -964,10 +976,11 @@ fn imported_const_array_extents_normalize_mutated_component_types() {
             mut values: [u8; count + 1];
         }
 
-        const func update<const count: usize>(pos input: Items<count>) -> Items<count>
+        const func update<const count: usize>(pos input: Items<count>, pos replacement: [u8; count + 1]) -> Items<count>
         {
             let mut changed = input;
-            changed.values = changed.values;
+
+            changed.values = replacement;
 
             return changed;
         }
@@ -984,7 +997,9 @@ fn imported_const_array_extents_normalize_mutated_component_types() {
 
         const PAIR: [u8; 2] = [2, 3];
         const INPUT: example.package.api.Items<1> = { values = PAIR };
-        const VALUES: example.package.api.Items<1> = example.package.api.update<1>(INPUT);
+        const VALUES: example.package.api.Items<1> = example.package.api.update<1>(INPUT, [11, 5]);
+        const UPDATED: u8 = VALUES.values[0];
+        const SECOND: u8 = VALUES.values[1];
     "#,
         [dependency],
     );
@@ -994,6 +1009,13 @@ fn imported_const_array_extents_normalize_mutated_component_types() {
         "{:#?}",
         consumer.check_diagnostics()
     );
+
+    for (name, expected) in [("UPDATED", 11), ("SECOND", 5)] {
+        let value = crate::test_support::source_constant_value(&consumer, name);
+
+        assert!(matches!(value.kind(), bray_symbols::ConstantValueKind::Integer(value)
+            if value.to_u64() == Some(expected)), "{name}: {value:?}");
+    }
 }
 
 #[test]

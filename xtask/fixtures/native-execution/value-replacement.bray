@@ -249,6 +249,12 @@ func nullable_and_union()
     );
 
     assert(core.atomic.load<usize, 1>(&DESTRUCTIONS) == 123);
+
+    match choice
+    {
+        case Second(value) { assert(value.id == 4); }
+        case First(_) { assert(false); }
+    };
 }
 
 func selected_index() -> usize

@@ -46,11 +46,19 @@ pub(crate) fn expand_result_defaults<C: CheckerRequestContext + ?Sized>(
 
     expanded.template = expanded.template.with_captured_values(outcomes);
 
-    if let Some(requirements) = template.abnormal_reports() {
-        let reports = expand(request, selection, &DependencyContractTemplateData::new(requirements.iter().cloned()), &defaults, false)?;
+    if let Some(rows) = template.failure_outcomes() {
+        let mut failures = rows.to_vec();
 
-        expanded.escaping_evaluation_inputs.extend(reports.escaping_evaluation_inputs);
-        expanded.template = expanded.template.with_abnormal_reports(reports.template.requirements().iter().cloned());
+        for row in &mut failures {
+            let Some(requirements) = &row.report else { continue; };
+
+            let reports = expand(request, selection, &DependencyContractTemplateData::new(requirements.iter().cloned()), &defaults, false)?;
+
+            expanded.escaping_evaluation_inputs.extend(reports.escaping_evaluation_inputs);
+            row.report = Some(reports.template.requirements().into());
+        }
+
+        expanded.template = expanded.template.with_failure_outcomes(Some(failures));
     }
 
     expanded.escaping_evaluation_inputs.sort();

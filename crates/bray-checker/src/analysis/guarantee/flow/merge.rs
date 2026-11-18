@@ -63,6 +63,10 @@ pub(in crate::analysis) fn merge(
         return true;
     };
 
+    join_states(target, incoming, join)
+}
+
+pub(super) fn join_states(target: &mut ExecutionState, incoming: &ExecutionState, join: ExecutionJoin) -> bool {
     let (incoming_joined, mut changed) = join_observations(target, incoming, join);
 
     let incoming = &incoming_joined;
@@ -149,6 +153,19 @@ pub(in crate::analysis) fn merge(
 
     changed |= merge_values(&mut target.expressions, &incoming.expressions);
     changed |= merge_values(&mut target.pending_results, &incoming.pending_results);
+
+    if let Some((site, failure)) = &incoming.admitted_failure {
+        if let Some((previous_site, previous)) = &mut target.admitted_failure {
+            assert_eq!(site, previous_site, "a suspension joins the same admitted attempt");
+
+            if !std::sync::Arc::ptr_eq(previous, failure) {
+                changed |= join_states(std::sync::Arc::make_mut(previous), failure, join);
+            }
+        } else {
+            target.admitted_failure = incoming.admitted_failure.clone();
+            changed = true;
+        }
+    }
 
     changed
 }

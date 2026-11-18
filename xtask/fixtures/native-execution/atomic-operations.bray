@@ -28,11 +28,21 @@ func main() -> i32
     let strong = core.atomic.compare_exchange<u32, 4, 1>(&counter, 3, 5);
     let weak = core.atomic.compare_exchange_weak<u32, 1, 0>(&counter, 5, 7);
 
-    core.atomic.fetch_add<u32, 0>(&counter, 3);
-    core.atomic.fetch_sub<u32, 1>(&counter, 1);
-    core.atomic.fetch_and<u32, 2>(&counter, 15);
-    core.atomic.fetch_or<u32, 3>(&counter, 16);
-    core.atomic.fetch_xor<u32, 4>(&counter, 3);
+    let expected: u32 = if weak.1
+    {
+        yield 7;
+    }
+    else
+    {
+        yield 5;
+    };
+
+    assert(core.atomic.fetch_add<u32, 0>(&counter, 3) == expected);
+    assert(core.atomic.fetch_sub<u32, 1>(&counter, 1) == expected + 3);
+    assert(core.atomic.fetch_and<u32, 2>(&counter, 15) == expected + 2);
+    assert(core.atomic.fetch_or<u32, 3>(&counter, 16) == expected + 2);
+    assert(core.atomic.fetch_xor<u32, 4>(&counter, 3) == expected + 18);
+    assert(core.atomic.load<u32, 1>(&counter) == ((expected + 18) ^ 3));
 
     core.atomic.fence<1>();
     core.atomic.compiler_fence<2>();

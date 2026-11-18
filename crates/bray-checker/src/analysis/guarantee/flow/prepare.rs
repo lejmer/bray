@@ -47,6 +47,15 @@ pub(in crate::analysis::guarantee) fn analyze_execution_flow<
     );
 
     domain.excluded_edges = excluded_edges;
+    domain.result_edges = crate::analysis::outcomes::result_production_edges(&prepared.graph, storage);
+
+    domain.failure_sites = prepared.graph.edges().iter()
+        .filter(|edge| !domain.excluded_edges.contains(&edge.id()))
+        .filter_map(|edge| match edge.refinement() {
+            Some(crate::analysis::model::AnalysisRefinement::InvocationFailure(site, _)) => Some(site),
+            _ => None,
+        }).collect();
+
     domain.checked_body = Some(checked_body);
 
     let states = match solve_fixed_point(&prepared.graph, &domain, &request) {
@@ -170,6 +179,8 @@ pub(crate) fn prepare_execution_flow<'a, 'view, C: CheckerRequestContext + ?Size
         generator_observations: &prepared.generator_observations,
         graph: &prepared.graph,
         excluded_edges: BTreeSet::new(),
+        result_edges: BTreeSet::new(),
+        failure_sites: BTreeSet::new(),
         request,
         semantics,
         assumptions,

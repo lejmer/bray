@@ -35,13 +35,10 @@ impl<'a> SemanticExporter<'a> {
 
         let effects = self.dependency_effects(data.effects())?;
 
-        let mut contract = InterfaceDependencyContract::new(requirements);
+        let failures = data.failure_outcomes().map(|rows| self.dependency_failure_outcomes(rows)).transpose()?;
 
-        if let Some(requirements) = data.abnormal_reports() {
-            contract = contract.with_abnormal_reports(self.dependency_requirements(requirements)?);
-        }
-
-        let contract = contract
+        let contract = InterfaceDependencyContract::new(requirements)
+            .with_failure_outcomes(failures)
             .with_captured_values(self.dependency_captured_bindings(data.captured_values())?)
             .with_observed_result(
                 data.observed_result()
@@ -59,6 +56,17 @@ impl<'a> SemanticExporter<'a> {
         self.dependency_contract_ids.insert(id, exported);
 
         Ok(exported)
+    }
+
+    fn dependency_failure_outcomes(&mut self, rows: &[bray_symbols::CapturedFailureOutcome])
+        -> Result<Vec<bray_package_interface::InterfaceFailureOutcome>, PackageInterfaceExportError> {
+        self.dependency_order(rows, |encoder, row| encoder.dependency_failure_outcome(row))?
+            .into_iter().map(|row| Ok(bray_package_interface::InterfaceFailureOutcome {
+                kind: row.kind,
+                guard: row.guard.map(|term| self.constant_term_id(term)).transpose()?,
+                report: row.report.as_deref().map(|report| self.dependency_requirements(report).map(bray_base::sorted_unique_shared_slice)).transpose()?,
+                effects: row.effects.as_deref().map(|effects| self.dependency_effects(effects).map(bray_base::sorted_unique_shared_slice)).transpose()?,
+            })).collect()
     }
 
     fn dependency_borrow_relations(

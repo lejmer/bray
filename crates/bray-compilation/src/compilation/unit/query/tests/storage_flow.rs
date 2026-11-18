@@ -1322,13 +1322,14 @@ fn liveness_retains_storage_required_beyond_nested_scope_exits() {
 fn native_callbacks_consume_only_their_implicit_report_outputs() {
     for native in [false, true] {
         let source = r#"
-            module app;
+            NativeTrust module app;
 
-            trusted func invoke(pos callback: NativeAbi func(pos value: u32) -> u32, pos value: u32) -> u32 NativeCapability
+            NativeTrust func invoke(pos callback: NativeAbi func(pos value: u32) -> u32, pos value: u32) -> u32 NativeCapability
             {
                 return callback(value);
             }
-        "#.replace("NativeAbi", if native { "@abi(c)" } else { "" })
+        "#.replace("NativeTrust ", if native { "trusted " } else { "" })
+            .replace("NativeAbi", if native { "@abi(c)" } else { "" })
             .replace("NativeCapability", if native { "uses(foreign_call)" } else { "" });
 
         let application = compilation(&source);
@@ -1357,7 +1358,7 @@ fn native_callbacks_consume_only_their_implicit_report_outputs() {
         };
 
         assert_eq!(call.reports().completed().next().is_none(), native);
-        assert_eq!(call.reports().abnormal().is_none(), native);
+        assert_eq!(call.reports().abnormal().next().is_none(), native);
 
         assert!(
             !call.result().requirements().is_empty(),

@@ -161,7 +161,7 @@ fn repeated_borrows_of_one_scalar_component_preserve_authority() {
             {
             };
 
-            trusted establish_component(&values);
+            establish_component(&values);
             observe_mutable(&mut values.0);
         "#,
     ] {

@@ -1,4 +1,4 @@
-module bray.standard_library_tests.ordered_collection;
+trusted module bray.standard_library_tests.ordered_collection;
 
 using std.bytes;
 using std.collection;
@@ -253,7 +253,8 @@ trusted func ordered_set_orders_replaces_removes_and_ranges() -> Result<unit, st
 }
 
 @test
-trusted func ordered_collections_remain_balanced_under_monotonic_updates() -> Result<unit, std.memory.MemoryLayoutError>
+trusted func ordered_collections_preserve_membership_under_monotonic_updates(
+) -> Result<unit, std.memory.MemoryLayoutError>
 {
     let mut ascending: std.collection.OrderedMap<u64, u64> = try trusted std.collection.OrderedMap<u64, u64>();
     let mut descending: std.collection.OrderedSet<u64> = try trusted std.collection.OrderedSet<u64>();
@@ -297,6 +298,18 @@ trusted func ordered_collections_remain_balanced_under_monotonic_updates() -> Re
 
     assert(ascending.length() == 512);
     assert(descending.length() == 512);
+
+    value = 0;
+
+    while value < 1024
+    {
+        let retained: bool = value % 2 == 1;
+
+        assert(ascending.contains_key(&value) == retained);
+        assert(descending.contains(&value) == retained);
+
+        value += 1;
+    }
 
     return Ok(unit);
 }

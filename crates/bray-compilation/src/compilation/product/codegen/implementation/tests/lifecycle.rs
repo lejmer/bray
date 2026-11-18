@@ -58,31 +58,6 @@ fn scoped_selected_calls_emit_native_artifacts() {
 
 #[test]
 #[ignore = "tier:native"]
-fn nested_cleanup_native_fixture_emits() {
-    let (backend, plan) = runtime_native_plan_for_product(
-        include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../xtask/fixtures/composition/cleanup/main.bray"
-        )),
-        ProductKind::Test,
-    );
-
-    assert!(!generated_artifacts(&backend, &plan).is_empty());
-}
-
-#[test]
-#[ignore = "tier:native"]
-fn custom_storage_cleanup_native_fixture_emits() {
-    let (backend, plan) = runtime_native_plan(include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../xtask/fixtures/native-execution/guarded-part-cleanup.bray"
-    )));
-
-    assert!(!generated_artifacts(&backend, &plan).is_empty());
-}
-
-#[test]
-#[ignore = "tier:native"]
 fn buffer_destruction_emits_ordinary_and_abandoned_element_paths() {
     let source = r#"
         module std.test;
@@ -1002,20 +977,6 @@ fn admitted_synchronous_generic_cleanup_emits_native_units() {
         generated_artifacts(&backend, &plan)
             .iter()
             .all(|artifact| !artifact.is_empty())
-    );
-}
-
-#[test]
-#[ignore = "tier:native"]
-fn inactive_generic_scalar_future_emits_native_units() {
-    assert_source_emits_valid_native_units(
-        r#"
-        module app;
-        async func hold<T>(pos value: T) {}
-        func discard<T>(pos value: T) { let pending = hold<T>(value); }
-        func root() { discard<i32>(1); }
-    "#,
-        crate::BuildConfiguration::Development,
     );
 }
 

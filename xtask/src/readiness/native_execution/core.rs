@@ -327,7 +327,7 @@ fn audit_half_open_ranges(root: &Path, target: NativeTarget, runtime: &Path) -> 
         runtime,
         "bray-native-range-",
         RANGE_FIXTURE,
-        10,
+        0,
         "half-open ranges",
         &[],
     )

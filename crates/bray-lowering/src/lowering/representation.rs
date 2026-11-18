@@ -17,9 +17,7 @@ pub(super) struct ResultRepresentation {
 #[derive(Clone, Copy)]
 pub(super) struct RunResultRepresentation {
     pub(super) completed_variant: UnionVariantSymbolId,
-    pub(super) completed_field: UnionPayloadFieldSymbolId,
     pub(super) panicked_variant: UnionVariantSymbolId,
-    pub(super) panicked_field: UnionPayloadFieldSymbolId,
     pub(super) cancelled_variant: UnionVariantSymbolId,
 }
 
@@ -141,9 +139,7 @@ impl Lowerer<'_> {
 
         RunResultRepresentation {
             completed_variant: representation.completed_variant(),
-            completed_field: representation.completed_field(),
             panicked_variant: representation.panicked_variant(),
-            panicked_field: representation.panicked_field(),
             cancelled_variant: representation.cancelled_variant(),
         }
     }

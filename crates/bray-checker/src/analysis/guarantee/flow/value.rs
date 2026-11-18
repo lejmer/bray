@@ -420,24 +420,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         state.assign(place, value, None);
     }
 
-    pub(in crate::analysis) fn task_receiver(
-        &self,
-        state: &ExecutionState,
-        expression: BoundExpressionId,
-    ) -> Option<ExecutionCondition> {
-        let bray_bound_tree::SemanticSelection::Call(call) =
-            self.semantics.selections().expression(expression)?
-        else {
-            return None;
-        };
-
-        crate::analysis::AnalysisTaskOperationKind::from_implementation_hook(
-            call.implementation_hook()?,
-        )?;
-
-        Some(state.admitted_receiver(expression.into()))
-    }
-
     pub(in crate::analysis) fn started_future(
         &self,
         state: &ExecutionState,

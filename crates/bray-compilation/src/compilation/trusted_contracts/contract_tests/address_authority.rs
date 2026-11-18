@@ -4,9 +4,9 @@ use crate::test_support::{compilation};
 #[test]
 fn native_pointer_types_do_not_bound_unknown_effects() {
     for body in [
-        "trusted touch_word(core.memory.address_of<u32>(&owner.value));",
-        "trusted touch_marker(core.memory.address_of<Marker>(&owner.marker));",
-        "let address = core.memory.address_of<Marker>(&owner.marker); trusted touch_marker(address); trusted opaque();",
+        "touch_word(core.memory.address_of<u32>(&owner.value));",
+        "touch_marker(core.memory.address_of<Marker>(&owner.marker));",
+        "let address = core.memory.address_of<Marker>(&owner.marker); touch_marker(address); opaque();",
     ] {
         let source = format!(
             r#"
@@ -72,6 +72,12 @@ fn native_pointer_types_do_not_bound_unknown_effects() {
             diagnostics,
             DiagnosticKind::CheckingTrustedObligationNotProven,
         );
+
+        assert!(diagnostics.iter().any(|diagnostic| {
+            diagnostic.primary_span().is_some_and(|span| {
+                crate::test_support::diagnostic_at_call(diagnostic, span.source_id(), &source, "accept(owner)")
+            })
+        }));
     }
 }
 
@@ -524,7 +530,7 @@ fn opaque_effects_preserve_unexposed_pointer_identity_without_preserving_authori
             {{
                 let mut pointer = input;
                 {exposure}
-                trusted renew(pointer);
+                renew(pointer);
                 let contents = core.memory.read<u8>(pointer);
                 core.memory.write<u8>(pointer, contents);
             }}

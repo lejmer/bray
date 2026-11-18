@@ -1,4 +1,4 @@
-module bray.standard_library_tests.real_power;
+trusted module bray.standard_library_tests.real_power;
 
 func generic_power<Value>(pos base: Value, pos exponent: Value) -> Value(Exponentiate<Value>).Output
     with(Value: Exponentiate<Value>)

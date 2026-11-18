@@ -258,6 +258,11 @@ mod tests {
 
         outputs.intersect(&ExecutionOutputs::default(), (&proof, &proof));
 
-        assert!(outputs.0.iter().all(|row| row.carriers.is_empty()));
+        let [merged] = outputs.0.as_ref() else {
+            panic!("the opaque completion remains reachable");
+        };
+
+        assert_eq!(merged.guard, OutputGuard::Bound(Condition::boolean(true)));
+        assert!(merged.carriers.is_empty());
     }
 }

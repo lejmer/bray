@@ -138,11 +138,7 @@ fn async_callables_lower_to_protected_frames_and_explicit_suspension() {
         MirOperationKind::Async(bray_ir::MirAsyncOperation::CreateFrame { .. })
     )));
 
-    assert!(
-        mir.blocks()
-            .iter()
-            .any(|block| matches!(block.terminator().kind(), MirTerminatorKind::Suspend { .. }))
-    );
+    let mut compositions = Vec::new();
 
     for block in mir.blocks() {
         let MirTerminatorKind::Suspend { resume_state, .. } = block.terminator().kind() else {
@@ -158,13 +154,16 @@ fn async_callables_lower_to_protected_frames_and_explicit_suspension() {
                 .expect("fixture MIR operation must exist")
                 .kind()
             {
-                assert_eq!(
-                    admitted, resume_state,
-                    "composition checks the suspended parent's continuation"
-                );
+                compositions.push((admitted, resume_state));
             }
         }
     }
+
+    let [(admitted, resume_state)] = compositions.as_slice() else {
+        panic!("the single await must compose its frame before suspension: {mir:?}");
+    };
+
+    assert_eq!(admitted, resume_state, "composition checks the suspended parent's continuation");
 
     assert!(mir.operations().iter().any(|operation| matches!(
         operation.kind(),
@@ -387,6 +386,15 @@ fn task_operations_retain_normal_completion_before_await() {
             })
         )).expect("join and cancel construct lazy observations");
 
+        let MirOperationKind::Async(bray_ir::MirAsyncOperation::CreateFrame {
+            initializer: bray_ir::MirFrameInitializer::TaskObservation { request_cancellation, .. },
+            ..
+        }) = observed_operation.kind() else {
+            unreachable!("the selected operation constructs a task observation");
+        };
+
+        assert_eq!(*request_cancellation, observation == "cancel");
+
         let helpers = observed_operation.kind().helper_references();
 
         assert!(helpers.iter().any(|helper| matches!(helper,
@@ -496,10 +504,12 @@ fn await_takes_the_child_outcome_before_cancellation_and_cleans_its_result() {
         )
         .expect("fixture MIR block must exist");
 
-    assert!(resumed.operations().iter().any(|id| matches!(
-        mir.operation(*id).expect("fixture MIR operation must exist").kind(),
-        MirOperationKind::Async(bray_ir::MirAsyncOperation::CommitAwaitedCompletion { .. })
-    )));
+    let committed = resumed.operations().iter().find_map(|id| {
+        let operation = mir.operation(*id).expect("fixture MIR operation must exist");
+
+        matches!(operation.kind(), MirOperationKind::Async(bray_ir::MirAsyncOperation::CommitAwaitedCompletion { .. }))
+            .then(|| operation.result().expect("child completion produces its value"))
+    }).expect("resume must take the child outcome");
 
     assert!(!resumed.operations().iter().any(|id| matches!(
         mir.operation(*id).expect("fixture MIR operation must exist").kind(),
@@ -510,14 +520,21 @@ fn await_takes_the_child_outcome_before_cancellation_and_cleans_its_result() {
         panic!("child panic and cancellation must transfer before checking a new request");
     };
 
+    assert_eq!(completed.arguments(), [MirOperand::Value(committed)]);
+
     let completed = mir
         .block(completed.target())
         .expect("fixture MIR block must exist");
 
-    let result = completed
+    let [child_result] = completed.parameters() else {
+        panic!("normal resumption receives the committed child value");
+    };
+
+    let (store_index, result) = completed
         .operations()
         .iter()
-        .find_map(|id| {
+        .enumerate()
+        .find_map(|(index, id)| {
             match mir
                 .operation(*id)
                 .expect("fixture MIR operation must exist")
@@ -525,18 +542,20 @@ fn await_takes_the_child_outcome_before_cancellation_and_cleans_its_result() {
             {
                 MirOperationKind::Store {
                     destination,
-                    value: MirOperand::Value(_),
+                    value: MirOperand::Value(value),
                     ..
-                } => Some(destination.storage()),
+                } if value == child_result => Some((index, destination.storage())),
                 _ => None,
             }
         })
         .expect("the completed result must become an initialized cleanup owner");
 
-    assert!(completed.operations().iter().any(|id| matches!(
+    let cancellation_index = completed.operations().iter().position(|id| matches!(
         mir.operation(*id).expect("fixture MIR operation must exist").kind(),
         MirOperationKind::Async(bray_ir::MirAsyncOperation::ObserveFrameCancellation)
-    )));
+    )).expect("normal resumption observes cancellation");
+
+    assert!(store_index < cancellation_index, "the actual completed value owns cleanup before a new request");
 
     let MirTerminatorKind::Branch { then_edge, .. } = completed.terminator().kind() else {
         panic!("completed await observes cancellation before source continuation");

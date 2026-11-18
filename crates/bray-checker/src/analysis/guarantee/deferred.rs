@@ -153,7 +153,7 @@ mod tests {
     #[test]
     fn joining_frame_reports_preserves_output_channels_and_predecessors() {
         use bray_bound_tree::CallReportOutput::{DeferredAbnormal, DeferredCompleted};
-        use bray_symbols::{DependencyRequirement, DependencyRequirementKind, DependencySubject, DependencySubjectRoot};
+        use bray_symbols::{DependencyFailureKind, DependencyRequirement, DependencyRequirementKind, DependencySubject, DependencySubjectRoot};
 
         let requirement = |ordinal| DependencyRequirement::direct(
             DependencySubject::root(DependencySubjectRoot::Parameter(SymbolOrdinal::new(ordinal))),
@@ -172,28 +172,33 @@ mod tests {
         };
 
         let completed = captured(0);
-        let abnormal = captured(1);
+        let panic = captured(1);
+        let panicked = DeferredAbnormal(Some(DependencyFailureKind::Panic));
+        let cancelled = DeferredAbnormal(Some(DependencyFailureKind::Cancellation));
 
         let mut first = DeferredInvocation { callee: None, transition: None,
             entry: (), selection: Default::default(), completed: None,
             reports: [(DeferredCompleted, reports(Some(0), Arc::clone(&completed))),
-                (DeferredAbnormal, reports(None, Arc::clone(&abnormal)))].into(),
+                (panicked, reports(None, Arc::clone(&panic)))].into(),
         };
 
         let second = DeferredInvocation { callee: None, transition: None,
             entry: (), selection: Default::default(), completed: None,
-            reports: [(DeferredCompleted, reports(Some(1), captured(2)))].into(),
+            reports: [(DeferredCompleted, reports(Some(1), captured(2))),
+                (cancelled, reports(None, captured(3)))].into(),
         };
 
         assert!(first.merge_capture(&second));
 
-        let possible = first.reports[&DeferredCompleted].admitted(None).unwrap();
-        let retained_abnormal = first.reports[&DeferredAbnormal].admitted(None).unwrap();
+        let possible = first.reports[&DeferredCompleted].admitted(|_| true).unwrap();
+        let retained_panic = first.reports[&panicked].admitted(|_| true).unwrap();
+        let retained_cancellation = first.reports[&cancelled].admitted(|_| true).unwrap();
 
         assert_eq!(possible.requirements, [requirement(0), requirement(2)].into());
-        assert_eq!(retained_abnormal.requirements, [requirement(1)].into());
+        assert_eq!(retained_panic.requirements, [requirement(1)].into());
+        assert_eq!(retained_cancellation.requirements, [requirement(3)].into());
         assert_eq!(completed.requirements, [requirement(0)].into());
-        assert!(Arc::ptr_eq(&retained_abnormal, &abnormal));
+        assert!(Arc::ptr_eq(&retained_panic, &panic));
         assert!(!first.merge_capture(&second));
     }
 

@@ -218,7 +218,7 @@ mod tests {
             edit.replacement(),
         );
 
-        assert!(fixed.contains("\n                _ = value();"));
+        assert_eq!(fixed, text.replacen("\n                value();", "\n                _ = value();", 1));
 
         let fixed_compilation = crate::test_support::compilation(&fixed);
 
@@ -280,11 +280,17 @@ mod tests {
             "if true { yield 1; } else { yield 2; }",
             "loop { break 1; }",
         ] {
+            let (module, contract) = if statement == "trusted value();" {
+                ("trusted module app; trusted predicate allowed();", "requires(trusted allowed())")
+            } else {
+                ("module app;", "")
+            };
+
             let text = format!(
                 r#"
-                module app;
-                func value() -> i32 {{ return 7; }}
-                func main()
+                {module}
+                func value() -> i32 {contract} {{ return 7; }}
+                func main() {contract}
                 {{
                     {statement}
                 }}
@@ -311,6 +317,10 @@ mod tests {
                         .expect("fixture value must fit the requested representation");
 
                 fixed.replace_range(range, edit.replacement());
+            }
+
+            if statement == "trusted value();" {
+                assert_eq!(fixed, text.replacen("trusted value();", "_ = trusted value();", 1));
             }
 
             let fixed_compilation = crate::test_support::compilation(&fixed);

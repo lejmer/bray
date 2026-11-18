@@ -214,9 +214,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             return None;
         }
 
-        let bray_bound_tree::StorageMutation::Operation(invocation) = mutation else {
-            return None;
-        };
+        let invocation = mutation.invocation()?;
 
         let entry = state.entries.get(&invocation)?;
         let selection = self.semantics.selections().expression(invocation.expression()?)?;
@@ -258,47 +256,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         })
     }
 
-    pub(in crate::analysis) fn call_preserves_normal_storage(
-        &self,
-        state: &ExecutionState,
-        occurrence: bray_bound_tree::BoundExecutionSite,
-    ) -> bool {
-        if matches!(occurrence, bray_bound_tree::BoundExecutionSite::Node(_))
-            && occurrence.expression().is_some_and(|expression| {
-                self.memory.operation(expression).is_some()
-                    || matches!(
-                        self.request.view().expression(expression),
-                        Some(bray_bound_tree::BoundExpression::Assignment(_))
-                    )
-            })
-        {
-            return false;
-        }
-
-        if occurrence.expression().is_some_and(|expression| matches!(self.request.view().expression(expression),
-            Some(bray_bound_tree::BoundExpression::Await(_)))) {
-            return self.deferred_preserves_storage(state, state.admitted_receiver(occurrence));
-        }
-
-        self.dependencies.calls().get(&occurrence).is_some_and(
-            bray_bound_tree::BoundCallDependencyContracts::preserves_storage_on_normal_return,
-        )
-    }
-
     pub(super) fn invalidate(
-        &self,
-        state: &mut ExecutionState,
-        occurrence: bray_bound_tree::BoundExecutionSite,
-        invalidation: Option<&StorageInvalidation>,
-    ) {
-        if self.call_preserves_normal_storage(state, occurrence) {
-            return;
-        }
-
-        self.invalidate_call_effects(state, occurrence, invalidation);
-    }
-
-    pub(in crate::analysis) fn invalidate_call_effects(
         &self,
         state: &mut ExecutionState,
         occurrence: bray_bound_tree::BoundExecutionSite,
@@ -307,11 +265,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let Some(invalidation) = invalidation.or_else(|| self.refinements.get(&occurrence)) else {
             return;
         };
-
-        // A proven zero extent has no writes, epoch changes, or ownership effects.
-        if self.empty_memory_copy(state, occurrence) {
-            return;
-        }
 
         if matches!(invalidation, StorageInvalidation::All { .. })
             && let Some(contract) = self
@@ -505,12 +458,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .flat_map(|value| state.owned_values(&value))
             .collect::<BTreeSet<_>>();
 
-        let admitted = match mutation {
-            bray_bound_tree::StorageMutation::Operation(site) => Some(site),
-            _ => None,
-        };
-
-        state.invalidate_cleanup(&snapshots, &owners, admitted);
+        state.invalidate_cleanup(&snapshots, &owners, mutation.invocation());
     }
 
     fn preservation_masks<'a>(
@@ -539,17 +487,22 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         mutation: bray_bound_tree::StorageMutation,
         invalidation: &StorageInvalidation,
     ) {
-        let transfers = invalidation.observation_transition() == bray_bound_tree::StorageObservationTransition::Transfer;
-        let content_only = invalidation.observation_transition() == bray_bound_tree::StorageObservationTransition::Contents;
+        use bray_bound_tree::StorageObservationTransition;
+
+        let transition = invalidation.observation_transition();
+
+        if transition == StorageObservationTransition::Unchanged {
+            return;
+        }
+
+        let transfers = transition == StorageObservationTransition::Transfer;
+        let content_only = transition == StorageObservationTransition::Contents;
 
         if !matches!(mutation, bray_bound_tree::StorageMutation::Operation(_)) {
             state.retire_evaluation(mutation);
         }
 
-        let admitted = match mutation {
-            bray_bound_tree::StorageMutation::Operation(site) => Some(site),
-            _ => None,
-        };
+        let admitted = mutation.invocation();
 
         if matches!(invalidation, StorageInvalidation::All { .. }) {
             self.invalidate_all_observations(state, mutation, invalidation);

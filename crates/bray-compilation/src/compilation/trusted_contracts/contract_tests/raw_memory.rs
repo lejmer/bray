@@ -283,7 +283,7 @@ trusted func pointer(pos owner: &Owner) -> DataPointer<$POINTEE>
     )
     executes(pure, total) uses(foreign_call)
 {
-    return trusted native_pointer(core.memory.address_of<Owner>(owner));
+    return native_pointer(core.memory.address_of<Owner>(owner));
 }
 func observe(pos owner: &Owner)
     requires(trusted live(owner))
@@ -378,10 +378,10 @@ fn raw_writes_invalidate_only_the_reached_witness_observations() {
 
 #[test]
 fn raw_retirement_distinguishes_private_descriptors_from_borrowed_storage() {
-    for (parameter, operation, valid) in [
-        ("Owner", "", true),
-        ("&Owner", "", false),
-        ("Owner", "_ = trusted core.memory.read<u8>(owner.pointer);", false),
+    for (parameter, operation, expected) in [
+        ("Owner", "", None),
+        ("&Owner", "", Some(DiagnosticKind::CheckingTrustedObligationNotProven)),
+        ("Owner", "_ = trusted core.memory.read<u8>(owner.pointer);", Some(DiagnosticKind::CheckingMemoryOperationAfterDeallocation)),
     ] {
         let source = r#"
             trusted module app;
@@ -431,11 +431,10 @@ fn raw_retirement_distinguishes_private_descriptors_from_borrowed_storage() {
         let checked = application.lowered_unit(source_function_body_key(&application, "probe"))
             .expect("raw retirement probe lowers");
 
-        assert_eq!(!checked.diagnostics().has_errors(), valid, "{parameter}, {operation}: {:?}", checked.diagnostics());
+        assert_eq!(!checked.diagnostics().has_errors(), expected.is_none(), "{parameter}, {operation}: {:?}", checked.diagnostics());
 
-        if !valid {
-            bray_testing::assert_goal_state_diagnostic_kind(checked.diagnostics(),
-                DiagnosticKind::CheckingTrustedObligationNotProven);
+        if let Some(expected) = expected {
+            bray_testing::assert_goal_state_diagnostic_kind(checked.diagnostics(), expected);
         }
     }
 }
@@ -601,32 +600,41 @@ fn checked_raw_primitives_complete_only_on_their_required_storage_domains() {
             trusted func read_byte(pos pointer: DataPointer<u8>) -> u8
                 requires({requirements}) executes(pure, total) uses(raw_memory)
             {{
-                return trusted core.memory.read<u8>(pointer);
+                return core.memory.read<u8>(pointer);
             }}
         "#
         );
 
         let compilation = compilation(&source);
+        let diagnostics = compilation.check_diagnostics();
 
         assert_eq!(
-            !compilation.check_diagnostics().has_errors(),
+            !diagnostics.has_errors(),
             valid,
-            "{source}: {:?}",
-            compilation.check_diagnostics()
+            "{source}: {diagnostics:?}",
         );
+
+        if !valid {
+            assert!(diagnostics.by_kind(DiagnosticKind::CheckingTrustedObligationNotProven).any(|diagnostic| {
+                diagnostic.primary_span().is_some_and(|span|
+                    crate::test_support::diagnostic_at_call(diagnostic, span.source_id(), &source, "core.memory.read<u8>(pointer)"))
+            }), "{diagnostics:?}");
+        }
     }
 
-    for (pointee, result, access, body) in [
+    for (pointee, result, access, capabilities, body) in [
         (
             "u8",
             "u8",
             "write",
+            "raw_memory, unchecked_init",
             "trusted core.memory.write<u8>(pointer, 1); return 0;",
         ),
         (
             "Owner",
             "Owner",
             "read",
+            "raw_memory",
             "return trusted core.memory.read<Owner>(pointer);",
         ),
     ] {
@@ -645,7 +653,7 @@ fn checked_raw_primitives_complete_only_on_their_required_storage_domains() {
                     trusted core.memory.aligned_for<{pointee}>(pointer = pointer),
                     trusted core.memory.initialized_as<{pointee}>(pointer = pointer),
                 )
-                executes(pure, total) uses(raw_memory, unchecked_init)
+                executes(pure, total) uses({capabilities})
             {{
                 {body}
             }}
@@ -669,7 +677,7 @@ fn checked_raw_primitives_complete_only_on_their_required_storage_domains() {
             executes(total)
             uses(manual_alloc)
         {
-            return trusted core.memory.allocate(bytes = 1, align = 1);
+            return core.memory.allocate(bytes = 1, align = 1);
         }
     "#,
     );

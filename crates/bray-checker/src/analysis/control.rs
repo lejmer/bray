@@ -204,6 +204,7 @@ where
                     AnalysisEdgeKind::RunCancellation,
                     Some(super::model::AnalysisRefinement::InvocationFailure(
                         bray_bound_tree::BoundExecutionSite::ScopedEnter(id),
+                        bray_symbols::DependencyFailureKind::Cancellation,
                     )),
                 );
 

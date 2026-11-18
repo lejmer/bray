@@ -40,8 +40,10 @@ pub struct StorageCapturedTransition {
     pub inputs: BTreeMap<Target, StorageValueBinding>,
     pub values: BTreeMap<Target, StorageValueBinding>,
     pub payloads: BTreeMap<Target, StorageContents>,
-    pub failure_effects: Option<std::sync::Arc<StorageCapturedEffects>>,
+    pub failure_effects: BTreeMap<bray_symbols::DependencyFailureKind, Arc<StorageCapturedEffects>>,
     pub deferred_effects: Option<EffectOutcomes>,
+    /// Start-time addresses of the effects performed by each admitted normal row.
+    pub deferred_normal_rows: Option<BTreeMap<usize, Arc<[StorageEffect]>>>,
     pub captured_cleanup: Option<BTreeSet<StorageEffect>>,
     pub result_cleanup: Option<BTreeSet<StorageEffect>>,
     pub returned_inputs: BTreeMap<Place, StorageAddressValue>,
@@ -102,8 +104,34 @@ impl StorageCapturedTransition {
             }
         }
 
-        if let Some(incoming) = &incoming.failure_effects {
-            if let Some(current) = &mut self.failure_effects {
+        if let Some(rows) = &mut self.deferred_normal_rows {
+            if let Some(incoming) = &incoming.deferred_normal_rows {
+                for (row, effects) in incoming {
+                    match rows.entry(*row) {
+                        std::collections::btree_map::Entry::Vacant(entry) => {
+                            entry.insert(Arc::clone(effects));
+                            changed = true;
+                        }
+                        std::collections::btree_map::Entry::Occupied(mut entry) => {
+                            let previous = entry.get_mut();
+
+                            if previous != effects {
+                                let merged = bray_base::sorted_unique_shared_slice(previous.iter().chain(&**effects).cloned());
+
+                                changed |= &merged != previous;
+                                *previous = merged;
+                            }
+                        }
+                    }
+                }
+            } else {
+                self.deferred_normal_rows = None;
+                changed = true;
+            }
+        }
+
+        for (kind, incoming) in &incoming.failure_effects {
+            if let Some(current) = self.failure_effects.get_mut(kind) {
                 if current != incoming {
                     // Outcome branches share immutable captures until a join adds possible effects.
                     let mut merged = current.as_ref().clone();
@@ -113,7 +141,7 @@ impl StorageCapturedTransition {
                     *current = std::sync::Arc::new(merged);
                 }
             } else {
-                self.failure_effects = Some(std::sync::Arc::clone(incoming));
+                self.failure_effects.insert(*kind, Arc::clone(incoming));
                 changed = true;
             }
         }
@@ -204,8 +232,8 @@ impl StorageCapturedTransition {
                 .any(|effect| effect.references(current, retirement))
             || self
                 .failure_effects
-                .as_ref()
-                .is_some_and(|effects| effects.references(current, retirement))
+                .values()
+                .any(|effects| effects.references(current, retirement))
 
     }
 
@@ -235,6 +263,14 @@ impl StorageCapturedTransition {
             }).expect("retirement preserves resolved effect outcomes");
         }
 
+        for effects in self.deferred_normal_rows.iter_mut().flat_map(BTreeMap::values_mut) {
+            *effects = bray_base::sorted_unique_shared_slice(effects.iter().cloned().map(|mut effect| {
+                effect.retire(current, retirement);
+
+                effect
+            }));
+        }
+
         for effects in [&mut self.captured_cleanup, &mut self.result_cleanup].into_iter().flatten() {
             *effects = std::mem::take(effects)
                 .into_iter()
@@ -246,10 +282,10 @@ impl StorageCapturedTransition {
                 .collect();
         }
 
-        if let Some(effects) = &mut self.failure_effects
-            && effects.references(current, retirement)
-        {
-            Arc::make_mut(effects).retire(current, retirement);
+        for effects in self.failure_effects.values_mut() {
+            if effects.references(current, retirement) {
+                Arc::make_mut(effects).retire(current, retirement);
+            }
         }
 
     }

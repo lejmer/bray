@@ -33,7 +33,7 @@ fn platform_state_source(module: &str, name: &str, symbol: &str, parameters: &st
             ensures(state.registration matches ?_)
             uses(foreign_call)
         {{
-            _ = trusted {name}({arguments});
+            _ = {name}({arguments});
         }}
     "#)
 }
@@ -60,15 +60,15 @@ fn platform_local_state_preserves_storage_in_source_and_imported_contracts() {
         assert!(summary.effects().is_empty(), "native local state access leaves Bray storage unchanged: {summary:#?}");
 
         let caller = format!(r#"
-            trusted module app;
+            module app;
 
             using {module};
 
-            trusted func caller(pos state: &mut {module}.State)
+            func caller(pos state: &mut {module}.State)
                 requires(state.registration matches ?_)
                 ensures(state.registration matches ?_)
             {{
-                trusted {module}.call_platform(state);
+                {module}.call_platform(state);
             }}
         "#);
 
@@ -95,15 +95,15 @@ fn platform_local_state_contracts_grant_neither_purity_nor_name_based_authority(
         let provider = platform_state_compilation([&source]);
 
         let caller = format!(r#"
-            trusted module app;
+            module app;
 
             using {module};
 
-            trusted func caller(pos state: &mut {module}.State)
+            func caller(pos state: &mut {module}.State)
                 requires(state.registration matches ?_)
                 executes(pure)
             {{
-                trusted {module}.call_platform(state);
+                {module}.call_platform(state);
             }}
         "#);
 

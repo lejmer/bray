@@ -13,11 +13,11 @@ use bray_symbols::DependencySubjectRoot;
 impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     pub(in crate::analysis::storage_flow::check::analysis) fn address_escapes(
         &mut self,
-        state: &mut StorageFlowState,
+        state: &StorageFlowState,
         operation: crate::analysis::model::AnalysisOperationKind,
         effects: Option<&[crate::analysis::storage_flow::memory::Effect]>,
         roots: &[Target],
-        capture_prefix: bool,
+        prefix: &mut EffectPrefix,
     ) -> BTreeSet<Target> {
         let memory = matches!(operation.occurrence(), BoundExecutionSite::Node(_))
             .then(|| {
@@ -66,7 +66,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 | bray_bound_tree::CheckedMemoryOperationKind::RawBufferRelease { .. }
         )) {
             // The owning primitive supplies the stored payload's exact escape roots.
-            return self.escape_effects(&state.memory, effects, &[], false, capture_prefix.then_some(&mut state.effect_prefix));
+            return self.escape_effects(&state.memory, effects, &[], false, Some(prefix));
         }
 
         let direct_write = memory.is_some()
@@ -104,14 +104,14 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 &mut stored,
             );
 
-            self.escape_effects(&state.memory, Some(&[]), &stored, may_store, capture_prefix.then_some(&mut state.effect_prefix))
+            self.escape_effects(&state.memory, Some(&[]), &stored, may_store, Some(prefix))
         } else {
             self.escape_effects(
                 &state.memory,
                 effects,
                 roots,
                 exposed_integer || may_store,
-                capture_prefix.then_some(&mut state.effect_prefix),
+                Some(prefix),
             )
         }
     }

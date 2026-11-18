@@ -145,7 +145,13 @@ impl StructuralValueEncoder<'_, '_> {
 
         self.dependency_requirements(data.requirements())?;
 
-        self.dependency_optional_report(data.abnormal_reports())?;
+        let failures = data.failure_outcomes();
+
+        self.digest.write_u8(u8::from(failures.is_some()));
+
+        if let Some(failures) = failures {
+            self.dependency_set(failures, Self::dependency_failure_outcome)?;
+        }
 
         self.dependency_set(data.captured_values(), Self::dependency_captured_binding)?;
 
@@ -194,6 +200,18 @@ impl StructuralValueEncoder<'_, '_> {
         -> Result<(), FactQueryError> {
         self.digest.write_u8(u8::from(requirements.is_some()));
         if let Some(requirements) = requirements { self.dependency_requirements(requirements)?; }
+
+        Ok(())
+    }
+
+    pub(in crate::compilation) fn dependency_failure_outcome(&mut self, row: &bray_symbols::CapturedFailureOutcome) -> Result<(), FactQueryError> {
+        self.digest.write_u8(row.kind.map_or(0, |kind| kind as u8));
+        self.digest.write_u8(u8::from(row.guard.is_some()));
+        if let Some(guard) = row.guard { self.constant_term(guard)?; }
+
+        self.dependency_optional_report(row.report.as_deref())?;
+        self.digest.write_u8(u8::from(row.effects.is_some()));
+        if let Some(effects) = &row.effects { self.dependency_set(effects, Self::dependency_effect)?; }
 
         Ok(())
     }

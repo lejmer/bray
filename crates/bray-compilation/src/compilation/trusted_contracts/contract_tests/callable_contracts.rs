@@ -16,11 +16,8 @@ fn callable_fields_borrow_their_owning_context_in_contracts() {
         };
 
         for (body, valid) in [
-            ("trusted owner.bind(owner);", true),
-            (
-                "let fake: Owner = { token = Token {}, bind = owner.bind, retire = owner.retire }; trusted fake.bind(&fake);",
-                false,
-            ),
+            ("owner.bind(owner);", true),
+            ("owner.bind(other);", false),
         ] {
             let source = format!(
                 r#"
@@ -40,7 +37,7 @@ fn callable_fields_borrow_their_owning_context_in_contracts() {
                     bind: Bind;
                     retire: Retire;
                 }}
-                trusted func caller(pos owner: &Owner)
+                trusted func caller(pos owner: &Owner, pos other: &Owner)
                     requires(trusted held(owner = {subject}))
                     ensures(trusted held(owner = {subject}))
                 {{
@@ -68,11 +65,8 @@ fn callable_fields_borrow_their_owning_context_in_contracts() {
     }
 
     for (body, valid) in [
-        ("let retire = owner.retire; trusted retire(owner);", true),
-        (
-            "let fake: Owner = { retire = owner.retire }; trusted fake.retire(fake);",
-            false,
-        ),
+        ("let retire = owner.retire; retire(owner);", true),
+        ("let retire = owner.retire; retire(other);", false),
     ] {
         let source = format!(
             r#"
@@ -84,7 +78,7 @@ fn callable_fields_borrow_their_owning_context_in_contracts() {
             {{
                 retire: Retire;
             }}
-            trusted func caller(pos owner: Owner)
+            trusted func caller(pos owner: Owner, pos other: Owner)
                 requires(trusted held(owner = &owner))
             {{
                 {body}
@@ -348,7 +342,7 @@ fn named_callable_contracts_preserve_and_enforce_obligations() {
 #[test]
 fn a_trust_boundary_does_not_hide_wrapper_requirements() {
     for tail in ["", "observe(&value);"] {
-        let compilation = compilation(&format!(
+        let source = format!(
             r#"
             trusted module app;
             struct Owner
@@ -367,12 +361,24 @@ fn a_trust_boundary_does_not_hide_wrapper_requirements() {
                 {tail}
             }}
         "#
-        ));
-
-        bray_testing::assert_goal_state_diagnostic_kind(
-            compilation.check_diagnostics(),
-            DiagnosticKind::CheckingTrustedObligationNotProven,
         );
+
+        let compilation = compilation(&source);
+        let diagnostics = compilation.check_diagnostics();
+
+        if tail.is_empty() {
+            assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        } else {
+            assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+
+            let diagnostic = diagnostics.iter().next().expect("the unacknowledged call fails");
+
+            assert_eq!(diagnostic.kind(), DiagnosticKind::CheckingTrustedObligationNotProven);
+
+            assert!(diagnostic.primary_span().is_some_and(|span| {
+                crate::test_support::diagnostic_at_call(diagnostic, span.source_id(), &source, "observe(&value)")
+            }), "{diagnostic:?}");
+        }
     }
 }
 
@@ -529,16 +535,17 @@ fn callback_reconstruction_requires_the_actual_callable_address_evidence() {
         let source = format!(
             r#"trusted internal module bray.runtime.bootstrap.host;
 
+using core.memory;
 using std.memory;
 
 callable Callback = @abi(c) func() -> u32;
 
-func production_probe(pos pointer: FunctionPointer<Callback>) -> Callback
+trusted func production_probe(pos pointer: FunctionPointer<Callback>) -> Callback
     {requirement}
     executes(pure, total)
     uses(layout_reinterpret)
 {{
-    return trusted std.memory.callable_from_pointer<Callback>(pointer);
+    return std.memory.callable_from_pointer<Callback>(pointer);
 }}
 "#
         );

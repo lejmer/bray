@@ -286,8 +286,17 @@ impl SemanticValueStore {
                             .collect::<Result<Vec<_>, _>>()?))
                 }).collect::<Result<Vec<_>, SemanticValueStoreError>>()?;
 
+        let failures = substituted.failure_outcomes().map(|rows| rows.iter().map(|row| {
+            Ok(super::super::CapturedFailureOutcome {
+                kind: row.kind,
+                guard: row.guard.map(|term| self.substitute_constant_term_data(term, substitution)).transpose()?,
+                effects: row.effects.as_deref().map(|effects| effects.iter().map(effect).collect::<Result<_, _>>()).transpose()?,
+                report: row.report.clone(),
+            })
+        }).collect::<Result<Vec<_>, SemanticValueStoreError>>()).transpose()?;
+
         self.intern_dependency_contract_template(
-            substituted.with_captured_values(captured_values).with_observed_result(
+            substituted.with_captured_values(captured_values).with_failure_outcomes(failures).with_observed_result(
                     template
                         .observed_result()
                         .map(|term| self.substitute_constant_term_data(term, substitution))

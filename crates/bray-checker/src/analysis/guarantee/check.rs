@@ -232,11 +232,9 @@ fn check_operations<C: CheckerRequestContext + ?Sized>(
             .then(|| {
                 // Replay operations on a copy without changing the solved block entry.
                 reachable
-                    .states
-                    .state(block.id())
-                    .and_then(Option::as_ref)
+                    .entry(block.id())
                     .expect("reachable block retains its execution state")
-                    .clone()
+                    .into_owned()
             });
 
         let mut predicate_ranges = super::integer::IntegerRanges::new();

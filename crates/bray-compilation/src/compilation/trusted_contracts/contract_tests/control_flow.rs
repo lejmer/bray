@@ -160,7 +160,7 @@ fn terminating_branches_do_not_invalidate_authority_on_returning_paths() {
                 {
                     if stop
                     {
-                        trusted core.target.abort();
+                        core.target.abort();
                     }
                 }
             "#,

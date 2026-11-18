@@ -13,17 +13,6 @@ fn ownership_composition_accepts_complete_transport() {
 }
 
 #[test]
-fn ownership_composition_preserves_trusted_result_transport() {
-    let source = include_str!("../../../../../../xtask/fixtures/native-execution/ownership-transitions.bray")
-        .replace("owner = acquire()", "owner = trusted acquire()");
-
-    let compilation = compilation(&source);
-    let diagnostics = compilation.check_diagnostics();
-
-    assert!(!diagnostics.has_errors(), "{diagnostics:#?}");
-}
-
-#[test]
 fn ownership_composition_rejects_fabricated_authority() {
     let source = include_str!("../../../../../../xtask/fixtures/native-execution/ownership-transitions.bray")
         .replace("owner = acquire()", r#"owner = Owner
@@ -67,7 +56,7 @@ fn extracted_owned_fields_outlive_their_replaced_storage() {
                     format!("{first}\n{incoming}\nconsume_report(incoming);\nconsume_report(previous);")
                 }
                 "overwrite" => format!("{first}\nreports.left = replacement;\nconsume_report(previous);"),
-                "mutated" => format!("{first}\ntrusted change_report(&mut previous);\nconsume_report(previous);"),
+                "mutated" => format!("{first}\nchange_report(&mut previous);\nconsume_report(previous);"),
                 "loop" => {
                     let current = take("current", "choice");
 
@@ -162,10 +151,10 @@ fn extracted_owned_fields_outlive_their_replaced_storage() {
                 {{
                     if right
                     {{
-                        return std.memory.replace_value<ScalarReport>(&mut reports.right.report, trusted fresh_report());
+                        return std.memory.replace_value<ScalarReport>(&mut reports.right.report, fresh_report());
                     }}
 
-                    return std.memory.replace_value<ScalarReport>(&mut reports.left.report, trusted fresh_report());
+                    return std.memory.replace_value<ScalarReport>(&mut reports.left.report, fresh_report());
                 }}
 
                 extern trusted func make_reports() -> ScalarReports
@@ -178,7 +167,7 @@ fn extracted_owned_fields_outlive_their_replaced_storage() {
                     requires(trusted live(owner = marker))
                     ensures(trusted live(owner = marker))
                 {{
-                    let mut reports = trusted make_reports();
+                    let mut reports = make_reports();
                     {body}
                 }}
             "#);
@@ -505,7 +494,7 @@ fn consuming_copyable_receivers_move_authority_and_retire_the_source() {
 
             func probe()
             {
-                let ticket = trusted issue();
+                let ticket = issue();
 
                 OPERATION
             }

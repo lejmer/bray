@@ -210,6 +210,7 @@ where
             AnalysisEdgeKind::RunCancellation,
             Some(super::model::AnalysisRefinement::InvocationFailure(
                 id.into(),
+                bray_symbols::DependencyFailureKind::Cancellation,
             )),
         );
 
@@ -223,6 +224,7 @@ where
             AnalysisEdgeKind::Panic,
             Some(super::model::AnalysisRefinement::InvocationFailure(
                 id.into(),
+                bray_symbols::DependencyFailureKind::Panic,
             )),
         );
 
@@ -488,13 +490,7 @@ pub(crate) fn exclude_impossible_call_outcomes<C: CheckerRequestContext + ?Sized
     excluded: &mut std::collections::BTreeSet<super::id::AnalysisEdgeId>,
 ) {
     excluded.extend(graph.edges().iter().filter_map(|edge| {
-        let (invocation, cancellation) = match edge.refinement()? {
-            super::model::AnalysisRefinement::InvocationFailure(invocation) => (invocation, false),
-            super::model::AnalysisRefinement::InvocationCancellation(invocation) => {
-                (invocation, true)
-            }
-            _ => return None,
-        };
+        let super::model::AnalysisRefinement::InvocationFailure(invocation, kind) = edge.refinement()? else { return None; };
 
         let bray_bound_tree::BoundExecutionSite::Node(bray_bound_tree::AnyBoundNodeId::Expression(
             expression,
@@ -503,10 +499,9 @@ pub(crate) fn exclude_impossible_call_outcomes<C: CheckerRequestContext + ?Sized
             return None;
         };
 
-        (if cancellation {
-            request.call_cannot_cancel(expression)
-        } else {
-            request.call_cannot_unwind(expression)
+        (match kind {
+            bray_symbols::DependencyFailureKind::Cancellation => request.call_cannot_cancel(expression),
+            bray_symbols::DependencyFailureKind::Panic => request.call_cannot_unwind(expression),
         })
         .then_some(edge.id())
     }));

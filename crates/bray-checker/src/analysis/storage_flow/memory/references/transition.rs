@@ -446,16 +446,18 @@ impl State {
     pub(in crate::analysis::storage_flow) fn capture_failure_effects(
         &mut self,
         call: bray_bound_tree::BoundExecutionSite,
-        effects: super::super::CapturedEffects,
+        kind: bray_symbols::DependencyFailureKind,
+        effects: std::sync::Arc<super::super::CapturedEffects>,
     ) {
-        self.pending.entry(call).or_default().failure_effects = Some(std::sync::Arc::new(effects));
+        self.pending.entry(call).or_default().failure_effects.insert(kind, effects);
     }
 
     pub(in crate::analysis::storage_flow) fn take_failure_effects(
         &mut self,
         call: bray_bound_tree::BoundExecutionSite,
+        kind: bray_symbols::DependencyFailureKind,
     ) -> Option<std::sync::Arc<super::super::CapturedEffects>> {
-        self.pending.get_mut(&call)?.failure_effects.take()
+        self.pending.get_mut(&call)?.failure_effects.remove(&kind)
     }
 
     pub(in crate::analysis::storage_flow) fn weaken_transition(&mut self, call: bray_bound_tree::BoundExecutionSite) {

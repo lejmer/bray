@@ -645,11 +645,19 @@ mod tests {
 
     #[test]
     fn tuple_recovery_stops_at_hard_boundaries() {
-        for source in ["(first second;", "(first second]", "(first second}"] {
-            let (expression, diagnostics) = parse_expression_until_semicolon_for_test(source);
+        for (source, boundary) in [
+            ("(first second;", SyntaxKind::SemicolonToken),
+            ("(first second]", SyntaxKind::CloseBracketToken),
+            ("(first second}", SyntaxKind::CloseBraceToken),
+        ] {
+            let snapshot = bray_testing::test_source_snapshot(source);
+            let mut parser = super::Parser::new(snapshot);
+            let expression = parser.parse_expression_until(&mut |parser| parser.at(SyntaxKind::SemicolonToken));
 
-            assert!(!diagnostics.is_empty(), "{source}");
+            assert!(parser.at(boundary), "{source}");
+            assert!(!parser.finish().is_empty(), "{source}");
             assert!(expression.is_recovered(), "{source}");
+            assert_eq!(expression.full_text(), "(first second");
         }
     }
 

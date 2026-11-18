@@ -6,11 +6,11 @@ use bray_package_interface::{
     InterfaceValidationPolicy, PackageImplementationArtifact, encode_package_interface,
 };
 use bray_source::{SourceIdentity, SourceInput, SourceVersion};
-use bray_symbols::{ExternalSymbolKey, ModulePathKey, PackageIdentity, SymbolKind, SymbolName};
+use bray_symbols::{ConstantValueKind, ExternalSymbolKey, ModulePathKey, PackageIdentity, SymbolKind, SymbolName};
 
 use crate::{Compilation, CompilationRequest, DependencyInterfaceInput};
 
-use super::fixtures::{compilation, execution_consumer, export};
+use super::fixtures::{compilation, execution_consumer, export, implementation_dependency, source_constant_value};
 
 #[test]
 fn initialized_protected_storage_round_trips_through_an_interface() {
@@ -219,6 +219,10 @@ fn public_constant_callables_round_trip_as_implementation_bodies() {
         "{:#?}",
         consumer.check_diagnostics()
     );
+
+    let value = source_constant_value(&consumer, "result");
+
+    assert!(matches!(value.kind(), ConstantValueKind::Integer(integer) if integer.to_u64() == Some(37)));
 }
 
 #[test]
@@ -258,48 +262,39 @@ fn generic_constant_type_members_export_forwarded_self_results() {
         provider.check_diagnostics()
     );
 
-    export(&provider);
-}
-
-#[test]
-fn generic_constant_type_members_can_call_generic_constant_helpers() {
-    let compilation = compilation(
+    let consumer = crate::test_support::compilation_with_dependencies(
         r#"
-            module values;
-
-            struct Cell<T>
-            {
-                marker: usize;
-
-                static const func empty() -> Self
-                {
-                    return internal empty_cell<T>();
-                }
-            }
-
-            internal const func empty_cell<T>() -> Cell<T>
-            {
-                return
-                {
-                    marker = 0
-                };
-            }
+        module app;
+        using example.package.types;
+        const DIRECT: example.package.types.Container<i32> =
+            example.package.types.Container<i32>.empty();
+        const OPTIONAL: example.package.types.Container<i32>? =
+            example.package.types.Container<i32>.empty_with<bool>();
         "#,
+        [implementation_dependency(export(&provider))],
     );
 
-    assert!(
-        compilation.check_diagnostics().is_empty(),
-        "unexpected diagnostics: {:?}",
-        compilation.check_diagnostics()
-    );
+    let diagnostics = consumer.check_diagnostics();
 
-    let request = compilation
-        .package_interface_export_request()
-        .unwrap_or_else(|| panic!("constant export request must exist"));
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
 
-    compilation
-        .build_package_interface_export_bundle(request)
-        .unwrap_or_else(|error| panic!("generic constant member export must build: {error:?}"));
+    let direct = source_constant_value(&consumer, "DIRECT");
+    let optional = source_constant_value(&consumer, "OPTIONAL");
+    let values = consumer.semantic_value_store().expect("consumer has its semantic values");
+
+    let ConstantValueKind::NullablePresent(payload) = optional.kind() else {
+        panic!("a forwarded optional Self must be present: {optional:?}");
+    };
+
+    assert_eq!(values.constant_value_data(*payload), direct);
+
+    let ConstantValueKind::Product(fields) = direct.kind() else {
+        panic!("the imported generic method constructs its exact Self: {direct:?}");
+    };
+
+    let [field] = fields.as_ref() else { panic!("Container has one field"); };
+
+    assert_eq!(values.constant_value_data(*field.value()).kind(), &ConstantValueKind::NullableAbsent);
 }
 
 #[test]
@@ -346,6 +341,8 @@ fn imported_constant_tuple_projections_retain_checked_ordinals() {
         "{:?}",
         consumer.check_diagnostics()
     );
+
+    assert_eq!(source_constant_value(&consumer, "VALUE").kind(), &ConstantValueKind::Boolean(false));
 }
 
 #[test]
@@ -400,6 +397,40 @@ fn construction_inputs_preserve_nullable_constant_values_across_imports() {
         "{:?}",
         consumer.check_diagnostics()
     );
+
+    let values = consumer.semantic_value_store().expect("consumer has its semantic values");
+    let direct = source_constant_value(&consumer, "DIRECT");
+    let held = source_constant_value(&consumer, "HELD");
+    let chosen = source_constant_value(&consumer, "CHOSEN");
+    let optional = source_constant_value(&consumer, "OPTIONAL");
+
+    assert_eq!(direct, held);
+
+    let ConstantValueKind::Product(fields) = held.kind() else {
+        panic!("hold must construct a product: {held:?}");
+    };
+
+    let [field] = fields.as_ref() else { panic!("Holder has one field"); };
+
+    assert_eq!(values.constant_value_data(*field.value()), optional);
+
+    let ConstantValueKind::Union { variant, fields } = chosen.kind() else {
+        panic!("choose must construct a union: {chosen:?}");
+    };
+
+    let [field] = fields.as_ref() else { panic!("the selected alternative has one field"); };
+
+    let symbols = consumer.symbol_graph().expect("consumer has its selected symbols");
+
+    assert_eq!(symbols.member_name((*variant).into()).map(|name| name.as_str()), Some("Some"));
+    assert_eq!(values.constant_value_data(*field.value()), optional);
+
+    let ConstantValueKind::NullablePresent(payload) = optional.kind() else {
+        panic!("the nullable argument must remain present: {optional:?}");
+    };
+
+    assert!(matches!(values.constant_value_data(*payload).kind(), ConstantValueKind::Integer(integer)
+        if integer.to_u64() == Some(23)));
 }
 
 #[test]

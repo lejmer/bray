@@ -53,13 +53,21 @@ define ptr @resolver() {
     }
 
     llvm::DenseMap<llvm::GlobalValue::GUID, std::uint64_t> actual;
+    bool repeated_definition = false;
 
-    bray::lld::definition_sizes(*module, [&actual](
+    bray::lld::definition_sizes(*module, [&actual, &repeated_definition](
         const llvm::GlobalValue& value,
         std::uint64_t bytes
     ) {
-        actual.try_emplace(value.getGUID(), bytes);
+        if (!actual.try_emplace(value.getGUID(), bytes).second)
+            repeated_definition = true;
     });
+
+    if (repeated_definition)
+    {
+        llvm::errs() << "Definition size reported more than once\n";
+        return 1;
+    }
 
     std::size_t definitions = 0;
 

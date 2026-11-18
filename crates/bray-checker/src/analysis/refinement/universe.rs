@@ -10,7 +10,7 @@ use bray_diagnostics::{DiagnosticRefinementCapacity, DiagnosticRefinementCapacit
 
 use crate::{CheckerRequestContext, CheckerUnitView};
 
-use super::super::model::{AnalysisRefinement, ControlFlowGraph};
+use super::super::model::{AnalysisPropagationOutcome, AnalysisRefinement, ControlFlowGraph};
 use super::evidence::{
     condition_refinements, equivalent_pattern_accesses, expression_dependencies,
     pattern_refinements,
@@ -135,8 +135,7 @@ impl RefinementUniverse {
             AnalysisRefinement::CleanupRequired { .. }
             | AnalysisRefinement::CaughtResult { .. }
             | AnalysisRefinement::GeneratorStorageFailure(_)
-            | AnalysisRefinement::InvocationFailure(_)
-            | AnalysisRefinement::InvocationCancellation(_)
+            | AnalysisRefinement::InvocationFailure(..)
             | AnalysisRefinement::PreconditionFailure(_)
             | AnalysisRefinement::InvocationCompletion(_) => Vec::new(),
             AnalysisRefinement::InvocationPresence(invocation, value) => {
@@ -159,7 +158,7 @@ impl RefinementUniverse {
             AnalysisRefinement::InvocationBoolean(_, _) => Vec::new(),
             AnalysisRefinement::PropagationOutcome {
                 expression,
-                succeeded,
+                outcome,
             } => {
                 let Some(bray_bound_tree::SemanticSelection::Propagation(selection)) =
                     expressions.selections().expression(expression)
@@ -178,11 +177,11 @@ impl RefinementUniverse {
                     .first()
                     .expect("propagation retains its operand");
 
-                let Some((variant, _)) = selection.success() else {
+                let Some((variant, matches)) = outcome.variant(selection) else {
                     return Ok(vec![Refinement::new(
                         RefinementKind::NullablePresence {
                             expression: subject,
-                            is_present: succeeded,
+                            is_present: outcome == AnalysisPropagationOutcome::Success,
                         },
                         expression_dependencies(view, dependencies, subject),
                     )]);
@@ -207,7 +206,7 @@ impl RefinementUniverse {
                                 subject,
                                 access: plan.access(),
                                 predicate: PatternPredicate::ActiveUnionVariant(variant),
-                                value: succeeded,
+                                value: matches,
                             },
                             [plan.access()],
                         )

@@ -324,6 +324,10 @@ pub type InterfaceStorageEffect = bray_symbols::DependencyStorageEffect<
 pub type InterfaceNormalOutcome = bray_symbols::CapturedValueOutcome<InterfaceDependencySubject, InterfaceConstantTermId,
     InterfaceDependencyProjection, super::InterfaceStaticReference, InterfaceConstantTermId, super::InterfaceConstantProjection, InterfaceCapturedCallable, crate::InterfaceSymbolReference, InterfaceDependencyRequirement, InterfaceStorageEffect, InterfaceDependencySubject>;
 
+/// One abnormal outcome using interface-local identities.
+pub type InterfaceFailureOutcome = bray_symbols::CapturedFailureOutcome<InterfaceConstantTermId,
+    Arc<[InterfaceDependencyRequirement]>, InterfaceStorageEffect>;
+
 /// One normalized portable dependency contract.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct InterfaceDependencyContract {
@@ -332,7 +336,7 @@ pub struct InterfaceDependencyContract {
     pub(crate) synchronous_cleanup: Arc<[InterfaceDependencyRequirement]>,
     pub(crate) normal_completion: bool,
     pub(crate) requirements: Arc<[InterfaceDependencyRequirement]>,
-    pub(crate) abnormal_reports: Option<Arc<[InterfaceDependencyRequirement]>>,
+    pub(crate) failure_outcomes: Option<Arc<[InterfaceFailureOutcome]>>,
     pub(crate) effects: Arc<[InterfaceStorageEffect]>,
 }
 
@@ -356,7 +360,7 @@ impl InterfaceDependencyContract {
         Self {
             requirements: sorted_unique_shared_slice(requirements),
             captured_values: Arc::from([]),
-            abnormal_reports: None,
+            failure_outcomes: None,
             synchronous_cleanup: Arc::new([]),
             normal_completion: true,
             observed_result: None,
@@ -383,12 +387,22 @@ impl InterfaceDependencyContract {
         self
     }
 
-    /// Records dependencies of reports propagated by panic or cancellation.
+    /// Describes a possible report from a callable whose failure prefix is opaque.
     pub fn with_abnormal_reports(
-        mut self,
+        self,
         requirements: impl IntoIterator<Item = InterfaceDependencyRequirement>,
     ) -> Self {
-        self.abnormal_reports = Some(sorted_unique_shared_slice(requirements));
+        self.with_failure_outcomes(Some([InterfaceFailureOutcome {
+            kind: None,
+            guard: None,
+            report: Some(sorted_unique_shared_slice(requirements)),
+            effects: None,
+        }]))
+    }
+
+    /// Attaches the alternatives that can reach abnormal completion.
+    pub fn with_failure_outcomes(mut self, outcomes: Option<impl IntoIterator<Item = InterfaceFailureOutcome>>) -> Self {
+        self.failure_outcomes = outcomes.map(sorted_unique_shared_slice);
 
         self
     }
@@ -400,11 +414,13 @@ impl InterfaceDependencyContract {
                 self.captured_values.iter().flat_map(|row| row.report.iter().flat_map(|requirements| requirements.iter())),
             )
             .chain(
-                self.abnormal_reports
-                    .iter()
-                    .flat_map(|requirements| requirements.iter()),
+                self.failure_reports().flatten(),
             )
             .chain(self.synchronous_cleanup.iter())
+    }
+
+    pub(crate) fn failure_reports(&self) -> impl Iterator<Item = &[InterfaceDependencyRequirement]> {
+        self.failure_outcomes.as_deref().into_iter().flatten().filter_map(|row| row.report.as_deref())
     }
 
     /// Records whether execution can complete normally.

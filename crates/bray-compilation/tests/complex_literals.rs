@@ -1,3 +1,6 @@
+#[path = "support/scalar_target.rs"]
+mod scalar_target;
+
 use bray_bound_tree::{
     BoundExpressionId, BoundSourceAnchor, BoundUnitKey, CheckedExpressionTypes, SemanticSelection,
 };
@@ -17,9 +20,10 @@ fn compilation(source: &str) -> Compilation {
         source,
     );
 
-    let request = CompilationRequest::new(
+    let request = CompilationRequest::with_options(
         PackageIdentity::try_new("complex.literal.test").expect("test package identity is valid"),
         vec![source],
+        scalar_target::extended_options(),
     );
 
     Compilation::load(request).expect("complex literal source loads")
@@ -101,13 +105,13 @@ fn complex_literals_preserve_component_types_through_selection_and_lowering() {
 
         let compilation = compilation(&source);
 
-        if compilation
-            .available_compiler_known_symbols()
-            .representation_symbol::<bray_symbols::StructSymbolId>(role)
-            .is_none()
-        {
-            continue;
-        }
+        assert!(
+            compilation
+                .available_compiler_known_symbols()
+                .representation_symbol::<bray_symbols::StructSymbolId>(role)
+                .is_some(),
+            "{role:?} must be available in the extended scalar profile"
+        );
 
         assert!(
             compilation.check_diagnostics().is_empty(),
@@ -399,8 +403,26 @@ fn complex_literal_context_flows_from_calls_and_returns() {
     );
 
     for name in ["make", "sample"] {
+        let key = source_function_body_key(&compilation, name);
+        let bound = compilation.bound_unit(key.clone()).expect("contextual bodies bind");
+        let types = compilation.expression_types(key.clone()).expect("contextual types publish");
+
+        let literals = bound.value().tree().expressions().filter_map(|(expression, _)| {
+            bound.value().view().complex_literal_components(expression).map(|parts| (expression, parts))
+        }).collect::<Vec<_>>();
+
+        let [(expression, components)] = literals.as_slice() else {
+            panic!("{name} must contain exactly one contextual complex literal");
+        };
+
+        assert_expression_representation(&compilation, types.value(), *expression, RepresentationRole::ScalarC64);
+
+        for component in components {
+            assert_expression_representation(&compilation, types.value(), *component, RepresentationRole::ScalarR32);
+        }
+
         let lowered = compilation
-            .lowered_unit(source_function_body_key(&compilation, name))
+            .lowered_unit(key)
             .expect("contextual complex source lowers");
 
         assert!(
@@ -586,13 +608,13 @@ fn complex_runtime_operations_keep_selected_representations_and_numeric_helpers(
 
         let compilation = compilation(&source);
 
-        if compilation
-            .available_compiler_known_symbols()
-            .representation_symbol::<bray_symbols::StructSymbolId>(role)
-            .is_none()
-        {
-            continue;
-        }
+        assert!(
+            compilation
+                .available_compiler_known_symbols()
+                .representation_symbol::<bray_symbols::StructSymbolId>(role)
+                .is_some(),
+            "{role:?} must be available in the extended scalar profile"
+        );
 
         assert!(
             compilation.check_diagnostics().is_empty(),

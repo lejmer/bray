@@ -83,7 +83,7 @@ pub(super) fn encode_contracts(semantics: &InterfaceSemantics) -> EncodedSemanti
                 encode_dependency_requirement(encoder, requirement);
             }
 
-            encode_optional_requirements(encoder, contract.abnormal_reports.as_deref());
+            encode_failure_outcomes(encoder, contract.failure_outcomes.as_deref());
 
             super::super::captured::encode_values(encoder, &contract.captured_values);
 
@@ -150,6 +150,26 @@ pub(super) fn encode_contracts(semantics: &InterfaceSemantics) -> EncodedSemanti
             + semantics.callable_contracts.len(),
         encoder,
     )
+}
+
+fn encode_failure_outcomes(encoder: &mut WireEncoder, outcomes: Option<&[crate::InterfaceFailureOutcome]>) {
+    encoder.write_u32(u32::from(outcomes.is_some()));
+
+    if let Some(outcomes) = outcomes {
+        write_count(encoder, outcomes.len());
+
+        for row in outcomes {
+            encoder.write_u32(row.kind.map_or(0, |kind| kind as u32));
+            write_optional_u32(encoder, row.guard.map(|term| term.raw()));
+            encode_optional_requirements(encoder, row.report.as_deref());
+
+            encoder.write_u32(u32::from(row.effects.is_some()));
+
+            if let Some(effects) = &row.effects {
+                encode_dependency_effects(encoder, effects);
+            }
+        }
+    }
 }
 
 fn encode_callable_clauses(encoder: &mut WireEncoder, clauses: &[InterfaceCallableContractClause]) {

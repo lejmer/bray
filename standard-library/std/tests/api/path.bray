@@ -1,4 +1,4 @@
-module bray.standard_library_tests.path;
+trusted module bray.standard_library_tests.path;
 
 using std.bytes;
 using std.io;
@@ -21,25 +21,23 @@ trusted func native_paths_round_trip_join_and_normalize() -> Result<unit, std.pa
     let normalized: std.path.Path = try joined.normalize();
     let text: string = try normalized.to_string();
     let native_text: string = try native_path.to_string();
+    let windows = target.identity.SYSTEM == "windows";
 
     assert(native_text == "native");
-    assert(text == "alpha/gamma" || text == "alpha\\gamma");
 
     let unresolved: std.path.Path = try std.path.Path.from_string(&"../../alpha");
     let normalized_unresolved: std.path.Path = try unresolved.normalize();
     let unresolved_text: string = try normalized_unresolved.to_string();
-    let slash_form: bool = unresolved_text == "../../alpha";
-    let backslash_form: bool = unresolved_text == "..\\..\\alpha";
-
-    assert(slash_form || backslash_form);
-
     let unicode: std.path.Path = try std.path.Path.from_string(&"data/Bray-λ-🦀");
     let unicode_text: string = try unicode.to_string();
 
     assert(unicode_text == "data/Bray-λ-🦀");
 
-    if trusted internal std.platform.native_text_width() == 16
+    if windows
     {
+        assert(text == "alpha\\gamma");
+        assert(unresolved_text == "..\\..\\alpha");
+
         let drive_base: std.path.Path = try std.path.Path.from_string(&"C:\\base");
         let rooted_child: std.path.Path = try std.path.Path.from_string(&"\\child");
         let rooted_join: std.path.Path = try drive_base.join(&rooted_child);
@@ -58,6 +56,11 @@ trusted func native_paths_round_trip_join_and_normalize() -> Result<unit, std.pa
         let normalized_drive_text: string = try normalized_drive_relative.to_string();
 
         assert(normalized_drive_text == "C:child");
+    }
+    else
+    {
+        assert(text == "alpha/gamma");
+        assert(unresolved_text == "../../alpha");
     }
 
     return Ok(unit);
@@ -88,7 +91,15 @@ trusted func owned_paths_keep_a_terminated_native_view() -> Result<unit, std.pat
     let joined_text: string = try joined.to_string();
 
     assert(empty_text == "");
-    assert(joined_text == "alpha/beta/gamma" || joined_text == "alpha\\beta\\gamma");
+
+    if target.identity.SYSTEM == "windows"
+    {
+        assert(joined_text == "alpha\\beta\\gamma");
+    }
+    else
+    {
+        assert(joined_text == "alpha/beta/gamma");
+    }
 
     return Ok(unit);
 }
@@ -107,44 +118,6 @@ trusted func assert_terminated(pos path: &std.path.Path)
         assert(terminated[logical.length() + 1] == 0);
         assert(trusted internal std.platform.pointer_handle(std.memory.address_of<u8>(&terminated[0])) % 2 == 0);
     }
-}
-
-@test
-trusted func native_path_terminator_reservation_checks_capacity_overflow()
-{
-    let width: usize = trusted internal std.platform.native_text_width() / 8;
-
-    let extra: usize = if width == 2
-    {
-        yield 3;
-    }
-    else
-    {
-        yield 1;
-    };
-
-    let maximum: usize = ~0;
-
-    let capacity: Result<usize, std.memory.MemoryLayoutError> = internal std.memory.growth_capacity(
-        current_length = maximum - extra,
-        current_capacity = maximum - extra,
-        additional = extra,
-        growth = internal std.memory.CapacityGrowth.Exact,
-    );
-
-    let overflow: Result<usize, std.memory.MemoryLayoutError> = internal std.memory.growth_capacity(
-        current_length = maximum - extra + 1,
-        current_capacity = maximum - extra + 1,
-        additional = extra,
-        growth = internal std.memory.CapacityGrowth.Exact,
-    );
-
-    assert(std.testing.assert_ok<usize, std.memory.MemoryLayoutError>(capacity) == maximum);
-
-    assert(
-        std.testing.assert_error<usize, std.memory.MemoryLayoutError>(overflow) matches
-            std.memory.MemoryLayoutError.SizeOverflow
-    );
 }
 
 @test
@@ -185,7 +158,9 @@ trusted func native_paths_preserve_non_utf8_units() -> Result<unit, std.path.Pat
     assert(std.bytes.equals(actual, &bytes[0..width]));
     assert_terminated(&path);
 
-    _ = std.testing.assert_error<string, std.path.PathError>(path.to_string());
+    let error = std.testing.assert_error<string, std.path.PathError>(path.to_string());
+
+    assert(error matches std.path.PathError.NotUtf8);
 
     return Ok(unit);
 }

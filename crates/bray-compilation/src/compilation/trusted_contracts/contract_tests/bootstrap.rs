@@ -16,6 +16,18 @@ fn windows_native_bootstrap_preserves_owner_and_registration_contracts() {
     assert_bootstrap_contracts(NativeTarget::X86_64WindowsMsvc);
 }
 
+#[test]
+#[ignore = "tier:proof"]
+fn aarch64_linux_native_bootstrap_preserves_owner_and_registration_contracts() {
+    assert_bootstrap_contracts(NativeTarget::Aarch64LinuxGnu);
+}
+
+#[test]
+#[ignore = "tier:proof"]
+fn aarch64_windows_native_bootstrap_preserves_owner_and_registration_contracts() {
+    assert_bootstrap_contracts(NativeTarget::Aarch64WindowsMsvc);
+}
+
 fn assert_bootstrap_contracts(target: NativeTarget) {
     let compilation = production_host_compilation_for_target(
         "module app;",
@@ -40,14 +52,8 @@ fn assert_bootstrap_contracts(target: NativeTarget) {
             source_module_function_body_key(&compilation, &["bray", "runtime", "bootstrap", "execution"], name)
         };
 
-        let started = std::time::Instant::now();
-
-        eprintln!("[bootstrap] body-start target={} name={name}", target.as_str());
-
         let properties = compilation.execution_properties(key.clone()).expect("native bootstrap contracts are checked");
         let lowered = compilation.lowered_unit(key).expect("native bootstrap body lowers");
-
-        eprintln!("[bootstrap] body-finish target={} name={name} elapsed_ms={}", target.as_str(), started.elapsed().as_millis());
 
         if properties.diagnostics().has_errors() {
             failures.push(format!("{name} contracts: {:#?}", properties.diagnostics()));

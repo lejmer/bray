@@ -113,6 +113,8 @@ impl StorageEffect {
 pub struct StorageCapturedEffects {
     pub mutations: Vec<StorageEffect>,
     pub escaped: Vec<Target>,
+    /// Entry-relative escape effects captured before the input slots were consumed.
+    pub escape_prefix: std::sync::Arc<[bray_symbols::DependencyStorageEffect]>,
     pub invalidation: crate::StorageInvalidation,
 }
 
@@ -148,6 +150,11 @@ impl StorageCapturedEffects {
         // Outcome sets copy descriptors and share immutable projection paths.
         self.mutations.extend(incoming.mutations.iter().cloned());
         self.escaped.extend(incoming.escaped.iter().cloned());
+
+        if self.escape_prefix != incoming.escape_prefix {
+            self.escape_prefix = bray_base::sorted_unique_shared_slice(self.escape_prefix.iter().chain(&*incoming.escape_prefix).cloned());
+        }
+
         self.normalize();
         self.invalidation.merge(&incoming.invalidation);
     }

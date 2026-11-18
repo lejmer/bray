@@ -435,7 +435,7 @@ const CASES: &[(&str, &str, bool)] = &[
     ),
     (
         "task_normal_or_diverging_producer",
-        r"let pending = if choice { yield api.pass<api.Marker>(api.make()); } else { yield api.only<api.Marker>(api.make(), false); }; let task = pending.start(); let value = try await task.join(); api.observe(&value);",
+        r"let pending = if choice { yield api.pass<api.Marker>(api.make()); } else { yield api.only<api.Marker>(api.Marker {}, false); }; let task = pending.start(); let value = try await task.join(); api.observe(&value);",
         true,
     ),
     (
@@ -525,7 +525,7 @@ const CASES: &[(&str, &str, bool)] = &[
     ),
     (
         "opaque_frame_borrow_released",
-        r"let mut state: api.State = { count = 0 }; let pending = if choice { yield api.touch<api.Marker>(api.make(), &mut state); } else { yield api.opaque(api.Marker {}); }; let value = await pending; if choice { api.observe(&value); }",
+        r"let mut state: api.State = { count = 0 }; let pending = if choice { yield api.touch<api.Marker>(api.make(), &mut state); } else { yield api.opaque(api.Marker {}); }; let value = await pending; state.count += 1; if choice { api.observe(&value); }",
         true,
     ),
     (
@@ -535,7 +535,7 @@ const CASES: &[(&str, &str, bool)] = &[
     ),
     (
         "task_unrelated_join_permission_unavailable",
-        r"let permit = api.permission(); let id = permit.id; let task = api.pass<api.Permit>(permit).start(); let value = if choice { yield api.pass<api.Marker>(api.make()); } else { yield api.other<api.Marker>(api.Marker {}); }; if choice { api.inspect_permission(id); }",
+        r"let permit = api.permission(); let id = permit.id; let task = api.pass<api.Permit>(permit).start(); let unrelated = if choice { yield api.pass<api.Marker>(api.make()); } else { yield api.other<api.Marker>(api.Marker {}); }; let value = try await unrelated.start().join(); if choice { api.observe(&value); api.inspect_permission(id); }",
         false,
     ),
     (
@@ -866,23 +866,6 @@ const CASES: &[(&str, &str, bool)] = &[
         match consume second { case ?pending { let value = await pending; api.observe(&value); } case none {} }
     ",
         true,
-    ),
-    (
-        "same_site_fabrication",
-        r"
-        let mut first: Future<api.Marker>? = none;
-        let mut second: Future<api.Marker>? = none;
-        let mut index: u32 = 0;
-        while index < 2
-        {
-            let marker = if index == 0 { yield api.make(); } else { yield api.Marker {}; };
-            let pending = api.pass<api.Marker>(marker);
-            if index == 0 { first = pending; } else { second = pending; }
-            index += 1;
-        }
-        match consume second { case ?pending { let value = await pending; api.observe(&value); } case none {} }
-    ",
-        false,
     ),
     (
         "tuple_owners",
@@ -1301,7 +1284,14 @@ fn check_cases(provider: &crate::Compilation, imported: bool, cases: &[(&str, &s
 
         let diagnostics = checked.diagnostics();
 
-        if matches!(*name, "preformed_task_fabricated_after_completion" | "same_site_independent_second") {
+        let rejection_site = match *name {
+            "preformed_task_fabricated_after_completion" | "same_site_independent_second" => Some("observe(&value)"),
+            "nullable_fresh_permission" | "nullable_dropped_permission" | "task_discarded_permission"
+            | "task_unrelated_join_permission_unavailable" => Some("inspect_permission(id)"),
+            _ => None,
+        };
+
+        if let Some(rejection_site) = rejection_site {
             assert!(diagnostics.has_errors(), "fabricated authority must be rejected, name={name}, imported={imported}");
 
             for diagnostic in diagnostics.iter() {
@@ -1311,9 +1301,9 @@ fn check_cases(provider: &crate::Compilation, imported: bool, cases: &[(&str, &s
                 let document = consumer.source(span.source_id()).expect("diagnostic source belongs to the consumer");
                 let start = usize::try_from(span.start().bytes()).expect("fixture offset fits the host");
                 let end = usize::try_from(span.end().bytes()).expect("fixture offset fits the host");
-                let call = document.text().find("observe(&value)").expect("negative control retains its observe call");
+                let call = document.text().rfind(rejection_site).expect("negative control retains its checked operation");
 
-                assert!(start >= call && end <= call + "observe(&value)".len(),
+                assert!(start >= call && end <= call + rejection_site.len(),
                     "negative control must fail at observation, name={name}, imported={imported}, span={span:?}");
             }
         }
@@ -1325,9 +1315,18 @@ fn check_cases(provider: &crate::Compilation, imported: bool, cases: &[(&str, &s
             );
         }
 
-        if *name == "same_site_loop" && !diagnostics.has_errors() {
-            assert!(crate::compilation::result_dependencies::source_function_dependencies(&consumer, "caller")
-                .normal_completion(), "valid deferred loop must retain its continuation, imported={imported}");
+        let normal_completion = match *name {
+            "dormant" | "dormant_partial" | "same_site_loop" => Some(true),
+            "only_diverging" => Some(false),
+            _ => None,
+        };
+
+        if let Some(expected) = normal_completion
+            && !diagnostics.has_errors()
+        {
+            let dependencies = crate::compilation::result_dependencies::source_function_dependencies(&consumer, "caller");
+
+            assert_eq!(dependencies.normal_completion(), expected, "deferred case {name}, imported={imported}");
         }
 
         if diagnostics.has_errors() == *valid {
@@ -1460,63 +1459,62 @@ super::matrix::cases! {
     borrow_live = 89,
     borrow_expired = 90,
     same_site_loop = 91,
-    same_site_fabrication = 92,
-    tuple_owners = 93,
-    array_owners = 94,
-    boxed_future = 95,
-    boxed_capture = 96,
-    nullable_owner = 97,
-    swap_both_valid = 98,
-    swap_independent = 99,
-    swap_fabrication = 100,
-    inactive_partial = 101,
-    active_partial = 102,
-    dormant_partial = 103,
-    captured_field_fact = 104,
-    task_direct = 105,
-    task_selected_future = 106,
-    task_cancel_completion = 107,
-    task_cancel_fabrication = 108,
-    task_alias = 109,
-    task_frame_borrow_ends = 110,
-    task_unknown_alternative = 111,
-    task_partial_transfer = 112,
-    owned_body_mutation = 113,
-    selected_body_mutation = 114,
-    task_owned_body_mutation = 115,
-    task_owned_state = 116,
-    task_address_live = 117,
-    task_address_expired = 118,
-    task_independent_address_marker = 119,
-    task_completed_permission = 120,
-    nullable_completed_permission = 121,
-    nullable_fresh_permission = 122,
-    nullable_dropped_permission = 123,
-    task_unobserved_outcome_permission = 124,
-    task_dropped_permission = 125,
-    task_active_discarded_permission = 126,
-    task_discarded_permission = 127,
-    nullable_address_live = 128,
-    nullable_address_expired = 129,
-    nullable_independent_marker = 130,
-    refined_owned_body_effects = 131,
-    task_refined_owned_body_effects = 132,
-    task_selected_owned_body_mutation = 133,
-    task_unknown_refined = 134,
-    task_fabrication = 135,
-    captured_guard_refined = 136,
-    captured_guard_unselected = 137,
-    captured_guard_mutated = 138,
-    same_site_copied_inactive_guard = 139,
-    same_site_copied_active_guard = 140,
-    same_site_numeric_active_guard = 141,
-    same_site_numeric_inactive_guard = 142,
-    same_site_independent_first = 143,
-    same_site_independent_second = 144,
-    copied_real_equality_unknown = 145,
-    copied_real_equality_finite = 146,
-    copied_real_alias_equality_unknown = 147,
-    returned_fresh_carrier = 148,
+    tuple_owners = 92,
+    array_owners = 93,
+    boxed_future = 94,
+    boxed_capture = 95,
+    nullable_owner = 96,
+    swap_both_valid = 97,
+    swap_independent = 98,
+    swap_fabrication = 99,
+    inactive_partial = 100,
+    active_partial = 101,
+    dormant_partial = 102,
+    captured_field_fact = 103,
+    task_direct = 104,
+    task_selected_future = 105,
+    task_cancel_completion = 106,
+    task_cancel_fabrication = 107,
+    task_alias = 108,
+    task_frame_borrow_ends = 109,
+    task_unknown_alternative = 110,
+    task_partial_transfer = 111,
+    owned_body_mutation = 112,
+    selected_body_mutation = 113,
+    task_owned_body_mutation = 114,
+    task_owned_state = 115,
+    task_address_live = 116,
+    task_address_expired = 117,
+    task_independent_address_marker = 118,
+    task_completed_permission = 119,
+    nullable_completed_permission = 120,
+    nullable_fresh_permission = 121,
+    nullable_dropped_permission = 122,
+    task_unobserved_outcome_permission = 123,
+    task_dropped_permission = 124,
+    task_active_discarded_permission = 125,
+    task_discarded_permission = 126,
+    nullable_address_live = 127,
+    nullable_address_expired = 128,
+    nullable_independent_marker = 129,
+    refined_owned_body_effects = 130,
+    task_refined_owned_body_effects = 131,
+    task_selected_owned_body_mutation = 132,
+    task_unknown_refined = 133,
+    task_fabrication = 134,
+    captured_guard_refined = 135,
+    captured_guard_unselected = 136,
+    captured_guard_mutated = 137,
+    same_site_copied_inactive_guard = 138,
+    same_site_copied_active_guard = 139,
+    same_site_numeric_active_guard = 140,
+    same_site_numeric_inactive_guard = 141,
+    same_site_independent_first = 142,
+    same_site_independent_second = 143,
+    copied_real_equality_unknown = 144,
+    copied_real_equality_finite = 145,
+    copied_real_alias_equality_unknown = 146,
+    returned_fresh_carrier = 147,
 }
 
 #[test]

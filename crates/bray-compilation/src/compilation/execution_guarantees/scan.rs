@@ -326,14 +326,19 @@ mod tests {
     use bray_testing::assert_goal_state_diagnostic_kind;
 
     use crate::WorkerBudget;
-    use crate::test_support::{compilation, compilation_with_sources_and_worker_budget};
+    use crate::test_support::{
+        compilation, compilation_with_sources_and_worker_budget,
+        compilation_with_sources_product_and_worker_budget, source_function_body_key,
+    };
 
     #[test]
     fn conditional_guarantees_never_gain_trust_from_declaration_modifiers() {
         for modifier in ["", "const ", "trusted ", "async "] {
+            let module_modifier = if modifier == "trusted " { modifier } else { "" };
+
             let source = format!(
                 r#"
-                trusted module app;
+                {module_modifier}module app;
 
                 {modifier}func check()
                     when(true)
@@ -365,7 +370,9 @@ mod tests {
                 @test
                 module app.tests;
 
+                @test
                 func test_only()
+                    ensures(false)
                     executes(total) {}
             "#,
             r#"
@@ -385,6 +392,21 @@ mod tests {
         let diagnostics = compilation.check_diagnostics();
 
         assert!(diagnostics.is_empty(), "{diagnostics:?}");
+
+        let tests = compilation_with_sources_product_and_worker_budget(
+            &sources,
+            bray_symbols::ProductKind::Test,
+            WorkerBudget::serial(),
+        );
+
+        let test = source_function_body_key(&tests, "test_only");
+        let source_id = test.source().syntax().source_id();
+        let diagnostics = tests.check_diagnostics();
+
+        assert!(diagnostics.iter().any(|diagnostic| {
+            diagnostic.kind() == DiagnosticKind::CheckingPostconditionNotProven
+                && diagnostic.primary_span().is_some_and(|span| span.source_id() == source_id)
+        }), "{diagnostics:?}");
     }
 
     #[test]

@@ -33,6 +33,9 @@ pub(in crate::analysis) struct StorageFlowState {
     // Entry referents whose inline contents were written on every path to this state.
     pub(in crate::analysis::storage_flow) written_inputs: BTreeSet<bray_symbols::DependencySubjectRoot>,
     pub(in crate::analysis::storage_flow) effect_prefix: EffectPrefix,
+    // Admitted inputs shared by both successors before applying the normal outcome.
+    pub(in crate::analysis::storage_flow) failure_entry:
+        Option<(bray_bound_tree::BoundExecutionSite, Box<Self>)>,
     pub(in crate::analysis::storage_flow) result_dependencies: crate::dependency::ResultState,
     pub(in crate::analysis::storage_flow) memory: crate::analysis::storage_flow::memory::State,
     reports: BTreeMap<Option<BoundExpressionId>, RetainedReports>,
@@ -338,6 +341,7 @@ impl StorageFlowState {
             memory,
             written_inputs: BTreeSet::new(),
             effect_prefix: EffectPrefix::default(),
+            failure_entry: None,
             result_dependencies: Default::default(),
             reports: BTreeMap::new(),
             recovered: false,
@@ -360,11 +364,27 @@ impl StorageFlowState {
             return true;
         }
 
+        let join = join.into();
+
         let execution_changed = crate::analysis::guarantee::merge_execution(
             &mut self.execution,
             &incoming.execution,
-            join.into(),
+            join,
         );
+
+        let failure_changed = if let Some((site, branch)) = &incoming.failure_entry {
+            if let Some((previous_site, previous)) = &mut self.failure_entry {
+                assert_eq!(site, previous_site, "merged attempts retain the same failure edge");
+
+                previous.merge(branch, join)
+            } else {
+                self.failure_entry = incoming.failure_entry.clone();
+
+                true
+            }
+        } else {
+            false
+        };
 
         let effects_changed = !Arc::ptr_eq(&self.effect_prefix, &incoming.effect_prefix)
             && !incoming.effect_prefix.is_subset(&self.effect_prefix);
@@ -463,6 +483,7 @@ impl StorageFlowState {
         self.recovered |= incoming.recovered;
 
         effects_changed
+            || failure_changed
             || self.written_inputs.len() != written_count
             || dependencies_changed
             || reports_changed

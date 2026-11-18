@@ -46,6 +46,17 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         operation: super::super::super::model::AnalysisOperationKind,
         observe: Option<&mut super::super::cleanup::Observer<'_>>,
     ) -> bool {
+        self.prepare_await_execution(state, operation);
+
+        self.replay_operation(state, operation, observe)
+    }
+
+    pub(super) fn replay_operation(
+        &self,
+        state: &mut ExecutionState,
+        operation: super::super::super::model::AnalysisOperationKind,
+        observe: Option<&mut super::super::cleanup::Observer<'_>>,
+    ) -> bool {
         if !matches!(
             operation,
             super::super::super::model::AnalysisOperationKind::Result {
@@ -83,10 +94,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             })
             .and_then(|_| self.refinements.get(&operation.occurrence()));
 
-        if let Some(expression) = operation.awaited_expression() {
-            self.admit_inline_invocation(state, expression);
-        }
-
         if let Some(expression) = self.single_phase_invocation(operation) {
             self.admit_inline_invocation(state, expression);
 
@@ -97,13 +104,41 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             }
         }
 
-        self.transfer_operation(state, operation, invalidation, assignment.as_ref());
-        self.replay_storage_moves(state, operation);
+        self.prepare_replay_outputs(state, operation);
+
+        let ordinary_attempt = matches!(operation, crate::analysis::model::AnalysisOperationKind::Call {
+            phase: crate::analysis::model::AnalysisCallPhase::Attempt, ..
+        }) && operation.explicit_attempt_expression().is_none_or(|expression| self.memory.operation(expression).is_none());
+
+        if let Some(expression) = operation.awaited_expression() {
+            self.admit_await_inputs(state, expression);
+        } else {
+            self.prepare_frame_execution(state, operation);
+        }
+
+        if ordinary_attempt {
+            let invocation = operation.occurrence();
+            let inputs = self.admit_call_inputs(state, invocation);
+
+            self.replay_storage_moves(state, operation);
+            self.retain_admitted_failure(state, operation);
+            self.produce_call_attempt(state, invocation, inputs, invalidation, assignment.as_ref());
+        } else {
+            if operation.awaited_expression().is_some() {
+                self.retain_admitted_failure(state, operation);
+            }
+
+            self.transfer_operation(state, operation, invalidation, assignment.as_ref());
+            self.replay_storage_moves(state, operation);
+        }
 
         let retirements = self.checked_body.expect("execution replay retains its checked storage transitions")
             .storage_flow().capture_retirements(bray_bound_tree::StorageMutation::Operation(operation.occurrence()), operation.storage_value_phase(), bray_bound_tree::StorageValueBoundary::Execution);
 
         state.retire_captured_storage(retirements);
+
+        if !self.replay_task_observation(state, operation) { return false; }
+
         self.complete_operation(state, operation, None);
 
         let retirements = self.checked_body.expect("execution replay retains its checked storage transitions")
@@ -246,54 +281,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     }
                 }
                 AnalysisCallPhase::Attempt => {
-                    if let Some(completion) = self.checked_body.and_then(|body|
-                        body.storage_flow().completion(bray_bound_tree::StorageMutation::Operation(invocation)))
-                    {
-                        self.prepare_captured_values(state, invocation, completion.values(), false);
-                    }
+                    let admitted = self.admit_call_inputs(state, invocation);
 
-                    let observed = match invocation {
-                        Site::Node(AnyBoundNodeId::Expression(expression)) => {
-                            self.observed_call_result(state, expression)
-                        }
-                        _ => None,
-                    };
-
-                    let deferred = state.entries.get_mut(&invocation).is_some_and(|entry| {
-                        let deferred = entry.pending_execution;
-
-                        // This invocation's own effects do not revoke its captured entry.
-                        entry.pending_execution = false;
-
-                        deferred
-                    });
-
-                    // The admitted entry now owns its evaluated inputs. Their
-                    // source slots cannot remain independent outside owners.
-                    let private_inputs = state.entry_witness_inputs(invocation);
-
-                    state.suspend_owned_witnesses(&private_inputs);
-                    self.consume_value_slots(state, invocation, bray_bound_tree::StorageValueConsumptionPhase::Admission);
-
-                    if let Site::Node(AnyBoundNodeId::Expression(expression)) = invocation {
-                        if let Some(observed) = observed {
-                            state.pending_results.insert(expression, observed);
-                        }
-
-                        self.expression(state, expression, invalidation, assignment_place, false);
-
-                        if let Some(value) = state.expressions.remove(&expression) {
-                            state.pending_results.insert(expression, value);
-                        }
-
-                        state.trust_boundaries.remove(&expression);
-                    } else {
-                        self.invalidate(state, invocation, invalidation);
-                    }
-
-                    if let Some(entry) = state.entries.get_mut(&invocation) {
-                        entry.pending_execution = deferred;
-                    }
+                    self.produce_call_attempt(state, invocation, admitted, invalidation, assignment_place);
                 }
                 AnalysisCallPhase::Completion => {}
             }
@@ -314,10 +304,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let awaited = operation.awaited_expression();
 
-        if let Some(expression) = awaited {
-            self.set_awaited_execution(state, expression, false);
-        }
-
         match operation.node() {
             AnyBoundNodeId::Expression(expression) => {
                 if !matches!(
@@ -329,12 +315,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 ) {
                     if awaited.is_none() && self.single_phase_invocation(operation).is_none() {
                         self.admit_inline_invocation(state, expression);
-                    }
-
-                    if awaited.is_some() {
-                        let private = state.entry_witness_inputs(expression.into());
-
-                        state.suspend_owned_witnesses(&private);
                     }
 
                     if let Some(observed) = self.observed_call_result(state, expression) {
@@ -362,12 +342,15 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }
 
         if let Some(expression) = awaited {
-            self.set_awaited_execution(state, expression, true);
-
-            // The suspended run owns the evaluated frame. Its original output
-            // slot cannot remain an independent cleanup owner on any outcome.
-            self.consume_value_slots(state, expression.into(), bray_bound_tree::StorageValueConsumptionPhase::Admission);
+            self.suspend_awaited_execution(state, expression);
         }
+    }
+
+    pub(in crate::analysis) fn admit_await_inputs(&self, state: &mut ExecutionState, expression: BoundExpressionId) {
+        let private = state.entry_witness_inputs(expression.into());
+
+        state.suspend_owned_witnesses(&private);
+        self.consume_value_slots(state, expression.into(), bray_bound_tree::StorageValueConsumptionPhase::Admission);
     }
 
     pub(super) fn retain_successor_values(
@@ -408,7 +391,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     .get(&occurrence)
                     .is_some_and(|entry| !entry.pending_execution)
                     && !matches!(edge.refinement(), Some(
-                        crate::analysis::model::AnalysisRefinement::InvocationFailure(failed)
+                        crate::analysis::model::AnalysisRefinement::InvocationFailure(failed, _)
                     ) if failed == occurrence)
                 {
                     state.entries.remove(&occurrence);
@@ -416,7 +399,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             }
         }
 
-        if let Some(crate::analysis::model::AnalysisRefinement::InvocationFailure(invocation)) =
+        if let Some(crate::analysis::model::AnalysisRefinement::InvocationFailure(invocation, _)) =
             edge.refinement()
         {
             let deferred = invocation.expression().and_then(|expression| {
@@ -443,6 +426,61 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             edge.refinement()
         {
             state.entries.remove(&invocation);
+        }
+    }
+
+    pub(in crate::analysis) fn admit_call_inputs(
+        &self, state: &mut ExecutionState, invocation: bray_bound_tree::BoundExecutionSite,
+    ) -> (Option<ExecutionCondition>, bool) {
+        let observed = match invocation {
+            bray_bound_tree::BoundExecutionSite::Node(AnyBoundNodeId::Expression(expression)) =>
+                self.observed_call_result(state, expression),
+            _ => None,
+        };
+
+        let deferred = state.entries.get_mut(&invocation).is_some_and(|entry| {
+            // This invocation's own effects do not revoke its captured entry.
+            std::mem::replace(&mut entry.pending_execution, false)
+        });
+
+        // Formation moves the owner into an inactive frame. Its witness remains live until execution can start.
+        if !deferred {
+            let private_inputs = state.entry_witness_inputs(invocation);
+
+            state.suspend_owned_witnesses(&private_inputs);
+        }
+
+        self.consume_value_slots(state, invocation, bray_bound_tree::StorageValueConsumptionPhase::Admission);
+
+        (observed, deferred)
+    }
+
+    pub(in crate::analysis) fn produce_call_attempt(
+        &self, state: &mut ExecutionState, invocation: bray_bound_tree::BoundExecutionSite,
+        admitted: (Option<ExecutionCondition>, bool),
+        invalidation: Option<&bray_bound_tree::StorageInvalidation>,
+        assignment_place: Option<&crate::ExecutionPlace>,
+    ) {
+        let (observed, deferred) = admitted;
+
+        if let bray_bound_tree::BoundExecutionSite::Node(AnyBoundNodeId::Expression(expression)) = invocation {
+            if let Some(observed) = observed {
+                state.pending_results.insert(expression, observed);
+            }
+
+            self.expression(state, expression, invalidation, assignment_place, false);
+
+            if let Some(value) = state.expressions.remove(&expression) {
+                state.pending_results.insert(expression, value);
+            }
+
+            state.trust_boundaries.remove(&expression);
+        } else {
+            self.invalidate(state, invocation, invalidation);
+        }
+
+        if let Some(entry) = state.entries.get_mut(&invocation) {
+            entry.pending_execution = deferred;
         }
     }
 
@@ -616,14 +654,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             let result = self.invocation_value(state, invocation);
 
-            let result = self.storage.occurrence_plans(invocation)
-                .filter(|plan| self.storage.effective_purpose(*plan) == bray_bound_tree::StorageAccessPurpose::Copy)
-                .fold(result, |result, plan| {
-                    self.copied_access_value(ExecutionCondition::post_state(
-                        bray_bound_tree::StorageMutation::Operation(invocation), ExecutionCondition::new(crate::ExecutionConditionKind::Input(place.clone())),
-                    ), result, plan)
-                });
-
             let result = self.complete_trusted_call(state, invocation, invocation, self.invocation_result_place(invocation).as_ref(), result, observations);
 
             state.assign(place, result, None);
@@ -739,8 +769,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 self.copied_access_value(ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expression)), value, plan)
             });
 
-        let frame = self.started_future(state, expression).and_then(|source|
-            source.deferred_value().map(|frame| self.start_frame_execution(state, frame, expression.into())));
+        let frame = self.started_future(state, expression).and_then(|source| source.deferred_value().cloned());
 
         let value = match frame {
             Some(frame) => value.with_deferred_value(frame),

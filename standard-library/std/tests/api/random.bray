@@ -19,14 +19,18 @@ func deterministic_generators_repeat_the_seeded_sequence()
 @test
 func deterministic_generators_fill_bytes_in_sequence_order()
 {
-    let seed: bytes<32> = [1; 32];
+    let mut seed: bytes<32> = [1; 32];
+
+    seed[0] = 2;
+
     let mut generator: std.random.Generator = std.random.Generator(seed = seed);
-    let mut bytes: bytes<10> = [0; 10];
-    let expected: bytes<10> = [146, 150, 150, 150, 150, 150, 150, 150, 146, 150];
+    let mut bytes: bytes<17> = [0; 17];
+    let expected: bytes<17> = [146, 150, 150, 150, 150, 150, 150, 150, 18, 173, 150, 150, 150, 150, 150, 150, 173];
 
     generator.fill(&mut bytes[..]);
 
     assert(std.bytes.equals(&bytes[..], &expected[..]));
+    assert(generator.next_u64() == 14106333704176971071);
 }
 
 @test
@@ -41,7 +45,7 @@ func all_zero_seed_uses_the_specified_nonzero_state()
 }
 
 @test
-func system_entropy_fills_caller_owned_storage()
+func system_entropy_provider_accepts_a_native_request()
 {
     let mut bytes: bytes<32> = [0; 32];
 

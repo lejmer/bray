@@ -256,7 +256,9 @@ mod tests {
                 });
             });
 
-            assert!(result.is_err());
+            let panic = result.expect_err("the retiring identity callback must unwind");
+
+            assert_eq!(bray_testing::panic_payload_text(panic.as_ref()), "exercise callback observation restoration");
             assert!(current_runtime_thread().is_none());
 
             1

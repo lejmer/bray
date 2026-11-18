@@ -1,4 +1,4 @@
-module bray.standard_library_tests.collection;
+trusted module bray.standard_library_tests.collection;
 
 using std.bytes;
 using std.collection;
@@ -153,10 +153,10 @@ trusted func list_capacity_and_iteration() -> Result<unit, std.memory.MemoryLayo
 
     let cursor: std.collection.MoveCursor<i32> = values(Iterable).iterate();
     let mut taken: std.iteration.Take<std.collection.MoveCursor<i32>, i32> = cursor.take(count = 2);
-    let second: i32? = taken.nth(index = 1);
-    let second_value: i32 = std.testing.assert_present<i32>(second);
 
-    assert(second_value == 5);
+    assert(std.testing.assert_present<i32>(taken(Iterator).next()) == 4);
+    assert(std.testing.assert_present<i32>(taken(Iterator).next()) == 5);
+    std.testing.assert_absent<i32>(taken(Iterator).next());
 
     return Ok(unit);
 }
@@ -475,11 +475,9 @@ trusted func deque_iteration_preserves_wrapped_logical_order() -> Result<unit, s
     }
 
     let mut cursor: std.collection.DequeMoveCursor<i32> = values(Iterable).iterate();
-    let second: i32? = cursor.nth(index = 1);
 
-    let value: i32 = std.testing.assert_present<i32>(second);
-
-    assert(value == 4);
+    assert(std.testing.assert_present<i32>(cursor(Iterator).next()) == 30);
+    assert(std.testing.assert_present<i32>(cursor(Iterator).next()) == 4);
 
     return Ok(unit);
 }
@@ -822,6 +820,7 @@ trusted func hash_map_supports_shared_and_consuming_iteration() -> Result<unit, 
     let mut visited: usize = 0;
 
     {
+        let mut seen: [bool; 128] = [false; 128];
         let source: &std.collection.HashMap<u64, u64> = &map;
         let mut cursor: std.collection.HashMapReadCursor<u64, u64> = source(Iterable).iterate();
 
@@ -829,22 +828,41 @@ trusted func hash_map_supports_shared_and_consuming_iteration() -> Result<unit, 
         {
             match cursor.next()
             {
-                case ?_ { visited += 1; }
+                case ?entry
+                {
+                    let key: u64 = entry.key;
+
+                    assert(key < 128);
+                    assert(entry.value == key * 10);
+                    assert(!seen[key as usize]);
+
+                    seen[key as usize] = true;
+                    visited += 1;
+                }
                 case none { break; }
             }
         }
     }
 
-    assert(visited == map.length());
+    assert(visited == 128);
 
     let mut moved: std.collection.HashMapMoveCursor<u64, u64> = map(Iterable).iterate();
     let mut moved_count: usize = 0;
+    let mut seen: [bool; 128] = [false; 128];
 
     while true
     {
         match moved.next()
         {
-            case ?_ { moved_count += 1; }
+            case ?(key, value)
+            {
+                assert(key < 128);
+                assert(value == key * 10);
+                assert(!seen[key as usize]);
+
+                seen[key as usize] = true;
+                moved_count += 1;
+            }
             case none { break; }
         }
     }
@@ -977,6 +995,7 @@ trusted func hash_set_uses_value_storage_for_replace_take_and_iteration() -> Res
     let mut visited: usize = 0;
 
     {
+        let mut seen: [bool; 48] = [false; 48];
         let source: &std.collection.HashSet<CollisionKey> = &set;
         let mut cursor: std.collection.HashSetReadCursor<CollisionKey> = source(Iterable).iterate();
 
@@ -984,7 +1003,11 @@ trusted func hash_set_uses_value_storage_for_replace_take_and_iteration() -> Res
         {
             match cursor.next()
             {
-                case ?_ { visited += 1; }
+                case ?entry
+                {
+                    record_retained_set_key(&mut seen, entry.value);
+                    visited += 1;
+                }
                 case none { break; }
             }
         }
@@ -994,12 +1017,17 @@ trusted func hash_set_uses_value_storage_for_replace_take_and_iteration() -> Res
 
     let mut moved: std.collection.HashSetMoveCursor<CollisionKey> = set(Iterable).iterate();
     let mut moved_count: usize = 0;
+    let mut seen: [bool; 48] = [false; 48];
 
     while true
     {
         match moved.next()
         {
-            case ?_ { moved_count += 1; }
+            case ?entry
+            {
+                record_retained_set_key(&mut seen, entry.value);
+                moved_count += 1;
+            }
             case none { break; }
         }
     }
@@ -1007,6 +1035,13 @@ trusted func hash_set_uses_value_storage_for_replace_take_and_iteration() -> Res
     assert(moved_count == 47);
 
     return Ok(unit);
+}
+
+func record_retained_set_key(pos seen: &mut [bool; 48], pos key: u64)
+{
+    assert(key < 48 && key != 17);
+    assert(!seen[key as usize]);
+    seen[key as usize] = true;
 }
 
 @test

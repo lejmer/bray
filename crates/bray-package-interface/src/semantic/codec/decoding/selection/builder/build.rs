@@ -1037,6 +1037,10 @@ impl<'bytes, 'records> SelectionBuilder<'bytes, 'records> {
             self.include_dependency_requirement(requirement);
         }
 
+        for guard in contract.failure_outcomes.as_deref().into_iter().flatten().filter_map(|row| row.guard) {
+            self.enqueue(PendingRecord::ConstantTerm(guard.raw()));
+        }
+
         for stored in contract.captured_values.iter().flat_map(|outcome| outcome.stored_values.iter()) {
             self.include_dependency_subject(stored.destination().subject());
 

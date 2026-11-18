@@ -235,6 +235,49 @@ impl<Input, Projection, Static, Callee, Variant> CapturedValueTemplate<Input, Pr
     }
 }
 
+/// The transfer that ends a callable without publishing its normal result.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[repr(u8)]
+pub enum DependencyFailureKind {
+    /// Propagation of a panic report.
+    Panic = 1,
+    /// Completion of current-run cancellation.
+    Cancellation = 2,
+}
+
+impl DependencyFailureKind {
+    /// Both ways of leaving execution without a normal result.
+    pub const ALL: [Self; 2] = [Self::Panic, Self::Cancellation];
+
+    pub(super) const fn index(self) -> usize {
+        match self {
+            Self::Panic => 0,
+            Self::Cancellation => 1,
+        }
+    }
+}
+
+/// Performed effects and the report produced together on one abnormal exit.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct CapturedFailureOutcome<Guard = ConstantTermId, Report = Arc<[super::DependencyRequirement]>,
+    Effect = super::DependencyStorageEffect> {
+    /// The actual exit kind, or an opaque summary covering either kind.
+    pub kind: Option<DependencyFailureKind>,
+    /// Entry condition for this exit, independent of any normal result.
+    pub guard: Option<Guard>,
+    /// Performed effect bound. Absence uses the callable's conservative envelope.
+    pub effects: Option<Arc<[Effect]>>,
+    /// Report dependencies. An empty present list describes an independent report.
+    pub report: Option<Report>,
+}
+
+impl<Guard, Report, Effect> CapturedFailureOutcome<Guard, Report, Effect> {
+    /// An opaque outcome conservatively covers any abnormal exit.
+    pub fn covers(&self, kind: DependencyFailureKind) -> bool {
+        self.kind.is_none_or(|actual| actual == kind)
+    }
+}
+
 /// Values produced together on one feasible normal exit.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CapturedValueOutcome<Subject = super::DependencySubject, Input = ConstantTermId, Projection = DependencyProjection,

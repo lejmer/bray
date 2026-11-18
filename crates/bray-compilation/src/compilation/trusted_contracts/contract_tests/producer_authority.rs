@@ -16,7 +16,7 @@ fn bootstrap_host_access_requires_owner_bound_acquisition_evidence() {
         ),
         ("guard.owner = &other; observe(&guard);", false),
         ("guard.lock = &other_lock; observe(&guard);", false),
-        ("guard.active = true; observe(&guard);", false),
+        ("guard.active = !guard.active; observe(&guard);", false),
     ] {
         let source = format!(
             r#"
@@ -30,9 +30,9 @@ fn bootstrap_host_access_requires_owner_bound_acquisition_evidence() {
             trusted predicate acquired(owner: &HostAccess);
             struct HostAccess
             {{
-                owner: &HostOwner;
-                lock: &core.atomic.Atomic<u32>;
-                active: bool;
+                mut owner: &HostOwner;
+                mut lock: &core.atomic.Atomic<u32>;
+                mut active: bool;
                 trusted destruct() requires(trusted acquired(&self)) executes(total)
                 {{
                     if self.active
@@ -66,13 +66,24 @@ fn bootstrap_host_access_requires_owner_bound_acquisition_evidence() {
         );
 
         let compilation = compilation(&source);
+        let diagnostics = compilation.check_diagnostics();
 
         assert_eq!(
-            !compilation.check_diagnostics().has_errors(),
+            !diagnostics.has_errors(),
             valid,
             "{body}: {:#?}",
-            compilation.check_diagnostics(),
+            diagnostics,
         );
+
+        if !valid {
+            let site = if body.contains("observe(&fake)") { "observe(&fake)" } else { "observe(&guard)" };
+            let caller = crate::test_support::source_function_body_key(&compilation, "caller");
+            let source_id = caller.source().syntax().source_id();
+
+            assert!(diagnostics.by_kind(DiagnosticKind::CheckingTrustedObligationNotProven).any(|diagnostic|
+                crate::test_support::diagnostic_at_call(diagnostic, source_id, &source, site)
+            ), "{body}: {diagnostics:#?}");
+        }
     }
 }
 
@@ -156,7 +167,7 @@ fn whole_owner_guarantees_retain_the_result_dependencies() {
                 let returned: View =
                 {{
                     let local: Value = {{ byte = 2 }};
-                    yield trusted make_view({arguments});
+                    yield make_view({arguments});
                 }};
                 return observe(&returned);
             }}

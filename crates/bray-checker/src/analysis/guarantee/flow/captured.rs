@@ -229,6 +229,35 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         state.entries.insert(invocation, entry);
     }
 
+    pub(in crate::analysis) fn prepare_failure_rows(
+        &self, state: &mut ExecutionState, invocation: bray_bound_tree::BoundExecutionSite,
+    ) {
+        let Some(call) = self.dependencies.calls().get(&invocation) else { return; };
+
+        let Some(entry) = state.entries.get_mut(&invocation) else { return; };
+
+        entry.failure_rows = entry.select_failure_rows(self.request.semantic_values(), &self.proofs, call.reports().failures());
+    }
+
+    pub(in crate::analysis) fn feasible_call_outputs(
+        &self, state: &ExecutionState, invocation: bray_bound_tree::BoundExecutionSite,
+    ) -> Vec<usize> {
+        let Some(entry) = state.admitted_call(invocation) else { return Vec::new(); };
+
+        self.feasible_entry_outputs(state, entry)
+    }
+
+    pub(super) fn feasible_entry_outputs(&self, state: &ExecutionState, entry: &crate::ExecutionCallEvidence) -> Vec<usize> {
+        let unknown = ExecutionCondition::unknown();
+
+        entry.outputs.0.iter().enumerate().filter_map(|(index, row)| {
+            let result = row.writes.get(&StorageValueDestination::Result).unwrap_or(&unknown);
+            let guard = row.guard.bind(entry, result);
+
+            self.admits_output(&state.assumptions, entry, result, &guard, &row.ownership).then_some(index)
+        }).collect()
+    }
+
     pub(in crate::analysis) fn prepare_captured_values(
         &self, state: &mut ExecutionState, invocation: bray_bound_tree::BoundExecutionSite,
         transitions: &[bray_bound_tree::StorageValueTransition],
@@ -371,7 +400,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     ) -> ExecutionCondition {
         if let Some(entry) = admission.and_then(|admission| state.entries.get_mut(&admission)) {
             entry.outputs = crate::execution_guarantees::ExecutionOutputs([crate::execution_guarantees::ExecutionOutput {
-                sources: None,
                 guard: crate::execution_guarantees::OutputGuard::Bound(guard.clone()), ..row.clone()
             }].into());
         }
@@ -510,5 +538,13 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }
 
         refreshed
+    }
+}
+
+impl ExecutionState {
+    pub(in crate::analysis) fn select_call_output(&mut self, invocation: bray_bound_tree::BoundExecutionSite, row: usize) {
+        let entry = self.entries.get_mut(&invocation).expect("selected output belongs to an admitted call");
+
+        entry.select_output(row);
     }
 }

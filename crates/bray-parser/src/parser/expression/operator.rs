@@ -222,7 +222,7 @@ mod tests {
 
     #[test]
     fn parser_parses_expression_precedence_and_associativity() {
-        let sources = source_store(["left + right * -tail ** value;"]);
+        let sources = source_store(["left + right * -tail ** middle ** end;"]);
         let snapshot = source(&sources, 0);
 
         let mut parser = Parser::new(snapshot);
@@ -236,7 +236,7 @@ mod tests {
             panic!("expected binary expression children: {children:?}");
         };
 
-        assert_eq!(expression.full_text(), "left + right * -tail ** value");
+        assert_eq!(expression.full_text(), "left + right * -tail ** middle ** end");
 
         assert_eq!(
             expression.operator_token().map(|token| token.kind()),
@@ -249,6 +249,26 @@ mod tests {
             right.operator_token().map(|token| token.kind()),
             Some(SyntaxKind::StarToken)
         );
+
+        let [factor, negation]: [_; 2] = right.expressions().collect::<Vec<_>>().try_into()
+            .expect("multiplication has two operands");
+
+        let [power]: [_; 1] = negation.expressions().collect::<Vec<_>>().try_into()
+            .expect("negation has one operand");
+
+        let [base, exponent]: [_; 2] = power.expressions().collect::<Vec<_>>().try_into()
+            .expect("power has a base and an exponent");
+
+        let [exponent_base, exponent_power]: [_; 2] = exponent.expressions().collect::<Vec<_>>().try_into()
+            .expect("the outer exponent is itself a power");
+
+        assert_eq!(factor.full_text().trim(), "right");
+        assert_eq!(negation.operator_token().map(|token| token.kind()), Some(SyntaxKind::MinusToken));
+        assert_eq!(power.operator_token().map(|token| token.kind()), Some(SyntaxKind::StarStarToken));
+        assert_eq!(base.full_text().trim(), "tail");
+        assert_eq!(exponent.operator_token().map(|token| token.kind()), Some(SyntaxKind::StarStarToken));
+        assert_eq!(exponent_base.full_text().trim(), "middle");
+        assert_eq!(exponent_power.full_text().trim(), "end");
 
         assert!(diagnostics.is_empty());
     }

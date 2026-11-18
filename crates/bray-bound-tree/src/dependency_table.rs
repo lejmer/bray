@@ -3,7 +3,7 @@ mod storage;
 mod table;
 
 pub use call::{
-    BoundCallDependencyContracts, BoundCallReport, BoundCallReports, BoundDeferredCallable, BoundReturnedValue, CallReportOutput,
+    BoundCallDependencyContracts, BoundCallFailure, BoundCallReport, BoundCallReports, BoundDeferredCallable, BoundReturnedValue, CallReportOutput,
 };
 pub use storage::{BoundCallReference, BoundCallStorage};
 pub use table::{CheckedDependencyContracts, ConditionCallReferences, DependencyContractsBuildError};

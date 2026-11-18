@@ -1,5 +1,5 @@
 @target(target.scalar.R128 && target.scalar.C256)
-module bray.standard_library_tests.complex_arithmetic;
+trusted module bray.standard_library_tests.complex_arithmetic;
 
 const PRODUCT_256: c256 = (3.0 + 4.0i) * (1.0 + 1.0i);
 

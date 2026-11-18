@@ -28,7 +28,7 @@ impl ReportDependencies {
 }
 
 /// Snapshots retain the outcome they came from through joins and frame capture.
-/// An unindexed snapshot represents the abnormal output or an opaque producer.
+/// An unindexed snapshot represents an opaque producer.
 #[derive(Clone, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub(crate) struct ReportCandidates(BTreeMap<Option<usize>, Arc<ReportDependencies>>);
 
@@ -52,9 +52,9 @@ impl ReportCandidates {
         changed
     }
 
-    pub(crate) fn admitted(&self, outputs: Option<&crate::execution_guarantees::ExecutionOutputs>) -> Option<Arc<ReportDependencies>> {
+    pub(crate) fn admitted(&self, accepts: impl Fn(usize) -> bool) -> Option<Arc<ReportDependencies>> {
         let mut selected = self.0.iter().filter_map(|(row, report)| {
-            row.is_none_or(|row| outputs.is_none_or(|outputs| outputs.is_admitted(row))).then_some(report)
+            row.is_none_or(&accepts).then_some(report)
         });
 
         let mut report = Arc::clone(selected.next()?);
@@ -86,7 +86,6 @@ pub(crate) struct State {
         ),
         ReportCandidates,
     >,
-    abnormal_reports: Option<BTreeSet<DependencyRequirement>>,
 }
 
 impl State {
@@ -133,12 +132,6 @@ impl State {
         (!self.reports.is_empty()).then(|| self.closed_requirements(self.reports.values().flatten().cloned().collect()).into())
     }
 
-    pub(crate) fn merge_abnormal(&mut self, incoming: &Self) {
-        merge_map(&mut self.call_definitions, &incoming.call_definitions);
-        merge_reports(&mut self.abnormal_reports, &incoming.reports);
-        self.abnormal_reports.get_or_insert_default();
-    }
-
     pub(crate) fn prepare_reports(
         &mut self,
         occurrence: bray_bound_tree::BoundExecutionSite,
@@ -156,10 +149,19 @@ impl State {
     ) -> ReportCandidates {
         use bray_bound_tree::CallReportOutput;
 
-        let selected = self.report_candidates.remove(&(occurrence, output)).unwrap_or_default();
+        let mut selected = self.report_candidates.remove(&(occurrence, output)).unwrap_or_default();
+
+        if let Some(opaque) = output.opaque()
+            && let Some(opaque) = self.report_candidates.remove(&(occurrence, opaque))
+        {
+            selected.merge(&opaque);
+        }
+
+        for failure in bray_symbols::DependencyFailureKind::ALL.map(Some).into_iter().chain([None]) {
+            self.report_candidates.remove(&(occurrence, CallReportOutput::Abnormal(failure)));
+        }
 
         self.report_candidates.remove(&(occurrence, CallReportOutput::Completed));
-        self.report_candidates.remove(&(occurrence, CallReportOutput::Abnormal));
 
         selected
     }
@@ -250,14 +252,7 @@ impl State {
     pub(crate) fn summary(mut self) -> bray_symbols::DependencyContractTemplateData {
         let returned = std::mem::take(&mut self.returned);
 
-        let mut summary =
-            bray_symbols::DependencyContractTemplateData::new(self.closed_requirements(returned));
-
-        if let Some(requirements) = self.abnormal_reports.take() {
-            summary = summary.with_abnormal_reports(self.closed_requirements(requirements));
-        }
-
-        summary
+        bray_symbols::DependencyContractTemplateData::new(self.closed_requirements(returned))
     }
 
     fn closed_requirements(
@@ -289,17 +284,6 @@ impl State {
             definitions,
             requirements,
         )]
-    }
-}
-
-fn merge_reports(
-    output: &mut Option<BTreeSet<DependencyRequirement>>,
-    reports: &BTreeMap<Option<BoundExpressionId>, BTreeSet<DependencyRequirement>>,
-) {
-    if !reports.is_empty() {
-        output
-            .get_or_insert_default()
-            .extend(reports.values().flatten().cloned());
     }
 }
 

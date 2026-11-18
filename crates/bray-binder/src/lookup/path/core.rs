@@ -1494,6 +1494,10 @@ mod tests {
 
         let binding_context = query_fixture.context();
 
+        assert!(!binding_context.symbols().modules().iter().any(|module| {
+            module.path().segments().eq(["foo"])
+        }));
+
         let unit_fixture = fixture();
         let unit = builder(&unit_fixture, LocalSymbolRegionId::new(43));
         let root = unit.root_scope();

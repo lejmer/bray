@@ -109,7 +109,7 @@ fn captured_data<C: CheckerRequestContext + ?Sized>(domain: &ExecutionFlowDomain
     let encoded = match value.kind() {
         K::CapturedValue { value, .. } => captured_data(domain, state, value, descriptor, memo),
         K::DeferredValue { value, frame } if frame.producers.is_empty() && frame.unknown.is_some()
-            && matches!(value.kind(), K::Input(place) if place.is_callable_input()) =>
+            && matches!(value.computed_value().kind(), K::Input(place) if place.is_callable_input()) =>
             captured_data(domain, state, value, descriptor, memo),
         K::DeferredValue { frame, .. } => captured_deferred(domain, state, frame, memo),
         K::Input(place) if matches!(place.root, crate::execution_guarantees::ExecutionInput::Static(_)) => {
@@ -172,11 +172,12 @@ fn captured_data<C: CheckerRequestContext + ?Sized>(domain: &ExecutionFlowDomain
 
             Value::Operation(operation, operands.iter().map(|value| captured(domain, state, value, memo)).collect())
         }
-        K::Literal(_) | K::Boolean(_) | K::Call(..) => super::carriers::portable(domain.request, value).map_or(Value::Unknown, Value::Data),
-        K::Operation(bray_bound_tree::BoundOperator::Add | bray_bound_tree::BoundOperator::Subtract, operands) =>
-            Value::Operation(if matches!(value.kind(), K::Operation(bray_bound_tree::BoundOperator::Add, _)) { Op::Add } else { Op::Subtract },
+        K::Operation(operator @ (bray_bound_tree::BoundOperator::Add | bray_bound_tree::BoundOperator::Subtract), operands)
+            if operands.len() == 2 =>
+            Value::Operation(if *operator == bray_bound_tree::BoundOperator::Add { Op::Add } else { Op::Subtract },
                 operands.iter().map(|value| captured(domain, state, value, memo)).collect()),
-        K::Operation(..) => super::carriers::portable(domain.request, value).map_or(Value::Unknown, Value::Data),
+        K::Literal(_) | K::Boolean(_) | K::Call(..) | K::Operation(..) =>
+            super::carriers::portable(domain.request, value).map_or(Value::Unknown, Value::Data),
         K::Constructed(base, fields) => {
             let fields = fields.iter().map(|(field, value)|
                 Some((value_projection(domain, *field)?, captured(domain, state, value, memo))))
@@ -206,7 +207,7 @@ fn captured_data<C: CheckerRequestContext + ?Sized>(domain: &ExecutionFlowDomain
     encoded
 }
 
-fn conjunction(values: &bray_symbols::SemanticValueStore, terms: impl IntoIterator<Item = bray_symbols::ConstantTermId>)
+pub(super) fn conjunction(values: &bray_symbols::SemanticValueStore, terms: impl IntoIterator<Item = bray_symbols::ConstantTermId>)
     -> Option<bray_symbols::ConstantTermId>
 {
     terms.into_iter().reduce(|left, right| values.intern_constant_term(bray_symbols::ConstantTermData::Binary {

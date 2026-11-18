@@ -18,7 +18,12 @@ func options() -> std.fs.OpenOptions
     return std.fs.OpenOptions(access = std.fs.FileAccess.ReadWrite, creation = std.fs.FileCreation.OpenExisting);
 }
 
-trusted async func main() -> i32
+async func main() -> i32
+{
+    return try await exercise().start().join();
+}
+
+async func exercise() -> i32
     requires(blocking_execution())
 {
     let retry_path: std.path.Path = path("retry");
@@ -58,15 +63,15 @@ trusted async func main() -> i32
     }
 
     let raw: u64 = std.testing.assert_ok<u64, std.io.IoError>(
-        trusted std.fs.open_file_handle(&retry_path, options = options())
+        std.fs.open_file_handle(&retry_path, options = options())
     );
 
-    let raw_failed: (Result<unit, std.io.IoError>, bool) = trusted std.fs.close_file_handle(raw);
+    let raw_failed: (Result<unit, std.io.IoError>, bool) = std.fs.close_file_handle(raw);
 
     assert(!raw_failed.1);
 
     _ = std.testing.assert_error<unit, std.io.IoError>(raw_failed.0);
-    let raw_closed: (Result<unit, std.io.IoError>, bool) = trusted std.fs.close_file_handle(raw);
+    let raw_closed: (Result<unit, std.io.IoError>, bool) = std.fs.close_file_handle(raw);
 
     assert(raw_closed.1);
     std.testing.assert_ok<unit, std.io.IoError>(raw_closed.0);
@@ -84,10 +89,10 @@ trusted async func main() -> i32
     }
 
     let raw_consumed: u64 = std.testing.assert_ok<u64, std.io.IoError>(
-        trusted std.fs.open_file_handle(&consumed_path, options = options())
+        std.fs.open_file_handle(&consumed_path, options = options())
     );
 
-    let raw_consumed_close: (Result<unit, std.io.IoError>, bool) = trusted std.fs.close_file_handle(raw_consumed);
+    let raw_consumed_close: (Result<unit, std.io.IoError>, bool) = std.fs.close_file_handle(raw_consumed);
 
     assert(raw_consumed_close.1);
 
@@ -96,19 +101,16 @@ trusted async func main() -> i32
     let raw_abandon_path: std.path.Path = path("z-raw");
 
     let raw_abandon: u64 = std.testing.assert_ok<u64, std.io.IoError>(
-        trusted std.fs.open_file_handle(&raw_abandon_path, options = options())
+        std.fs.open_file_handle(&raw_abandon_path, options = options())
     );
 
-    let raw_retry: (Result<unit, std.io.IoError>, bool) = trusted std.fs.close_file_handle(raw_abandon);
+    let raw_retry: (Result<unit, std.io.IoError>, bool) = std.fs.close_file_handle(raw_abandon);
 
     assert(!raw_retry.1);
 
     _ = std.testing.assert_error<unit, std.io.IoError>(raw_retry.0);
 
-    let raw_terminal: (Result<unit, std.io.IoError>, bool) = trusted std.fs.close_file_handle(
-        raw_abandon,
-        terminal = true
-    );
+    let raw_terminal: (Result<unit, std.io.IoError>, bool) = std.fs.close_file_handle(raw_abandon, terminal = true);
 
     assert(raw_terminal.1);
 
@@ -119,7 +121,7 @@ trusted async func main() -> i32
         std.fs.metadata(&raw_probe)
     );
 
-    assert(raw_cleanup.bytes > 0);
+    assert(raw_cleanup.bytes == 1);
 
     let bad_path: std.path.Path = path("bad");
     _ = std.testing.assert_error<std.fs.File, std.io.IoError>(std.fs.File.open(&bad_path, options = options()));
@@ -136,11 +138,11 @@ trusted async func main() -> i32
 
     {
         let mut directory: std.fs.Directory = std.testing.assert_ok<std.fs.Directory, std.io.IoError>(
-            trusted std.fs.Directory.open(&directory_path)
+            std.fs.Directory.open(&directory_path)
         );
 
         let optional_entry: std.fs.DirectoryEntry? = std.testing.assert_ok<std.fs.DirectoryEntry?, std.io.IoError>(
-            trusted directory.next()
+            directory.next()
         );
 
         let entry: std.fs.DirectoryEntry = std.testing.assert_present<std.fs.DirectoryEntry>(optional_entry);
@@ -152,7 +154,7 @@ trusted async func main() -> i32
         assert(entry_text.length() == 1100);
 
         let end: std.fs.DirectoryEntry? = std.testing.assert_ok<std.fs.DirectoryEntry?, std.io.IoError>(
-            trusted directory.next()
+            directory.next()
         );
 
         std.testing.assert_absent<std.fs.DirectoryEntry>(end);
@@ -168,7 +170,7 @@ trusted async func main() -> i32
 
     {
         let mut done: std.fs.Directory = std.testing.assert_ok<std.fs.Directory, std.io.IoError>(
-            trusted std.fs.Directory.open(&done_path)
+            std.fs.Directory.open(&done_path)
         );
 
         _ = std.testing.assert_error<unit, std.io.IoError>(done.close());
@@ -180,14 +182,16 @@ trusted async func main() -> i32
 
     {
         let mut malformed: std.fs.Directory = std.testing.assert_ok<std.fs.Directory, std.io.IoError>(
-            trusted std.fs.Directory.open(&malformed_path)
+            std.fs.Directory.open(&malformed_path)
         );
 
-        _ = std.testing.assert_error<std.fs.DirectoryEntry?, std.io.IoError>(trusted malformed.next());
+        _ = std.testing.assert_error<std.fs.DirectoryEntry?, std.io.IoError>(malformed.next());
 
         std.testing.assert_ok<unit, std.io.IoError>(malformed.close());
         assert(malformed.is_complete());
     }
+
+    let mut reached_file_abandon = false;
 
     let abandoned_file: Result<unit, PanicReport> = catch
     {
@@ -200,50 +204,52 @@ trusted async func main() -> i32
         _ = std.testing.assert_error<unit, std.io.IoError>(abandoned.close());
 
         assert(!abandoned.is_complete());
+        reached_file_abandon = true;
         panic("abandon file after close failure");
-        std.testing.assert_ok<unit, std.io.IoError>(abandoned.close());
-        assert(abandoned.is_complete());
-
-        yield unit;
     };
 
     _ = std.testing.assert_error<unit, PanicReport>(abandoned_file);
+
+    assert(reached_file_abandon);
+
     let file_probe: std.path.Path = path("final-file");
 
     let file_cleanup: std.fs.FileMetadata = std.testing.assert_ok<std.fs.FileMetadata, std.io.IoError>(
         std.fs.metadata(&file_probe)
     );
 
-    assert(file_cleanup.bytes > 0);
+    assert(file_cleanup.bytes == 1);
+
+    let mut reached_directory_abandon = false;
 
     let abandoned_directory: Result<unit, PanicReport> = catch
     {
         let abandon_path: std.path.Path = path("e-abandon");
 
         let mut abandoned: std.fs.Directory = std.testing.assert_ok<std.fs.Directory, std.io.IoError>(
-            trusted std.fs.Directory.open(&abandon_path)
+            std.fs.Directory.open(&abandon_path)
         );
 
         _ = std.testing.assert_error<unit, std.io.IoError>(abandoned.close());
 
         assert(!abandoned.is_complete());
+        reached_directory_abandon = true;
         panic("abandon directory after close failure");
-        std.testing.assert_ok<unit, std.io.IoError>(abandoned.close());
-        assert(abandoned.is_complete());
-
-        yield unit;
     };
 
     _ = std.testing.assert_error<unit, PanicReport>(abandoned_directory);
+
+    assert(reached_directory_abandon);
+
     let directory_probe: std.path.Path = path("gone-directory");
 
     let directory_cleanup: std.fs.FileMetadata = std.testing.assert_ok<std.fs.FileMetadata, std.io.IoError>(
         std.fs.metadata(&directory_probe)
     );
 
-    assert(directory_cleanup.bytes > 0);
+    assert(directory_cleanup.bytes == 1);
 
-    await trusted check_standard_output();
+    await check_standard_output();
 
     return 0;
 }
@@ -282,9 +288,10 @@ func check_output_error(pos error: std.io.IoError, transferred: usize)
 }
 
 trusted func check_output_success()
+    requires(blocking_execution())
     uses(foreign_call)
 {
-    trusted output_reset(0, 0);
+    output_reset(0, 0);
 
     let printed: unit = std.io.print("ab");
     let line: unit = std.io.print_line("é");
@@ -292,21 +299,22 @@ trusted func check_output_success()
     std.io.print("");
     std.io.print_line("");
 
-    assert(trusted output_write_count() == 6);
-    assert(trusted output_flush_count() == 4);
-    assert(trusted output_byte_count() == 6);
-    assert(trusted output_byte(0) == 97);
-    assert(trusted output_byte(1) == 98);
-    assert(trusted output_byte(2) == 195);
-    assert(trusted output_byte(3) == 169);
-    assert(trusted output_byte(4) == 10);
-    assert(trusted output_byte(5) == 10);
+    assert(output_write_count() == 6);
+    assert(output_flush_count() == 4);
+    assert(output_byte_count() == 6);
+    assert(output_byte(0) == 97);
+    assert(output_byte(1) == 98);
+    assert(output_byte(2) == 195);
+    assert(output_byte(3) == 169);
+    assert(output_byte(4) == 10);
+    assert(output_byte(5) == 10);
 }
 
 trusted async func check_standard_output()
+    requires(blocking_execution())
     uses(foreign_call)
 {
-    trusted check_output_success();
+    check_output_success();
 
     let mut stage: u32 = 0;
 
@@ -347,7 +355,7 @@ trusted async func check_standard_output()
             yield 3;
         };
 
-        trusted output_reset(fail_write, fail_flush);
+        output_reset(fail_write, fail_flush);
 
         let line_failure: Result<unit, PanicReport> = catch
         {
@@ -357,21 +365,21 @@ trusted async func check_standard_output()
 
         _ = std.testing.assert_error<unit, PanicReport>(line_failure);
 
-        assert(trusted output_byte_count() as usize == progress);
-        assert(trusted output_flush_count() == fail_flush);
+        assert(output_byte_count() as usize == progress);
+        assert(output_flush_count() == fail_flush);
 
-        trusted check_output_success();
-        trusted output_reset(fail_write, fail_flush);
+        check_output_success();
+        output_reset(fail_write, fail_flush);
 
         let async_line: Result<unit, std.io.IoError> = await std.io.print_line_async("ab");
         let line_error: std.io.IoError = std.testing.assert_error<unit, std.io.IoError>(async_line);
 
         check_output_error(line_error, transferred = progress);
-        trusted check_output_success();
+        check_output_success();
 
         if stage != 1
         {
-            trusted output_reset(fail_write, fail_flush);
+            output_reset(fail_write, fail_flush);
 
             let print_failure: Result<unit, PanicReport> = catch
             {
@@ -381,8 +389,8 @@ trusted async func check_standard_output()
 
             _ = std.testing.assert_error<unit, PanicReport>(print_failure);
 
-            trusted check_output_success();
-            trusted output_reset(fail_write, fail_flush);
+            check_output_success();
+            output_reset(fail_write, fail_flush);
 
             let async_print: Result<unit, std.io.IoError> = await std.io.print_async("ab");
             let print_error: std.io.IoError = std.testing.assert_error<unit, std.io.IoError>(async_print);
@@ -397,7 +405,7 @@ trusted async func check_standard_output()
             };
 
             check_output_error(print_error, transferred = print_progress);
-            trusted check_output_success();
+            check_output_success();
         }
 
         stage += 1;
@@ -405,31 +413,31 @@ trusted async func check_standard_output()
 
     let mut writer: std.io.StandardOutput = std.io.standard_output();
 
-    trusted output_reset(1, 0);
+    output_reset(1, 0);
 
     let write_error: std.io.IoError = std.testing.assert_error<usize, std.io.IoError>(
         writer(std.io.Writer).write("ab".as_bytes())
     );
 
     check_output_error(write_error, transferred = 0);
-    trusted output_reset(2, 0);
+    output_reset(2, 0);
 
     let bulk_error: std.io.IoError = std.testing.assert_error<unit, std.io.IoError>(
         writer(std.io.Writer).write_all("ab".as_bytes())
     );
 
     check_output_error(bulk_error, transferred = 1);
-    trusted output_reset(0, 1);
+    output_reset(0, 1);
 
     let flush_error: std.io.IoError = std.testing.assert_error<unit, std.io.IoError>(writer(std.io.Writer).flush());
 
     check_output_error(flush_error, transferred = 0);
-    trusted check_output_success();
-    trusted output_reset(0, 0);
+    check_output_success();
+    output_reset(0, 0);
     std.testing.assert_ok<unit, std.io.IoError>(await std.io.print_async("ab"));
     std.testing.assert_ok<unit, std.io.IoError>(await std.io.print_line_async("ab"));
 
-    assert(trusted output_byte_count() == 5);
-    assert(trusted output_flush_count() == 2);
-    assert(trusted output_byte(4) == 10);
+    assert(output_byte_count() == 5);
+    assert(output_flush_count() == 2);
+    assert(output_byte(4) == 10);
 }

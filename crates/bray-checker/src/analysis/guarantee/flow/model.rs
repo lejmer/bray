@@ -1,4 +1,3 @@
-use super::merge::merge;
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{BoundExpression, BoundExpressionId, CheckedExpressionSemantics};
@@ -6,10 +5,11 @@ use bray_bound_tree::{BoundExpression, BoundExpressionId, CheckedExpressionSeman
 use crate::execution_guarantees::ExecutionCondition;
 use crate::{CheckerRequestContext, CheckerUnitView};
 
-use super::super::super::fixed_point::{FixedPointDomain, FixedPointResult, FlowDirection};
-use super::super::super::id::{AnalysisBlockId, AnalysisEdgeId};
+use super::super::super::fixed_point::FixedPointResult;
+use super::super::super::outcomes::FlowOutcomes;
+use super::super::super::id::AnalysisEdgeId;
 use super::super::super::model::{
-    AnalysisBlock, AnalysisEdge, AnalysisRefinement, ControlFlowGraph,
+    AnalysisEdge, AnalysisEdgeKind, AnalysisRefinement, ControlFlowGraph,
 };
 use super::super::state::ExecutionState;
 
@@ -19,33 +19,7 @@ pub(in crate::analysis::guarantee) struct ExecutionFlow<
     C: CheckerRequestContext + ?Sized,
 > {
     pub(in crate::analysis::guarantee) domain: ExecutionFlowDomain<'a, 'view, C>,
-    pub(in crate::analysis::guarantee) states: FixedPointResult<Option<ExecutionState>>,
-}
-
-impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
-    pub(in crate::analysis::guarantee) fn is_block_reachable(
-        &self,
-        block: AnalysisBlockId,
-    ) -> bool {
-        self.states.state(block).is_some_and(Option::is_some)
-    }
-
-    pub(in crate::analysis::guarantee) fn edge_output(
-        &self,
-        edge: AnalysisEdgeId,
-    ) -> Option<ExecutionState> {
-        let edge = self.domain.graph.edge(edge)?;
-        let state = self.output(edge.source())?;
-
-        self.domain.edge_state(state, edge)
-    }
-
-    pub(in crate::analysis::guarantee) fn output(
-        &self,
-        block: AnalysisBlockId,
-    ) -> Option<&ExecutionState> {
-        self.states.output(block)?.as_ref()
-    }
+    pub(super) states: FixedPointResult<FlowOutcomes<ExecutionState>>,
 }
 
 pub(crate) struct ExecutionFlowDomain<'a, 'view, C: CheckerRequestContext + ?Sized> {
@@ -66,6 +40,8 @@ pub(crate) struct ExecutionFlowDomain<'a, 'view, C: CheckerRequestContext + ?Siz
     pub(in crate::analysis) yield_targets: &'a BTreeMap<BoundExpressionId, BoundExpressionId>,
     pub(in crate::analysis::guarantee) graph: &'a ControlFlowGraph,
     pub(super) excluded_edges: BTreeSet<AnalysisEdgeId>,
+    pub(super) result_edges: BTreeSet<AnalysisEdgeId>,
+    pub(super) failure_sites: BTreeSet<bray_bound_tree::BoundExecutionSite>,
     pub(in crate::analysis::guarantee) request: CheckerUnitView<'view, C>,
     pub(in crate::analysis) semantics: &'a CheckedExpressionSemantics,
     pub(super) assumptions: &'a [ExecutionCondition],
@@ -78,7 +54,7 @@ pub(crate) struct ExecutionFlowDomain<'a, 'view, C: CheckerRequestContext + ?Siz
         (bray_bound_tree::BoundOperator, ExecutionCondition),
     >,
     pub(in crate::analysis::guarantee) storage: &'a bray_bound_tree::StoragePlan,
-    pub(super) memory: &'a bray_bound_tree::CheckedMemoryOperations,
+    pub(in crate::analysis::guarantee) memory: &'a bray_bound_tree::CheckedMemoryOperations,
     pub(in crate::analysis::guarantee) checked_body:
         Option<&'a bray_bound_tree::CheckedBodySemantics>,
     pub(in crate::analysis::guarantee) contracts:
@@ -99,17 +75,56 @@ pub(crate) struct ExecutionFlowDomain<'a, 'view, C: CheckerRequestContext + ?Siz
 }
 
 impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
-    fn edge_state(&self, state: &ExecutionState, edge: &AnalysisEdge) -> Option<ExecutionState> {
-        // Each outgoing path owns its independently refined flow environment.
-        let mut next = state.clone();
+    pub(super) fn edge_state(&self, state: &ExecutionState, edge: &AnalysisEdge) -> Option<ExecutionState> {
+        if self.excluded_edges.contains(&edge.id()) {
+            return None;
+        }
 
-        if let Some(AnalysisRefinement::InvocationFailure(occurrence)) = edge.refinement()
-            && self.call_preserves_normal_storage(state, occurrence)
-        {
-            self.invalidate_call_effects(&mut next, occurrence, None);
+        let mut next = match edge.refinement() {
+            Some(AnalysisRefinement::InvocationFailure(occurrence, kind)) => {
+                let source = state.admitted_failure.as_ref().filter(|(site, _)| *site == occurrence)
+                    .map_or(state, |(_, state)| state.as_ref());
+
+                if !self.invocation_can_fail(source, occurrence, kind) { return None; }
+
+                let mut failure = source.clone();
+                let mutation = bray_bound_tree::StorageMutation::InvocationFailure { occurrence, kind };
+                let flow = self.checked_body.expect("failure replay retains the checked transition").storage_flow();
+
+                let admitted_retirements = flow.capture_retirements(mutation, bray_bound_tree::StorageValuePhase::Input,
+                    bray_bound_tree::StorageValueBoundary::Execution);
+
+                failure.retire_captured_storage(admitted_retirements);
+
+                if let Some(invalidation) = flow.outcome_mutation(mutation) {
+                    self.invalidate_observations(&mut failure, mutation, invalidation);
+                }
+
+                let retirements = flow.capture_retirements(mutation, bray_bound_tree::StorageValuePhase::Attempt,
+                    bray_bound_tree::StorageValueBoundary::Execution);
+
+                failure.retire_captured_storage(retirements);
+
+                failure
+            }
+            _ => state.clone(),
+        };
+
+        if edge.kind() != AnalysisEdgeKind::Suspension {
+            next.admitted_failure = None;
         }
 
         self.refine_edge(&mut next, edge).then_some(next)
+    }
+
+    pub(in crate::analysis) fn invocation_can_fail(
+        &self, state: &ExecutionState, occurrence: bray_bound_tree::BoundExecutionSite, kind: bray_symbols::DependencyFailureKind,
+    ) -> bool {
+        let Some(rows) = self.dependencies.calls().get(&occurrence).and_then(|call| call.reports().failures()) else { return true; };
+
+        let entry = state.admitted_call(occurrence);
+
+        rows.iter().enumerate().any(|(index, row)| row.covers(kind) && entry.is_none_or(|entry| entry.admits_failure(index)))
     }
 
     pub(in crate::analysis) fn normal_completion(
@@ -327,7 +342,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         if let Some(AnalysisRefinement::PropagationOutcome {
             expression,
-            succeeded: false,
+            outcome: crate::analysis::model::AnalysisPropagationOutcome::Failure,
         }) = edge.refinement()
         {
             self.propagate_result(state, expression);
@@ -348,17 +363,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     }
 }
 
-impl<C: CheckerRequestContext + ?Sized> FixedPointDomain for ExecutionFlowDomain<'_, '_, C> {
-    type State = Option<ExecutionState>;
-
-    fn direction(&self) -> FlowDirection {
-        FlowDirection::Forward
-    }
-    fn bottom(&self) -> Self::State {
-        None
-    }
-
-    fn boundary(&self) -> Self::State {
+impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
+    pub(in crate::analysis) fn entry_state(&self) -> Option<ExecutionState> {
         let mut state = ExecutionState {
             proofs: std::sync::Arc::clone(&self.proofs),
             ..Default::default()
@@ -556,58 +562,5 @@ impl<C: CheckerRequestContext + ?Sized> FixedPointDomain for ExecutionFlowDomain
         }
 
         Some(state)
-    }
-
-    fn merge(
-        &self,
-        block: Option<AnalysisBlockId>,
-        target: &mut Self::State,
-        boundary: &Self::State,
-    ) -> bool {
-        merge(target, boundary, block.into())
-    }
-
-    fn transfer(&self, block: &AnalysisBlock, source: &Self::State) -> Self::State {
-        // Transfer updates a block-local copy without changing its incoming fixed-point state.
-        let mut state = source.clone()?;
-
-        for operation in block
-            .operations()
-            .iter()
-            .filter_map(|id| self.graph.operation(*id))
-        {
-            if !self.operation(&mut state, operation.kind(), None) {
-                return None;
-            }
-        }
-
-        Some(state)
-    }
-
-    fn propagate(
-        &self,
-        source: &Self::State,
-        edge: &AnalysisEdge,
-        target: &mut Self::State,
-    ) -> bool {
-        let incoming = source
-            .as_ref()
-            .and_then(|source| self.edge_state(source, edge));
-
-        self.merge(Some(edge.target()), target, &incoming)
-    }
-
-    fn convergence_bound(&self, graph: &ControlFlowGraph) -> usize {
-        graph
-            .blocks()
-            .len()
-            .saturating_mul(
-                graph
-                    .operations()
-                    .len()
-                    .saturating_add(graph.edges().len())
-                    .saturating_add(1),
-            )
-            .saturating_mul(16)
     }
 }

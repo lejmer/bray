@@ -258,8 +258,7 @@ mod tests {
         MirUnitBuilder, MirUnitId, MirUnitKey, MirUnitKind,
     };
     use bray_runtime_interface::{
-        ExecutableEntryResult, ExecutableHostEntryId, RootExecution, RuntimeAbiRole,
-        RuntimeRoleImplementation,
+        ExecutableEntryResult, RootExecution, RuntimeAbiRole, RuntimeRoleImplementation,
     };
     use bray_symbols::{SymbolId, UnionVariantSymbolId};
     use bray_testing::{
@@ -421,57 +420,35 @@ mod tests {
         let host = test_executable_host_contract();
         let source = MirSourceAnchor::executable_host(host.product().clone());
         let target = test_mir_target();
-        let runtime_abi = target.runtime_abi();
+        let id = MirUnitId::new(91);
+        let root = bray_testing::test_bound_unit(91).key().clone();
 
-        let mut builder = MirUnitBuilder::for_executable_host(MirUnitId::new(91), host, target);
+        let input = ExecutableHostLoweringInput::new(id, [root], host.clone(), target.clone());
+        let valid = super::lower_executable_host(input).expect("the original executable host validates");
+        let mut operations = valid.operations().iter().map(|op| op.kind().clone()).collect::<Vec<_>>();
+
+        let resolution = operations.iter().position(|operation|
+            matches!(operation, MirOperationKind::Host(MirHostOperation::ResolveRootTerminal { .. }))
+        ).expect("the host resolves its root");
+
+        let reporting = operations.iter().position(|operation|
+            matches!(operation, MirOperationKind::Host(MirHostOperation::ReportCleanupIncidents { .. }))
+        ).expect("the host reports cleanup incidents");
+
+        operations.swap(resolution, reporting);
+
+        let mut builder = MirUnitBuilder::for_executable_host(id, host, target);
 
         let entry = builder
             .push_block(source.clone(), MirBlockKind::Ordinary)
             .unwrap_or_else(|error| panic!("host entry must be valid: {error:?}"));
 
-        for operation in [
-            MirHostOperation::ExecuteRoot {
-                entry: ExecutableHostEntryId::new(0),
-                root: bray_testing::test_bound_unit(91).key().clone(),
-                execution: RootExecution::Synchronous,
-                runtime: super::runtime_reference(RuntimeAbiRole::RootExecution, runtime_abi),
-            },
-            MirHostOperation::ObserveRootTerminal {
-                entry: ExecutableHostEntryId::new(0),
-                runtime: super::runtime_reference(
-                    RuntimeAbiRole::RootTerminalObservation,
-                    runtime_abi,
-                ),
-            },
-            MirHostOperation::ReportCleanupIncidents {
-                runtime: super::runtime_reference(
-                    RuntimeAbiRole::CleanupIncidentReporting,
-                    runtime_abi,
-                ),
-            },
-            MirHostOperation::ResolveRootTerminal {
-                entry: ExecutableHostEntryId::new(0),
-                error: None,
-                completion: super::runtime_reference(
-                    RuntimeAbiRole::RootCompletionResolution,
-                    runtime_abi,
-                ),
-                panic: super::runtime_reference(RuntimeAbiRole::PanicReporting, runtime_abi),
-                entry_failure: super::runtime_reference(
-                    RuntimeAbiRole::EntryFailureReporting,
-                    runtime_abi,
-                ),
-            },
-            MirHostOperation::StructuredShutdown {
-                execution: None,
-                runtime: super::runtime_reference(RuntimeAbiRole::StructuredShutdown, runtime_abi),
-            },
-        ] {
+        for operation in operations {
             builder
                 .push_operation(
                     entry,
                     source.clone(),
-                    MirOperationKind::Host(operation),
+                    operation,
                     None,
                 )
                 .unwrap_or_else(|error| panic!("host operation must be valid: {error:?}"));

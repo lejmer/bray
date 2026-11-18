@@ -1,4 +1,6 @@
 use super::{StorageFlowInput, StorageFlowState};
+use super::outcomes::StorageFlowOutcomes;
+use crate::analysis::outcomes::{edge_path, result_production_edges};
 use crate::analysis::fixed_point::{FixedPointDomain, FlowDirection};
 use crate::analysis::id::{AnalysisBlockId, AnalysisEdgeId};
 use crate::analysis::model::{AnalysisBlock, AnalysisEdge, AnalysisEdgeKind, ControlFlowGraph};
@@ -7,6 +9,7 @@ use crate::analysis::storage_flow::check::StorageFlowCollector;
 use crate::storage::StorageScopeOwners;
 use crate::{CheckerRequestContext, CheckerUnitView};
 use bray_bound_tree::{BoundDependencySubject, CheckedMemoryOperations, Liveness, StoragePlan};
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 
 pub(in crate::analysis::storage_flow) struct StorageFlowDomain<'analysis, C>
@@ -14,6 +17,7 @@ where
     C: CheckerRequestContext + ?Sized,
 {
     graph: &'analysis ControlFlowGraph,
+    result_edges: BTreeSet<AnalysisEdgeId>,
     edge_lifetime_ends: &'analysis BTreeMap<AnalysisEdgeId, Vec<BoundDependencySubject>>,
     reachability: &'analysis ReachabilityResult,
     storage: &'analysis StoragePlan,
@@ -59,6 +63,7 @@ where
     ) -> Self {
         Self {
             graph,
+            result_edges: result_production_edges(graph, storage),
             edge_lifetime_ends,
             reachability,
             storage,
@@ -91,13 +96,8 @@ where
         )
     }
 
-    fn transfer_block(&self, block: &AnalysisBlock, source: &StorageFlowState) -> StorageFlowState {
-        // Transfer owns an independent task-local successor state.
+    fn transfer_block(&self, block: &AnalysisBlock, source: &StorageFlowOutcomes) -> StorageFlowOutcomes {
         let mut state = source.clone();
-
-        if !state.reachable {
-            return state;
-        }
 
         let mut collector = self.collector();
 
@@ -109,73 +109,24 @@ where
                 .operation(*operation)
                 .expect("storage-flow block retains its operation");
 
-            collector.apply_operation(&mut state, operation);
+            state.apply_operation(&mut collector, block.id(), operation);
         }
 
         state
     }
-}
-
-impl<C> FixedPointDomain for StorageFlowDomain<'_, C>
-where
-    C: CheckerRequestContext + ?Sized,
-{
-    type State = StorageFlowState;
-
-    fn direction(&self) -> FlowDirection {
-        FlowDirection::Forward
-    }
-
-    fn bottom(&self) -> Self::State {
-        StorageFlowState::default()
-    }
-
-    fn boundary(&self) -> Self::State {
-        let mut state = StorageFlowState::entry(self.request.semantic_values(), self.storage, self.input);
-
-        state.execution = self.execution.boundary();
-        state.reachable = state.execution.is_some();
-
-        state.refinements =
-            crate::analysis::refinement::RefinementSet::empty(self.refinements.len());
-
-        state.recovered |= self.refinements.is_recovered();
-
-        state
-    }
-
-    fn merge(
+    fn propagate_state(
         &self,
-        block: Option<AnalysisBlockId>,
-        target: &mut Self::State,
-        boundary: &Self::State,
-    ) -> bool {
-        target.merge(boundary, block)
-    }
-
-    fn transfer(&self, block: &AnalysisBlock, source: &Self::State) -> Self::State {
-        self.transfer_block(block, source)
-    }
-
-    fn propagate(
-        &self,
-        source: &Self::State,
+        source: &StorageFlowState,
         edge: &AnalysisEdge,
-        target: &mut Self::State,
-    ) -> bool {
-        if !self.reachability.is_edge_reachable(edge.id()) {
-            return false;
-        }
+    ) -> Option<StorageFlowState> {
+        let mut incoming = match edge.refinement() {
+            Some(crate::analysis::model::AnalysisRefinement::InvocationFailure(occurrence, kind)) =>
+                self.collector().failure_edge_state(source, occurrence, kind)?,
+            _ => source.clone(),
+        };
 
-        // Each edge owns one correlated state before refining and joining it.
-        let mut incoming = source.clone();
-
-        if incoming.reachable
-            && let Some(crate::analysis::model::AnalysisRefinement::InvocationFailure(occurrence)) =
-                edge.refinement()
-        {
-            self.collector()
-                .apply_failure_effects(&mut incoming, occurrence);
+        if edge.kind() != AnalysisEdgeKind::Suspension {
+            incoming.failure_entry = None;
         }
 
         if !incoming.reachable
@@ -184,7 +135,7 @@ where
                 .as_mut()
                 .is_some_and(|state| self.execution.refine_edge(state, edge))
         {
-            return false;
+            return None;
         }
 
         if edge.kind() == AnalysisEdgeKind::Recovery {
@@ -199,20 +150,20 @@ where
                     .execution
                     .assume_patterns(execution, self.refinements.edge_facts(refinement))
             {
-                return false;
+                return None;
             }
         }
 
         if let Some(crate::analysis::model::AnalysisRefinement::PropagationOutcome {
             expression,
-            succeeded: false,
+            outcome: crate::analysis::model::AnalysisPropagationOutcome::Failure,
         }) = edge.refinement()
         {
             self.collector()
                 .propagate_reference_result(&mut incoming, expression);
         }
 
-        if let Some(crate::analysis::model::AnalysisRefinement::InvocationFailure(occurrence)) =
+        if let Some(crate::analysis::model::AnalysisRefinement::InvocationFailure(occurrence, kind)) =
             edge.refinement()
         {
             let mut collector = self.collector();
@@ -226,7 +177,7 @@ where
             collector.retain_call_reports(
                 &mut incoming,
                 occurrence,
-                bray_bound_tree::CallReportOutput::Abnormal,
+                bray_bound_tree::CallReportOutput::Abnormal(Some(kind)),
                 false,
             );
         }
@@ -275,7 +226,73 @@ where
             }
         }
 
-        self.merge(Some(edge.target()), target, &incoming)
+        Some(incoming)
+    }
+}
+
+impl<C> FixedPointDomain for StorageFlowDomain<'_, C>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    type State = StorageFlowOutcomes;
+
+    fn direction(&self) -> FlowDirection {
+        FlowDirection::Forward
+    }
+
+    fn bottom(&self) -> Self::State {
+        StorageFlowOutcomes::default()
+    }
+
+    fn boundary(&self) -> Self::State {
+        let mut state = StorageFlowState::entry(self.request.semantic_values(), self.storage, self.input);
+
+        state.execution = self.execution.entry_state();
+        state.reachable = state.execution.is_some();
+
+        state.refinements =
+            crate::analysis::refinement::RefinementSet::empty(self.refinements.len());
+
+        state.recovered |= self.refinements.is_recovered();
+
+        StorageFlowOutcomes::entry(state)
+    }
+
+    fn merge(
+        &self,
+        block: Option<AnalysisBlockId>,
+        target: &mut Self::State,
+        boundary: &Self::State,
+    ) -> bool {
+        let mut changed = false;
+
+        for (path, state) in boundary.iter() {
+            changed |= target.merge(block, path.cloned(), Cow::Borrowed(state));
+        }
+
+        changed
+    }
+
+    fn transfer(&self, block: &AnalysisBlock, source: &Self::State) -> Self::State {
+        self.transfer_block(block, source)
+    }
+
+    fn propagate(&self, source: &Self::State, edge: &AnalysisEdge, target: &mut Self::State) -> bool {
+        if !self.reachability.is_edge_reachable(edge.id()) {
+            return false;
+        }
+
+        let mut changed = false;
+
+        for (path, state) in source.iter() {
+            let Some(incoming) = self.propagate_state(state, edge) else { continue; };
+
+            let path = edge_path(self.graph, edge, path, self.result_edges.contains(&edge.id()));
+
+            changed |= target.merge(Some(edge.target()), path, Cow::Owned(incoming));
+        }
+
+        changed
     }
 
     fn convergence_bound(&self, graph: &ControlFlowGraph) -> usize {

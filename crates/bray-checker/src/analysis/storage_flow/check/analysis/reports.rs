@@ -57,7 +57,7 @@ impl StorageFlowInput {
             .values()
             .any(|contract| {
                 contract.captured_values().iter().filter_map(|outcome| outcome.report.as_deref())
-                    .chain(contract.abnormal_reports())
+                    .chain(contract.failure_outcomes().into_iter().flatten().filter_map(|row| row.report.as_deref()))
                     .any(|requirements| !requirements.is_empty())
             })
         {
@@ -99,8 +99,6 @@ impl<'analysis, C: CheckerRequestContext + ?Sized> StorageFlowCollector<'analysi
             bool,
         )>,
     ) {
-        let contract = &self.dependencies.lifecycle_dependencies()[&call.lifecycle.call.callable];
-
         if let Some(requirements) = bray_symbols::CapturedValueOutcome::possible_report(call.outcomes.iter().copied()) {
             reports.push((
                 call.access,
@@ -109,12 +107,20 @@ impl<'analysis, C: CheckerRequestContext + ?Sized> StorageFlowCollector<'analysi
             ));
         }
 
-        if !self.on_normal_path {
-            if let Some(requirements) = contract.abnormal_reports() {
-                reports.push((call.access, requirements.to_vec(), false));
-            }
+        if !call.completes {
+            let mut admitted = call.contract.failure_outcomes().into_iter().flatten().enumerate()
+                .filter(|(index, _)| call.entry.admits_failure(*index))
+                .filter_map(|(_, row)| row.report.as_deref());
 
-            if call
+            if let Some(first) = admitted.next() {
+                let requirements = first.iter().chain(admitted.flatten()).cloned().collect();
+
+                reports.push((call.access, requirements, false));
+            }
+        }
+
+        if !operation.is_normal_cleanup()
+            && call
                 .lifecycle
                 .call
                 .callable
@@ -126,9 +132,8 @@ impl<'analysis, C: CheckerRequestContext + ?Sized> StorageFlowCollector<'analysi
                     self.request,
                     call.lifecycle.call.result.completion_type(),
                 ) == Some(bray_compiler_known::RepresentationRole::Result)
-            {
-                reports.push((call.access, contract.requirements().to_vec(), false));
-            }
+        {
+            reports.push((call.access, call.contract.requirements().to_vec(), false));
         }
     }
 
@@ -242,17 +247,22 @@ impl<'analysis, C: CheckerRequestContext + ?Sized> StorageFlowCollector<'analysi
         let pending = !matches!(invocation, BoundExecutionSite::ScopedExit(_))
             || operation.is_normal_cleanup();
 
-        if let Some(expression) = invocation.expression()
-            && let Some(dependencies) = self.execution.awaited_report_dependencies(
-                execution, expression, CallReportOutput::Completed,
-            )
-        {
+        let acquired = invocation.expression().and_then(|expression| {
+            match self.execution.task_observation_outcome(execution, operation.kind()) {
+                Some(bray_bound_tree::StorageTaskOutcome::Abnormal { kind: bray_symbols::DependencyFailureKind::Panic, .. }) => None,
+                Some(outcome) => self.execution.observed_task_reports(execution, expression, outcome),
+                None => self.execution.awaited_report_dependencies(execution, expression, CallReportOutput::Completed),
+            }
+        });
+
+        if let Some(dependencies) = acquired {
             state.result_dependencies.prepare_reports(invocation, CallReportOutput::Completed, None, dependencies);
         }
 
         let outputs = execution.admitted_call(invocation).map(|entry| &entry.outputs);
 
-        self.retain_selected_reports(state, invocation, CallReportOutput::Completed, pending, outputs);
+        self.retain_selected_reports(state, invocation, CallReportOutput::Completed, pending,
+            |row| outputs.is_none_or(|outputs| outputs.is_admitted(row)));
 
         let BoundExecutionSite::ScopedExit(expression) = invocation else {
             return;
@@ -312,7 +322,11 @@ impl<'analysis, C: CheckerRequestContext + ?Sized> StorageFlowCollector<'analysi
         output: CallReportOutput,
         pending: bool,
     ) {
-        self.retain_selected_reports(state, occurrence, output, pending, None);
+        let rows = state.execution.as_ref().and_then(|execution| execution.admitted_call(occurrence))
+            .and_then(|entry| entry.failure_rows.clone());
+
+        self.retain_selected_reports(state, occurrence, output, pending,
+            |row| rows.as_deref().is_none_or(|rows| rows.binary_search(&row).is_ok()));
     }
 
     fn retain_selected_reports(
@@ -321,11 +335,11 @@ impl<'analysis, C: CheckerRequestContext + ?Sized> StorageFlowCollector<'analysi
         occurrence: BoundExecutionSite,
         output: CallReportOutput,
         pending: bool,
-        outputs: Option<&crate::execution_guarantees::ExecutionOutputs>,
+        accepts: impl Fn(usize) -> bool,
     ) {
         let candidates = state.result_dependencies.take_report_candidates(occurrence, output);
 
-        let Some(dependencies) = candidates.admitted(outputs) else { return; };
+        let Some(dependencies) = candidates.admitted(accepts) else { return; };
 
         // Scope checking and exported summaries consume the same formation snapshot.
         state.retain_reports(self.report_boundary, dependencies.subjects.clone(), pending);
@@ -353,10 +367,12 @@ impl<'analysis, C: CheckerRequestContext + ?Sized> StorageFlowCollector<'analysi
             panic!("await suspension retains its consumed Future")
         };
 
-        let output = CallReportOutput::Abnormal;
+        for kind in bray_symbols::DependencyFailureKind::ALL {
+            let output = CallReportOutput::Abnormal(Some(kind));
 
-        if let Some(dependencies) = self.execution.awaited_report_dependencies(execution, expression, output) {
-            state.result_dependencies.prepare_reports(occurrence, output, None, dependencies);
+            if let Some(dependencies) = self.execution.awaited_report_dependencies(execution, expression, output) {
+                state.result_dependencies.prepare_reports(occurrence, output, None, dependencies);
+            }
         }
     }
 
@@ -400,7 +416,7 @@ impl<'analysis, C: CheckerRequestContext + ?Sized> StorageFlowCollector<'analysi
         let reports = call.reports();
 
         let candidates = reports.completed().map(|(row, report)| (CallReportOutput::Completed, Some(row), report))
-            .chain(reports.abnormal().map(|report| (CallReportOutput::Abnormal, None, report)));
+            .chain(reports.abnormal().map(|(row, kind, report)| (CallReportOutput::Abnormal(kind), Some(row), report)));
 
         for (output, row, report) in candidates {
             let transfer = crate::dependency::ResultTransfer::new(

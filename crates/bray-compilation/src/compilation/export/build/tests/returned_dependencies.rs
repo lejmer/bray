@@ -3,6 +3,98 @@ use crate::test_support::source_function_body_key;
 use super::fixtures::{compilation, compilation_from_sources, execution_consumer};
 
 #[test]
+fn captured_scalar_results_preserve_unary_and_binary_subtraction() {
+    use bray_symbols::{CapturedValueOperation, CapturedValueTemplate, ConstantTermData, ConstantUnaryOperation, ConstantValueKind,
+        DependencySubjectRoot, SymbolOrdinal};
+
+    let api = r"
+        module api;
+
+        func negate_positive(pos value: i64) -> i64
+        {
+            if value > 0
+            {
+                return -value;
+            }
+
+            return value;
+        }
+
+        func decrement_positive(pos value: i64) -> i64
+        {
+            if value > 0
+            {
+                return value - 1;
+            }
+
+            return value;
+        }
+    ";
+
+    let provider = compilation(api);
+
+    let assert_result = |compilation: &crate::Compilation, function, unary| {
+        let values = compilation.semantic_value_store().expect("the compilation owns its captured terms");
+        let summary = crate::compilation::result_dependencies::source_function_dependencies(compilation, function);
+        let parameter = ConstantTermData::CallableArgument(SymbolOrdinal::new(0));
+
+        let mut returned = summary.captured_values().iter().flat_map(|row| row.bindings.iter())
+            .filter(|(subject, _)| subject.subject_root() == DependencySubjectRoot::Result)
+            .flat_map(|(_, value)| value.nodes());
+
+        assert!(returned.any(|value| match value {
+            CapturedValueTemplate::Data(term) if unary => matches!(values.constant_term_data(*term).as_ref(),
+                ConstantTermData::Unary { operation: ConstantUnaryOperation::Negate, operand }
+                if values.constant_term_data(*operand).as_ref() == &parameter),
+            CapturedValueTemplate::Operation(CapturedValueOperation::Subtract, operands) if !unary => {
+                let [CapturedValueTemplate::Input(left), CapturedValueTemplate::Data(right)] = operands.as_ref() else {
+                    return false;
+                };
+
+                values.constant_term_data(*left).as_ref() == &parameter
+                    && matches!(values.constant_term_data(*right).as_ref(), ConstantTermData::Value(value)
+                        if matches!(values.constant_value_data(*value).kind(), ConstantValueKind::Integer(integer)
+                            if integer.to_u64() == Some(1)))
+            }
+            _ => false,
+        }), "{function} must preserve the actual arithmetic: {summary:?}");
+    };
+
+    for (callee, unary) in [("negate_positive", true), ("decrement_positive", false)] {
+        assert_result(&provider, callee, unary);
+
+        for imported in [false, true] {
+            let module = if imported { "example.package.api" } else { "api" };
+
+            let caller = format!(r"
+                module app;
+                using {module};
+
+                func forward(pos value: i64) -> i64
+                {{
+                    if value > 0
+                    {{
+                        return {module}.{callee}(value);
+                    }}
+
+                    return value;
+                }}
+            ");
+
+            let consumer = if imported { execution_consumer(&provider, &caller) }
+                else { compilation_from_sources([api, &caller]) };
+
+            assert_result(&consumer, "forward", unary);
+
+            let lowered = consumer.lowered_unit(source_function_body_key(&consumer, "forward"))
+                .expect("forwarding the captured scalar result lowers");
+
+            assert!(!lowered.diagnostics().has_errors(), "{callee}, imported={imported}: {:?}", lowered.diagnostics());
+        }
+    }
+}
+
+#[test]
 fn allocation_producers_preserve_freshness_in_source_and_imported_calls() {
     let api = include_str!("../../../execution_guarantees/fixtures/fresh-allocation-returns.bray")
         .replace("trusted module app;", "trusted module api;");
@@ -24,7 +116,7 @@ fn allocation_producers_preserve_freshness_in_source_and_imported_calls() {
                 requires(trusted API.live(owner = &owner.marker))
                 uses(manual_alloc)
             {
-                let pointer = trusted API.forward();
+                let pointer = API.forward();
 
                 trusted core.memory.deallocate(pointer, bytes = 8, align = 8);
                 API.observe(owner);
@@ -308,10 +400,10 @@ fn guarded_borrowed_fields_compose_through_construction_and_calls() {
 
                 func caller()
                 {{
-                    let lease = trusted {prefix}.{producer}();
+                    let lease = {prefix}.{producer}();
                     {guard}
-                    let mut audit_lease_anchor = trusted {prefix}.anchor(&lease);
-                    trusted {prefix}.inspect(&mut audit_lease_anchor);
+                    let mut audit_lease_anchor = {prefix}.anchor(&lease);
+                    {prefix}.inspect(&mut audit_lease_anchor);
                 }}
             "#);
 
@@ -328,8 +420,10 @@ fn guarded_borrowed_fields_compose_through_construction_and_calls() {
                 "imported={imported}, producer={producer}, guarded={guarded}: {:?}", checked.diagnostics());
 
             if !valid {
-                bray_testing::assert_goal_state_diagnostic_kind(checked.diagnostics(),
-                    bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven);
+                assert!(checked.diagnostics().by_kind(bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven)
+                    .any(|diagnostic| diagnostic.primary_span().is_some_and(|span| {
+                        crate::test_support::diagnostic_at_call(diagnostic, span.source_id(), &caller, "anchor(&lease)")
+                    })), "{:#?}", checked.diagnostics());
             }
         }
     }
@@ -847,13 +941,13 @@ fn imported_static_publication_only_exposes_the_selected_static() {
 
                         func caller()
                         {{
-                            trusted example.package.api.observe(&example.package.api.TOKEN<1>);
-                            trusted example.package.api.observe(&example.package.api.TOKEN<2>);
-                            trusted example.package.api.observe(&example.package.api.OTHER);
+                            example.package.api.observe(&example.package.api.TOKEN<1>);
+                            example.package.api.observe(&example.package.api.TOKEN<2>);
+                            example.package.api.observe(&example.package.api.OTHER);
                             let owner = trusted example.package.api.create();
                             _ = trusted example.package.api.relay<1>(&owner);
                             opaque();
-                            trusted example.package.api.observe(&example.package.api.{observed});
+                            example.package.api.observe(&example.package.api.{observed});
                         }}
                         "#,
                     ),
@@ -3777,8 +3871,7 @@ fn custom_index_effects_preserve_owned_and_borrowed_input_origins() {
 
 #[test]
 fn imported_calls_distinguish_normal_preservation_from_caught_failure_effects() {
-    let provider = compilation(
-        r#"
+    let api = r#"
         module api;
 
         struct Cell
@@ -3807,12 +3900,19 @@ fn imported_calls_distinguish_normal_preservation_from_caught_failure_effects() 
                 panic("failed");
             }
         }
-    "#,
-    );
 
-    let consumer = execution_consumer(
-        &provider,
-        r#"
+        func change_on_success(pos cell: &mut Cell, pos fail: bool)
+        {
+            if fail
+            {
+                panic("failed");
+            }
+
+            cell.value = false;
+        }
+    "#;
+
+    let source = r#"
         module app;
         using example.package.api;
 
@@ -3838,36 +3938,246 @@ fn imported_calls_distinguish_normal_preservation_from_caught_failure_effects() 
                 example.package.api.change_then_fail(cell, fail);
             };
         }
-    "#,
-    );
 
-    assert!(
-        !consumer.check_diagnostics().has_errors(),
-        "{:?}",
-        consumer.check_diagnostics()
-    );
-
-    for (name, preserved) in [
-        ("forward", true),
-        ("mutate", false),
-        ("preserve", true),
-        ("recover", false),
-    ] {
-        let dependencies =
-            crate::compilation::result_dependencies::source_function_dependencies(&consumer, name);
-
-        if name != "forward" {
-            assert!(
-                !dependencies.effects().is_empty(),
-                "{name}: {dependencies:?}"
-            );
+        func recover_after_write(pos cell: &mut example.package.api.Cell)
+        {
+            _ = catch
+            {
+                example.package.api.change_then_fail(cell, true);
+            };
         }
 
-        assert_eq!(
-            dependencies.preserves_storage_on_normal_return(),
-            preserved,
-            "{name}: {dependencies:?}"
-        );
+        func recover_before_write(pos cell: &mut example.package.api.Cell)
+        {
+            _ = catch
+            {
+                example.package.api.change_on_success(cell, true);
+            };
+        }
+    "#;
+
+    let provider = compilation(api);
+
+    for imported in [false, true] {
+        let consumer = if imported {
+            execution_consumer(&provider, source)
+        } else {
+            compilation_from_sources([api, &source.replace("example.package.api", "api")])
+        };
+
+        assert!(!consumer.check_diagnostics().has_errors(), "{:?}", consumer.check_diagnostics());
+
+        for (name, preserved) in [
+            ("forward", true),
+            ("mutate", false),
+            ("preserve", true),
+            ("recover", false),
+            ("recover_after_write", false),
+        ] {
+            let dependencies =
+                crate::compilation::result_dependencies::source_function_dependencies(&consumer, name);
+
+            if matches!(name, "mutate" | "preserve" | "recover" | "recover_after_write") {
+                assert!(!dependencies.effects().is_empty(), "{name}: {dependencies:?}");
+            }
+
+            assert_eq!(dependencies.preserves_storage_on_normal_return(), preserved, "{name}, imported={imported}: {dependencies:?}");
+        }
+
+        for (name, writes) in [("recover_before_write", false), ("recover_after_write", true)] {
+            let dependencies =
+                crate::compilation::result_dependencies::source_function_dependencies(&consumer, name);
+
+            let replaces_caller_cell = dependencies.normal_effects().iter().any(|effect| {
+                matches!(effect, bray_symbols::DependencyStorageEffect::Indirect {
+                    reference,
+                    projections,
+                    kind: bray_symbols::DependencyMutationKind::Replace(_),
+                    ..
+                } if reference.subject_root() == bray_symbols::DependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(0))
+                    && matches!(&**projections, [bray_symbols::DependencyProjection::ProductField(_)]))
+            });
+
+            assert_eq!(replaces_caller_cell, writes, "{name}, imported={imported}: {dependencies:?}");
+        }
+    }
+}
+
+#[test]
+fn awaited_abnormal_prefixes_follow_their_actual_exit_kind() {
+    use bray_symbols::{DependencyFailureKind as Failure, DependencyMutationKind, DependencyStorageEffect, DependencySubjectRoot, SymbolOrdinal};
+
+    let api = r#"
+        module api;
+
+        struct Cell { mut value: bool; }
+
+        async func terminate(pos panicked: &mut Cell, pos cancelled: &mut Cell, pos cancel: bool)
+        {
+            if cancel
+            {
+                cancelled.value = false;
+                let outcome: RunResult<unit> = Cancelled;
+
+                try outcome;
+                return;
+            }
+
+            panicked.value = false;
+            panic("reached the panic path");
+        }
+    "#;
+
+    let source = r#"
+        module app;
+
+        using example.package.api;
+
+        async func forward(pos panicked: &mut example.package.api.Cell, pos cancelled: &mut example.package.api.Cell, pos cancel: bool)
+        {
+            await example.package.api.terminate(panicked, cancelled, cancel);
+        }
+    "#;
+
+    let provider = compilation(api);
+
+    for imported in [false, true] {
+        let consumer = if imported {
+            execution_consumer(&provider, source)
+        } else {
+            compilation_from_sources([api, &source.replace("example.package.api", "api")])
+        };
+
+        let diagnostics = consumer.check_diagnostics();
+
+        assert!(!diagnostics.has_errors(), "imported={imported}: {diagnostics:?}");
+
+        let dependencies = crate::compilation::result_dependencies::source_function_dependencies(&consumer, "forward");
+
+        assert!(!dependencies.normal_completion(), "imported={imported}: {dependencies:?}");
+
+        let failures = dependencies.failure_outcomes().expect("a checked body publishes its reached failure rows");
+
+        for (kind, input) in [(Failure::Panic, 0), (Failure::Cancellation, 1)] {
+            let mut written = std::collections::BTreeSet::new();
+
+            for row in failures.iter().filter(|row| row.kind == Some(kind)) {
+                assert_eq!(row.report.is_some(), kind == Failure::Panic, "imported={imported}: {row:?}");
+
+                for effect in row.effects.as_deref().expect("a reached exit retains its performed effects") {
+                    if let DependencyStorageEffect::Indirect { reference, kind: DependencyMutationKind::Replace(_), .. } = effect {
+                        written.insert(reference.subject_root());
+                    }
+                }
+            }
+
+            assert_eq!(written, [DependencySubjectRoot::Parameter(SymbolOrdinal::new(input))].into(),
+                "imported={imported}, {kind:?}: {failures:?}");
+        }
+    }
+}
+
+#[test]
+fn task_observation_keeps_each_result_with_its_performed_writes() {
+    use bray_symbols::{DependencyMutationKind, DependencyStorageEffect, DependencySubjectRoot, SymbolOrdinal};
+    use std::collections::{BTreeMap, BTreeSet};
+
+    let api = r#"
+        module api;
+
+        struct Cell { mut value: bool; }
+
+        async func run(pos first: &mut Cell, pos second: &mut Cell, pos panicked: &mut Cell, pos cancelled: &mut Cell, pos decision: u32) -> u32
+        {
+            if decision == 0
+            {
+                first.value = false;
+                return 7;
+            }
+            if decision == 1
+            {
+                second.value = false;
+                return 11;
+            }
+            if decision == 2
+            {
+                panicked.value = false;
+                panic("child panicked");
+            }
+
+            cancelled.value = false;
+            let outcome: RunResult<unit> = Cancelled;
+
+            try outcome;
+            return 13;
+        }
+    "#;
+
+    let provider = compilation(api);
+
+    for method in ["join", "cancel"] {
+        let source = format!(r#"
+            module app;
+            using example.package.api;
+
+            async func observe(
+                pos first: &mut example.package.api.Cell, pos second: &mut example.package.api.Cell,
+                pos panicked: &mut example.package.api.Cell, pos cancelled: &mut example.package.api.Cell, pos decision: u32
+            ) -> RunResult<u32>
+            {{
+                let task = example.package.api.run(first, second, panicked, cancelled, decision).start();
+
+                return await task.{method}();
+            }}
+        "#);
+
+        for imported in [false, true] {
+            let consumer = if imported {
+                execution_consumer(&provider, &source)
+            } else {
+                compilation_from_sources([api, &source.replace("example.package.api", "api")])
+            };
+
+            let diagnostics = consumer.check_diagnostics();
+
+            assert!(diagnostics.is_empty(), "{method}, imported={imported}: {diagnostics:?}");
+
+            let summary = crate::compilation::result_dependencies::source_function_dependencies(&consumer, "observe");
+
+            let representation = consumer.available_compiler_known_symbols().run_result_representation()
+                .expect("the fixture has the checked RunResult representation");
+
+            let mut writes_by_tag = BTreeMap::<_, BTreeSet<_>>::new();
+
+            for row in summary.captured_values() {
+                let result = row.bindings.iter().find(|(subject, _)| {
+                    subject.subject_root() == DependencySubjectRoot::Result && subject.projections().is_empty()
+                }).map(|(_, value)| value).expect("each normal row publishes its task observation");
+
+                let mut tags = result.variants();
+                let tag = *tags.next().expect("each row retains its actual tag");
+
+                assert!(tags.next().is_none(), "{result:?}");
+
+                let writes = row.effects.iter().filter_map(|effect| match effect {
+                    DependencyStorageEffect::Indirect { reference, kind: DependencyMutationKind::Replace(_), .. } =>
+                        Some(reference.subject_root()),
+                    _ => None,
+                }).collect::<BTreeSet<_>>();
+
+                assert!(writes.len() <= 1, "{method}, imported={imported}: {row:?}");
+
+                writes_by_tag.entry(tag).or_default().extend(writes);
+            }
+
+            let parameter = |index| DependencySubjectRoot::Parameter(SymbolOrdinal::new(index));
+
+            assert_eq!(writes_by_tag, BTreeMap::from([
+                (representation.completed_variant(), [parameter(0), parameter(1)].into()),
+                (representation.panicked_variant(), [parameter(2)].into()),
+                (representation.cancelled_variant(), [parameter(3)].into()),
+            ]), "{method}, imported={imported}: {summary:?}");
+        }
     }
 }
 
@@ -4068,7 +4378,7 @@ fn copied_handles_do_not_publish_their_borrowed_containers() {
         trusted func from_handle(pos handle: usize) -> DataPointer<u8>
             uses(intrinsic)
         {
-            return trusted core.target.from_exposed_address<u8>(address = handle);
+            return core.target.from_exposed_address<u8>(address = handle);
         }
 
         func update(pos owner: &mut Owner)
@@ -4596,7 +4906,7 @@ fn indexed_protected_writes_preserve_siblings_without_initializing_other_element
                     requires(index < 2, trusted live(&owner.marker))
                     {capability}
                 {{
-                    trusted {prefix}.put<u8>(&mut owner.slots, index, 7);
+                    {prefix}.put<u8>(&mut owner.slots, index, 7);
                     observe(&owner.marker);
                     {read}
                 }}
@@ -4655,7 +4965,7 @@ fn exclusive_inputs_preserve_guarantees_through_protected_storage_writes() {
                 requires(independent.value)
                 ensures(independent.value)
             {{
-                trusted {prefix}.overwrite(storage, independent);
+                {prefix}.overwrite(storage, independent);
             }}
         "#);
 
@@ -4901,9 +5211,9 @@ fn resource_acquisitions_survive_pointee_writes_but_not_resource_replacement() {
     assert!(!diagnostics.has_errors(), "{diagnostics:#?}");
 
     for (operation, check, valid) in [
-        ("update(&mut owner)", "publish", true),
-        ("update(&mut owner)", "publish_contents", false),
-        ("replace(&mut owner, replacement)", "publish", false),
+        ("trusted api.update(&mut owner)", "publish", true),
+        ("trusted api.update(&mut owner)", "publish_contents", false),
+        ("api.replace(&mut owner, replacement)", "publish", false),
     ] {
         let caller = format!(r#"
             trusted module app;
@@ -4912,7 +5222,7 @@ fn resource_acquisitions_survive_pointee_writes_but_not_resource_replacement() {
             trusted func caller(pos mut owner: api.Registration, pos replacement: api.Resources)
                 requires(trusted api.owned(&owner.resources), trusted api.contents_valid(&owner.resources))
             {{
-                trusted api.{operation};
+                {operation};
                 api.{check}(owner);
             }}
         "#).replace("api.", "example.package.api.");
@@ -5382,9 +5692,9 @@ fn escape_summaries_preserve_input_roots_before_alias_expansion() {
                 ESCAPE_BORROW
             }
         "#.replace("ESCAPE_BORROW", extra).replace("CAPABILITY", if wrapped || choice { "intrinsic" } else { "foreign_call" }).replace("PUBLISH_VALUE", if choice {
-            "let selected = choose(&owner, first);\n                _ = trusted core.target.expose_address<u8>(selected.pointer);"
+            "let selected = choose(&owner, first);\n                _ = core.target.expose_address<u8>(selected.pointer);"
         } else if wrapped {
-            "let wrapped = wrap(&owner, owner.pointer);\n                _ = trusted core.target.expose_address<Wrapped>(core.memory.address_of<Wrapped>(&wrapped));"
+            "let wrapped = wrap(&owner, owner.pointer);\n                _ = core.target.expose_address<Wrapped>(core.memory.address_of<Wrapped>(&wrapped));"
         } else { "expose(owner.pointer);" });
 
         let application = super::fixtures::compilation_from_sources_for_product_with_platform_services_and_worker_budget(
@@ -5400,7 +5710,7 @@ fn escape_summaries_preserve_input_roots_before_alias_expansion() {
 
             using example.package.api;
 
-            trusted func relay(pos owner: &mut example.package.api.Frame, pos first: bool)
+            func relay(pos owner: &mut example.package.api.Frame, pos first: bool)
             {
                 example.package.api.forward(owner, first);
             }

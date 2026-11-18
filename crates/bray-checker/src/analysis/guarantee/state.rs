@@ -20,6 +20,8 @@ pub(crate) struct ExecutionState {
     pub(super) pending_results: BTreeMap<BoundExpressionId, ExecutionCondition>,
     pub(super) owned_results: super::ownership::OwnedResults,
     pub(super) entries: BTreeMap<bray_bound_tree::BoundExecutionSite, crate::ExecutionCallEvidence>,
+    // Replay retains the already-admitted attempt through the suspension edge.
+    pub(super) admitted_failure: Option<(bray_bound_tree::BoundExecutionSite, std::sync::Arc<Self>)>,
     pub(super) completion_dependencies: BTreeSet<crate::ExecutionCompletionDependency>,
 }
 
@@ -37,6 +39,7 @@ impl Default for ExecutionState {
             pending_results: BTreeMap::new(),
             owned_results: super::ownership::OwnedResults::default(),
             entries: BTreeMap::new(),
+            admitted_failure: None,
             completion_dependencies: BTreeSet::new(),
         }
     }
@@ -1821,6 +1824,7 @@ mod tests {
         state.entries.insert(
             occurrence,
             crate::ExecutionCallEvidence {
+                failure_rows: None,
                 outputs: Default::default(),
                 implementation_witnesses: Default::default(),
                 witness_inputs: Default::default(),

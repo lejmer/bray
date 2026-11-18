@@ -11,6 +11,7 @@ pub(crate) mod guarantee;
 mod id;
 pub(crate) mod liveness;
 mod model;
+mod outcomes;
 mod prepare;
 mod propagation;
 mod reachability;

@@ -54,7 +54,7 @@ pub use dependency::{
     GuardedBoundDependencyRequirement, LifecycleObligationId, ScopedCapabilityId,
 };
 pub use dependency_table::{
-    BoundCallDependencyContracts, BoundCallReference, BoundCallReport, BoundCallReports, BoundCallStorage, BoundDeferredCallable, BoundReturnedValue, CallReportOutput,
+    BoundCallDependencyContracts, BoundCallFailure, BoundCallReference, BoundCallReport, BoundCallReports, BoundCallStorage, BoundDeferredCallable, BoundReturnedValue, CallReportOutput,
     CheckedDependencyContracts, ConditionCallReferences, DependencyContractsBuildError,
 };
 pub use lifecycle::{CompletedFinalizer, LifecycleAction, LifecycleCallable, LifecyclePhase};
@@ -130,7 +130,7 @@ pub use storage::{
     StorageCleanupPart, StorageCleanupProjection, StorageCleanupProjectionKind, StorageCleanupType,
     StorageCompletion, StorageExitDecision, StorageExitPoint, StorageFlow, StorageFlowBuildError,
     StorageAddressValue, StorageDependencyCompleteness, StorageMutationTarget, StorageValueBinding, StorageValueRetirement,
-    StorageIdentity, StorageIdentityId, StorageMutation, StorageObservationKind, StorageObservationTransition, StorageOperationDecision,
+    StorageIdentity, StorageIdentityId, StorageMutation, StorageObservationKind, StorageObservationTransition, StorageOperationDecision, StorageTaskOutcome,
     StorageOperationStatus, StorageOrigin, StoragePath, StoragePlan, StoragePlanBuildError,
     StoragePlanBuilder, StorageProjection, StorageProtocolCall, StorageReferencePath, StorageReferenceStep, StorageValueConsumptionPhase,
     StorageRelationship, StorageReplacementDecision, StorageReplacementPlan,

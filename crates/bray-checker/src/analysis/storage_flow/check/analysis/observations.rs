@@ -41,7 +41,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             source.projections = source.projections.iter().copied().chain(actual.iter().copied()).collect();
 
             let initialization = contracts.deferred_effects().is_none()
-                && contracts.preserves_storage_on_normal_return()
+                && invalidation.observation_transition() == bray_bound_tree::StorageObservationTransition::Unchanged
                 && transfer.preservation() == &bray_symbols::DependencyValuePreservation::all();
 
             self.preserve_snapshot_observations(&source, root, formal, initialization, invalidation);
@@ -142,8 +142,19 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         memory: &crate::analysis::storage_flow::memory::State,
         roots: impl IntoIterator<Item = Target>,
     ) -> StorageInvalidation {
+        self.opaque_observations_with_escapes(memory, roots, &Default::default())
+    }
+
+    pub(super) fn opaque_observations_with_escapes(
+        &self,
+        memory: &crate::analysis::storage_flow::memory::State,
+        roots: impl IntoIterator<Item = Target>,
+        escaped: &std::collections::BTreeSet<Target>,
+    ) -> StorageInvalidation {
         let mut stable_descriptors = std::collections::BTreeSet::new();
         let mut stable_values = BTreeMap::new();
+
+        let roots = roots.into_iter().chain(escaped.iter().cloned());
 
         for path in memory.unexposed_storage(&self.input.opaque_candidates, roots) {
             if self.input.opaque_descriptors.contains(path) {
@@ -163,7 +174,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         for (root, observations) in &self.input.footprint.owned_observations {
             if matches!(self.storage.identity(*root), Some(bray_bound_tree::StorageIdentity::Static(_)))
-                && !exposed.iter().any(|raw| memory.target_relationship(raw,
+                && !exposed.iter().chain(escaped).any(|raw| memory.target_relationship(raw,
                     &Target::storage(StoragePath::root(*root))) != StorageRelationship::Disjoint)
             {
                 stable_descriptors.insert(StoragePath::root(*root));
@@ -595,9 +606,15 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         memory: &crate::analysis::storage_flow::memory::State,
         effects: &[Effect],
         roots: impl IntoIterator<Item = Target> + Clone,
+        escaped: &std::collections::BTreeSet<Target>,
     ) -> StorageInvalidation {
+        if effects.is_empty() && escaped.is_empty() {
+            return self.target_observations(memory, std::iter::empty())
+                .with_observation_transition(bray_bound_tree::StorageObservationTransition::Unchanged);
+        }
+
         if effects.iter().any(Effect::may_reach_all_inputs) {
-            return self.opaque_observations(memory, roots);
+            return self.opaque_observations_with_escapes(memory, roots, escaped);
         }
 
         let atomic = if effects.iter().any(Effect::is_atomic) {
@@ -605,7 +622,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 .expect("atomic effects prepare their observation frame");
 
             let targets = if effects.contains(&Effect::Atomic) {
-                self.opaque_observations(memory, roots.clone())
+                self.opaque_observations_with_escapes(memory, roots.clone(), escaped)
             } else {
                 self.target_observations(memory, effects.iter()
                     .filter_map(Effect::mutation)
@@ -633,14 +650,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             // protected write domain separate from ambient and ordinary writes.
             let inputs = effects.contains(&Effect::Escape);
 
-            let escaped = effects.iter().filter_map(|effect| match effect {
-                Effect::Mutation { footprint: target, kind: bray_symbols::DependencyMutationKind::Escape, .. } => Some(target.clone()),
-                _ => None,
-            });
-
-            self.opaque_observations(memory, roots.into_iter().filter(|_| inputs)
-                .chain(memory.escaped_regions(escaped))
-                .chain(ordinary.cloned()))
+            self.opaque_observations_with_escapes(memory, roots.into_iter().filter(|_| inputs)
+                .chain(ordinary.cloned()), escaped)
         } else {
             self.target_observations(memory, ordinary)
         };
@@ -669,7 +680,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         }
 
         match effects {
-            Some(effects) => self.resolved_observations(memory, effects, receiver.cloned()),
+            Some(effects) => self.resolved_observations(memory, effects, receiver.cloned(), &Default::default()),
             None => self.opaque_observations(memory, receiver.cloned()),
         }
     }
@@ -680,9 +691,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         occurrence: bray_bound_tree::BoundExecutionSite,
         effects: &[Effect],
         roots: &[Target],
+        escaped: &std::collections::BTreeSet<Target>,
     ) -> StorageInvalidation {
         let mut invalidation =
-            self.resolved_observations(&state.memory, effects, roots.iter().cloned());
+            self.resolved_observations(&state.memory, effects, roots.iter().cloned(), escaped);
 
         if effects.is_empty() {
             return invalidation;
@@ -809,7 +821,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         state: &StorageFlowState,
         operation: crate::analysis::model::AnalysisOperationKind,
         mut observations: BTreeMap<StoragePath, bray_bound_tree::StorageTarget>,
-    ) -> bray_bound_tree::StorageCompletion {
+    ) -> Option<bray_bound_tree::StorageCompletion> {
         use crate::analysis::model::{AnalysisCallPhase, AnalysisOperationKind};
 
         let occurrence = operation.occurrence();
@@ -824,9 +836,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 phase: crate::analysis::model::AnalysisResultPhase::Completion,
                 ..
             }
-        ) && !(matches!(operation, AnalysisOperationKind::Bound(_)) && (contracts.is_some() || !observations.is_empty()))
+        ) && self.execution.single_phase_invocation(operation).is_none()
         {
-            return bray_bound_tree::StorageCompletion::default();
+            return None;
         }
 
         // Every prepared borrow input needs a current completion observation,
@@ -889,7 +901,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         ).with_values(self.value_transitions.get(&occurrence).cloned().unwrap_or_default())
             .with_captures(self.value_captures.get(&occurrence).cloned().unwrap_or_default());
 
-        completion
+        Some(completion)
     }
 
     pub(super) fn target_observations<'target>(

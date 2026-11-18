@@ -174,7 +174,9 @@ mod tests {
                 });
             });
 
-            assert!(nested_panic.is_err());
+            let panic = nested_panic.expect_err("the nested callback must unwind");
+
+            assert_eq!(bray_testing::panic_payload_text(panic.as_ref()), "nested callback unwind");
 
             assert_eq!(
                 crate::current_task_execution_context()

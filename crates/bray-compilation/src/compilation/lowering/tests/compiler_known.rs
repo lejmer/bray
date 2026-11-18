@@ -25,7 +25,7 @@ fn qualified_compiler_provided_memory_calls_lower_to_explicit_mir() {
 using core.memory;
 trusted func main() uses(manual_alloc)
 {
-    let pointer = trusted core.memory.allocate(bytes = 0, align = 1);
+    let pointer = core.memory.allocate(bytes = 0, align = 1);
 
     trusted core.memory.deallocate(pointer = pointer, bytes = 0, align = 1);
 }
@@ -626,6 +626,12 @@ fn standard_task_events_lower_creation_and_waiting() {
         .unwrap_or_else(|error| panic!("task event creation must lower: {error:?}"));
 
     assert!(creation.diagnostics().is_empty());
+
+    assert!(lowered_mir(&creation).operations().iter().any(|operation| {
+        matches!(operation.kind(), MirOperationKind::Call(call)
+            if matches!(call.target(), MirCallTarget::Runtime(runtime)
+                if runtime.role() == bray_runtime_interface::RuntimeAbiRole::TaskEventCreation))
+    }));
 
     let wait = compilation
         .lowered_unit(source_function_body_key(&compilation, "wait"))

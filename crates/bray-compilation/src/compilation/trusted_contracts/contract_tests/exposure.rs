@@ -664,7 +664,7 @@ fn opaque_calls_preserve_whole_unexposed_values_only_without_indirect_storage() 
             }}
             trusted func run()
             {{
-                let mut owner = trusted acquire();
+                let mut owner = acquire();
                 {exposure}
                 opaque({argument});
                 inspect(&owner);

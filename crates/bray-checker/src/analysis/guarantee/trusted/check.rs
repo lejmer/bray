@@ -2,7 +2,6 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::super::flow::ExecutionFlowDomain;
 use super::super::state::ExecutionState;
-use crate::analysis::fixed_point::FixedPointDomain;
 use crate::{CheckerRequestContext, CheckerUnitView, ExecutionCondition};
 use bray_bound_tree::{AnyBoundNodeId, BoundExpressionId, CheckedExpressionSemantics};
 use bray_diagnostics::{
@@ -39,7 +38,7 @@ impl TrustedChecks {
     pub(in crate::analysis) fn new<C: CheckerRequestContext + ?Sized>(
         domain: &ExecutionFlowDomain<'_, '_, C>,
     ) -> Self {
-        let boundary = domain.boundary();
+        let boundary = domain.entry_state();
 
         let guarantees = boundary
             .as_ref()
@@ -174,11 +173,11 @@ impl TrustedChecks {
                 .expect("checked repetition retains its type")
                 .ty();
 
-            let singleton =
+            let no_copies =
                 crate::constant::known_array_length(domain.request.semantic_values(), ty)
-                    .is_some_and(|count| count <= 1);
+                    .is_some_and(|count| count == 0);
 
-            if !singleton {
+            if !no_copies {
                 self.transfers.entry(expression).or_insert_with(||
                     super::transfers::copied_witness(state, domain.value(state, *value)));
             }
@@ -194,7 +193,9 @@ impl TrustedChecks {
             self.failed_execution.entry(invocation).or_insert(failure);
         }
 
-        if let Some(Err(failure)) = evidence {
+        if let Some(Err(failure)) = evidence
+            && !state.admitted_call(invocation).is_some_and(|entry| entry.trusted_boundary)
+        {
             self.failed.entry(invocation).or_insert_with(|| failure.clone());
         }
     }
@@ -224,6 +225,16 @@ impl TrustedChecks {
         }
 
         self.normal_return(domain, state, result, writes)
+    }
+
+    pub(in crate::analysis) fn failure_guard<C: CheckerRequestContext + ?Sized>(
+        &self,
+        domain: &ExecutionFlowDomain<'_, '_, C>,
+        state: &ExecutionState,
+    ) -> Option<bray_symbols::ConstantTermId> {
+        let guards = super::captured::exit_guards(domain, state, &crate::ExecutionCondition::unknown(), &self.owned_entry_conditions);
+
+        super::captured::conjunction(domain.request.semantic_values(), guards)
     }
 
     pub(in crate::analysis) fn finish<C: CheckerRequestContext + ?Sized>(

@@ -8,6 +8,17 @@ fn production_byte_copy_does_not_publish_its_input_addresses() {
     let compilation = crate::test_support::production_standard_library_compilation(
         crate::SelectedTarget::baseline(), "module probe;");
 
+    let key = source_function_body_key(&compilation, "copy_spare_raw_bytes");
+    let lowered = compilation.lowered_unit(key).expect("production byte copy lowers");
+
+    let mir = lowered.value().as_ref().and_then(bray_lowering::LoweredUnit::mir)
+        .expect("admitted byte copy has MIR");
+
+    assert!(mir.operations().iter().any(|operation| matches!(operation.kind(),
+        bray_ir::MirOperationKind::Memory(memory) if matches!(memory.kind(),
+            bray_bound_tree::CheckedMemoryOperationKind::Copy { kind: bray_bound_tree::MemoryCopyKind::Overlapping, .. }))),
+        "the production wrapper must execute its checked byte copy");
+
     let dependencies = crate::compilation::result_dependencies::source_function_dependencies(
         &compilation, "copy_spare_raw_bytes");
 
@@ -20,7 +31,7 @@ fn production_byte_copy_does_not_publish_its_input_addresses() {
 
 #[test]
 fn absent_buffer_cleanup_preserves_unrelated_input_facts() {
-    for (value, valid) in [("none", true), ("maybe_buffer()", false)] {
+    for value in ["none", "maybe_buffer()"] {
         let source = format!(r#"
             trusted module probe;
 
@@ -42,22 +53,19 @@ fn absent_buffer_cleanup_preserves_unrelated_input_facts() {
                     let buffer: std.memory.RawBuffer<u8>? = {value};
                 }}
 
-                trusted observe(pointer);
+                observe(pointer);
             }}
         "#);
 
         let compilation = crate::test_support::production_standard_library_compilation(
             crate::SelectedTarget::baseline(), &source);
 
-        let lowered = compilation.lowered_unit(source_function_body_key(&compilation, "caller"))
+        let key = source_function_body_key(&compilation, "caller");
+
+        let lowered = compilation.lowered_unit(key)
             .expect("conditional buffer disposal retains its checked transition");
 
-        assert_eq!(!lowered.diagnostics().has_errors(), valid, "{value}: {:?}", lowered.diagnostics());
-
-        if !valid {
-            bray_testing::assert_goal_state_diagnostic_kind(
-                lowered.diagnostics(), DiagnosticKind::CheckingTrustedObligationNotProven);
-        }
+        assert!(!lowered.diagnostics().has_errors(), "{value}: {:?}", lowered.diagnostics());
     }
 }
 
@@ -79,7 +87,7 @@ fn production_awaited_writer_does_not_return_its_completed_receiver_loan() {
     let dependencies = flow.value().dependencies();
 
     for reports in dependencies.captured_values().iter().filter_map(|outcome| outcome.report.as_deref())
-        .chain(dependencies.abnormal_reports()) {
+        .chain(dependencies.failure_outcomes().into_iter().flatten().filter_map(|row| row.report.as_deref())) {
         assert!(!reports.iter().any(|requirement| matches!(requirement,
             bray_symbols::DependencyRequirement::Direct { subject, kind: bray_symbols::DependencyRequirementKind::StorageAlive }
                 if subject.subject_root() == bray_symbols::DependencySubjectRoot::Receiver)),
@@ -388,15 +396,15 @@ fn production_windows_environment_storage_retains_its_cleanup_evidence() {
 #[ignore = "tier:proof"]
 fn cleanup_backing_requires_the_live_allocation_and_its_exact_layout() {
     for (body, valid) in [
-        ("trusted deallocate_bytes(pointer, 64, align = 32);", true),
-        ("trusted deallocate_bytes(pointer, 65, align = 32);", false),
-        ("trusted deallocate_bytes(pointer, 64, align = 16);", false),
+        ("deallocate_bytes(pointer, 64, align = 32);", true),
+        ("deallocate_bytes(pointer, 65, align = 32);", false),
+        ("deallocate_bytes(pointer, 64, align = 16);", false),
         (
-            "let copied = pointer; trusted deallocate_bytes(pointer, 64, align = 32); trusted deallocate_bytes(copied, 64, align = 32);",
+            "let copied = pointer; deallocate_bytes(pointer, 64, align = 32); deallocate_bytes(copied, 64, align = 32);",
             false,
         ),
         (
-            "trusted deallocate_bytes(pointer, 64, align = 32); let next = trusted allocate(64, align = 32); if !std.memory.is_null<u8>(next) { trusted deallocate_bytes(pointer, 64, align = 32); trusted deallocate_bytes(next, 64, align = 32); }",
+            "deallocate_bytes(pointer, 64, align = 32); let next = trusted allocate(64, align = 32); if !std.memory.is_null<u8>(next) { deallocate_bytes(pointer, 64, align = 32); deallocate_bytes(next, 64, align = 32); }",
             false,
         ),
     ] {

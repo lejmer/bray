@@ -20,6 +20,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         operation: AnalysisOperationKind,
         assignment: Option<&[Target]>,
         execution: &crate::analysis::guarantee::ExecutionState,
+        started: Option<&crate::ExecutionCondition>,
     ) -> Option<EffectOutcomes> {
         self.prepare_assignment_reference(state, operation, assignment);
 
@@ -84,24 +85,24 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 .extend(contracts.synchronous_cleanup().iter().cloned());
         }
 
-        let task_effects = invocation.expression().filter(|expression| invocation == (*expression).into()).and_then(|expression| {
-            let value = self.execution.task_receiver(execution, expression)?;
-            let proof = execution.ordinary_proof();
-            let frame = value.deferred_value()?;
-            let cleanup = frame.cleanup_effects(false, &proof)?;
-
-            let (_, _, body) = self.execution.deferred_body(execution, value)?;
-
-            task_effects(body.effects(&proof), cleanup)
-        });
-
         if contracts.deferred_effect_outcomes().is_some() {
             self.capture_deferred_cleanup(state, execution, invocation);
         }
 
-        let effects = if contracts.deferred_effects().is_none() {
-            task_effects
-                .unwrap_or_else(|| self.call_effect_outcomes(state, execution, invocation, contracts, &admitted))
+        let effects = if let Some(started) = started {
+            let frame = started.deferred_value();
+            let body = frame.and_then(|frame| frame.effects(&proof));
+            let scheduled = body.as_ref().map_or(&[Effect::Unknown][..], EffectOutcomes::possible);
+
+            let abandoned = frame.and_then(|frame| frame.cleanup_effects(false, &proof))
+                .unwrap_or_else(|| vec![Effect::Unknown]);
+
+            let failed = bray_base::sorted_unique_shared_slice(abandoned.into_iter().chain([Effect::Ambient]));
+
+            // The scheduler must allow interference after publication. Before
+            // publication fails, only the inactive capture environment runs cleanup.
+            EffectOutcomes::new(scheduled.iter().cloned().chain([Effect::Ambient]))
+                .with_failure_prefixes([failed.clone(), failed])
         } else {
             self.call_effect_outcomes(state, execution, invocation, contracts, &admitted)
         };
@@ -116,11 +117,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         operation: AnalysisOperationKind,
     ) -> Option<EffectOutcomes> {
         let invocation = operation.occurrence();
-
-        let expression = invocation
-            .expression()
-            .expect("await transition retains its expression");
-
+        let expression = invocation.expression().expect("await transition retains its expression");
         let value = execution.admitted_receiver(invocation);
         let proof = execution.ordinary_proof();
 
@@ -130,70 +127,102 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             return None;
         };
 
-        let task_frame = self.execution.observed_task_frame(execution, &value);
-        let task = task_frame.is_some();
+        if let Some(task) = self.execution.observed_task_frame(execution, &value) {
+            state.memory.begin_transition(invocation);
 
-        let (body, depth) = if task {
-            let (_, depth, body) = self.execution.deferred_body(execution, value.clone())?;
+            // The suspended observer has yet to acquire a child result. If its
+            // own run ends here, the child could already have executed any prefix.
+            let envelope = task.cleanup_effects(false, &proof)
+                .and_then(|cleanup| task_effects(task.effects(&proof), cleanup))
+                .unwrap_or_else(|| EffectOutcomes::new([Effect::Unknown]));
 
-            (body, depth)
-        } else {
-            (std::sync::Arc::clone(frame), 0)
-        };
+            let performed = bray_base::sorted_unique_shared_slice(envelope.possible().iter().cloned());
 
-        let mut body_effects = body.effects(&proof);
-
-        if task
-            && let Some(effects) = &mut body_effects
-            && !effects.possible().contains(&Effect::Ambient)
-        {
-            *effects = task_effects(Some(effects.clone()), []).expect("known task effects remain known");
+            return Some(envelope.with_failure_prefixes([performed.clone(), performed]).with_normal([]));
         }
 
-        let effects = if task {
-            // Normal and abnormal snapshots own descriptors with shared projection paths.
-            task_effects(
-                body_effects.clone(),
-                task_frame.as_ref()?.cleanup_effects(false, &proof)?,
-            )
-        } else {
-            body_effects.take()
-        };
+        self.prepare_deferred_result(state, expression, frame, &proof, 0);
 
-        let mut result = self
-            .expression_result_storage(expression)
+        frame.effects(&proof)
+    }
+
+    fn prepare_deferred_result(
+        &self,
+        state: &mut StorageFlowState,
+        expression: bray_bound_tree::BoundExpressionId,
+        frame: &crate::ExecutionDeferredValue,
+        proof: &crate::execution_guarantees::ExecutionProof<'_>,
+        depth: usize,
+    ) {
+        let mut result = self.expression_result_storage(expression)
             .expect("await retains its checked result storage");
 
-        if task {
+        if depth > 0 {
             let (variant, field) = crate::representation::union_payload(
                 self.request,
                 "RunResultVariant0Completed",
                 "RunResultVariant0CompletedValue",
             );
 
-            result.projections = result
-                .projections
-                .iter()
-                .copied()
+            result.projections = result.projections.iter().copied()
                 .chain(std::iter::repeat_n(
                     StorageProjection::ActiveUnionPayloadField { variant, field },
                     depth,
-                ))
-                .collect();
+                )).collect();
         }
 
-        if let Some(transitions) = body.transitions(&proof) {
-            state.memory.prepare_deferred_completion(invocation, result, transitions);
+        if let Some(transitions) = frame.transitions(proof) {
+            state.memory.prepare_deferred_completion(expression.into(), result, transitions);
         } else {
-            // Imported bodies publish their private outputs from their bound value expressions.
-            state.memory.begin_transition(invocation);
+            state.memory.begin_transition(expression.into());
+        }
+    }
+
+    pub(super) fn apply_task_observation(&mut self, state: &mut StorageFlowState, operation: AnalysisOperationKind) {
+        use bray_bound_tree::{StorageMutation, StorageTaskOutcome, StorageValuePhase};
+
+        let execution = state.execution.as_ref().expect("reached completion retains execution facts");
+
+        let Some(outcome) = self.execution.task_observation_outcome(execution, operation) else { return; };
+
+        let occurrence = operation.occurrence();
+        let expression = occurrence.expression().expect("task observation retains its await expression");
+        let proof = execution.ordinary_proof();
+        let body = self.execution.deferred_body(execution, execution.admitted_receiver(occurrence));
+
+        let resolved = match outcome {
+            StorageTaskOutcome::Completed { .. } => body.as_ref().and_then(|(_, _, frame)| {
+                frame.effects(&proof).map(|effects| effects.normal().to_vec())
+            }),
+            StorageTaskOutcome::Abnormal { depth, kind } => self.execution.observed_task_at(execution, expression, depth)
+                .and_then(|frame| frame.effects(&proof)).map(|effects| effects.failure(kind).to_vec()),
+            StorageTaskOutcome::Widened => self.execution.awaited_task_frame(execution, expression)
+                .and_then(|frame| frame.effects(&proof)).map(|effects| effects.possible().to_vec()),
+        };
+
+        let mut resolved = resolved.unwrap_or_else(|| vec![Effect::Unknown]);
+
+        resolved.push(Effect::Ambient);
+
+        let roots = self.invocation_roots(state, occurrence);
+
+        let effects = self.resolve_effect_prefix(state, operation, execution, Some(&resolved), &roots)
+            .expect("observing a running task has at least its scheduling effects");
+
+        if !matches!(outcome, StorageTaskOutcome::Abnormal { .. })
+            && let Some((_, depth, body)) = body
+        {
+            // Stage the actual selected body's value on its guarded payload path.
+            let execution = state.execution.take().expect("task completion retains execution facts");
+
+            self.prepare_deferred_result(state, expression, &body, &execution.ordinary_proof(), depth);
+            state.execution = Some(execution);
         }
 
-        if task {
-            return Some(effects?.with_normal(body_effects?.normal().iter().cloned()));
-        }
-
-        effects
+        self.apply_effect_prefix(
+            state, StorageMutation::TaskObservation { occurrence, outcome },
+            StorageValuePhase::Completion, &effects,
+        );
     }
 
     pub(super) fn call_attempt(
@@ -296,13 +325,14 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         assignment: Option<&[Target]>,
         effects: Option<&[Effect]>,
         roots: Option<&[Target]>,
+        escaped: &std::collections::BTreeSet<Target>,
     ) -> Option<StorageInvalidation> {
         let mut observed = effects
             .map(|effects| {
-                self.call_observations(state, kind.occurrence(), effects, roots.unwrap_or(&[]))
+                self.call_observations(state, kind.occurrence(), effects, roots.unwrap_or(&[]), escaped)
             })
             .or_else(|| {
-                roots.map(|roots| self.opaque_observations(&state.memory, roots.iter().cloned()))
+                roots.map(|roots| self.opaque_observations_with_escapes(&state.memory, roots.iter().cloned(), escaped))
             })
             .or_else(|| {
                 assignment
@@ -327,7 +357,13 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             }
         }
 
-        observed.map(|observed| observed.with_observation_transition(self.observation_transition(kind)))
+        observed.map(|observed| {
+            if observed.observation_transition() == bray_bound_tree::StorageObservationTransition::Unchanged {
+                observed
+            } else {
+                observed.with_observation_transition(self.observation_transition(kind))
+            }
+        })
     }
 
     pub(super) fn apply_call_effects(
@@ -352,42 +388,111 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     }
 
     pub(super) fn capture_failure_effects(
-        &self,
-        state: &mut StorageFlowState,
-        occurrence: bray_bound_tree::BoundExecutionSite,
-        effects: Option<Vec<Effect>>,
-        escaped: std::collections::BTreeSet<Target>,
-        invalidation: Option<&StorageInvalidation>,
-    ) {
-        if effects.as_ref().is_some_and(Vec::is_empty) && escaped.is_empty() {
-            return;
-        }
-
-        state.memory.capture_failure_effects(
-            occurrence,
-            crate::analysis::storage_flow::memory::CapturedEffects {
-                mutations: effects.unwrap_or_else(|| vec![Effect::Unknown]),
-                escaped: escaped.into_iter().collect(),
-                // The outcome owns the resolved descriptors after argument transfer.
-                // Invalidation shares immutable projection paths with publication.
-                invalidation: invalidation
-                    .expect("resolved call effects have storage observations")
-                    .clone(),
-            },
-        );
-    }
-
-    pub(in crate::analysis::storage_flow) fn apply_failure_effects(
         &mut self,
         state: &mut StorageFlowState,
-        occurrence: bray_bound_tree::BoundExecutionSite,
+        kind: AnalysisOperationKind,
+        execution: &crate::analysis::guarantee::ExecutionState,
+        outcomes: Option<&EffectOutcomes>,
+        roots: &[Target],
     ) {
-        let Some(effects) = state.memory.take_failure_effects(occurrence) else {
-            return;
-        };
+        if let Some(outcomes) = outcomes {
+            self.record_resolved_effects(&state.memory, outcomes.possible(), None);
+        }
 
-        // The captured regions were normalized before ownership transfer.
+        let [panic, cancellation] = bray_symbols::DependencyFailureKind::ALL;
+
+        let panicked = outcomes.map(|outcomes| outcomes.failure(panic));
+        let cancelled = outcomes.map(|outcomes| outcomes.failure(cancellation));
+        let capture = self.resolve_effect_prefix(state, kind, execution, panicked, roots).map(std::sync::Arc::new);
+
+        let cancelled = if cancelled == panicked { capture.clone() }
+            else { self.resolve_effect_prefix(state, kind, execution, cancelled, roots).map(std::sync::Arc::new) };
+
+        for (reason, effects) in [(panic, capture), (cancellation, cancelled)] {
+            if let Some(effects) = effects {
+                let occurrence = kind.occurrence();
+
+                state.memory.capture_failure_effects(occurrence, reason, effects);
+            }
+        }
+    }
+
+    pub(in crate::analysis::storage_flow) fn failure_edge_state(
+        &mut self,
+        source: &StorageFlowState,
+        occurrence: bray_bound_tree::BoundExecutionSite,
+        kind: bray_symbols::DependencyFailureKind,
+    ) -> Option<StorageFlowState> {
+        let admitted = source.failure_entry.as_ref().filter(|(site, _)| *site == occurrence)
+            .map_or(source, |(_, admitted)| admitted.as_ref());
+
+        if !admitted.reachable {
+            return None;
+        }
+
+        let execution = admitted.execution.as_ref().expect("reachable failure retains its admitted execution");
+
+        if !self.execution.invocation_can_fail(execution, occurrence, kind) {
+            return None;
+        }
+
+        let mut failure = admitted.clone();
+
+        failure.failure_entry = None;
+
+        if let Some(effects) = failure.memory.take_failure_effects(occurrence, kind) {
+            self.apply_effect_prefix(
+                &mut failure, bray_bound_tree::StorageMutation::InvocationFailure { occurrence, kind },
+                bray_bound_tree::StorageValuePhase::Attempt, &effects,
+            );
+        }
+
+        Some(failure)
+    }
+
+    fn resolve_effect_prefix(
+        &mut self, state: &StorageFlowState, kind: AnalysisOperationKind,
+        execution: &crate::analysis::guarantee::ExecutionState, effects: Option<&[Effect]>, roots: &[Target],
+    ) -> Option<crate::analysis::storage_flow::memory::CapturedEffects> {
+        let occurrence = kind.occurrence();
+        let mut escape_prefix = EffectPrefix::default();
+        let escaped = self.address_escapes(state, kind, effects, roots, &mut escape_prefix);
+
+        if effects.is_some_and(<[_]>::is_empty) && escaped.is_empty() && escape_prefix.is_empty() {
+            return None;
+        }
+
+        let mut invalidation = self.operation_observations(state, kind, None, effects, Some(roots), &escaped);
+
+        // Observing a running task does not establish a new body-entry memory snapshot.
+        let observes_running_task = occurrence.expression().is_some_and(|expression| {
+            self.execution.awaited_task_frame(execution, expression).is_some()
+        });
+
+        if !observes_running_task && let Some(invalidation) = &mut invalidation {
+            let memory = occurrence.expression().and_then(|expression| self.memory.operation(expression));
+
+            self.preserve_storage_values(state, &state.memory, memory, effects, invalidation);
+        }
+
+        Some(crate::analysis::storage_flow::memory::CapturedEffects {
+            mutations: effects.map_or_else(|| vec![Effect::Unknown], <[_]>::to_vec),
+            escaped: escaped.into_iter().collect(),
+            escape_prefix: escape_prefix.iter().cloned().collect(),
+            invalidation: invalidation.expect("resolved call effects have storage observations"),
+        })
+    }
+
+    fn apply_effect_prefix(
+        &mut self,
+        state: &mut StorageFlowState,
+        mutation: bray_bound_tree::StorageMutation,
+        phase: bray_bound_tree::StorageValuePhase,
+        effects: &crate::analysis::storage_flow::memory::CapturedEffects,
+    ) {
+        // The addresses belong to the admitted transition.
         state.memory.escape_regions(effects.escaped.iter().cloned());
+        std::sync::Arc::make_mut(&mut state.effect_prefix).extend(effects.escape_prefix.iter().cloned());
 
         self.record_resolved_effects(&state.memory, &effects.mutations, Some(&mut state.effect_prefix));
 
@@ -397,14 +502,18 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             self.storage,
         );
 
-        self.execution.invalidate_call_effects(
-            state
-                .execution
-                .as_mut()
-                .expect("reachable call failure has execution facts"),
-            occurrence,
-            Some(&effects.invalidation),
-        );
+        state.invalidate_observed_absence(&effects.invalidation, self.storage, &self.input.footprint.discriminants);
+
+        self.refinements.invalidate_for_operation(&mut state.refinements, mutation.occurrence(), self.storage,
+            Some(&effects.invalidation), &self.input.footprint.discriminants);
+
+        let execution = state.execution.as_mut().expect("reached outcome retains execution facts");
+
+        self.record_outcome_mutation(mutation, &effects.invalidation);
+        self.execution.invalidate_observations(execution, mutation, &effects.invalidation);
+
+        self.record_capture_retirements(execution, mutation, phase,
+            bray_bound_tree::StorageValueBoundary::Execution, state.memory.take_retirements());
     }
 
     pub(super) fn call_effects(
@@ -452,7 +561,11 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     ) -> EffectOutcomes {
         let admitted = admitted.iter().flat_map(|row| row.effects.iter()).collect::<std::collections::BTreeSet<_>>();
 
-        contracts.effect_outcomes().try_flat_map_admitted(
+        let entry = execution.admitted_call(occurrence);
+
+        contracts.effect_outcomes().clone().with_selected_failures(contracts.reports().failures(), |index| {
+            entry.is_none_or(|entry| entry.admits_failure(index))
+        }).try_flat_map_admitted(
             |effect| contracts.captured_values().is_empty() || admitted.contains(effect),
             |effect| Ok::<_, std::convert::Infallible>(
                 self.call_effects(state, execution, occurrence, std::slice::from_ref(effect))),
@@ -825,7 +938,12 @@ pub(super) fn task_effects(
     let effects = effects?;
     let cleanup = cleanup.into_iter().chain([Effect::Ambient]).collect::<Vec<_>>();
 
+    let failed = bray_symbols::DependencyFailureKind::ALL.map(|kind| {
+        bray_base::sorted_unique_shared_slice(effects.failure(kind).iter().chain(&cleanup).cloned())
+    });
+
     // Task scheduling and cleanup use the same captured descriptors on each outcome.
     Some(EffectOutcomes::new(effects.possible().iter().chain(&cleanup).cloned())
-        .with_normal(effects.normal().iter().chain(&cleanup).cloned()))
+        .with_normal(effects.normal().iter().chain(&cleanup).cloned())
+        .with_failure_prefixes(failed))
 }

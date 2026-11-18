@@ -1458,19 +1458,25 @@ fn imported_inactive_futures_retain_capture_cleanup_suspensions() {
     let provider = compilation(
         r#"
         module api;
+        extern async func pause();
         struct Value
         {
             count: u32;
+
+            async finalize()
+            {
+                await pause();
+            }
         }
 
-        async func make() -> Value
+        async func make(pos value: Value) -> Value
         {
-            return Value { count = 3 };
+            return value;
         }
 
-        async func discard()
+        async func discard(pos value: Value)
         {
-            let pending = make();
+            let pending = make(value);
         }
     "#,
     );
@@ -1500,10 +1506,10 @@ fn imported_inactive_futures_retain_capture_cleanup_suspensions() {
         r#"
         module app;
         using example.package.api;
-        async func root()
+        async func root(pos local: example.package.api.Value, pos forwarded: example.package.api.Value)
         {
-            let pending = example.package.api.make();
-            await example.package.api.discard();
+            let pending = example.package.api.make(local);
+            await example.package.api.discard(forwarded);
         }
     "#,
         [dependency],
@@ -1553,65 +1559,36 @@ fn imported_inactive_futures_retain_capture_cleanup_suspensions() {
         .as_deref()
         .expect("fixture optional referent must be present");
 
-    let mut abandoned = 0;
+    let discard = skeleton.functions().iter().find(|function| {
+        skeleton.member_name(function.id().into()).is_some_and(|name| name.as_str() == "discard")
+    }).expect("the provider exports discard");
 
-    for template in bundle.executable_templates() {
-        let function = skeleton
-            .functions()
-            .iter()
-            .find(|function| {
-                function
-                    .imported_semantic_key()
-                    .is_some_and(|key| key.symbol() == template.owner())
-            })
-            .expect("fixture lookup must find its expected value");
+    let symbol = skeleton.imported_semantic_address(discard.id().into()).expect("discard has an import address");
 
-        let symbol = skeleton
-            .imported_semantic_address(function.id().into())
-            .expect("fixture `imported_semantic_address` call must succeed");
+    let template = bundle.executable_templates().iter().find(|template| {
+        discard.imported_semantic_key().is_some_and(|key| key.symbol() == template.owner())
+    }).expect("discard has an executable template");
 
-        let address =
-            crate::fact::ImportedExecutableTemplateAddress::new(symbol, template.identity());
+    let address = crate::fact::ImportedExecutableTemplateAddress::new(symbol, template.identity());
 
-        let decoded = consumer
-            .imported_executable_template_with_cancellation(
-                address,
-                &crate::CancellationToken::new(),
-            )
-            .expect("fixture `imported_executable_template_with_cancellation` call must succeed");
+    let decoded = consumer.imported_executable_template_with_cancellation(address, &crate::CancellationToken::new())
+        .expect("the discard template decodes");
 
-        assert!(
-            !decoded.diagnostics().has_errors(),
-            "{:?}",
-            decoded.diagnostics()
-        );
+    let imported = decoded.value().as_deref().expect("discard retains its executable body");
 
-        let mir = decoded
-            .value()
-            .as_deref()
-            .expect("fixture optional referent must be present");
+    assert!(decoded.diagnostics().is_empty() && imported.is_valid(), "{decoded:?}");
 
-        assert!(mir.is_valid());
+    assert!(imported.operations().iter().any(|operation| matches!(operation.kind(),
+        MirOperationKind::Async(bray_ir::MirAsyncOperation::CreateFrame {
+            initializer: bray_ir::MirFrameInitializer::Callable(call), ..
+        }) if matches!(call.arguments(), [bray_ir::MirCallArgument::Explicit {
+            ordinal: 0, value: bray_ir::MirOperand::Move(_), ..
+        }]))));
 
-        abandoned += mir
-            .operations()
-            .iter()
-            .filter(|operation| {
-                matches!(
-                    operation.kind(),
-                    MirOperationKind::Async(bray_ir::MirAsyncOperation::ComposeAwaitedFrame {
-                        composition: bray_ir::MirFrameComposition::Abandon,
-                        ..
-                    })
-                )
-            })
-            .count();
-    }
-
-    assert!(
-        abandoned > 0,
-        "imported executable templates retain inactive disposal"
-    );
+    assert!(imported.operations().iter().any(|operation| matches!(operation.kind(),
+        MirOperationKind::Async(bray_ir::MirAsyncOperation::ComposeAwaitedFrame {
+            composition: bray_ir::MirFrameComposition::Abandon, ..
+        }))), "the imported discard body resolves its inactive owned capture");
 }
 
 #[test]

@@ -29,7 +29,7 @@ public struct Owner
     trusted destruct()
         uses(foreign_call)
     {
-        trusted record(2);
+        record(2);
         assert(self.value == 73);
     }
 }
@@ -41,7 +41,7 @@ internal callable MakeOwner = @abi(c) trusted func() -> Owner;
 public trusted func value(pos input: u64) -> u64
     uses(foreign_call)
 {
-    trusted record(1);
+    record(1);
     return input + 1;
 }
 
@@ -50,7 +50,7 @@ public trusted func value(pos input: u64) -> u64
 public trusted func nested(pos input: u64) -> u64
     uses(foreign_call)
 {
-    return trusted reenter(input);
+    return reenter(input);
 }
 
 @abi(c)
@@ -58,7 +58,7 @@ public trusted func nested(pos input: u64) -> u64
 public trusted func create() -> Owner
     uses(foreign_call)
 {
-    trusted record(3);
+    record(3);
 
     return
     {
@@ -78,17 +78,17 @@ public func dispose(pos owner: Owner)
 public trusted func returned_owner() -> u64
     uses(foreign_call)
 {
-    let before = trusted count(2);
+    let before = count(2);
 
     {
         let callback: MakeOwner = create;
-        let owner = trusted callback();
+        let owner = callback();
 
         assert(owner.value == 73);
-        assert(trusted count(2) == before);
+        assert(count(2) == before);
     }
 
-    assert(trusted count(2) == before + 1);
+    assert(count(2) == before + 1);
     return 73;
 }
 
@@ -97,5 +97,5 @@ public trusted func returned_owner() -> u64
 public trusted func closing() -> u64
     uses(foreign_call)
 {
-    return trusted close_inside();
+    return close_inside();
 }

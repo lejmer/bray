@@ -10,7 +10,7 @@ using std.string;
 using std.testing;
 
 @test
-trusted func optional_real_and_complex_formatting_use_the_canonical_sink()
+func optional_real_and_complex_formatting_use_the_canonical_sink()
 {
     let value: r16 = 1.5;
     let complex: c32 = 1.5 - 2.25i;
@@ -23,21 +23,21 @@ trusted func optional_real_and_complex_formatting_use_the_canonical_sink()
     let mut sink: std.format.FixedSink = std.format.FixedSink(&mut storage[..]);
 
     std.testing.assert_ok<unit, std.format.FixedSinkError>(
-        trusted std.format.write_to<r16, std.format.FixedSink, std.format.FixedSinkError>(
+        std.format.write_to<r16, std.format.FixedSink, std.format.FixedSinkError>(
             &mut sink,
             std.format.Argument<r16>(&value, options = std.format.Options(precision = 2))
         )
     );
 
     std.testing.assert_ok<unit, std.format.FixedSinkError>(
-        trusted std.format.write_to<c32, std.format.FixedSink, std.format.FixedSinkError>(
+        std.format.write_to<c32, std.format.FixedSink, std.format.FixedSinkError>(
             &mut sink,
             std.format.Argument<c32>(&complex)
         )
     );
 
     std.testing.assert_ok<unit, std.format.FixedSinkError>(
-        trusted std.format.write_to<c32, std.format.FixedSink, std.format.FixedSinkError>(
+        std.format.write_to<c32, std.format.FixedSink, std.format.FixedSinkError>(
             &mut sink,
             std.format.Argument<c32>(&positive)
         )

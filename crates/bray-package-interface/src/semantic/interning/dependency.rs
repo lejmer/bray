@@ -49,17 +49,11 @@ impl InternState<'_> {
                 continue;
             };
 
-            let mut contract = DependencyContractTemplateData::new(requirements);
-
-            if let Some(requirements) = &input.abnormal_reports {
-                let Some(requirements) =
-                    self.convert_dependency_requirements(requirements, symbols)?
-                else {
-                    continue;
-                };
-
-                contract = contract.with_abnormal_reports(requirements);
-            }
+            let failures = match input.failure_outcomes.as_deref().map(|rows| self.convert_failure_outcomes(rows, symbols)).transpose() {
+                Ok(failures) => failures,
+                Err(None) => continue,
+                Err(Some(error)) => return Err(error),
+            };
 
             let Some(effects) = self.convert_dependency_effects(&input.effects, symbols)? else {
                 continue;
@@ -171,7 +165,8 @@ impl InternState<'_> {
 
             self.dependency_contracts[index] = Some(
                 store.intern_dependency_contract_template(
-                    contract
+                    DependencyContractTemplateData::new(requirements)
+                        .with_failure_outcomes(failures)
                         .with_captured_values(captured_values)
                         .with_observed_result(observed_result)
                         .with_possible_effects(effects)
@@ -182,6 +177,21 @@ impl InternState<'_> {
         }
 
         Ok(())
+    }
+
+    fn convert_failure_outcomes(
+        &self,
+        rows: &[crate::InterfaceFailureOutcome],
+        symbols: &impl InterfaceSymbolResolver,
+    ) -> Result<Vec<bray_symbols::CapturedFailureOutcome>, Option<InterfaceSemanticInternError>> {
+        rows.iter().map(|row| Ok(bray_symbols::CapturedFailureOutcome {
+            kind: row.kind,
+            guard: row.guard.map(|term| self.constant_term_id(term).ok_or(None)).transpose()?,
+            report: row.report.as_deref().map(|report|
+                self.convert_dependency_requirements(report, symbols).map_err(Some)?.map(bray_base::sorted_unique_shared_slice).ok_or(None)).transpose()?,
+            effects: row.effects.as_deref().map(|effects|
+                self.convert_dependency_effects(effects, symbols).map_err(Some)?.map(bray_base::sorted_unique_shared_slice).ok_or(None)).transpose()?,
+        })).collect()
     }
 
     fn convert_dependency_storage(

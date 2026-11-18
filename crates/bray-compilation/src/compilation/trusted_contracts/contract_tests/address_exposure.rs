@@ -39,25 +39,25 @@ fn publishing_a_static_address_only_exposes_that_static() {
                     trusted func publish(pos owner: &Owner) -> usize
                         uses(intrinsic)
                     {{
-                        return trusted core.target.expose_address<Marker>(
+                        return core.target.expose_address<Marker>(
                             core.memory.address_of<Marker>({address})
                         );
                     }}
                     trusted func relay(pos owner: &Owner) -> usize
                     {{
-                        return trusted publish(owner);
+                        return publish(owner);
                     }}
                     extern func opaque();
                     trusted func observe(pos marker: &Marker)
                         requires(trusted live(marker)) executes(pure, total) {{}}
                     func caller()
                     {{
-                        trusted observe(&TOKEN);
-                        trusted observe(&OTHER);
-                        let owner = trusted create();
-                        _ = trusted relay(&owner);
+                        observe(&TOKEN);
+                        observe(&OTHER);
+                        let owner = create();
+                        _ = relay(&owner);
                         opaque();
-                        trusted observe(&{observed});
+                        observe(&{observed});
                     }}
                     "#,
                 );
@@ -112,17 +112,17 @@ fn publishing_global_addresses_keeps_unpublished_input_ownership() {
                 trusted func publish(pos owner: &Owner) -> usize
                     uses(intrinsic)
                 {{
-                    return trusted core.target.expose_address<Marker>(core.memory.address_of<Marker>({address}));
+                    return core.target.expose_address<Marker>(core.memory.address_of<Marker>({address}));
                 }}
                 extern func opaque();
                 extern trusted func observe(pos owner: Owner)
                     requires(trusted live(&owner.marker));
                 func caller()
                 {{
-                    let owner = trusted create();
-                    _ = trusted publish(&owner);
+                    let owner = create();
+                    _ = publish(&owner);
                     opaque();
-                    trusted observe(owner);
+                    observe(owner);
                 }}
                 "#,
             );

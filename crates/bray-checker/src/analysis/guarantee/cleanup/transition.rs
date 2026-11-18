@@ -23,6 +23,8 @@ pub(in crate::analysis) struct LifecycleInvocation<'a> {
     pub(in crate::analysis) ty: bray_symbols::TypeId,
     pub(in crate::analysis) access: StorageAccessId,
     pub(in crate::analysis) lifecycle: &'a Lifecycle,
+    pub(in crate::analysis) entry: &'a ExecutionCallEvidence,
+    pub(in crate::analysis) contract: &'a bray_symbols::DependencyContractTemplateData,
     pub(in crate::analysis) completes: bool,
     pub(in crate::analysis) path: Option<&'a bray_bound_tree::StoragePath>,
     pub(in crate::analysis) outcomes: Vec<&'a bray_symbols::CapturedValueOutcome>,
@@ -281,7 +283,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         self.invalidate_observations(
             state,
             mutation,
-            flow.cleanup_mutation(mutation),
+            flow.outcome_mutation(mutation).unwrap_or_else(|| panic!("selected cleanup {mutation:?} has no checked transition")),
         );
 
         if let Some(completion) = flow.completion(mutation) {
@@ -491,6 +493,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 let template = &self.dependencies.lifecycle_dependencies()[&lifecycle.call.callable];
                 let proof = state.ordinary_proof();
 
+                evidence.failure_rows = self.select_frame_failures(&evidence, template.failure_outcomes());
+
                 let outcomes = template.captured_values().iter().enumerate()
                     .filter(|(index, row)| evidence.admits_outcome(self.request.semantic_values(), &proof, *index, row.guard))
                     .map(|(_, row)| row).collect();
@@ -502,6 +506,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         ty: *ty,
                         access,
                         lifecycle,
+                        entry: &evidence,
+                        contract: template,
                         completes: established && completes,
                         path: path.as_ref(),
                         outcomes,
@@ -538,6 +544,7 @@ impl Lifecycle {
 
         // Entry assumptions must survive the mutations made by this lifecycle invocation.
         ExecutionCallEvidence {
+            failure_rows: None,
             outputs: Default::default(),
             implementation_witnesses: Default::default(),
             witness_inputs: Default::default(),

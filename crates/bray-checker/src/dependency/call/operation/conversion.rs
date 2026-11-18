@@ -107,7 +107,18 @@ pub(in crate::dependency::call) fn conversion_dependencies<C: CheckerRequestCont
                     outcome.with_effects(effects)
                 }).collect::<Vec<_>>();
 
-                let child = child.with_captured_values(outcomes).with_possible_effects(effects);
+                let failures = child.failure_outcomes().map(|rows| rows.iter().cloned().map(|mut row| {
+                    // A child guard names the child's receiver. Composition loses its
+                    // condition when the outer conversion cannot name that receiver.
+                    row.guard = None;
+
+                    row.effects = row.effects.as_deref().map(|effects|
+                        bray_base::sorted_unique_shared_slice(effects.iter().map(project_effect)));
+
+                    row
+                }).collect::<Vec<_>>());
+
+                let child = child.with_captured_values(outcomes).with_failure_outcomes(failures).with_possible_effects(effects);
 
                 let child = if matches!(shape.as_ref(), TypeData::Nullable(_)) {
                     child
@@ -292,22 +303,31 @@ pub(super) fn sequence_dependencies(
         result = result.with_completion_reports(reports.iter().flatten().flat_map(|report| report.iter().cloned()));
     }
 
-    if first.abnormal_reports().is_some() || next.abnormal_reports().is_some() {
-        result = result.with_abnormal_reports(
-            first
-                .abnormal_reports()
-                .into_iter()
-                .flatten()
-                .chain(next.abnormal_reports().into_iter().flatten())
-                .chain(
-                    reports[0].as_deref()
-                        .filter(|_| next.abnormal_reports().is_some())
-                        .into_iter()
-                        .flatten(),
-                )
-                .cloned(),
-        );
+    let failures = |contract: &DependencyContractTemplateData| {
+        contract.failure_outcomes().map(<[_]>::to_vec).unwrap_or_else(|| vec![bray_symbols::CapturedFailureOutcome {
+            kind: None,
+            guard: None,
+            report: None,
+            effects: Some(contract.effects().into()),
+        }])
+    };
+
+    let mut outcomes = failures(&first);
+
+    if first.normal_completion() {
+        outcomes.extend(failures(&next).into_iter().map(|mut row| {
+            let effects = row.effects.as_deref().unwrap_or(next.effects());
+
+            row.effects = Some(bray_base::sorted_unique_shared_slice(first.normal_effects().iter().chain(effects).cloned()));
+
+            if let Some(completed) = &reports[0] {
+                row.report = Some(bray_base::sorted_unique_shared_slice(completed.iter()
+                    .chain(row.report.as_deref().into_iter().flatten()).cloned()));
+            }
+
+            row
+        }));
     }
 
-    result
+    result.with_failure_outcomes(Some(outcomes))
 }

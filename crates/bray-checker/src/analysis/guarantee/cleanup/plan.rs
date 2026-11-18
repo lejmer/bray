@@ -225,7 +225,7 @@ impl Plan {
                             &dependencies.lifecycle_dependencies()[&lifecycle.call.callable];
 
                         contract.captured_values().iter().filter_map(|outcome| outcome.report.as_deref())
-                    .chain(contract.abnormal_reports())
+                    .chain(contract.failure_outcomes().into_iter().flatten().filter_map(|row| row.report.as_deref()))
                             .any(|requirements| !requirements.is_empty())
                             || (lifecycle
                                 .call

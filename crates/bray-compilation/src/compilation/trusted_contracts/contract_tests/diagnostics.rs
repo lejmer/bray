@@ -26,7 +26,7 @@ fn failed_conjunction_names_the_missing_condition_and_keeps_the_full_requirement
 
         func caller(pos owner: &Owner)
         {
-            trusted supply(owner);
+            supply(owner);
             inspect(owner);
         }
     "#);
@@ -256,15 +256,17 @@ fn failed_conditions_distinguish_staged_owned_arguments() {
 
         func caller(pos first: DataPointer<u8>, pos second: DataPointer<u8>)
         {
-            trusted inspect(first, second);
+            inspect(first, second);
         }
     "#.replace("ABI", abi);
 
     let application = compilation(&source);
     let diagnostics = application.check_diagnostics();
 
-    let obligation = diagnostics.iter().flat_map(|diagnostic| diagnostic.args()).find_map(|argument| match argument.value() {
-        DiagnosticArgValue::ContractObligation(obligation) => Some(obligation),
+    let obligation = diagnostics.by_kind(DiagnosticKind::CheckingTrustedObligationNotProven)
+        .flat_map(|diagnostic| diagnostic.args()).find_map(|argument| match argument.value() {
+        DiagnosticArgValue::ContractObligation(obligation)
+            if obligation.kind == DiagnosticContractObligationKind::CallRequirement => Some(obligation),
         _ => None,
     }).unwrap_or_else(|| panic!("{diagnostics:#?}"));
 
@@ -425,7 +427,7 @@ fn invalidated_trusted_conditions_identify_the_argument_change() {
 
         func caller()
         {
-            let mut owner = trusted acquire();
+            let mut owner = acquire();
             opaque(&mut owner);
             inspect_owner(&owner);
         }

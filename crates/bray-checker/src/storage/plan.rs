@@ -799,15 +799,3 @@ pub(super) const fn iteration_purpose(
         bray_bound_tree::IterationSourceMode::Move => StorageAccessPurpose::Move,
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use bray_bound_tree::StoragePlan;
-
-    #[test]
-    fn storage_plans_are_shareable() {
-        fn assert_send_sync<T: Send + Sync>() {}
-
-        assert_send_sync::<StoragePlan>();
-    }
-}

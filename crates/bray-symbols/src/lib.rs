@@ -203,7 +203,7 @@ pub use semantic::{
 };
 pub use surface_kind::catalog_declaration_symbol_kind;
 pub use value::{
-    CapturedCallable, CapturedDeferredInvocation, CapturedValueOutcome, CapturedValueOperation, CapturedValueTemplate,
+    CapturedCallable, CapturedDeferredInvocation, CapturedFailureOutcome, CapturedValueOutcome, CapturedValueOperation, CapturedValueTemplate, DependencyFailureKind,
     AnyConstantDefinitionId, BorrowKind, CallableAbi, CallableConstness, CallableDefinitionId,
     CallableDependencyContracts, CallableExecution, CallableInstanceData, CallableInstanceId,
     CallableParameterData, CallableParameterMode, CallableParameterName, CallablePosition,

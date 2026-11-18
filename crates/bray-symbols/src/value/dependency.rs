@@ -690,7 +690,7 @@ impl<Subject, Projection> DependencyBorrowRelation<Subject, Projection> {
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct DependencyContractTemplateData {
     requirements: Arc<[DependencyRequirement]>,
-    abnormal_reports: Option<Arc<[DependencyRequirement]>>,
+    failure_outcomes: Option<Arc<[super::CapturedFailureOutcome]>>,
     captured_values: Arc<[super::CapturedValueOutcome]>,
     observed_result: Option<ConstantTermId>,
     effects: super::DependencyEffectOutcomes<DependencyStorageEffect>,
@@ -769,20 +769,37 @@ impl DependencyContractTemplateData {
         super::CapturedValueOutcome::possible_report(self.captured_values.iter())
     }
 
-    /// Attaches dependencies of reports propagated with panic or cancellation.
-    /// An empty set still records that an independently owned report can be produced.
+    /// Describes a possible report from a callable whose failure prefix is opaque.
     pub fn with_abnormal_reports(
-        mut self,
+        self,
         requirements: impl IntoIterator<Item = DependencyRequirement>,
     ) -> Self {
-        self.abnormal_reports = Some(sorted_unique_shared_slice(requirements));
-
-        self
+        self.with_failure_outcomes(Some([super::CapturedFailureOutcome {
+            kind: None,
+            guard: None,
+            report: Some(sorted_unique_shared_slice(requirements)),
+            effects: None,
+        }]))
     }
 
-    /// Returns report dependencies for abnormal completion, absent when no report is produced.
-    pub fn abnormal_reports(&self) -> Option<&[DependencyRequirement]> {
-        self.abnormal_reports.as_deref()
+    /// Records checked failure prefixes. An empty list proves no abnormal exit.
+    pub fn with_failure_outcomes(mut self, outcomes: Option<impl IntoIterator<Item = super::CapturedFailureOutcome>>) -> Self {
+        self.failure_outcomes = outcomes.map(sorted_unique_shared_slice);
+
+        self.refresh_normal_effects()
+    }
+
+    /// Returns reached failure rows, absent when the body's failure path is opaque.
+    pub fn failure_outcomes(&self) -> Option<&[super::CapturedFailureOutcome]> {
+        self.failure_outcomes.as_deref()
+    }
+
+    /// Derives possible report dependencies across failure outcomes.
+    pub fn abnormal_reports(&self) -> Option<Arc<[DependencyRequirement]>> {
+        let mut reports = self.failure_outcomes.as_deref()?.iter().filter_map(|row| row.report.as_ref());
+        let first = reports.next()?;
+
+        Some(sorted_unique_shared_slice(first.iter().chain(reports.flat_map(|report| report.iter())).cloned()))
     }
 
     /// Removes implicit report outputs consumed by a native ABI boundary.
@@ -793,9 +810,10 @@ impl DependencyContractTemplateData {
                 .map(|row| row.with_report(None)));
         }
 
-        self.abnormal_reports = None;
+        let failures = self.failure_outcomes.as_deref().map(|rows|
+            rows.iter().cloned().map(|row| super::CapturedFailureOutcome { report: None, ..row }).collect::<Vec<_>>());
 
-        self
+        self.with_failure_outcomes(failures)
     }
 
     /// Transforms requirements in every output while preserving report presence.
@@ -821,9 +839,16 @@ impl DependencyContractTemplateData {
             result = result.with_captured_values(rows);
         }
 
-        if let Some(requirements) = self.abnormal_reports() {
-            result = result
-                .with_abnormal_reports(map(DependencyCallOutput::AbnormalReport, requirements)?);
+        if let Some(rows) = self.failure_outcomes() {
+            let rows = rows.iter().cloned().map(|row| {
+                let report = row.report.as_deref().map(|requirements|
+                    map(DependencyCallOutput::AbnormalReport, requirements).map(sorted_unique_shared_slice)
+                ).transpose()?;
+
+                Ok(super::CapturedFailureOutcome { report, ..row })
+            }).collect::<Result<Vec<_>, E>>()?;
+
+            result = result.with_failure_outcomes(Some(rows));
         }
 
         result = result.with_synchronous_cleanup(map(
@@ -842,9 +867,7 @@ impl DependencyContractTemplateData {
                 self.captured_values.iter().flat_map(|row| row.report.iter().flat_map(|requirements| requirements.iter())),
             )
             .chain(
-                self.abnormal_reports
-                    .iter()
-                    .flat_map(|requirements| requirements.iter()),
+                self.failure_outcomes().into_iter().flatten().filter_map(|row| row.report.as_deref()).flatten(),
             )
             .chain(self.synchronous_cleanup.iter())
     }
@@ -876,7 +899,7 @@ impl DependencyContractTemplateData {
         match output {
             DependencyCallOutput::Value => Arc::clone(&self.requirements),
             DependencyCallOutput::CompletionReport => self.completion_reports().unwrap_or_default(),
-            DependencyCallOutput::AbnormalReport => self.abnormal_reports.clone().unwrap_or_default(),
+            DependencyCallOutput::AbnormalReport => self.abnormal_reports().unwrap_or_default(),
             DependencyCallOutput::SynchronousCleanup => Arc::clone(&self.synchronous_cleanup),
         }
     }
@@ -885,7 +908,7 @@ impl DependencyContractTemplateData {
     pub fn new(requirements: impl IntoIterator<Item = DependencyRequirement>) -> Self {
         Self {
             requirements: sorted_unique_shared_slice(requirements),
-            abnormal_reports: None,
+            failure_outcomes: None,
             captured_values: Arc::new([]),
             observed_result: None,
             effects: super::DependencyEffectOutcomes::new(DependencyStorageEffect::opaque_call()),
@@ -901,7 +924,7 @@ impl DependencyContractTemplateData {
     ) -> Self {
         Self {
             requirements: sorted_unique_shared_slice(requirements),
-            abnormal_reports: self.abnormal_reports.as_ref().map(Arc::clone),
+            failure_outcomes: self.failure_outcomes.as_ref().map(Arc::clone),
             // Transformations own a new contract while retaining the immutable checked summary.
             captured_values: Arc::clone(&self.captured_values),
             observed_result: self.observed_result,
@@ -929,13 +952,21 @@ impl DependencyContractTemplateData {
     }
 
     fn refresh_normal_effects(mut self) -> Self {
+        let mut effects = super::DependencyEffectOutcomes::new(self.effects.possible().iter().cloned());
+
         if !self.normal_completion {
-            self.effects = self.effects.with_normal([]);
-        } else if self.captured_values.is_empty() {
-            self.effects = super::DependencyEffectOutcomes::new(self.effects.possible().iter().cloned());
-        } else {
-            self.effects = self.effects.with_normal(self.captured_values.iter().flat_map(|row| row.effects.iter().cloned()));
+            effects = effects.with_normal([]);
+        } else if !self.captured_values.is_empty() {
+            effects = effects.with_normal(self.captured_values.iter().flat_map(|row| row.effects.iter().cloned()));
         }
+
+        if let Some(rows) = self.failure_outcomes()
+            && rows.iter().all(|row| row.effects.is_some())
+        {
+            effects = effects.with_abnormal(rows.iter().filter_map(|row| row.effects.as_deref()).flatten().cloned());
+        }
+
+        self.effects = effects;
 
         self
     }

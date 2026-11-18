@@ -42,12 +42,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
             .collect::<BTreeSet<_>>();
 
         'blocks: for block in self.domain.graph.blocks() {
-            let Some(Some(state)) = self.states.state(block.id()) else {
+            let Some(state) = self.entry(block.id()) else {
                 continue;
             };
 
             // Each replay retains independently mutable value observations at the cleanup boundary.
-            let mut state = state.clone();
+            let mut state = state.into_owned();
 
             for operation in block
                 .operations()
@@ -197,7 +197,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
             }
 
             if normal_exit_blocks.contains(&block.id()) {
-                results.insert(self.domain.returned_value(&state).known_variant());
+                results.extend(self.output_states(block.id()).map(|state| self.domain.returned_value(state).known_variant()));
             }
 
             dependencies.extend(state.completion_dependencies);
@@ -322,6 +322,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 if matches!(scoped.invocation(invocation).2, bray_bound_tree::BoundCallResult::LazyFuture(_)));
 
         Some(crate::ExecutionCallEvidence {
+            failure_rows: None,
             outputs: Default::default(),
             implementation_witnesses: Default::default(),
             witness_inputs: Default::default(),
@@ -392,6 +393,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }
 
         Some(crate::ExecutionCallEvidence {
+            failure_rows: None,
             outputs: Default::default(),
             implementation_witnesses: Default::default(),
             witness_inputs: Default::default(),
@@ -642,6 +644,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let owned_inputs = self.owned_input_ordinals(selection);
 
         let mut evidence = crate::ExecutionCallEvidence {
+            failure_rows: None,
             outputs: Default::default(),
             implementation_witnesses: call.resolution().implementation_witnesses().into(),
             witness_inputs: Default::default(),

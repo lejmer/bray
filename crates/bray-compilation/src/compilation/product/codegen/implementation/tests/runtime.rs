@@ -153,7 +153,7 @@ fn runtime_source_imports_share_generated_runtime_calls() {
             struct Guard { destruct() {} }
             public trusted func invoke(pos outcome: DataPointer<u8>) uses(foreign_call) {
                 let guard = Guard {};
-                trusted reserve(1, outcome);
+                reserve(1, outcome);
             }
         "#;
 
@@ -844,7 +844,7 @@ fn foreign_callbacks_resolve_abnormal_outcomes_before_boundary_release() {
         struct Local {
             tag: u32;
             trusted destruct() executes(total) uses(foreign_call) {
-                trusted record_cleanup();
+                record_cleanup();
             }
         }
         @copy
@@ -929,7 +929,7 @@ fn foreign_callbacks_resolve_abnormal_outcomes_before_boundary_release() {
             let callback: PackedCallback = packed;
             let result = callback(value);
 
-            return trusted native_packed(result);
+            return native_packed(result);
         }
         @symbol(name = "scalar")
         @abi(c)
@@ -958,13 +958,13 @@ fn foreign_callbacks_resolve_abnormal_outcomes_before_boundary_release() {
         @abi(c)
         trusted func through_pointer(pos mode: u32) -> u32 uses(foreign_call) {
             let callback: Callback = plain;
-            return trusted callback(mode);
+            return callback(mode);
         }
         @symbol(name = "through_lambda")
         @abi(c)
         func through_lambda(pos mode: u32) -> u32 {
             let callback = @abi(c) lambda(pos value: u32) -> u32 { return scalar(value); };
-            return trusted callback(mode);
+            return callback(mode);
         }
         @symbol(name = "nested")
         @abi(c)

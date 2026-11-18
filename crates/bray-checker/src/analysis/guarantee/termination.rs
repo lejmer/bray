@@ -24,7 +24,7 @@ pub(super) fn bounded_loop_ranks<C: CheckerRequestContext + ?Sized>(
     incoming
         .into_iter()
         .filter_map(|(header, ends)| {
-            let initial = flow.states.state(header)?.as_ref()?;
+            let initial = flow.entry(header)?;
 
             let ends = ends
                 .into_iter()
@@ -135,7 +135,7 @@ pub(super) fn finite_step<C: CheckerRequestContext + ?Sized>(
         .domain
         .graph
         .completion_exits()
-        .filter_map(|exit| flow.output(exit.block()))
+        .flat_map(|exit| flow.output_states(exit.block()))
         .filter(|state| !absent(&flow.domain.returned_value(state), state))
         .collect::<Vec<_>>();
 
@@ -657,7 +657,7 @@ fn finite_prefix<C: CheckerRequestContext + ?Sized>(
                         return false;
                     };
 
-                    let Some(Some(entry)) = flow.states.state(guard.source()) else {
+                    let Some(entry) = flow.entry(guard.source()) else {
                         return false;
                     };
 
@@ -665,7 +665,7 @@ fn finite_prefix<C: CheckerRequestContext + ?Sized>(
                         return false;
                     };
 
-                    let (_, condition, _) = flow.domain.condition_evidence(entry, expression);
+                    let (_, condition, _) = flow.domain.condition_evidence(&entry, expression);
 
                     if condition
                         .with_equalities(&BTreeMap::from([(current, zero.clone())]))

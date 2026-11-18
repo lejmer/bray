@@ -1,9 +1,8 @@
 use std::path::Path;
 use std::process::Command;
 
+use bray_diagnostics::DiagnosticKind;
 use bray_target::NativeTarget;
-
-use super::core::output_contains;
 
 const INVALID_MEMORY_FIXTURE: &str =
     "xtask/fixtures/native-execution/memory-invalid-obligation.bray";
@@ -22,7 +21,7 @@ pub(super) fn audit_rejections(
         target,
         None,
         INVALID_MEMORY_FIXTURE,
-        "E7087",
+        DiagnosticKind::CheckingUninitializedRawStorage,
         "invalid memory obligations",
     )?;
 
@@ -31,7 +30,7 @@ pub(super) fn audit_rejections(
         target,
         Some(standard_library),
         THREAD_BORROW_CONFLICT_FIXTURE,
-        "E7036",
+        DiagnosticKind::CheckingConflictingBorrow,
         "a write conflicting with native-thread state",
     )?;
 
@@ -40,7 +39,7 @@ pub(super) fn audit_rejections(
         target,
         Some(standard_library),
         THREAD_BORROW_ESCAPE_FIXTURE,
-        "E7113",
+        DiagnosticKind::CheckingEscapingStorageDependency,
         "native-thread state escaping its source scope",
     )
 }
@@ -50,7 +49,7 @@ fn expect_rejection(
     target: NativeTarget,
     standard_library: Option<&Path>,
     fixture: &str,
-    diagnostic: &str,
+    diagnostic: DiagnosticKind,
     description: &str,
 ) -> Result<(), String> {
     let compiler = crate::native_toolchain::compiler_executable(root, "brayc");
@@ -59,6 +58,8 @@ fn expect_rejection(
 
     command.current_dir(root).args([
         "check",
+        "--format",
+        "json",
         "--product-kind",
         "executable",
         "--target",
@@ -78,7 +79,17 @@ fn expect_rejection(
         return Err(format!("{description} unexpectedly passed checking"));
     }
 
-    if output_contains(&output, diagnostic) {
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout)
+        .map_err(|_| crate::command::failure(&format!("reading diagnostics for {description}"), &output))?;
+
+    let mut errors = report["diagnostics"].as_array().into_iter().flatten()
+        .filter(|reported| reported["severity"] == "error").peekable();
+
+    if errors.peek().is_some() && errors.all(|reported| {
+        reported["code"].as_u64() == Some(u64::from(diagnostic.code().raw()))
+            && reported["primary_span"]["source_origin"]["file_path"].as_str()
+                .is_some_and(|path| Path::new(path).file_name() == fixture.file_name())
+    }) {
         Ok(())
     } else {
         Err(crate::command::failure(

@@ -3,31 +3,42 @@ use crate::test_support::{compilation, source_function_body_key};
 
 #[test]
 fn task_cleanup_revokes_preceding_guarantees() {
-    for (pending, valid) in [("", true), ("let pending = work().start();", false)] {
+    for (state, initializer, pending, valid) in [
+        ("Marker", "Marker {}", "let pending = unrelated().start();", true),
+        ("core.atomic.Atomic<u64>", "core.atomic.initialize<u64>(0)", "let pending = change(&state).start();", false),
+    ] {
         let source = format!(
             r#"
             trusted module app;
 
             using core.atomic;
-            trusted predicate ready(state: &core.atomic.Atomic<u64>);
-            async func work()
+            struct Marker {{}}
+            trusted predicate ready(state: &{state});
+            async func unrelated() {{}}
+            async func change(pos state: &core.atomic.Atomic<u64>)
             {{
+                core.atomic.store<u64, 4>(state, 1);
             }}
-            trusted func establish(pos state: &core.atomic.Atomic<u64>)
+            trusted func establish(pos state: &{state})
                 ensures(trusted ready(state))
                 executes(total)
             {{
             }}
-            func observe(pos state: &core.atomic.Atomic<u64>)
+            func observe(pos state: &{state})
                 requires(trusted ready(state))
                 executes(pure, total)
             {{
             }}
-            async func caller(pos state: &core.atomic.Atomic<u64>)
+            async func caller()
             {{
+                let state = {initializer};
+
                 {{
-                    {pending} establish(state);
-                }} observe(state);
+                    {pending}
+                    establish(&state);
+                }}
+
+                observe(&state);
             }}
         "#
         );
@@ -46,6 +57,12 @@ fn task_cleanup_revokes_preceding_guarantees() {
                 diagnostics,
                 DiagnosticKind::CheckingTrustedObligationNotProven,
             );
+
+            let source_id = source_function_body_key(&compilation, "caller").source().syntax().source_id();
+
+            assert!(diagnostics.by_kind(DiagnosticKind::CheckingTrustedObligationNotProven).any(|diagnostic|
+                crate::test_support::diagnostic_at_call(diagnostic, source_id, &source, "observe(&state)")
+            ), "cleanup of the reachable child must invalidate the later observation: {diagnostics:#?}");
         }
     }
 }

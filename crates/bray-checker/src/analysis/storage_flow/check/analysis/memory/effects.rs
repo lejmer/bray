@@ -75,6 +75,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         }
 
         match *operation.kind() {
+            CheckedMemoryOperationKind::Copy { .. }
+                if self.execution.empty_memory_copy(execution, expression.into()) => return Some(Vec::new()),
             CheckedMemoryOperationKind::RawBufferPush { element } => {
                 return self.buffer_prefix_effects(
                     state,

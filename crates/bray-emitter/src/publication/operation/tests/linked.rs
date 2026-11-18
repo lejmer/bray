@@ -236,7 +236,20 @@ fn link_failure_and_cancellation_preserve_existing_destinations() {
             &fixture.outcome,
         );
 
-        assert!(!matches!(outcome.status(), EmissionStatus::Complete));
+        let expected = if failed {
+            EmissionStatus::Failed(EmissionFailure::Linking)
+        } else {
+            EmissionStatus::Cancelled
+        };
+
+        assert_eq!(outcome.status(), &expected);
+
+        if failed {
+            assert_goal_state_diagnostic_kind(outcome.diagnostics(), DiagnosticKind::LinkerInvocationFailed);
+        } else {
+            assert!(outcome.diagnostics().is_empty());
+        }
+
         assert_eq!(file_bytes(&artifact.final_path), b"existing");
         assert!(!artifact.staging_path.exists());
         assert!(!fixture.input_path.exists());

@@ -12,6 +12,7 @@ mod pointee;
 mod prepare;
 mod preservation;
 mod refinement;
+mod replay;
 mod value;
 mod witnesses;
 

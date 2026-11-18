@@ -461,7 +461,10 @@ fn body_result_dependencies(
     // only where the same widening retains their supporting observations.
     let outcomes = combined_result_values(checked, previous);
 
-    let mut result = bray_symbols::DependencyContractTemplateData::new(
+    let failures = checked.failure_outcomes().map(|checked|
+        previous.failure_outcomes().into_iter().flatten().chain(checked).cloned());
+
+    bray_symbols::DependencyContractTemplateData::new(
         previous
             .requirements()
             .iter()
@@ -469,6 +472,7 @@ fn body_result_dependencies(
             .cloned(),
     )
     .with_captured_values(outcomes)
+    .with_failure_outcomes(failures)
     .with_observed_result(if !previous.normal_completion() {
         checked.observed_result()
     } else if !checked.normal_completion()
@@ -486,20 +490,7 @@ fn body_result_dependencies(
             .chain(checked.synchronous_cleanup())
             .cloned(),
     )
-    .with_normal_completion(previous.normal_completion() || checked.normal_completion());
-
-    if previous.abnormal_reports().is_some() || checked.abnormal_reports().is_some() {
-        result = result.with_abnormal_reports(
-            previous
-                .abnormal_reports()
-                .into_iter()
-                .flatten()
-                .chain(checked.abnormal_reports().into_iter().flatten())
-                .cloned(),
-        );
-    }
-
-    result
+    .with_normal_completion(previous.normal_completion() || checked.normal_completion())
 }
 
 fn combined_result_values(

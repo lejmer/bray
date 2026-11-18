@@ -312,13 +312,26 @@ func guarded(pos pair: Pair, pos flag: bool)
     };
 }
 
-func guarded_alternative(pos choice: GuardChoice, pos flag: bool)
+func guarded_alternative(pos choice: GuardChoice, pos flag: bool) -> i32
 {
     match consume choice
     {
-        case First(item) | Second(item) when item.counter.value >= 0 && flag { take(item); }
-        case First(item) | Second(item) { take(item); }
+        case First(item) | Second(item) when item.counter.value >= 0 && flag
+        {
+            take(item);
+            return 19;
+        }
+        case First(item) | Second(item)
+        {
+            take(item);
+            return 27;
+        }
     };
+}
+
+func assert_cleanup_order(pos expected: usize)
+{
+    assert(core.atomic.exchange<usize, 3>(&CLEANUP_ORDER, 0) == expected);
 }
 
 func fields(pos flag: bool, pos first: &mut Counter, pos second: &mut Counter) -> i32
@@ -541,15 +554,19 @@ func main() -> i32
         [
             Guard
             {
-                counter = &mut first
+                counter = &mut first,
+                digit = 1
             },
             Guard
             {
-                counter = &mut second
+                counter = &mut second,
+                digit = 2
             }
         ],
         1
     );
+
+    assert_cleanup_order(21);
 
     if first.value != 7 || second.value != 7
     {
@@ -560,15 +577,19 @@ func main() -> i32
         [
             Guard
             {
-                counter = &mut first
+                counter = &mut first,
+                digit = 1
             },
             Guard
             {
-                counter = &mut second
+                counter = &mut second,
+                digit = 2
             }
         ],
         0
     );
+
+    assert_cleanup_order(12);
 
     if first.value != 8 || second.value != 8
     {
@@ -580,16 +601,20 @@ func main() -> i32
             [
                 Guard
                 {
-                    counter = &mut first
+                    counter = &mut first,
+                    digit = 1
                 },
                 Guard
                 {
-                    counter = &mut second
+                    counter = &mut second,
+                    digit = 2
                 }
             ],
             1
         )
     );
+
+    assert_cleanup_order(12);
 
     if first.value != 9 || second.value != 9
     {
@@ -601,18 +626,22 @@ func main() -> i32
             [
                 Guard
                 {
-                    counter = &mut first
+                    counter = &mut first,
+                    digit = 1
                 }
             ],
             [
                 Guard
                 {
-                    counter = &mut second
+                    counter = &mut second,
+                    digit = 2
                 }
             ]
         ],
         1
     );
+
+    assert_cleanup_order(21);
 
     if first.value != 10 || second.value != 10
     {
@@ -687,7 +716,7 @@ func main() -> i32
         return 13;
     }
 
-    guarded_alternative(
+    let fallback = guarded_alternative(
         GuardChoice.First(
             Guard
             {
@@ -697,7 +726,7 @@ func main() -> i32
         false
     );
 
-    guarded_alternative(
+    let guarded = guarded_alternative(
         GuardChoice.Second(
             Guard
             {
@@ -707,7 +736,7 @@ func main() -> i32
         true
     );
 
-    if first.value != 14 || second.value != 14
+    if first.value != 14 || second.value != 14 || fallback != 27 || guarded != 19
     {
         return 14;
     }

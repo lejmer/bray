@@ -203,14 +203,16 @@ impl ControlFlowGraphAssembler {
                     )),
                 );
 
-                self.push_edge(
-                    scoped_attempt.expect("selected scope exit retains its admitted attempt"),
-                    cancellation,
-                    AnalysisEdgeKind::Sequential,
-                    Some(AnalysisRefinement::InvocationFailure(
-                        bray_bound_tree::BoundExecutionSite::ScopedExit(expression),
-                    )),
-                );
+                for kind in [bray_symbols::DependencyFailureKind::Panic, bray_symbols::DependencyFailureKind::Cancellation] {
+                    self.push_edge(
+                        scoped_attempt.expect("selected scope exit retains its admitted attempt"),
+                        cancellation,
+                        AnalysisEdgeKind::Sequential,
+                        Some(AnalysisRefinement::InvocationFailure(
+                            bray_bound_tree::BoundExecutionSite::ScopedExit(expression), kind,
+                        )),
+                    );
+                }
             }
 
             cancellation
@@ -466,9 +468,7 @@ mod tests {
                             matches!(
                                 edge.refinement(),
                                 Some(
-                                    crate::analysis::model::AnalysisRefinement::InvocationFailure(
-                                        _
-                                    )
+                                    crate::analysis::model::AnalysisRefinement::InvocationFailure(..)
                                 )
                             )
                         });
@@ -484,7 +484,7 @@ mod tests {
                         if failure.is_some() {
                             assert!(!preserves_exit_value);
                             assert!(!admission_failure);
-                            assert_eq!(successors.len(), 2);
+                            assert_eq!(successors.len(), 3);
                         } else if admission_failure {
                             assert_eq!(successors.len(), 2);
                         } else {
@@ -493,7 +493,7 @@ mod tests {
 
                         let Some(edge) = failure.filter(|_| failed).copied().or_else(|| successors.iter().copied().find(|edge| !matches!(
                             edge.refinement(),
-                            Some(crate::analysis::model::AnalysisRefinement::InvocationFailure(_)
+                            Some(crate::analysis::model::AnalysisRefinement::InvocationFailure(..)
                                 | crate::analysis::model::AnalysisRefinement::PreconditionFailure(_))
                         ))) else { break; };
 

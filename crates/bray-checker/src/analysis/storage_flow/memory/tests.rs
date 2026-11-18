@@ -9,7 +9,7 @@ use bray_bound_tree::{
     MemoryOperationStatus, MemoryReadKind, StorageIdentity, StorageOrigin, StoragePlanBuilder,
     StorageProjection, StorageRelationship,
 };
-use bray_symbols::{BorrowKind, DependencyMutationKind, DependencyProjection, DependencyReferenceKind, TypeData};
+use bray_symbols::{BorrowKind, DependencyFailureKind, DependencyMutationKind, DependencyProjection, DependencyReferenceKind, TypeData};
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
@@ -4076,12 +4076,14 @@ fn private_production_retains_captures_until_normal_completion() {
 
     state.capture_failure_effects(
         occurrence,
+        DependencyFailureKind::Panic,
         super::CapturedEffects {
             mutations: [super::Effect::at(source_target.clone(), bray_symbols::DependencyMutationKind::Write, None)]
             .into(),
             escaped: [source_target.clone()].into(),
+            escape_prefix: Default::default(),
             invalidation: bray_bound_tree::StorageInvalidation::unknown(),
-        },
+        }.into(),
     );
 
     assert!(state.value_targets(&output_target).is_none(), "staged output has not been produced");
@@ -4100,14 +4102,17 @@ fn private_production_retains_captures_until_normal_completion() {
         "private production retains the evaluated input independently of its current slot");
 
     let mut failed = state.clone();
-    let effects = failed.take_failure_effects(occurrence).expect("private production retains abnormal effects");
+
+    assert!(failed.take_failure_effects(occurrence, DependencyFailureKind::Cancellation).is_none());
+
+    let effects = failed.take_failure_effects(occurrence, DependencyFailureKind::Panic).expect("private production retains panic effects");
 
     assert_eq!(effects.escaped.as_slice(), &[source_target]);
-    assert!(failed.take_failure_effects(occurrence).is_none(), "an outcome consumes its capture once");
+    assert!(failed.take_failure_effects(occurrence, DependencyFailureKind::Panic).is_none(), "an outcome consumes its capture once");
 
     state.complete_transition(occurrence);
 
-    assert!(state.take_failure_effects(occurrence).is_none());
+    assert!(state.take_failure_effects(occurrence, DependencyFailureKind::Panic).is_none());
     assert!(state.captured_input_target(occurrence, semantic_values(), &input_target, &path).is_none());
     assert_eq!(state.value_targets(&output_target), Some(Vec::new()), "normal completion publishes the surviving private value");
 }
@@ -4151,6 +4156,7 @@ fn captured_failure_targets_follow_storage_retirement() {
 
     state.capture_failure_effects(
         occurrence,
+        DependencyFailureKind::Cancellation,
         super::CapturedEffects {
             mutations: [
                 super::Effect::at(previous.clone(), bray_symbols::DependencyMutationKind::Write, None),
@@ -4158,14 +4164,15 @@ fn captured_failure_targets_follow_storage_retirement() {
             ]
             .into(),
             escaped: [previous, Target::storage(source.clone())].into(),
+            escape_prefix: Default::default(),
             invalidation: bray_bound_tree::StorageInvalidation::unknown(),
-        },
+        }.into(),
     );
 
     state.begin(source.root);
 
     let effects = state
-        .take_failure_effects(occurrence)
+        .take_failure_effects(occurrence, DependencyFailureKind::Cancellation)
         .expect("failed invocation retains its effects");
 
     let previous = Target {
@@ -4179,7 +4186,7 @@ fn captured_failure_targets_follow_storage_retirement() {
     );
 
     assert_eq!(effects.escaped.as_slice(), &[previous]);
-    assert!(state.take_failure_effects(occurrence).is_none());
+    assert!(state.take_failure_effects(occurrence, DependencyFailureKind::Cancellation).is_none());
 }
 
 #[test]

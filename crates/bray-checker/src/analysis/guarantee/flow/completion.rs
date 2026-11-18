@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
-use bray_bound_tree::BoundExpressionId;
+use bray_bound_tree::{BoundExpressionId, StorageTaskOutcome};
+use bray_symbols::DependencyFailureKind;
 
 use super::super::state::ExecutionState;
 use super::ExecutionFlowDomain;
@@ -100,10 +101,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             let (source, candidate) = feasible.next()?;
 
-            assert!(
-                feasible.next().is_none(),
-                "operation selects one deferred producer before composing completion"
-            );
+            if feasible.next().is_some() {
+                return None;
+            }
 
             if self.is_task_observation(source.clone()) {
                 let task = ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(0))
@@ -142,67 +142,26 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         .map(|(depth, (source, frame, _))| (source, depth, frame))
     }
 
-    /// Preservation queries can join producers before an operation selects one.
-    pub(in crate::analysis) fn deferred_preserves_storage(
-        &self,
-        state: &ExecutionState,
-        value: ExecutionCondition,
-    ) -> bool {
-        let mut pending = vec![value];
-        let mut visited = std::collections::BTreeSet::new();
-        let mut body = false;
-
-        while let Some(value) = pending.pop() {
-            let Some(deferred) = value.deferred_value() else {
-                return false;
-            };
-
-            if !visited.insert(Arc::as_ptr(deferred)) { continue; }
-
-            if deferred.unknown_possible(&state.ordinary_proof()) {
-                return false;
-            }
-
-            for (source, candidate) in &deferred.producers {
-                if !super::super::deferred::possible(&candidate.selection, &state.ordinary_proof()) {
-                    continue;
-                }
-
-                if self.is_task_observation(source.clone()) {
-                    let Some(task) = ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(0))
-                        .value_in(&candidate.entry.arguments)
-                    else {
-                        return false;
-                    };
-
-                    pending.push(task);
-                } else {
-                    let preserves = source.local().map_or_else(|| {
-                        candidate.callee.as_deref().and_then(|callee| self.dependencies.frame_callees().get(callee)).is_some_and(|body|
-                            self.request.semantic_values().dependency_contract_template_data(body.summary).effect_outcomes().preserves_storage_on_normal_return())
-                    }, |source| self.dependencies.calls()[&source].deferred_preserves_storage_on_normal_return());
-
-                    if !preserves
-                    {
-                        return false;
-                    }
-
-                    body = true;
-                }
-            }
-        }
-
-        body
-    }
-
     pub(in crate::analysis) fn awaited_value_dependencies(
         &self,
         state: &ExecutionState,
         expression: BoundExpressionId,
+        outcome: Option<StorageTaskOutcome>,
     ) -> Option<Arc<std::collections::BTreeSet<bray_symbols::DependencyRequirement>>> {
         let bray_bound_tree::BoundExpression::Await(_) = self.request.view().expression(expression)? else {
             return None;
         };
+
+        match outcome {
+            Some(StorageTaskOutcome::Abnormal { kind: DependencyFailureKind::Cancellation, .. }) => {
+                return Some(Arc::new(std::collections::BTreeSet::new()));
+            }
+            Some(outcome @ StorageTaskOutcome::Abnormal { kind: DependencyFailureKind::Panic, .. }) => {
+                return self.observed_task_reports(state, expression, outcome)
+                    .map(|report| Arc::new(report.requirements.clone()));
+            }
+            _ => {}
+        }
 
         let value = state.admitted_receiver(expression.into());
 
@@ -211,141 +170,202 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         frame.producers[&producer].completed.clone()
     }
 
-    fn task_outcomes<'s>(
+    pub(super) fn task_result_variant(&self, failure: Option<DependencyFailureKind>) -> bray_symbols::UnionVariantSymbolId {
+        let representation = self.request.available_compiler_known_symbols().run_result_representation()
+            .expect("a task observation retains the checked RunResult representation");
+
+        match failure {
+            None => representation.completed_variant(),
+            Some(DependencyFailureKind::Panic) => representation.panicked_variant(),
+            Some(DependencyFailureKind::Cancellation) => representation.cancelled_variant(),
+        }
+    }
+
+    fn task_observation_expression(
+        &self,
+        state: &ExecutionState,
+        operation: crate::analysis::AnalysisOperationKind,
+    ) -> Option<BoundExpressionId> {
+        let crate::analysis::AnalysisOperationKind::Call {
+            invocation, phase: crate::analysis::model::AnalysisCallPhase::Completion,
+        } = operation else { return None; };
+
+        let expression = invocation.expression()?;
+
+        self.awaited_task_frame(state, expression)?;
+
+        Some(expression)
+    }
+
+    fn task_completion_steps<'s>(
         &'s self,
         state: &'s ExecutionState,
         expression: BoundExpressionId,
-    ) -> impl Iterator<Item = ExecutionCondition> + 's {
-        let value = match self.request.view().expression(expression) {
-            Some(bray_bound_tree::BoundExpression::Await(_)) => {
-                state.admitted_receiver(expression.into())
-            }
-            _ => ExecutionCondition::unknown(),
-        };
-
-        let (variant, _) = crate::representation::union_payload(
-            self.request,
-            "RunResultVariant0Completed",
-            "RunResultVariant0CompletedValue",
-        );
-
+    ) -> impl Iterator<Item = (crate::execution_guarantees::DeferredProducer, Arc<crate::ExecutionDeferredValue>, ExecutionCondition)> + 's {
         self.deferred_execution(
             state.ordinary_proof(),
-            value,
+            state.admitted_receiver(expression.into()),
             ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expression)),
         )
-        .take_while(|(source, _, _)| self.is_task_observation(source.clone()))
-        .map(move |(_, _, result)| ExecutionCondition::new(crate::ExecutionConditionKind::VariantTest(variant, Arc::new(result))))
     }
 
-    pub(in crate::analysis) fn task_completion(
+    pub(in crate::analysis) fn observed_task_at(
         &self,
         state: &ExecutionState,
         expression: BoundExpressionId,
-    ) -> Option<bool> {
-        let mut result = None;
+        depth: usize,
+    ) -> Option<Arc<crate::ExecutionDeferredValue>> {
+        let (source, frame, _) = self.task_completion_steps(state, expression).nth(depth)?;
 
-        for condition in self.task_outcomes(state, expression) {
-            match condition.prove_ordinary(&state.assumptions, Some(&state.proofs)) {
-                Some(false) => return Some(false),
-                None => return None,
-                Some(true) => result = Some(true),
-            }
-        }
+        if !self.is_task_observation(source.clone()) { return None; }
 
-        result
+        ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(0))
+            .value_in(&frame.producers[&source].entry.arguments)?.deferred_value().cloned()
     }
 
-    /// Refine the feasible normal prefix and retain its abnormal alternatives.
-    pub(in crate::analysis) fn split_task_completion(
+    pub(in crate::analysis) fn task_observation_outcome(
         &self,
-        state: &mut ExecutionState,
+        state: &ExecutionState,
         operation: crate::analysis::AnalysisOperationKind,
-    ) -> Vec<ExecutionState> {
-        if !matches!(
-            operation,
-            crate::analysis::AnalysisOperationKind::Call {
-                phase: crate::analysis::model::AnalysisCallPhase::Completion,
-                ..
-            }
-        ) {
-            return Vec::new();
-        }
-
-        let Some(expression) = operation.occurrence().expression() else {
-            return Vec::new();
-        };
-
-        let Some(task) = self.awaited_task_frame(state, expression) else { return Vec::new(); };
-
+    ) -> Option<StorageTaskOutcome> {
+        let expression = self.task_observation_expression(state, operation)?;
         let proof = state.ordinary_proof();
 
-        let changes_storage = task.unknown_possible(&proof) || task.producers.values()
-            .filter(|producer| super::super::deferred::possible(&producer.selection, &proof))
-            .any(|producer| producer.transition.as_ref().is_none_or(|transition|
-                transition.transfer.captured_cleanup.as_ref().is_none_or(|cleanup| !cleanup.is_empty()) ||
-                transition.transfer.deferred_effects.as_ref().is_none_or(|effects| !effects.possible().is_empty())));
+        for (depth, (source, frame, root)) in self.task_completion_steps(state, expression).enumerate() {
+            if !self.is_task_observation(source.clone()) {
+                let row = match frame.producers[&source].entry.outputs.0.as_ref() {
+                    [output] => single_task_output_row(output),
+                    _ => None,
+                };
 
-        if !changes_storage { return Vec::new(); }
+                return Some(StorageTaskOutcome::Completed { row });
+            }
 
-        let Some(bray_bound_tree::BoundExpression::Await(_)) =
-            self.request.view().expression(expression)
-        else {
-            unreachable!("Task completion retains its await operation");
-        };
+            if let Some(kind) = DependencyFailureKind::ALL.into_iter().find(|kind| {
+                proof.prove_trusted(&root.clone().matches_variant(self.task_result_variant(Some(*kind)))) == Some(true)
+            }) {
+                return Some(StorageTaskOutcome::Abnormal { depth, kind });
+            }
 
-        let value = state.admitted_receiver(expression.into());
-
-        // Formation guards select existing frames while this outcome refines ordinary truth.
-        let formation = state.assumptions.clone();
-
-        let mut steps = self
-            .deferred_execution(
-                state.proofs.ordinary_proof(&formation),
-                value,
-                ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expression)),
-            )
-            .peekable();
-
-        let (variant, _) = crate::representation::union_payload(
-            self.request,
-            "RunResultVariant0Completed",
-            "RunResultVariant0CompletedValue",
-        );
-
-        let mut alternatives = Vec::new();
-
-        while let Some((source, _, result)) = steps.next() {
-            if !self.is_task_observation(source) {
+            if proof.prove_trusted(&root.matches_variant(self.task_result_variant(None))) != Some(true) {
                 break;
             }
-
-            let condition = ExecutionCondition::new(crate::ExecutionConditionKind::VariantTest(variant, Arc::new(result)));
-
-            match condition.prove_ordinary(&state.assumptions, Some(&state.proofs)) {
-                Some(false) => break,
-                Some(true) => continue,
-                None => {}
-            }
-
-            let possible = steps.peek().is_none_or(|(body, frame, result)| {
-                self.frame_normal_completion(&state.assumptions, body, &frame.producers[body], result)
-            });
-
-            if !possible {
-                condition.assume(false, &mut state.assumptions);
-                break;
-            }
-
-            // Each outcome owns mutable observations and shares immutable captured entries.
-            let mut abnormal = state.clone();
-
-            condition.clone().assume(false, &mut abnormal.assumptions);
-            alternatives.push(abnormal);
-            condition.assume(true, &mut state.assumptions);
         }
 
-        alternatives
+        Some(StorageTaskOutcome::Widened)
+    }
+
+    /// Refine concrete task result tags within the same alternatives budget as call rows.
+    pub(in crate::analysis) fn split_task_completion(
+        &self,
+        state: &ExecutionState,
+        operation: crate::analysis::AnalysisOperationKind,
+        maximum: usize,
+    ) -> Option<Vec<(StorageTaskOutcome, ExecutionState)>> {
+        let expression = self.task_observation_expression(state, operation)?;
+
+        let mut completed = state.clone();
+        let mut steps = self.task_completion_steps(state, expression).enumerate().peekable();
+        let mut alternatives = Vec::new();
+
+        while let Some((depth, (source, frame, root))) = steps.next() {
+            if !self.is_task_observation(source.clone()) {
+                let entry = &frame.producers[&source].entry;
+                let rows = self.feasible_entry_outputs(&completed, entry);
+                let remaining = maximum.checked_sub(alternatives.len())?;
+
+                if remaining == 0 { return None; }
+
+                let portable = rows.iter().map(|index| single_task_output_row(&entry.outputs.0[*index]))
+                    .collect::<Option<std::collections::BTreeSet<_>>>();
+
+                if !rows.is_empty() && rows.len() <= remaining && portable.is_some_and(|portable| portable.len() == rows.len()) {
+                    for index in rows {
+                        let row = single_task_output_row(&entry.outputs.0[index]);
+                        let mut branch = completed.clone();
+
+                        branch.select_frame_output(&frame, &source, index);
+                        alternatives.push((StorageTaskOutcome::Completed { row }, branch));
+                    }
+
+                    return Some(alternatives);
+                }
+
+                alternatives.push((StorageTaskOutcome::Completed { row: None }, completed));
+
+                return Some(alternatives);
+            }
+
+            let normal = root.clone().matches_variant(self.task_result_variant(None));
+            let proof = completed.ordinary_proof();
+
+            for kind in DependencyFailureKind::ALL {
+                let selected = root.clone().matches_variant(self.task_result_variant(Some(kind)));
+
+                if !proof.can_assume(&normal, false) || !proof.can_assume(&selected, true) {
+                    continue;
+                }
+
+                if steps.peek().is_some_and(|(_, (body, frame, _))| {
+                    !self.task_body_can_fail(body, &frame.producers[body], kind)
+                }) {
+                    continue;
+                }
+
+                if alternatives.len() == maximum { return None; }
+
+                let mut branch = completed.clone();
+
+                normal.clone().assume(false, &mut branch.assumptions);
+                selected.assume(true, &mut branch.assumptions);
+                alternatives.push((StorageTaskOutcome::Abnormal { depth, kind }, branch));
+            }
+
+            let can_complete = proof.can_assume(&normal, true) && steps.peek().is_none_or(|(_, (body, frame, result))| {
+                self.frame_normal_completion(&completed.assumptions, body, &frame.producers[body], result)
+            });
+
+            if !can_complete {
+                return Some(alternatives);
+            }
+
+            normal.assume(true, &mut completed.assumptions);
+        }
+
+        // An opaque or merged child can still produce an enclosing Completed tag.
+        if alternatives.len() == maximum { return None; }
+
+        alternatives.push((StorageTaskOutcome::Widened, completed));
+
+        Some(alternatives)
+    }
+
+    fn task_body_can_fail(
+        &self,
+        source: &crate::execution_guarantees::DeferredProducer,
+        candidate: &crate::ExecutionDeferredInvocation,
+        kind: DependencyFailureKind,
+    ) -> bool {
+        if self.is_task_observation(source.clone()) {
+            return true;
+        }
+
+        if let Some(site) = source.local() {
+            return self.dependencies.calls().get(&site).and_then(|call| call.deferred_reports()?.failures())
+                .is_none_or(|rows| rows.iter().enumerate().any(|(index, row)| row.covers(kind) && candidate.entry.admits_failure(index)));
+        }
+
+        let Some(body) = candidate.callee.as_deref().and_then(|callee| self.dependencies.frame_callees().get(callee)) else {
+            return true;
+        };
+
+        let summary = self.request.semantic_values().dependency_contract_template_data(body.summary);
+        let rows = summary.failure_outcomes();
+        let admitted = self.select_frame_failures(&candidate.entry, rows);
+
+        rows.is_none_or(|rows| rows.iter().enumerate().any(|(index, row)| {
+            row.covers(kind) && admitted.as_deref().is_none_or(|rows| rows.binary_search(&index).is_ok())
+        }))
     }
 
     pub(in crate::analysis) fn merge_completion(
@@ -360,5 +380,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let value = super::merge_returned(target, incoming, &left, &right, &root, expression);
 
         self.publish_expression(target, expression, value);
+    }
+}
+
+fn single_task_output_row(output: &crate::execution_guarantees::ExecutionOutput) -> Option<usize> {
+    match output.sources.as_deref()? {
+        [row] => Some(*row),
+        _ => None,
     }
 }

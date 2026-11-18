@@ -40,7 +40,7 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
 
     while index < 64
     {
-        try trusted std.bytes.push(&mut buffer, value = 65);
+        try std.bytes.push(&mut buffer, value = 65);
         index += 1;
     }
 
@@ -76,7 +76,7 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
 
     while index < 4096
     {
-        try trusted std.bytes.push(&mut buffer, value = 65);
+        try std.bytes.push(&mut buffer, value = 65);
         index += 1;
     }
 
@@ -176,7 +176,7 @@ func main()
 
     while index < 256
     {
-        match consume trusted std.format.write<string>(&mut sink, std.format.Argument<string>(&literal))
+        match consume std.format.write<string>(&mut sink, std.format.Argument<string>(&literal))
         {
             case Ok(_) {}
             case Error(_) { panic("raw text formatting failed"); }
@@ -185,7 +185,7 @@ func main()
         index += 1;
     }
 
-    match consume trusted std.format.write<string>(
+    match consume std.format.write<string>(
         &mut sink,
         std.format.Argument<string>(&long, options = quoted),
     )
@@ -228,7 +228,7 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
         let formatted: u32 = value;
 
         {
-            try trusted std.format.write<u32>(&mut sink, std.format.Argument<u32>(&formatted));
+            try std.format.write<u32>(&mut sink, std.format.Argument<u32>(&formatted));
         }
 
         value += 1;
@@ -281,7 +281,7 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
             escaping = std.format.Escaping.Raw,
         );
 
-        try trusted std.format.write<u32>(&mut sink, std.format.Argument<u32>(&value, options = options));
+        try std.format.write<u32>(&mut sink, std.format.Argument<u32>(&value, options = options));
         formatted += 1;
     }
 
@@ -405,7 +405,7 @@ func main()
 
         while formatted < 1024
         {
-            match consume trusted std.format.write_to<u32, std.io.FormattingSink<ValidatingWriter>, std.io.IoError>(
+            match consume std.format.write_to<u32, std.io.FormattingSink<ValidatingWriter>, std.io.IoError>(
                 &mut sink,
                 std.format.Argument<u32>(&value)
             )
@@ -619,7 +619,7 @@ func path(pos text: string) -> std.path.Path
     }
 }
 
-trusted func main() -> Result<unit, std.io.IoError>
+func main() -> Result<unit, std.io.IoError>
     requires(blocking_execution())
 {
     let source: std.path.Path = path("bray-performance-path-a");
@@ -630,7 +630,7 @@ trusted func main() -> Result<unit, std.io.IoError>
     while index < 8
     {
         try std.fs.create_directory(&directory);
-        let mut listing: std.fs.Directory = try trusted std.fs.Directory.open(&directory);
+        let mut listing: std.fs.Directory = try std.fs.Directory.open(&directory);
         std.testing.assert_ok<unit, std.io.IoError>(listing.close());
         assert(listing.is_complete());
         let options: std.fs.OpenOptions = std.fs.OpenOptions(

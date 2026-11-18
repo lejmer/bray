@@ -1,25 +1,25 @@
 use bray_diagnostics::{DiagnosticKind};
 use crate::test_support::{source_function_body_key, source_module_function_body_key};
-use super::fixtures::production_host_compilation;
+use super::fixtures::{assert_production_contract, diagnostic_at_call, production_host_compilation};
 
 #[test]
 #[ignore = "tier:proof"]
 fn native_report_addresses_retain_authority_only_for_the_unchanged_owner() {
     for (body, valid) in [
         (
-            "let callbacks = trusted bray.runtime.bootstrap.primary_callbacks(&primary);",
+            "let callbacks = bray.runtime.bootstrap.primary_callbacks(&primary);",
             true,
         ),
         (
-            "other.message_length = 0; let callbacks = trusted bray.runtime.bootstrap.primary_callbacks(&primary);",
+            "other.message_length = 0; let callbacks = bray.runtime.bootstrap.primary_callbacks(&primary);",
             true,
         ),
         (
-            "primary.release_message = 0; let callbacks = trusted bray.runtime.bootstrap.primary_callbacks(&primary);",
+            "primary.release_message = 0; let callbacks = bray.runtime.bootstrap.primary_callbacks(&primary);",
             false,
         ),
         (
-            "let mut forged = trusted bray.runtime.bootstrap.empty_primary(); forged.release_message = primary.release_message; let callbacks = trusted bray.runtime.bootstrap.primary_callbacks(&forged);",
+            "let mut forged = bray.runtime.bootstrap.empty_primary(); forged.release_message = primary.release_message; let callbacks = bray.runtime.bootstrap.primary_callbacks(&forged);",
             false,
         ),
     ] {
@@ -60,7 +60,7 @@ fn native_report_addresses_retain_authority_only_for_the_unchanged_owner() {
 #[test]
 #[ignore = "tier:proof"]
 fn raw_typed_incident_headers_do_not_grant_disposal_authority() {
-    let compilation = production_host_compilation(
+    assert_production_contract(
         r#"
         trusted internal module bray.runtime.bootstrap;
 
@@ -69,18 +69,12 @@ fn raw_typed_incident_headers_do_not_grant_disposal_authority() {
         trusted func production_probe(pos pointer: DataPointer<bray.runtime.bootstrap.report.incident.Record>) -> u32
             requires(trusted bray.runtime.bootstrap.pool.protocol_access())
         {
-            return trusted bray.runtime.bootstrap.report.incident.dispose(pointer, 1);
+            return bray.runtime.bootstrap.report.incident.dispose(pointer, 1);
         }
     "#,
-    );
-
-    let checked = compilation
-        .lowered_unit(source_function_body_key(&compilation, "production_probe"))
-        .expect("fixture callable must lower successfully");
-
-    bray_testing::assert_goal_state_diagnostic_kind(
-        checked.diagnostics(),
-        DiagnosticKind::CheckingTrustedObligationNotProven,
+        Some(DiagnosticKind::CheckingTrustedObligationNotProven),
+        "bray.runtime.bootstrap.report.incident.dispose(pointer, 1)",
+        "owned",
     );
 }
 
@@ -124,7 +118,7 @@ fn retained_incident_values_require_the_exact_ownership_witness() {
                 )
             {{
                 {body}
-                return trusted bray.runtime.bootstrap.consume_values(
+                return bray.runtime.bootstrap.consume_values(
                     value,
                     bray.runtime.bootstrap.empty_records(),
                     0
@@ -156,47 +150,56 @@ fn retained_incident_values_require_the_exact_ownership_witness() {
 #[test]
 #[ignore = "tier:proof"]
 fn incident_outcome_destinations_require_distinct_exclusive_borrows() {
-    let compilation = production_host_compilation(
-        r#"
+    for (destination, expected) in [
+        ("other", None),
+        ("outcome", Some(DiagnosticKind::CheckingConflictingBorrow)),
+    ] {
+        let caller = format!(r#"
         trusted internal module bray.runtime.bootstrap;
 
         using internal bray.runtime.bootstrap.report.incident;
-        trusted func production_probe(pos outcome: &mut ReportOutcome)
-        {
-            let pair = trusted bray.runtime.bootstrap.report.incident.destinations(outcome, outcome);
+        func production_probe(pos outcome: &mut ReportOutcome, pos other: &mut ReportOutcome)
+        {{
+            let pair = bray.runtime.bootstrap.report.incident.destinations(outcome, {destination});
+        }}
+    "#);
+
+        let compilation = production_host_compilation(&caller);
+        let key = source_function_body_key(&compilation, "production_probe");
+        let source = key.source().syntax().source_id();
+        let checked = compilation.lowered_unit(key).expect("fixture callable must lower successfully");
+
+        bray_testing::assert_goal_state_diagnostic_outcome(checked.diagnostics(), expected, &caller);
+
+        if let Some(expected) = expected {
+            assert!(checked.diagnostics().iter().any(|diagnostic| {
+                diagnostic.kind() == expected && diagnostic_at_call(
+                    diagnostic, source, &caller, "bray.runtime.bootstrap.report.incident.destinations",
+                )
+            }));
         }
-    "#,
-    );
-
-    let checked = compilation
-        .lowered_unit(source_function_body_key(&compilation, "production_probe"))
-        .expect("fixture callable must lower successfully");
-
-    bray_testing::assert_goal_state_diagnostic_kind(
-        checked.diagnostics(),
-        DiagnosticKind::CheckingConflictingBorrow,
-    );
+    }
 }
 
 #[test]
 #[ignore = "tier:proof"]
 fn source_report_chain_requires_unchanged_exclusive_ownership() {
     for (body, valid) in [
-        ("let owner = trusted admit(2);", true),
+        ("let owner = admit(2);", true),
         (
             "let owner: Owner = { records = bray.runtime.bootstrap.ReportRecords { head = 1, tail = 1, count = 1 }, status = 0 };",
             false,
         ),
         (
-            "let owner = trusted admit(2); let copied: Owner = { records = owner.records, status = owner.status };",
+            "let owner = admit(2); let copied: Owner = { records = owner.records, status = owner.status };",
             false,
         ),
         (
-            "let mut owner = trusted admit(2); owner.records.head = 1;",
+            "let mut owner = admit(2); owner.records.head = 1;",
             false,
         ),
         (
-            "let mut owner = trusted admit(2); let other = trusted admit(2); owner.records = other.records;",
+            "let mut owner = admit(2); let other = admit(2); owner.records = other.records;",
             false,
         ),
     ] {
@@ -235,10 +238,10 @@ fn source_report_chain_requires_unchanged_exclusive_ownership() {
 #[test]
 #[ignore = "tier:proof"]
 fn production_report_pool_mutation_requires_protocol_authority() {
-    for operation in [
-        "let mut guard = trusted bray.runtime.bootstrap.pool.lock(); let pool = guard.get(); pool.credits = 0; pool.free = 1;",
-        "let mut records: bray.runtime.bootstrap.ReportRecords = bray.runtime.bootstrap.empty_records(); let status = trusted bray.runtime.bootstrap.report_records_admit(1, std.memory.address_of_mut<bray.runtime.bootstrap.ReportRecords>(&mut records));",
-        "let records: bray.runtime.bootstrap.ReportRecords = { head = 1, tail = 1, count = 1 }; let result = trusted bray.runtime.bootstrap.pop_record_value(records);",
+    for (operation, site) in [
+        ("let mut guard = bray.runtime.bootstrap.pool.lock(); let pool = guard.get(); pool.credits = 0; pool.free = 1;", "bray.runtime.bootstrap.pool.lock()"),
+        ("let mut records: bray.runtime.bootstrap.ReportRecords = bray.runtime.bootstrap.empty_records(); let status = bray.runtime.bootstrap.report_records_admit(1, std.memory.address_of_mut<bray.runtime.bootstrap.ReportRecords>(&mut records));", "bray.runtime.bootstrap.report_records_admit("),
+        ("let records: bray.runtime.bootstrap.ReportRecords = { head = 1, tail = 1, count = 1 }; let result = bray.runtime.bootstrap.pop_record_value(records);", "bray.runtime.bootstrap.pop_record_value(records)"),
     ] {
         let source = format!(
             r#"module app;
@@ -251,15 +254,11 @@ fn production_report_pool_mutation_requires_protocol_authority() {
             }}"#,
         );
 
-        let compilation = production_host_compilation(&source);
-
-        let checked = compilation
-            .lowered_unit(source_function_body_key(&compilation, "production_probe"))
-            .expect("production report-pool probe must retain its checked result");
-
-        bray_testing::assert_goal_state_diagnostic_kind(
-            checked.diagnostics(),
-            DiagnosticKind::CheckingTrustedObligationNotProven,
+        assert_production_contract(
+            &source,
+            Some(DiagnosticKind::CheckingTrustedObligationNotProven),
+            site,
+            "protocol_access",
         );
     }
 }

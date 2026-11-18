@@ -157,8 +157,7 @@ fn transfers(
                 Some(
                     AnalysisRefinement::TrustBoundary(_)
                     | AnalysisRefinement::GeneratorStorageFailure(_)
-                    | AnalysisRefinement::InvocationFailure(_)
-                    | AnalysisRefinement::InvocationCancellation(_)
+                    | AnalysisRefinement::InvocationFailure(..)
                     | AnalysisRefinement::InvocationCompletion(_)
                     | AnalysisRefinement::InvocationPresence(_, _)
                     | AnalysisRefinement::InvocationBoolean(_, _)

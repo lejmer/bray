@@ -145,32 +145,28 @@ where
 
     let abnormal_exits = graph
         .abnormal_exits()
-        .map(|exit| exit.block())
-        .collect::<BTreeSet<_>>();
-
-    let normal_paths = graph.completion_predecessors();
+        .map(|exit| (exit.block(), exit.kind().failure_kind().expect("abnormal exit retains its kind")))
+        .collect::<BTreeMap<_, _>>();
 
     for block in graph.blocks() {
-        collector.on_normal_path = normal_paths.contains(&block.id());
         collector.report_boundary = block.report_boundary();
 
-        // Publication evaluates operations against an independent final block-entry state.
-        let state = result.state(block.id()).filter(|state| state.reachable);
-
-        let Some(mut state) = state.cloned() else {
+        let Some(mut outcomes) = result.state(block.id()).filter(|outcomes| outcomes.states().next().is_some()).cloned() else {
             collector.collect_unreachable_suspensions(graph, block);
 
             continue;
         };
 
-        collector
-            .report_collections
-            .extend(state.pending_report_boundaries());
+        for state in outcomes.states() {
+            collector.report_collections.extend(state.pending_report_boundaries());
+        }
 
         for operation in block.operations() {
             let operation = graph
                 .operation(*operation)
                 .expect("storage-flow block retains its operation");
+
+            if outcomes.states().next().is_none() { break; }
 
             if let AnalysisOperationKind::Bound(AnyBoundNodeId::Block(block)) = operation.kind() {
                 reachable_blocks.insert(block);
@@ -186,21 +182,30 @@ where
                 reachable_exits.insert(StorageExitPoint::new(block, exit));
             }
 
-            record_node_refinements(&mut occurrences, operation.kind(), &state.refinements);
+            for state in outcomes.states() {
+                record_node_refinements(&mut occurrences, operation.kind(), &state.refinements);
+            }
 
-            collector.apply_operation(&mut state, operation);
+            outcomes.apply_operation(&mut collector, block.id(), operation);
         }
 
-        collector
-            .report_collections
-            .extend(state.pending_report_boundaries());
+        for state in outcomes.states() {
+            collector.report_collections.extend(state.pending_report_boundaries());
+            collector.collect_conditions(state, block, graph, &mut conditions);
 
-        collector.collect_conditions(&state, block, graph, &mut conditions);
+            for edge in block.successors().iter().filter(|edge| reachability.is_edge_reachable(**edge)) {
+                let edge = graph.edge(*edge).expect("outcome edge belongs to its graph");
 
-        if normal_exits.contains(&block.id()) {
-            collector.collect_completion(&state);
-        } else if abnormal_exits.contains(&block.id()) {
-            collector.results.merge_abnormal(&state.result_dependencies);
+                if let Some(crate::analysis::model::AnalysisRefinement::InvocationFailure(occurrence, kind)) = edge.refinement() {
+                    collector.failure_edge_state(state, occurrence, kind);
+                }
+            }
+
+            if normal_exits.contains(&block.id()) {
+                collector.collect_completion(state);
+            } else if let Some(kind) = abnormal_exits.get(&block.id()) {
+                collector.collect_failure(state, *kind);
+            }
         }
     }
 
@@ -253,7 +258,7 @@ where
     .with_report_collections(collector.report_collections)
     .with_reporting_completions(collector.reporting_completions)
     .with_receiver_cleanup(collector.receiver_cleanup)
-    .with_cleanup_mutations(collector.cleanup_mutations)
+    .with_outcome_mutations(collector.outcome_mutations)
     .with_completions(collector.completions)
     .with_proven_preconditions(
         collector
@@ -354,7 +359,7 @@ where
     pub(super) memory: &'analysis CheckedMemoryOperations,
     pub(super) input: &'analysis StorageFlowInput,
     pub(super) owners: &'analysis StorageScopeOwners,
-    pub(super) execution:
+    pub(in crate::analysis::storage_flow) execution:
         &'analysis crate::analysis::guarantee::ExecutionFlowDomain<'analysis, 'analysis, C>,
     pub(super) dependencies: &'analysis bray_bound_tree::CheckedDependencyContracts,
     pub(super) values: &'analysis crate::dependency::ValueInputs,
@@ -381,12 +386,12 @@ where
     pub(super) synchronous_cleanup: BTreeSet<bray_symbols::DependencyRequirement>,
     pub(super) receiver_cleanup: BTreeSet<bray_symbols::TypeId>,
     pub(super) terminal_diagnostics: BTreeSet<bray_bound_tree::BoundExecutionSite>,
-    pub(super) on_normal_path: bool,
     pub(in crate::analysis::storage_flow) report_boundary: Option<BoundExpressionId>,
     report_collections: BTreeSet<Option<BoundExpressionId>>,
     pub(super) reporting_completions: BTreeSet<bray_bound_tree::BoundExecutionSite>,
     pub(super) normal_exits: Vec<NormalExit>,
-    pub(super) cleanup_mutations:
+    pub(super) failure_outcomes: Vec<bray_symbols::CapturedFailureOutcome>,
+    outcome_mutations:
         BTreeMap<bray_bound_tree::StorageMutation, bray_bound_tree::StorageInvalidation>,
     pub(super) completions:
         BTreeMap<bray_bound_tree::StorageMutation, bray_bound_tree::StorageCompletion>,
@@ -413,6 +418,20 @@ impl<'analysis, C> StorageFlowCollector<'analysis, C>
 where
     C: CheckerRequestContext + ?Sized,
 {
+    fn collect_failure(&mut self, state: &StorageFlowState, kind: bray_symbols::DependencyFailureKind) {
+        let execution = state.execution.as_ref().expect("reachable failure retains its execution facts");
+
+        self.failure_outcomes.push(bray_symbols::CapturedFailureOutcome {
+            kind: Some(kind),
+            guard: self.trusted.failure_guard(self.execution, execution),
+            effects: Some(state.effect_prefix.iter().cloned().collect()),
+            report: match kind {
+                bray_symbols::DependencyFailureKind::Panic => Some(state.result_dependencies.completed_report().unwrap_or_default()),
+                bray_symbols::DependencyFailureKind::Cancellation => state.result_dependencies.completed_report(),
+            },
+        });
+    }
+
     fn collect_completion(&mut self, state: &StorageFlowState) {
         let Some(bray_bound_tree::StorageBinding::Identity(result)) = self.storage.binding(bray_bound_tree::StorageBindingTarget::Result) else {
             panic!("planned body has result storage");
@@ -529,17 +548,17 @@ where
             capture_retirements: BTreeMap::new(),
             observation_invalidations: BTreeMap::new(),
             invalidations: BTreeMap::new(),
-            cleanup_mutations: BTreeMap::new(),
+            outcome_mutations: BTreeMap::new(),
             completions: BTreeMap::new(),
             effects: BTreeSet::new(),
             synchronous_cleanup: BTreeSet::new(),
             receiver_cleanup: BTreeSet::new(),
             terminal_diagnostics: BTreeSet::new(),
-            on_normal_path: false,
             report_boundary: None,
             report_collections: BTreeSet::new(),
             reporting_completions: BTreeSet::new(),
             normal_exits: Vec::new(),
+            failure_outcomes: Vec::new(),
             memory_decisions: BTreeMap::new(),
             diagnostics: DiagnosticBag::new(),
             reported_diagnostics: BTreeSet::new(),
@@ -727,6 +746,8 @@ where
             self.record_suspension(state, occurrence);
         }
 
+        self.apply_task_observation(state, kind);
+
         let refinements = std::mem::take(&mut state.refinements);
         let universe = self.refinements;
 
@@ -736,10 +757,6 @@ where
             .execution
             .take()
             .expect("reachable storage state has execution facts");
-
-        if let Some(expression) = kind.awaited_expression() {
-            self.execution.admit_inline_invocation(&mut execution, expression);
-        }
 
         self.retain_operation_reports(state, *operation, &execution);
         self.transfer_result_dependencies(state, kind, &execution);
@@ -769,58 +786,6 @@ where
         self.record_replacements(state, kind);
         self.apply_cleanup(state, &mut execution, kind);
 
-        self.apply_completion(state, operation, execution, refinements);
-    }
-
-    fn apply_completion(
-        &mut self,
-        state: &mut StorageFlowState,
-        operation: &AnalysisOperation,
-        mut execution: crate::analysis::guarantee::ExecutionState,
-        refinements: crate::analysis::refinement::RefinementSet,
-    ) {
-        let kind = operation.kind();
-
-        let mut alternatives = self.execution.split_task_completion(&mut execution, kind);
-
-        if !alternatives.is_empty() {
-            alternatives.push(execution);
-            alternatives.reverse();
-
-            // Complete each feasible outcome before joining its effects and result evidence.
-            let mut original = std::mem::take(state);
-            let mut alternatives = alternatives.into_iter().peekable();
-
-            while let Some(execution) = alternatives.next() {
-                let mut branch = if alternatives.peek().is_some() {
-                    original.clone()
-                } else {
-                    std::mem::take(&mut original)
-                };
-
-                self.apply_operation_effects(
-                    &mut branch,
-                    operation,
-                    execution,
-                    refinements.clone(),
-                );
-
-                if state.reachable {
-                    self.merge_completed(
-                        state,
-                        &mut branch,
-                        kind.occurrence()
-                            .expression()
-                            .expect("Task completion retains its await expression"),
-                    );
-                } else {
-                    *state = branch;
-                }
-            }
-
-            return;
-        }
-
         self.apply_operation_effects(state, operation, execution, refinements);
     }
 
@@ -847,39 +812,6 @@ where
         state.execution = Some(execution);
     }
 
-    fn apply_task_outcome(
-        &mut self,
-        state: &mut StorageFlowState,
-        kind: AnalysisOperationKind,
-        mut execution: crate::analysis::guarantee::ExecutionState,
-    ) -> crate::analysis::guarantee::ExecutionState {
-        let occurrence = kind.occurrence();
-
-        if matches!(
-            kind,
-            AnalysisOperationKind::Call {
-                phase: AnalysisCallPhase::Completion,
-                ..
-            }
-        ) && let Some(expression) = occurrence.expression()
-            && self
-                .execution
-                .awaited_task_frame(&execution, expression)
-                .is_some()
-            && self.execution.task_completion(&execution, expression) == Some(false)
-        {
-            state.execution = Some(execution);
-            self.apply_failure_effects(state, occurrence);
-
-            execution = state
-                .execution
-                .take()
-                .expect("selected completion retains execution facts");
-        }
-
-        execution
-    }
-
     fn apply_operation_effects(
         &mut self,
         state: &mut StorageFlowState,
@@ -889,7 +821,7 @@ where
     ) {
         let kind = operation.kind();
         let occurrence = kind.occurrence();
-        let mut execution = self.apply_task_outcome(state, kind, execution);
+        let mut execution = execution;
 
         let completing = matches!(
             kind,
@@ -903,31 +835,10 @@ where
             .then(|| self.assignment_targets(state, kind.node()))
             .flatten();
 
-        self.apply_invocation_inputs(state, kind, &refinements);
-
         let single_phase = self.execution.single_phase_invocation(kind);
 
-        if let Some(expression) = single_phase {
-            self.execution.admit_inline_invocation(&mut execution, expression);
-        }
-
-        let captures = self.resolve_value_captures(state, kind);
-
-        if single_phase.is_some() && let Some(captures) = &captures {
-            self.execution.capture_entry_values(&mut execution, occurrence, captures);
-        }
-
-        if self.publish
-            && matches!(
-                kind,
-                AnalysisOperationKind::Call {
-                    phase: AnalysisCallPhase::Input,
-                    ..
-                }
-            )
-        {
-            self.record_input_targets(state, occurrence);
-        }
+        let captures =
+            self.capture_operation_inputs(state, &mut execution, kind, &refinements, single_phase);
 
         let assignment_mutation = (!completing)
             .then(|| self.assignment_mutation(kind, &execution))
@@ -949,18 +860,25 @@ where
             .flatten()
             .map(|_| self.invocation_roots(state, occurrence));
 
-        if let Some(invocation) = self.call_attempt(kind) {
-            self.start_frame_effects(&state.memory, &mut execution, invocation);
+        if kind.awaited_expression().is_none() {
+            self.execution.prepare_frame_execution(&mut execution, kind);
         }
+
+        self.start_frame_effects(&state.memory, &mut execution, kind);
 
         let bind_values = single_phase.is_some() || matches!(kind, AnalysisOperationKind::Call { phase: AnalysisCallPhase::Attempt, .. });
         let intrinsic = kind.explicit_attempt_expression().is_some_and(|expression| self.memory.operation(expression).is_some());
 
-        if bind_values && !intrinsic {
+        if bind_values && !intrinsic
+            && execution.admitted_call(occurrence).is_none_or(|entry| entry.outputs.0.is_empty())
+        {
             self.begin_value_transition(&mut execution, occurrence, &[]);
         }
 
-        let outcomes = self.begin_transition(state, kind, assignment.as_deref(), &execution);
+        let started = kind.explicit_attempt_expression()
+            .and_then(|expression| self.execution.started_future(&execution, expression));
+
+        let outcomes = self.begin_transition(state, kind, assignment.as_deref(), &execution, started.as_ref());
 
         if bind_values && intrinsic {
             self.begin_value_transition(&mut execution, occurrence, outcomes.as_ref().map_or(&[], bray_symbols::DependencyEffectOutcomes::possible));
@@ -973,28 +891,18 @@ where
             state.memory.observe_effect_types(effects);
         }
 
-        if let Some(roots) = &assignment_roots {
-            // Capture precedes destination invalidation and does not require an exact target.
-            // Operators separately observe and may retain both invocation inputs.
-            let escaped = self.address_escapes(
-                state,
-                kind,
-                assignment_effects.as_deref(),
-                roots,
-                true,
-            );
+        let mut escape_prefix = Default::default();
 
-            state.memory.escape_regions(escaped);
+        let mut escaped = assignment_roots.as_ref().map(|roots| {
+            self.address_escapes(state, kind, assignment_effects.as_deref(), roots, &mut escape_prefix)
+        }).unwrap_or_default();
+
+        if let Some(roots) = &invocation_roots {
+            let mut concurrent = Default::default();
+            let prefix = if started.is_some() { &mut concurrent } else { &mut escape_prefix };
+
+            escaped.extend(self.address_escapes(state, kind, call_effects, roots, prefix));
         }
-
-        let escaped = invocation_roots
-            .as_ref()
-            .map(|roots| {
-                self.address_escapes(state, kind, call_effects, roots, true)
-            })
-            .unwrap_or_default();
-
-        state.memory.escape_regions(escaped);
 
         if !completing {
             self.check_terminal_operation(
@@ -1004,6 +912,7 @@ where
                 assignment_mutation,
                 possible_effects,
                 invocation_roots.as_deref().unwrap_or(&[]),
+                &escaped,
             );
         }
 
@@ -1015,6 +924,7 @@ where
                     assignment.as_deref(),
                     call_effects,
                     invocation_roots.as_deref(),
+                    &escaped,
                 )
             })
             .flatten();
@@ -1033,38 +943,51 @@ where
             );
         }
 
+        let mut admitted = false;
+
         if !completing {
             if self.call_attempt(kind).is_some() {
-                let roots = invocation_roots.as_deref().unwrap_or(&[]);
-                let escaped = self.address_escapes(state, kind, possible_effects, roots, false);
-
-                let mut failure = self.operation_observations(state, kind, None, possible_effects, Some(roots));
-
-                // A task can have executed before its observer is invoked. Its captured values do
-                // not establish a fresh body-entry memory snapshot at this observation boundary.
-                let observes_running_task = occurrence.expression().is_some_and(|expression| {
-                    self.execution.awaited_task_frame(&execution, expression).is_some()
-                });
-
-                if !observes_running_task && let Some(failure) = &mut failure {
-                    let memory = occurrence.expression().and_then(|expression| self.memory.operation(expression));
-
-                    // Preserve incoming storage only, independently of normal-result transport.
-                    self.preserve_storage_values(state, &state.memory, memory, possible_effects, failure);
-                }
-
-                if let Some(effects) = possible_effects {
-                    self.record_resolved_effects(&state.memory, effects, None);
-                }
-
-                // Both outcomes capture addresses before admission consumes their input slots.
-                self.capture_failure_effects(state, occurrence, possible_effects.map(<[_]>::to_vec), escaped, failure.as_ref());
+                self.capture_failure_effects(state, kind, &execution, outcomes.as_ref(), invocation_roots.as_deref().unwrap_or(&[]));
             }
+
+            if let Some(expression) = kind.awaited_expression() {
+                self.execution.admit_await_inputs(&mut execution, expression);
+
+                if call_effects.is_none_or(|effects| !effects.is_empty()) || !escaped.is_empty() {
+                    state.execution = Some(execution);
+                    self.capture_admitted_failure(state, kind, &refinements);
+                    execution = state.execution.take().expect("admitted await retains execution facts");
+                }
+            }
+
+            let call = if matches!(kind, AnalysisOperationKind::Call { phase: AnalysisCallPhase::Attempt, .. }) && !intrinsic {
+                admitted = true;
+                state.execution = Some(execution);
+
+                let inputs = self.admit_call_attempt(state, kind, &refinements);
+
+                execution = state.execution.take().expect("admitted call retains its execution facts");
+
+                Some(inputs)
+            } else {
+                None
+            };
+
+            if !escape_prefix.is_empty() {
+                std::sync::Arc::make_mut(&mut state.effect_prefix).extend(escape_prefix.iter().cloned());
+            }
+
+            let performed = if started.is_some() {
+                // The owning task publishes the actual body prefix when observed.
+                Some(&[crate::analysis::storage_flow::memory::Effect::Ambient][..])
+            } else {
+                call_effects
+            };
 
             self.record_operation_effects(
                 state,
                 kind,
-                call_effects,
+                performed,
                 assignment_effects.as_deref(),
             );
 
@@ -1083,12 +1006,11 @@ where
                 .and_then(|target| target.storage_path())
                 .and_then(|path| crate::ExecutionPlace::storage_path(self.storage, path));
 
-            self.execution.transfer_operation(
-                &mut execution,
-                kind,
-                invalidation.as_ref(),
-                assignment.as_ref(),
-            );
+            if let Some(call) = call {
+                self.execution.produce_call_attempt(&mut execution, occurrence, call, invalidation.as_ref(), assignment.as_ref());
+            } else {
+                self.execution.transfer_operation(&mut execution, kind, invalidation.as_ref(), assignment.as_ref());
+            }
         }
 
         if matches!(
@@ -1110,6 +1032,7 @@ where
         self.record_call_evidence(&execution, kind);
 
         state.execution = Some(execution);
+        state.memory.escape_regions(escaped);
 
         self.apply_call_effects(state, kind, call_effects, invalidation.as_ref());
 
@@ -1124,14 +1047,14 @@ where
             self.end_last_use_borrows(state, occurrence);
         }
 
-        self.finish_storage_operation(state, operation, refinements, invalidation.as_ref());
-
+        self.finish_storage_operation(state, operation, refinements, invalidation.as_ref(), admitted);
     }
 
     fn finish_storage_operation(
         &mut self, state: &mut StorageFlowState, operation: &AnalysisOperation,
         mut refinements: crate::analysis::refinement::RefinementSet,
         invalidation: Option<&bray_bound_tree::StorageInvalidation>,
+        admitted: bool,
     ) {
         let kind = operation.kind();
         let occurrence = kind.occurrence();
@@ -1142,21 +1065,18 @@ where
             operation,
             self.refinements.active_refinements(&refinements),
             invalidation,
+            admitted,
         );
 
         self.publish_capture_retirements(state, kind, bray_bound_tree::StorageValueBoundary::Execution);
 
-        let mut completion = self.complete_operation(state, kind, memory_status, input_references);
-
-        if memory_status.is_none_or(|status| status == MemoryOperationStatus::Valid)
-            && kind.value_consumption_phase() == Some(bray_bound_tree::StorageValueConsumptionPhase::Completion)
-        {
+        if let Some(mut completion) = self.complete_operation(state, kind, memory_status, input_references) {
             self.publish_captured_outputs(state, occurrence, &mut completion);
-        }
 
-        if self.publish && !completion.is_empty() {
-            self.completions.entry(bray_bound_tree::StorageMutation::Operation(occurrence))
-                .and_modify(|previous| previous.merge(&completion)).or_insert(completion);
+            if self.publish {
+                self.completions.entry(bray_bound_tree::StorageMutation::Operation(occurrence))
+                    .and_modify(|previous| previous.merge(&completion)).or_insert(completion);
+            }
         }
 
         if memory_status.is_none_or(|status| status == MemoryOperationStatus::Valid) {
@@ -1176,6 +1096,63 @@ where
         );
 
         state.refinements = refinements;
+    }
+
+    fn admit_call_attempt(
+        &mut self,
+        state: &mut StorageFlowState,
+        kind: AnalysisOperationKind,
+        refinements: &crate::analysis::refinement::RefinementSet,
+    ) -> (Option<crate::ExecutionCondition>, bool) {
+        let invocation = kind.occurrence();
+        let execution = state.execution.as_mut().expect("planned call inputs retain execution facts");
+        let inputs = self.execution.admit_call_inputs(execution, invocation);
+
+        // Apply the resolved move to both physical storage and the current owner.
+        self.apply_operation_inputs(state, kind, self.refinements.active_refinements(refinements), None);
+
+        let execution = state.execution.as_ref().expect("checked call inputs retain execution facts");
+
+        if execution.admitted_call(invocation).is_none_or(|entry| entry.failure_rows.as_deref() != Some(&[])) {
+            self.capture_admitted_failure(state, kind, refinements);
+        }
+
+        inputs
+    }
+
+    fn capture_admitted_failure(&mut self, state: &mut StorageFlowState, operation: AnalysisOperationKind,
+        refinements: &crate::analysis::refinement::RefinementSet,
+    ) {
+        // Abnormal successors inherit the admitted state before normal effects.
+        let mut failure = state.clone();
+
+        failure.failure_entry = None;
+        failure.refinements = refinements.clone();
+
+        failure.memory.finish_value_transfers();
+        self.retire_consumed_value_slots(&mut failure, operation);
+
+        let retirements = failure.memory.take_retirements().into_iter().collect::<Vec<_>>();
+        let execution = failure.execution.as_mut().expect("admitted failure retains execution facts");
+
+        if let Some(expression) = operation.awaited_expression() {
+            self.execution.suspend_awaited_execution(execution, expression);
+        }
+
+        execution.retire_captured_storage(&retirements);
+
+        let occurrence = operation.occurrence();
+
+        if self.publish && !retirements.is_empty() {
+            for kind in bray_symbols::DependencyFailureKind::ALL {
+                let mutation = bray_bound_tree::StorageMutation::InvocationFailure { occurrence, kind };
+
+                self.capture_retirements.entry((mutation, bray_bound_tree::StorageValuePhase::Input,
+                    bray_bound_tree::StorageValueBoundary::Execution)).or_default().extend(retirements.iter().cloned());
+            }
+        }
+
+        state.failure_entry = Some((occurrence, Box::new(failure)));
     }
 
     fn end_operation_uses(&self, state: &mut StorageFlowState, kind: AnalysisOperationKind) {
@@ -1235,19 +1212,23 @@ where
         }
     }
 
-    fn apply_invocation_inputs(
+    fn capture_operation_inputs(
         &mut self,
         state: &mut StorageFlowState,
+        execution: &mut crate::analysis::guarantee::ExecutionState,
         kind: AnalysisOperationKind,
         refinements: &crate::analysis::refinement::RefinementSet,
-    ) {
-        if matches!(
+        inline: Option<BoundExpressionId>,
+    ) -> Option<std::sync::Arc<[bray_bound_tree::StorageValueCapture]>> {
+        let staged = matches!(
             kind,
             AnalysisOperationKind::Call {
                 phase: AnalysisCallPhase::Input,
                 ..
             }
-        ) {
+        );
+
+        if staged {
             self.initialize_operation_storage(state, kind);
 
             for plan in kind.storage_plans(self.storage) {
@@ -1259,6 +1240,22 @@ where
                 );
             }
         }
+
+        if let Some(expression) = inline {
+            self.execution.admit_inline_invocation(execution, expression);
+        }
+
+        let captures = self.resolve_value_captures(state, kind);
+
+        if inline.is_some() && let Some(captures) = &captures {
+            self.execution.capture_entry_values(execution, kind.occurrence(), captures);
+        }
+
+        if self.publish && staged {
+            self.record_input_targets(state, kind.occurrence());
+        }
+
+        captures
     }
 
     fn record_call_evidence(
@@ -1287,6 +1284,18 @@ where
         self.memory_evidence = self
             .execution
             .trusted_memory_evidence(execution, kind.occurrence());
+    }
+
+    pub(super) fn record_outcome_mutation(
+        &mut self,
+        mutation: bray_bound_tree::StorageMutation,
+        invalidation: &bray_bound_tree::StorageInvalidation,
+    ) {
+        if self.publish {
+            self.outcome_mutations.entry(mutation)
+                .and_modify(|previous| previous.merge(invalidation))
+                .or_insert_with(|| invalidation.clone());
+        }
     }
 
     fn record_operation_observations(
@@ -1328,7 +1337,7 @@ where
         kind: AnalysisOperationKind,
         memory_status: Option<MemoryOperationStatus>,
         input_references: BTreeMap<bray_bound_tree::StoragePath, bray_bound_tree::StorageTarget>,
-    ) -> bray_bound_tree::StorageCompletion {
+    ) -> Option<bray_bound_tree::StorageCompletion> {
         if matches!(
             kind,
             AnalysisOperationKind::Call {
@@ -1336,27 +1345,23 @@ where
                 ..
             }
         ) {
-            return bray_bound_tree::StorageCompletion::default();
+            return None;
         }
 
-        let mut observations = if !matches!(
-            kind,
-            AnalysisOperationKind::Call {
-                phase: AnalysisCallPhase::Attempt,
-                ..
-            }
-        ) {
+        let valid = memory_status.is_none_or(|status| status == MemoryOperationStatus::Valid);
+
+        let mut observations = if valid {
             self.completed_references(state, kind, input_references)
         } else {
-            bray_bound_tree::StorageCompletion::default()
+            None
         };
 
-        if memory_status.is_none_or(|status| status == MemoryOperationStatus::Valid)
-            && !matches!(kind, AnalysisOperationKind::Call { phase: AnalysisCallPhase::Attempt, .. })
+        if let Some(observations) = &mut observations
             && self.dependencies.calls().get(&kind.occurrence()).is_some_and(|call| call.deferred_effects().is_some())
             && let Some(output) = self.invocation_result(kind.occurrence())
         {
-            observations = observations.with_deferred_transition(state.memory.capture_deferred_transition(kind.occurrence(), output));
+            *observations = std::mem::take(observations)
+                .with_deferred_transition(state.memory.capture_deferred_transition(kind.occurrence(), output));
         }
 
         let execution = state
@@ -1364,9 +1369,9 @@ where
             .as_mut()
             .expect("operation retains execution facts");
 
-        if memory_status.is_none_or(|status| status == MemoryOperationStatus::Valid) {
+        if valid {
             self.execution
-                .complete_operation(execution, kind, Some(&observations));
+                .complete_operation(execution, kind, observations.as_ref());
 
             if matches!(
                 kind,
@@ -1424,7 +1429,9 @@ where
             AnalysisOperationKind::Call {
                 invocation: bray_bound_tree::BoundExecutionSite::Node(AnyBoundNodeId::Expression(expression)),
                 phase: AnalysisCallPhase::Completion,
-            } => self.execution.awaited_value_dependencies(execution, expression),
+            } => self.execution.awaited_value_dependencies(
+                execution, expression, self.execution.task_observation_outcome(execution, kind),
+            ),
             _ => None,
         };
 
@@ -1519,6 +1526,7 @@ where
         operation: &AnalysisOperation,
         refinements: impl Iterator<Item = &'refinements Refinement> + Clone,
         invalidation: Option<&bray_bound_tree::StorageInvalidation>,
+        admitted: bool,
     ) -> Option<MemoryOperationStatus> {
         if let AnalysisOperationKind::ScopeExit {
             scope, exit, phase, ..
@@ -1585,8 +1593,8 @@ where
                 bray_bound_tree::BoundExecutionSite::Node(AnyBoundNodeId::Expression(_))
                     if phase == AnalysisCallPhase::Attempt =>
                 {
-                    for plan in operation.kind().storage_plans(self.storage) {
-                        self.apply_plan(state, plan, refinements.clone(), invalidation);
+                    if !admitted {
+                        self.apply_operation_inputs(state, operation.kind(), refinements, invalidation);
                     }
 
                     state.memory.finish_value_transfers();
@@ -1599,8 +1607,8 @@ where
                 | bray_bound_tree::BoundExecutionSite::ScopedEnter(_)
                 | bray_bound_tree::BoundExecutionSite::ScopedExit(_) => {
                     if phase == AnalysisCallPhase::Attempt {
-                        for plan in operation.kind().storage_plans(self.storage) {
-                            self.apply_plan(state, plan, refinements.clone(), invalidation);
+                        if !admitted {
+                            self.apply_operation_inputs(state, operation.kind(), refinements, invalidation);
                         }
                     } else {
                         if let Some(result) = self.invocation_result(invocation) {
@@ -1705,6 +1713,18 @@ where
         }
 
         memory_status
+    }
+
+    fn apply_operation_inputs<'refinements>(
+        &mut self,
+        state: &mut StorageFlowState,
+        kind: AnalysisOperationKind,
+        refinements: impl Iterator<Item = &'refinements Refinement> + Clone,
+        invalidation: Option<&bray_bound_tree::StorageInvalidation>,
+    ) {
+        for plan in kind.storage_plans(self.storage) {
+            self.apply_plan(state, plan, refinements.clone(), invalidation);
+        }
     }
 
     fn apply_plan<'refinements>(

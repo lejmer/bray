@@ -323,7 +323,7 @@ fn parallel_interface_discovery_preserves_encoded_identity() {
             }
         "#,
         r#"
-            trusted module app.second;
+            module app.second;
 
             using app.first;
 
@@ -420,13 +420,16 @@ fn parallel_interface_discovery_preserves_encoded_identity() {
 
 #[test]
 fn non_library_products_cannot_export_package_interfaces() {
-    for product_kind in [ProductKind::Executable, ProductKind::Test] {
+    for (product_kind, source) in [
+        (ProductKind::Executable, "module app; func main() {}"),
+        (ProductKind::Test, "module app; @test func probe() {}"),
+    ] {
         let compilation = compilation_from_sources_for_product(
-            [r#"
-                module app;
-            "#],
+            [source],
             product_kind,
         );
+
+        assert!(!compilation.check_diagnostics().has_errors(), "{:?}", compilation.check_diagnostics());
 
         assert_eq!(
             compilation.package_interface_export_bundle(),

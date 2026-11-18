@@ -82,7 +82,7 @@ impl ValuePreservation {
         place: Option<&ExecutionPlace>,
         mutation: StorageMutation,
     ) -> ExecutionCondition {
-        self.retain_inline_descriptors(&source.clone().into_referent(), &mut { ExecutionCondition::WORK_LIMIT });
+        self.retain_inline_descriptors(source, &mut { ExecutionCondition::WORK_LIMIT });
 
         let source = path.iter().copied().fold(source.clone(), ExecutionCondition::project);
         let mask = self.at_mut(path);
@@ -108,8 +108,17 @@ impl ValuePreservation {
 
         if self.value { return; }
 
+        if self.descriptor && !source.is_reference() && source.deferred_value().is_some() {
+            // An opaque computation's saved handle owns the captured frame.
+            // The body can change reachable storage without replacing that handle.
+            self.record(Kind::Value);
+            return;
+        }
+
+        let source = source.clone().into_referent();
+
         for projection in source.component_projections() {
-            if !bray_bound_tree::StoragePath::inline_projections(&[projection]) { continue; }
+            if !bray_bound_tree::StoragePath::inline_projections(&[projection]) || source.excludes_component(projection) { continue; }
 
             let child = source.clone().project(projection);
 
@@ -158,9 +167,12 @@ impl ValuePreservation {
         moved: &crate::execution_guarantees::RetainedSnapshots,
         budget: &mut usize,
     ) -> ExecutionCondition {
-        if let crate::ExecutionConditionKind::DeferredValue { value, frame } = source.kind() {
-            return self.apply_bounded(value, place, mutation, in_place, moved, budget)
-                .with_deferred_value(std::sync::Arc::clone(frame));
+        if let crate::ExecutionConditionKind::DeferredValue { value, .. } = source.kind() {
+            if self.preserves_value() && !moved.retains_owner(source) {
+                return source.clone();
+            }
+
+            return self.apply_bounded(value, place, mutation, in_place, moved, budget);
         }
 
         let Some(remaining) = budget.checked_sub(1) else {
@@ -230,6 +242,8 @@ impl ValuePreservation {
         } else { ExecutionCondition::post_state(mutation, identity) };
 
         for (projection, preservation) in &self.children {
+            if source.excludes_component(*projection) { continue; }
+
             let child = source.clone().project(*projection);
             let child_place = place.and_then(|place| place.clone().project(&[*projection]));
             let next = preservation.apply_bounded(&child, child_place.as_ref(), mutation, in_place, moved, budget);

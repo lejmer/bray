@@ -34,7 +34,7 @@ pub(super) fn audit_static_storage(
             42,
             "dependency-ordered exact-thread cleanup",
             &["bray.static.host."],
-        ),
+        ).with_stdout("consumer\nprovider\n"),
     )?;
 
     audit_repeatable_fixtures(

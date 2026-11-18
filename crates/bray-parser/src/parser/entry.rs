@@ -392,14 +392,15 @@ mod tests {
 
     #[test]
     fn parser_creates_source_units_for_every_snapshot_in_source_id_order() {
-        let sources = source_store(["module first;", "module second;", "module third;"]);
+        let sources = source_store(["module first;", "module second {}", "module third;"]);
         let result = parse_compilation_unit(&sources);
         let source_units = result.syntax_tree().root().source_units();
 
         assert_eq!(source_units.len(), 3);
         assert_eq!(source_units[0].full_text(), "module first;");
-        assert_eq!(source_units[1].full_text(), "module second;");
+        assert_eq!(source_units[1].full_text(), "module second {}");
         assert_eq!(source_units[2].full_text(), "module third;");
+        assert!(result.diagnostics().is_empty());
     }
 
     #[test]
@@ -474,11 +475,4 @@ mod tests {
         assert_eq!(result.syntax_tree().full_text(), text);
     }
 
-    #[test]
-    fn parser_returns_no_diagnostics_for_lexically_valid_sources() {
-        let sources = source_store(["module main;", "module extra {}"]);
-        let result = parse_compilation_unit(&sources);
-
-        assert!(result.diagnostics().is_empty());
-    }
 }

@@ -40,7 +40,7 @@ pub use model::{
     BorrowCapabilityId, StorageAccess, StorageAccessId, StorageAccessRoot, StorageAlternativeId,
     StorageIdentity, StorageIdentityId, StorageProjection, StorageRelationship,
 };
-pub use observation::{StorageCompletion, StorageMutation, StorageObservationKind, StorageObservationTransition};
+pub use observation::{StorageCompletion, StorageMutation, StorageObservationKind, StorageObservationTransition, StorageTaskOutcome};
 pub use parts::{
     StorageCleanupPart, StorageCleanupProjection, StorageCleanupProjectionKind, StorageProtocolCall,
 };

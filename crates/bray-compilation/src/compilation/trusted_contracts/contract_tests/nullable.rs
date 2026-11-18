@@ -145,8 +145,8 @@ fn mutated_nullable_owners_keep_promised_evidence_through_extraction() {
         (false, true, "other", "direct", false), (true, true, "owner", "direct", true),
         (true, false, "owner", "direct", false), (true, true, "other", "direct", false),
         (false, true, "owner", "await", true), (false, false, "owner", "await", false),
-        (false, true, "other", "await", false), (false, true, "owner", "cancel", true),
-        (false, false, "owner", "cancel", false),
+        (false, true, "other", "await", false), (false, true, "owner", "inactive_drop", true),
+        (false, false, "owner", "inactive_drop", false),
     ] {
         let asynchronous = if deferred { "async " } else { "" };
         let caller_async = if deferred || route != "direct" { "async " } else { "" };
@@ -156,10 +156,10 @@ fn mutated_nullable_owners_keep_promised_evidence_through_extraction() {
 
         let extraction = match route {
             "direct" => format!("let outgoing = std.memory.replace_value<(Owner?)>({source_owner}, none);\n                consume_optional(outgoing);"),
-            "await" => format!("let extraction = trusted forward_owner({source_owner});\n                let outgoing = await extraction;\n                consume_optional(outgoing);"),
-            "cancel" => r#"
+            "await" => format!("let extraction = forward_owner({source_owner});\n                let outgoing = await extraction;\n                consume_optional(outgoing);"),
+            "inactive_drop" => r#"
                 {
-                    let extraction = trusted forward_owner(owner);
+                    let extraction = forward_owner(owner);
                     _ = extraction;
                 }
 

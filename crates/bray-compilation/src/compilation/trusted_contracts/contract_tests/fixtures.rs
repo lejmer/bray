@@ -208,6 +208,7 @@ pub(in crate::compilation) fn production_host_compilation(caller: &str) -> Compi
 pub(super) fn assert_production_probes(
     source: &str,
     expected: &[(&str, Option<bray_diagnostics::DiagnosticKind>)],
+    expected_sites: &[(&str, &str)],
 ) {
     let compilation = production_probe_compilation();
 
@@ -232,14 +233,16 @@ pub(super) fn assert_production_probes(
         let expected = expected.remove(name)
             .expect("each declared probe has an expected outcome");
 
-        let started = std::time::Instant::now();
-
-        eprintln!("[probe] case-start name={name}");
-
         let checked = compilation.lowered_unit(key).expect("production probe lowers for diagnostic inspection");
 
         bray_testing::assert_goal_state_diagnostic_outcome(checked.diagnostics(), expected, name);
-        eprintln!("[probe] case-finish name={name} elapsed_ms={}", started.elapsed().as_millis());
+
+        if let Some((_, site)) = expected_sites.iter().find(|(probe, _)| *probe == name) {
+            assert!(checked.diagnostics().iter().any(|diagnostic| {
+                Some(diagnostic.kind()) == expected && diagnostic_at_call(diagnostic, caller, source, site)
+            }), "{name}, {site}: {:?}", checked.diagnostics());
+        }
+
     }
 
 }

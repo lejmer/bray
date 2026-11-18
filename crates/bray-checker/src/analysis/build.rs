@@ -1742,10 +1742,12 @@ mod tests {
 
         let else_block = block_containing(&graph, else_value.into());
 
+        assert_eq!(else_block.predecessors().len(), 1);
+
         assert!(else_block.predecessors().iter().all(|edge| {
             graph
                 .edge(*edge)
-                .is_some_and(|edge| edge.kind() != AnalysisEdgeKind::LoopBreak)
+                .is_some_and(|edge| edge.kind() == AnalysisEdgeKind::ConditionalFalse)
         }));
 
         let arm_block = block_containing(&graph, arm_value.into());

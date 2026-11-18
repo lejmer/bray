@@ -5,28 +5,6 @@ use bray_diagnostics::DiagnosticKind;
 use bray_testing::assert_goal_state_diagnostic_kind;
 
 #[test]
-fn pattern_conditions_lower_with_guarded_temporary_cleanup() {
-    let compilation = compilation(include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../xtask/fixtures/native-execution/pattern-conditions.bray"
-    )));
-
-    assert!(
-        compilation.check_diagnostics().is_empty(),
-        "{:?}",
-        compilation.check_diagnostics()
-    );
-
-    for name in ["next_value", "probe_return", "main"] {
-        let lowered = compilation
-            .lowered_unit(source_function_body_key(&compilation, name))
-            .expect("fixture callable must lower successfully");
-
-        assert!(lowered.value().is_some(), "{name}: {lowered:?}");
-    }
-}
-
-#[test]
 fn observed_call_result_patterns_evaluate_their_subject_once() {
     for body in [
         "match make() { case ?value { let (first, second) = value; return first; } case none { return 0; } }",
@@ -40,8 +18,14 @@ fn observed_call_result_patterns_evaluate_their_subject_once() {
         ] {
             let body = body.replace("make()", subject);
 
+            let (module, requirement) = if subject.contains("trusted") {
+                ("trusted module app; trusted predicate available();", "requires(trusted available())")
+            } else {
+                ("module app;", "")
+            };
+
             let source = format!(
-                "trusted module app; internal func make() -> (i32, bool)? {{ return (7, true); }} func main() -> i32 {{ {body} }}"
+                "{module} internal func make() -> (i32, bool)? {requirement} {{ return (7, true); }} func main() -> i32 {{ {body} }}"
             );
 
             let compilation = compilation(&source);
@@ -265,8 +249,8 @@ fn literal_string_cleanup_publishes_its_proven_empty_effect() {
             };
 
             assert!(matches!(
-                flow.value().cleanup_mutation(mutation),
-                bray_bound_tree::StorageInvalidation::Observed { accesses, .. } if accesses.is_empty()
+                flow.value().outcome_mutation(mutation),
+                Some(bray_bound_tree::StorageInvalidation::Observed { accesses, .. }) if accesses.is_empty()
             ));
 
             checked += 1;

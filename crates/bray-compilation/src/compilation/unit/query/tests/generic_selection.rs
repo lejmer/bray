@@ -131,19 +131,20 @@ fn missing_generic_constraint_evidence_remains_anchored_to_the_call() {
 fn explicit_generic_calls_publish_specialized_types_and_selections() {
     let compilation = compilation(concat!(
         "module app;\n",
-        "func main()\n",
+        "func main(pos input: Item) -> Item\n",
         "{\n",
-        "    let result = convert<Item, Item>(0);\n",
+        "    return convert<Item, bool>(input, true);\n",
         "}\n",
-        "func convert<T, U>(pos unused: i32) -> T\n",
+        "func convert<T, U>(pos value: T, pos other: U) -> T\n",
         "{\n",
+        "    return value;\n",
         "}\n",
         "struct Item\n",
         "{\n",
         "}\n",
     ));
 
-    let key = source_callable_body_key(&compilation);
+    let key = crate::test_support::source_function_body_key(&compilation, "main");
 
     let types = match compilation.expression_types(key.clone()) {
         Ok(types) => types,
@@ -166,7 +167,7 @@ fn explicit_generic_calls_publish_specialized_types_and_selections() {
 
     let selection = only_call_selection(selections.value());
 
-    assert!(matches!(selection.selection(), SemanticSelection::Call(_)));
+    let SemanticSelection::Call(call) = selection.selection() else { panic!("explicit generics select a callable"); };
 
     let Some(result) = types.value().expression(selection.expression()) else {
         panic!("generic call must have a final type");
@@ -176,6 +177,22 @@ fn explicit_generic_calls_publish_specialized_types_and_selections() {
         Ok(values) => values,
         Err(error) => panic!("semantic values must be available: {error:?}"),
     };
+
+    let instance = call.resolution().declaration_source().expect("generic selection retains its declaration instance");
+    let substitution = values.generic_substitution_data(instance.substitution());
+
+    let arguments = call.arguments().iter().map(|argument| {
+        let bray_bound_tree::SelectedArgument::Explicit { conversion, .. } = argument else {
+            panic!("generic fixture uses two explicit inputs");
+        };
+
+        bray_symbols::GenericArgument::Type(conversion.target_type())
+    }).collect::<Vec<_>>();
+
+    assert_eq!(substitution.bindings().iter().map(|binding| binding.argument()).collect::<Vec<_>>(), arguments);
+    assert_eq!(arguments[0], bray_symbols::GenericArgument::Type(result.ty()));
+    assert_ne!(arguments[0], arguments[1]);
+    assert!(compilation.check_diagnostics().is_empty(), "{:?}", compilation.check_diagnostics());
 
     let result = values.type_data(result.ty());
 

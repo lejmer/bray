@@ -1,4 +1,4 @@
-use super::super::super::model::{AnalysisEdge, AnalysisRefinement};
+use super::super::super::model::{AnalysisEdge, AnalysisPropagationOutcome, AnalysisRefinement};
 use super::super::state::ExecutionState;
 use super::model::ExecutionFlowDomain;
 use crate::{CheckerRequestContext, ExecutionCondition};
@@ -149,7 +149,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             }
             AnalysisRefinement::PropagationOutcome {
                 expression,
-                succeeded,
+                outcome,
             } => {
                 let bray_bound_tree::SemanticSelection::Propagation(selection) = self
                     .semantics
@@ -171,10 +171,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     .first()
                     .expect("propagation retains its operand");
 
-                match selection.success() {
-                    Some((variant, _)) => Some((
+                match outcome.variant(selection) {
+                    Some((variant, matches)) => Some((
                         self.value(state, subject).matches_variant(variant),
-                        succeeded,
+                        matches,
                     )),
                     None => {
                         let (_, absent) = crate::execution_guarantees::pattern_value(
@@ -194,7 +194,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                                 bray_bound_tree::BoundOperator::Equal,
                                 absent,
                             ),
-                            !succeeded,
+                            outcome == AnalysisPropagationOutcome::Failure,
                         ))
                     }
                 }

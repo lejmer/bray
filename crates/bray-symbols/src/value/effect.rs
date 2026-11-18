@@ -1,13 +1,14 @@
 use std::sync::Arc;
 
-use super::{DependencyProjection, DependencySubject};
+use super::{CapturedFailureOutcome, DependencyFailureKind, DependencyProjection, DependencySubject};
 
-/// Possible transitions and the subset that can precede normal completion.
-/// Abnormal execution can retain any performed prefix of the possible transitions.
+/// Possible transitions and the prefixes that can reach each completion channel.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct DependencyEffectOutcomes<Effect> {
     possible: Arc<[Effect]>,
     normal: Arc<[Effect]>,
+    abnormal: Option<Arc<[Effect]>>,
+    failures: [Option<Arc<[Effect]>>; 2],
 }
 
 impl<Effect: Ord + Clone> DependencyEffectOutcomes<Effect> {
@@ -15,7 +16,7 @@ impl<Effect: Ord + Clone> DependencyEffectOutcomes<Effect> {
     pub fn new(effects: impl IntoIterator<Item = Effect>) -> Self {
         let possible = bray_base::sorted_unique_shared_slice(effects);
 
-        Self { normal: Arc::clone(&possible), possible }
+        Self { normal: Arc::clone(&possible), possible, abnormal: None, failures: [None, None] }
     }
 
     /// Records normal transitions, retaining them among all possible transitions.
@@ -34,12 +35,64 @@ impl<Effect: Ord + Clone> DependencyEffectOutcomes<Effect> {
         self
     }
 
+    /// Records a bound for the prefix that can reach abnormal completion.
+    pub fn with_abnormal(mut self, effects: impl IntoIterator<Item = Effect>) -> Self {
+        let effects = bray_base::sorted_unique_shared_slice(effects);
+
+        if effects.iter().any(|effect| self.possible.binary_search(effect).is_err()) {
+            self.possible = bray_base::sorted_unique_shared_slice(self.possible.iter().chain(&*effects).cloned());
+        }
+
+        self.abnormal = Some(effects);
+        self.failures = [None, None];
+
+        self
+    }
+
+    /// Selects performed prefixes before resolving addresses in the admitted frame.
+    pub fn with_selected_failures<Guard, Report>(
+        self,
+        rows: Option<&[CapturedFailureOutcome<Guard, Report, Effect>]>,
+        mut admitted: impl FnMut(usize) -> bool,
+    ) -> Self {
+        let Some(rows) = rows else { return self; };
+
+        let rows = rows.iter().enumerate().filter_map(|(index, row)| admitted(index).then_some(row)).collect::<Vec<_>>();
+
+        let failures = DependencyFailureKind::ALL.map(|kind| {
+            bray_base::sorted_unique_shared_slice(rows.iter().filter(|row| row.covers(kind))
+                .flat_map(|row| row.effects.as_deref().unwrap_or_else(|| self.failure(kind))).cloned())
+        });
+
+        self.with_failure_prefixes(failures)
+    }
+
+    /// Installs distinct resolved prefixes and derives their common envelope.
+    pub fn with_failure_prefixes(self, failures: [Arc<[Effect]>; 2]) -> Self {
+        let combined = failures.iter().flat_map(|effects| effects.iter().cloned());
+        let mut outcomes = self.with_abnormal(combined);
+
+        outcomes.failures = failures.map(Some);
+
+        outcomes
+    }
+
     /// Joins possible execution paths without changing their outcome guards.
     pub fn merge(&mut self, incoming: &Self) -> bool {
         if self == incoming { return false; }
 
-        let merged = Self::new(self.possible.iter().chain(incoming.possible.iter()).cloned())
+        let mut merged = Self::new(self.possible.iter().chain(incoming.possible.iter()).cloned())
             .with_normal(self.normal.iter().chain(incoming.normal.iter()).cloned());
+
+        if let (Some(left), Some(right)) = (&self.abnormal, &incoming.abnormal) {
+            merged = merged.with_abnormal(left.iter().chain(&**right).cloned());
+        }
+
+        if self.failures.iter().chain(&incoming.failures).any(Option::is_some) {
+            merged = merged.with_failure_prefixes(DependencyFailureKind::ALL.map(|kind| {
+                bray_base::sorted_unique_shared_slice(self.failure(kind).iter().chain(incoming.failure(kind)).cloned())
+            }));
+        }
 
         let changed = *self != merged;
 
@@ -67,14 +120,19 @@ impl<Effect: Ord + Clone> DependencyEffectOutcomes<Effect> {
     /// Binds all effects against entry memory while selecting feasible normal effects.
     pub fn try_flat_map_admitted<Mapped: Ord + Clone, Produced: IntoIterator<Item = Mapped>, Error>(
         &self,
-        mut admitted: impl FnMut(&Effect) -> bool,
+        mut admitted_normal: impl FnMut(&Effect) -> bool,
         mut map: impl FnMut(&Effect) -> Result<Produced, Error>,
     ) -> Result<DependencyEffectOutcomes<Mapped>, Error> {
         let mut possible = Vec::with_capacity(self.possible.len());
         let mut normal = Vec::with_capacity(self.normal.len());
+        let mut abnormal = self.abnormal.as_ref().map(|effects| Vec::with_capacity(effects.len()));
+        let mut failures = self.failures.each_ref().map(|effects| effects.as_ref().map(|effects| Vec::with_capacity(effects.len())));
 
         for effect in &*self.possible {
-            let on_normal_path = self.normal.binary_search(effect).is_ok() && admitted(effect);
+            let on_normal_path = self.normal.binary_search(effect).is_ok() && admitted_normal(effect);
+
+            let on_abnormal_path = self.abnormal.as_ref().is_some_and(|effects|
+                effects.binary_search(effect).is_ok());
 
             for mapped in map(effect)? {
                 if on_normal_path {
@@ -82,11 +140,30 @@ impl<Effect: Ord + Clone> DependencyEffectOutcomes<Effect> {
                     normal.push(mapped.clone());
                 }
 
+                if on_abnormal_path {
+                    abnormal.as_mut().expect("known failure effect retains its channel").push(mapped.clone());
+                }
+
+                for (source, output) in self.failures.iter().zip(&mut failures) {
+                    if source.as_ref().is_some_and(|effects| effects.binary_search(effect).is_ok()) {
+                        output.as_mut().expect("known failure prefix retains its kind").push(mapped.clone());
+                    }
+                }
+
                 possible.push(mapped);
             }
         }
 
-        Ok(DependencyEffectOutcomes::new(possible).with_normal(normal))
+        let bound = DependencyEffectOutcomes::new(possible).with_normal(normal);
+
+        let mut bound = match abnormal {
+            Some(effects) => bound.with_abnormal(effects),
+            None => bound,
+        };
+
+        bound.failures = failures.map(|effects| effects.map(bray_base::sorted_unique_shared_slice));
+
+        Ok(bound)
     }
 }
 
@@ -96,6 +173,14 @@ impl<Effect> DependencyEffectOutcomes<Effect> {
 
     /// Transitions that may occur on a path reaching normal completion.
     pub fn normal(&self) -> &[Effect] { &self.normal }
+
+    /// Transitions that may have executed before failure, using the envelope for an opaque body.
+    pub fn abnormal(&self) -> &[Effect] { self.abnormal.as_deref().unwrap_or(&self.possible) }
+
+    /// Transitions that can reach the selected abnormal exit.
+    pub fn failure(&self, kind: DependencyFailureKind) -> &[Effect] {
+        self.failures[kind.index()].as_deref().unwrap_or_else(|| self.abnormal())
+    }
 }
 
 impl<Subject, Projection, Type> DependencyEffectOutcomes<DependencyStorageEffect<Subject, Projection, Type>> {

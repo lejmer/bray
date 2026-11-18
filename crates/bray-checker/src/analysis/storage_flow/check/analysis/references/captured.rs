@@ -74,22 +74,12 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             let produced = (destination == StorageValueDestination::Result)
                 .then(|| state.memory.capture_produced_reference(&target)).flatten();
 
-            let already_installed = produced.is_some();
+            let mut snapshot = produced.unwrap_or_else(|| {
+                // Install the actual component captures before reading the new
+                // destination. The preceding contents do not describe this value.
+                self.publish_value_graph(state, target.clone(), value.clone());
 
-            let mut snapshot = produced.or_else(|| value.inline_captured_storage().cloned()).unwrap_or_else(|| {
-                let mut snapshot = state.memory.capture_reached_value(&target);
-
-                if !value.is_reference()
-                    && let crate::ExecutionConditionKind::Constructed(_, fields) = value.computed_value().kind()
-                {
-                    for (field, child) in fields.iter() {
-                        if let Some(storage) = child.inline_captured_storage() {
-                            snapshot = snapshot.with_component(&[*field], Some(storage));
-                        }
-                    }
-                }
-
-                snapshot
+                state.memory.capture_reached_value(&target)
             });
 
             if destination == StorageValueDestination::Result {
@@ -101,10 +91,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             // at the end of this same operation, including those raised by installing its payload.
             let snapshot = std::sync::Arc::new(snapshot);
             let value = value.captured_value(snapshot.as_ref().clone());
-
-            if !already_installed {
-                self.publish_value_graph(state, target, value.clone());
-            }
 
             self.execution.publish_captured_output(state.execution.as_mut().expect("publication retains its paired execution state"),
                 invocation, &destination, value);
@@ -317,6 +303,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         &mut self, execution: &mut crate::analysis::guarantee::ExecutionState,
         invocation: BoundExecutionSite, effects: &[crate::analysis::storage_flow::memory::Effect],
     ) {
+        self.execution.prepare_failure_rows(execution, invocation);
+
         let (values, portable_order): (Arc<[StorageValueTransition]>, bool) =
             if let BoundExecutionSite::Node(bray_bound_tree::AnyBoundNodeId::Expression(expression)) = invocation
             && let Some(operation) = self.memory.operation(expression)
@@ -337,5 +325,37 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 bray_bound_tree::merge_storage_value_transitions(previous, &values);
             }).or_insert(values);
         }
+    }
+
+    pub(in crate::analysis::storage_flow) fn prepare_operation_outcomes(
+        &mut self, state: &mut StorageFlowState, kind: crate::analysis::model::AnalysisOperationKind,
+    ) -> Vec<usize> {
+        use crate::analysis::model::{AnalysisCallPhase, AnalysisOperationKind};
+
+        if kind.awaited_expression().is_some() {
+            let execution = state.execution.as_mut().expect("reachable await retains execution facts");
+
+            self.execution.prepare_await_execution(execution, kind);
+
+            return Vec::new();
+        }
+
+        let AnalysisOperationKind::Call { invocation, phase: AnalysisCallPhase::Attempt } = kind else {
+            return Vec::new();
+        };
+
+        if kind.explicit_attempt_expression().is_some_and(|expression| self.memory.operation(expression).is_some())
+            || self.dependencies.calls().get(&invocation).is_none_or(|contract| {
+                contract.deferred_effects().is_some() || contract.captured_values().len() <= 1
+            })
+        {
+            return Vec::new();
+        }
+
+        let execution = state.execution.as_mut().expect("reachable call attempt has an execution state");
+
+        self.begin_value_transition(execution, invocation, &[]);
+
+        self.execution.feasible_call_outputs(execution, invocation)
     }
 }

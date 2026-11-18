@@ -1340,6 +1340,8 @@ mod tests {
         let request = super::outcome_batch_request()
             .unwrap_or_else(|error| panic!("outcome batch must build: {error:?}"));
 
+        assert_eq!(request.plans().len(), super::OUTCOME_CASES.len());
+
         for (plan, case) in request.plans().iter().zip(super::OUTCOME_CASES) {
             assert_eq!(plan.identity(), case.plan_identity);
             assert_eq!(plan.filters(), [case.test_identity]);

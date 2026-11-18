@@ -759,7 +759,7 @@ mod tests {
     #[test]
     fn table_validation_accepts_native_static_declaration_forms() {
         let sources = source_store([concat!(
-            "module app;\n",
+            "trusted module app;\n",
             "@symbol(name = \"foreign_value\")\n",
             "extern trusted static FOREIGN_VALUE: i32;\n",
             "@symbol(name = \"exported_value\")\n",
@@ -860,7 +860,7 @@ mod tests {
             "    construct() -> Self\n",
             "    {\n",
             "    }\n",
-            "    overload grouped = {visible};\n",
+            "    overload grouped = {visible}\n",
             "}\n",
         )]);
 
@@ -972,8 +972,8 @@ mod tests {
             "@test internal module core { struct Point {} }",
             concat!(
                 "module other;\n",
-                "struct Value {}\n",
-                "@test struct Value {}\n",
+                "func value() {}\n",
+                "@test func value() {}\n",
                 "@test func missing();\n",
             ),
         ]);
@@ -989,6 +989,16 @@ mod tests {
         let directed_declaration = discover_source_unit_declarations(
             &parse_valid_source_unit_for_test(source(&sources, 2)),
         );
+
+        let [ordinary_value, directed_value, _] = directed_declaration.chunk().module_parts()[0].declarations() else {
+            panic!("the module has two value declarations and one missing-body declaration");
+        };
+
+        assert_eq!(ordinary_value.name(), directed_value.name());
+        assert!(!ordinary_value.is_recovered());
+        assert!(!directed_value.is_recovered());
+        assert!(ordinary_value.surface().directives().is_empty());
+        assert_eq!(directed_value.surface().directives().len(), 1);
 
         let result = merge_declaration_chunks([&ordinary, &directed_module, &directed_declaration]);
 

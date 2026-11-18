@@ -1,18 +1,18 @@
 use crate::test_support::{source_function_body_key};
-use super::fixtures::{assert_production_probe, production_host_compilation};
+use super::fixtures::{assert_production_contract, production_host_compilation};
 
 #[test]
 #[ignore = "tier:proof"]
 fn inactive_exit_authority_requires_the_unchanged_whole_owner() {
     for (body, valid) in [
-        ("trusted inspect(&selected);", true),
+        ("inspect(&selected);", true),
         (r#"
             let moved = selected;
-            trusted inspect(&moved);
+            inspect(&moved);
         "#, true),
         (r#"
             selected.cleanup = none;
-            trusted inspect(&selected);
+            inspect(&selected);
         "#, false),
         (
             r#"
@@ -22,7 +22,7 @@ fn inactive_exit_authority_requires_the_unchanged_whole_owner() {
                     native_thread = selected.native_thread,
                     cleanup = none
                 };
-                trusted inspect(&fake);
+                inspect(&fake);
             "#,
             false,
         ),
@@ -44,7 +44,7 @@ fn inactive_exit_authority_requires_the_unchanged_whole_owner() {
         "#
         );
 
-        super::fixtures::assert_production_contract(&caller, (!valid).then_some(bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven), "trusted inspect(", "attachment_exit_inactive");
+        super::fixtures::assert_production_contract(&caller, (!valid).then_some(bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven), "inspect(", "attachment_exit_inactive");
     }
 }
 
@@ -80,13 +80,13 @@ fn activation_dispatch_requires_exact_native_ownership() {
                 )
                 {requirements}
             {{
-                let (progress, _, _, _, _) = trusted bray.runtime.bootstrap.activation.execution.invoke(cursor, callback, ready, 0, 0);
+                let (progress, _, _, _, _) = bray.runtime.bootstrap.activation.execution.invoke(cursor, callback, ready, 0, 0);
                 return progress;
             }}
         "#
         );
 
-        super::fixtures::assert_production_contract(&caller, (!valid).then_some(bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven), "let (progress, _, _, _, _) = trusted bray.runtime.bootstrap.activation.execution.invoke", "selected");
+        super::fixtures::assert_production_contract(&caller, (!valid).then_some(bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven), "let (progress, _, _, _, _) = bray.runtime.bootstrap.activation.execution.invoke", "selected");
     }
 }
 
@@ -96,7 +96,7 @@ fn native_activation_dispatch_requires_both_exact_callback_addresses() {
     for (requirement, valid) in [
         ("", false),
         (
-            "requires(trusted core.memory.callable_address_valid<bray.runtime.bootstrap.activation.callback.Invoke>(pointer = other))",
+            "requires(trusted core.memory.callable_address_valid<bray.runtime.bootstrap.activation.callback.Invoke>(pointer = other), trusted core.memory.callable_address_valid<bray.runtime.bootstrap.activation.callback.Ready>(pointer = ready))",
             false,
         ),
         (
@@ -141,12 +141,12 @@ fn native_activation_dispatch_requires_both_exact_callback_addresses() {
                 )
                 {requirement}
             {{
-                return trusted bray.runtime.bootstrap.activation.execution.execute(pointer, callback, ready, 0, 0, output, records, incidents);
+                return bray.runtime.bootstrap.activation.execution.execute(pointer, callback, ready, 0, 0, output, records, incidents);
             }}
             "#
         );
 
-        super::fixtures::assert_production_contract(&caller, (!valid).then_some(bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven), "return trusted bray.runtime.bootstrap.activation.execution.execute", "callable_address_valid");
+        super::fixtures::assert_production_contract(&caller, (!valid).then_some(bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven), "return bray.runtime.bootstrap.activation.execution.execute", "callable_address_valid");
     }
 }
 
@@ -162,7 +162,7 @@ fn activation_callback_requires_one_exact_authorized_invocation() {
         "trusted bray.runtime.bootstrap.activation.callback.authorized(owner = &other.acquisition)";
 
     let other_outputs = "trusted bray.runtime.bootstrap.activation.callback.outputs_owned(owner = &other.acquisition)";
-    let invoke = "_ = trusted bray.runtime.bootstrap.activation.callback.invoke(callback, owner);";
+    let invoke = "_ = bray.runtime.bootstrap.activation.callback.invoke(callback, owner);";
 
     use bray_diagnostics::DiagnosticKind;
 
@@ -273,12 +273,12 @@ fn activation_callback_requires_one_exact_authorized_invocation() {
 #[test]
 #[ignore = "tier:proof"]
 fn active_snapshot_requires_exact_dispatch_ownership_and_retained_output() {
-    for (owner, retained, output, valid) in [
-        ("", "pointer", "output", false),
-        ("other", "pointer", "output", false),
-        ("pointer", "other", "output", false),
-        ("pointer", "pointer", "other_output", false),
-        ("pointer", "pointer", "output", true),
+    for (owner, retained, output, missing) in [
+        ("", "pointer", "output", Some("owned")),
+        ("other", "pointer", "output", Some("owned")),
+        ("pointer", "other", "output", Some("active_destination")),
+        ("pointer", "pointer", "other_output", Some("active_destination")),
+        ("pointer", "pointer", "output", None),
     ] {
         let ownership = if owner.is_empty() {
             String::new()
@@ -308,12 +308,17 @@ fn active_snapshot_requires_exact_dispatch_ownership_and_retained_output() {
                     trusted core.memory.aligned_for<bray.runtime.bootstrap.activation.Header>(pointer = pointer),
                 )
             {{
-                return trusted bray.runtime.bootstrap.activation.requirements.snapshot(pointer, 0, 0, 0, output);
+                return bray.runtime.bootstrap.activation.requirements.snapshot(pointer, 0, 0, 0, output);
             }}
             "#
         );
 
-        assert_production_probe(&caller, valid);
+        assert_production_contract(
+            &caller,
+            missing.map(|_| bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven),
+            "bray.runtime.bootstrap.activation.requirements.snapshot(pointer, 0, 0, 0, output)",
+            missing.unwrap_or_default(),
+        );
     }
 }
 
@@ -332,7 +337,7 @@ fn activation_header_access_retains_ownership_and_excludes_overlapping_borrows()
             true,
         ),
         (
-            "let mut forged: bray.runtime.bootstrap.activation.run.Cursor = { root = cursor.root, pointer = other }; let header = trusted bray.runtime.bootstrap.activation.execution.access(&mut forged); header.state = 1;",
+            "let mut forged: bray.runtime.bootstrap.activation.run.Cursor = { root = cursor.root, pointer = other }; let header = bray.runtime.bootstrap.activation.execution.access(&mut forged); header.state = 1;",
             false,
         ),
         (

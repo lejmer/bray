@@ -361,20 +361,17 @@ mod tests {
     #[test]
     fn inactive_contributions_do_not_create_split_module_conflicts() {
         let sources = [
-            concat!("@test\n", "trusted module app;\n"),
+            "@test\nmodule app;\n",
             "internal module app {}\n",
         ];
 
         let library = compilation(&sources, ProductKind::Library);
         let test = compilation(&sources, ProductKind::Test);
 
-        assert!(
-            !library
-                .product_source_graph()
-                .is_ok_and(|graph| graph.diagnostics().iter().any(|diagnostic| {
-                    diagnostic.kind() == DiagnosticKind::DeclarationConflictingModuleVisibility
-                }))
-        );
+        let library = source_graph(&library);
+
+        assert_eq!(library.declarations().module_parts().len(), 1);
+        assert!(library.diagnostics().by_kind(DiagnosticKind::DeclarationConflictingModuleVisibility).next().is_none());
 
         let test = source_graph(&test);
 

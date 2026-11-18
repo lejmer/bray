@@ -318,7 +318,7 @@ pub(crate) enum AnalysisRefinement {
     },
     PropagationOutcome {
         expression: BoundExpressionId,
-        succeeded: bool,
+        outcome: AnalysisPropagationOutcome,
     },
     CaughtResult {
         expression: BoundExpressionId,
@@ -331,9 +331,8 @@ pub(crate) enum AnalysisRefinement {
     },
     TrustBoundary(BoundExpressionId),
     PreconditionFailure(bray_bound_tree::BoundExecutionSite),
-    InvocationFailure(bray_bound_tree::BoundExecutionSite),
+    InvocationFailure(bray_bound_tree::BoundExecutionSite, bray_symbols::DependencyFailureKind),
     GeneratorStorageFailure(BoundExpressionId),
-    InvocationCancellation(bray_bound_tree::BoundExecutionSite),
     InvocationCompletion(bray_bound_tree::BoundExecutionSite),
     InvocationPresence(bray_bound_tree::BoundExecutionSite, bool),
     InvocationBoolean(bray_bound_tree::BoundExecutionSite, bool),
@@ -341,6 +340,31 @@ pub(crate) enum AnalysisRefinement {
         scope: bray_bound_tree::StorageScope,
         exit: AnyBoundNodeId,
     },
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub(crate) enum AnalysisPropagationOutcome {
+    Success,
+    Failure,
+    RunFailure(bray_symbols::DependencyFailureKind),
+}
+
+impl AnalysisPropagationOutcome {
+    pub(crate) fn variant(self, selection: &bray_bound_tree::SelectedPropagation) -> Option<(bray_symbols::UnionVariantSymbolId, bool)> {
+        match self {
+            Self::Success | Self::Failure => selection.success().map(|(variant, _)| (variant, self == Self::Success)),
+            Self::RunFailure(kind) => {
+                let bray_bound_tree::SelectedPropagation::CurrentRun { panicked, cancelled, .. } = selection else {
+                    panic!("run failure has no checked RunResult selection");
+                };
+
+                Some((match kind {
+                    bray_symbols::DependencyFailureKind::Panic => panicked.0,
+                    bray_symbols::DependencyFailureKind::Cancellation => *cancelled,
+                }, true))
+            }
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -389,8 +413,7 @@ impl AnalysisEdge {
         matches!(
             self.refinement,
             Some(
-                AnalysisRefinement::InvocationFailure(_)
-                    | AnalysisRefinement::InvocationCancellation(_)
+                AnalysisRefinement::InvocationFailure(..)
                     | AnalysisRefinement::CleanupRequired { .. }
             )
         )
@@ -463,6 +486,16 @@ pub(crate) enum AnalysisExitKind {
     Cancellation,
     Yield,
     Recovery,
+}
+
+impl AnalysisExitKind {
+    pub(crate) const fn failure_kind(self) -> Option<bray_symbols::DependencyFailureKind> {
+        match self {
+            Self::Panic => Some(bray_symbols::DependencyFailureKind::Panic),
+            Self::Cancellation => Some(bray_symbols::DependencyFailureKind::Cancellation),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -674,40 +707,7 @@ impl ControlFlowGraph {
 
     /// Exits that transfer the run's panic or cancellation outcome.
     pub(crate) fn abnormal_exits(&self) -> impl Iterator<Item = &AnalysisExit> {
-        self.exits.iter().filter(|exit| {
-            matches!(
-                exit.kind(),
-                AnalysisExitKind::Panic | AnalysisExitKind::Cancellation
-            )
-        })
-    }
-
-    /// Blocks that can lead to a normal function completion.
-    pub(crate) fn completion_predecessors(&self) -> std::collections::BTreeSet<AnalysisBlockId> {
-        let mut pending = self
-            .completion_exits()
-            .map(|exit| exit.block())
-            .collect::<Vec<_>>();
-
-        let mut blocks = std::collections::BTreeSet::new();
-
-        while let Some(block) = pending.pop() {
-            if blocks.insert(block) {
-                pending.extend(
-                    self.block(block)
-                        .expect("completion path belongs to graph")
-                        .predecessors()
-                        .iter()
-                        .map(|edge| {
-                            self.edge(*edge)
-                                .expect("predecessor belongs to graph")
-                                .source()
-                        }),
-                );
-            }
-        }
-
-        blocks
+        self.exits.iter().filter(|exit| exit.kind().failure_kind().is_some())
     }
 
     pub(crate) fn block(&self, id: AnalysisBlockId) -> Option<&AnalysisBlock> {
@@ -766,8 +766,7 @@ impl ControlFlowGraph {
 
         let refinements_are_valid = self.edges().iter().all(|edge| match edge.refinement() {
             Some(
-                AnalysisRefinement::InvocationFailure(invocation)
-                | AnalysisRefinement::InvocationCancellation(invocation)
+                AnalysisRefinement::InvocationFailure(invocation, _)
                 | AnalysisRefinement::PreconditionFailure(invocation)
                 | AnalysisRefinement::InvocationCompletion(invocation)
                 | AnalysisRefinement::InvocationPresence(invocation, _)

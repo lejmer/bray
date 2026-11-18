@@ -92,7 +92,7 @@ pub(super) fn decode_dependency_contract(
         super::common::decode_bool(reader, crate::InterfaceValidationField::Dependency)?;
 
     let requirements = decode_dependency_requirements(reader, limits, context, 0)?;
-    let abnormal_reports = decode_optional_requirements(reader, limits, context)?;
+    let failure_outcomes = decode_failure_outcomes(reader, limits, context)?;
 
     let captured_values = super::super::captured::decode_values(reader, limits, context)?;
 
@@ -100,18 +100,48 @@ pub(super) fn decode_dependency_contract(
 
     let effects = decode_dependency_effects(reader, limits, context)?;
 
-    let mut contract = InterfaceDependencyContract::new(requirements);
-
-    if let Some(requirements) = abnormal_reports {
-        contract = contract.with_abnormal_reports(requirements);
-    }
-
-    Ok(contract
+    Ok(InterfaceDependencyContract::new(requirements)
+        .with_failure_outcomes(failure_outcomes)
         .with_captured_values(captured_values)
         .with_observed_result(observed_result)
         .with_effects(effects)
         .with_synchronous_cleanup(synchronous_cleanup)
         .with_normal_completion(normal_completion))
+}
+
+fn decode_failure_outcomes(
+    reader: &mut WireReader<'_>,
+    limits: InterfaceValidationLimits,
+    context: &mut SemanticDecodeContext,
+) -> Result<Option<Vec<crate::InterfaceFailureOutcome>>, InterfaceValidationError> {
+    if !super::common::decode_bool(reader, crate::InterfaceValidationField::Dependency)? {
+        return Ok(None);
+    }
+
+    let count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
+    let mut outcomes = context.allocate_items(reader, count)?;
+
+    for _ in 0..count {
+        let kind = match read_u32(reader)? {
+            0 => None,
+            1 => Some(bray_symbols::DependencyFailureKind::Panic),
+            2 => Some(bray_symbols::DependencyFailureKind::Cancellation),
+            value => return Err(crate::semantic::codec::invalid_discriminant(crate::InterfaceValidationField::Dependency, value)),
+        };
+
+        let guard = read_optional_u32(reader)?.map(InterfaceConstantTermId::new);
+        let report = decode_optional_requirements(reader, limits, context)?.map(std::sync::Arc::from);
+
+        let effects = if super::common::decode_bool(reader, crate::InterfaceValidationField::Dependency)? {
+            Some(decode_dependency_effects(reader, limits, context)?.into())
+        } else {
+            None
+        };
+
+        outcomes.push(crate::InterfaceFailureOutcome { kind, guard, report, effects });
+    }
+
+    Ok(Some(outcomes))
 }
 
 pub(in crate::semantic::codec) fn decode_dependency_effects(

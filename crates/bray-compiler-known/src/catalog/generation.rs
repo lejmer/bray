@@ -743,7 +743,6 @@ mod tests {
             "StandardMemoryCapacity",
             "StandardMemoryCopy",
             "StandardMemoryCopyOverlapping",
-            "StandardRawBufferConstructor",
             "StandardMemoryDeallocate",
             "StandardMemoryFunctionPointerFromData",
             "StandardMemoryFunctionPointerReinterpret",

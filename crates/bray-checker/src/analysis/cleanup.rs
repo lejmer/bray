@@ -157,6 +157,7 @@ where
             AnalysisEdgeKind::Sequential,
             Some(super::model::AnalysisRefinement::InvocationFailure(
                 invocation,
+                bray_symbols::DependencyFailureKind::Panic,
             )),
         );
 
@@ -166,11 +167,12 @@ where
             let cancelled = self.push_block();
 
             self.push_edge(
-                failure,
+                block,
                 cancelled,
                 AnalysisEdgeKind::Sequential,
-                Some(super::model::AnalysisRefinement::InvocationCancellation(
+                Some(super::model::AnalysisRefinement::InvocationFailure(
                     invocation,
+                    bray_symbols::DependencyFailureKind::Cancellation,
                 )),
             );
 

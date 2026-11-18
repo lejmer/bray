@@ -198,13 +198,15 @@ fn generated_only_products_publish_distinct_immutable_sources_and_host_order() {
     assert_send_sync::<ProjectGraph>();
 
     let fixture = Fixture::new();
+    let generation = std::sync::atomic::AtomicUsize::new(0);
 
-    let executor = Executor::new(|request: &GeneratorRequest<'_>| {
+    let executor = Executor::new(move |request: &GeneratorRequest<'_>| {
         assert_eq!(request.executable().bytes(), b"tool");
 
-        assert!(
-            [b"schema".as_slice(), b"changed".as_slice()].contains(&request.inputs()[0].bytes())
-        );
+        let expected_inputs = [b"schema".as_slice(), b"changed".as_slice()];
+        let invocation = generation.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
+        assert_eq!(request.inputs()[0].bytes(), expected_inputs[invocation]);
 
         assert_eq!(
             request

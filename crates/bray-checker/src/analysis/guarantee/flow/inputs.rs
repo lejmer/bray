@@ -405,9 +405,20 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         ) {
             self.staged_arguments(state, expression, selection, Some(ordinal))
         } else if let Some(source) = input.expression() {
+            let place = self.input_place(invocation).expect("input materialization retains its slot");
+
+            let identity = ExecutionCondition::post_state(
+                bray_bound_tree::StorageMutation::Operation(invocation),
+                ExecutionCondition::new(crate::ExecutionConditionKind::Input(place)),
+            );
+
+            let value = self.storage.occurrence_plans(invocation).fold(self.value(state, source), |value, plan| {
+                self.copied_access_value(identity.clone(), value, plan)
+            });
+
             BTreeMap::from([(
                 ExecutionPlace::argument(SymbolOrdinal::new(0)),
-                self.value(state, source),
+                value,
             )])
         } else {
             BTreeMap::new()
@@ -417,6 +428,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             self.call_trusted_assumptions(state, invocation, &arguments, &BTreeSet::new());
 
         ExecutionCallEvidence {
+            failure_rows: None,
             outputs: Default::default(),
             implementation_witnesses: match selection {
                 SemanticSelection::Call(call) => {

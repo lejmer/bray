@@ -74,15 +74,12 @@ impl InterfaceSemantics {
 
         for contract in &*self.dependency_contracts {
             self.validate_captured_value_graph(contract, symbol_count, dependency_count, limits)?;
+            self.validate_failure_outcomes(contract)?;
 
             if !is_strictly_sorted(&contract.requirements)
                 || !is_strictly_sorted(&contract.synchronous_cleanup)
                 || contract.captured_values.iter().flat_map(|row| row.report.iter())
                     .any(|report| !is_strictly_sorted(report))
-                || contract
-                    .abnormal_reports
-                    .as_deref()
-                    .is_some_and(|requirements| !is_strictly_sorted(requirements))
             {
                 return Err(crate::semantic::codec::invalid_value(
                     crate::InterfaceValidationField::Constant,
@@ -192,12 +189,7 @@ impl InterfaceSemantics {
                 .chain(
                     contract.captured_values.iter().flat_map(|row| row.report.iter().flat_map(|report| report.iter())),
                 )
-                .chain(
-                    contract
-                        .abnormal_reports
-                        .iter()
-                        .flat_map(|items| items.iter()),
-                )
+                .chain(contract.failure_reports().flatten())
             {
                 self.validate_dependency_requirement(
                     requirement,

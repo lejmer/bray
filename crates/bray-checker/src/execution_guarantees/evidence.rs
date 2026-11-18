@@ -30,6 +30,8 @@ impl UnprovenExecutionCondition {
 pub struct ExecutionCallEvidence {
     /// Actual normal publications formed from this admitted environment.
     pub(crate) outputs: super::ExecutionOutputs,
+    /// Portable failure rows admitted against the same evaluated entry arguments.
+    pub(crate) failure_rows: Option<Arc<[usize]>>,
     pub(crate) implementation_witnesses: std::sync::Arc<[bray_symbols::ImplementationInstanceId]>,
     /// Exact existing carriers admitted at invocation. Their ledger clauses stay
     /// private until completion uses this entry's captured truth and actual return.
@@ -56,6 +58,27 @@ pub struct ExecutionCallEvidence {
 }
 
 impl ExecutionCallEvidence {
+    pub(crate) fn select_failure_rows<Report>(
+        &self,
+        values: &bray_symbols::SemanticValueStore,
+        cache: &super::ExecutionProofCache,
+        rows: Option<&[bray_symbols::CapturedFailureOutcome<bray_symbols::ConstantTermId, Report>]>,
+    ) -> Option<Arc<[usize]>> {
+        let proof = cache.ordinary_proof(&self.assumptions);
+
+        rows.map(|rows| rows.iter().enumerate().filter_map(|(row, outcome)| {
+            outcome.guard.is_none_or(|guard| {
+                let value = self.bind_term(values, guard, &Condition::unknown());
+
+                proof.can_assume(&value, true)
+            }).then_some(row)
+        }).collect())
+    }
+
+    pub(crate) fn admits_failure(&self, row: usize) -> bool {
+        self.failure_rows.as_deref().is_none_or(|rows| rows.binary_search(&row).is_ok())
+    }
+
     pub(crate) fn bind_condition(&self, formal: &Condition, result: &Condition) -> Condition {
         formal.substitute(&|place| place.value_in(&self.arguments).unwrap_or_else(Condition::unknown),
             result, &mut { Condition::WORK_LIMIT })
@@ -97,6 +120,10 @@ impl ExecutionCallEvidence {
         } else {
             self.outputs.is_admitted(index)
         }
+    }
+
+    pub(crate) fn select_output(&mut self, row: usize) {
+        self.outputs = super::ExecutionOutputs([self.outputs.0[row].clone()].into());
     }
 
     pub(crate) fn conditions(&self) -> impl Iterator<Item = &Condition> {
@@ -253,6 +280,7 @@ impl ExecutionCallEvidence {
         mut map: impl FnMut(&super::ExecutionCondition) -> Result<super::ExecutionCondition, E>,
     ) -> Result<Self, E> {
         let mut mapped = Self {
+            failure_rows: self.failure_rows.clone(),
             implementation_witnesses: Arc::clone(&self.implementation_witnesses),
             owned_inputs: Arc::clone(&self.owned_inputs),
             anonymous_target: self.anonymous_target.clone(),
@@ -408,7 +436,18 @@ impl ExecutionCallEvidence {
 
         self.extracted_values.retain(|term, value| other.extracted_values.get(term) == Some(value));
 
+        let failures = match (self.failure_rows.as_deref(), other.failure_rows.as_deref()) {
+            (Some(left), Some(right)) if left == right => self.failure_rows.clone(),
+            (Some(left), Some(right)) => Some(bray_base::sorted_unique_shared_slice(left.iter().chain(right).copied())),
+            _ => None,
+        };
+
+        let failures_changed = self.failure_rows != failures;
+
+        self.failure_rows = failures;
+
         addresses_changed
+            || failures_changed
             || outputs_changed
             || arguments_changed
             || assumptions_changed

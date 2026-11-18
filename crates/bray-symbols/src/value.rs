@@ -20,7 +20,7 @@ pub use application::{
     CallableDefinitionId, CallableInstanceData, ImplementationInstanceData, PredicateInstanceData,
     TraitApplicationData,
 };
-pub use captured::{CapturedCallable, CapturedDeferredInvocation, CapturedValueOutcome, CapturedValueOperation, CapturedValueTemplate};
+pub use captured::{CapturedCallable, CapturedDeferredInvocation, CapturedFailureOutcome, CapturedValueOutcome, CapturedValueOperation, CapturedValueTemplate, DependencyFailureKind};
 pub use constant::{
     AnyConstantDefinitionId, ConstantBinaryOperation, ConstantField, ConstantProjection,
     ConstantProjectionKind, ConstantTermData, ConstantUnaryOperation, ConstantValueData,

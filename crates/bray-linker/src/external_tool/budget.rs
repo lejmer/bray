@@ -92,8 +92,9 @@ impl Drop for ProcessPermit<'_> {
 #[cfg(test)]
 mod tests {
     use std::num::NonZeroUsize;
-    use std::sync::atomic::{AtomicBool, Ordering};
-    use std::sync::{Arc, Barrier};
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::sync::mpsc;
+    use std::time::Duration;
 
     use super::ExternalToolProcessBudget;
     use crate::ExternalToolFailure;
@@ -130,71 +131,48 @@ mod tests {
     }
 
     #[test]
-    fn process_budget_serializes_external_tool_ownership() {
-        let budget = ExternalToolProcessBudget::new(NonZeroUsize::MIN);
-        let rendezvous = Arc::new(Barrier::new(2));
-        let first_has_permit = Arc::new(AtomicBool::new(false));
-        let second_has_permit = Arc::new(AtomicBool::new(false));
+    fn a_waiting_process_observes_permit_release_or_cancellation() {
+        for cancel_waiter in [false, true] {
+            let budget = ExternalToolProcessBudget::new(NonZeroUsize::MIN);
+            let cancelled = AtomicBool::new(false);
+            let polls = AtomicUsize::new(0);
 
-        std::thread::scope(|scope| {
-            let first_budget = budget.clone();
-            let first_rendezvous = Arc::clone(&rendezvous);
-            let first_acquired = Arc::clone(&first_has_permit);
+            let (waiting, wait_started) = mpsc::channel();
 
-            let first = scope.spawn(move || {
-                let _permit = first_budget
+            let (finished, wait_finished) = mpsc::channel();
+
+            std::thread::scope(|scope| {
+                let first = budget
                     .acquire(&|| false)
-                    .unwrap_or_else(|error| panic!("first permit should be available: {error:?}"));
+                    .expect("the first process must acquire the only permit");
 
-                first_acquired.store(true, Ordering::Release);
-                first_rendezvous.wait();
-                first_rendezvous.wait();
-            });
+                scope.spawn(|| {
+                    let acquired = budget.acquire(&|| {
+                        if polls.fetch_add(1, Ordering::Relaxed) == 1 {
+                            waiting.send(()).expect("the test must observe the wait");
+                        }
 
-            while !first_has_permit.load(Ordering::Acquire) {
-                std::thread::yield_now();
-            }
+                        cancelled.load(Ordering::Acquire)
+                    });
 
-            let second_budget = budget.clone();
-            let second_acquired = Arc::clone(&second_has_permit);
-
-            let second = scope.spawn(move || {
-                let _permit = second_budget.acquire(&|| false).unwrap_or_else(|error| {
-                    panic!("second permit should become available: {error:?}")
+                    finished.send(acquired.map(drop)).ok();
                 });
 
-                second_acquired.store(true, Ordering::Release);
+                let observed_wait = wait_started.recv_timeout(Duration::from_secs(5));
+
+                if cancel_waiter && observed_wait.is_ok() {
+                    cancelled.store(true, Ordering::Release);
+
+                    let outcome = wait_finished.recv_timeout(Duration::from_secs(5));
+
+                    drop(first);
+                    assert_eq!(outcome, Ok(Err(ExternalToolFailure::Cancelled)));
+                } else {
+                    drop(first);
+                    observed_wait.expect("the second process must wait for the held permit");
+                    assert_eq!(wait_finished.recv_timeout(Duration::from_secs(5)), Ok(Ok(())));
+                }
             });
-
-            rendezvous.wait();
-
-            assert!(!second_has_permit.load(Ordering::Acquire));
-
-            rendezvous.wait();
-
-            first
-                .join()
-                .unwrap_or_else(|_| panic!("first budget worker should finish"));
-
-            second
-                .join()
-                .unwrap_or_else(|_| panic!("second budget worker should finish"));
-        });
-
-        assert!(second_has_permit.load(Ordering::Acquire));
-    }
-
-    #[test]
-    fn process_budget_waiting_observes_cancellation() {
-        let budget = ExternalToolProcessBudget::new(NonZeroUsize::MIN);
-
-        let _permit = budget
-            .acquire(&|| false)
-            .unwrap_or_else(|error| panic!("test permit should be available: {error:?}"));
-
-        assert_eq!(
-            budget.acquire(&|| true).err(),
-            Some(ExternalToolFailure::Cancelled)
-        );
+        }
     }
 }

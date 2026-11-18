@@ -112,7 +112,7 @@ pub(crate) fn write_notification(
     )
 }
 
-fn read_message(reader: &mut impl BufRead) -> io::Result<Option<Value>> {
+pub(crate) fn read_message(reader: &mut impl BufRead) -> io::Result<Option<Value>> {
     let mut content_length = None;
     let mut saw_header = false;
 

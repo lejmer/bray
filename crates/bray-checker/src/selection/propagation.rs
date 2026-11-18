@@ -191,6 +191,12 @@ where
                 "RunResultVariant0Completed",
                 "RunResultVariant0CompletedValue",
             ),
+            panicked: crate::representation::union_payload(
+                request,
+                "RunResultVariant1Panicked",
+                "RunResultVariant1PanickedReport",
+            ),
+            cancelled: crate::representation::union_variant(request, "RunResultVariant2Cancelled"),
         }))),
         Some(RepresentationRole::Result) => {
             let Some(error_type) = named_type_arguments(request, operand_type.ty())

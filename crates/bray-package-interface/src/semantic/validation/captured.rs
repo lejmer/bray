@@ -11,6 +11,25 @@ fn invalid() -> InterfaceValidationError {
 }
 
 impl InterfaceSemantics {
+    pub(super) fn validate_failure_outcomes(&self, contract: &InterfaceDependencyContract) -> Result<(), InterfaceValidationError> {
+        for row in contract.failure_outcomes.as_deref().into_iter().flatten() {
+            if let Some(guard) = row.guard {
+                validate_index(guard.to_index(), self.constant_terms.len())?;
+            }
+
+            if row.report.as_deref().is_some_and(|report| !crate::validation::is_strictly_sorted(report))
+                || row.effects.as_deref().is_some_and(|effects| {
+                    !crate::validation::is_strictly_sorted(effects)
+                        || effects.iter().any(|effect| contract.effects.binary_search(effect).is_err())
+                })
+            {
+                return Err(invalid());
+            }
+        }
+
+        Ok(())
+    }
+
     pub(super) fn validate_captured_value_graph(&self, contract: &InterfaceDependencyContract,
         symbol_count: usize, dependency_count: usize, limits: InterfaceValidationLimits,
     ) -> Result<(), InterfaceValidationError> {
@@ -182,6 +201,10 @@ impl InterfaceSemantics {
     pub(in crate::semantic::validation) fn validate_captured_execution(&self, contract: &InterfaceDependencyContract,
         inputs: usize, surface: &PackageInterfaceSurface,
     ) -> Result<(), InterfaceValidationError> {
+        for guard in contract.failure_outcomes.as_deref().into_iter().flatten().filter_map(|outcome| outcome.guard) {
+            self.validate_execution_term(guard, inputs, false, surface)?;
+        }
+
         for outcome in &*contract.captured_values {
             if let Some(guard) = outcome.guard { self.validate_execution_term(guard, inputs, true, surface)?; }
 

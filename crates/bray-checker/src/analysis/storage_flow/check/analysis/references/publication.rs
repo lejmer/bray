@@ -141,6 +141,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             .with_requirements(requirements)
             .with_normal_completion(normal)
             .with_captured_values(captured_values)
+            .with_failure_outcomes(Some(std::mem::take(&mut self.failure_outcomes)))
             .with_observed_result(observed_result))
     }
 
@@ -187,14 +188,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let mut value = value.clone();
 
         for (depth, projection) in slot.projections.iter().copied().enumerate() {
-            let inactive = match projection {
-                StorageProjection::ActiveUnionPayloadField { variant, .. } =>
-                    value.known_variant().is_some_and(|active| active != variant),
-                StorageProjection::NullableValue => value.known_presence() == Some(false),
-                _ => false,
-            };
-
-            if inactive {
+            if value.excludes_component(projection) {
                 return Some(DependencySubject::new(DependencySubjectRoot::Result, dependency_projections(&slot.projections[..=depth])?));
             }
 

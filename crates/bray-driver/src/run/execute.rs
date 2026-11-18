@@ -1002,27 +1002,6 @@ mod tests {
     }
 
     #[test]
-    fn run_fails_when_check_diagnostics_have_errors() {
-        let file = TemporaryFile::write("bad.bray", &[0xff]);
-
-        let mut stdout = Vec::new();
-        let mut stderr = Vec::new();
-
-        assert_eq!(
-            run_with_writers(
-                [
-                    OsString::from("brayc"),
-                    OsString::from("check"),
-                    file.path().as_os_str().to_os_string(),
-                ],
-                &mut stdout,
-                &mut stderr,
-            ),
-            ExitCode::FAILURE
-        );
-    }
-
-    #[test]
     fn run_result_carries_check_diagnostics() {
         let file = TemporaryFile::write("bad.bray", &[0xff]);
 

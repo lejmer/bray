@@ -496,14 +496,20 @@ pub(super) fn validate_dependency_template_data(
     use crate::DependencyCallOutput as Output;
 
     let reports = data.captured_values().iter().filter_map(|row| row.report.as_deref());
+    let failures = data.failure_outcomes().into_iter().flatten();
+    let abnormal_reports = failures.clone().filter_map(|row| row.report.as_deref());
 
-    for requirements in reports.clone().chain(data.abnormal_reports()) {
+    for guard in failures.filter_map(|row| row.guard) {
+        tables.constant_terms.get(store, guard);
+    }
+
+    for requirements in reports.clone().chain(abnormal_reports.clone()) {
         validate_dependency_variables(requirements, &mut Vec::new());
     }
 
     let mut pending = data.requirements().iter().map(|item| (Output::Value, item))
         .chain(reports.flatten().map(|item| (Output::CompletionReport, item)))
-        .chain(data.abnormal_reports().into_iter().flatten().map(|item| (Output::AbnormalReport, item)))
+        .chain(abnormal_reports.flatten().map(|item| (Output::AbnormalReport, item)))
         .chain(data.synchronous_cleanup().iter().map(|item| (Output::SynchronousCleanup, item)))
         .collect::<Vec<_>>();
 

@@ -163,7 +163,7 @@ trusted internal func flush() -> PlatformStatus
 
 public func invoke<T>(pos value: T)
 {
-    _ = trusted flush();
+    _ = flush();
 }
 "#,
         runtime_frames: &[],
@@ -510,17 +510,7 @@ fn imported_generic_templates_are_shared_by_concurrent_requests() {
 
         assert!(Arc::ptr_eq(&first, &second));
 
-        let first = first
-            .value()
-            .as_ref()
-            .unwrap_or_else(|| panic!("first query must publish validated MIR"));
-
-        let second = second
-            .value()
-            .as_ref()
-            .unwrap_or_else(|| panic!("second query must publish validated MIR"));
-
-        assert!(Arc::ptr_eq(first, second));
+        assert!(first.value().is_some(), "the shared result publishes validated MIR");
     });
 }
 
@@ -728,7 +718,7 @@ const TRAIT_DEFAULT_DEPENDENCY: GenericDependencyFixture = GenericDependencyFixt
         "    {\n",
         "        return self.count() + self.count();\n",
         "    }\n",
-        "    func quadrupled() -> i32\n",
+        "    func tripled() -> i32\n",
         "    {\n",
         "        return self.doubled() + self.through_lambda();\n",
         "    }\n",
@@ -754,7 +744,7 @@ const TRAIT_DEFAULT_DEPENDENCY: GenericDependencyFixture = GenericDependencyFixt
         "public func read<T>(pos value: &T) -> i32\n",
         "    with(T: Counter)\n",
         "{\n",
-        "    return value.quadrupled();\n",
+        "    return value.tripled();\n",
         "}\n",
     ),
     runtime_frames: &[],

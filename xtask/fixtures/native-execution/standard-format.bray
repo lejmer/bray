@@ -187,7 +187,7 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
     assert(matches_text_at(formatted, offset = 44, expected = &"-00001010   |"), "signed formatting differs");
     assert(matches_text_at(formatted, offset = 57, expected = &" 7|"), "space-sign formatting differs");
     assert(matches_text_at(formatted, offset = 60, expected = &"abc  |"), "aligned string formatting differs");
-    assert(matches_text_at(formatted, offset = 66, expected = &"\"a\\n\\\"\""), "escaped string formatting differs");
+    assert(matches_text_at(formatted, offset = 66, expected = &"\"a\\n\\\"\"|"), "escaped string formatting differs");
     assert(matches_text_at(formatted, offset = 74, expected = &"\u{3bb}|"), "character formatting differs");
     assert(matches_text_at(formatted, offset = 77, expected = &"'\\n'"), "escaped character formatting differs");
 

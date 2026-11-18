@@ -58,6 +58,7 @@ struct FailingTransfer
 {
     mut calls: usize;
     interrupted: bool;
+    mut accepted: [u8; 3] = [0; 3];
 }
 
 impl FailingTransferIo = FailingTransfer(std.io.Writer)
@@ -69,8 +70,13 @@ impl FailingTransferIo = FailingTransfer(std.io.Writer)
 
         if self.calls == 1
         {
+            self.accepted[0] = source[0];
+            self.accepted[1] = source[1];
+
             return Ok(2);
         }
+
+        self.accepted[2] = source[0];
 
         return Error(
             std.io.IoError
@@ -228,6 +234,14 @@ impl CountingReaderIo = CountingReader(std.io.Reader)
         let available: usize = internal std.io.smaller(self.remaining, self.limit);
         let transferred: usize = internal std.io.smaller(requested, available);
 
+        let mut index: usize = 0;
+
+        while index < transferred
+        {
+            destination[index] = (self.remaining - index) as u8;
+            index += 1;
+        }
+
         self.calls += 1;
         self.remaining -= transferred;
         self.last_request = requested;
@@ -276,6 +290,7 @@ func complete_transfers_use_one_call_and_empty_transfers_use_none() -> Result<un
     try reader.read_exact(&mut destination[..]);
     try reader.read_exact(&mut destination[0..0]);
     assert(reader.calls == 1);
+    assert(std.bytes.equals(&destination[..], &b"\x05\x04\x03\x02\x01"[..]));
 
     return Ok(unit);
 }
@@ -307,15 +322,16 @@ func complete_transfers_preserve_partial_progress() -> Result<unit, std.io.IoErr
 
     try exact.read_exact(&mut destination[..]);
     assert(exact.calls == 3);
+    assert(std.bytes.equals(&destination[..], &b"\x05\x04\x03\x02\x01"[..]));
 
     let mut short: CountingReader = CountingReader(remaining = 2, limit = 2);
+    let mut partial: bytes<5> = [0; 5];
 
-    let read_error: std.io.IoError = std.testing.assert_error<unit, std.io.IoError>(
-        short.read_exact(&mut destination[..]),
-    );
+    let read_error: std.io.IoError = std.testing.assert_error<unit, std.io.IoError>(short.read_exact(&mut partial[..]));
 
     assert(read_error.kind == std.io.IoErrorKind.BrokenStream);
     assert(read_error.transferred == 2);
+    assert(std.bytes.equals(&partial[..], &b"\x02\x01\x00\x00\x00"[..]));
 
     return Ok(unit);
 }
@@ -347,6 +363,7 @@ func bulk_transfers_report_interrupted_progress_without_repeating_the_prefix()
     assert(write_error.kind == std.io.IoErrorKind.Interrupted);
     assert(write_error.transferred == 3);
     assert(writer.calls == 2);
+    assert(writer.accepted[0] == 65 && writer.accepted[1] == 66 && writer.accepted[2] == 67);
     assert(read_error.kind == std.io.IoErrorKind.Interrupted);
     assert(read_error.transferred == 3);
     assert(reader.calls == 2);
@@ -410,6 +427,7 @@ func buffering_coalesces_small_writes_and_bypasses_large_transfers() -> Result<u
     assert(direct_read == 8);
     assert(completed_direct_source.calls == 1);
     assert(completed_direct_source.last_request == 8);
+    assert(std.bytes.equals(&direct_destination[..], &b"\x08\x07\x06\x05\x04\x03\x02\x01"[..]));
 
     let buffered_source: CountingReader = CountingReader(remaining = 4, limit = 4);
 
@@ -426,6 +444,7 @@ func buffering_coalesces_small_writes_and_bypasses_large_transfers() -> Result<u
     assert(buffered_read == 2);
     assert(completed_buffered_source.calls == 1);
     assert(completed_buffered_source.last_request == 4);
+    assert(std.bytes.equals(&buffered_destination[..], &b"\x04\x03"[..]));
 
     let recovering_sink: RecoveringWriter =
     {

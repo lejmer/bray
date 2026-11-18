@@ -94,7 +94,7 @@ pub use semantic::{
     InterfaceDeclaredType, InterfaceDependencyCallInput, InterfaceDependencyContract,
     InterfaceDependencyContractId, InterfaceDependencyGuard, InterfaceDependencyProjection,
     InterfaceDependencyRequirement, InterfaceDependencyRequirementKind,
-    InterfaceDependencyRequirementValue, InterfaceCapturedCallable, InterfaceNormalOutcome, InterfaceStorageEffect, InterfaceDependencySubject,
+    InterfaceDependencyRequirementValue, InterfaceCapturedCallable, InterfaceFailureOutcome, InterfaceNormalOutcome, InterfaceStorageEffect, InterfaceDependencySubject,
     InterfaceDependencySubjectRoot, InterfaceGenericArgument, InterfaceGenericBinding,
     InterfaceGenericDeclaration, InterfaceGenericSubstitution, InterfaceGenericSubstitutionId,
     InterfaceImplementationInstance, InterfaceStaticReference, InterfaceImplementationInstanceId,

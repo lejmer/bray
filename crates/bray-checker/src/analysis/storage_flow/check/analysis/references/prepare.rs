@@ -383,7 +383,7 @@ impl<C: CheckerRequestContext + ?Sized> super::super::core::StorageFlowCollector
 
         let effects = match mutation {
             CleanupMutation::Opaque { ty, .. } => self.input.buffer_cleanup_effects.get(ty).map(Vec::as_slice),
-            CleanupMutation::Lifecycle(call) => Some(self.dependencies.lifecycle_dependencies()[&call.lifecycle.call.callable].effects()),
+            CleanupMutation::Lifecycle(call) => Some(call.contract.effects()),
             CleanupMutation::Unchanged | CleanupMutation::Recovery => None,
         };
 

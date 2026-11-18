@@ -1,6 +1,8 @@
 /// How a resolved transition changes existing value and lifetime observations.
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum StorageObservationTransition {
+    /// No storage or lifetime changes on this outcome.
+    Unchanged,
     /// A source value is consumed without an independent pointee mutation.
     Transfer,
     /// Contents can change while their backing lifetimes remain alive.
@@ -85,11 +87,44 @@ impl StorageObservationKind {
     }
 }
 
+/// Reached result of observing a running task, including nested observations.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum StorageTaskOutcome {
+    /// The body completed and each enclosing observation transferred its result.
+    Completed {
+        /// The selected portable normal row, when established.
+        row: Option<usize>,
+    },
+    /// An observed task ended abnormally and published the corresponding tag.
+    Abnormal {
+        /// The number of enclosing observations that transferred a completed value.
+        depth: usize,
+        /// The selected terminal kind of the observed task.
+        kind: bray_symbols::DependencyFailureKind,
+    },
+    /// The solver retains the possible changes of several results together.
+    Widened,
+}
+
 /// Identity of a checked operation that creates a new contents observation.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum StorageMutation {
     /// One explicit or scoped call.
     Operation(crate::BoundExecutionSite),
+    /// Performed changes of a call that did not publish a normal result.
+    InvocationFailure {
+        /// The admitted call or suspension.
+        occurrence: crate::BoundExecutionSite,
+        /// The selected abnormal outcome.
+        kind: bray_symbols::DependencyFailureKind,
+    },
+    /// Effects known when a running task's observation publishes a result.
+    TaskObservation {
+        /// The await that acquires the task observation result.
+        occurrence: crate::BoundExecutionSite,
+        /// The acquired outcome or the conservative combination of outcomes.
+        outcome: StorageTaskOutcome,
+    },
     /// Cancellation broadcast for one owned task-bearing value.
     Cancellation {
         /// Source boundary containing the broadcast.
@@ -126,9 +161,20 @@ impl StorageMutation {
     pub const fn occurrence(self) -> crate::BoundExecutionSite {
         match self {
             Self::Operation(occurrence)
+            | Self::InvocationFailure { occurrence, .. }
+            | Self::TaskObservation { occurrence, .. }
             | Self::Lifecycle { occurrence, .. }
             | Self::Cleanup { occurrence, .. }
             | Self::Cancellation { occurrence, .. } => occurrence,
+        }
+    }
+
+    /// The invocation that admitted the inputs still owned by this transition.
+    pub const fn invocation(self) -> Option<crate::BoundExecutionSite> {
+        match self {
+            Self::Operation(occurrence) | Self::InvocationFailure { occurrence, .. }
+            | Self::TaskObservation { occurrence, .. } => Some(occurrence),
+            _ => None,
         }
     }
 }
@@ -149,11 +195,6 @@ pub struct StorageCompletion {
 }
 
 impl StorageCompletion {
-    /// Whether this completion publishes no values, captures or reference relationships.
-    pub fn is_empty(&self) -> bool {
-        self.publications.is_empty() && self.deferred.is_none() && self.values.is_empty() && self.captures.is_empty() && self.references.is_empty() && self.borrow_origins.is_empty()
-    }
-
     /// Creates a completion from exact value observations and all possible local borrowed owners.
     pub fn new(
         references: std::collections::BTreeMap<crate::StoragePath, crate::StorageTarget>,

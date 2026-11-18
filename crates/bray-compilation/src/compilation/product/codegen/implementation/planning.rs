@@ -333,6 +333,8 @@ impl Compilation {
             planned_native_statics(product_host.as_ref(), &host_statics, &native_statics);
 
         Ok(NativeProductPlan {
+            #[cfg(test)]
+            kind: semantic.value().kind(),
             native_links: shared_slice(native_links.into_iter().map(|(link, _)| link)),
             backend,
             target,

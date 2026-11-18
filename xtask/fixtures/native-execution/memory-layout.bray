@@ -17,7 +17,14 @@ func main() -> i32
     let size_ok = size == 4;
     let align_ok = align == 4;
     let stride_ok = stride == 4;
+    let mut layout_ok = false;
     let mut trailing_ok = false;
+
+    match layout
+    {
+        case Ok(value) { layout_ok = value.bytes == 12 && value.align == 4; }
+        case Error(_) {}
+    }
 
     match trailing
     {
@@ -25,7 +32,7 @@ func main() -> i32
         case Error(_) {}
     }
 
-    let valid = size_ok && align_ok && stride_ok && trailing_ok;
+    let valid = size_ok && align_ok && stride_ok && layout_ok && trailing_ok;
 
     if valid
     {

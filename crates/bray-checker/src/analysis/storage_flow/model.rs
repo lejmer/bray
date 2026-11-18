@@ -1,5 +1,6 @@
 mod domain;
 mod input;
+mod outcomes;
 mod state;
 
 #[cfg(test)]

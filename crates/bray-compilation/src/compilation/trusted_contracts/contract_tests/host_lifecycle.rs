@@ -43,6 +43,7 @@ fn native_exit_authority_is_required_by_actual_production_operations() {
         "/../../xtask/fixtures/native-execution/contracts/native-exit-authority.bray",
     )), &[
         ("probe_explicit_scope", Some(DiagnosticKind::CheckingTrustedObligationNotProven)),
+        ("probe_admitted_scope", None),
         ("probe_fabricated_scope", Some(DiagnosticKind::CheckingTrustedObligationNotProven)),
         ("probe_copied_scope", Some(DiagnosticKind::CheckingTrustedObligationNotProven)),
         ("probe_native_scope_without_entry", Some(DiagnosticKind::CheckingTrustedObligationNotProven)),
@@ -53,10 +54,20 @@ fn native_exit_authority_is_required_by_actual_production_operations() {
         ("probe_bridge_install", Some(DiagnosticKind::CheckingTrustedObligationNotProven)),
         ("probe_bridge_current", Some(DiagnosticKind::CheckingTrustedObligationNotProven)),
         ("probe_fabricated_owner", Some(DiagnosticKind::CheckingTrustedObligationNotProven)),
-        ("probe_overwritten_owner", Some(DiagnosticKind::CheckingTrustedObligationNotProven)),
-        ("probe_copied_owner", Some(DiagnosticKind::CheckingTrustedObligationNotProven)),
         ("probe_thread_storage_exit", Some(DiagnosticKind::CheckingTrustedObligationNotProven)),
         ("probe_finish_native_attachment", Some(DiagnosticKind::CheckingTrustedObligationNotProven)),
+    ], &[
+        ("probe_explicit_scope", "let unadmitted"),
+        ("probe_copied_scope", "finish_attachment(&fake)"),
+        ("probe_acquire_attachment", "attachment.acquire()"),
+        ("probe_native_scope_without_entry", "native_exit_scope(std.memory.null"),
+        ("probe_attachment_leave", "thread_attachment_leave()"),
+        ("probe_attachment_enter", "thread_attachment_enter()"),
+        ("probe_mark_main", "thread_attachment_mark_main()"),
+        ("probe_bridge_install", "entry.bridge.install("),
+        ("probe_bridge_current", "entry.bridge.current()"),
+        ("probe_thread_storage_exit", "thread_storage_exit(std.memory.null"),
+        ("probe_finish_native_attachment", "finish_native_attachment(std.memory.null"),
     ]);
 }
 
@@ -183,14 +194,14 @@ fn production_retirement_owner_preserves_its_frozen_row_and_lock() {
         ("probe_retirement_storage_loss", Some(DiagnosticKind::CheckingTrustedObligationNotProven)),
         ("probe_retirement_identity_write", Some(DiagnosticKind::CheckingMissingMutationAuthority)),
         ("probe_retirement_lease_write", Some(DiagnosticKind::CheckingMissingMutationAuthority)),
-    ]);
+    ], &[]);
 }
 
 #[test]
 #[ignore = "tier:proof"]
 fn catastrophic_abort_skips_lease_cleanup_without_continuing() {
     let variants = [
-        ("abort", "trusted core.target.abort();", false),
+        ("abort", "core.target.abort();", false),
         ("panic", "panic(\"lease invariant failed\");", true),
     ];
 
@@ -201,10 +212,15 @@ fn catastrophic_abort_skips_lease_cleanup_without_continuing() {
     );
 
     for (name, operation, _) in variants {
+        let (modifier, capabilities) = if name == "abort" {
+            ("trusted ", "uses(intrinsic)")
+        } else {
+            ("", "")
+        };
+
         caller.push_str(&format!(
             r#"
-            func guarded_{name}()
-                uses(intrinsic)
+            {modifier}func guarded_{name}() {capabilities}
             {{
                 let lease = trusted host_access();
 
@@ -216,8 +232,7 @@ fn catastrophic_abort_skips_lease_cleanup_without_continuing() {
                 let anchor = trusted host_anchor(&lease);
             }}
 
-            func terminal_{name}()
-                uses(intrinsic)
+            {modifier}func terminal_{name}() {capabilities}
             {{
                 let lease = trusted host_access();
 
@@ -263,14 +278,14 @@ fn catastrophic_abort_skips_lease_cleanup_without_continuing() {
 
     let compilation = crate::test_support::compilation(
         r#"
-        module app;
+        trusted module app;
 
         using core.target;
-        func production_probe()
+        trusted func production_probe()
             executes(total)
             uses(intrinsic)
         {
-            trusted core.target.abort();
+            core.target.abort();
         }
     "#,
     );
@@ -306,7 +321,7 @@ fn production_shutdown_owner_uses_ordinary_completion_rules() {
         ("probe_shutdown_panic", None),
         ("probe_shutdown_optional", Some(DiagnosticKind::CheckingUnresolvedFinalization)),
         ("probe_shutdown_result", Some(DiagnosticKind::CheckingUnresolvedFinalization)),
-    ]);
+    ], &[]);
 }
 
 #[test]
@@ -326,7 +341,7 @@ fn owned_exit_witnesses_move_into_their_consuming_operation() {
             requires(trusted valid(owner = &owner));
         func caller()
         {
-            let value = trusted owner();
+            let value = owner();
             trusted consume_owner(value);
         }
     "#,
@@ -344,11 +359,11 @@ fn owned_exit_witnesses_move_into_their_consuming_operation() {
 fn cleanup_registration_requires_the_prepared_owner_and_exact_slot_lease() {
     for (body, valid) in [
         (
-            "return trusted store_attachment_cleanup(lease, selected, owner);",
+            "return store_attachment_cleanup(lease, selected, owner);",
             true,
         ),
         (
-            "return trusted store_attachment_cleanup(other, selected, owner);",
+            "return store_attachment_cleanup(other, selected, owner);",
             false,
         ),
         (
@@ -362,11 +377,11 @@ fn cleanup_registration_requires_the_prepared_owner_and_exact_slot_lease() {
                     pending = selected.pending,
                     status = selected.status
                 };
-                return trusted store_attachment_cleanup(lease, &copied, owner);",
+                return store_attachment_cleanup(lease, &copied, owner);",
             false,
         ),
         (
-            "owner.cleanup = none; return trusted store_attachment_cleanup(lease, selected, owner);",
+            "owner.cleanup = none; return store_attachment_cleanup(lease, selected, owner);",
             false,
         ),
     ] {

@@ -20,8 +20,6 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
     use super::{shared_slice, sorted_unique_shared_slice};
 
     #[test]
@@ -32,16 +30,10 @@ mod tests {
     }
 
     #[test]
-    fn shared_slices_are_send_and_sync_when_items_are_send_and_sync() {
-        assert_send_sync::<Arc<[u32]>>();
-    }
-
-    #[test]
     fn sorted_unique_shared_slices_have_deterministic_set_order() {
         let shared = sorted_unique_shared_slice([3, 1, 2, 1, 3]);
 
         assert_eq!(shared.as_ref(), &[1, 2, 3]);
     }
 
-    fn assert_send_sync<T: Send + Sync>() {}
 }
