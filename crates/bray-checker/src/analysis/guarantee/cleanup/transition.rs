@@ -25,6 +25,7 @@ pub(in crate::analysis) struct LifecycleInvocation<'a> {
     pub(in crate::analysis) lifecycle: &'a Lifecycle,
     pub(in crate::analysis) completes: bool,
     pub(in crate::analysis) path: Option<&'a bray_bound_tree::StoragePath>,
+    pub(in crate::analysis) outcomes: Vec<&'a bray_symbols::CapturedValueOutcome>,
 }
 
 pub(in crate::analysis) enum CleanupMutation<'a> {
@@ -487,6 +488,17 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             };
 
             if let Some(mutate) = mutate {
+                let template = &self.dependencies.lifecycle_dependencies()[&lifecycle.call.callable];
+                let proof = state.ordinary_proof();
+                let outcomes = template.captured_values().iter().filter(|row| {
+                    row.guard.is_none_or(|guard| {
+                        let condition = evidence.bind_term(
+                            self.request.semantic_values(), guard, &crate::ExecutionCondition::unknown());
+
+                        proof.can_assume(&condition, true)
+                    })
+                }).collect();
+
                 mutate(
                     state,
                     mutation,
@@ -496,6 +508,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         lifecycle,
                         completes: established && completes,
                         path: path.as_ref(),
+                        outcomes,
                     }),
                     conditional,
                 );
@@ -518,9 +531,12 @@ impl Lifecycle {
     ) -> ExecutionCallEvidence {
         // Capture one actual receiver snapshot. Its components are projections
         // of this value, including when the receiver itself is a component.
-        let arguments = value
-            .map(|value| BTreeMap::from([(self.receiver.into(), value)]))
-            .unwrap_or_default();
+        let value = value.unwrap_or_else(crate::ExecutionCondition::unknown);
+
+        let arguments = BTreeMap::from([
+            (self.receiver.into(), value.clone()),
+            (ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(0)), value),
+        ]);
 
         let assumptions = state.assumptions.clone();
 

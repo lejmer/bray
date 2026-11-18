@@ -769,13 +769,12 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         for producer in producers {
             let contracts = &self.dependencies.calls()[&producer];
 
-            for subject in contracts.reference_subjects() {
+            for (subject, ty, path) in contracts.storage().subjects() {
                 if subject.subject_root() == bray_symbols::DependencySubjectRoot::Result {
                     continue;
                 }
 
-                if contracts.reference_type(subject)
-                    .and_then(|ty| crate::representation::reference_kind(self.request, ty))
+                if crate::representation::reference_kind(self.request, ty)
                     != Some(bray_symbols::DependencyReferenceKind::Borrow) {
                     continue;
                 }
@@ -789,8 +788,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 }
 
                 let Some(observed) = self.invocation_logical_path(producer, subject) else { continue; };
-
-                let path = contracts.reference_path(subject).expect("prepared input retains its reference route");
 
                 let Some(path) = self.invocation_reference_path(producer, subject.subject_root(), path) else { continue; };
 
@@ -834,14 +831,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         // Every prepared borrow input needs a current completion observation,
         // including inputs that are not forwarded into a result.
-        for (contracts, subject) in contracts.into_iter().flat_map(|contracts| {
-            contracts
-                .reference_subjects()
-                .map(move |subject| (contracts, subject))
-        }) {
-            if contracts
-                .reference_type(subject)
-                .and_then(|ty| crate::representation::reference_kind(self.request, ty))
+        for (subject, ty, _) in contracts.into_iter().flat_map(|call| call.storage().subjects()) {
+            if crate::representation::reference_kind(self.request, ty)
                 != Some(bray_symbols::DependencyReferenceKind::Borrow)
             {
                 continue;

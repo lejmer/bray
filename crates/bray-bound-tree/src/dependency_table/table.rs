@@ -692,7 +692,8 @@ mod tests {
         let references = vec![super::BoundCallReference::new(relation, true, None)];
 
         let retained = Some(std::collections::BTreeSet::from([expression.into()]));
-        let phases = phases.with_references(references.clone(), retained.clone());
+        let phases = phases.with_storage(super::super::BoundCallStorage::new(Default::default(), references.clone(), Default::default()))
+            .with_retained_inputs(retained.clone());
 
         let published = table()
             .try_with_calls([(expression.into(), phases.clone())].into())
@@ -713,8 +714,7 @@ mod tests {
             table().try_with_calls(
                 [(
                     expression.into(),
-                    phases.clone().with_references(
-                        references,
+                    phases.clone().with_retained_inputs(
                         Some(std::collections::BTreeSet::from([missing.into()]))
                     )
                 )]

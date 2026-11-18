@@ -1,7 +1,7 @@
 use bray_symbols::ConstantTermData;
 use crate::{CheckerQueryError, CheckerRequestContext, CheckerUnitView};
 use bray_bound_tree::{
-    BoundCallDependencyContracts, BoundCallReference, BoundExpressionId, SelectedCall,
+    BoundCallDependencyContracts, BoundCallReference, BoundCallStorage, BoundExpressionId, SelectedCall,
 };
 use bray_symbols::DependencySubjectRoot;
 
@@ -133,36 +133,20 @@ pub(super) fn with_reference_inputs<C: CheckerRequestContext + ?Sized>(
         CheckerQueryError<C::UpstreamError>,
     >,
 ) -> Result<BoundCallDependencyContracts, CheckerQueryError<C::UpstreamError>> {
-    let mut inputs = std::collections::BTreeMap::new();
+    let cleanup = contracts.deferred_capture_cleanup().into_iter().flatten()
+        .chain(contracts.deferred_result_cleanup().into_iter().flatten())
+        .filter_map(bray_symbols::DependencyStorageEffect::subject);
 
-    for subject in template
-        .reference_subjects()
-        .chain(contracts.deferred_capture_cleanup().into_iter().flatten().chain(contracts.deferred_result_cleanup().into_iter().flatten()).filter_map(bray_symbols::DependencyStorageEffect::subject))
-        .collect::<std::collections::BTreeSet<_>>()
-    {
-        if let Some(prepared) = input_type(subject)? {
-            inputs.insert(subject.clone(), prepared);
-        }
-    }
-
-    // Completion forms reference values independently of their origin relations.
-    for root in [DependencySubjectRoot::Result, DependencySubjectRoot::Receiver].into_iter().chain(
+    let roots = [DependencySubjectRoot::Result, DependencySubjectRoot::Receiver].into_iter().chain(
         (0..contracts.input_count()).map(|ordinal| {
             DependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(
                 u32::try_from(ordinal)
                     .expect("checked invocation arity fits its parameter ordinals"),
             ))
         }),
-    ) {
-        let subject = bray_symbols::DependencySubject::root(root);
+    );
 
-        if !inputs.contains_key(&subject)
-            && let Some(prepared) = input_type(&subject)?
-            && crate::representation::reference_kind(request, prepared.0).is_some()
-        {
-            inputs.insert(subject, prepared);
-        }
-    }
+    let storage = prepare_call_storage(request, template, cleanup, roots, &mut input_type)?;
 
     let receiver = input_type(&bray_symbols::DependencySubject::root(DependencySubjectRoot::Receiver))?.is_some();
 
@@ -177,29 +161,63 @@ pub(super) fn with_reference_inputs<C: CheckerRequestContext + ?Sized>(
         Ok(input_type(&bray_symbols::DependencySubject::root(root))?.map(|(ty, _)| (root, ty)))
     })?;
 
-    let mut references = Vec::new();
-    let types = |subject: &bray_symbols::DependencySubject| inputs.get(subject).map(|(ty, _)| *ty);
+    Ok(contracts
+        .with_captured_values(template.captured_values().iter().cloned())
+        .with_returned_values(returned)
+        .with_storage(storage)
+        .with_retained_inputs(retained_inputs))
+}
 
-    for relation in template.captured_values().iter().flat_map(|outcome| outcome.references.iter())
+pub(crate) fn prepare_call_storage<'a, C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
+    template: &'a bray_symbols::DependencyContractTemplateData,
+    additional_subjects: impl IntoIterator<Item = &'a bray_symbols::DependencySubject>,
+    addressable_roots: impl IntoIterator<Item = DependencySubjectRoot>,
+    mut input: impl FnMut(
+        &bray_symbols::DependencySubject,
+    ) -> crate::CheckerQueryResult<Option<(bray_symbols::TypeId, bray_bound_tree::StorageReferencePath)>, C::UpstreamError>,
+) -> crate::CheckerQueryResult<BoundCallStorage, C::UpstreamError> {
+    let mut subjects = std::collections::BTreeMap::new();
+
+    for subject in template.reference_subjects().chain(additional_subjects)
+        .collect::<std::collections::BTreeSet<_>>() {
+        if let Some(prepared) = input(subject)? {
+            // The prepared path is indexed by its portable subject.
+            subjects.insert(subject.clone(), prepared);
+        }
+    }
+
+    // These roots can produce reference values independently of origin relations.
+    for root in addressable_roots {
+        let subject = bray_symbols::DependencySubject::root(root);
+
+        if !subjects.contains_key(&subject)
+            && let Some(prepared) = input(&subject)?
+            && crate::representation::reference_kind(request, prepared.0).is_some()
+        {
+            subjects.insert(subject, prepared);
+        }
+    }
+
+    let mut references = Vec::new();
+    let types = |subject: &bray_symbols::DependencySubject| subjects.get(subject).map(|(ty, _)| *ty);
+    let rows = template.captured_values();
+
+    for relation in rows.iter().flat_map(|outcome| outcome.references.iter())
         .map(|relation| relation.clone().with_exactness(false)).collect::<std::collections::BTreeSet<_>>() {
         references.extend(prepare_reference(request, &relation, &types)?);
     }
 
     let stored_paths = prepare_stored_value_paths(
         request.semantic_values(),
-        template.captured_values().iter().flat_map(|outcome| outcome.stored_values.iter()),
-        |subject| inputs.get(subject).cloned(),
+        rows.iter().flat_map(|outcome| outcome.stored_values.iter()),
+        |subject| subjects.get(subject).cloned(),
     );
 
-    Ok(contracts
-        .with_captured_values(template.captured_values().iter().cloned())
-        .with_returned_values(returned)
-        .with_stored_value_paths(stored_paths)
-        .with_reference_subjects(inputs)
-        .with_references(references, retained_inputs))
+    Ok(BoundCallStorage::new(subjects, references, stored_paths))
 }
 
-pub(crate) fn prepare_stored_value_paths<'a>(
+fn prepare_stored_value_paths<'a>(
     values: &bray_symbols::SemanticValueStore,
     stored: impl IntoIterator<Item = &'a bray_symbols::DependencyStoredValue>,
     input: impl Fn(&bray_symbols::DependencySubject) -> Option<(bray_symbols::TypeId, bray_bound_tree::StorageReferencePath)>,
@@ -222,28 +240,6 @@ pub(crate) fn prepare_stored_value_paths<'a>(
 
             Some((endpoint.clone(), (ty, path.with_terminal_borrows(&targets))))
         }).collect()
-}
-
-pub(crate) fn prepare_references<C: CheckerRequestContext + ?Sized>(
-    request: CheckerUnitView<'_, C>,
-    relations: &[bray_symbols::DependencyBorrowRelation],
-    input_type: impl Fn(&bray_symbols::DependencySubject) -> Option<bray_symbols::TypeId>,
-) -> Result<Vec<BoundCallReference>, CheckerQueryError<C::UpstreamError>> {
-    let mut references = Vec::with_capacity(relations.len());
-    let mut incomplete = std::collections::BTreeSet::new();
-
-    for relation in relations {
-        if let Some(reference) = prepare_reference(request, relation, &input_type)?
-        {
-            references.push(reference);
-        } else {
-            incomplete.insert(relation.exit().clone());
-        }
-    }
-
-    references.retain(|reference| !incomplete.contains(reference.relation().exit()));
-
-    Ok(references)
 }
 
 fn prepare_reference<C: CheckerRequestContext + ?Sized>(
@@ -341,7 +337,7 @@ fn reference_input_type<C: CheckerRequestContext + ?Sized>(
     reference_subject_path(request, subject, ty)
 }
 
-pub(super) fn reference_subject_path<C: CheckerRequestContext + ?Sized>(
+pub(crate) fn reference_subject_path<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     subject: &bray_symbols::DependencySubject,
     ty: bray_symbols::TypeId,

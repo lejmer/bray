@@ -297,7 +297,7 @@ impl<C: CheckerRequestContext + ?Sized> super::super::core::StorageFlowCollector
             return;
         };
 
-        for subject in contracts.reference_subjects() {
+        for (subject, ty, _) in contracts.storage().subjects() {
             if !matches!(
                 subject.subject_root(),
                 bray_symbols::DependencySubjectRoot::Receiver
@@ -305,10 +305,6 @@ impl<C: CheckerRequestContext + ?Sized> super::super::core::StorageFlowCollector
             ) {
                 continue;
             }
-
-            let Some(ty) = contracts.reference_type(subject) else {
-                continue;
-            };
 
             let Some(pointee) = crate::representation::reference_target_type(self.request, ty)
             else {
@@ -398,8 +394,8 @@ impl<C: CheckerRequestContext + ?Sized> super::super::core::StorageFlowCollector
 
         let mut inputs = subjects.into_iter().filter_map(|subject| {
             let prepared = match mutation {
-                CleanupMutation::Opaque { ty, .. } => self.input.buffer_cleanup_paths.get(&(*ty, subject.clone())),
-                CleanupMutation::Lifecycle(call) => self.input.lifecycle_paths.get(&(call.lifecycle.call.callable, subject.clone())),
+                CleanupMutation::Opaque { ty, .. } => self.input.buffer_cleanup_paths.get(&(*ty, subject.clone())).map(|(ty, path)| (*ty, path)),
+                CleanupMutation::Lifecycle(call) => self.input.lifecycle_storage[&call.lifecycle.call.callable].subject(subject),
                 CleanupMutation::Unchanged | CleanupMutation::Recovery => None,
             }?;
 
@@ -410,7 +406,7 @@ impl<C: CheckerRequestContext + ?Sized> super::super::core::StorageFlowCollector
         inputs.sort_by_key(|(_, (_, path))| path.projections().len());
 
         for (subject, (ty, path)) in inputs {
-            let Some(pointee) = crate::representation::reference_target_type(self.request, *ty) else {
+            let Some(pointee) = crate::representation::reference_target_type(self.request, ty) else {
                 continue;
             };
 

@@ -18,7 +18,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             |endpoint, output| {
                 let subject = endpoint.subject();
 
-                let (ty, path) = contracts.stored_value_path(endpoint)?;
+                let (ty, path) = contracts.storage().stored_value_path(endpoint)?;
 
                 let sources = if !output && endpoint.dereferences() == 0
                     && !path.projections().contains(&bray_bound_tree::StorageProjection::OwnedTarget) {
@@ -76,19 +76,18 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         &self,
         memory: &mut State,
         occurrence: BoundExecutionSite,
-        callable: bray_symbols::CallableInstanceData,
+        storage: &bray_bound_tree::BoundCallStorage,
         receiver: &Target,
+        stored: &[DependencyStoredValue],
     ) {
-        let paths = &self.input.lifecycle_stored_paths[&callable];
-
         let transfers = self.stored_transfers(
-            &self.dependencies.lifecycle_dependencies()[&callable].stored_values(),
+            stored,
             |endpoint, _| {
-                let (ty, path) = paths.get(endpoint)?;
+                let (ty, path) = storage.stored_value_path(endpoint)?;
 
                 let locations = self.cleanup_subject_locations(memory, receiver, endpoint.subject(), Some(path))?;
 
-                Some((*ty, locations.into_iter().map(Source::Value).collect()))
+                Some((ty, locations.into_iter().map(Source::Value).collect()))
             },
             |endpoint| {
                 let root = endpoint.subject().subject_root();

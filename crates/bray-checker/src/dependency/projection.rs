@@ -436,7 +436,7 @@ pub(super) fn prepare_variants<C: crate::CheckerRequestContext + ?Sized>(
             retain(&value.projections().copied().collect::<Vec<_>>());
         }
 
-        for subject in call.reference_subjects() {
+        for (subject, _, _) in call.storage().subjects() {
             retain(subject.projections());
         }
 

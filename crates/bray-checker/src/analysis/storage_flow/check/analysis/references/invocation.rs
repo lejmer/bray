@@ -629,7 +629,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         subject: &bray_symbols::DependencySubject,
     ) -> Option<Place> {
         let mut base = self.invocation_place(occurrence, subject.subject_root())?;
-        let path = self.dependencies.calls().get(&occurrence)?.reference_path(subject)?;
+        let (_, path) = self.dependencies.calls().get(&occurrence)?.storage().subject(subject)?;
         let path = self.invocation_reference_path(occurrence, subject.subject_root(), path)?;
 
         base.projections = base.projections.iter().chain(path.projections()).copied().collect();
@@ -836,12 +836,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 .map(|locations| locations.into_iter().map(Source::Value).collect());
         }
 
-        if contracts
-            .reference_type(subject)
-            .is_some_and(|ty| crate::representation::reference_kind(self.request, ty).is_some())
-            && let Some(path) = contracts.reference_path(subject).and_then(|path| {
-                self.invocation_reference_path(occurrence, subject.subject_root(), path)
-            })
+        if let Some((ty, path)) = contracts.storage().subject(subject)
+            && crate::representation::reference_kind(self.request, ty).is_some()
+            && let Some(path) = self.invocation_reference_path(occurrence, subject.subject_root(), path)
             && path.projections().is_empty()
             && path.steps().is_empty()
         {
@@ -863,7 +860,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         occurrence: BoundExecutionSite,
         subject: &bray_symbols::DependencySubject,
     ) -> Option<Vec<Target>> {
-        let Some(path) = self.dependencies.calls().get(&occurrence)?.reference_path(subject) else {
+        let Some((_, path)) = self.dependencies.calls().get(&occurrence)?.storage().subject(subject) else {
             return self.static_location(subject).map(|target| vec![target]);
         };
 

@@ -31,7 +31,8 @@ publication at 11b860fa2, selected deferred frames and statics at 675d89c21, and
 region results at d08975a30. Checkpoint 594180b13 admits implicit loans and joins actual
 produced results directly. Checkpoint 3c9b4845a shares checked implicit input captures.
 Checkpoint 570915f20 carries normal reports with guarded outcomes and preserves symbolic
-report equations during recursive checking.
+report equations during recursive checking. Checkpoint 15abf8f8a uses admitted raw read
+descriptors, one resolved cleanup receiver, and stable predecessor conditions on joined frames.
 Checkpoint 21324247c moves physical references, stored dependencies and inactive payloads
 onto the producing exit and carries actual union tags through interface revision 5. Call admission
 uses the same feasibility decision for physical and logical outputs. Established physical descriptors
@@ -204,6 +205,55 @@ and tests. Source/import compositions, guarded extraction, pointer replacement, 
 start/observe/cancel, normal cleanup and abnormal duties are the integrated controls.
 
 ## Remaining full-refactor boundaries
+
+- Bind typed subject routes and stored endpoints once for ordinary invocations and scheduled
+  lifecycle calls. The selected ordinary argument or the scheduler's actual cleanup receiver
+  supplies the root. A prepared route identifies descriptor loads and owning backing selections.
+  The same routes feed effect binding, staged reference transfers, carried dependencies and
+  borrow observations. Resolve source descriptors against entry memory before invalidation.
+  A region or an unavailable descriptor cannot establish an exact location. A normal cleanup
+  completes its prepared writes before the next part observes them. Retain conservative unions
+  when cleanup has no evidence to exclude an exit. Abnormal execution applies possible effects
+  without normal writes or reports. Keep explicit, implicit, imported and deferred invocation
+  consumers on the common route and address resolution. Replace the three parallel lifecycle
+  indexes and the independent reference type binder. Keep ordering in the scheduler. Initial
+  verification uses the borrowed receiver, finalizer-to-destructor reference replacement,
+  memory-evidence cleanup, generic and imported cleanup, and the 368 composition and 36
+  active owner panels against checkpoint 15abf8f8a. Existing negative variants must still fail
+  with the same diagnostic families. The frozen 1714 and native gates remain separate.
+  The route consolidation should fit within the production growth limit, with duplicate
+  resolution removed. Reconsider if a common binding must fabricate an invocation result,
+  reconstruct the receiver or use a post-effect memory read to retrieve an input descriptor.
+  Scheduled cleanup now uses the admitted receiver to exclude impossible normal rows
+  before staging references, stored dependencies and report equations. Actual cleanup
+  results and per-exit effects remain open. The shared route candidate compiled and
+  matched the 46 failing identities in the four unit and two comparison panels.
+  A conditional finalizer probe with both branches joining at one exit still loses
+  the selected reference. Existing unconditional reference replacement remains an
+  acceptance control. Retain the probe when branch-local effect and output values can
+  survive that join. The extra cleanup panel also failed scoped exit authority and
+  conditional payload cleanup. Neither is in the preceding panel, so compare to the
+  exact checkpoint before attributing those failures.
+
+- Prepare local and imported deferred effect routes from the selected call's input types.
+  A method frame must carry the prepared receiver type with the selected signature.
+  Publish that type from the forming selection through the package and substitutions.
+  Its parameters and completion type come from the existing selected signature. An
+  explicit argument value starts from its admitted inline snapshot. Its first descriptor
+  read uses that snapshot. All subsequent reads use actual reached addresses in the
+  activation memory, even when an address leads back into the original source slot.
+  Direct writes to an internal by-value parameter produce no external location. A
+  descriptor with only a region cannot supply a subsequent actual read. A captured
+  owner with unavailable backing retains a conservative effect. Static routes retain
+  the selected static identity and address domain. Local and imported frames, ordinary
+  calls and cleanup must use the same typed reader. The observer of an already-started
+  task consumes its saved body effects. Remove the deferred flat projection check and
+  type-free target projection. Preserve existing source/import, saved-pointer, moved
+  frames and allocation-bound negatives. Use the current panel and the deferred and
+  lifecycle controls. Reconsider if routing demands materializing the captured snapshot
+  into current memory or fabricating a location for an inline value. Keep production
+  growth within the existing target and replace duplicate descriptor interpretation.
+
 
 Await, scheduling, and opaque cleanup must consume the selected frame's transition directly. A capture can itself
 hold an unrelated frame formed at the same source site. Searching nested values by site can execute that other

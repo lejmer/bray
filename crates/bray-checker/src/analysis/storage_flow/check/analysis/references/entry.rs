@@ -339,7 +339,7 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
         let mut paths = std::collections::BTreeSet::new();
 
         for (site, contracts) in dependencies.calls() {
-            for subject in contracts.reference_subjects() {
+            for (subject, _, path) in contracts.storage().subjects() {
                 let staged = site
                     .expression()
                     .and_then(|expression| selections.expression(expression))
@@ -367,10 +367,6 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
                 let Some(base) = staged.or(source) else {
                     continue;
                 };
-
-                let path = contracts
-                    .reference_path(subject)
-                    .expect("reference subject retains its prepared path");
 
                 let mut place = base.clone();
 

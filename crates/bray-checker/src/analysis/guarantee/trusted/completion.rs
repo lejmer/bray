@@ -243,7 +243,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         };
 
         let result = match self.dependencies.calls().get(&invocation).and_then(|contract|
-            contract.reference_type(&bray_symbols::DependencySubject::root(bray_symbols::DependencySubjectRoot::Result)))
+            contract.storage().subject(&bray_symbols::DependencySubject::root(bray_symbols::DependencySubjectRoot::Result))
+                .map(|(ty, _)| ty))
         {
             Some(ty) => result.coerce(self.request.semantic_values(), ty, ty),
             None => result,

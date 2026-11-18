@@ -137,36 +137,23 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         let captures = self.capture_opaque_effects(state, invocation, self.call_effects(state, execution, invocation, captures), &roots, &private, &output);
 
-        let result = self.resolve_effects(result, |slot| {
+        let read_result = |slot: Target| {
             if output.contains_storage(&slot) {
                 state.memory.staged_mutation_targets(invocation, &output, &slot)
             } else {
                 crate::analysis::storage_flow::memory::Source::Value(slot).mutation_targets(&state.memory)
             }
-        }, |subject, indirect| {
-            let locations = if subject.subject_root().is_static() {
-                self.invocation_locations(state, invocation, subject)?
-            } else {
-                if subject.subject_root() != DependencySubjectRoot::Result {
-                    return None;
-                }
+        };
 
-                self.invocation_stored_locations(state, invocation, subject, contracts.reference_path(subject)?, true)?
+        let result = self.resolve_effects(result, read_result, |subject, indirect| {
+            let locations = match subject.subject_root() {
+                root if root.is_static() => self.invocation_locations(state, invocation, subject)?,
+                DependencySubjectRoot::Result => self.invocation_stored_locations(
+                    state, invocation, subject, contracts.storage().subject(subject)?.1, true)?,
+                _ => return None,
             };
 
-            if indirect {
-                locations.into_iter().try_fold(Vec::new(), |mut targets, location| {
-                    targets.extend(if subject.subject_root() == DependencySubjectRoot::Result {
-                        state.memory.staged_mutation_targets(invocation, &output, &location)?
-                    } else {
-                        crate::analysis::storage_flow::memory::Source::Value(location).mutation_targets(&state.memory)?
-                    });
-
-                    Some(targets)
-                })
-            } else {
-                Some(locations.into_iter().map(crate::analysis::storage_flow::memory::MutationTarget::location).collect())
-            }
+            super::effects::effect_locations(locations, indirect, read_result)
         });
 
         let result = self.capture_opaque_effects(state, invocation, result, &roots, &private, &output);

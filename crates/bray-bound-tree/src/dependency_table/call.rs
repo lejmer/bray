@@ -4,6 +4,8 @@ use bray_base::sorted_unique_shared_slice;
 
 use crate::{BoundDependencyContract, BoundUnitId};
 
+use super::storage::{BoundCallReference, BoundCallStorage};
+
 /// One owned report output of immediate or deferred execution.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum CallReportOutput {
@@ -80,45 +82,6 @@ impl BoundCallReports {
     }
 }
 
-/// A checked input-to-output reference relation of a selected call.
-/// Address formation locates storage without equating a pointer with the borrowed value.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub struct BoundCallReference {
-    relation: bray_symbols::DependencyBorrowRelation,
-    preserves_value: bool,
-    addressed_type: Option<bray_symbols::TypeId>,
-}
-
-impl BoundCallReference {
-    /// Records whether the reference forwards an input value or forms an address.
-    pub const fn new(
-        relation: bray_symbols::DependencyBorrowRelation,
-        preserves_value: bool,
-        addressed_type: Option<bray_symbols::TypeId>,
-    ) -> Self {
-        Self {
-            relation,
-            preserves_value,
-            addressed_type,
-        }
-    }
-
-    /// Returns the checked formal reference relation.
-    pub const fn relation(&self) -> &bray_symbols::DependencyBorrowRelation {
-        &self.relation
-    }
-
-    /// The reached storage type when forming an address or a bounded reference.
-    pub const fn addressed_type(&self) -> Option<bray_symbols::TypeId> {
-        self.addressed_type
-    }
-
-    /// Whether the output retains the input reference value, rather than only its target.
-    pub const fn preserves_value(&self) -> bool {
-        self.preserves_value && self.relation.is_exact()
-    }
-}
-
 /// Prepared input route and completion conditions of one exact owning transfer.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct BoundReturnedValue {
@@ -171,15 +134,9 @@ pub struct BoundCallDependencyContracts {
     deferred: Option<BoundDependencyContract>,
     reports: BoundCallReports,
     deferred_reports: Option<BoundCallReports>,
-    reference_types: BTreeMap<bray_symbols::DependencyBorrowRelation, (bool, Option<bray_symbols::TypeId>)>,
-    stored_value_paths: BTreeMap<bray_symbols::DependencyStoredValuePath,
-        (bray_symbols::TypeId, crate::StorageReferencePath)>,
+    storage: BoundCallStorage,
     effects: bray_symbols::DependencyEffectOutcomes<bray_symbols::DependencyStorageEffect>,
     retained_inputs: Option<BTreeSet<crate::BoundExecutionSite>>,
-    reference_subjects: BTreeMap<
-        bray_symbols::DependencySubject,
-        (bray_symbols::TypeId, crate::StorageReferencePath),
-    >,
     normal_completion: bool,
     deferred_effects: Option<bray_symbols::DependencyEffectOutcomes<bray_symbols::DependencyStorageEffect>>,
     deferred_callee: Option<Arc<bray_symbols::CapturedCallable>>,
@@ -242,11 +199,9 @@ impl BoundCallDependencyContracts {
             deferred,
             reports: BoundCallReports::default(),
             deferred_reports: None,
-            reference_types: BTreeMap::new(),
-            stored_value_paths: BTreeMap::new(),
+            storage: BoundCallStorage::default(),
             effects: bray_symbols::DependencyEffectOutcomes::new(bray_symbols::DependencyStorageEffect::opaque_call()),
             retained_inputs: None,
-            reference_subjects: BTreeMap::new(),
             normal_completion: true,
             deferred_effects: None,
             deferred_callee: None,
@@ -265,25 +220,6 @@ impl BoundCallDependencyContracts {
     /// Returns the ordinal reserved for the completion result.
     pub const fn input_count(&self) -> usize {
         self.input_count
-    }
-
-    /// Retains checked endpoint routes for the stored values in the normal outcomes.
-    pub fn with_stored_value_paths(
-        mut self,
-        paths: BTreeMap<bray_symbols::DependencyStoredValuePath,
-            (bray_symbols::TypeId, crate::StorageReferencePath)>,
-    ) -> Self {
-        self.stored_value_paths = paths;
-
-        self
-    }
-
-    /// Returns the actual type and route of a stored-value endpoint, including terminal loads.
-    pub fn stored_value_path(
-        &self,
-        endpoint: &bray_symbols::DependencyStoredValuePath,
-    ) -> Option<(bray_symbols::TypeId, &crate::StorageReferencePath)> {
-        self.stored_value_paths.get(endpoint).map(|(ty, path)| (*ty, path))
     }
 
     /// Records whether this invocation phase can produce a normal result.
@@ -366,38 +302,16 @@ impl BoundCallDependencyContracts {
         self.deferred_completion
     }
 
-    /// Shares checked reference types and paths between transfers and mutation effects.
-    pub fn with_reference_subjects(
-        mut self,
-        inputs: BTreeMap<
-            bray_symbols::DependencySubject,
-            (bray_symbols::TypeId, crate::StorageReferencePath),
-        >,
-    ) -> Self {
-        self.reference_subjects = inputs;
+    /// Retains the typed storage routes shared by all effects and outputs.
+    pub fn with_storage(mut self, storage: BoundCallStorage) -> Self {
+        self.storage = storage;
 
         self
     }
 
-    /// Returns the input and result subjects prepared by call analysis.
-    pub fn reference_subjects(&self) -> impl Iterator<Item = &bray_symbols::DependencySubject> {
-        self.reference_subjects.keys()
-    }
-
-    /// Returns the selected input path prepared by type analysis.
-    pub fn reference_path(
-        &self,
-        subject: &bray_symbols::DependencySubject,
-    ) -> Option<&crate::StorageReferencePath> {
-        self.reference_subjects.get(subject).map(|(_, path)| path)
-    }
-
-    /// Returns the checked value type at one selected reference subject.
-    pub fn reference_type(
-        &self,
-        subject: &bray_symbols::DependencySubject,
-    ) -> Option<bray_symbols::TypeId> {
-        self.reference_subjects.get(subject).map(|(ty, _)| *ty)
+    /// Checked subject and endpoint routes for this invocation.
+    pub const fn storage(&self) -> &BoundCallStorage {
+        &self.storage
     }
 
     /// Records the dependencies carried by the returned value.
@@ -448,18 +362,9 @@ impl BoundCallDependencyContracts {
         self.deferred_reports.as_ref()
     }
 
-    /// Records reference transfers and the inputs retained by a returned witness.
-    pub fn with_references(
-        mut self,
-        references: Vec<BoundCallReference>,
-        retained_inputs: Option<BTreeSet<crate::BoundExecutionSite>>,
-    ) -> Self {
-        self.reference_types = references.into_iter().map(|reference| (
-            reference.relation.with_exactness(false),
-            (reference.preserves_value, reference.addressed_type),
-        )).collect();
-
-        self.retained_inputs = retained_inputs;
+    /// Retains the actual input sites supporting the returned witness.
+    pub fn with_retained_inputs(mut self, inputs: Option<BTreeSet<crate::BoundExecutionSite>>) -> Self {
+        self.retained_inputs = inputs;
 
         self
     }
@@ -502,26 +407,7 @@ impl BoundCallDependencyContracts {
 
     /// Joins the portable reference origins before admission.
     pub fn references(&self) -> Vec<BoundCallReference> {
-        self.reference_outputs(self.captured_values.iter())
-    }
-
-    /// Binds the typed reference writes established by the admitted outcome rows.
-    pub fn reference_outputs<'a>(&self, outcomes: impl IntoIterator<Item = &'a bray_symbols::CapturedValueOutcome>) -> Vec<BoundCallReference> {
-        let relations = bray_symbols::CapturedValueOutcome::reference_origins(outcomes, bray_symbols::DependencySubject::contains);
-        let mut unavailable = BTreeSet::new();
-        let mut references = Vec::with_capacity(relations.len());
-
-        for relation in relations.iter().cloned() {
-            if let Some(&(forwards_value, addressed_type)) = self.reference_types.get(&relation.clone().with_exactness(false)) {
-                references.push(BoundCallReference::new(relation, forwards_value, addressed_type));
-            } else {
-                unavailable.insert(relation.exit().clone());
-            }
-        }
-
-        references.retain(|reference| !unavailable.contains(reference.relation().exit()));
-
-        references
+        self.storage.reference_outputs(self.captured_values.iter())
     }
 
     /// Returns retained witness inputs when the returned value has a checked dependency source.

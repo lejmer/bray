@@ -478,9 +478,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         state.memory.begin_transition(occurrence);
 
-        let roots = contracts.reference_subjects()
-            .filter(|subject| subject.subject_root() != DependencySubjectRoot::Result)
-            .filter_map(|subject| self.invocation_place(occurrence, subject.subject_root()))
+        let roots = contracts.storage().subjects()
+            .filter(|(subject, _, _)| subject.subject_root() != DependencySubjectRoot::Result)
+            .filter_map(|(subject, _, _)| self.invocation_place(occurrence, subject.subject_root()))
             .map(Target::storage)
             .collect::<std::collections::BTreeSet<_>>();
 
@@ -528,12 +528,12 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             .filter(|(index, _)| entry.is_none_or(|entry| entry.outputs.is_admitted(*index)))
             .map(|(_, row)| row);
 
-        let mut references = contracts.reference_outputs(outcomes.clone());
+        let mut references = contracts.storage().reference_outputs(outcomes.clone());
 
         references.sort_by_key(|reference| {
             let relation = reference.relation();
 
-            let depth = contracts.reference_path(relation.exit()).map_or(0, |path| {
+            let depth = contracts.storage().subject(relation.exit()).map_or(0, |(_, path)| {
                 path.steps().len()
             });
 
@@ -576,7 +576,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let contracts = &self.dependencies.calls()[&occurrence];
         let relation = reference.relation();
 
-        let Some(path) = contracts.reference_path(relation.exit()) else { return; };
+        let Some((_, path)) = contracts.storage().subject(relation.exit()) else { return; };
 
         if relation.exit().subject_root() != DependencySubjectRoot::Result && path.steps().is_empty() {
             return;
@@ -611,7 +611,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 let owned_buffer = (!relation.is_empty_reference() && !relation.is_no_payload()
                     && relation.exit().subject_root() == DependencySubjectRoot::Result
                     && relation.kind() == bray_symbols::DependencyReferenceKind::Address
-                    && contracts.reference_path(relation.exit()).is_some_and(|path| path.steps().is_empty()))
+                    && contracts.storage().subject(relation.exit()).is_some_and(|(_, path)| path.steps().is_empty()))
                     .then(|| self.input.raw_buffers.values().find(|fields| {
                         Some(fields.element) == reference.addressed_type()
                             && logical.projections.last() == Some(&bray_bound_tree::StorageProjection::ProductField(fields.pointer))
@@ -630,26 +630,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 continue;
             };
 
-            let Some(sources) = self.invocation_sources(state, occurrence, entry) else {
-                state.memory.stage_unknown(occurrence, destination);
-                continue;
-            };
+            let sources = self.invocation_sources(state, occurrence, entry);
 
-            if sources.is_empty() {
-                state.memory.stage_unknown(occurrence, destination.clone());
-            }
-
-            for source in sources {
-                // Each alternative owns its output path while sharing immutable projections.
-                self.stage_reference(
-                    &mut state.memory,
-                    occurrence,
-                    source,
-                    destination.clone(),
-                    &logical,
-                    reference,
-                );
-            }
+            self.stage_reference_sources(&mut state.memory, occurrence, destination, &logical, reference,
+                sources.into_iter().flatten());
         }
 
     }
@@ -672,7 +656,29 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         }
     }
 
-    pub(in crate::analysis::storage_flow::check::analysis) fn stage_reference(
+    pub(in crate::analysis::storage_flow::check::analysis) fn stage_reference_sources(
+        &self,
+        memory: &mut crate::analysis::storage_flow::memory::State,
+        occurrence: BoundExecutionSite,
+        destination: Target,
+        logical: &Place,
+        reference: &bray_bound_tree::BoundCallReference,
+        sources: impl IntoIterator<Item = crate::analysis::storage_flow::memory::Source>,
+    ) {
+        let mut sources = sources.into_iter().peekable();
+
+        if sources.peek().is_none() {
+            memory.stage_unknown(occurrence, destination);
+            return;
+        }
+
+        for source in sources {
+            // Alternatives share the same destination projection.
+            self.stage_reference(memory, occurrence, source, destination.clone(), logical, reference);
+        }
+    }
+
+    fn stage_reference(
         &self,
         memory: &mut crate::analysis::storage_flow::memory::State,
         occurrence: BoundExecutionSite,

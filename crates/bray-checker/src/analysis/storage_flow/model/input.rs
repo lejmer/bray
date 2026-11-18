@@ -33,19 +33,8 @@ pub(in crate::analysis::storage_flow) struct StorageFlowInput {
         BTreeMap<StorageIdentityId, BTreeSet<BoundDependencySubject>>,
     pub(super) cleanup_dependency_owners:
         BTreeMap<BoundDependencySubject, BTreeSet<StorageIdentityId>>,
-    pub(in crate::analysis::storage_flow) lifecycle_paths: BTreeMap<
-        (
-            bray_symbols::CallableInstanceData,
-            bray_symbols::DependencySubject,
-        ),
-        (bray_symbols::TypeId, bray_bound_tree::StorageReferencePath),
-    >,
-    pub(in crate::analysis::storage_flow) lifecycle_references:
-        BTreeMap<bray_symbols::CallableInstanceData, Vec<bray_bound_tree::BoundCallReference>>,
-    pub(in crate::analysis::storage_flow) lifecycle_stored_paths: BTreeMap<
-        bray_symbols::CallableInstanceData,
-        BTreeMap<bray_symbols::DependencyStoredValuePath, (bray_symbols::TypeId, bray_bound_tree::StorageReferencePath)>,
-    >,
+    pub(in crate::analysis::storage_flow) lifecycle_storage:
+        BTreeMap<bray_symbols::CallableInstanceData, bray_bound_tree::BoundCallStorage>,
     pub(in crate::analysis::storage_flow) allocation_pointer:
         Option<(bray_symbols::StructFieldSymbolId, bray_symbols::TypeId)>,
     pub(in crate::analysis::storage_flow) raw_buffers:
@@ -292,12 +281,12 @@ impl StorageFlowInput {
                 .chain(call.deferred_capture_cleanup().into_iter().flatten())
                 .chain(call.deferred_result_cleanup().into_iter().flatten());
 
-            atomic |= self.footprint.prepare_effects(request, effects, |subject| call.reference_type(subject))?;
+            atomic |= self.footprint.prepare_effects(request, effects, |subject| call.storage().subject(subject).map(|(ty, _)| ty))?;
         }
 
         for (callable, contract) in dependencies.lifecycle_dependencies() {
             atomic |= self.footprint.prepare_effects(request, contract.effects(),
-                |subject| self.lifecycle_paths.get(&(*callable, subject.clone())).map(|(ty, _)| *ty))?;
+                |subject| self.lifecycle_storage.get(callable)?.subject(subject).map(|(ty, _)| ty))?;
         }
 
         for (ty, effects) in &self.buffer_cleanup_effects {

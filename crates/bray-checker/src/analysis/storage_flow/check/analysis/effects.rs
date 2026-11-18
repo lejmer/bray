@@ -434,19 +434,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                         .mutation_targets(&state.memory)
                 }
             } else {
-                let locations = self.invocation_locations(state, occurrence, subject)?;
-
-                if indirect {
-                    locations
-                        .into_iter()
-                        .try_fold(Vec::new(), |mut targets, location| {
-                            targets.extend(crate::analysis::storage_flow::memory::Source::Value(location).mutation_targets(&state.memory)?);
-
-                            Some(targets)
-                        })
-                } else {
-                    Some(locations.into_iter().map(crate::analysis::storage_flow::memory::MutationTarget::location).collect())
-                }
+                effect_locations(self.invocation_locations(state, occurrence, subject)?, indirect, |slot| {
+                    crate::analysis::storage_flow::memory::Source::Value(slot).mutation_targets(&state.memory)
+                })
             }
         })
     }
@@ -821,6 +811,24 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             }
         })
     }
+}
+
+pub(super) fn effect_locations(
+    locations: Vec<Target>,
+    indirect: bool,
+    mut read: impl FnMut(Target) -> Option<Vec<bray_bound_tree::StorageMutationTarget>>,
+) -> Option<Vec<bray_bound_tree::StorageMutationTarget>> {
+    if !indirect {
+        return Some(locations.into_iter().map(bray_bound_tree::StorageMutationTarget::location).collect());
+    }
+
+    let mut targets = Vec::new();
+
+    for location in locations {
+        targets.extend(read(location)?);
+    }
+
+    Some(targets)
 }
 
 pub(super) fn task_effects(

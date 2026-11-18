@@ -116,67 +116,34 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
         let mut demands = super::entry::Demands::new();
 
         for ((ty, _), lifecycle) in &cleanup.lifecycles {
-            if self
-                .lifecycle_references
-                .contains_key(&lifecycle.call.callable)
-            {
+            let callable = lifecycle.call.callable;
+
+            if self.lifecycle_storage.contains_key(&callable) {
                 continue;
             }
 
-            for subject in
-                dependencies.lifecycle_dependencies()[&lifecycle.call.callable].reference_subjects()
-            {
-                let key = (lifecycle.call.callable, subject.clone());
+            let template = &dependencies.lifecycle_dependencies()[&callable];
 
-                if self.lifecycle_paths.contains_key(&key) {
-                    continue;
-                }
-
+            let storage = crate::dependency::prepare_call_storage(request, template, [], [], |subject| {
+                // The selected cleanup receiver already denotes its physical storage.
                 let owner = if subject.subject_root() == bray_symbols::DependencySubjectRoot::Receiver {
                     *ty
                 } else if let Some(ty) = crate::storage::static_subject_type(request, subject.subject_root())? {
                     ty
                 } else {
-                    continue;
+                    return Ok(None);
                 };
 
-                let Some(projections) =
-                    crate::storage::resolve_storage_projections(request, subject.projections())?
-                else {
-                    continue;
-                };
+                let prepared = crate::dependency::reference_subject_path(request, subject, owner)?;
 
-                // The actual cleanup receiver already denotes its physical storage.
-                if let Some((ty, path)) =
-                    crate::storage::reference_path(request, owner, projections.into(), None)?
-                {
-                    demands
-                        .entry(owner)
-                        .or_default()
-                        .insert((std::sync::Arc::from(path.projections()), ty));
-
-                    self.lifecycle_paths.insert(key, (ty, path));
+                if let Some((ty, path)) = &prepared {
+                    demands.entry(owner).or_default().insert((std::sync::Arc::from(path.projections()), *ty));
                 }
-            }
 
-            let references = crate::dependency::prepare_references(
-                request,
-                &dependencies.lifecycle_dependencies()[&lifecycle.call.callable].borrows(),
-                |subject| self.lifecycle_paths.get(&(lifecycle.call.callable, subject.clone()))
-                    .map(|(ty, _)| *ty),
-            )?;
+                Ok(prepared)
+            })?;
 
-            self.lifecycle_references
-                .insert(lifecycle.call.callable, references);
-
-            let stored = crate::dependency::prepare_stored_value_paths(
-                request.semantic_values(),
-                dependencies.lifecycle_dependencies()[&lifecycle.call.callable].captured_values().iter()
-                    .flat_map(|outcome| outcome.stored_values.iter()),
-                |subject| self.lifecycle_paths.get(&(lifecycle.call.callable, subject.clone())).cloned(),
-            );
-
-            self.lifecycle_stored_paths.insert(lifecycle.call.callable, stored);
+            self.lifecycle_storage.insert(callable, storage);
         }
 
         Ok(demands)

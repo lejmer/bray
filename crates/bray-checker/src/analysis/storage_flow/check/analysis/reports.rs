@@ -101,7 +101,7 @@ impl<'analysis, C: CheckerRequestContext + ?Sized> StorageFlowCollector<'analysi
     ) {
         let contract = &self.dependencies.lifecycle_dependencies()[&call.lifecycle.call.callable];
 
-        if let Some(requirements) = contract.completion_reports() {
+        if let Some(requirements) = bray_symbols::CapturedValueOutcome::possible_report(call.outcomes.iter().copied()) {
             reports.push((
                 call.access,
                 requirements.to_vec(),
