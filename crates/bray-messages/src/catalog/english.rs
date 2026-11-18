@@ -24,7 +24,7 @@ pub(crate) use build_progress::{
     unit_count as build_progress_unit_count,
 };
 pub(crate) use diagnostics::{
-    diagnostic_template, label_heading, note_heading, note_kind, note_template,
+    diagnostic_template, note_heading, note_kind, note_template,
     related_location_heading, severity_label,
 };
 #[cfg(test)]

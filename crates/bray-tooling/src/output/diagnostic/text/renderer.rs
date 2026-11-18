@@ -3,7 +3,7 @@ use std::io::{self, Write};
 use bray_diagnostics::DiagnosticBag;
 use bray_messages::{
     DiagnosticRenderer, RenderedDiagnostic, RenderedDiagnosticLabel, RenderedDiagnosticNote,
-    RenderedDiagnosticRelatedLocation, RenderedDiagnosticSuggestion,
+    RenderedDiagnosticNoteKind, RenderedDiagnosticRelatedLocation, RenderedDiagnosticSuggestion,
 };
 use bray_source::SourceStore;
 
@@ -86,7 +86,7 @@ fn write_labels(
         writeln!(
             writer,
             "{}: {} at {}",
-            color_note_heading(renderer.render_label_heading()),
+            color_note_heading(renderer.render_note_heading(RenderedDiagnosticNoteKind::Note)),
             label.message(),
             location,
         )?;
@@ -357,28 +357,187 @@ mod tests {
 
     #[test]
     fn text_output_renders_multiline_source_ranges() {
-        let sources = file_source_store("first\nsecond\nthird");
+        let source = "    first(  \n        second gap  \n    )  ";
+        let sources = file_source_store(source);
 
         let span = SourceSpan::new(
             SourceId::new(0),
-            TextRange::new(TextSize::new(2), TextSize::new(9)),
+            TextRange::new(
+                TextSize::ZERO,
+                TextSize::try_from(source.len()).expect("test source length fits in TextSize"),
+            ),
         );
 
         let diagnostic = Diagnostic::new(
             DiagnosticId::new(0),
-            DiagnosticKind::LexicalInvalidCharacter,
+            DiagnosticKind::LexicalInvalidIdentifier,
             SeverityKind::Error,
         )
-        .with_primary_span(span);
+        .with_primary_span(span)
+        .with_label(DiagnosticLabel::primary(
+            DiagnosticLabelKind::InvalidIdentifier,
+            span,
+        ));
 
         let bag = DiagnosticBag::single(diagnostic);
         let output = render(&bag, Some(&sources));
 
-        assert!(output.contains("main.bray:1:3..2:3"));
-        assert!(output.contains("1 | "));
-        assert!(output.contains("first"));
-        assert!(output.contains("2 | "));
-        assert!(output.contains("second"));
+        assert!(output.contains("main.bray:1:1..3:7"));
+
+        assert!(
+            output.contains(concat!(
+                "1 | \x1b[0m    first(  \n",
+                "\x1b[36m  | \x1b[0m\x1b[31m    ^^^^^^\x1b[0m\n",
+                "\x1b[36m2 | \x1b[0m        second gap  \n",
+                "\x1b[36m  | \x1b[0m\x1b[31m        ^^^^^^^^^^\x1b[0m\n",
+                "\x1b[36m3 | \x1b[0m    )  \n",
+                "\x1b[36m  | \x1b[0m\x1b[31m    ^\x1b[0m invalid identifier\n",
+            )),
+            "{output}"
+        );
+    }
+
+    #[test]
+    fn text_output_preserves_partial_spans_and_interior_whitespace() {
+        for (source, start, end, markers) in [
+            ("  écho  beta  ", 5, 11, &["    ^^^^^^"][..]),
+            ("  écho  beta  ", 7, 9, &["      ^^"][..]),
+            (
+                "  first  \n    second  ",
+                4,
+                18,
+                &["    ^^^", "    ^^^^"][..],
+            ),
+        ] {
+            let sources = file_source_store(source);
+
+            let span = SourceSpan::new(
+                SourceId::new(0),
+                TextRange::new(TextSize::new(start), TextSize::new(end)),
+            );
+
+            let diagnostic = Diagnostic::new(
+                DiagnosticId::new(0),
+                DiagnosticKind::LexicalInvalidIdentifier,
+                SeverityKind::Error,
+            )
+            .with_primary_span(span);
+
+            let output = render(&DiagnosticBag::single(diagnostic), Some(&sources));
+
+            let marker_lines = output
+                .lines()
+                .filter(|line| line.contains('^'))
+                .collect::<Vec<_>>();
+
+            assert_eq!(marker_lines.len(), markers.len(), "{output}");
+
+            for (line, marker) in marker_lines.iter().zip(markers) {
+                assert!(
+                    line.ends_with(&format!("\x1b[31m{marker}\x1b[0m")),
+                    "{output}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn text_output_retains_labels_on_whitespace_only_lines() {
+        let source = "  first  \n \t \n\n  last  \n  ";
+        let sources = file_source_store(source);
+
+        let span = SourceSpan::new(
+            SourceId::new(0),
+            TextRange::new(
+                TextSize::ZERO,
+                TextSize::try_from(source.len()).expect("test source length fits in TextSize"),
+            ),
+        );
+
+        let diagnostic = Diagnostic::new(
+            DiagnosticId::new(0),
+            DiagnosticKind::LexicalInvalidIdentifier,
+            SeverityKind::Error,
+        )
+        .with_primary_span(span)
+        .with_label(DiagnosticLabel::primary(
+            DiagnosticLabelKind::InvalidIdentifier,
+            span,
+        ));
+
+        let output = render(&DiagnosticBag::single(diagnostic), Some(&sources));
+
+        assert!(
+            output.contains(concat!(
+                "1 | \x1b[0m  first  \n",
+                "\x1b[36m  | \x1b[0m\x1b[31m  ^^^^^\x1b[0m\n",
+                "\x1b[36m2 | \x1b[0m \t \n",
+                "\x1b[36m3 | \x1b[0m\n",
+                "\x1b[36m4 | \x1b[0m  last  \n",
+                "\x1b[36m  | \x1b[0m\x1b[31m  ^^^^\x1b[0m\n",
+                "\x1b[36m5 | \x1b[0m  \n",
+                "\x1b[36m  | \x1b[0minvalid identifier\n",
+            )),
+            "{output}"
+        );
+    }
+
+    #[test]
+    fn text_output_does_not_move_whitespace_spans_onto_code() {
+        let sources = file_source_store("  word  ");
+
+        for (start, end) in [(0, 2), (6, 8)] {
+            let span = SourceSpan::new(
+                SourceId::new(0),
+                TextRange::new(TextSize::new(start), TextSize::new(end)),
+            );
+
+            let diagnostic = Diagnostic::new(
+                DiagnosticId::new(0),
+                DiagnosticKind::LexicalInvalidIdentifier,
+                SeverityKind::Error,
+            )
+            .with_primary_span(span)
+            .with_label(DiagnosticLabel::primary(
+                DiagnosticLabelKind::InvalidIdentifier,
+                span,
+            ));
+
+            let output = render(&DiagnosticBag::single(diagnostic), Some(&sources));
+
+            assert!(!output.contains('^'), "{output}");
+
+            assert!(
+                output.contains("\x1b[36m  | \x1b[0minvalid identifier\n"),
+                "{output}"
+            );
+        }
+    }
+
+    #[test]
+    fn text_output_preserves_insertion_markers() {
+        for (source, offset, marker) in [("", 0, "^"), ("  ", 1, " ^"), ("word  ", 6, "      ^")] {
+            let sources = file_source_store(source);
+            let span = SourceSpan::empty(SourceId::new(0), TextSize::new(offset));
+
+            let diagnostic = Diagnostic::new(
+                DiagnosticId::new(0),
+                DiagnosticKind::LexicalInvalidIdentifier,
+                SeverityKind::Error,
+            )
+            .with_primary_span(span)
+            .with_label(DiagnosticLabel::primary(
+                DiagnosticLabelKind::InvalidIdentifier,
+                span,
+            ));
+
+            let output = render(&DiagnosticBag::single(diagnostic), Some(&sources));
+
+            assert!(
+                output.contains(&format!("\x1b[31m{marker}\x1b[0m invalid identifier\n")),
+                "{output}"
+            );
+        }
     }
 
     #[test]
@@ -419,26 +578,77 @@ mod tests {
     #[test]
     fn text_output_clips_long_source_lines() {
         let long_source = format!("{}target{}", "a".repeat(120), "b".repeat(20));
-        let sources = file_source_store(&long_source);
 
-        let span = SourceSpan::new(
-            SourceId::new(0),
-            TextRange::new(TextSize::new(120), TextSize::new(126)),
+        let indented_source = format!(
+            "{}target\n{}second{}",
+            " ".repeat(120),
+            " ".repeat(120),
+            " ".repeat(120)
         );
 
-        let diagnostic = Diagnostic::new(
-            DiagnosticId::new(0),
-            DiagnosticKind::LexicalInvalidCharacter,
-            SeverityKind::Error,
-        )
-        .with_primary_span(span);
+        let indented_len =
+            TextSize::try_from(indented_source.len()).expect("test source length fits in TextSize");
 
-        let bag = DiagnosticBag::single(diagnostic);
-        let output = render(&bag, Some(&sources));
+        let varied_indent_source = format!("{}target\n{}second", " ".repeat(120), " ".repeat(240));
 
-        assert!(output.contains("..."));
-        assert!(output.contains("target"));
-        assert!(output.contains("^^^^^^"));
+        let varied_indent_len = TextSize::try_from(varied_indent_source.len())
+            .expect("test source length fits in TextSize");
+
+        let whitespace_prefix_source = format!(
+            "{}\n{}target{}",
+            " ".repeat(300),
+            " ".repeat(20),
+            "b".repeat(120)
+        );
+
+        let whitespace_prefix_len = TextSize::try_from(whitespace_prefix_source.len())
+            .expect("test source length fits in TextSize");
+
+        let separated_markers_source =
+            format!("{}\ntarget\n{}target", " ".repeat(300), " ".repeat(400));
+
+        let separated_markers_len = TextSize::try_from(separated_markers_source.len())
+            .expect("test source length fits in TextSize");
+
+        for (source, range) in [
+            (
+                long_source,
+                TextRange::new(TextSize::new(120), TextSize::new(126)),
+            ),
+            (
+                indented_source,
+                TextRange::new(TextSize::ZERO, indented_len),
+            ),
+            (
+                varied_indent_source,
+                TextRange::new(TextSize::ZERO, varied_indent_len),
+            ),
+            (
+                whitespace_prefix_source,
+                TextRange::new(TextSize::new(200), whitespace_prefix_len),
+            ),
+            (
+                separated_markers_source,
+                TextRange::new(TextSize::new(200), separated_markers_len),
+            ),
+        ] {
+            let sources = file_source_store(&source);
+            let span = SourceSpan::new(SourceId::new(0), range);
+
+            let diagnostic = Diagnostic::new(
+                DiagnosticId::new(0),
+                DiagnosticKind::LexicalInvalidIdentifier,
+                SeverityKind::Error,
+            )
+            .with_primary_span(span);
+
+            let bag = DiagnosticBag::single(diagnostic);
+            let output = render(&bag, Some(&sources));
+
+            assert!(output.contains("..."), "{output}");
+            assert!(output.contains("target"), "{output}");
+            assert!(output.contains("^^^^^^\x1b[0m\n"), "{output}");
+        }
     }
 
     #[test]

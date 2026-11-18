@@ -3316,10 +3316,6 @@ pub(crate) const fn note_template(kind: DiagnosticNoteKind) -> MessageTemplate {
     }
 }
 
-pub(crate) const fn label_heading() -> &'static str {
-    "label"
-}
-
 pub(crate) const fn related_location_heading() -> &'static str {
     "related"
 }

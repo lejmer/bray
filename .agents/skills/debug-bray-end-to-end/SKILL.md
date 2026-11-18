@@ -8,47 +8,12 @@ description: >
 
 # Debug Bray end to end
 
-Find the first broken contract with the smallest faithful producer and fewest expensive runs.
+1. Thoroughly map out architecture: Begin by building a map of the entire architecture (if one does not already exist in the session). Keep this updated as you change things. This map will be your shortcut for understanding how things fit together.
+2. Use the architectural map to plan your traces, then add probes to trace the bug(s). Some bugs are local, others can span wide chunks of the codebase. Do not assume that just because you find a boundary that looks wrong, that this is the only place that matters, as many bugs can span many boundaries simultaneously.
+3. Once you have located the boundaries where the bug(s) is introduced, and traced how the bug(s) affects down stream consumers, apply the right fixes at the right places to fix the issue end-to-end, which often means to not only fix it at the earliest boundary.
+4. Once you have fixed the bug(s), make sure there are tests that you can use to test if it solved the problem. If the tests are lacking, fix that too. Then verify the bug(s).
+5. Look out for unintended consequences and possible regressions, and fix anything that broke that you missed.
+6. Remove any tracing code and/or probes you might have added to help you trace the problem through the code.
+7. Let an independent subagent review your fix(es). Fix any findings that reviewer finds. Do not give the subagent your context, only give it the original problem and tell it you have solved it. Let it discover what you did on its own, so that it cannot be biased.
 
-## Freeze the observation
-
-Checkpoint the exact command and failure, source or build identity, selected product, and output root. Preserve exact leaf errors before wrappers replace them. Put verbose manifests, inventories, and logs only in a verified, ignored, task-owned directory inside the repository, never HOME, a repository parent, system temp, or another external path. Load only what the current decision needs.
-
-Prove that the invoked compiler, toolchain, and artifacts match the source, target, profile, runtime ABI, and standard-library build under investigation. Use paths plus identities, digests, or source fingerprints. Timestamps are insufficient. Do not debug an unverified product mixture.
-
-## Find the first failing layer
-
-Locate the earliest boundary that can explain the observation:
-
-1. parsing, binding, checking, or checked-fact publication.
-2. lowering, MIR validation, or generated-helper realization.
-3. code generation, artifact selection, emission, or linking.
-4. runtime startup, ABI role resolution, or platform binding.
-5. standard-library behavior.
-6. test discovery, native host execution, protocol handling, or result reporting.
-
-Maximize uncertainty removed per expensive run. Narrow through code, data flow, logs, and retained artifacts first. For costly runs, batch independent noninterfering probes or bisect boundaries. Use one-variable reruns only for necessary causal isolation after narrowing. Track only changed hypotheses. Do not search boundaries serially when one instrumented run can find the first divergence.
-
-For cross-layer concepts, trace the authoritative declaration through closed inventories, enums, text identities, ABI symbols and signatures, artifact ownership, compiler mappings, serialization, validation, and consumers. Prefer one authority with exhaustive projections over parallel lists.
-
-The first failing boundary locates the cause, not the full repair scope. Before a semantic patch, trace equivalent producers and downstream consumers through the complete affected mechanism. State both what must survive and what must become invalid. Use the contract gate in [Work on Bray Issues](../work-on-bray-issues/SKILL.md#close-the-contract-before-changing-it) for cross-cutting repairs. A new regression reopens that contract before another local patch.
-
-## Keep the loop cheap
-
-Escalate from a focused boundary test to a minimal real compiler/runtime/standard-library product, selected integration test, affected conformance group, then broad suites. Keep the smallest real producer and consumer. Do not replace them with mocks.
-
-Retain products and intermediates. When inputs and identities are unchanged, validate freshness and rerun the selected test or published executable without rebuilding. If no no-build command exists, use the retained product directly when faithful. Never add a production bypass for missing debug tooling.
-
-For an expensive command, add elapsed time, exit status, relevant identities and paths, and the leaf failure to the compact checkpoint. Keep full logs in the repository-local task directory, load only needed slices, and report its path at handoff. Never remove logs with `rm`, `Remove-Item`, `rmdir`, `del`, filesystem scripts, or equivalent raw deletion. Repeat only when changed inputs or unresolved hypotheses can make the result informative. Do not narrate routine metadata or reasoning. Never rerun a broad suite whose unchanged inputs make the result predictable.
-
-## Preserve exact failures
-
-Trace `InfrastructureFailure` and other generic results to first detection. Preserve the narrow cause and typed context through `map_err`, `ok_or`, protocol, artifact, and diagnostic conversions. Retain enough identity to retrieve failure-only context lazily.
-
-For cleanup, lifecycle, runtime-role, and generated-helper failures, verify the producer's totality contract before patching its final consumer. Keep partial recovery facts distinct from complete codegen-ready facts and repair the owning boundary.
-
-## Verify the repair
-
-Run the focused regression, adjacent boundary coverage, affected conformance group, then broad suites if needed. Finish with repository checks and the `AGENTS.md` audit.
-
-Report concisely: first broken contract, freshness proof, missed earlier validation, focused coverage, retained-product path, and any Linear-worthy tooling gap.
+Keep your findings in a record. Do not keep stale records, builds or probes around.
