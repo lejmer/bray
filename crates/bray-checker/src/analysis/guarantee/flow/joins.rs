@@ -178,14 +178,6 @@ pub(in crate::analysis::guarantee) fn merge_returned(
         right_ids.insert(value.clone(), value);
     }
 
-    target
-        .pending_results
-        .insert(expression, left_value.clone());
-
-    incoming
-        .pending_results
-        .insert(expression, right_value.clone());
-
     let left_substitution = ExecutionSubstitution::new(&left, &left_ids);
     let right_substitution = ExecutionSubstitution::new(&right, &right_ids);
 
@@ -193,7 +185,7 @@ pub(in crate::analysis::guarantee) fn merge_returned(
         (target, &left_substitution),
         (&incoming, &right_substitution),
         &BTreeMap::new(),
-        &[(expression, joined.clone())],
+        [([Some(left_value), Some(right_value)], &joined)],
         &BTreeSet::new(),
         None,
         &mut facts,
@@ -702,7 +694,7 @@ mod tests {
 
             let retained = super::super::witnesses::conditional_facts(
                 (&left_state, &crate::execution_guarantees::ExecutionSubstitution::new(&left_values, &left_owners)), (&right_state, &crate::execution_guarantees::ExecutionSubstitution::new(&right_values, &right_owners)),
-                &snapshots, &[], &Default::default(), None, &mut Vec::new());
+                &snapshots, [], &Default::default(), None, &mut Vec::new());
 
             let mut unknown = left_state.clone();
 
@@ -710,7 +702,7 @@ mod tests {
 
             let rejected = super::super::witnesses::conditional_facts(
                 (&unknown, &crate::execution_guarantees::ExecutionSubstitution::new(&left_values, &left_owners)), (&right_state, &crate::execution_guarantees::ExecutionSubstitution::new(&right_values, &right_owners)),
-                &snapshots, &[], &Default::default(), None, &mut Vec::new());
+                &snapshots, [], &Default::default(), None, &mut Vec::new());
 
             assert!(!rejected.iter().any(|witness| witness.available && witness.clauses.iter().any(|(_, condition)| *condition == whole_guarantee(joined.clone()))),
                 "a live Unknown observation cannot supply the missing whole-object evidence");

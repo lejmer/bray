@@ -3,7 +3,7 @@ use crate::execution_guarantees::{ExecutionSubstitution, SnapshotSubstitution};
 use crate::execution_guarantees::{ExecutionObservationKind as ObservationKind, ExecutionProof};
 use std::collections::{BTreeMap, BTreeSet};
 
-use bray_bound_tree::{BoundExpressionId, BoundOperator};
+use bray_bound_tree::BoundOperator;
 
 use super::super::state::ExecutionState;
 use crate::{ExecutionCondition, ExecutionPlace};
@@ -17,7 +17,7 @@ pub(super) struct JoinedWitness {
 }
 
 /// Propose value-contract facts and prove each against both original predecessors.
-pub(super) fn conditional_facts(
+pub(super) fn conditional_facts<'value>(
     left: (
         &ExecutionState,
         &ExecutionSubstitution<'_>,
@@ -27,7 +27,7 @@ pub(super) fn conditional_facts(
         &ExecutionSubstitution<'_>,
     ),
     current: &BTreeMap<ExecutionPlace, ExecutionCondition>,
-    results: &[(BoundExpressionId, ExecutionCondition)],
+    results: impl IntoIterator<Item = ([Option<&'value ExecutionCondition>; 2], &'value ExecutionCondition)>,
     availability: &BTreeSet<(ExecutionCondition, ExecutionCondition)>,
     selector: Option<&ExecutionCondition>,
     facts: &mut Vec<(ExecutionCondition, bool)>,
@@ -49,11 +49,7 @@ pub(super) fn conditional_facts(
         );
     }
 
-    for (expression, joined) in results {
-        let source = [left.0, right.0].map(|state| {
-            state.pending_results.get(expression)
-        });
-
+    for (source, joined) in results {
         collect_observations(
             source, joined, &mut inputs, &mut guards,
             [&absent[0], &absent[1]], &ExecutionCondition::boolean(true),
@@ -403,7 +399,7 @@ mod tests {
         let mut facts = Vec::new();
 
         let retained = conditional_facts((&left, &substitution), (&right, &substitution),
-            &BTreeMap::new(), &[], &availability, None, &mut facts);
+            &BTreeMap::new(), [], &availability, None, &mut facts);
 
         assert!(retained.is_empty(), "an ordinary tautology establishes no carrier authority");
     }
@@ -434,7 +430,7 @@ mod tests {
         let mut facts = Vec::new();
 
         let retained = conditional_facts((&left, &crate::execution_guarantees::ExecutionSubstitution::new(&empty, &empty)), (&right, &crate::execution_guarantees::ExecutionSubstitution::new(&empty, &empty)),
-            &BTreeMap::new(), &[], &availability, None, &mut facts);
+            &BTreeMap::new(), [], &availability, None, &mut facts);
 
         assert!(retained.is_empty());
         assert!(facts.contains(&(guard, false)));

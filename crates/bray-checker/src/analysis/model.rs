@@ -36,6 +36,18 @@ impl AnalysisOperationKind {
         }
     }
 
+    /// Returns the explicit operation that can consume an evaluated memory operand.
+    pub(crate) const fn explicit_attempt_expression(self) -> Option<BoundExpressionId> {
+        match self {
+            Self::Bound(AnyBoundNodeId::Expression(expression))
+            | Self::Call {
+                invocation: bray_bound_tree::BoundExecutionSite::Node(AnyBoundNodeId::Expression(expression)),
+                phase: AnalysisCallPhase::Attempt,
+            } => Some(expression),
+            _ => None,
+        }
+    }
+
     pub(crate) const fn storage_value_phase(self) -> bray_bound_tree::StorageValuePhase {
         use bray_bound_tree::StorageValuePhase;
 

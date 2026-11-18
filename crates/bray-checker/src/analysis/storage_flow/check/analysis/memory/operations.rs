@@ -38,14 +38,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         kind: crate::analysis::model::AnalysisOperationKind,
         invalidation: Option<&mut bray_bound_tree::StorageInvalidation>,
     ) {
-        if !matches!(kind,
-            crate::analysis::model::AnalysisOperationKind::Call {
-                phase: crate::analysis::model::AnalysisCallPhase::Attempt, ..
-            } | crate::analysis::model::AnalysisOperationKind::Bound(_)) {
-            return;
-        }
-
-        let Some(expression) = kind.occurrence().expression() else {
+        let Some(expression) = kind.explicit_attempt_expression() else {
             return;
         };
 

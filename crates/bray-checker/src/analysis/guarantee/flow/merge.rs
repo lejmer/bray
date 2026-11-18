@@ -365,7 +365,10 @@ fn join_observations<'a>(
             (target, &left_substitution),
             (incoming_joined.as_ref(), &right_substitution),
             &joined_values,
-            &results,
+            results.iter().map(|(expression, joined)| (
+                [target.pending_results.get(expression), incoming.pending_results.get(expression)],
+                joined,
+            )),
             &availability_guards,
             match join { ExecutionJoin::Selection(condition) => Some(condition), _ => None },
             &mut joined_facts,

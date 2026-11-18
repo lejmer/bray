@@ -26,9 +26,9 @@ identities remain explicit. Lowering consumes checked decisions and does not rep
 
 ## Pushed checkpoints
 
-The remote checkpoint is 1c5770b2c. The captured graph, guarded ownership and paired publication are
-committed locally at 11b860fa2. Branch-local replay, deferred publication, and frame refinement follow
-in the working tree.
+The remote checkpoint is 1c5770b2c. Local checkpoints retain the captured graph and paired
+publication at 11b860fa2, selected deferred frames and statics at 675d89c21, and produced
+region results at d08975a30. The current slice binds implicit scopes' actual borrowed inputs.
 
 - d087dde8f replaces independent normal/deferred preservation booleans with immutable DependencyEffectOutcomes.
   Admission captures possible failure effects before consumption. Deferred formation keeps body effects latent.
@@ -97,7 +97,7 @@ support, per-exit effects and reports, cleanup, abnormal publication and static 
 Deferred frames carry the selected instance, signature, dispatch, witnesses and receiver convention from call
 selection. The interface transports that record directly. Frame binding no longer invents call terms or
 ordinal arguments. The latest release panel passed 568 checker, 223 symbol, 137 bound-tree and
-218 interface tests. The same candidate passed 318 of 368 compositions and 34 of 36 active
+218 interface tests. The same candidate passed 321 of 368 compositions and 34 of 36 active
 owner controls, with three ignored. The two failing owner controls are nullable extraction and
 guarded extraction of one of two owned sibling fields. The native and frozen gates remain pending.
 
@@ -351,6 +351,33 @@ observation and package-import compositions together.
   inactive alternative, and a borrowed referent supplies no owning witness. Compare the nullable
   and guarded union owner controls, including the negative proof tests, against the 319 composition
   and 34 owner passes. The change should eliminate writes and avoid another stored representation.
+- Route moving memory reads through their actual explicit attempt in both checking and replay.
+  Their selected operation supplies the evaluated address, and the reaching typed value moves
+  before retirement. Staged input adapts one operand and must not execute the enclosing read.
+  Remove the duplicate checks that treat the enclosing syntax expression as the active site.
+  Preserve target and initialization diagnostics on the true read. Use the raw nullable
+  extraction, double read, generic storage, and buffer move controls to distinguish phase errors
+  from missing captured ownership.
+- Implicit scope and iteration calls must admit the actual typed receiver value. The checked
+  storage input plan selects Borrow for the receiver, and the physical admission uses its
+  capability. Logical admission currently copies the raw source condition for both moves and
+  borrows. Captured Read then receives an owned resource or an undecorated formal value and
+  panics during source summary binding. Apply the checked borrow at admission and retain its
+  reached value. Keep Read's invariant and the owned transfer path intact. Check the existing
+  sync and async cleanup-report tests, borrowed reports with an independent explicit result,
+  and iterator and scoped lifecycle controls. Both existing report tests now pass. The former
+  opaque fixture forwarded a known producer that emitted no report. Its replacement produces a
+  suppressed incident carrying the scoped loan and must diagnose an escaping dependency in
+  source and package checking. Both variants pass. The full panel now passes 321 of 368
+  compositions and 34 of 36 owner controls with three ignored. Moving-read phase classification
+  leaves the existing two extraction failures, where the generic result lacks ownership lineage.
+- Extend receiver-first captured inputs to implicit scope and iteration calls. The checked access
+  and its passing mode already define the input type, and the existing capability or evaluated
+  slot supplies its physical descriptor. Keep the capture and the reached contents as separate
+  nodes at admission. Replay, effect binding, and result publication should consume the same
+  record. Do not inherit owning inline observations from a receiver's storage into its borrow
+  descriptor. Keep the scoped report, borrowing an inline receiver, consuming iteration and
+  latent scoped execution controls. Reconsider if the protocol needs a separate capture table.
 - Stabilize loops and recursive summaries with existing joins, recency and dependency indexes. No arbitrary cutoff loses dependencies.
 - Finish typed external graph validation, immutable interning/sharing, public API documentation and structural/style audit.
 

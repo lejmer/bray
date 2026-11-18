@@ -165,11 +165,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         invalidation: Option<&bray_bound_tree::StorageInvalidation>,
         assignment_place: Option<&crate::ExecutionPlace>,
     ) {
-        if matches!(operation,
-            crate::analysis::model::AnalysisOperationKind::Call {
-                phase: crate::analysis::model::AnalysisCallPhase::Attempt, ..
-            } | crate::analysis::model::AnalysisOperationKind::Bound(_))
-            && let Some(expression) = operation.occurrence().expression()
+        if let Some(expression) = operation.explicit_attempt_expression()
             && let Some(target) = self.checked_body
                 .and_then(|body| body.storage_flow().memory_read_target(expression))
         {

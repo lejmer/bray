@@ -24,6 +24,38 @@ const API: &str = r"
         mut count: u32;
     }
 
+    struct StateIncident
+    {
+        state: &State;
+    }
+
+    struct ReportOnExit
+    {
+        state: &State;
+
+        enter() -> &State
+        {
+            return self.state;
+        }
+
+        exit(pos state: &State) -> Result<unit, StateIncident>
+        {
+            return Error(StateIncident { state = state });
+        }
+    }
+
+    async func retain_state_in_report(pos state: &State, pos cell: &Cell) -> Result<(&Cell), bool>
+    {
+        let reporter = ReportOnExit { state = state };
+
+        _ = with loan = reporter
+        {
+            return Ok(cell);
+        };
+
+        return Ok(cell);
+    }
+
     trusted predicate unchanged(owner: &State);
 
     trusted func marked_state() -> State
@@ -458,7 +490,27 @@ const CASES: &[(&str, &str, bool)] = &[
     ),
     (
         "opaque_await_preserves_report_borrow",
-        r"let cell: api.Cell = { value = 1 }; let result = { let mut state: api.State = { count = 0 }; let pending = if choice { yield api.touch<(&api.Cell)>(&cell, &mut state); } else { yield api.opaque_cell(&cell); }; yield await pending; }; _ = result.value;",
+        r"
+            let cell: api.Cell = { value = 1 };
+
+            let result =
+            {
+                let state: api.State = { count = 0 };
+
+                let pending = if choice
+                {
+                    yield api.retain_state_in_report(&state, &cell);
+                }
+                else
+                {
+                    yield api.pass<Result<(&api.Cell), bool>>(Ok(&cell));
+                };
+
+                yield await pending;
+            };
+
+            _ = result;
+        ",
         false,
     ),
     (
@@ -1264,6 +1316,13 @@ fn check_cases(provider: &crate::Compilation, imported: bool, cases: &[(&str, &s
                 assert!(start >= call && end <= call + "observe(&value)".len(),
                     "negative control must fail at observation, name={name}, imported={imported}, span={span:?}");
             }
+        }
+
+        if *name == "opaque_await_preserves_report_borrow" {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                diagnostics,
+                bray_diagnostics::DiagnosticKind::CheckingEscapingStorageDependency,
+            );
         }
 
         if *name == "same_site_loop" && !diagnostics.has_errors() {
