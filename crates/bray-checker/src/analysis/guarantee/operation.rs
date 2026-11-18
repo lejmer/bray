@@ -230,8 +230,8 @@ pub(super) fn check_storage_accesses<C: CheckerRequestContext + ?Sized>(
 
         if storage.identity(identity).is_none_or(|identity| {
             matches!(identity, StorageIdentity::Error(_))
-                || matches!(identity, StorageIdentity::Static(declaration)
-                    if !static_access_preserves_execution(request, declaration, property))
+                || matches!(identity, StorageIdentity::Static(selection)
+                    if !static_access_preserves_execution(request, selection.template().declaration(), property))
         }) {
             return false;
         }

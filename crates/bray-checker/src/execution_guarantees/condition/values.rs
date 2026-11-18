@@ -334,6 +334,8 @@ impl ExecutionCondition {
         base: Self,
         mut fields: Arc<[(bray_bound_tree::StorageProjection, Self)]>,
     ) -> Self {
+        if fields.is_empty() { return base; }
+
         if let K::Present(payload) = base.kind()
             && matches!(fields.as_ref(), [(bray_bound_tree::StorageProjection::NullableValue, value)] if value == payload.as_ref())
         {

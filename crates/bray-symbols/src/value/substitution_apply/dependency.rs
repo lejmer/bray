@@ -320,7 +320,7 @@ impl SemanticValueStore {
         let carriers = outcome.carriers
             .iter()
             .map(|carrier| {
-                Ok(super::super::DependencyWitnessCarrier::new(
+                Ok(carrier.remap(
                     self.substitute_constant_term_data(carrier.guarantee(), substitution)?,
                     carrier
                         .path()
@@ -525,6 +525,12 @@ impl SemanticValueStore {
                         )?,
                     ),
                 )
+            }
+            DependencySubjectRoot::StaticInstance(reference, duration) => {
+                let selection = self.static_reference(reference);
+                let selected = self.substitute_static_reference(&selection, substitution)?;
+
+                DependencySubjectRoot::StaticInstance(self.intern_static_reference(selected)?, duration)
             }
             root => root,
         };

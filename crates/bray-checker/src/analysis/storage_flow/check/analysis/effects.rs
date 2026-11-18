@@ -1,7 +1,7 @@
 use crate::analysis::storage_flow::memory::{Effect, EffectOutcomes};
 use bray_bound_tree::{StorageIdentity, StorageInvalidation, StoragePath, StorageProjection};
 use bray_symbols::{
-    DependencyMutationKind, DependencyStorageEffect, DependencySubject, DependencySubjectRoot,
+    DependencyMutationKind, DependencyStorageEffect, DependencySubject,
     TypeData,
 };
 
@@ -23,8 +23,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     ) -> Option<EffectOutcomes> {
         self.prepare_assignment_reference(state, operation, assignment);
 
-        if self.call_attempt(operation).is_some() {
-            self.observe_call_reference_inputs(state, operation.occurrence());
+        if let Some(invocation) = self.call_attempt(operation)
+            && !matches!(invocation, bray_bound_tree::BoundExecutionSite::Node(bray_bound_tree::AnyBoundNodeId::Expression(_)))
+        {
+            self.observe_call_reference_inputs(state, invocation);
         }
 
         if let bray_bound_tree::BoundExecutionSite::Node(
@@ -42,24 +44,13 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 return Some(EffectOutcomes::new([]));
             }
 
-            let effects = self.memory_effects(state, expression);
-
-            self.resolve_memory_values(execution, self.memory.operation(expression).expect("selected memory operation exists"), effects.as_deref().unwrap_or_default());
-
-            return effects.map(EffectOutcomes::new);
+            return self.memory_effects(state, expression).map(EffectOutcomes::new);
         }
 
         let invocation = self.call_attempt(operation)?;
 
-        let awaited = invocation.expression().and_then(|expression| {
-            match self.request.view().expression(expression) {
-                Some(bray_bound_tree::BoundExpression::Await(awaited)) => Some(*awaited),
-                _ => None,
-            }
-        });
-
-        if let Some(awaited) = awaited {
-            return self.begin_await_transition(state, execution, operation, awaited);
+        if operation.awaited_expression().is_some() {
+            return self.begin_await_transition(state, execution, operation);
         }
 
         if !self.dependencies.calls().contains_key(&invocation)
@@ -78,7 +69,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             return Some(EffectOutcomes::new([]));
         }
 
-        self.resolve_call_values(execution, invocation);
         self.prepare_call_references(state, invocation);
 
         let contracts = self.dependencies.calls().get(&invocation)?;
@@ -88,7 +78,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 .extend(contracts.synchronous_cleanup().iter().cloned());
         }
 
-        let task_effects = invocation.expression().and_then(|expression| {
+        let task_effects = invocation.expression().filter(|expression| invocation == (*expression).into()).and_then(|expression| {
             let value = self.execution.task_receiver(execution, expression)?;
             let proof = execution.ordinary_proof();
             let frame = value.deferred_value()?;
@@ -100,14 +90,14 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         });
 
         if contracts.deferred_effect_outcomes().is_some() {
-            self.capture_deferred_cleanup(state, invocation);
+            self.capture_deferred_cleanup(state, execution, invocation);
         }
 
         let effects = if contracts.deferred_effects().is_none() {
             task_effects
-                .unwrap_or_else(|| self.call_effect_outcomes(state, invocation, contracts.effect_outcomes()))
+                .unwrap_or_else(|| self.call_effect_outcomes(state, execution, invocation, contracts.effect_outcomes()))
         } else {
-            self.call_effect_outcomes(state, invocation, contracts.effect_outcomes())
+            self.call_effect_outcomes(state, execution, invocation, contracts.effect_outcomes())
         };
 
         Some(effects)
@@ -118,7 +108,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         state: &mut StorageFlowState,
         execution: &crate::analysis::guarantee::ExecutionState,
         operation: AnalysisOperationKind,
-        awaited: bray_bound_tree::BoundAwaitExpression,
     ) -> Option<EffectOutcomes> {
         let invocation = operation.occurrence();
 
@@ -126,7 +115,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             .expression()
             .expect("await transition retains its expression");
 
-        let value = self.execution.value(execution, awaited.operand());
+        let value = execution.admitted_receiver(invocation);
         let proof = execution.ordinary_proof();
 
         let Some(frame) = value.deferred_value().filter(|frame| !frame.unknown_possible(&proof)) else {
@@ -422,20 +411,28 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     pub(super) fn call_effects(
         &self,
         state: &crate::analysis::storage_flow::model::StorageFlowState,
+        execution: &crate::analysis::guarantee::ExecutionState,
         occurrence: bray_bound_tree::BoundExecutionSite,
         effects: &[DependencyStorageEffect],
     ) -> Vec<Effect> {
         self.resolve_effects(effects, |slot| crate::analysis::storage_flow::memory::Source::Value(slot).mutation_targets(&state.memory), |subject, indirect| {
             if indirect
                 && subject.projections().is_empty()
-                && !matches!(
-                    subject.subject_root(),
-                    DependencySubjectRoot::ProductStatic(_)
-                        | DependencySubjectRoot::ExactThreadStatic(_)
-                )
+                && !subject.subject_root().is_static()
             {
-                self.invocation_reference(state, occurrence, subject.subject_root())?
-                    .mutation_targets(&state.memory)
+                let ordinal = occurrence.expression().and_then(|expression| {
+                    self.execution.semantics.selections().expression(expression)?
+                        .invocation_input_ordinal(occurrence, subject.subject_root())
+                });
+
+                let entry = execution.admitted_call(occurrence);
+
+                if let Some(captured) = entry.zip(ordinal).and_then(|(entry, ordinal)| entry.argument_storage(ordinal)) {
+                    captured.mutation_targets()
+                } else {
+                    self.invocation_reference(state, occurrence, subject.subject_root())?
+                        .mutation_targets(&state.memory)
+                }
             } else {
                 let locations = self.invocation_locations(state, occurrence, subject)?;
 
@@ -457,11 +454,12 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     fn call_effect_outcomes(
         &self,
         state: &StorageFlowState,
+        execution: &crate::analysis::guarantee::ExecutionState,
         occurrence: bray_bound_tree::BoundExecutionSite,
         effects: &bray_symbols::DependencyEffectOutcomes<DependencyStorageEffect>,
     ) -> EffectOutcomes {
         effects.try_flat_map(|effect| {
-            Ok::<_, std::convert::Infallible>(self.call_effects(state, occurrence, std::slice::from_ref(effect)))
+            Ok::<_, std::convert::Infallible>(self.call_effects(state, execution, occurrence, std::slice::from_ref(effect)))
         }).expect("every formal effect resolves to a captured transition or an explicit conservative bound")
     }
 
@@ -506,11 +504,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 } => (reference, true, projections.as_ref(), reads.as_ref(), *kind, *access_type, *addressed),
             };
 
-            let static_subject = matches!(
-                subject.subject_root(),
-                DependencySubjectRoot::ProductStatic(_)
-                    | DependencySubjectRoot::ExactThreadStatic(_)
-            );
+            let static_subject = subject.subject_root().is_static();
 
             let suffix = storage_projections(
                 self.request.semantic_values(),
@@ -530,7 +524,19 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 continue;
             };
 
-            let targets = resolve(subject, indirect).and_then(|targets|
+            let targets = if static_subject {
+                self.static_effect_targets(subject).and_then(|targets| {
+                    if indirect {
+                        targets.into_iter().try_fold(Vec::new(), |mut reached, target| {
+                            reached.extend(read(target.address?)?);
+
+                            Some(reached)
+                        })
+                    } else { Some(targets) }
+                })
+            } else {
+                resolve(subject, indirect)
+            }.and_then(|targets|
                 bray_bound_tree::StorageMutationTarget::resolve_route(targets, &suffix, reads, &mut read));
 
             let Some(targets) = targets else {
@@ -668,7 +674,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             }
             Origin::Storage(path) => self.formal_effect(path, kind),
             Origin::Allocation { .. } => None,
-            Origin::Static { root, projections } => {
+            Origin::Static { root, projections, .. } => {
                 // An unresolved selector widens within the same static identity.
                 let suffix = projections.iter().copied().map_while(crate::storage::dependency_projection).collect::<Vec<_>>();
 
@@ -784,11 +790,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             | StorageIdentity::ContractParameter(_) => self
                 .formal_root(path.root)
                 .expect("checked callable input retains its formal dependency subject"),
-            StorageIdentity::Static(declaration) => *self
-                .request
-                .static_dependencies()
-                .get(&declaration)
-                .expect("planned static storage retains its prepared dependency root"),
+            StorageIdentity::Static(_) => self.formal_root(path.root)
+                .expect("planned static storage retains its selected dependency root"),
             StorageIdentity::Error(_)
             | StorageIdentity::CustomIndexBorrow(_)
             | StorageIdentity::Alternative { .. } => return Some(DependencyStorageEffect::Unknown),

@@ -9,7 +9,6 @@ mod numeric;
 mod operand;
 mod run;
 pub(crate) mod sequence;
-mod static_access;
 mod testing;
 pub(crate) mod text;
 mod trait_view;

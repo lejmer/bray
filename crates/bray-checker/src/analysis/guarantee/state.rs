@@ -209,6 +209,20 @@ impl ExecutionState {
         }));
     }
 
+    /// Carries admitted proof into a nested frame only through its complete owned captures.
+    pub(super) fn transfer_frame_admission(
+        &self, parent: &crate::ExecutionCallEvidence, child: &mut crate::ExecutionCallEvidence,
+    ) {
+        let owners = self.witness_snapshots(child.owned_arguments());
+
+        let witnesses = parent.witness_inputs.iter().filter(|owner| owners.retains_owner(owner))
+            .filter_map(|owner| self.witnesses.get(owner).map(|witness| (owner.clone(), std::sync::Arc::clone(witness))))
+            .collect::<Vec<_>>();
+
+        child.witness_inputs = witnesses.iter().map(|(owner, _)| owner.clone()).collect();
+        child.trusted_assumptions = private_admission_facts(parent, &witnesses, &self.proofs).into();
+    }
+
     pub(super) fn resume_owned_witnesses(
         &mut self,
         entry: &crate::ExecutionCallEvidence,
@@ -778,6 +792,7 @@ mod tests {
                 callee: None,
                 transition: None,
                 entry: Arc::new(crate::ExecutionCallEvidence::default()),
+                completed: None,
                 reports: Default::default(),
                 selection: [(input(3), true)].into(),
             })].into(),
@@ -811,6 +826,57 @@ mod tests {
     }
 
     #[test]
+    fn refining_captured_facts_updates_parent_and_child_frames_together() {
+        let (_, expressions) = crate::test_support::integer_expression_unit(bray_bound_tree::BoundUnitId::new(0), 2);
+
+        let mut state = ExecutionState::default();
+        let copied = input(0);
+        let copy_slot = ExecutionPlace::argument(SymbolOrdinal::new(0));
+        let child_slot = ExecutionPlace::argument(SymbolOrdinal::new(1));
+
+        copied.clone().assume(true, &mut state.assumptions);
+
+        let frame = |site: bray_bound_tree::BoundExecutionSite, capture: ExecutionCondition, child| {
+            let mut entry = crate::ExecutionCallEvidence {
+                arguments: [(copy_slot.clone(), capture)].into(),
+                copy_sources: [(copy_slot.clone(), copied.clone())].into(),
+                pending_execution: true,
+                ..Default::default()
+            };
+
+            if let Some(child) = child {
+                entry.arguments.insert(child_slot.clone(), child);
+            }
+
+            Arc::new(crate::ExecutionDeferredValue {
+                producers: [(site.into(), crate::ExecutionDeferredInvocation {
+                    callee: None,
+                    transition: None,
+                    entry: Arc::new(entry),
+                    completed: None,
+                    reports: Default::default(),
+                    selection: Default::default(),
+                })].into(),
+                unknown: None,
+            })
+        };
+
+        let child = frame(expressions[0].into(), input(1), None);
+        let parent = frame(expressions[1].into(), input(2), Some(input(3).with_deferred_value(child)));
+
+        state.expressions.insert(expressions[1], input(4).with_deferred_value(parent));
+        state.refine_deferred_witnesses();
+
+        let parent = state.expressions[&expressions[1]].deferred_value().unwrap();
+        let parent = &parent.producers.values().next().unwrap().entry;
+        let child = parent.arguments[&child_slot].deferred_value().unwrap();
+        let child = &child.producers.values().next().unwrap().entry;
+
+        assert!(parent.assumptions.contains(&(input(2), true)));
+        assert!(child.assumptions.contains(&(input(1), true)));
+    }
+
+    #[test]
     fn private_admission_keeps_only_proved_owning_clauses() {
         let owner = input(0);
         let guard = input(3);
@@ -833,12 +899,28 @@ mod tests {
             if proved { condition.clone().assume(true, &mut entry.trusted_assumptions); }
             if let Some(selected) = selected { guard.clone().assume(selected, &mut entry.assumptions); }
 
-            let retained = super::private_admission_facts(&entry, &[(owner.clone(), witness)], &Default::default());
+            let mut state = ExecutionState::default();
 
-            assert_eq!(retained.contains(&(condition.clone(), true)), owning && proved && selected != Some(false));
+            state.witnesses.insert(owner.clone(), witness);
 
-            if selected.is_none() {
-                assert!(!retained.contains(&(held.clone(), true)), "an unknown guard cannot grant its owning consequent");
+            for (argument, forwarded) in [(owner.clone(), true), (owner.clone().borrowed(), false), (input(1), false)] {
+                let mut child = crate::ExecutionCallEvidence {
+                    arguments: [(ExecutionPlace::argument(SymbolOrdinal::new(0)), argument)].into(),
+                    owned_inputs: [SymbolOrdinal::new(0)].into(),
+                    ..Default::default()
+                };
+
+                state.transfer_frame_admission(&entry, &mut child);
+
+                assert_eq!(child.witness_inputs.contains(&owner), forwarded);
+
+                assert_eq!(child.trusted_assumptions.contains(&(condition.clone(), true)),
+                    forwarded && owning && proved && selected != Some(false));
+
+                if selected.is_none() {
+                    assert!(!child.trusted_assumptions.contains(&(held.clone(), true)),
+                        "an unknown guard cannot grant its owning consequent");
+                }
             }
         }
     }

@@ -189,7 +189,7 @@ impl<'a> SemanticExporter<'a> {
             })?
             .into_iter()
             .map(|carrier| {
-                Ok(bray_symbols::DependencyWitnessCarrier::new(
+                Ok(carrier.remap(
                     self.constant_term_id(carrier.guarantee())?,
                     carrier
                         .path()
@@ -474,6 +474,11 @@ impl<'a> SemanticExporter<'a> {
             }
             DependencySubjectRoot::ExactThreadStatic(id) => {
                 InterfaceDependencySubjectRoot::ExactThreadStatic(self.symbol_reference(id.into())?)
+            }
+            DependencySubjectRoot::StaticInstance(reference, duration) => {
+                let reference = self.values.static_reference(reference);
+
+                InterfaceDependencySubjectRoot::StaticInstance(self.captured_static_reference(&reference)?, duration)
             }
         };
 

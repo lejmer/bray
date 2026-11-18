@@ -43,6 +43,8 @@ where
         }
 
         let access = match &expression {
+            _ if let Some(SemanticSelection::StaticReference(selection)) = self.selections.expression(id) =>
+                self.static_access(id, selection)?,
             _ if self
                 .selections
                 .expression(id)

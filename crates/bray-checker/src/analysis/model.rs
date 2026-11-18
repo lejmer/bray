@@ -29,6 +29,13 @@ pub(crate) enum AnalysisOperationKind {
 }
 
 impl AnalysisOperationKind {
+    pub(crate) fn awaited_expression(self) -> Option<BoundExpressionId> {
+        match self {
+            Self::Suspension { occurrence, kind: AnalysisSuspensionKind::Await } => occurrence.expression(),
+            _ => None,
+        }
+    }
+
     pub(crate) const fn storage_value_phase(self) -> bray_bound_tree::StorageValuePhase {
         use bray_bound_tree::StorageValuePhase;
 

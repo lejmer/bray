@@ -12,7 +12,7 @@ impl StoragePlan {
     ) -> bool {
         self.root_identity(access)
             .and_then(|root| self.identity(root))
-            .and_then(super::StorageIdentity::definition_occurrence)
+            .and_then(|identity| identity.definition_occurrence())
             == Some(occurrence)
     }
 

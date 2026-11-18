@@ -515,22 +515,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         occurrence: BoundExecutionSite,
         root: DependencySubjectRoot,
     ) -> Option<Place> {
-        if let DependencySubjectRoot::ProductStatic(declaration)
-        | DependencySubjectRoot::ExactThreadStatic(declaration) = root
-        {
-            return self
-                .storage
-                .binding(bray_bound_tree::StorageBindingTarget::Static(declaration))
-                .map(|binding| match binding {
-                    bray_bound_tree::StorageBinding::Identity(identity) => Place::root(identity),
-                    bray_bound_tree::StorageBinding::Access(access) => self
-                        .storage
-                        .logical_path(access)
-                        .expect("planned static binding has a logical path")
-                        .clone(),
-                });
-        }
-
         if root == DependencySubjectRoot::Result {
             return self.invocation_result(occurrence);
         }
@@ -849,6 +833,11 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     ) -> Option<Vec<Source>> {
         let contracts = self.dependencies.calls().get(&occurrence)?;
 
+        if subject.subject_root().is_static() {
+            return self.invocation_locations(state, occurrence, subject)
+                .map(|locations| locations.into_iter().map(Source::Value).collect());
+        }
+
         if contracts
             .reference_type(subject)
             .is_some_and(|ty| crate::representation::reference_kind(self.request, ty).is_some())
@@ -932,33 +921,50 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     ) -> Option<Target> {
         let root = subject.subject_root();
 
-        let (DependencySubjectRoot::ProductStatic(declaration)
-        | DependencySubjectRoot::ExactThreadStatic(declaration)) = root else {
-            return None;
-        };
+        if !root.is_static() { return None; }
 
-        let target = match self.storage.binding(bray_bound_tree::StorageBindingTarget::Static(declaration)) {
-            Some(bray_bound_tree::StorageBinding::Identity(identity)) => Target::storage(Place::root(identity)),
-            Some(bray_bound_tree::StorageBinding::Access(access)) => Target::storage(
-                self.storage.logical_path(access).expect("planned static binding has a logical path").clone()
-            ),
-            None => Target {
-                previous: false,
-                origin: Origin::Static { root, projections: [].into() },
-            },
-        };
+        let values = self.request.semantic_values();
+
+        let selection = if let DependencySubjectRoot::StaticInstance(id, _) = root {
+            Some(values.static_reference(id))
+        } else { None };
+
+        let planned = selection.as_deref().and_then(|selection| self.storage.static_slot(selection));
+
+        let target = planned.map_or_else(|| Target {
+            previous: false,
+            origin: Origin::Static { root, selection, projections: [].into() },
+        }, |slot| Target::storage(Place::root(slot)));
 
         if subject.projections().iter().any(|projection| matches!(projection,
             bray_symbols::DependencyProjection::OwnedTarget | bray_symbols::DependencyProjection::AddressTarget)) {
             return None;
         }
 
-        // A selector unknown to the caller widens only within this static.
         let projections = crate::storage::storage_projections(
             self.request.semantic_values(), self.dependencies, subject.projections(),
-        ).unwrap_or_default();
+        )?;
 
         Some(target.project(&projections))
+    }
+
+    pub(in crate::analysis::storage_flow::check::analysis) fn static_effect_targets(
+        &self,
+        subject: &bray_symbols::DependencySubject,
+    ) -> Option<Vec<bray_bound_tree::StorageMutationTarget>> {
+        let target = self.static_location(subject)?;
+
+        if matches!(subject.subject_root(), DependencySubjectRoot::StaticInstance(..)) {
+            return Some(vec![bray_bound_tree::StorageMutationTarget::location(target)]);
+        }
+
+        let declaration = subject.subject_root().static_declaration(self.request.semantic_values())?;
+        let projections = target.projections().to_vec();
+
+        let selected = self.storage.static_slots(declaration).map(|slot|
+            Target::storage(Place::root(slot)).project(&projections));
+
+        Some(selected.chain([target]).map(bray_bound_tree::StorageMutationTarget::bounded).collect())
     }
 
     pub(in crate::analysis::storage_flow::check::analysis) fn invocation_result(

@@ -183,44 +183,13 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         preserved
     }
 
-    fn storage_places<'state>(
-        &'state self,
-        state: &'state ExecutionState,
-        path: bray_bound_tree::StoragePath,
-    ) -> impl Iterator<Item = crate::ExecutionPlace> + 'state {
-        let declaration = match self.storage.identity(path.root) {
-            Some(bray_bound_tree::StorageIdentity::Static(declaration)) => Some(declaration),
-            _ => None,
-        };
-
-        let local = declaration
-            .is_none()
-            .then(|| crate::ExecutionPlace::storage_path(self.storage, &path))
-            .flatten();
-
-        local
-            .into_iter()
-            .chain(declaration.into_iter().flat_map(move |declaration| {
-                // Each selected instance keeps its own immutable projection path and snapshot.
-                let projections = path.projections.clone();
-
-                state
-                    .current
-                    .keys()
-                    .filter(move |place| {
-                        place.projections.is_empty() && place.selected_static() == Some(declaration)
-                    })
-                    .filter_map(move |place| place.clone().project(&projections))
-            }))
-    }
-
     fn storage_path_values<'state>(
         &'state self,
         state: &'state ExecutionState,
         path: bray_bound_tree::StoragePath,
         mutation: bray_bound_tree::StorageMutation,
     ) -> impl Iterator<Item = ExecutionCondition> + 'state {
-        let mut places = self.storage_places(state, path.clone()).peekable();
+        let mut places = crate::ExecutionPlace::storage_path(self.storage, &path).into_iter().peekable();
 
         let temporary = places
             .peek()
@@ -372,10 +341,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
     fn storage_preservations(
         &self,
-        state: &ExecutionState,
         paths: &BTreeMap<bray_bound_tree::StoragePath, bray_bound_tree::StorageObservationKind>,
     ) -> Vec<(crate::ExecutionPlace, bray_bound_tree::StoragePath, bray_bound_tree::StorageObservationKind)> {
-        paths.iter().flat_map(|(path, kind)| self.storage_places(state, path.clone())
+        paths.iter().flat_map(|(path, kind)| crate::ExecutionPlace::storage_path(self.storage, &path).into_iter()
             .map(move |place| (place, path.clone(), *kind))).collect()
     }
 
@@ -503,14 +471,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let descriptor_paths = descriptors
             .iter()
-            .flat_map(|path| self.storage_places(state, path.clone()).map(move |place| (place, path.clone())))
+            .flat_map(|path| crate::ExecutionPlace::storage_path(self.storage, &path).into_iter().map(move |place| (place, path.clone())))
             .collect::<BTreeMap<_, _>>();
 
         let mut snapshots = self.preserved_storage_values(state, stable_values, mutation);
 
         self.preserve_normal_snapshots(state, mutation, normal_snapshots, &mut snapshots);
 
-        let values = self.storage_preservations(state, stable_values);
+        let values = self.storage_preservations( stable_values);
         let pointees = self.pointee_preservations(state, invalidation, &mut snapshots);
 
         let mut masks = self.preservation_masks(
@@ -651,12 +619,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             );
         }
 
-        let (mut changed_places, mut changed_paths) = self.invalidated_places(invalidation);
+        let (mut changed_places, changed_paths) = self.invalidated_places(invalidation);
 
         changed_places.extend(state.current.iter().filter(|(place, _)| place.is_pointee())
             .map(|(place, _)| place.clone()));
-
-        self.extend_static_changes(state, invalidation, &mut changed_places, &mut changed_paths);
 
         // Storage flow distinguishes the descriptor slot from its reached elements.
         // Keep only descriptor identity. A fresh payload snapshot prevents opaque calls
@@ -721,7 +687,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         );
 
         let values = match invalidation {
-            StorageInvalidation::Observed { stable_values, .. } => self.storage_preservations(state, stable_values),
+            StorageInvalidation::Observed { stable_values, .. } => self.storage_preservations( stable_values),
             _ => Vec::new(),
         };
 
@@ -780,8 +746,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let mut changed_paths = BTreeMap::new();
 
         match invalidation {
-            StorageInvalidation::Observed { accesses, .. } => {
-                for path in accesses.values().flatten() {
+            StorageInvalidation::Observed { accesses, referents, .. } => {
+                let static_referents = referents.iter().filter(|path|
+                    matches!(self.storage.identity(path.root), Some(bray_bound_tree::StorageIdentity::Static(_))));
+
+                for path in accesses.values().flatten().chain(static_referents) {
                     if let Some(place) =
                         crate::ExecutionPlace::storage_observation(self.storage, path)
                     {
@@ -792,6 +761,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 }
             }
             StorageInvalidation::Paths(paths) => {
+                for path in paths {
+                    if matches!(self.storage.identity(path.root), Some(bray_bound_tree::StorageIdentity::Static(_)))
+                        && let Some(place) = crate::ExecutionPlace::storage_observation(self.storage, path) {
+                        changed_paths.insert(place.clone(), path.clone());
+                        changed_places.insert(place);
+                    }
+                }
+
                 for (target, binding) in self.storage.bindings() {
                     let access = match binding {
                         bray_bound_tree::StorageBinding::Access(access) => *access,
@@ -834,49 +811,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }
 
         (changed_places, changed_paths)
-    }
-
-    fn extend_static_changes(
-        &self,
-        state: &ExecutionState,
-        invalidation: &StorageInvalidation,
-        changed_places: &mut BTreeSet<crate::ExecutionPlace>,
-        changed_paths: &mut BTreeMap<crate::ExecutionPlace, bray_bound_tree::StoragePath>,
-    ) {
-        // Storage aliasing conservatively groups specializations by declaration. Revoke
-        // each selected instance affected by that storage path, without merging identities.
-        let mut changed_static = |path: &bray_bound_tree::StoragePath| {
-            let Some(bray_bound_tree::StorageIdentity::Static(declaration)) =
-                self.storage.identity(path.root)
-            else {
-                return;
-            };
-
-            for place in state.current.keys().filter(|place| {
-                place.projections.is_empty() && place.selected_static() == Some(declaration)
-            }) {
-                let place = place.clone().project(&path.projections).unwrap_or_else(|| place.clone());
-
-                changed_paths.insert(place.clone(), path.clone());
-                changed_places.insert(place);
-            }
-        };
-
-        match invalidation {
-            StorageInvalidation::Observed {
-                accesses,
-                referents,
-                ..
-            } => {
-                accesses
-                    .values()
-                    .flatten()
-                    .chain(referents)
-                    .for_each(&mut changed_static);
-            }
-            StorageInvalidation::Paths(paths) => paths.iter().for_each(&mut changed_static),
-            StorageInvalidation::All { .. } => unreachable!("global invalidation handled above"),
-        }
     }
 
     pub(in crate::analysis) fn observe_references(

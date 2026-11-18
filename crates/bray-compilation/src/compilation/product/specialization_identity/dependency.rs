@@ -385,6 +385,7 @@ impl StructuralValueEncoder<'_, '_> {
         carrier: &bray_symbols::DependencyWitnessCarrier,
     ) -> Result<(), FactQueryError> {
         self.constant_term(carrier.guarantee())?;
+        self.tag(u8::from(carrier.has_independent_support()));
 
         self.dependency_projections(carrier.path())
     }
@@ -672,6 +673,16 @@ impl StructuralValueEncoder<'_, '_> {
             DependencySubjectRoot::ExactThreadStatic(id) => {
                 self.tag(6);
                 self.symbol(id.into())?;
+            }
+            DependencySubjectRoot::StaticInstance(reference, duration) => {
+                self.tag(match duration {
+                    bray_symbols::StaticStorageDuration::Product => 9,
+                    bray_symbols::StaticStorageDuration::ExactThread => 10,
+                });
+
+                let reference = self.values.static_reference(reference);
+
+                super::content::static_reference(self, &reference)?;
             }
         }
 

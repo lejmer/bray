@@ -28,13 +28,39 @@ pub enum DependencySubjectRoot {
     ImplementationWitness(ImplementationInstanceId),
     /// An implementation witness selected when its generic subject becomes concrete.
     ImplementationRequirement(crate::ImplementationRequirementKey),
-    /// Storage owned by one product-static instance.
+    /// Declaration-wide region for a product static.
     ProductStatic(StaticSymbolId),
-    /// Storage owned by one exact native-thread static instance.
+    /// Declaration-wide region for a native-thread static.
     ExactThreadStatic(StaticSymbolId),
+    /// Exact selected storage in the product or thread domain.
+    StaticInstance(crate::StaticReferenceId, crate::StaticStorageDuration),
 }
 
 impl DependencySubjectRoot {
+    /// Whether this root names a static declaration region or an exact selection.
+    pub const fn is_static(self) -> bool {
+        self.static_duration().is_some()
+    }
+
+    /// Returns the ownership domain of a static region or selection.
+    pub const fn static_duration(self) -> Option<crate::StaticStorageDuration> {
+        match self {
+            Self::ProductStatic(_) => Some(crate::StaticStorageDuration::Product),
+            Self::ExactThreadStatic(_) => Some(crate::StaticStorageDuration::ExactThread),
+            Self::StaticInstance(_, duration) => Some(duration),
+            _ => None,
+        }
+    }
+
+    /// Returns the declaration that can bound this static region.
+    pub fn static_declaration(self, values: &crate::SemanticValueStore) -> Option<StaticSymbolId> {
+        match self {
+            Self::ProductStatic(declaration) | Self::ExactThreadStatic(declaration) => Some(declaration),
+            Self::StaticInstance(reference, _) => Some(values.static_reference(reference).template().declaration()),
+            _ => None,
+        }
+    }
+
     /// Position of this formal among the evaluated receiver and arguments.
     pub fn input_ordinal(self, has_receiver: bool) -> Option<SymbolOrdinal> {
         match self {
@@ -658,6 +684,7 @@ impl<Subject, Projection> DependencyBorrowRelation<Subject, Projection> {
 pub struct DependencyWitnessCarrier<Projection = DependencyProjection, Condition = ConstantTermId> {
     guarantee: Condition,
     path: Arc<[Projection]>,
+    independent_support: bool,
 }
 
 impl<Projection, Condition: Copy> DependencyWitnessCarrier<Projection, Condition> {
@@ -666,7 +693,20 @@ impl<Projection, Condition: Copy> DependencyWitnessCarrier<Projection, Condition
         Self {
             guarantee,
             path: path.into_iter().collect(),
+            independent_support: false,
         }
+    }
+
+    /// Remaps the condition and carrier path while retaining the established support.
+    pub fn remap<P, T: Copy>(
+        &self, guarantee: T, path: impl IntoIterator<Item = P>,
+    ) -> DependencyWitnessCarrier<P, T> {
+        DependencyWitnessCarrier::new(guarantee, path).with_independent_support(self.independent_support)
+    }
+
+    /// Whether the complete carrier needs no external lifetime or address supports.
+    pub const fn has_independent_support(&self) -> bool {
+        self.independent_support
     }
 
     /// Returns the portable condition independently supported by this owner.
@@ -680,6 +720,42 @@ impl<Projection, Condition: Copy> DependencyWitnessCarrier<Projection, Condition
     }
 }
 
+impl<Projection, Condition> DependencyWitnessCarrier<Projection, Condition> {
+    /// Records whether the producer proved the owning clause without external storage support.
+    pub fn with_independent_support(mut self, independent: bool) -> Self {
+        self.independent_support = independent;
+
+        self
+    }
+}
+
+impl<Projection: Ord + Clone, Condition: Ord + Clone> DependencyWitnessCarrier<Projection, Condition> {
+    /// Keeps clauses supported on every exit and independent support only when every exit proves it.
+    pub fn common<'row>(
+        mut rows: impl Clone + Iterator<Item = &'row Arc<[Self]>>,
+    ) -> Arc<[Self]>
+    where Self: 'row {
+        let Some(first) = rows.next() else { return Arc::default(); };
+
+        if rows.clone().next().is_none() { return Arc::clone(first); }
+
+        sorted_unique_shared_slice(first.iter().filter_map(|carrier| {
+            let independent = carrier.clone().with_independent_support(true);
+            let dependent = carrier.clone().with_independent_support(false);
+            let mut all_independent = first.binary_search(&independent).is_ok();
+
+            for row in rows.clone() {
+                if row.binary_search(&independent).is_ok() { continue; }
+
+                row.binary_search(&dependent).ok()?;
+                all_independent = false;
+            }
+
+            Some(carrier.clone().with_independent_support(all_independent))
+        }))
+    }
+}
+
 /// A normalized source-independent dependency-contract template.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct DependencyContractTemplateData {
@@ -687,7 +763,6 @@ pub struct DependencyContractTemplateData {
     completion_reports: Option<Arc<[DependencyRequirement]>>,
     abnormal_reports: Option<Arc<[DependencyRequirement]>>,
     borrows: Arc<[DependencyBorrowRelation]>,
-    owned_result: DependencyOwnedResult,
     captured_values: Arc<[super::CapturedValueOutcome]>,
     stored_values: Arc<[DependencyStoredValue]>,
     observed_result: Option<ConstantTermId>,
@@ -700,7 +775,6 @@ impl DependencyContractTemplateData {
     /// Records the actual whole-value expression produced by normal completion.
     pub fn with_captured_values(mut self, values: impl IntoIterator<Item = super::CapturedValueOutcome>) -> Self {
         self.captured_values = sorted_unique_shared_slice(values);
-        self.owned_result = super::CapturedValueOutcome::ownership_layout(&self.captured_values);
 
         self
     }
@@ -731,16 +805,9 @@ impl DependencyContractTemplateData {
         self.observed_result
     }
 
-    /// Records complete owning layouts retained by normal completion.
-    pub fn with_owned_result(self, result: DependencyOwnedResult) -> Self {
-        assert!(self.captured_values.is_empty(), "a standalone ownership layout describes one normal exit");
-
-        self.with_captured_values([super::CapturedValueOutcome::new(None, []).with_ownership(result)])
-    }
-
-    /// Returns the owning result contract, without introducing trusted guarantees.
-    pub const fn owned_result(&self) -> &DependencyOwnedResult {
-        &self.owned_result
+    /// Derives the ownership layout before selecting one normal exit.
+    pub fn owned_result(&self) -> DependencyOwnedResult {
+        super::CapturedValueOutcome::ownership_layout(&self.captured_values)
     }
 
     /// Attaches dependencies of reports that can accompany normal completion.
@@ -868,7 +935,6 @@ impl DependencyContractTemplateData {
             completion_reports: None,
             abnormal_reports: None,
             borrows: Arc::new([]),
-            owned_result: DependencyOwnedResult::default(),
             captured_values: Arc::new([]),
             stored_values: Arc::new([]),
             observed_result: None,
@@ -890,7 +956,6 @@ impl DependencyContractTemplateData {
             abnormal_reports: self.abnormal_reports.as_ref().map(Arc::clone),
             // Transformations own a new contract while retaining the immutable checked summary.
             borrows: Arc::clone(&self.borrows),
-            owned_result: self.owned_result.clone(),
             captured_values: Arc::clone(&self.captured_values),
             stored_values: Arc::clone(&self.stored_values),
             observed_result: self.observed_result,

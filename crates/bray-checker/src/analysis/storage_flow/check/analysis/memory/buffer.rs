@@ -128,7 +128,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         Some(effects)
     }
 
-    pub(in crate::analysis::storage_flow::check::analysis) fn resolve_memory_values(&mut self, execution: &crate::analysis::guarantee::ExecutionState, operation: &bray_bound_tree::CheckedMemoryOperation, effects: &[Effect]) {
+    pub(in crate::analysis::storage_flow::check::analysis) fn resolve_memory_values(
+        &self, execution: &crate::analysis::guarantee::ExecutionState,
+        operation: &bray_bound_tree::CheckedMemoryOperation, effects: &[Effect],
+    ) -> std::sync::Arc<[bray_bound_tree::StorageValueTransition]> {
         use bray_symbols::{CapturedValueOperation as Op, CapturedValueTemplate as Value, SymbolOrdinal};
         use bray_bound_tree::{StorageValueDestination, StorageValueInput, StorageValueTransition};
 
@@ -138,19 +141,17 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             let fields = self.input.raw_buffers.get(&ty).expect("checked buffer allocation prepares its descriptor fields");
             let initialized = self.buffer_count(0);
 
-            self.value_transitions.insert(operation.expression().into(), [StorageValueTransition::new(None, [(StorageValueDestination::Result,
+            return [StorageValueTransition::new(None, [(StorageValueDestination::Result,
                 Value::Aggregate { base: std::sync::Arc::new(Value::Unknown),
                     fields: [
                         (StorageProjection::ProductField(fields.capacity), Value::Data(StorageValueInput::Argument(SymbolOrdinal::new(0)))),
                         (StorageProjection::ProductField(fields.initialized), Value::Data(StorageValueInput::Term(initialized))),
                         (StorageProjection::OwnedTarget, Value::Operation(Op::OwningStorage(StorageProjection::ProductField(fields.pointer)),
                             [Value::Operation(Op::EmptyPrefix, [].into())].into())),
-                    ].into() })])].into());
-
-            return;
+                    ].into() })])].into();
         }
 
-        if !matches!(operation.kind(), CheckedMemoryOperationKind::RawBufferPush { .. } | CheckedMemoryOperationKind::RawBufferPop { .. }) { return; }
+        if !matches!(operation.kind(), CheckedMemoryOperationKind::RawBufferPush { .. } | CheckedMemoryOperationKind::RawBufferPop { .. }) { return Default::default(); }
 
         let base = Value::Operation(Op::Read, [Value::Input(StorageValueInput::Argument(SymbolOrdinal::new(0)))].into());
         let prefix = Value::Operation(Op::Select(StorageProjection::OwnedTarget), [base.clone()].into());
@@ -186,7 +187,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         if !pop {
             for effect in effects {
                 if let Effect::Mutation { kind: DependencyMutationKind::Replace(_), footprint, .. } = effect {
-                    writes.push((StorageValueDestination::Region(footprint.clone()), Value::Input(StorageValueInput::Argument(SymbolOrdinal::new(1)))));
+                    writes.push((StorageValueDestination::Region {
+                        target: footprint.clone(),
+                        via: bray_symbols::DependencySubject::root(bray_symbols::DependencySubjectRoot::Receiver),
+                    }, Value::Input(StorageValueInput::Argument(SymbolOrdinal::new(1)))));
                 }
             }
         }
@@ -195,15 +199,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             writes.push((StorageValueDestination::Result, Value::Operation(Op::Last, [prefix].into())));
         }
 
-        let values: std::sync::Arc<[StorageValueTransition]> = [StorageValueTransition::new(None, writes)].into();
-
-        if self.publish {
-            self.value_transitions.entry(operation.expression().into()).and_modify(|previous| {
-                if previous != &values { *previous = StorageValueTransition::join_reachable(previous, &values); }
-            }).or_insert(values);
-        } else {
-            self.value_transitions.insert(operation.expression().into(), values);
-        }
+        [StorageValueTransition::new(None, writes)].into()
     }
 
     fn buffer_count(&self, count: u64) -> bray_symbols::ConstantTermId {

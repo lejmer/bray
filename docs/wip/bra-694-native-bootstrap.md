@@ -26,7 +26,9 @@ identities remain explicit. Lowering consumes checked decisions and does not rep
 
 ## Pushed checkpoints
 
-The last checkpoint before the captured graph migration was 1c5770b2c.
+The remote checkpoint is 1c5770b2c. The captured graph, guarded ownership and paired publication are
+committed locally at 11b860fa2. Branch-local replay, deferred publication, and frame refinement follow
+in the working tree.
 
 - d087dde8f replaces independent normal/deferred preservation booleans with immutable DependencyEffectOutcomes.
   Admission captures possible failure effects before consumption. Deferred formation keeps body effects latent.
@@ -94,18 +96,23 @@ support, per-exit effects and reports, cleanup, abnormal publication and static 
 
 Deferred frames carry the selected instance, signature, dispatch, witnesses and receiver convention from call
 selection. The interface transports that record directly. Frame binding no longer invents call terms or
-ordinal arguments. The shared publication and paired exit candidate passed all 565 checker, 223 symbol, 136 bound-tree
-and 218 interface cases. Of 368 composition cases, 296 passed. Of 36 active owner controls, 33 passed
-with three more ignored. Source and imported callers both lose witnesses through branch-selected
-futures.
-The native and frozen acceptance gates remain pending.
+ordinal arguments. The latest release panel passed 568 checker, 223 symbol, 137 bound-tree and
+218 interface tests. The same candidate passed 318 of 368 compositions and 34 of 36 active
+owner controls, with three ignored. The two failing owner controls are nullable extraction and
+guarded extraction of one of two owned sibling fields. The native and frozen gates remain pending.
 
 Normal-exit collection pairs the actual physical references and their inactive slots with the same
 exit's logical returns and witnesses. The remaining unconditional physical consumers still require a join.
 Both physical and logical publication use the produced snapshot, with installation and consumption
 retirements applied at the existing retirement boundary. Replay receives that same snapshot.
 
-A reference effect starts from the descriptor captured at admission. Each subsequent descriptor read uses
+A reference effect starts from the descriptor captured at admission. Direct and deferred
+root-indirect effects use the same physical descriptor lookup by the checked receiver-first ordinal.
+Observe explicit call descriptors before capture. Implicit calls without a captured input retain their
+existing attempt boundary.
+If a captured descriptor lacks a precise address, keep its bound and leave unresolved routes
+conservative. Uncaptured implicit invocations and typed routes that reach further storage still
+have existing physical producers to migrate. Each subsequent descriptor read uses
 the location reached by the preceding steps in the same incoming memory. Only an actual descriptor location
 permits a read. A region alone leaves its pointee unresolved. An unrepresentable terminal selection widens
 within its region, but an unresolved intermediate read can reach beyond that region. Cleanup composition
@@ -175,7 +182,12 @@ Normal return ownership belongs to the actual exit. Use the value's existing own
 exit, qualify transfers by the active payload on that path and publish the row. Remove the second pass
 that adds a common transfer to empty alternatives. Returning a nullable owner, moving a generic
 field, returning an unrelated value and returning an inactive payload are the distinguishing cases.
-A caller must apply the selected row's ownership to the produced value once.
+A caller must apply the selected row's ownership to the produced value once. During completion,
+candidate transfer values can be inspected for guard checking, but their lineage and preservation
+masks are installed only in the selected layout branch. A result payload whose activity is unknown
+publishes separate active and inactive ownership alternatives with explicit complementary conditions.
+The inactive alternative owns no payload. The nested union sibling and raw nullable extraction
+tests exercise these rules.
 
 For each boundary, actual checked operands remain authoritative. A possible effect overapproximates changed
 storage. An outcome publishes only established values, duties and initialized shape under its own guard.
@@ -194,7 +206,9 @@ alternatives. Joining unknown with a known transition must reach a fixed point. 
 tests cover relocation and retirement. A nested same-site frame with a different captured address must stay latent.
 
 The portable frame binder receives the actual argument graphs and an optional semantic call in capture scope.
-Keep the returned frame and bind its captures in receiver-first order, including opaque bodies. Local source
+Both logical and physical frame activation use the receiver convention recorded with that call.
+An opaque callable value has only explicit arguments. Keep returned frames and their captures even
+when the body cannot be resolved. Local source
 provenance is optional. An imported alternative has an instantiation point and an alternative position for
 fixed-point joins, never a local deferred callee site. Callee metadata must retain formal capture positions
 through substitution. Private admission requires explicit exported evidence and must never inherit unrelated
@@ -214,14 +228,110 @@ normal-completion facts apply to the body alone. Opaque completions remain feasi
 outputs. Conditional completion, reference overwrite, returned futures and imported generic extraction are
 the positive and negative controls for this path.
 
+Bound CFG replay records finite checked rows whose destinations can differ with the incoming address.
+Retain distinct rows and their weak region writes at that boundary. An unrecorded value contributes an
+opaque row. Resolve input captures and output rows from the operation's incoming branch, bind them on
+that branch, and record joins for replay only. Branch observation maps cannot feed back into local checking.
+The selected memory transition belongs to the invocation expression itself. A staged input shares
+its syntax expression but executes only its own adaptation. Treating its CallInput occurrence as the
+enclosing RawBufferPop tried to read an operand before argument completion. The copied-buffer and
+recursive cleanup tests exercise this distinction.
+A borrower with several possible destinations publishes dependency bounds to each and
+establishes a current write only with one actual address. Replaying an exact write alongside a weak
+alternative cannot establish exactness unconditionally. An opaque incoming completion cannot support
+a common witness clause. Keep widening for recursive portable summaries
+whose expressions can grow. Exercise the weak-region and alternative-return cases in the same panel.
+
+Await admission captures the evaluated frame before report preparation, physical effects and
+logical execution. Effects, reachability, reports and completion take that same receiver.
+A report borrowing from an opaque await retains the admitted frame's captured dependencies. The pre-admission split alone may inspect
+the evaluated operand to select a feasible producer. An await completion publishes resolved writes
+to the observing operation's actual destinations. Flow selects the same frame alternative for both
+physical and logical completion of ordinary awaits and Task observations. Both paths merge only
+after that alternative has published its own output.
+
+A lazy call's completed-result dependencies belong to the evaluated frame with the same capture
+as its latent reports. Formation binds the selected result and report contracts using the staged
+inputs on that branch. Copies, forwarding, and suspension retain that snapshot. At completion,
+select it from the admitted frame, through Task observation if present. No dependency lookup
+uses the producer's syntax occurrence at observation time. An unavailable completion keeps
+the evaluated frame's dependency bounds and cannot establish independence. Imports with a
+serialized frame still need output dependencies bound from their transported captures. Static
+producer analysis before forward flow is used for conservative liveness only. Keep the known
+independent-result/opaque-report pair, forwarded child cases, and ownership controls in the same
+release panel. Remove the completion dependency table keyed by source expression.
+Local completion also retains the selected body row on the body's admission for diagnostics.
+An imported body has no local admission key. Its formal ownership, carriers and guards stay in the
+body entry and never replace the observer's entry. A portable frame that captures a forwarded owner
+can retain the enclosing admission's existing ledger entry. Take the intersection of the admitted
+owners and the complete owned captures, and retain only owning clauses proved in the original entry.
+An unrelated owner, a captured loan, or an unproved clause supplies no private authority. Positive
+forwarding and fabricated-marker controls exercise the same rule through source and package imports.
+Proof refinement traverses the actual retained frame graph. Each selected producer contributes
+new private clauses and immutable captured facts. Apply all of those updates in the same bottom-up
+rewrite so a changed nested frame cannot invalidate another update's parent handle. No locality or
+matching syntax site can justify moving support to a different frame. The existing shared-frame
+and suspended-carrier controls cover the same graph and proof semantics.
+Both predecessors of distinct_sites return a complete live witness. The call trace confirmed
+the join carries that witness, but its predicate references a zero-field aggregate overlay while
+the requirement references the same base directly. Empty overlays add no values or identity.
+Canonicalize them at construction so both operations use the same logical value.
+Witness substitution compares logical proof values independently of physical capture coordinates.
+A returned witness can be installed from a selected completion only when the producer exported
+its actual support. The first portable support case is a live owning clause on a complete
+result carrier with no external storage or address dependencies. Use the retained witness
+ledger to establish this at exit, including every proved clause used to support a declared
+guarantee. Keep it on the same guarded result row through substitution, binding and package
+encoding. Bind it against the selected frame's admitted arguments and the actual result.
+If the required support is unavailable, imported completion cannot create witness authority.
+External lifetime and tracked address dependencies still require explicit portable identities.
+Existing forwarded-input, fresh result, fabricated marker and cancellation cases cover the
+ownership and phase constraints together.
+The release candidate with portable support and static overlap passed 568 checker, 223 symbol,
+137 bound-tree, and 218 interface unit tests. All six focused controls passed, including both
+fresh-frame controls and the generic static relay through package import. The fixed composition
+and owner panels retained the same 50 and 2 failing identities. Cached aggregate ownership was
+then removed from the semantic and bound tables. That removal passed compilation, tooling and
+style checks. An updated release panel is pending.
+
+For result paths such as a Task outcome payload,
+publish the complete outer result after the body finishes. Check ordinary, direct await, task
+observation and package-import compositions together.
+
 - Finish conservative joins of unknown-prefix dependencies and possible duties across guarded outcomes.
-- Connect guards, values, effects, reports, initialized shape and obligations from the SAME exit. Current value joins lose correlation.
-- Preserve typed address-of-slot versus reading a stored pointer, all nested loan layers, and full selected static instance keys.
+- Connect guards, values, effects, reports, initialized shape and obligations from the same exit.
+  The outcome row owns the transfer layout. Pre-selection consumers can derive their aggregate
+  view from the rows. Typed transfer preparation visits the source rows directly. Delete redundant
+  cached aggregate fields and any duplicate independent transfer collection. Check the two
+  conditional extraction failures in the same widened comparison panel.
+- Preserve typed address-of-slot versus reading a stored pointer and every nested loan layer.
+- A selected static binding belongs to the complete semantic selection. Storage planning must
+  intern that selection directly from the checked reference and key the slot by it. Lowering and
+  logical place lookup consume that planned key. Delete the lowering search through child syntax
+  and the extra access-to-static cache. No unmatched declaration-only dependency can name a
+  selected address. A declaration-level write retains region effects across its feasible slots.
+  Fixture controls include two instances of one declaration, distinct product and thread storage,
+  and source and imported invalidation of only the selected instance. Portable selected effect
+  roots reuse the existing interface static selection encoding and substitution. Interface revision 4
+  carries external selected storage separately from declaration regions. All four focused static
+  regressions passed, including a package call that exposes only one of two specializations.
+  The comparison remains 318 of 368 compositions and 34 of 36 owner controls. The bound-tree
+  footprint test now asserts that declaration regions cannot supply exact addresses.
+  Distinct open selections of the same declaration may resolve to the same closed instance.
+  Structural conflict checking, mutation invalidation and output binding must share that overlap
+  rule. Compare the selected descriptors from the plan and from portable resolved origins.
+  Closed distinct selections are disjoint. Possible overlap supplies no definite current slot.
 - Capture complete deferred environments with stable callable/substitution/witness identities. Refresh formation descriptors at execution
   start once. Await/join must reuse that outcome. Inactive and partial cancellation must retain only acquired duties.
 - Use the same phase-aware instantiator for ordinary, deferred, lifecycle and abnormal paths. Remove competing returned/reference/stored
   preparation, special cleanup/deferred binders, and independent borrows/owned_result/stored_values/carriers/effects template fields.
 - Publish observable abnormal writes, reports and acquired duties without a normal result.
+- Move privately produced control-transfer results into their actual planned current-value slots
+  before cleanup. A positional saved expression is not the result's live owner. Yield, break,
+  propagation and catch must preserve the same ownership and carried dependencies during scope
+  cleanup, before source evaluation can observe their result. Compare completion of nullable
+  and union alternatives with cancellation and panic that discard an already-produced value.
+  The enclosing-scope cleanup composition exposes the current loss of a private result owner.
 - Stabilize loops and recursive summaries with existing joins, recency and dependency indexes. No arbitrary cutoff loses dependencies.
 - Finish typed external graph validation, immutable interning/sharing, public API documentation and structural/style audit.
 
@@ -258,8 +368,10 @@ when full implementation, acceptance and review pass. Follow the work-on-bray-is
 
 Issue https://linear.app/bray-lang/issue/BRA-694. Draft PR https://github.com/lejmer/bray/pull/717.
 origin fetch/push is git@github.com:lejmer/bray.git. Verified public repository, owner lejmer, authenticated GitHub and SSH
-account lejmer, admin/push permission. Reuse evidence unless destination/auth changes. User already authorized exact
-non-forced push: git push origin HEAD:refs/heads/feature/bra-694-native-bootstrap-contracts. Git writes require escalation.
+account lejmer, admin/push permission. Reuse that evidence unless destination or authentication changes.
+Automatic approval review rejected the non-forced checkpoint push because it did not recognize the
+external publication authorization from the attachment. The explicit confirmation request is pending.
+Continue local work. Do not retry the push or use another publishing route without explicit authorization.
 PR title/body still describe older native framing and must be rewritten for final scope. The retained review through
 4f767fbb2 has no findings at review5922465574. Current code needs a fresh full PR review at finalization. The skill explicitly
 requires a reviewer subagent for that stage. No other subagents are authorized or running.

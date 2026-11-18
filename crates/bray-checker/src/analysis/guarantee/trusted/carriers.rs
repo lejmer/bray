@@ -158,8 +158,8 @@ impl super::check::TrustedChecks {
         for ((declared, _), (checked, _)) in inputs.guarantees.iter().zip(&self.guarantees) {
             let Some(term) = portable(request, declared) else { continue; };
 
-            for path in declared_carriers(state, result, &owners, checked) {
-                carriers.insert(DependencyWitnessCarrier::new(term, path));
+            for (path, independent) in declared_carriers(state, result, &owners, checked) {
+                carriers.insert(DependencyWitnessCarrier::new(term, path).with_independent_support(independent));
             }
         }
 
@@ -208,7 +208,7 @@ fn inferred_carriers<C: crate::CheckerRequestContext + ?Sized>(
             continue;
         }
 
-        for condition in witness
+        for (condition, support) in witness
             .conditions
             .iter()
             .filter(|(condition, guarantee)| {
@@ -216,13 +216,13 @@ fn inferred_carriers<C: crate::CheckerRequestContext + ?Sized>(
                     && proof.prove_trusted(condition)
                         == Some(true)
             })
-            .map(|(condition, _)| condition)
         {
             // Rename actual returned storage identities, never ordinary field equalities.
             let condition = return_substitution(condition);
 
             if let Some(term) = portable(request, &condition) {
-                result.insert(DependencyWitnessCarrier::new(term, path.iter().copied()));
+                result.insert(DependencyWitnessCarrier::new(term, path.iter().copied())
+                    .with_independent_support(witness.dependencies.is_empty() && support.addresses.is_empty()));
             }
         }
     }
@@ -246,7 +246,7 @@ pub(in crate::analysis::guarantee) fn result_projection(
 fn declared_carriers(
     state: &ExecutionState, result: &ExecutionCondition, owners: &BTreeMap<ExecutionCondition, Vec<StorageProjection>>,
     guarantee: &ExecutionCondition,
-) -> BTreeSet<Vec<StorageProjection>> {
+) -> BTreeSet<(Vec<StorageProjection>, bool)> {
         let proof = state.proof();
 
         let guarantee = guarantee.substitute(
@@ -278,8 +278,9 @@ fn declared_carriers(
             }
 
             let mut evidence = BTreeSet::new();
+            let mut independent_evidence = BTreeSet::new();
 
-            for condition in witness
+            for (condition, support) in witness
                 .conditions
                 .iter()
                 .filter(|(condition, guarantee)| {
@@ -287,10 +288,13 @@ fn declared_carriers(
                         && proof.prove_trusted(condition)
                             == Some(true)
                 })
-                .map(|(condition, _)| condition)
             {
                 // The temporary proof set owns its conditions independently of the exit state.
                 condition.clone().assume(true, &mut evidence);
+
+                if support.addresses.is_empty() {
+                    condition.clone().assume(true, &mut independent_evidence);
+                }
             }
 
             // Each published owner must independently support the entire clause.
@@ -299,7 +303,12 @@ fn declared_carriers(
                 ExecutionCondition::WORK_LIMIT
             }) == Some(true)
             {
-                paths.insert(path.clone());
+                let independent = witness.dependencies.is_empty()
+                    && guarantee.prove_mixed(&independent_evidence, &state.assumptions, &mut {
+                        ExecutionCondition::WORK_LIMIT
+                    }) == Some(true);
+
+                paths.insert((path.clone(), independent));
             }
         }
 
@@ -425,42 +434,35 @@ impl ExecutionState {
     }
 
     pub(in crate::analysis::guarantee) fn refine_deferred_witnesses(&mut self) {
+        let mut updates = std::collections::HashMap::new();
+
         for frame in self.deferred_values() {
-            let mut updated = frame.as_ref().clone();
-
             for (source, candidate) in &frame.producers {
-            let entry = &candidate.entry;
+                let entry = &candidate.entry;
 
-            if !entry.pending_execution
-                || !super::super::deferred::possible(&candidate.selection, &self.proofs.ordinary_proof(&self.assumptions))
-            {
-                continue;
-            }
+                if !entry.pending_execution
+                    || !super::super::deferred::possible(&candidate.selection, &self.ordinary_proof())
+                {
+                    continue;
+                }
 
-            let owners = self
-                .owned_witnesses(entry.owned_arguments())
-                .filter(|(_, witness)| witness.has_guards())
-                .map(|(owner, _)| owner.clone())
-                .collect::<BTreeSet<_>>();
+                let owners = self.owned_witnesses(entry.owned_arguments())
+                    .filter(|(_, witness)| witness.has_guards())
+                    .map(|(owner, _)| owner.clone()).collect::<BTreeSet<_>>();
 
-            if owners.is_empty() && entry.copy_sources.is_empty() {
-                continue;
-            }
+                if owners.is_empty() && entry.copy_sources.is_empty() {
+                    continue;
+                }
 
-            let mut assumptions = entry.assumptions.clone();
+                let mut assumptions = entry.assumptions.clone();
 
-            assumptions.extend(self.assumptions.iter().cloned());
-            assumptions.extend(candidate.selection.iter().cloned());
+                assumptions.extend(self.assumptions.iter().cloned());
+                assumptions.extend(candidate.selection.iter().cloned());
 
-            let captured = entry.captured_facts(&assumptions);
+                let captured = entry.captured_facts(&assumptions);
 
-            assumptions.extend(captured.iter().cloned());
+                assumptions.extend(captured.iter().cloned());
 
-            let changed = !captured.is_subset(&entry.assumptions);
-
-            let trusted = if owners.is_empty() {
-                None
-            } else {
                 let mut trusted = entry.trusted_assumptions.clone();
 
                 for owner in owners {
@@ -469,34 +471,34 @@ impl ExecutionState {
                     }
                 }
 
-                (trusted != entry.trusted_assumptions).then_some(trusted)
-            };
+                // Immutable copied data remains available independently of the child run's proof.
+                self.assumptions.extend(captured.iter().cloned());
 
-            // Captured contents are ordinary immutable values, available to every
-            // analysis consumer independently of the child run's trusted authority.
-            self.assumptions.extend(captured.iter().cloned());
-
-            if !changed && trusted.is_none() {
-                continue;
-            }
-
-            let candidate = updated.producers.get_mut(source)
-                .expect("refinement retains the selected producer");
-
-            // Refinement adds proof without changing the frame's captured input identities.
-            let entry = std::sync::Arc::make_mut(&mut candidate.entry);
-
-            entry.assumptions.extend(captured);
-
-            if let Some(trusted) = trusted {
-                entry.trusted_assumptions = trusted;
-            }
-
-            }
-
-            if updated != *frame {
-                self.replace_deferred_value(&frame, Some(std::sync::Arc::new(updated)));
+                if !captured.is_subset(&entry.assumptions) || trusted != entry.trusted_assumptions {
+                    updates.entry(std::sync::Arc::as_ptr(&frame)).or_insert_with(Vec::new)
+                        .push((source.clone(), captured, trusted));
+                }
             }
         }
+
+        if updates.is_empty() { return; }
+
+        self.update_stored_values(ExecutionCondition::mapping_frames(|_| true, |original, mapped| {
+            let mut frame = std::sync::Arc::clone(mapped);
+
+            if let Some(updates) = updates.get(&std::sync::Arc::as_ptr(original)) {
+                let frame = std::sync::Arc::make_mut(&mut frame);
+
+                for (source, assumptions, trusted) in updates {
+                    let candidate = frame.producers.get_mut(source).expect("proof refinement retains the selected producer");
+                    let entry = std::sync::Arc::make_mut(&mut candidate.entry);
+
+                    entry.assumptions.extend(assumptions.iter().cloned());
+                    entry.trusted_assumptions.clone_from(trusted);
+                }
+            }
+
+            Some(frame)
+        }));
     }
 }

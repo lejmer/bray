@@ -71,7 +71,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     carrier.guarantee()
                 };
 
-                published.push(bray_symbols::DependencyWitnessCarrier::new(
+                published.push(carrier.remap(
                     condition,
                     crate::analysis::guarantee::portable_carrier_path(self.request, carrier.path()),
                 ));
@@ -239,7 +239,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 let Some(root) = self.formal_root(slot.root) else { continue; };
 
                 let observable = root == DependencySubjectRoot::Result
-                    || matches!(root, DependencySubjectRoot::ProductStatic(_) | DependencySubjectRoot::ExactThreadStatic(_))
+                    || root.is_static()
                     || matches!(self.request.semantic_values().type_data(ty).as_ref(), TypeData::Borrow { .. })
                     || slot.projections.contains(&bray_bound_tree::StorageProjection::AddressTarget);
 
@@ -551,14 +551,17 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             bray_bound_tree::StorageIdentity::Result(_) => {
                 return Some(DependencySubjectRoot::Result);
             }
-            bray_bound_tree::StorageIdentity::Static(declaration) => {
-                return Some(
-                    *self
-                        .request
-                        .static_dependencies()
-                        .get(&declaration)
-                        .expect("planned static storage retains its prepared dependency root"),
-                );
+            bray_bound_tree::StorageIdentity::Static(selection) => {
+                let declaration = selection.template().declaration();
+                let values = self.request.semantic_values();
+
+                let duration = self.request.static_dependencies()[&declaration].static_duration()
+                    .expect("prepared static roots retain their ownership domain");
+
+                let reference = values.intern_static_reference(selection.as_ref().clone())
+                    .expect("planned static references fit the semantic store");
+
+                return Some(DependencySubjectRoot::StaticInstance(reference, duration));
             }
             _ => return None,
         };
@@ -575,20 +578,37 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         physical: bool,
     ) -> crate::CheckerQueryResult<Option<bray_symbols::DependencyBorrowRelation>, C::UpstreamError>
     {
+        let static_source = match origin {
+            Origin::Storage(path) => self.formal_root(path.root).filter(|root| root.is_static())
+                .map(|root| (root, path.projections.as_ref())),
+            Origin::Static { root, projections, .. } => Some((*root, projections.as_ref())),
+            _ => None,
+        };
+
+        if let Some((root, projections)) = static_source {
+            let Some(entry) = dependency_projections(projections) else { return Ok(None); };
+
+            let Some(exit) = dependency_projections(&slot.projections) else { return Ok(None); };
+
+            let kind = if physical { self.physical_reference_kind(slot, ty)? } else { self.reference_kind(slot, ty)? };
+
+            let Some(kind) = kind else { return Ok(None); };
+
+            let exit_root = self.formal_root(slot.root).expect("static borrow exits through a formal subject");
+
+            return Ok(Some(DependencyBorrowRelation::new(
+                Some(DependencySubject::new(root, entry)),
+                DependencySubject::new(exit_root, exit),
+                kind,
+            )));
+        }
+
         let source = match origin {
             Origin::Entry {
                 reference: path, ..
             } => Some((path, true)),
-            Origin::Storage(path)
-                if !matches!(
-                    self.storage.identity(path.root),
-                    Some(bray_bound_tree::StorageIdentity::Static(_))
-                ) =>
-            {
-                Some((path, false))
-            }
-            Origin::Storage(_)
-            | Origin::Allocation { .. }
+            Origin::Storage(path) => Some((path, false)),
+            Origin::Allocation { .. }
             | Origin::Returned { .. }
             | Origin::Static { .. } => None,
         };

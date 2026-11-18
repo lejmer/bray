@@ -27,6 +27,8 @@ pub enum InterfaceDependencySubjectRoot {
     ProductStatic(InterfaceSymbolReference),
     /// Exact-thread static declaration identity.
     ExactThreadStatic(InterfaceSymbolReference),
+    /// One selected static specialization and its ownership domain.
+    StaticInstance(super::InterfaceStaticReference, bray_symbols::StaticStorageDuration),
 }
 
 /// One source-independent dependency-subject projection.
@@ -361,20 +363,6 @@ impl InterfaceDependencyContract {
     /// Records the value observation without introducing storage identity or authority.
     pub fn with_observed_result(mut self, result: Option<super::InterfaceConstantTermId>) -> Self {
         self.observed_result = result;
-
-        self
-    }
-
-    /// Records exact input ownership preserved under each normal result condition.
-    pub fn with_owned_result(
-        mut self,
-        result: bray_symbols::DependencyOwnedResult<
-            super::InterfaceConstantProjection,
-            super::InterfaceConstantTermId,
-        >,
-    ) -> Self {
-        assert!(self.captured_values.is_empty(), "a standalone interface ownership layout describes one normal exit");
-        self.captured_values = [InterfaceNormalOutcome::new(None, []).with_ownership(result)].into();
 
         self
     }

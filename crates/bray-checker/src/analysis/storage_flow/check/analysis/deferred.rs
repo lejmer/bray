@@ -11,10 +11,12 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         &self, memory: &crate::analysis::storage_flow::memory::State,
         execution: &mut crate::analysis::guarantee::ExecutionState, invocation: BoundExecutionSite,
     ) {
-        let Some(expression) = invocation.expression() else { return; };
+        let BoundExecutionSite::Node(bray_bound_tree::AnyBoundNodeId::Expression(expression)) = invocation else {
+            return;
+        };
 
         let value = match self.request.view().expression(expression) {
-            Some(bray_bound_tree::BoundExpression::Await(awaited)) => self.execution.value(execution, awaited.operand()),
+            Some(bray_bound_tree::BoundExpression::Await(_)) => execution.admitted_receiver(invocation),
             _ => {
                 let Some(value) = self.execution.started_future(execution, expression) else { return; };
 
@@ -66,33 +68,27 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     ) -> Option<crate::analysis::storage_flow::memory::EffectOutcomes> {
         let summary;
 
-        let (templates, has_receiver) = if let Some(site) = source.local() {
+        let templates = if let Some(site) = source.local() {
             let call = self.dependencies.calls().get(&site)?;
 
-            let receiver = site.expression().and_then(|expression| self.execution.semantics.selections().expression(expression))
-                .is_some_and(|selected| matches!(selected, bray_bound_tree::SemanticSelection::Call(call) if call.receiver().is_some()));
-
-            (call.deferred_effect_outcomes()?, receiver)
+            call.deferred_effect_outcomes()?
         } else {
             let callee = candidate.callee.as_deref()?;
             let body = self.dependencies.frame_callees().get(callee)?;
 
             summary = self.request.semantic_values().dependency_contract_template_data(body.summary);
 
-            (summary.effect_outcomes(), callee.has_receiver)
+            summary.effect_outcomes()
         };
 
         let effects = templates.try_flat_map(|effect| {
             Ok::<_, std::convert::Infallible>(self.resolve_effects(std::slice::from_ref(effect), |slot| crate::analysis::storage_flow::memory::Source::Value(slot).mutation_targets(memory), |subject, indirect| {
-                if let Some(target) = self.static_location(subject) {
-                    return if indirect { crate::analysis::storage_flow::memory::Source::Value(target).mutation_targets(memory) }
-                        else { Some(vec![bray_bound_tree::StorageMutationTarget::bounded(target)]) };
-                }
+                let ordinal = subject.subject_root().input_ordinal(candidate.has_receiver())?;
+                let storage = candidate.entry.argument_storage(ordinal)?;
 
-                let root = self.execution.entry_subject(&candidate.entry, subject.subject_root().input_ordinal(has_receiver)?,
-                    &bray_symbols::DependencySubject::root(subject.subject_root()))?;
+                if indirect && subject.projections().is_empty() { return storage.mutation_targets(); }
 
-                let storage = root.inline_captured_storage()?;
+                let root = candidate.entry.arguments.get(&crate::ExecutionPlace::argument(ordinal))?;
                 let path = crate::storage::storage_projections(self.request.semantic_values(), self.dependencies, subject.projections())?;
 
                 if !bray_bound_tree::StoragePath::inline_projections(&path) { return None; }
@@ -123,6 +119,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     pub(super) fn capture_deferred_cleanup(
         &self,
         state: &mut StorageFlowState,
+        execution: &crate::analysis::guarantee::ExecutionState,
         invocation: BoundExecutionSite,
     ) {
         let contracts = &self.dependencies.calls()[&invocation];
@@ -138,7 +135,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             private.extend(selection.inputs().filter_map(|input| self.invocation_place(invocation, input.root()).map(Target::storage)));
         }
 
-        let captures = self.capture_opaque_effects(state, invocation, self.call_effects(state, invocation, captures), &roots, &private, &output);
+        let captures = self.capture_opaque_effects(state, invocation, self.call_effects(state, execution, invocation, captures), &roots, &private, &output);
 
         let result = self.resolve_effects(result, |slot| {
             if output.contains_storage(&slot) {
@@ -147,7 +144,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 crate::analysis::storage_flow::memory::Source::Value(slot).mutation_targets(&state.memory)
             }
         }, |subject, indirect| {
-            let locations = if matches!(subject.subject_root(), DependencySubjectRoot::ProductStatic(_) | DependencySubjectRoot::ExactThreadStatic(_)) {
+            let locations = if subject.subject_root().is_static() {
                 self.invocation_locations(state, invocation, subject)?
             } else {
                 if subject.subject_root() != DependencySubjectRoot::Result {

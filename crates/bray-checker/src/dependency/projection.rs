@@ -538,7 +538,7 @@ pub(super) fn prepare_variants<C: crate::CheckerRequestContext + ?Sized>(
     }
 
     for call in contracts.calls().values() {
-        for transfer in call.owned_result().transfers() {
+        for transfer in call.captured_values().iter().flat_map(|row| row.ownership.transfers()) {
             let condition = crate::execution_condition_from_type_term(
                 request.semantic_values(),
                 transfer.input(),

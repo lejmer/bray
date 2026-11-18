@@ -16,22 +16,6 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
 
         let template = self.selected_result_template(call)?;
 
-        if matches!(
-            call.resolution().result(),
-            bray_bound_tree::BoundCallResult::LazyFuture(_)
-        ) {
-            let completed = self.mapped_result_values(template.requirements(), |root| {
-                call.input_site(expression, root)
-            })?;
-
-            // One static producer can execute repeatedly. Retain every possible captured result.
-            self.state
-                .completions
-                .entry(expression)
-                .or_default()
-                .extend(completed);
-        }
-
         let template = crate::dependency::invocation_result_template(call, template);
 
         let mut result = BTreeSet::new();
@@ -55,6 +39,19 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
         })?);
 
         Ok(result)
+    }
+
+    pub(crate) fn deferred_completion_values(
+        &self,
+        expression: BoundExpressionId,
+    ) -> Result<BTreeSet<DependencyRequirement>, CheckerQueryError<C::UpstreamError>> {
+        let Some(SemanticSelection::Call(call)) = self.selections.expression(expression) else {
+            panic!("a locally formed frame retains its selected call");
+        };
+
+        let template = self.selected_result_template(call)?;
+
+        self.mapped_result_values(template.requirements(), |root| call.input_site(expression, root))
     }
 
     pub(super) fn selected_result_template(

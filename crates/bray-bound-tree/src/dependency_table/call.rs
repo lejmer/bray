@@ -139,7 +139,6 @@ pub struct BoundDeferredCallable {
 pub struct BoundCallDependencyContracts {
     synchronous_cleanup: Arc<[bray_symbols::DependencyRequirement]>,
     input_count: usize,
-    owned_result: bray_symbols::DependencyOwnedResult,
     captured_values: Arc<[bray_symbols::CapturedValueOutcome]>,
     returned_values:
         BTreeMap<bray_symbols::DependencyOwnedTransfer, BoundReturnedValue>,
@@ -170,7 +169,6 @@ impl BoundCallDependencyContracts {
     /// Retains the checked portable expression for the actual normal value.
     pub fn with_captured_values(mut self, values: impl IntoIterator<Item = bray_symbols::CapturedValueOutcome>) -> Self {
         self.captured_values = sorted_unique_shared_slice(values);
-        self.owned_result = bray_symbols::CapturedValueOutcome::ownership_layout(&self.captured_values);
 
         self
     }
@@ -178,9 +176,9 @@ impl BoundCallDependencyContracts {
     /// Returns the actual value expression bound by this invocation.
     pub fn captured_values(&self) -> &[bray_symbols::CapturedValueOutcome] { &self.captured_values }
 
-    /// Returns the checked normal-result ownership contract.
-    pub const fn owned_result(&self) -> &bray_symbols::DependencyOwnedResult {
-        &self.owned_result
+    /// Derives the checked ownership layout before selecting a normal exit.
+    pub fn owned_result(&self) -> bray_symbols::DependencyOwnedResult {
+        bray_symbols::CapturedValueOutcome::ownership_layout(&self.captured_values)
     }
 
     /// Retains the checked ordinary shape and conditions of each possible input transfer.
@@ -212,7 +210,6 @@ impl BoundCallDependencyContracts {
             invocation,
             result,
             deferred_result: None,
-            owned_result: bray_symbols::DependencyOwnedResult::default(),
             captured_values: Arc::new([]),
             returned_values: BTreeMap::new(),
             input_count: 0,

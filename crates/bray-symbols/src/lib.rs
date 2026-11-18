@@ -221,6 +221,6 @@ pub use value::{
     LifecycleObligationKind, NumericTruncation, PredicateInstanceData, RealConstantBits,
     SelfTypeContext, SemanticValueKind, SemanticValueStore, SemanticValueStoreCreateError,
     SemanticValueStoreError, SemanticValueStoreId, TargetSizedIntegerType, TraitApplicationData,
-    TraitApplicationId, TypeData, TypeId,
+    StaticReferenceId, TraitApplicationId, TypeData, TypeId,
 };
 pub use version::PackageVersion;

@@ -698,6 +698,11 @@ pub(in crate::semantic::codec) fn decode_dependency_subject(
         7 => InterfaceDependencySubjectRoot::ExactThreadStatic(read_symbol_reference(
             reader, context,
         )?),
+        10 | 11 => InterfaceDependencySubjectRoot::StaticInstance(
+            super::super::captured::decode_static_reference(reader, limits, context)?,
+            if root_raw == 10 { bray_symbols::StaticStorageDuration::Product }
+            else { bray_symbols::StaticStorageDuration::ExactThread },
+        ),
         _ => {
             return Err(crate::semantic::codec::invalid_discriminant(
                 crate::InterfaceValidationField::Dependency,

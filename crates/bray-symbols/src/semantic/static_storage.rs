@@ -75,6 +75,13 @@ impl StaticReferenceSelection {
         }
     }
 
+    /// Whether these references can select the same closed instance.
+    pub fn may_share_instance(&self, other: &Self) -> bool {
+        self == other || (self.template() == other.template()
+            && self.target() == other.target()
+            && (self.closed_instance().is_none() || other.closed_instance().is_none()))
+    }
+
     /// Returns the selected target profile for this static reference.
     pub const fn target(&self) -> &TargetIdentity {
         match self {

@@ -196,24 +196,20 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         body
     }
 
-    pub(in crate::analysis) fn awaited_value_producers(
+    pub(in crate::analysis) fn awaited_value_dependencies(
         &self,
         state: &ExecutionState,
         expression: BoundExpressionId,
-    ) -> Option<std::collections::BTreeSet<BoundExpressionId>> {
-        let Some(bray_bound_tree::BoundExpression::Await(_)) =
-            self.request.view().expression(expression)
-        else {
+    ) -> Option<Arc<std::collections::BTreeSet<bray_symbols::DependencyRequirement>>> {
+        let bray_bound_tree::BoundExpression::Await(_) = self.request.view().expression(expression)? else {
             return None;
         };
 
         let value = state.admitted_receiver(expression.into());
 
-        value.deferred_value()?;
+        let (producer, _, frame) = self.deferred_body(state, value)?;
 
-        let (source, _, _) = self.deferred_body(state, value)?;
-
-        Some([source.local()?.expression()?].into())
+        frame.producers[&producer].completed.clone()
     }
 
     fn task_outcomes<'s>(

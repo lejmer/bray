@@ -16,7 +16,7 @@ use super::common::{
 };
 use super::{InterfaceSemanticInternError, InterfaceSymbolResolver, InternState};
 
-impl InternState {
+impl InternState<'_> {
     pub(super) fn intern_constant_values(
         &mut self,
         semantics: &InterfaceSemantics,

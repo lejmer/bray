@@ -3,7 +3,7 @@ use std::sync::Arc;
 use bray_base::shared_slice;
 use bray_symbols::{
     AnonymousCallableParameterSymbolId, CallableParameterSymbolId, PostconditionResultSymbolId,
-    PredicateParameterSymbolId, ReceiverParameterSymbolId, StaticSymbolId, StructFieldSymbolId,
+    PredicateParameterSymbolId, ReceiverParameterSymbolId, StaticReferenceSelection, StructFieldSymbolId,
     SymbolOrdinal, TypeId, UnionPayloadFieldSymbolId, UnionVariantSymbolId,
 };
 
@@ -49,7 +49,7 @@ impl_storage_id!(BorrowCapabilityId);
 /// One exact or symbolic storage origin and its semantic provenance.
 ///
 /// A storage identity is deliberately distinct from the symbol or bound node that introduced it.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum StorageIdentity {
     /// Owned storage introduced by a local binding or pattern.
     LocalOwned(AnyBoundNodeId),
@@ -59,8 +59,8 @@ pub enum StorageIdentity {
     ContractParameter(bray_symbols::LocalBindingSymbolId),
     /// Storage supplied through a callable receiver.
     Receiver(ReceiverParameterSymbolId),
-    /// Storage owned by one demanded static declaration instance.
-    Static(StaticSymbolId),
+    /// Storage owned by one selected static instance.
+    Static(Arc<StaticReferenceSelection>),
     /// Storage supplied through an anonymous callable parameter.
     AnonymousParameter(AnonymousCallableParameterSymbolId),
     /// Storage supplied through a predicate parameter.
@@ -107,7 +107,7 @@ pub enum StorageIdentity {
 }
 
 impl StorageIdentity {
-    pub(crate) const fn owns_slot(self) -> bool {
+    pub(crate) const fn owns_slot(&self) -> bool {
         matches!(
             self,
             StorageIdentity::LocalOwned(_)
@@ -130,12 +130,12 @@ impl StorageIdentity {
 
     /// Whether this identity denotes a distinct value slot owned by the current invocation.
     /// Default and contract inputs retain the storage of their originating context.
-    pub fn is_invocation_owned(self, unit: crate::BoundUnitKind) -> bool {
+    pub fn is_invocation_owned(&self, unit: crate::BoundUnitKind) -> bool {
         self.owns_slot() && !self.borrows_input_storage(unit)
     }
 
     /// Whether this unit observes an input slot owned by its enclosing context.
-    pub fn borrows_input_storage(self, unit: crate::BoundUnitKind) -> bool {
+    pub fn borrows_input_storage(&self, unit: crate::BoundUnitKind) -> bool {
         use crate::BoundUnitKind;
 
         match unit {
@@ -161,14 +161,14 @@ impl StorageIdentity {
     }
 
     /// Whether this identity is a compiler-owned string literal with permanent backing storage.
-    pub fn has_permanent_literal_storage(self, view: crate::BoundUnitView<'_>) -> bool {
+    pub fn has_permanent_literal_storage(&self, view: crate::BoundUnitView<'_>) -> bool {
         matches!(self, Self::Temporary(expression)
-            if matches!(view.expression(expression), Some(crate::BoundExpression::Literal(literal))
+            if matches!(view.expression(*expression), Some(crate::BoundExpression::Literal(literal))
                 if literal.kind() == crate::BoundLiteralKind::String))
     }
 
     /// Returns this storage identity's stable machine-readable category.
-    pub const fn kind_name(self) -> &'static str {
+    pub const fn kind_name(&self) -> &'static str {
         match self {
             Self::LocalOwned(_) => "local_owned",
             Self::Parameter(_) => "parameter",
@@ -193,7 +193,7 @@ impl StorageIdentity {
     }
 
     /// Returns whether this storage receives an initialized value at unit entry.
-    pub const fn is_initialized_at_entry(self) -> bool {
+    pub const fn is_initialized_at_entry(&self) -> bool {
         matches!(
             self,
             Self::Parameter(_)
@@ -207,18 +207,18 @@ impl StorageIdentity {
     }
 
     /// Returns the operation that creates this value, independently of its source owner.
-    pub const fn definition_occurrence(self) -> Option<crate::BoundExecutionSite> {
+    pub const fn definition_occurrence(&self) -> Option<crate::BoundExecutionSite> {
         match self {
-            Self::InvocationResult(occurrence) => Some(occurrence),
+            Self::InvocationResult(occurrence) => Some(*occurrence),
             Self::InvocationInput {
                 expression,
                 ordinal,
             } => Some(crate::BoundExecutionSite::CallInput {
-                expression,
-                ordinal,
+                expression: *expression,
+                ordinal: *ordinal,
             }),
             Self::ScopedCapability { expression, .. } => {
-                Some(crate::BoundExecutionSite::ScopedEnter(expression))
+                Some(crate::BoundExecutionSite::ScopedEnter(*expression))
             }
             _ => match self.definition_node() {
                 Some(node) => Some(crate::BoundExecutionSite::Node(node)),
@@ -228,17 +228,17 @@ impl StorageIdentity {
     }
 
     /// Returns the bound node that introduces this storage, when one exists.
-    pub const fn definition_node(self) -> Option<AnyBoundNodeId> {
+    pub const fn definition_node(&self) -> Option<AnyBoundNodeId> {
         match self {
-            Self::LocalOwned(node) | Self::Result(node) => Some(node),
+            Self::LocalOwned(node) | Self::Result(node) => Some(*node),
             Self::InvocationResult(occurrence) => Some(occurrence.node()),
             Self::Temporary(expression)
             | Self::Evaluated(expression)
             | Self::InvocationInput { expression, .. }
             | Self::CustomIndexBorrow(expression)
-            | Self::Allocation(expression) => Some(AnyBoundNodeId::Expression(expression)),
+            | Self::Allocation(expression) => Some(AnyBoundNodeId::Expression(*expression)),
             Self::Alternative { pattern, .. } | Self::ScopedCapability { pattern, .. } => {
-                Some(AnyBoundNodeId::Pattern(pattern))
+                Some(AnyBoundNodeId::Pattern(*pattern))
             }
             Self::Parameter(_)
             | Self::ContractParameter(_)
@@ -252,7 +252,7 @@ impl StorageIdentity {
         }
     }
 
-    pub(super) fn is_valid_for(self, unit: BoundUnitId) -> bool {
+    pub(super) fn is_valid_for(&self, unit: BoundUnitId) -> bool {
         match self {
             Self::LocalOwned(node) | Self::Result(node) => node.unit() == unit,
             Self::InvocationResult(occurrence) => occurrence.node().unit() == unit,

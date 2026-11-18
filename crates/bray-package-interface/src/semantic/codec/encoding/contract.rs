@@ -444,6 +444,14 @@ pub(in crate::semantic::codec) fn encode_dependency_subject(
             encoder.write_u32(7);
             write_symbol_reference(encoder, reference);
         }
+        InterfaceDependencySubjectRoot::StaticInstance(reference, duration) => {
+            encoder.write_u32(match duration {
+                bray_symbols::StaticStorageDuration::Product => 10,
+                bray_symbols::StaticStorageDuration::ExactThread => 11,
+            });
+
+            super::super::captured::encode_static_reference(encoder, reference);
+        }
     }
 
     encode_dependency_projections(encoder, &subject.projections);

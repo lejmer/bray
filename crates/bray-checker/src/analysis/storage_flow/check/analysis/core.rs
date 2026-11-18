@@ -709,6 +709,10 @@ where
             .take()
             .expect("reachable storage state has execution facts");
 
+        if let Some(expression) = kind.awaited_expression() {
+            self.execution.admit_inline_invocation(&mut execution, expression);
+        }
+
         self.retain_operation_reports(state, *operation, &execution);
         self.transfer_result_dependencies(state, kind, &execution);
 
@@ -879,9 +883,9 @@ where
             self.execution.admit_inline_invocation(&mut execution, expression);
         }
 
-        self.resolve_value_captures(state, kind);
+        let captures = self.resolve_value_captures(state, kind);
 
-        if single_phase.is_some() && let Some(captures) = self.value_captures.get(&occurrence) {
+        if single_phase.is_some() && let Some(captures) = &captures {
             self.execution.capture_entry_values(&mut execution, occurrence, captures);
         }
 
@@ -925,10 +929,8 @@ where
 
         let outcomes = self.begin_transition(state, kind, assignment.as_deref(), &execution);
 
-        if (single_phase.is_some() || matches!(kind, AnalysisOperationKind::Call { phase: AnalysisCallPhase::Attempt, .. }))
-            && let Some(values) = self.value_transitions.get(&occurrence)
-        {
-            self.execution.prepare_captured_values(&mut execution, occurrence, values);
+        if single_phase.is_some() || matches!(kind, AnalysisOperationKind::Call { phase: AnalysisCallPhase::Attempt, .. }) {
+            self.begin_value_transition(&mut execution, occurrence, outcomes.as_ref().map_or(&[], bray_symbols::DependencyEffectOutcomes::possible));
         }
 
         let call_effects = outcomes.as_ref().map(bray_symbols::DependencyEffectOutcomes::normal);
@@ -1068,7 +1070,7 @@ where
             self.execution
                 .transfer_operation(&mut execution, kind, None, None);
 
-            if let Some(captures) = self.value_captures.get(&occurrence) {
+            if let Some(captures) = &captures {
                 self.execution.capture_entry_values(&mut execution, occurrence, captures);
             }
         }
@@ -1167,7 +1169,7 @@ where
             let ty = self.storage.storage_type(path.root)
                 .expect("consumed evaluated slot has its checked type");
 
-            let origin = self.storage.identity(path.root).and_then(StorageIdentity::definition_occurrence)
+            let origin = self.storage.identity(path.root).and_then(|identity| identity.definition_occurrence())
                 .and_then(bray_bound_tree::BoundExecutionSite::expression)
                 .expect("evaluated slot consumption retains its producing expression");
 
@@ -1343,9 +1345,13 @@ where
                     }
             ) && let Some(expression) = kind.occurrence().expression()
             {
-                if let Err(error) = self.execution.capture_deferred_reports(
-                    execution, expression, |source, output| self.deferred_report_dependencies(
-                        &mut state.result_dependencies, expression, source, output)) {
+                let transfer = crate::dependency::ResultTransfer::new(
+                    self.request, self.execution.semantics.types(), self.execution.semantics.selections(),
+                    self.patterns, self.values, self.storage, &mut state.result_dependencies);
+
+                if let Err(error) = self.execution.capture_deferred_outputs(execution, expression,
+                    || transfer.deferred_completion_values(expression),
+                    |source, output| self.deferred_report_dependencies(&transfer, expression, source, output)) {
                     self.query_failure = Some(error);
                 }
             }
@@ -1383,9 +1389,10 @@ where
         execution: &crate::analysis::guarantee::ExecutionState,
     ) {
         let completed = match kind {
-            AnalysisOperationKind::Bound(AnyBoundNodeId::Expression(expression)) => self
-                .execution
-                .awaited_value_producers(execution, expression),
+            AnalysisOperationKind::Call {
+                invocation: bray_bound_tree::BoundExecutionSite::Node(AnyBoundNodeId::Expression(expression)),
+                phase: AnalysisCallPhase::Completion,
+            } => self.execution.awaited_value_dependencies(execution, expression),
             _ => None,
         };
 
@@ -1404,7 +1411,7 @@ where
             kind.occurrence()
                 .expression()
                 .and_then(|id| self.execution.yield_targets.get(&id).copied()),
-            completed.as_ref(),
+            completed.as_deref(),
         ) {
             self.query_failure = Some(error);
         }

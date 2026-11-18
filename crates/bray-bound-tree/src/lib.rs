@@ -122,7 +122,7 @@ pub use storage::{
     StorageCapturedEffects, StorageCapturedTransition, StorageDeferredTransition, StorageContents, StorageEffect,
     StorageCapturedValue, merge_storage_bindings, merge_storage_contents,
     selected_storage_values, storage_selector_parent, storage_value_subtree,
-    StorageSnapshotRoot, StorageValueBoundary, StorageValueCapture, StorageValueDestination, StorageValueInput, StorageValuePhase, StorageValueTransition,
+    StorageSnapshotRoot, StorageValueBoundary, StorageValueCapture, StorageValueDestination, StorageValueInput, StorageValuePhase, StorageValueTransition, merge_storage_value_transitions,
     BorrowCapabilityId, BorrowCapabilityOrigin, LastUse, LiveAcrossScope, LiveAcrossSuspension,
     Liveness, LivenessBuildError, OwnerRetention, PlannedBorrowCapability, StorageAccess,
     StorageAccessId, StorageAccessPlan, StorageAccessPlanRole, StorageAccessPurpose, StorageAccessRoot,

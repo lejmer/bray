@@ -65,6 +65,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         {
             if completion { state.admitted_receiver(expression.into()) } else { self.value(state, awaited.operand()) }
         } else {
+            if completion { return None; }
+
             let bray_bound_tree::SemanticSelection::Call(call) =
                 self.semantics.selections().expression(expression)?
             else {
@@ -81,11 +83,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 self.receiver_value(state, expression, call)
             }
         };
-
-        if completion && !value.deferred_value().is_some_and(|frame| frame.producers.iter().any(|(source, candidate)|
-            self.is_task_observation(source.clone()) && super::super::deferred::possible(&candidate.selection, &state.ordinary_proof()))) {
-            return None;
-        }
 
         let mut value = value;
 
@@ -164,7 +161,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         use crate::execution_guarantees::DeferredProducer;
 
         let hook = match producer.into() {
-            DeferredProducer::Local(source) => source.expression().and_then(|expression|
+            DeferredProducer::Local(source) => source.expression().filter(|expression| source == (*expression).into()).and_then(|expression|
                 match self.semantics.selections().expression(expression)? {
                     bray_bound_tree::SemanticSelection::Call(call) => call.implementation_hook(),
                     _ => None,
@@ -205,32 +202,45 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .deferred_value().cloned()
     }
 
-    pub(in crate::analysis) fn capture_deferred_reports<E>(
+    pub(in crate::analysis) fn capture_deferred_outputs<E>(
         &self,
         state: &mut ExecutionState,
         expression: BoundExpressionId,
-        mut snapshot: impl FnMut(Option<BoundExecutionSite>, bray_bound_tree::CallReportOutput)
+        completed: impl FnOnce() -> Result<std::collections::BTreeSet<bray_symbols::DependencyRequirement>, E>,
+        mut report: impl FnMut(Option<BoundExecutionSite>, bray_bound_tree::CallReportOutput)
             -> Result<crate::dependency::ReportDependencies, E>,
     ) -> Result<(), E> {
         let value = self.value(state, expression);
 
         let Some(frame) = value.deferred_value().cloned() else { return Ok(()); };
 
+        let source = BoundExecutionSite::from(expression);
+        let key = source.into();
+        let formed = frame.producers.get(&key).filter(|producer| producer.completed.is_none());
+        let opaque = frame.unknown.as_ref().is_some_and(|producer| producer.reports.is_empty());
+
+        if formed.is_none() && !opaque { return Ok(()); }
+
         let mut deferred = frame.as_ref().clone();
 
-        for output in [bray_bound_tree::CallReportOutput::DeferredCompleted,
-            bray_bound_tree::CallReportOutput::DeferredAbnormal] {
-            for (source, candidate) in &mut deferred.producers {
-                if let Some(source) = source.local()
-                    && self.dependencies.calls()[&source].report(output).is_some()
-                    && !candidate.reports.contains_key(&output) {
-                    candidate.reports.insert(output, Arc::new(snapshot(Some(source), output)?));
+        if let Some(producer) = deferred.producers.get_mut(&key)
+            && formed.is_some() {
+            producer.completed = Some(Arc::new(completed()?));
+
+            for output in [bray_bound_tree::CallReportOutput::DeferredCompleted,
+                bray_bound_tree::CallReportOutput::DeferredAbnormal] {
+                if self.dependencies.calls()[&source].report(output).is_some() {
+                    producer.reports.insert(output, Arc::new(report(Some(source), output)?));
                 }
             }
+        }
 
-            if let Some(candidate) = &mut deferred.unknown
-                && !candidate.reports.contains_key(&output) {
-                candidate.reports.insert(output, Arc::new(snapshot(None, output)?));
+        if opaque {
+            let producer = deferred.unknown.as_mut().expect("opaque frame retains its alternative");
+
+            for output in [bray_bound_tree::CallReportOutput::DeferredCompleted,
+                bray_bound_tree::CallReportOutput::DeferredAbnormal] {
+                producer.reports.insert(output, Arc::new(report(None, output)?));
             }
         }
 
@@ -320,17 +330,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 _ => continue,
             };
 
-            let has_receiver = source.local().and_then(|site| site.expression())
-                .and_then(|expression| self.semantics.selections().expression(expression))
-                .and_then(|selection| match selection {
-                    bray_bound_tree::SemanticSelection::Call(call) => Some(call.receiver().is_some()),
-                    _ => None,
-                }).or_else(|| producer.callee.as_deref().map(|call| call.has_receiver)).expect("known body retains its receiver mapping");
-
             let entry = &started.producers[source].entry;
 
             let transitions = self.entry_value_transitions(Some(entry), bindings,
-                |root| root.input_ordinal(has_receiver));
+                |root| root.input_ordinal(producer.has_receiver()));
 
             let count = entry.positional_arguments().count();
             let outputs = self.bind_entry_outputs(state, entry, execution, count, ExecutionCondition::unknown(), &transitions);
@@ -351,13 +354,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         expression: BoundExpressionId,
         pending: bool,
     ) {
-        let Some(bray_bound_tree::BoundExpression::Await(awaited)) =
-            self.request.view().expression(expression)
-        else {
-            return;
-        };
-
-        let value = if pending { state.admitted_receiver(expression.into()) } else { self.value(state, awaited.operand()) };
+        let value = state.admitted_receiver(expression.into());
 
         if let Some(frame) = value.deferred_value().cloned() {
             let mut entries = if pending { Arc::clone(&frame) } else { self.start_frame_execution(state, &frame, expression.into()) };
@@ -391,7 +388,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         result.with_deferred_value(Arc::new(super::super::deferred::DeferredValue {
             producers: [(invocation.into(), super::super::deferred::DeferredInvocation { callee,
                 transition: observations.deferred_transition().cloned(),
-                entry: captured, reports: Default::default(),
+                entry: captured, completed: None, reports: Default::default(),
                 selection: super::super::deferred::selection(&state.assumptions),
             })].into(),
             unknown: None,
@@ -459,10 +456,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         };
 
         // Completion owns its producer alternatives while mutating the flow environment.
-        let Some(deferred) = state.admitted_receiver(expression.into())
-            .deferred_value()
-            .cloned()
-        else {
+        let Some(deferred) = state.admitted_receiver(expression.into()).deferred_value().cloned() else {
             return false;
         };
 
@@ -532,12 +526,17 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 active.pending_execution = false;
                 branch.entries.insert(source, active);
 
-                self.complete_trusted_call(&mut branch, source, output, result, observations)
+                self.complete_trusted_call(&mut branch, source, expression.into(), output, result, observations)
             } else {
                 branch.resume_owned_witnesses(entry);
 
-                self.complete_entry_outputs(&mut branch, expression.into(), result, entry, |branch, value, ownership, _|
-                    self.complete_transferred_ownership(branch, expression.into(), None, entry, value, ownership))
+                self.complete_entry_outputs(&mut branch, None, expression.into(), result, entry, |branch, value, ownership, carriers| {
+                    let value = self.complete_transferred_ownership(branch, expression.into(), None, entry, value, ownership);
+
+                    self.complete_frame_carriers(branch, entry, &value, carriers);
+
+                    value
+                })
             };
 
             if let Some((previous, previous_value)) = &mut completed {

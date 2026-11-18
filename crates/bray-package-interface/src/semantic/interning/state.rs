@@ -8,7 +8,8 @@ use crate::InterfaceSemantics;
 
 use super::{ImportedSemantics, InterfaceSemanticInternError, InterfaceSymbolResolver};
 
-pub(in crate::semantic) struct InternState {
+pub(in crate::semantic) struct InternState<'store> {
+    pub(super) store: &'store SemanticValueStore,
     pub(super) types: Vec<Option<TypeId>>,
     pub(super) constant_values: Vec<Option<ConstantValueId>>,
     pub(super) constant_terms: Vec<Option<ConstantTermId>>,
@@ -19,9 +20,10 @@ pub(in crate::semantic) struct InternState {
     pub(super) implementation_instances: Vec<Option<ImplementationInstanceId>>,
 }
 
-impl InternState {
-    pub(super) fn new(semantics: &InterfaceSemantics) -> Self {
+impl<'store> InternState<'store> {
+    pub(super) fn new(semantics: &InterfaceSemantics, store: &'store SemanticValueStore) -> Self {
         Self {
+            store,
             types: vec![None; semantics.types.len()],
             constant_values: vec![None; semantics.constant_values.len()],
             constant_terms: vec![None; semantics.constant_terms.len()],
@@ -33,8 +35,9 @@ impl InternState {
         }
     }
 
-    pub(super) fn from_imported(semantics: &ImportedSemantics) -> Self {
+    pub(super) fn from_imported(semantics: &ImportedSemantics, store: &'store SemanticValueStore) -> Self {
         Self {
+            store,
             types: semantics.types.iter().copied().map(Some).collect(),
             constant_values: semantics
                 .constant_values

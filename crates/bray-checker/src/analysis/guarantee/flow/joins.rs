@@ -1259,6 +1259,52 @@ mod nested_guard_tests {
     }
 
     #[test]
+    fn joined_proof_uses_actual_owners_independent_of_snapshot_coordinates() {
+        let unit = BoundUnitId::new(0);
+
+        let (_, expressions) = expression_unit(unit, |tree, origin| (0..3).map(|_| {
+            push_expression(tree, BoundExpression::Error(BoundErrorExpression::new(origin, error_type())))
+        }).collect());
+
+        let mut storage = bray_bound_tree::StoragePlanBuilder::new(unit, bray_bound_tree::BoundUnitKind::CallableBody);
+        let predicate = crate::test_support::compiler_known_symbol::<bray_symbols::PredicateSymbolId>("ValidWrite");
+        let substitution = crate::test_support::empty_substitution(predicate.into());
+
+        let held = |value: ExecutionCondition| ExecutionCondition::new(crate::ExecutionConditionKind::Trusted(Arc::new(
+            ExecutionCondition::predicate(predicate.into(), substitution, vec![value.borrowed()]),
+        )));
+
+        let mut predecessor = |expression| {
+            let identity = storage.push_identity(bray_bound_tree::StorageIdentity::Temporary(expression))
+                .expect("checked capture has a storage coordinate");
+
+            let coordinate = bray_bound_tree::StorageTarget::storage(bray_bound_tree::StoragePath::root(identity));
+
+            let value = ExecutionCondition::constructed(
+                ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expression)), Arc::default(),
+            ).captured_value(bray_bound_tree::StorageCapturedValue::new(coordinate, Default::default()));
+
+            let guarantee = held(value.clone());
+            let mut state = ExecutionState::default();
+
+            state.carry_guarantee(value.clone(), guarantee.clone());
+            guarantee.assume(true, &mut state.trusted_assumptions);
+
+            (state, value)
+        };
+
+        let (mut left, left_value) = predecessor(expressions[0]);
+
+        let (right, right_value) = predecessor(expressions[1]);
+
+        let result = ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expressions[2]));
+        let joined = merge_returned(&mut left, &right, &left_value, &right_value, &result, expressions[2]);
+
+        assert!(joined.inline_captured_storage().is_some());
+        assert_eq!(held(joined).prove_trusted(&left.trusted_assumptions, &left.assumptions), Some(true));
+    }
+
+    #[test]
     fn mixed_copy_and_owned_predecessors_keep_only_guarded_join_authority() {
         let owner = ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(0))));
         let guard = ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(1))));

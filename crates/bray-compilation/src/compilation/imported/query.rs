@@ -1074,6 +1074,7 @@ fn diagnostic_semantic_value_kind(kind: SemanticValueKind) -> DiagnosticSemantic
         SemanticValueKind::ImplementationInstance => {
             DiagnosticSemanticValueKind::ImplementationInstance
         }
+        SemanticValueKind::StaticReference => DiagnosticSemanticValueKind::StaticReference,
         SemanticValueKind::DependencyContractTemplate => {
             DiagnosticSemanticValueKind::DependencyContractTemplate
         }

@@ -165,6 +165,16 @@ const API: &str = r"
         return pass<Marker>(value);
     }
 
+    async func fresh_result() -> Marker
+    {
+        return make();
+    }
+
+    func returned_fresh_frame() -> Future<Marker>
+    {
+        return fresh_result();
+    }
+
     async func other<T>(pos value: T) -> T
     {
         return value;
@@ -1191,6 +1201,11 @@ const CASES: &[(&str, &str, bool)] = &[
 ",
         false,
     ),
+    (
+        "returned_fresh_carrier",
+        r"let value = await api.returned_fresh_frame(); api.observe(&value);",
+        true,
+    ),
 ];
 
 fn check_deferred_completion(imported: bool, api: &str, cases: &[(&str, &str, bool)]) {
@@ -1442,6 +1457,7 @@ super::matrix::cases! {
     copied_real_equality_unknown = 145,
     copied_real_equality_finite = 146,
     copied_real_alias_equality_unknown = 147,
+    returned_fresh_carrier = 148,
 }
 
 #[test]

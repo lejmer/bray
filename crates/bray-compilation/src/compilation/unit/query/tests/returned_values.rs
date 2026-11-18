@@ -1057,11 +1057,12 @@ fn returned_static_borrows_preserve_their_owner_through_calls() {
 
         assert!(
             template.borrows().iter().any(|reference| {
-                reference.entry().is_none()
+                reference.entry().is_some_and(|entry| matches!(entry.subject_root(),
+                        bray_symbols::DependencySubjectRoot::StaticInstance(..)))
                     && reference.kind() == bray_symbols::DependencyReferenceKind::Borrow
                     && reference.exit().subject_root()
                         == bray_symbols::DependencySubjectRoot::Result
-                    && !reference.is_exact()
+                    && reference.is_exact()
             }),
             "static physical origin must remain independent of call inputs: {template:#?}"
         );
@@ -1072,15 +1073,9 @@ fn returned_static_borrows_preserve_their_owner_through_calls() {
                 else {
                     return false;
                 };
-                matches!(
-                    subject.subject_root(),
-                    bray_symbols::DependencySubjectRoot::ExactThreadStatic(_)
-                ) == exact_thread
-                    && matches!(
-                        subject.subject_root(),
-                        bray_symbols::DependencySubjectRoot::ProductStatic(_)
-                            | bray_symbols::DependencySubjectRoot::ExactThreadStatic(_)
-                    )
+                subject.subject_root().static_duration()
+                    == Some(if exact_thread { bray_symbols::StaticStorageDuration::ExactThread }
+                        else { bray_symbols::StaticStorageDuration::Product })
             }),
             "{template:#?}"
         );

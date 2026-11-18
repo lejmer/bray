@@ -146,6 +146,8 @@ pub enum DiagnosticSemanticValueKind {
     CallableInstance,
     /// Substituted implementation definitions.
     ImplementationInstance,
+    /// Selected static references.
+    StaticReference,
     /// Portable dependency contracts.
     DependencyContractTemplate,
 }
@@ -161,6 +163,7 @@ impl DiagnosticSemanticValueKind {
             Self::TraitApplication => "trait_application",
             Self::CallableInstance => "callable_instance",
             Self::ImplementationInstance => "implementation_instance",
+            Self::StaticReference => "static_reference",
             Self::DependencyContractTemplate => "dependency_contract_template",
         }
     }

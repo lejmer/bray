@@ -135,6 +135,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         &self,
         state: &mut ExecutionState,
         invocation: bray_bound_tree::BoundExecutionSite,
+        publication: bray_bound_tree::BoundExecutionSite,
         output: Option<&crate::ExecutionPlace>,
         result: ExecutionCondition,
         observations: &bray_bound_tree::StorageCompletion,
@@ -156,7 +157,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             return result;
         };
 
-        self.complete_entry_outputs(state, invocation, result, &entry, |state, result, ownership, carriers|
+        self.complete_entry_outputs(state, Some(invocation), publication, result, &entry, |state, result, ownership, carriers|
             self.complete_admitted_call(state, invocation, output, result, observations, contract, entry.clone(), ownership, carriers))
     }
 
@@ -379,6 +380,35 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         result
     }
+    pub(in crate::analysis::guarantee) fn complete_frame_carriers(
+        &self,
+        state: &mut ExecutionState,
+        entry: &crate::ExecutionCallEvidence,
+        value: &ExecutionCondition,
+        carriers: &[bray_symbols::DependencyWitnessCarrier<bray_bound_tree::StorageProjection>],
+    ) {
+        use crate::execution_guarantees::ExecutionObservationKind;
+
+        for carrier in carriers.iter().filter(|carrier| carrier.has_independent_support()) {
+            let owner = carrier.path().iter().copied().fold(value.clone(), ExecutionCondition::project);
+
+            if !matches!(owner.ownership_identity(), Some((ExecutionObservationKind::Owned, _))) {
+                continue;
+            }
+
+            let condition = entry.bind_term(self.request.semantic_values(), carrier.guarantee(), value)
+                .pointer_observations(&self.pointer_predicates);
+
+            if !condition.contains_trusted() || condition.contains_unknown()
+                || condition.prove_ordinary(&state.assumptions, Some(&state.proofs)) == Some(true) {
+                continue;
+            }
+
+            self.carry_result_guarantee(state, &owner, &condition, false, true, Default::default());
+            assume_completion(state, [condition].into_iter(), std::iter::empty());
+        }
+    }
+
     fn carry_result_guarantee(
         &self,
         state: &mut ExecutionState,

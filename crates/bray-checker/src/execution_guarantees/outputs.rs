@@ -63,10 +63,19 @@ impl ExecutionOutputs {
         self.0.iter().filter(|row| !matches!(row.guard.bound().map(Condition::kind), Some(super::ExecutionConditionKind::Boolean(false))))
     }
 
+    pub(crate) fn possible_region_values(&self) -> impl Iterator<Item = (&bray_bound_tree::StorageTarget, &Condition)> {
+        self.reachable_rows().flat_map(|row| &row.writes).filter_map(|(destination, value)| {
+            match destination {
+                Destination::Region { target, .. } => Some((target, value)),
+                _ => None,
+            }
+        })
+    }
+
     pub(crate) fn destinations(&self) -> impl Iterator<Item = &Destination> {
         let mut rows = self.reachable_rows();
 
-        rows.next().into_iter().flat_map(|row| row.writes.keys()).filter(|key| !matches!(key, Destination::Region(_)))
+        rows.next().into_iter().flat_map(|row| row.writes.keys()).filter(|key| !matches!(key, Destination::Region { .. }))
             .filter(move |destination| rows.clone().all(|row| row.writes.contains_key(*destination)))
     }
 
@@ -104,13 +113,13 @@ impl ExecutionOutputs {
                 }).collect();
 
                 for (key, value) in left.writes.iter().chain(&right.writes) {
-                    if matches!(key, Destination::Region(_)) {
+                    if matches!(key, Destination::Region { .. }) {
                         writes.entry(key.clone()).or_insert_with(|| value.clone());
                     }
                 }
 
                 let ownership = bray_symbols::DependencyOwnedResult::choice([left.ownership.clone(), right.ownership.clone()]);
-                let carriers = left.carriers.iter().filter(|carrier| right.carriers.binary_search(carrier).is_ok()).cloned().collect();
+                let carriers = bray_symbols::DependencyWitnessCarrier::common([&left.carriers, &right.carriers].into_iter());
 
                 rows.push(ExecutionOutput { guard: left.guard.clone(), carriers, ownership, writes });
             }
@@ -132,7 +141,7 @@ impl ExecutionOutputs {
             for (row, proof) in self.reachable_rows().map(|row| (row, proofs.0))
                 .chain(incoming.reachable_rows().map(|row| (row, proofs.1))) {
                 for (key, value) in &row.writes {
-                    if matches!(key, Destination::Region(_)) {
+                    if matches!(key, Destination::Region { .. }) {
                         writes.entry(key.clone()).and_modify(|previous| {
                             *previous = common_components(previous, value, None, (proof, proof), &mut Vec::new(), &mut { Condition::WORK_LIMIT });
                         }).or_insert_with(|| value.clone());
@@ -141,10 +150,15 @@ impl ExecutionOutputs {
             }
 
             let ownership = |table: &Self| bray_symbols::DependencyOwnedResult::choice(table.reachable_rows().map(|row| row.ownership.clone()));
-            let mut alternatives = self.reachable_rows().chain(incoming.reachable_rows());
 
-            let carriers = alternatives.next().into_iter().flat_map(|row| row.carriers.iter())
-                .filter(|carrier| alternatives.clone().all(|row| row.carriers.binary_search(carrier).is_ok())).cloned().collect();
+            let carriers = if self.0.is_empty() || incoming.0.is_empty() {
+                // An opaque completion establishes no witness, even when every known row has one.
+                Arc::default()
+            } else {
+                bray_symbols::DependencyWitnessCarrier::common(
+                    self.reachable_rows().chain(incoming.reachable_rows()).map(|row| &row.carriers)
+                )
+            };
 
             rows.push(ExecutionOutput { guard: OutputGuard::Bound(Condition::boolean(true)), carriers,
                 ownership: bray_symbols::DependencyOwnedResult::choice([ownership(self), ownership(incoming)]), writes });
@@ -155,5 +169,35 @@ impl ExecutionOutputs {
         if changed { self.0 = rows.into(); }
 
         changed
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Condition, ExecutionOutput, ExecutionOutputs, OutputGuard};
+    use bray_symbols::{ConstantTermData, DependencyWitnessCarrier, SymbolOrdinal};
+
+    #[test]
+    fn an_opaque_outcome_does_not_carry_another_outcomes_witness() {
+        let values = crate::test_support::semantic_values();
+
+        let condition = values.intern_constant_term(ConstantTermData::CallableArgument(SymbolOrdinal::new(0)))
+            .expect("fixture term belongs to its semantic store");
+
+        let row = ExecutionOutput {
+            guard: OutputGuard::Bound(Condition::boolean(true)),
+            carriers: [DependencyWitnessCarrier::new(condition, [])].into(),
+            ownership: Default::default(),
+            writes: Default::default(),
+        };
+
+        let cache = crate::execution_guarantees::ExecutionProofCache::default();
+        let assumptions = Default::default();
+        let proof = cache.ordinary_proof(&assumptions);
+        let mut outputs = ExecutionOutputs([row].into());
+
+        outputs.intersect(&ExecutionOutputs::default(), (&proof, &proof));
+
+        assert!(outputs.0.iter().all(|row| row.carriers.is_empty()));
     }
 }

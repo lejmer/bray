@@ -22,6 +22,7 @@ fn captured_frame(producer: bray_bound_tree::BoundExecutionSite, transition: Arc
     crate::ExecutionCondition::result().with_deferred_value(Arc::new(crate::ExecutionDeferredValue {
         producers: [(producer.into(), crate::ExecutionDeferredInvocation {
             callee: None, transition: Some(transition), entry: Default::default(),
+            completed: None,
             reports: Default::default(), selection: Default::default(),
         })].into(),
         unknown: None,

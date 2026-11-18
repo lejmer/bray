@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
-    BoundCallableBodyKind, BoundNodeOrigin, BoundUnitRoot, StorageAccessId, StorageIdentity,
+    BoundCallableBodyKind, BoundNodeOrigin, BoundUnitRoot, StorageIdentity,
     StorageIdentityId,
 };
 use bray_declarations::SyntaxAnchor;
@@ -11,7 +11,6 @@ use bray_ir::{
     MirTaskTerminalState, MirTerminatorKind, MirUnit, MirUnitBuilder,
 };
 use bray_runtime_interface::{ProtectedFrameAbiVersions, RuntimeAbiRole};
-use bray_symbols::StaticReferenceSelection;
 
 use super::LoweringError;
 use super::initialization::InitializationState;
@@ -72,8 +71,6 @@ pub(super) struct Lowerer<'unit> {
     pub(super) guard_bindings: Vec<BTreeMap<StorageIdentityId, MirPlace>>,
     pub(super) owned_targets: BTreeMap<MirStorageId, MirPlace>,
     pub(super) initialization_guards: BTreeMap<MirStorageId, InitializationState<'unit>>,
-    pub(super) static_storages: BTreeMap<StaticReferenceSelection, MirStorageId>,
-    pub(super) static_accesses: BTreeMap<StorageAccessId, StaticReferenceSelection>,
     pub(super) parameter_positions: BTreeMap<StorageIdentityId, u32>,
     pub(super) active_scopes: Vec<bray_bound_tree::StorageScope>,
     pub(super) scoped_guards:
@@ -120,8 +117,6 @@ impl<'unit> Lowerer<'unit> {
             guard_bindings: Vec::new(),
             owned_targets: BTreeMap::new(),
             initialization_guards: BTreeMap::new(),
-            static_storages: BTreeMap::new(),
-            static_accesses: BTreeMap::new(),
             parameter_positions,
             active_scopes: Vec::new(),
             scoped_guards: BTreeMap::new(),
@@ -362,25 +357,23 @@ impl<'unit> Lowerer<'unit> {
 fn parameter_positions(plan: &bray_bound_tree::StoragePlan) -> BTreeMap<StorageIdentityId, u32> {
     let entries = plan
         .identity_entries()
-        .filter(|(_, identity)| is_parameter_identity(*identity))
+        .filter(|(_, identity)| is_parameter_identity(identity))
         .collect::<Vec<_>>();
 
     entries
         .iter()
-        .copied()
         .filter(|(_, identity)| matches!(identity, StorageIdentity::Receiver(_)))
         .chain(
             entries
                 .iter()
-                .copied()
                 .filter(|(_, identity)| !matches!(identity, StorageIdentity::Receiver(_))),
         )
         .enumerate()
-        .map(|(position, (identity, _))| (identity, u32::try_from(position).unwrap_or(u32::MAX)))
+        .map(|(position, (identity, _))| (*identity, u32::try_from(position).unwrap_or(u32::MAX)))
         .collect()
 }
 
-const fn is_parameter_identity(identity: StorageIdentity) -> bool {
+const fn is_parameter_identity(identity: &StorageIdentity) -> bool {
     matches!(
         identity,
         StorageIdentity::Parameter(_)

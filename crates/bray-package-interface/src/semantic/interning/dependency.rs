@@ -13,7 +13,7 @@ use crate::{
 use super::common::{convert_requirement_kind, resolve_exact, resolve_family};
 use super::{InterfaceSemanticInternError, InterfaceSymbolResolver, InternState};
 
-impl InternState {
+impl InternState<'_> {
     fn convert_captured_static(&self, root: &crate::InterfaceStaticReference, symbols: &impl InterfaceSymbolResolver)
         -> Result<bray_symbols::StaticReferenceSelection, Option<InterfaceSemanticInternError>>
     {
@@ -209,7 +209,7 @@ impl InternState {
                 let carriers = outcome.carriers.iter().map(|carrier| {
                     let path = self.convert_dependency_projections(carrier.path(), symbols).map_err(Some)?.ok_or(None)?;
 
-                    Ok(bray_symbols::DependencyWitnessCarrier::new(self.constant_term_id(carrier.guarantee()).ok_or(None)?, path))
+                    Ok(carrier.remap(self.constant_term_id(carrier.guarantee()).ok_or(None)?, path))
                 }).collect::<Result<Vec<_>, Option<crate::InterfaceSemanticInternError>>>()?;
 
                 Ok(bray_symbols::CapturedValueOutcome::new(guard, bindings).with_carriers(carriers).with_ownership(owned_result))
@@ -469,6 +469,15 @@ impl InternState {
             }
             InterfaceDependencySubjectRoot::ExactThreadStatic(reference) => {
                 DependencySubjectRoot::ExactThreadStatic(resolve_exact(symbols, reference)?)
+            }
+            InterfaceDependencySubjectRoot::StaticInstance(reference, duration) => {
+                let reference = match self.convert_captured_static(reference, symbols) {
+                    Ok(reference) => reference,
+                    Err(None) => return Ok(None),
+                    Err(Some(error)) => return Err(error),
+                };
+
+                DependencySubjectRoot::StaticInstance(self.store.intern_static_reference(reference)?, *duration)
             }
         };
 

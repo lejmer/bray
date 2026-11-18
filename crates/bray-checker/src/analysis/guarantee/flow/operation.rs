@@ -83,6 +83,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             })
             .and_then(|_| self.refinements.get(&operation.occurrence()));
 
+        if let Some(expression) = operation.awaited_expression() {
+            self.admit_inline_invocation(state, expression);
+        }
+
         if let Some(expression) = self.single_phase_invocation(operation) {
             self.admit_inline_invocation(state, expression);
 
@@ -312,15 +316,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             return;
         }
 
-        let awaited = operation.occurrence().expression().filter(|_| {
-            matches!(
-                operation,
-                crate::analysis::model::AnalysisOperationKind::Suspension {
-                    kind: crate::analysis::model::AnalysisSuspensionKind::Await,
-                    ..
-                }
-            )
-        });
+        let awaited = operation.awaited_expression();
 
         if let Some(expression) = awaited {
             self.set_awaited_execution(state, expression, false);
@@ -335,7 +331,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         ..
                     }
                 ) {
-                    if self.single_phase_invocation(operation).is_none() {
+                    if awaited.is_none() && self.single_phase_invocation(operation).is_none() {
                         self.admit_inline_invocation(state, expression);
                     }
 
@@ -632,7 +628,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     ), result, plan)
                 });
 
-            let result = self.complete_trusted_call(state, invocation, self.invocation_result_place(invocation).as_ref(), result, observations);
+            let result = self.complete_trusted_call(state, invocation, invocation, self.invocation_result_place(invocation).as_ref(), result, observations);
 
             state.assign(place, result, None);
 

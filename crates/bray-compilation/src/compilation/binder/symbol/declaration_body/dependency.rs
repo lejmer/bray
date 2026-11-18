@@ -293,7 +293,15 @@ fn portable_storage_identity(
             DependencySubjectRoot::Parameter(SymbolOrdinal::new(parameter.ordinal()))
         }
         StorageIdentity::Receiver(_) => DependencySubjectRoot::Receiver,
-        StorageIdentity::Static(id) => static_dependency_root(context, id)?,
+        StorageIdentity::Static(selection) => {
+            let root = static_dependency_root(context, selection.template().declaration())?;
+            let duration = root.static_duration().expect("static declarations retain their ownership domain");
+
+            let reference = context.semantic_values().intern_static_reference(selection.as_ref().clone())
+                .expect("planned static reference fits the semantic store");
+
+            DependencySubjectRoot::StaticInstance(reference, duration)
+        }
         StorageIdentity::Result(_) | StorageIdentity::PostconditionResult(_) => {
             DependencySubjectRoot::Result
         }

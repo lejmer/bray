@@ -547,7 +547,7 @@ where
             return Ok(());
         };
 
-        let borrowed = root_access.unwrap_or_else(|| panic!("bind_entry requires borrowed entry root access, target: {target:?}, identity: {identity:?}"));
+        let borrowed = root_access.unwrap_or_else(|| panic!("bind_entry requires borrowed entry root access, target: {target:?}, storage: {storage:?}"));
 
         let capability = PlannedBorrowCapability::new(
             BorrowCapabilityOrigin::Entry(target),

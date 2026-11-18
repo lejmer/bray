@@ -21,6 +21,7 @@ pub(super) fn encode_values(encoder: &mut WireEncoder, bindings: &[Binding]) {
 
         for carrier in binding.carriers.iter() {
             encoder.write_u32(carrier.guarantee().raw());
+            encoder.write_u32(u32::from(carrier.has_independent_support()));
             super::encoding::contract::encode_dependency_projections(encoder, carrier.path());
         }
 
@@ -43,14 +44,7 @@ fn encode_value(encoder: &mut WireEncoder, value: &Template) {
             Value::Data(input) => { encoder.write_u32(4); encoder.write_u32(input.raw()); }
             Value::Static(root) => {
                 encoder.write_u32(5);
-                write_symbol_reference(encoder, &root.declaration);
-                encoder.write_u32(root.substitution.raw());
-                write_count(encoder, root.selected_witnesses.len());
-
-                for witness in root.selected_witnesses.iter() { encoder.write_u32(witness.raw()); }
-
-                write_string(encoder, root.target.as_str());
-                encoder.write_u32(u32::from(root.closed));
+                encode_static_reference(encoder, root);
             }
             Value::Deferred { alternatives, unknown } => {
                 encoder.write_u32(6);
@@ -114,6 +108,40 @@ fn encode_value(encoder: &mut WireEncoder, value: &Template) {
     }
 }
 
+pub(super) fn encode_static_reference(encoder: &mut WireEncoder, root: &InterfaceStaticReference) {
+    write_symbol_reference(encoder, &root.declaration);
+    encoder.write_u32(root.substitution.raw());
+    write_count(encoder, root.selected_witnesses.len());
+
+    for witness in root.selected_witnesses.iter() { encoder.write_u32(witness.raw()); }
+
+    write_string(encoder, root.target.as_str());
+    encoder.write_u32(u32::from(root.closed));
+}
+
+pub(super) fn decode_static_reference(
+    reader: &mut WireReader<'_>,
+    limits: InterfaceValidationLimits,
+    context: &mut SemanticDecodeContext,
+) -> Result<InterfaceStaticReference, InterfaceValidationError> {
+    let declaration = read_symbol_reference(reader, context)?;
+    let substitution = InterfaceGenericSubstitutionId::new(read_u32(reader)?);
+    let count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
+    let mut witnesses = context.allocate_items(reader, count)?;
+
+    for _ in 0..count { witnesses.push(InterfaceImplementationInstanceId::new(read_u32(reader)?)); }
+
+    let target = bray_target::TargetIdentity::try_new(read_string(reader, context)?).ok_or_else(||
+        super::invalid_value(InterfaceValidationField::Identity))?;
+
+    let closed = match read_u32(reader)? {
+        0 => false, 1 => true,
+        raw => return Err(super::invalid_discriminant(InterfaceValidationField::Dependency, raw)),
+    };
+
+    Ok(InterfaceStaticReference::new(declaration, substitution, witnesses, target, closed))
+}
+
 pub(super) fn decode_values(reader: &mut WireReader<'_>, limits: InterfaceValidationLimits,
     context: &mut SemanticDecodeContext,
 ) -> Result<Vec<Binding>, InterfaceValidationError> {
@@ -126,8 +154,18 @@ pub(super) fn decode_values(reader: &mut WireReader<'_>, limits: InterfaceValida
         let mut carriers = context.allocate_items(reader, count)?;
 
         for _ in 0..count {
-            carriers.push(bray_symbols::DependencyWitnessCarrier::new(InterfaceConstantTermId::new(read_u32(reader)?),
-                super::decoding::contract::decode_dependency_projections(reader, limits, context)?));
+            let guarantee = InterfaceConstantTermId::new(read_u32(reader)?);
+
+            let independent = match read_u32(reader)? {
+                0 => false,
+                1 => true,
+                raw => return Err(super::invalid_discriminant(InterfaceValidationField::Dependency, raw)),
+            };
+
+            carriers.push(bray_symbols::DependencyWitnessCarrier::new(guarantee,
+                super::decoding::contract::decode_dependency_projections(reader, limits, context)?)
+                .with_independent_support(independent));
+
         }
 
         let guard = read_optional_u32(reader)?.map(InterfaceConstantTermId::new);
@@ -153,24 +191,7 @@ fn decode_value(reader: &mut WireReader<'_>, limits: InterfaceValidationLimits,
     Ok(match read_u32(reader)? {
         0 => Value::Input(InterfaceConstantTermId::new(read_u32(reader)?)),
         4 => Value::Data(InterfaceConstantTermId::new(read_u32(reader)?)),
-        5 => {
-            let declaration = read_symbol_reference(reader, context)?;
-            let substitution = InterfaceGenericSubstitutionId::new(read_u32(reader)?);
-            let count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
-            let mut witnesses = context.allocate_items(reader, count)?;
-
-            for _ in 0..count { witnesses.push(InterfaceImplementationInstanceId::new(read_u32(reader)?)); }
-
-            let target = bray_target::TargetIdentity::try_new(read_string(reader, context)?).ok_or_else(||
-                super::invalid_value(InterfaceValidationField::Identity))?;
-
-            let closed = match read_u32(reader)? {
-                0 => false, 1 => true,
-                raw => return Err(super::invalid_discriminant(InterfaceValidationField::Dependency, raw)),
-            };
-
-            Value::Static(InterfaceStaticReference::new(declaration, substitution, witnesses, target, closed))
-        }
+        5 => Value::Static(decode_static_reference(reader, limits, context)?),
         6 => {
             let unknown = match read_u32(reader)? {
                 0 => false, 1 => true,

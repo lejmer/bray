@@ -12,10 +12,12 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     ) {
         use crate::analysis::storage_flow::memory::Target;
 
+        let ownership = contracts.owned_result();
+
         if matches!(
             occurrence,
             bray_bound_tree::BoundExecutionSite::CallInput { .. }
-        ) || contracts.owned_result().is_empty()
+        ) || ownership.is_empty()
         {
             return;
         }
@@ -32,7 +34,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             )
             .expect("owned return retains its selected invocation");
 
-        let transfers = contracts.owned_result().transfers().filter_map(|transfer| {
+        let transfers = ownership.transfers().filter_map(|transfer| {
             let decoded = crate::execution_condition_from_type_term(
                     self.request.semantic_values(),
                     transfer.input(),
@@ -92,7 +94,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             ))
         }).collect::<Vec<_>>();
 
-        let guaranteed = contracts.owned_result().guaranteed_transfers();
+        let guaranteed = ownership.guaranteed_transfers();
 
         for (transfer, sources, output, adaptation) in &transfers {
             let Some(common) = guaranteed.iter().find(|common| common.same_identity(transfer)) else { continue; };
@@ -232,7 +234,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                         return Ok(bray_symbols::DependencyOwnedResult::default());
                     }
 
-                    return Ok(bray_symbols::DependencyOwnedResult::Transfer(
+                    let transfer = bray_symbols::DependencyOwnedResult::Transfer(
                         bray_symbols::DependencyOwnedTransfer::new(
                             transfer.input(),
                             transfer.output().iter().map(|projection| {
@@ -240,12 +242,23 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                                     .expect("owned result retains a portable output projection")
                             }),
                         )
-                        .with_condition(condition)
                         .with_preservation(transfer.preservation().try_map_projections(&mut |projection| {
                             Ok::<_, std::convert::Infallible>(crate::ExecutionPlace::projection_kind(*projection)
                                 .expect("owned retained data has a portable projection"))
                         }).expect("checked owned data projection mapping is infallible")),
-                    ));
+                    );
+
+                    let Some(condition) = condition else { return Ok(transfer); };
+
+                    let inactive = self.request.semantic_values().intern_constant_term(ConstantTermData::Unary {
+                        operation: bray_symbols::ConstantUnaryOperation::LogicalNot,
+                        operand: condition,
+                    }).expect("checked payload guard belongs to its semantic store");
+
+                    return Ok(bray_symbols::DependencyOwnedResult::choice([
+                        bray_symbols::DependencyOwnedResult::case(condition, transfer),
+                        bray_symbols::DependencyOwnedResult::case(inactive, Default::default()),
+                    ]));
                 }
 
                 Ok(bray_symbols::DependencyOwnedResult::default())

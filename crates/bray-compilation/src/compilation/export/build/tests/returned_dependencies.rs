@@ -792,7 +792,7 @@ fn independent_borrowed_results_do_not_claim_owned_marker_preservation() {
 #[test]
 fn imported_static_publication_only_exposes_the_selected_static() {
     for directive in ["", "@thread_local"] {
-        for address in ["&TOKEN", "&owner.marker"] {
+        for address in ["&TOKEN<N>", "&owner.marker"] {
             let provider = compilation(&format!(
                 r#"
                 trusted module api;
@@ -815,19 +815,19 @@ fn imported_static_publication_only_exposes_the_selected_static() {
                     return {{ marker = Marker {{}} }};
                 }}
 
-                {directive} static TOKEN: Marker = make_marker();
+                {directive} static TOKEN<const N: u32>: Marker = make_marker();
                 {directive} static OTHER: Marker = make_marker();
 
-                trusted func publish(pos owner: &Owner) -> usize uses(intrinsic)
+                trusted func publish<const N: u32>(pos owner: &Owner) -> usize uses(intrinsic)
                 {{
                     return trusted core.target.expose_address<Marker>(
                         core.memory.address_of<Marker>({address})
                     );
                 }}
 
-                trusted func relay(pos owner: &Owner) -> usize
+                trusted func relay<const N: u32>(pos owner: &Owner) -> usize
                 {{
-                    return trusted publish(owner);
+                    return trusted publish<N>(owner);
                 }}
 
                 trusted func observe(pos marker: &Marker)
@@ -836,7 +836,7 @@ fn imported_static_publication_only_exposes_the_selected_static() {
                 "#,
             ));
 
-            for observed in ["TOKEN", "OTHER"] {
+            for observed in ["TOKEN<1>", "TOKEN<2>", "OTHER"] {
                 let consumer = execution_consumer(
                     &provider,
                     &format!(
@@ -847,10 +847,11 @@ fn imported_static_publication_only_exposes_the_selected_static() {
 
                         func caller()
                         {{
-                            trusted example.package.api.observe(&example.package.api.TOKEN);
+                            trusted example.package.api.observe(&example.package.api.TOKEN<1>);
+                            trusted example.package.api.observe(&example.package.api.TOKEN<2>);
                             trusted example.package.api.observe(&example.package.api.OTHER);
                             let owner = trusted example.package.api.create();
-                            _ = trusted example.package.api.relay(&owner);
+                            _ = trusted example.package.api.relay<1>(&owner);
                             opaque();
                             trusted example.package.api.observe(&example.package.api.{observed});
                         }}
@@ -859,7 +860,7 @@ fn imported_static_publication_only_exposes_the_selected_static() {
                 );
 
                 let diagnostics = consumer.check_diagnostics();
-                let valid = address != "&TOKEN" || observed != "TOKEN";
+                let valid = address != "&TOKEN<N>" || observed != "TOKEN<1>";
 
                 assert_eq!(
                     !diagnostics.has_errors(),
@@ -917,9 +918,10 @@ fn imported_static_borrows_keep_physical_origins_separate_from_lifetimes() {
             summary
                 .borrows()
                 .iter()
-                .any(|reference| reference.entry().is_none()
+                .any(|reference| reference.entry().is_some_and(|entry| matches!(entry.subject_root(),
+                        bray_symbols::DependencySubjectRoot::StaticInstance(..)))
                     && reference.kind() == bray_symbols::DependencyReferenceKind::Borrow
-                    && !reference.is_exact()),
+                    && reference.is_exact()),
             "static borrow must not alias the unrelated input: {summary:#?}"
         );
 
@@ -929,15 +931,9 @@ fn imported_static_borrows_keep_physical_origins_separate_from_lifetimes() {
                 else {
                     return false;
                 };
-                matches!(
-                    subject.subject_root(),
-                    bray_symbols::DependencySubjectRoot::ExactThreadStatic(_)
-                ) == exact_thread
-                    && matches!(
-                        subject.subject_root(),
-                        bray_symbols::DependencySubjectRoot::ProductStatic(_)
-                            | bray_symbols::DependencySubjectRoot::ExactThreadStatic(_)
-                    )
+                subject.subject_root().static_duration()
+                    == Some(if exact_thread { bray_symbols::StaticStorageDuration::ExactThread }
+                        else { bray_symbols::StaticStorageDuration::Product })
             }),
             "static lifetime must survive serialization: {summary:#?}"
         );

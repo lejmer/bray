@@ -20,30 +20,78 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         ordinal: impl Fn(bray_symbols::DependencySubjectRoot) -> Option<bray_symbols::SymbolOrdinal>,
     ) -> Vec<bray_bound_tree::StorageValueTransition> {
         bindings.iter().map(|outcome| {
-            let writes = outcome.bindings.iter().filter_map(|(subject, template)| {
-            let destination = if subject.subject_root() == bray_symbols::DependencySubjectRoot::Result {
-                StorageValueDestination::Result
-            } else {
-                let value = self.entry_subject(entry?, ordinal(subject.subject_root())?, subject)?;
-                let storage = value.inline_captured_storage()?;
-                let target = storage.known_address()?;
+            let mut writes = Vec::new();
 
-                let reference = storage.observations().find_map(|(path, kind)| match kind {
-                    bray_bound_tree::StorageObservationKind::Reference(ty) if path.is_empty() => Some(ty),
-                    _ => None,
-                })?;
+            for (subject, template) in outcome.bindings.iter() {
+                let value = self.storage_value_expression(template);
 
-                let bray_symbols::TypeData::Borrow { target: ty, .. } = *self.request.semantic_values().type_data(reference)
-                    else { return None; };
+                if subject.subject_root() == bray_symbols::DependencySubjectRoot::Result {
+                    writes.push((subject, StorageValueDestination::Result, value));
 
-                StorageValueDestination::Current { target: target.clone(), ty }
-            };
+                    continue;
+                }
 
-            Some((destination, self.storage_value_expression(template)))
+                let descriptor = entry.and_then(|entry| {
+                    self.entry_subject(entry, ordinal(subject.subject_root())?, subject)
+                });
+
+                let Some(storage) = descriptor.as_ref().and_then(ExecutionCondition::inline_captured_storage) else {
+                    continue;
+                };
+
+                let Some(ty) = storage.observations().find_map(|(path, kind)| {
+                    let bray_bound_tree::StorageObservationKind::Reference(reference) = kind else { return None; };
+
+                    if !path.is_empty() { return None; }
+
+                    match *self.request.semantic_values().type_data(reference) {
+                        bray_symbols::TypeData::Borrow { target, .. } => Some(target),
+                        _ => None,
+                    }
+                }) else { continue; };
+
+                if let Some(target) = storage.known_address() {
+                    writes.push((subject, StorageValueDestination::Current { target: target.clone(), ty }, value));
+                } else if let Some(regions) = storage.address_regions() {
+                    writes.extend(regions.into_iter().map(|target| (
+                        subject,
+                        StorageValueDestination::Region { target, via: subject.clone() },
+                        value.clone(),
+                    )));
+                }
+            }
+
+            // The exit describes writes in callee coordinates. Instantiation can make
+            // independent formal destinations overlap, losing their exact final value.
+            let conflicted = writes.iter().enumerate().filter_map(|(index, (_, destination, value))| {
+                let StorageValueDestination::Current { target, .. } = destination else { return None; };
+
+                writes.iter().any(|(_, other, incoming)| {
+                    let reached = match other {
+                        StorageValueDestination::Result => return false,
+                        StorageValueDestination::Current { target, .. } if other != destination || incoming != value => target,
+                        StorageValueDestination::Current { .. } => return false,
+                        StorageValueDestination::Region { target, .. } => target,
+                    };
+
+                    target.relationship_in_slots(reached, self.storage.identities()) != bray_bound_tree::StorageRelationship::Disjoint
+                }).then_some(index)
+            }).collect::<std::collections::BTreeSet<_>>();
+
+            let writes = writes.into_iter().enumerate().map(|(index, (subject, destination, value))| {
+                let destination = match destination {
+                    StorageValueDestination::Current { target, .. } if conflicted.contains(&index) => {
+                        StorageValueDestination::Region { target, via: subject.clone() }
+                    }
+                    destination => destination,
+                };
+
+                (destination, value)
             });
 
             bray_bound_tree::StorageValueTransition::new(outcome.guard, writes)
-                .with_ownership(outcome.ownership.clone()).with_carriers(self.bound_carriers(&outcome.carriers).iter().cloned())
+                .with_ownership(outcome.ownership.clone())
+                .with_carriers(self.bound_carriers(&outcome.carriers).iter().cloned())
         }).collect()
     }
 
@@ -53,7 +101,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             let path = crate::storage::storage_projections(self.request.semantic_values(), self.dependencies, carrier.path())
                 .expect("checked result carrier retains its selected projections");
 
-            bray_symbols::DependencyWitnessCarrier::new(carrier.guarantee(), path)
+            carrier.remap(carrier.guarantee(), path)
         }).collect()
     }
 
@@ -77,7 +125,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         destination: &StorageValueDestination,
     ) -> Option<(ExecutionPlace, bool)> {
         match destination {
-            StorageValueDestination::Region(_) => None,
+            StorageValueDestination::Region { .. } => None,
             StorageValueDestination::Result => self.invocation_result_place(invocation).map(|place| (place, false)),
             StorageValueDestination::Current { target, ty } => Some(self.current_target_place(target, *ty)),
         }
@@ -88,7 +136,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         invocation: bray_bound_tree::BoundExecutionSite, destination: &StorageValueDestination,
     ) -> Option<ExecutionCondition> {
         match destination {
-            StorageValueDestination::Region(_) => None,
+            StorageValueDestination::Region { .. } => None,
             StorageValueDestination::Result => Some(self.invocation_value(state, invocation)),
             StorageValueDestination::Current { target, ty } => self.current_target_value(state, target, Some(*ty)),
         }
@@ -240,10 +288,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             }
 
             let writes = transition.bindings.iter().map(|(destination, value)| {
-            let value = self.bind_captured_value(state, value, &input, bray_bound_tree::StorageMutation::Operation(invocation), &mut alternative);
+            let value = self.bind_captured_value(state, entry, value, &input, bray_bound_tree::StorageMutation::Operation(invocation), &mut alternative);
 
             let value = match destination {
-                StorageValueDestination::Region(_) => value,
+                StorageValueDestination::Region { .. } => value,
                 StorageValueDestination::Result => value.with_producer(producer.clone()),
                 StorageValueDestination::Current { .. } => {
                     let (place, _) = self.captured_destination(invocation, destination)
@@ -266,7 +314,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     }
 
     pub(in crate::analysis::guarantee) fn complete_entry_outputs(&self, state: &mut ExecutionState,
-        invocation: bray_bound_tree::BoundExecutionSite, result: ExecutionCondition,
+        admission: Option<bray_bound_tree::BoundExecutionSite>, publication: bray_bound_tree::BoundExecutionSite,
+        result: ExecutionCondition,
         entry: &crate::ExecutionCallEvidence,
         mut finish: impl FnMut(&mut ExecutionState, ExecutionCondition, &bray_symbols::DependencyOwnedResult, &[bray_symbols::DependencyWitnessCarrier<bray_bound_tree::StorageProjection>]) -> ExecutionCondition,
     ) -> ExecutionCondition {
@@ -285,14 +334,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let Some(first) = feasible.next() else { return result; };
 
         let mut complete = |branch: &mut ExecutionState, (row, guard): (&crate::execution_guarantees::ExecutionOutput, ExecutionCondition)| {
-            let value = self.complete_output_row(branch, invocation, result.clone(), row, guard);
+            let value = self.complete_output_row(branch, admission, publication, result.clone(), row, guard);
 
             finish(branch, value, &row.ownership, &row.carriers)
         };
 
         let Some(second) = feasible.next() else { return complete(state, first); };
 
-        let expression = invocation.expression().expect("normal call outcomes retain their owning expression");
+        let expression = publication.expression().expect("normal call outcomes retain their publishing expression");
         let mut completed = state.clone();
         let mut value = complete(&mut completed, first);
 
@@ -308,10 +357,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         value
     }
 
-    fn complete_output_row(&self, state: &mut ExecutionState, invocation: bray_bound_tree::BoundExecutionSite,
+    fn complete_output_row(&self, state: &mut ExecutionState,
+        admission: Option<bray_bound_tree::BoundExecutionSite>, publication: bray_bound_tree::BoundExecutionSite,
         mut result: ExecutionCondition, row: &crate::execution_guarantees::ExecutionOutput, guard: ExecutionCondition,
     ) -> ExecutionCondition {
-        if let Some(entry) = state.entries.get_mut(&invocation) {
+        if let Some(entry) = admission.and_then(|admission| state.entries.get_mut(&admission)) {
             entry.outputs = crate::execution_guarantees::ExecutionOutputs([crate::execution_guarantees::ExecutionOutput {
                 guard: crate::execution_guarantees::OutputGuard::Bound(guard.clone()), ..row.clone()
             }].into());
@@ -321,10 +371,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         for (destination, value) in &row.writes {
             let value = value.clone();
-            let value = self.complete_captured_references(state, invocation, value);
+            let value = self.complete_captured_references(state, publication, value);
 
             if *destination == StorageValueDestination::Result { result = value.with_producer(result); }
-            else { self.publish_captured_output(state, invocation, destination, value); }
+            else { self.publish_captured_output(state, publication, destination, value); }
         }
 
         result
@@ -333,6 +383,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     fn bind_captured_value(
         &self,
         state: &ExecutionState,
+        entry: &crate::ExecutionCallEvidence,
         value: &Value<StorageValueInput, bray_bound_tree::StorageProjection>,
         input: &impl Fn(&StorageValueInput) -> ExecutionCondition,
         mutation: bray_bound_tree::StorageMutation,
@@ -364,7 +415,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     let arguments = invocation.captures.iter().enumerate().map(|(index, value)| {
                         let ordinal = bray_symbols::SymbolOrdinal::new(u32::try_from(index).expect("checked capture ordinal fits"));
 
-                        (ExecutionPlace::argument(ordinal), self.bind_captured_value(state, value, input, mutation, alternative))
+                        (ExecutionPlace::argument(ordinal), self.bind_captured_value(state, entry, value, input, mutation, alternative))
                     }).collect();
 
                     let mut selection = super::super::deferred::selection(&state.assumptions);
@@ -373,12 +424,18 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         input(guard).assume(true, &mut selection);
                     }
 
+                    let mut captured = crate::ExecutionCallEvidence {
+                        arguments,
+                        owned_inputs: std::sync::Arc::clone(&invocation.owned_inputs),
+                        pending_execution: true,
+                        ..Default::default()
+                    };
+
+                    state.transfer_frame_admission(entry, &mut captured);
+
                     frame.producers.insert(key, crate::ExecutionDeferredInvocation {
-                        callee, transition: None, selection, reports: Default::default(),
-                        entry: std::sync::Arc::new(crate::ExecutionCallEvidence {
-                            arguments, owned_inputs: std::sync::Arc::clone(&invocation.owned_inputs),
-                            pending_execution: true, ..Default::default()
-                        }),
+                        callee, transition: None, selection, completed: None, reports: Default::default(),
+                        entry: std::sync::Arc::new(captured),
                     });
                 }
 
@@ -386,18 +443,18 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             }
             Value::Unknown => ExecutionCondition::unknown(),
             Value::Operation(bray_symbols::CapturedValueOperation::Read, values) => {
-                let reference = self.bind_captured_value(state, &values[0], input, mutation, alternative);
+                let reference = self.bind_captured_value(state, entry, &values[0], input, mutation, alternative);
                 let reference = self.refresh_captured_references(state, reference, None);
 
                 ExecutionCondition::storage_value(bray_symbols::CapturedValueOperation::Read, vec![reference].into())
             }
             Value::Operation(bray_symbols::CapturedValueOperation::Inline, values) =>
-                super::preservation::ValuePreservation::inline_snapshot(&self.bind_captured_value(state, &values[0], input, mutation, alternative), mutation),
+                super::preservation::ValuePreservation::inline_snapshot(&self.bind_captured_value(state, entry, &values[0], input, mutation, alternative), mutation),
             Value::Operation(operation, values) => ExecutionCondition::storage_value(*operation,
-                values.iter().map(|value| self.bind_captured_value(state, value, input, mutation, alternative)).collect()),
+                values.iter().map(|value| self.bind_captured_value(state, entry, value, input, mutation, alternative)).collect()),
             Value::Aggregate { base, fields } => ExecutionCondition::constructed(
-                self.bind_captured_value(state, base, input, mutation, alternative), fields.iter().map(|(field, value)|
-                    (*field, self.bind_captured_value(state, value, input, mutation, alternative))).collect()),
+                self.bind_captured_value(state, entry, base, input, mutation, alternative), fields.iter().map(|(field, value)|
+                    (*field, self.bind_captured_value(state, entry, value, input, mutation, alternative))).collect()),
         }
     }
 

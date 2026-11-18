@@ -738,7 +738,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     ) {
         let result = self.invocation_value(state, expression.into());
 
-        let result = self.complete_trusted_call(state, expression.into(), self.invocation_result_place(expression.into()).as_ref(), result, observations);
+        let result = self.complete_trusted_call(state, expression.into(), expression.into(), self.invocation_result_place(expression.into()).as_ref(), result, observations);
 
         state.expressions.insert(expression, result);
     }

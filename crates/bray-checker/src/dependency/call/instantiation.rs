@@ -296,7 +296,8 @@ where
             | DependencySubjectRoot::ImplementationWitness(_)
             | DependencySubjectRoot::ImplementationRequirement(_)
             | DependencySubjectRoot::ProductStatic(_)
-            | DependencySubjectRoot::ExactThreadStatic(_) => false,
+            | DependencySubjectRoot::ExactThreadStatic(_)
+            | DependencySubjectRoot::StaticInstance(..) => false,
         };
 
         transferred
@@ -394,6 +395,14 @@ where
             }
             DependencySubjectRoot::ExactThreadStatic(id) => {
                 return Ok(direct(BoundDependencySubject::ExactThreadStatic(id)));
+            }
+            DependencySubjectRoot::StaticInstance(reference, duration) => {
+                let declaration = self.request.semantic_values().static_reference(reference).template().declaration();
+
+                return Ok(direct(match duration {
+                    bray_symbols::StaticStorageDuration::Product => BoundDependencySubject::ProductStatic(declaration),
+                    bray_symbols::StaticStorageDuration::ExactThread => BoundDependencySubject::ExactThreadStatic(declaration),
+                }));
             }
             _ => {}
         }

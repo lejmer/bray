@@ -9,11 +9,15 @@ use bray_symbols::{
 use super::super::flow::ExecutionFlowDomain;
 use crate::{CheckerRequestContext, ExecutionCondition, ExecutionPlace};
 
-/// Current returned values shared by every consumer of this completion's ownership layout.
-pub(super) type ReturnedValues = BTreeMap<
-    bray_symbols::DependencyOwnedTransfer,
-    (Vec<StorageProjection>, ExecutionCondition),
->;
+/// The produced component and its admitted ownership lineage for one possible transfer.
+struct ReturnedValue {
+    path: Vec<StorageProjection>,
+    value: ExecutionCondition,
+    source: ExecutionCondition,
+    extracted: bool,
+}
+
+type ReturnedValues = BTreeMap<bray_symbols::DependencyOwnedTransfer, ReturnedValue>;
 
 impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     pub(in crate::analysis) fn reference_value_source(
@@ -77,7 +81,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     ) -> BTreeSet<ExecutionCondition> {
         let Some(dependencies) = self.dependencies.calls().get(&invocation) else { return BTreeSet::new(); };
 
-        self.feasible_owned_transfers(entry, &entry.assumptions, &ExecutionCondition::unknown(), dependencies.owned_result())
+        self.feasible_owned_transfers(entry, &entry.assumptions, &ExecutionCondition::unknown(), &dependencies.owned_result())
             .into_iter().map(|(transfer, _)| transfer)
             .filter(|transfer| !dependencies.returned_value(transfer).is_borrowed())
             .filter_map(|transfer| {
@@ -102,7 +106,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
     fn transferred_values(
         &self,
-        state: &mut super::super::state::ExecutionState,
+        state: &super::super::state::ExecutionState,
         entry: &crate::ExecutionCallEvidence,
         result: &ExecutionCondition,
         ownership: &bray_symbols::DependencyOwnedResult,
@@ -135,13 +139,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 ExecutionCondition::owned_value(source.owner_identity().clone(), actual)
             };
 
-            if !source.is_reference() && !value.is_reference() {
-                let preservation = crate::storage::owned_storage_preservation(self.dependencies, transfer.preservation());
-
-                state.preserve_owned_result(&source, &value, is_extraction, |path| preservation.subtree(path).into_owned());
-            }
-
-            fields.insert(transfer.clone(), (path, value));
+            fields.insert(transfer.clone(), ReturnedValue { path, value, source, extracted: is_extraction });
         }
 
         fields
@@ -163,7 +161,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         for (transfer, guard) in self.feasible_owned_transfers(entry, &state.assumptions, result, ownership) {
             for value in returned.get(transfer).into_iter()
-                .flat_map(|(_, value)| state.owned_values(value))
+                .flat_map(|returned| state.owned_values(&returned.value))
             {
                 let owner = value.owner_identity().clone();
 
@@ -397,12 +395,18 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 self.complete_owned_result(invocation, state, result, entry, returned, layout, outside)
             }
             DependencyOwnedResult::Transfer(transfer) => {
+                let Some(returned) = returned.get(transfer) else { return Some(result); };
+
+                if !returned.source.is_reference() && !returned.value.is_reference() {
+                    let preservation = crate::storage::owned_storage_preservation(self.dependencies, transfer.preservation());
+
+                    state.preserve_owned_result(&returned.source, &returned.value, returned.extracted,
+                        |path| preservation.subtree(path).into_owned());
+                }
+
                 self.refine_witnesses(state);
 
-                Some(match returned.get(transfer) {
-                    Some((path, value)) => result.with_storage_component(path, value.clone()),
-                    None => result,
-                })
+                Some(result.with_storage_component(&returned.path, returned.value.clone()))
             }
             DependencyOwnedResult::All(values) => {
                 // Install containing owners first so explicit surviving child
@@ -423,7 +427,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                             .filter(|(other, _)| *other != index)
                             .flat_map(|(_, sibling)| sibling.transfers())
                             .filter_map(|transfer| returned.get(transfer))
-                            .flat_map(|(_, value)| state.witness_values(value)),
+                            .flat_map(|returned| state.witness_values(&returned.value)),
                     );
 
                     result = self.complete_owned_result(

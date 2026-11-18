@@ -52,7 +52,13 @@ pub enum StorageValueDestination {
     /// The operation's private result, published after its required cleanup.
     Result,
     /// Possible dependencies written somewhere within this region. No current value is established.
-    Region(StorageTarget),
+    Region {
+        /// Region possibly written through the evaluated descriptor.
+        target: StorageTarget,
+        /// The checked destination that supplied the descriptor. Separate writes
+        /// can reach the same region and must retain both sets of dependencies.
+        via: bray_symbols::DependencySubject,
+    },
     /// Actual typed storage, independently of its conservative effect footprint.
     Current {
         /// The captured storage address. A region bound cannot supply this field.
@@ -74,3 +80,55 @@ pub enum StorageSnapshotRoot {
 /// One guarded set of whole-value publications over evaluated inputs and actual destinations.
 pub type StorageValueTransition = bray_symbols::CapturedValueOutcome<StorageValueDestination, StorageValueInput,
     StorageProjection, bray_symbols::StaticReferenceSelection, bray_symbols::ConstantTermId>;
+
+/// Joins finite checked alternatives observed at the same operation during CFG replay.
+/// A path with no known publications remains feasible alongside the other paths.
+pub fn merge_storage_value_transitions(
+    observed: &mut std::sync::Arc<[StorageValueTransition]>,
+    incoming: &std::sync::Arc<[StorageValueTransition]>,
+) {
+    if observed == incoming { return; }
+
+    let opaque = (observed.is_empty() || incoming.is_empty()).then(|| StorageValueTransition::new(None, []));
+
+    *observed = bray_base::sorted_unique_shared_slice(observed.iter().chain(incoming.iter()).cloned().chain(opaque));
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use bray_symbols::{CapturedValueTemplate, DependencySubject, DependencySubjectRoot, SymbolOrdinal};
+    use crate::{BoundUnitId, StorageIdentityId, StoragePath, StorageTarget};
+
+    use super::{StorageValueDestination, StorageValueInput, StorageValueTransition, merge_storage_value_transitions};
+
+    #[test]
+    fn replay_keeps_possible_writes_without_establishing_a_current_write() {
+        let target = StorageTarget::storage(StoragePath::root(StorageIdentityId::from_slot(BoundUnitId::new(1), 0)));
+
+        let destination = StorageValueDestination::Region {
+            target,
+            via: DependencySubject::root(DependencySubjectRoot::Receiver),
+        };
+
+        let row = |ordinal| StorageValueTransition::new(None, [(
+            destination.clone(),
+            CapturedValueTemplate::Input(StorageValueInput::Argument(SymbolOrdinal::new(ordinal))),
+        )]);
+
+        let incoming = Arc::from([row(1)]);
+        let mut observed = Arc::from([row(0)]);
+
+        merge_storage_value_transitions(&mut observed, &incoming);
+        assert!(observed.contains(&row(0)) && observed.contains(&row(1)));
+
+        merge_storage_value_transitions(&mut observed, &Arc::default());
+        assert!(observed.contains(&StorageValueTransition::new(None, [])));
+
+        let snapshot = Arc::clone(&observed);
+
+        merge_storage_value_transitions(&mut observed, &incoming);
+        assert_eq!(observed, snapshot);
+    }
+}

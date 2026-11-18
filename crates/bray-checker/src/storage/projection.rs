@@ -7,17 +7,26 @@ pub(crate) fn static_subject_type<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     root: bray_symbols::DependencySubjectRoot,
 ) -> crate::CheckerQueryResult<Option<TypeId>, C::UpstreamError> {
-    let (bray_symbols::DependencySubjectRoot::ProductStatic(declaration)
-    | bray_symbols::DependencySubjectRoot::ExactThreadStatic(declaration)) = root else {
+    let values = request.semantic_values();
+
+    let Some(declaration) = root.static_declaration(values) else {
         return Ok(None);
     };
 
     let declared = request.context().storage_declaration_type(declaration.into())?;
     let constants = request.checked_constant_terms(declared.value())?;
+    let ty = crate::constant::resolve_type_expression_template(values, declared.value(), constants.value());
 
-    Ok(crate::constant::resolve_type_expression_template(
-        request.semantic_values(), declared.value(), constants.value(),
-    ))
+    if let (Some(ty), bray_symbols::DependencySubjectRoot::StaticInstance(reference, _)) = (ty, root) {
+        let selected = values.static_reference(reference);
+
+        let ty = values.substitute_type(ty, selected.substitution())
+            .expect("selected static type retains its checked specialization");
+
+        return Ok(Some(ty));
+    }
+
+    Ok(ty)
 }
 
 /// Selects a pattern component relative to its already evaluated expression.

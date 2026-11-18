@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
 use crate::{
     BorrowCapabilityId, BoundUnitId, BoundUnitKind, PlannedBorrowCapability, StorageAccess,
@@ -6,7 +7,7 @@ use crate::{
     StorageAlternativeId, StorageBinding, StorageBindingTarget, StorageIdentity, StorageIdentityId,
     StoragePlan,
 };
-use bray_symbols::{BorrowKind, TypeId};
+use bray_symbols::{BorrowKind, StaticReferenceSelection, TypeId};
 
 /// A contract violation that prevents construction of one storage plan.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -32,6 +33,7 @@ pub struct StoragePlanBuilder {
     pub(super) unit: BoundUnitId,
     pub(super) kind: BoundUnitKind,
     pub(super) identities: Vec<StorageIdentity>,
+    pub(super) static_slots: BTreeMap<Arc<StaticReferenceSelection>, StorageIdentityId>,
     pub(super) temporaries: BTreeMap<crate::BoundExpressionId, StorageIdentityId>,
     pub(super) value_slots: BTreeMap<crate::BoundExpressionId, StorageIdentityId>,
     pub(super) value_consumptions: BTreeMap<(crate::BoundExecutionSite, crate::StorageValueConsumptionPhase), BTreeSet<crate::StoragePath>>,
@@ -57,6 +59,7 @@ impl StoragePlanBuilder {
             unit,
             kind,
             identities: Vec::new(),
+            static_slots: BTreeMap::new(),
             temporaries: BTreeMap::new(),
             value_slots: BTreeMap::new(),
             value_consumptions: BTreeMap::new(),
@@ -80,14 +83,25 @@ impl StoragePlanBuilder {
             return Err(StoragePlanBuildError::ForeignUnit);
         }
 
+        if let StorageIdentity::Static(selection) = &identity
+            && let Some(id) = self.static_slots.get(selection) {
+            return Ok(*id);
+        }
+
         let slot = next_slot(self.identities.len())?;
         let id = StorageIdentityId::from_storage_slot(self.unit, slot);
 
-        self.identities.push(identity);
-
-        if let StorageIdentity::Temporary(expression) = identity {
-            self.temporaries.entry(expression).or_insert(id);
+        match &identity {
+            StorageIdentity::Static(selection) => {
+                self.static_slots.insert(Arc::clone(selection), id);
+            }
+            StorageIdentity::Temporary(expression) => {
+                self.temporaries.entry(*expression).or_insert(id);
+            }
+            _ => {}
         }
+
+        self.identities.push(identity);
 
         Ok(id)
     }
@@ -445,7 +459,7 @@ impl StoragePlanBuilder {
             );
         };
 
-        match (target, self.identity(storage).copied()) {
+        match (target, self.identity(storage).cloned()) {
             (
                 StorageBindingTarget::InvocationResult(expected),
                 Some(StorageIdentity::InvocationResult(actual)),
@@ -473,9 +487,6 @@ impl StoragePlanBuilder {
                 Some(StorageIdentity::Parameter(actual)),
             ) => expected == actual,
             (StorageBindingTarget::Receiver(expected), Some(StorageIdentity::Receiver(actual))) => {
-                expected == actual
-            }
-            (StorageBindingTarget::Static(expected), Some(StorageIdentity::Static(actual))) => {
                 expected == actual
             }
             (

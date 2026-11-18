@@ -120,8 +120,6 @@ pub enum StorageBindingTarget {
     Parameter(CallableParameterSymbolId),
     /// A callable receiver.
     Receiver(ReceiverParameterSymbolId),
-    /// One static declaration instance.
-    Static(bray_symbols::StaticSymbolId),
     /// An anonymous callable parameter.
     AnonymousParameter(AnonymousCallableParameterSymbolId),
     /// A predicate parameter.
@@ -170,7 +168,6 @@ impl StorageBindingTarget {
             BoundReferenceTarget::Surface(AnySymbolId::PredicateParameter(id)) => {
                 Some(Self::PredicateParameter(id))
             }
-            BoundReferenceTarget::Surface(AnySymbolId::Static(id)) => Some(Self::Static(id)),
             _ => None,
         }
     }
@@ -186,7 +183,6 @@ impl StorageBindingTarget {
             Self::AnonymousParameter(id) => Some(BoundReferenceTarget::Local(id.into())),
             Self::PostconditionResult(id) => Some(BoundReferenceTarget::Local(id.into())),
             Self::PredicateParameter(id) => Some(BoundReferenceTarget::Surface(id.into())),
-            Self::Static(id) => Some(BoundReferenceTarget::Surface(id.into())),
             _ => None,
         }
     }

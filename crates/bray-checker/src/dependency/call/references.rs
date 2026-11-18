@@ -33,6 +33,8 @@ pub(super) fn with_references<C: CheckerRequestContext + ?Sized>(
             })
         }).transpose()?;
 
+        assert!(call.receiver().is_none() || callee.is_some(), "a deferred method records its selected receiver convention");
+
         contracts.with_deferred_cleanup(captures, result)
             .with_deferred_execution(
                 template.effect_outcomes().clone(),
@@ -75,8 +77,7 @@ fn result_retains_inputs<C: CheckerRequestContext + ?Sized>(
                     .iter()
                     .any(|(_, subject, _)| subject.observes_completion_result())
         })
-        || template.captured_values().iter().any(|row| !row.carriers.is_empty())
-        || !template.owned_result().is_empty()
+        || template.captured_values().iter().any(|row| !row.carriers.is_empty() || !row.ownership.is_empty())
         || template.captured_values().iter().flat_map(|outcome| outcome.bindings.iter()).any(|(_, value)| value.inputs().next().is_some())
         || template
             .borrows()
@@ -171,7 +172,9 @@ pub(super) fn with_reference_inputs<C: CheckerRequestContext + ?Sized>(
 
     let result_type = input_type(&bray_symbols::DependencySubject::root(DependencySubjectRoot::Result))?.map(|(ty, _)| ty);
 
-    let returned = returned_values(request, template.owned_result().transfers(), result_type, contracts.input_count(), |ordinal| {
+    let transfers = template.captured_values().iter().flat_map(|row| row.ownership.transfers());
+
+    let returned = returned_values(request, transfers, result_type, contracts.input_count(), |ordinal| {
         let root = if receiver && ordinal == 0 { DependencySubjectRoot::Receiver }
             else { DependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(ordinal - u32::from(receiver))) };
 
@@ -256,6 +259,10 @@ fn prepare_reference<C: CheckerRequestContext + ?Sized>(
     relation: &bray_symbols::DependencyBorrowRelation,
     mut ty: bray_symbols::TypeId,
 ) -> Result<Option<BoundCallReference>, CheckerQueryError<C::UpstreamError>> {
+    if relation.entry().is_some_and(|entry| entry.subject_root().is_static()) {
+        return Ok(Some(BoundCallReference::new(relation.clone(), false, Some(ty))));
+    }
+
     if relation.entry().is_none()
         || relation.provenance() == bray_symbols::DependencyReferenceProvenance::InputRegions
     {

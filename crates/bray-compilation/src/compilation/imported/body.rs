@@ -513,7 +513,7 @@ impl super::super::Compilation {
         let resolver =
             self.imported_symbol_resolver(address.interface(), skeleton, cancellation)?;
 
-        let template = match graph.intern_checked_template(body.template(), &resolver) {
+        let template = match graph.intern_checked_template(body.template(), &resolver, self.semantic_value_store()?) {
             Ok(template) => template,
             Err(_) => {
                 return Ok(DiagnosticResult::new(

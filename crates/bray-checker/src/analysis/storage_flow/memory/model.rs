@@ -21,6 +21,7 @@ pub(super) use bray_bound_tree::{
 /// Reference values are copied between slots. Contents and obligations belong to targets once.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(in crate::analysis::storage_flow) struct State {
+    pub(super) storage_slots: std::sync::Arc<[bray_bound_tree::StorageIdentity]>,
     pub(super) retirements: BTreeSet<(Target, Retirement)>,
     // Complete reference shapes, with whether the type contains no reference slots.
     pub(super) complete_reference_types: std::sync::Arc<BTreeMap<TypeId, bool>>,

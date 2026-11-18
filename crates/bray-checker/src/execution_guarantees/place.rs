@@ -79,7 +79,7 @@ impl ExecutionPlace {
         };
 
         let producer = identity.and_then(|identity| storage.identity(identity))
-            .and_then(bray_bound_tree::StorageIdentity::definition_occurrence);
+            .and_then(|identity| identity.definition_occurrence());
 
         Self {
             root: ExecutionInput::Pointee { target: target.clone(), ty, producer },
@@ -169,13 +169,6 @@ impl ExecutionPlace {
         }
     }
 
-    pub(crate) fn selected_static(&self) -> Option<bray_symbols::StaticSymbolId> {
-        match &self.root {
-            ExecutionInput::Static(selection) => Some(selection.template().declaration()),
-            _ => None,
-        }
-    }
-
     pub(crate) fn argument(ordinal: bray_symbols::SymbolOrdinal) -> Self {
         Self {
             root: ExecutionInput::Argument(ordinal),
@@ -260,6 +253,9 @@ impl ExecutionPlace {
         identity: bray_bound_tree::StorageIdentityId,
     ) -> Option<Self> {
         let root = match storage.identity(identity)? {
+            bray_bound_tree::StorageIdentity::Static(selection) => {
+                return Some(Self { root: ExecutionInput::Static(selection), projections: Arc::new([]) });
+            }
             bray_bound_tree::StorageIdentity::Parameter(parameter) => {
                 BoundReferenceTarget::Surface(parameter.into())
             }

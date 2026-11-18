@@ -3,7 +3,7 @@ use bray_symbols::{CapturedValueOperation as Op, CapturedValueTemplate as Value}
 use crate::{InterfaceDependencyContract, InterfaceDependencyProjection, InterfaceLimit, InterfaceSemantics,
     InterfaceValidationError, InterfaceValidationField, InterfaceValidationLimits, PackageInterfaceSurface};
 
-use super::surface::{validate_index, validate_symbol};
+use super::surface::validate_index;
 
 fn invalid() -> InterfaceValidationError {
     crate::semantic::codec::invalid_value(InterfaceValidationField::Dependency)
@@ -40,12 +40,7 @@ impl InterfaceSemantics {
 
                 match value {
                     Value::Input(input) | Value::Data(input) => validate_index(input.to_index(), self.constant_terms.len())?,
-                    Value::Static(root) => {
-                        validate_symbol(&root.declaration, symbol_count, dependency_count)?;
-                        validate_index(root.substitution.to_index(), self.substitutions.len())?;
-
-                        for witness in root.selected_witnesses.iter() { validate_index(witness.to_index(), self.implementation_instances.len())?; }
-                    }
+                    Value::Static(root) => self.validate_static_reference(root, symbol_count, dependency_count)?,
                     Value::Deferred { alternatives, unknown } => {
                         if alternatives.is_empty() && !unknown { return Err(invalid()); }
 

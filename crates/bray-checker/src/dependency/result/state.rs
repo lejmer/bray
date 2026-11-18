@@ -30,7 +30,6 @@ impl ReportDependencies {
 /// Possible retained dependencies travel with the same control-flow state as storage.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct State {
-    pub(super) completions: BTreeMap<BoundExpressionId, BTreeSet<DependencyRequirement>>,
     pub(super) values:
         BTreeMap<bray_bound_tree::BoundExecutionSite, BTreeSet<DependencyRequirement>>,
     pub(super) locals: BTreeMap<LocalBindingSymbolId, BTreeSet<DependencyRequirement>>,
@@ -55,7 +54,6 @@ impl State {
     pub(crate) fn merge(&mut self, incoming: &Self) -> bool {
         let mut changed = merge_map(&mut self.values, &incoming.values);
 
-        changed |= merge_map(&mut self.completions, &incoming.completions);
         changed |= merge_map(&mut self.locals, &incoming.locals);
         changed |= merge_map(&mut self.local_sources, &incoming.local_sources);
         changed |= merge_map(&mut self.sources, &incoming.sources);

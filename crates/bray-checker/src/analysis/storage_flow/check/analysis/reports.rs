@@ -365,7 +365,7 @@ impl<'analysis, C: CheckerRequestContext + ?Sized> StorageFlowCollector<'analysi
 
     pub(super) fn deferred_report_dependencies(
         &self,
-        state: &mut crate::dependency::ResultState,
+        transfer: &crate::dependency::ResultTransfer<'_, '_, C>,
         expression: bray_bound_tree::BoundExpressionId,
         source: Option<BoundExecutionSite>,
         output: CallReportOutput,
@@ -373,13 +373,9 @@ impl<'analysis, C: CheckerRequestContext + ?Sized> StorageFlowCollector<'analysi
         let Some(source) = source else {
             return Ok(crate::dependency::ReportDependencies {
                 subjects: self.liveness.retained_by(expression).collect(),
-                requirements: state.value_requirements(expression).cloned().collect(),
+                requirements: transfer.operand_dependencies(expression).cloned().collect(),
             });
         };
-
-        let transfer = crate::dependency::ResultTransfer::new(
-            self.request, self.execution.semantics.types(), self.execution.semantics.selections(),
-            self.patterns, self.values, self.storage, state);
 
         let requirements = transfer.report_values(source, output)?
             .expect("a formed future's selected report has its portable contract");

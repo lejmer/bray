@@ -729,9 +729,9 @@ mod tests {
                     arguments: [(ExecutionPlace::argument(SymbolOrdinal::new(0)), captured.clone())].into(),
                     copy_sources: [(ExecutionPlace::argument(SymbolOrdinal::new(0)), selector.clone())].into(),
                     assumptions: [(captured.clone(), true)].into(), ..Default::default()
-                }), reports: Default::default(), selection: Default::default(),
+                }), completed: None, reports: Default::default(), selection: Default::default(),
             })].into(),
-            unknown: Some(DeferredInvocation { callee: None, transition: None, entry: (), reports: Default::default(),
+            unknown: Some(DeferredInvocation { callee: None, transition: None, entry: (), completed: None, reports: Default::default(),
                 selection: [(selector.clone(), true), (unrelated.clone(), false), (captured.clone(), true)].into(),
             }), ..Default::default()
         })));

@@ -32,6 +32,11 @@ where
     let mut cleanup_free_operations = BTreeSet::new();
 
     for (id, identity) in storage.identity_entries() {
+        let temporary = match &identity {
+            bray_bound_tree::StorageIdentity::Temporary(expression) => Some(*expression),
+            _ => None,
+        };
+
         let (Some(scope), Some(ty)) = (owners.scope(Some(identity)), storage.storage_type(id))
         else {
             continue;
@@ -42,7 +47,7 @@ where
         if shape.cancellation || shape.lifecycle {
             scopes.insert(scope);
         } else if !shape.recovered
-            && let bray_bound_tree::StorageIdentity::Temporary(expression) = identity
+            && let Some(expression) = temporary
             && !matches!(
                 request.unit().tree().expression(expression),
                 Some(bray_bound_tree::BoundExpression::Assignment(_))

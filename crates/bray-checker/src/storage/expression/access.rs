@@ -43,15 +43,8 @@ where
             BoundReferenceTarget::Surface(AnySymbolId::ReceiverParameter(id)) => {
                 self.builder().binding(StorageBindingTarget::Receiver(id))
             }
-            BoundReferenceTarget::Surface(AnySymbolId::Static(id)) => {
-                let target = StorageBindingTarget::Static(id);
-
-                if self.builder().binding(target).is_none() {
-                    let ty = self.expression_type(expression).ty();
-                    let _ = self.bind_identity(target, StorageIdentity::Static(id), Some(ty))?;
-                }
-
-                self.builder().binding(target)
+            BoundReferenceTarget::Surface(AnySymbolId::Static(_)) => {
+                return self.temporary_access(expression);
             }
             BoundReferenceTarget::Surface(AnySymbolId::PredicateParameter(id)) => self
                 .builder()
@@ -86,6 +79,22 @@ where
             Some(StorageBinding::Access(access)) => self.copy_access(expression, access),
             None => self.temporary_access(expression),
         }
+    }
+
+    pub(super) fn static_access(
+        &mut self,
+        expression: BoundExpressionId,
+        selection: &bray_symbols::StaticReferenceSelection,
+    ) -> Result<StorageAccessId, PlanError<C::UpstreamError>> {
+        let ty = self.expression_type(expression).ty();
+
+        let identity = self.builder_mut().push_identity(StorageIdentity::Static(selection.clone().into()))
+            .expect("checked static selection belongs to this plan");
+
+        self.builder_mut().set_identity_type(identity, ty)
+            .expect("checked static selection retains its storage type");
+
+        self.direct_access(expression, identity)
     }
 
     fn receiver_field_access(
@@ -625,6 +634,8 @@ where
         stored_type: TypeId,
         reached_type: bray_bound_tree::ExpressionTypeResult,
     ) -> Result<StorageAccessId, PlanError<C::UpstreamError>> {
+        let is_index = matches!(identity, StorageIdentity::CustomIndexBorrow(_));
+
         let storage = self
             .builder_mut()
             .push_identity(identity).unwrap_or_else(|error| panic!("The storage-plan builder rejected one exact relationship. in retain_borrow_value: {error:?}"));
@@ -632,7 +643,7 @@ where
         self.builder_mut()
             .set_identity_type(storage, stored_type).unwrap_or_else(|error| panic!("The storage-plan builder rejected one exact relationship. in retain_borrow_value: {error:?}"));
 
-        if matches!(identity, StorageIdentity::CustomIndexBorrow(_)) {
+        if is_index {
             self.builder_mut().bind(
                 StorageBindingTarget::InvocationResult(expression.into()),
                 bray_bound_tree::StorageBinding::Identity(storage),

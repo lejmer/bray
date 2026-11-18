@@ -36,7 +36,7 @@ pub use error::{SemanticValueStoreCreateError, SemanticValueStoreError};
 pub use id::{
     CallableInstanceId, ConstantTermId, ConstantValueId, DependencyContractTemplateId,
     GenericSubstitutionId, ImplementationInstanceId, SemanticValueKind, SemanticValueStoreId,
-    TraitApplicationId, TypeId,
+    StaticReferenceId, TraitApplicationId, TypeId,
 };
 pub use store::SemanticValueStore;
 pub use substitution::{

@@ -1079,9 +1079,7 @@ impl<'bytes, 'records> SelectionBuilder<'bytes, 'records> {
             }
 
             for root in value.static_roots() {
-                self.enqueue(PendingRecord::Substitution(root.substitution.raw()));
-
-                for witness in root.selected_witnesses.iter() { self.enqueue(PendingRecord::ImplementationInstance(witness.raw())); }
+                self.include_static_reference(root);
             }
 
             self.include_dependency_projections(&value.projections().cloned().collect::<Vec<_>>());
@@ -1216,7 +1214,19 @@ impl<'bytes, 'records> SelectionBuilder<'bytes, 'records> {
             self.enqueue(PendingRecord::TraitApplication(application.raw()));
         }
 
+        if let InterfaceDependencySubjectRoot::StaticInstance(reference, _) = &subject.root {
+            self.include_static_reference(reference);
+        }
+
         self.include_dependency_projections(&subject.projections);
+    }
+
+    fn include_static_reference(&mut self, reference: &crate::InterfaceStaticReference) {
+        self.enqueue(PendingRecord::Substitution(reference.substitution.raw()));
+
+        for witness in reference.selected_witnesses.iter() {
+            self.enqueue(PendingRecord::ImplementationInstance(witness.raw()));
+        }
     }
 
     fn include_dependency_projections(&mut self, projections: &[InterfaceDependencyProjection]) {

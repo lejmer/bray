@@ -117,9 +117,9 @@ mod tests {
                     outputs: Default::default(),
                     arguments: [(place.clone(), captured.clone())].into(),
                     copy_sources: [(place.clone(), source.clone())].into(), pending_execution: true, ..Default::default()
-                }), reports: Default::default(), selection: Default::default(),
+                }), completed: None, reports: Default::default(), selection: Default::default(),
             })].into(),
-            unknown: Some(DeferredInvocation { callee: None, transition: None, entry: (), reports: Default::default(), selection: [(source.clone(), true)].into() }),
+            unknown: Some(DeferredInvocation { callee: None, transition: None, entry: (), completed: None, reports: Default::default(), selection: [(source.clone(), true)].into() }),
         })));
 
         let middle = ExecutionCondition::result();
@@ -167,12 +167,12 @@ mod tests {
         let abnormal = captured(1);
 
         let mut first = DeferredInvocation { callee: None, transition: None,
-            entry: (), selection: Default::default(),
+            entry: (), selection: Default::default(), completed: None,
             reports: [(DeferredCompleted, Arc::clone(&completed)), (DeferredAbnormal, Arc::clone(&abnormal))].into(),
         };
 
         let second = DeferredInvocation { callee: None, transition: None,
-            entry: (), selection: Default::default(),
+            entry: (), selection: Default::default(), completed: None,
             reports: [(DeferredCompleted, captured(2))].into(),
         };
 
@@ -215,6 +215,7 @@ mod tests {
                     source.clone(),
                     DeferredInvocation { callee: None, transition: None,
                         entry: Arc::clone(&entry),
+                        completed: None,
                         reports: Default::default(),
                         selection: Default::default(),
                     },

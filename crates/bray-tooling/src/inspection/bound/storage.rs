@@ -245,8 +245,8 @@ impl InspectionStorageProvenance {
             StorageIdentity::Receiver(symbol) => Ok(Self::SurfaceSymbol {
                 symbol: InspectionSymbolIdentity::from_symbol(symbols, symbol.into()),
             }),
-            StorageIdentity::Static(symbol) => Ok(Self::SurfaceSymbol {
-                symbol: InspectionSymbolIdentity::from_symbol(symbols, symbol.into()),
+            StorageIdentity::Static(reference) => Ok(Self::SurfaceSymbol {
+                symbol: InspectionSymbolIdentity::from_symbol(symbols, reference.template().declaration().into()),
             }),
             StorageIdentity::PredicateParameter(symbol) => Ok(Self::SurfaceSymbol {
                 symbol: InspectionSymbolIdentity::from_symbol(symbols, symbol.into()),
@@ -635,10 +635,6 @@ impl From<StorageBindingTarget> for InspectionStorageBindingTarget {
             },
             StorageBindingTarget::Receiver(symbol) => Self::SurfaceSymbol {
                 symbol_kind: "receiver_parameter",
-                id: symbol.symbol_id().raw(),
-            },
-            StorageBindingTarget::Static(symbol) => Self::SurfaceSymbol {
-                symbol_kind: "static",
                 id: symbol.symbol_id().raw(),
             },
             StorageBindingTarget::PredicateParameter(symbol) => Self::SurfaceSymbol {

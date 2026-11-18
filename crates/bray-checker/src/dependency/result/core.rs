@@ -37,11 +37,18 @@ impl<'a, 'state, C: CheckerRequestContext + ?Sized> Transfer<'a, 'state, C> {
         }
     }
 
+    pub(crate) fn operand_dependencies(
+        &self,
+        expression: BoundExpressionId,
+    ) -> impl Iterator<Item = &DependencyRequirement> {
+        self.state.value_requirements(expression)
+    }
+
     pub(crate) fn operation(
         &mut self,
         operation: crate::analysis::AnalysisOperationKind,
         yielded: Option<BoundExpressionId>,
-        completed: Option<&BTreeSet<BoundExpressionId>>,
+        completed: Option<&BTreeSet<DependencyRequirement>>,
     ) -> Result<(), CheckerQueryError<C::UpstreamError>> {
         use crate::analysis::{AnalysisCallPhase, AnalysisOperationKind};
 
@@ -199,7 +206,7 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
         &mut self,
         id: BoundExpressionId,
         expression: &BoundExpression,
-        completed: Option<&BTreeSet<BoundExpressionId>>,
+        completed: Option<&BTreeSet<DependencyRequirement>>,
     ) -> Result<BTreeSet<DependencyRequirement>, CheckerQueryError<C::UpstreamError>> {
         if self.inputs.is_independent(id) {
             return Ok(BTreeSet::new());
@@ -251,32 +258,9 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
                 BoundExpression::TraitQualifiedMember(member) => {
                     self.member_values(id, member.receiver())?
                 }
-                BoundExpression::Await(_)
-                    if completed
-                        .or_else(|| self.inputs.completion_sources(id))
-                        .is_some() =>
-                {
-                    let mut requirements = completed
-                        .or_else(|| self.inputs.completion_sources(id))
-                        .into_iter()
-                        .flatten()
-                        .filter_map(|source| self.state.completions.get(source))
-                        .flatten()
-                        .cloned()
-                        .collect::<BTreeSet<_>>();
-
-                    // Opaque values retain their own captures, rather than every
-                    // capture of the joined value's unrelated known producers.
-                    if completed.is_none_or(BTreeSet::is_empty) {
-                        requirements.extend(
-                            self.inputs
-                                .operands(id)
-                                .flat_map(|source| self.state.value_requirements(source).cloned()),
-                        );
-                    }
-
-                    requirements
-                }
+                BoundExpression::Await(awaited) => completed.cloned().unwrap_or_else(|| {
+                    self.state.value_requirements(awaited.operand()).cloned().collect()
+                }),
                 BoundExpression::Call(_)
                     if matches!(
                         self.selections.expression(id),

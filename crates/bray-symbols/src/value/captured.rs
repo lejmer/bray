@@ -277,11 +277,7 @@ impl<Subject: Ord + Clone, Input: Ord + Clone, Projection: Ord + Clone, Static: 
 {
     /// Guarantees every listed exit establishes on the same owner.
     pub fn common_carriers(rows: &[Self]) -> Arc<[super::DependencyWitnessCarrier<Projection, Guard>]> {
-        let Some((first, rest)) = rows.split_first() else { return Arc::default(); };
-
-        if rest.is_empty() { return Arc::clone(&first.carriers); }
-
-        first.carriers.iter().filter(|carrier| rest.iter().all(|row| row.carriers.binary_search(carrier).is_ok())).cloned().collect()
+        super::DependencyWitnessCarrier::common(rows.iter().map(|row| &row.carriers))
     }
 
     /// Returns ownership across all normal exits for consumers operating before exit selection.

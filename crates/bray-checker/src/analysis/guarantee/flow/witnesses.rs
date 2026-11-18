@@ -747,17 +747,21 @@ fn insert_snapshot(
     inputs: &mut BTreeMap<ExecutionCondition, ExecutionCondition>,
     joined: &ExecutionCondition, source: &ExecutionCondition,
 ) {
-    // An unchanged child shields its actual snapshot from ancestor substitution.
+    // Predicates already observe the logical value. Physical capture coordinates
+    // belong to storage transport and cannot make two proof operands disagree.
+    let joined = joined.without_captured_storage();
+    let source = source.without_captured_storage();
+
     inputs.entry(joined.clone()).and_modify(|previous| {
-        if previous == source { return; }
+        if *previous == source { return; }
 
         // An identity pin contributes no competing contents for the same owner.
-        if previous == joined && source.has_same_owner(joined) {
+        if *previous == joined && source.has_same_owner(&joined) {
             *previous = source.clone();
-        } else if source != joined || !previous.has_same_owner(joined) {
+        } else if source != joined || !previous.has_same_owner(&joined) {
             *previous = ExecutionCondition::unknown();
         }
-    }).or_insert_with(|| source.clone());
+    }).or_insert(source);
 }
 
 fn insert_guard(

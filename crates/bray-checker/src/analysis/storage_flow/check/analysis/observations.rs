@@ -23,8 +23,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             return;
         };
 
-        for transfer in contracts.owned_result().guaranteed_transfers() {
-            let original = contracts.owned_result().transfers()
+        let ownership = contracts.owned_result();
+
+        for transfer in ownership.guaranteed_transfers() {
+            let original = ownership.transfers()
                 .find(|original| original.same_identity(&transfer))
                 .expect("guaranteed return retains an original value route");
 

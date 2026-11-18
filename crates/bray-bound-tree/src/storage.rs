@@ -26,7 +26,7 @@ pub use capture::{StorageCapturedEffects, StorageCapturedTransition, StorageDefe
     selected_storage_values, storage_selector_parent, storage_value_subtree};
 
 pub use target::{StorageOrigin, StorageTarget};
-pub use transition::{StorageSnapshotRoot, StorageValueBoundary, StorageValueCapture, StorageValueDestination, StorageValueInput, StorageValuePhase, StorageValueTransition};
+pub use transition::{StorageSnapshotRoot, StorageValueBoundary, StorageValueCapture, StorageValueDestination, StorageValueInput, StorageValuePhase, StorageValueTransition, merge_storage_value_transitions};
 
 pub use builder::{StoragePlanBuildError, StoragePlanBuilder};
 pub use flow::{

@@ -147,7 +147,8 @@ impl InterfaceSemantics {
                     let root = endpoint.subject().subject_root();
 
                     if !(matches!(root, crate::InterfaceDependencySubjectRoot::Receiver | crate::InterfaceDependencySubjectRoot::Parameter(_)
-                            | crate::InterfaceDependencySubjectRoot::ProductStatic(_) | crate::InterfaceDependencySubjectRoot::ExactThreadStatic(_))
+                            | crate::InterfaceDependencySubjectRoot::ProductStatic(_) | crate::InterfaceDependencySubjectRoot::ExactThreadStatic(_)
+                            | crate::InterfaceDependencySubjectRoot::StaticInstance(..))
                         || destination && matches!(root, crate::InterfaceDependencySubjectRoot::Result)) {
                         return Err(crate::semantic::codec::invalid_value(crate::InterfaceValidationField::Dependency));
                     }
@@ -814,6 +815,10 @@ impl InterfaceSemantics {
             validate_symbol(symbol, symbol_count, dependency_count)?;
         }
 
+        if let InterfaceDependencySubjectRoot::StaticInstance(reference, _) = &subject.root {
+            self.validate_static_reference(reference, symbol_count, dependency_count)?;
+        }
+
         if let InterfaceDependencySubjectRoot::ImplementationRequirement(ty, application) =
             subject.root
         {
@@ -828,6 +833,22 @@ impl InterfaceSemantics {
         }
 
         self.validate_dependency_projections(&subject.projections, symbol_count, dependency_count)
+    }
+
+    pub(in crate::semantic::validation) fn validate_static_reference(
+        &self,
+        reference: &crate::InterfaceStaticReference,
+        symbol_count: usize,
+        dependency_count: usize,
+    ) -> Result<(), InterfaceValidationError> {
+        validate_symbol(&reference.declaration, symbol_count, dependency_count)?;
+        validate_index(reference.substitution.to_index(), self.substitutions.len())?;
+
+        for witness in reference.selected_witnesses.iter() {
+            validate_index(witness.to_index(), self.implementation_instances.len())?;
+        }
+
+        Ok(())
     }
 
     pub(in crate::semantic::validation) fn validate_dependency_projections(
@@ -1060,12 +1081,14 @@ mod tests {
                     0,
                 ))]
                 .into(),
-                dependency_contracts: vec![InterfaceDependencyContract::new([]).with_owned_result(
-                    bray_symbols::DependencyOwnedResult::Transfer(
-                        bray_symbols::DependencyOwnedTransfer::new(input, [projection]),
-                    ),
-                )]
-                .into(),
+                dependency_contracts: vec![InterfaceDependencyContract {
+                    captured_values: [crate::InterfaceNormalOutcome::new(None, []).with_ownership(
+                        bray_symbols::DependencyOwnedResult::Transfer(
+                            bray_symbols::DependencyOwnedTransfer::new(input, [projection]),
+                        ),
+                    )].into(),
+                    ..InterfaceDependencyContract::new([])
+                }].into(),
                 ..InterfaceSemantics::default()
             };
 

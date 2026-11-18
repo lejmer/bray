@@ -1,4 +1,6 @@
-use bray_bound_tree::{BoundExecutionSite, StorageValueDestination, StorageValueTransition};
+use std::sync::Arc;
+
+use bray_bound_tree::{BoundExecutionSite, StorageValueCapture, StorageValueDestination, StorageValueTransition};
 use bray_symbols::TypeData;
 
 use super::super::core::StorageFlowCollector;
@@ -47,25 +49,16 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         // Completed values and admitted outputs share immutable handles. The plan owns destinations.
         let Some(outputs) = execution.admitted_call(invocation).map(|entry| &entry.outputs) else { return; };
 
-        let regions = outputs.0.iter().flat_map(|row| &row.writes).filter_map(|(destination, value)| match destination {
-            StorageValueDestination::Region(target) => Some((target.clone(), value.clone())),
-            _ => None,
-        }).collect::<std::collections::BTreeSet<_>>();
+        let regions = outputs.possible_region_values()
+            .map(|(target, value)| (target.clone(), value.clone()))
+            .collect::<std::collections::BTreeSet<_>>();
 
         let outputs = outputs.destinations().filter_map(|destination|
             self.execution.captured_output(execution, invocation, destination).map(|value| (destination.clone(), value))).collect::<Vec<_>>();
 
-        for (region, value) in regions {
-            if let Some(bounds) = value.inline_captured_storage() {
-                state.memory.include_captured_bounds(&region, bounds);
-            } else {
-                state.memory.lose_captured_information(&region);
-            }
-        }
-
         for (destination, value) in outputs {
             let target = match &destination {
-                StorageValueDestination::Region(_) => unreachable!("a possible region has no current value"),
+                StorageValueDestination::Region { .. } => unreachable!("a possible region has no current value"),
                 StorageValueDestination::Result => {
                     let Some(path) = self.invocation_result(invocation) else { continue; };
 
@@ -110,6 +103,14 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 invocation, &destination, value);
 
             completion.publish(destination, snapshot);
+        }
+
+        for (region, value) in regions {
+            if let Some(bounds) = value.inline_captured_storage() {
+                state.memory.include_captured_bounds(&region, bounds);
+            } else {
+                state.memory.lose_captured_information(&region);
+            }
         }
     }
 
@@ -210,17 +211,19 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     }
 
     pub(in crate::analysis::storage_flow::check::analysis) fn resolve_value_captures(&mut self,
-        state: &StorageFlowState, operation: crate::analysis::model::AnalysisOperationKind,
-    ) {
+        state: &mut StorageFlowState, operation: crate::analysis::model::AnalysisOperationKind,
+    ) -> Option<Arc<[StorageValueCapture]>> {
         if !matches!(operation, crate::analysis::model::AnalysisOperationKind::Call {
             phase: crate::analysis::model::AnalysisCallPhase::Input, ..
-        }) && self.execution.single_phase_invocation(operation).is_none() { return; }
+        }) && self.execution.single_phase_invocation(operation).is_none() { return None; }
 
         let invocation = operation.occurrence();
 
-        let BoundExecutionSite::Node(bray_bound_tree::AnyBoundNodeId::Expression(expression)) = invocation else { return; };
+        let BoundExecutionSite::Node(bray_bound_tree::AnyBoundNodeId::Expression(expression)) = invocation else { return None; };
 
-        let Some(selection) = self.execution.semantics.selections().expression(expression) else { return; };
+        let selection = self.execution.semantics.selections().expression(expression)?;
+
+        self.observe_call_reference_inputs(state, invocation);
 
         let mut captures = Vec::new();
 
@@ -263,7 +266,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 value: std::sync::Arc::new(value), referent });
         }
 
-        let captures = captures.into();
+        let captures: Arc<[StorageValueCapture]> = captures.into();
 
         if self.publish {
             self.value_captures.entry(invocation).and_modify(|previous| {
@@ -271,28 +274,35 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
                 completion.merge(&bray_bound_tree::StorageCompletion::default().with_captures(std::sync::Arc::clone(&captures)));
                 *previous = completion.captures().into();
-            }).or_insert(captures);
-        } else {
-            self.value_captures.insert(invocation, captures);
+            }).or_insert_with(|| Arc::clone(&captures));
         }
+
+        Some(captures)
     }
 
-    pub(in crate::analysis::storage_flow::check::analysis) fn resolve_call_values(&mut self,
-        execution: &crate::analysis::guarantee::ExecutionState, invocation: BoundExecutionSite,
+    pub(in crate::analysis::storage_flow::check::analysis) fn begin_value_transition(
+        &mut self, execution: &mut crate::analysis::guarantee::ExecutionState,
+        invocation: BoundExecutionSite, effects: &[crate::analysis::storage_flow::memory::Effect],
     ) {
-        let Some(contracts) = self.dependencies.calls().get(&invocation) else { return; };
+        let values: Arc<[StorageValueTransition]> =
+            if let BoundExecutionSite::Node(bray_bound_tree::AnyBoundNodeId::Expression(expression)) = invocation
+            && let Some(operation) = self.memory.operation(expression)
+        {
+            self.resolve_memory_values(execution, operation, effects)
+        } else if let Some(contract) = self.dependencies.calls().get(&invocation)
+            && contract.deferred_effects().is_none()
+        {
+            self.execution.invocation_value_transitions(execution, invocation, contract.captured_values()).into()
+        } else {
+            return;
+        };
 
-        if contracts.deferred_effects().is_some() { return; }
-
-        let values: std::sync::Arc<[StorageValueTransition]> =
-            self.execution.invocation_value_transitions(execution, invocation, contracts.captured_values()).into();
+        self.execution.prepare_captured_values(execution, invocation, &values);
 
         if self.publish {
             self.value_transitions.entry(invocation).and_modify(|previous| {
-                if previous != &values { *previous = StorageValueTransition::join_reachable(previous, &values); }
+                bray_bound_tree::merge_storage_value_transitions(previous, &values);
             }).or_insert(values);
-        } else {
-            self.value_transitions.insert(invocation, values);
         }
     }
 }

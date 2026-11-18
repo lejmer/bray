@@ -416,7 +416,7 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
         ty: bray_symbols::TypeId,
         prepared: &bray_bound_tree::StorageReferencePath,
     ) {
-        if !storage.identity(path.root).is_some_and(bray_bound_tree::StorageIdentity::is_initialized_at_entry) {
+        if !storage.identity(path.root).is_some_and(|identity| identity.is_initialized_at_entry()) {
             return;
         }
 

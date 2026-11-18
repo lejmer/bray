@@ -51,6 +51,7 @@ impl State {
             .collect();
 
         Self {
+            storage_slots: storage.shared_identities(),
             complete_reference_types: std::sync::Arc::clone(complete_reference_types),
             entry_borrows: std::sync::Arc::new(entry_borrows),
             owned_storage,
@@ -302,7 +303,7 @@ impl State {
             return bray_bound_tree::StorageRelationship::Disjoint;
         }
 
-        left.relationship(right)
+        left.relationship_in_slots(right, &self.storage_slots)
     }
 
     pub(super) fn addressed_target(

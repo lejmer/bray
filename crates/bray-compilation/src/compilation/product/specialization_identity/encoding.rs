@@ -658,7 +658,9 @@ mod tests {
                     .intern_dependency_contract_template(
                         DependencyContractTemplateData::new([])
                             .with_effects([])
-                            .with_owned_result(ownership),
+                            .with_captured_values([
+                                bray_symbols::CapturedValueOutcome::new(None, []).with_ownership(ownership)
+                            ]),
                     )
                     .expect("fixture ownership contract");
 

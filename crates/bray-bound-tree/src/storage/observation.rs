@@ -258,7 +258,7 @@ impl StorageCompletion {
             }).collect();
         }
 
-        if self.values != incoming.values { self.values = crate::StorageValueTransition::join_reachable(&self.values, &incoming.values); }
+        crate::merge_storage_value_transitions(&mut self.values, &incoming.values);
 
         self.publications.retain(|destination, value| {
             let Some(other) = incoming.publications.get(destination) else { return false; };

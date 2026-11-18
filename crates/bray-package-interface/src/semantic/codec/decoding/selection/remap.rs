@@ -321,10 +321,7 @@ fn remap_dependency_contract(
             }, &mut |root| {
                 let mut root = root.clone();
 
-                root.substitution = maps.substitution_id(root.substitution)?;
-
-                root.selected_witnesses = root.selected_witnesses.iter().map(|witness|
-                    maps.implementation_instance_id(*witness)).collect::<Result<_, _>>()?;
+                remap_static_reference(&mut root, maps)?;
 
                 Ok(root)
             }, &mut |call| Ok(crate::InterfaceCapturedCallable {
@@ -362,7 +359,7 @@ fn remap_dependency_contract(
 
             remap_dependency_projections(&mut path, maps)?;
 
-            Ok(bray_symbols::DependencyWitnessCarrier::new(
+            Ok(carrier.remap(
                 maps.constant_term_id(carrier.guarantee())?,
                 path,
             ))
@@ -811,7 +808,22 @@ fn remap_dependency_subject(
         *application = maps.trait_application_id(*application)?;
     }
 
+    if let InterfaceDependencySubjectRoot::StaticInstance(reference, _) = &mut subject.root {
+        remap_static_reference(reference, maps)?;
+    }
+
     remap_dependency_projections(Arc::make_mut(&mut subject.projections), maps)
+}
+
+fn remap_static_reference(
+    reference: &mut crate::InterfaceStaticReference, maps: &RecordMaps,
+) -> Result<(), InterfaceValidationError> {
+    reference.substitution = maps.substitution_id(reference.substitution)?;
+
+    reference.selected_witnesses = reference.selected_witnesses.iter().map(|witness|
+        maps.implementation_instance_id(*witness)).collect::<Result<_, _>>()?;
+
+    Ok(())
 }
 
 fn remap_dependency_projections(

@@ -1606,39 +1606,8 @@ impl Lowerer<'_> {
         ty: TypeId,
         origin: bray_bound_tree::BoundNodeOrigin,
     ) -> Result<MirPlace, LoweringError> {
-        self.place_for_identity_with_static(id, ty, origin, None)
-    }
-
-    pub(in crate::lowering) fn place_for_identity_with_static(
-        &mut self,
-        id: StorageIdentityId,
-        ty: TypeId,
-        origin: bray_bound_tree::BoundNodeOrigin,
-        static_reference: Option<&bray_symbols::StaticReferenceSelection>,
-    ) -> Result<MirPlace, LoweringError> {
         if let Some(place) = self.guard_binding(id) {
             return Ok(Self::retained_place(place));
-        }
-
-        if let Some(reference) = static_reference {
-            let storage = match self.static_storages.get(reference).copied() {
-                Some(storage) => storage,
-                None => {
-                    let kind = if self.input.is_native_static(reference.template()) {
-                        MirStorageKind::NativeStatic(reference.clone())
-                    } else {
-                        MirStorageKind::Static(reference.clone())
-                    };
-
-                    let storage = self.builder.push_storage(self.source(origin), kind, ty)?;
-
-                    self.static_storages.insert(reference.clone(), storage);
-
-                    storage
-                }
-            };
-
-            return Ok(MirPlace::new(storage, [], ty));
         }
 
         let storage = match self.storages.get(&id).copied() {
@@ -1651,7 +1620,7 @@ impl Lowerer<'_> {
                     )
                 });
 
-                let mut kind = storage_kind(identity, self.parameter_positions.get(&id).copied());
+                let mut kind = storage_kind(&self.input, &identity, self.parameter_positions.get(&id).copied());
 
                 if (identity.borrows_input_storage(self.input.unit().key().kind())
                     || self
@@ -1710,7 +1679,7 @@ fn unary_operator(operator: BoundOperator) -> Option<MirUnaryOperator> {
     }
 }
 
-fn storage_kind(identity: StorageIdentity, parameter_position: Option<u32>) -> MirStorageKind {
+fn storage_kind(input: &crate::LoweringInput<'_>, identity: &StorageIdentity, parameter_position: Option<u32>) -> MirStorageKind {
     match identity {
         StorageIdentity::Parameter(_)
         | StorageIdentity::Receiver(_)
@@ -1719,10 +1688,14 @@ fn storage_kind(identity: StorageIdentity, parameter_position: Option<u32>) -> M
         | StorageIdentity::ContractParameter(_) => {
             MirStorageKind::Parameter(parameter_position.unwrap_or(u32::MAX))
         }
-        StorageIdentity::Static(symbol) => {
-            panic!(
-                "lowering storage contract violated: static storage {symbol:?} must be initialized separately"
-            )
+        StorageIdentity::Static(reference) => {
+            let reference = reference.as_ref().clone();
+
+            if input.is_native_static(reference.template()) {
+                MirStorageKind::NativeStatic(reference)
+            } else {
+                MirStorageKind::Static(reference)
+            }
         }
         StorageIdentity::LocalOwned(_) | StorageIdentity::Alternative { .. } => {
             MirStorageKind::Local

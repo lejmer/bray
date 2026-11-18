@@ -423,7 +423,8 @@ pub(super) fn validate_dependency_template_data(
             let root = endpoint.subject().subject_root();
 
             assert!(matches!(root, crate::DependencySubjectRoot::Receiver | crate::DependencySubjectRoot::Parameter(_)
-                    | crate::DependencySubjectRoot::ProductStatic(_) | crate::DependencySubjectRoot::ExactThreadStatic(_))
+                    | crate::DependencySubjectRoot::ProductStatic(_) | crate::DependencySubjectRoot::ExactThreadStatic(_)
+                    | crate::DependencySubjectRoot::StaticInstance(..))
                 || destination && matches!(root, crate::DependencySubjectRoot::Result),
                 "stored value {} has a nonphysical root: {root:?}", if destination { "destination" } else { "source" });
 
@@ -666,6 +667,10 @@ fn validate_dependency_subject(
         tables
             .trait_applications
             .get(store, requirement.trait_application());
+    }
+
+    if let DependencySubjectRoot::StaticInstance(reference, _) = subject.subject_root() {
+        tables.statics.get(store, reference);
     }
 
     validate_dependency_projections(tables, store, subject.projections());

@@ -84,6 +84,11 @@ impl ExecutionCallEvidence {
         })
     }
 
+    /// The inline physical snapshot of the evaluated operand at this ordinal.
+    pub(crate) fn argument_storage(&self, ordinal: bray_symbols::SymbolOrdinal) -> Option<&bray_bound_tree::StorageCapturedValue> {
+        self.arguments.get(&super::ExecutionPlace::argument(ordinal))?.inline_captured_storage()
+    }
+
     /// Actual values moved into the receiver-first noncopying input slots.
     pub(crate) fn owned_arguments(&self) -> impl Iterator<Item = super::ExecutionCondition> + '_ {
         self.owned_inputs.iter().filter_map(|ordinal| {

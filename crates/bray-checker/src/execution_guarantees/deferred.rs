@@ -43,8 +43,16 @@ pub struct ExecutionDeferredInvocation<Entry = Arc<ExecutionCallEvidence>> {
     /// The operation's already resolved storage transition, captured once at formation.
     pub(crate) transition: Option<Arc<bray_bound_tree::StorageDeferredTransition>>,
     pub(crate) entry: Entry,
+    /// Result dependencies bound when this frame captures its evaluated inputs.
+    pub(crate) completed: Option<Arc<BTreeSet<bray_symbols::DependencyRequirement>>>,
     pub(crate) reports: BTreeMap<bray_bound_tree::CallReportOutput, Arc<crate::dependency::ReportDependencies>>,
     pub(crate) selection: BTreeSet<(ExecutionCondition, bool)>,
+}
+
+impl<Entry> ExecutionDeferredInvocation<Entry> {
+    pub(crate) fn has_receiver(&self) -> bool {
+        self.callee.as_ref().is_some_and(|callee| callee.has_receiver)
+    }
 }
 
 /// Feasible latent producers carried directly by one future or task value.
@@ -153,6 +161,18 @@ impl<Entry> ExecutionDeferredInvocation<Entry> {
 
         changed |= bray_bound_tree::StorageDeferredTransition::merge_alternative(&mut self.transition, &incoming.transition);
 
+        match (&mut self.completed, &incoming.completed) {
+            (Some(previous), Some(incoming)) if !incoming.is_subset(previous) => {
+                Arc::make_mut(previous).extend(incoming.iter().cloned());
+                changed = true;
+            }
+            (Some(_), None) => {
+                self.completed = None;
+                changed = true;
+            }
+            _ => {}
+        }
+
         for (output, incoming) in &incoming.reports {
             if let Some(reports) = self.reports.get_mut(output) {
                 changed |= reports.merge(incoming);
@@ -220,7 +240,7 @@ impl ExecutionDeferredValue {
     pub(crate) fn unknown(facts: &Selection) -> Self {
         Self {
             unknown: Some(ExecutionDeferredInvocation { callee: None, transition: None,
-                entry: (), selection: deferred_selection(facts), reports: BTreeMap::new(),
+                entry: (), selection: deferred_selection(facts), completed: None, reports: BTreeMap::new(),
             }),
             ..Self::default()
         }
