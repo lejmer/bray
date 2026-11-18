@@ -1,6 +1,7 @@
 use bray_symbols::{CapturedValueOperation as Op, CapturedValueTemplate as Value};
 
-use crate::{InterfaceDependencyContract, InterfaceDependencyProjection, InterfaceLimit, InterfaceSemantics,
+use crate::{InterfaceConstantTerm, InterfaceConstantTermId, InterfaceConstantValueKind, InterfaceDependencyContract,
+    InterfaceDependencyProjection, InterfaceDependencySubject, InterfaceDependencySubjectRoot, InterfaceLimit, InterfaceSemantics,
     InterfaceValidationError, InterfaceValidationField, InterfaceValidationLimits, PackageInterfaceSurface};
 
 use super::surface::validate_index;
@@ -24,6 +25,10 @@ impl InterfaceSemantics {
                 || !outcome.bindings.windows(2).all(|pair| pair[0].0 < pair[1].0)
             {
                 return Err(invalid());
+            }
+
+            for carrier in &*outcome.carriers {
+                self.validate_returned_carrier(carrier, symbol_count, dependency_count)?;
             }
 
             let mut pending = Vec::new();
@@ -104,6 +109,64 @@ impl InterfaceSemantics {
         }
 
         Ok(())
+    }
+
+    fn validate_returned_carrier(
+        &self,
+        carrier: &bray_symbols::DependencyWitnessCarrier<InterfaceDependencyProjection, InterfaceConstantTermId, InterfaceDependencySubject>,
+        symbol_count: usize,
+        dependency_count: usize,
+    ) -> Result<(), InterfaceValidationError> {
+        validate_index(carrier.guarantee().to_index(), self.constant_terms.len())?;
+
+        if let Some(support) = carrier.support() {
+            for owner in support.owner_subjects() {
+                if !matches!(owner.subject_root(),
+                    InterfaceDependencySubjectRoot::Receiver | InterfaceDependencySubjectRoot::Parameter(_)
+                    | InterfaceDependencySubjectRoot::Result | InterfaceDependencySubjectRoot::StaticInstance(..))
+                {
+                    return Err(invalid());
+                }
+
+                self.validate_dependency_subject(owner, symbol_count, dependency_count)?;
+            }
+
+            for address in support.addresses().keys() {
+                validate_index(address.to_index(), self.constant_terms.len())?;
+            }
+        }
+
+        for projection in carrier.path() {
+            if let InterfaceDependencyProjection::Element(term) = projection {
+                let ordinal = term
+                    .to_index()
+                    .and_then(|index| self.constant_terms.get(index))
+                    .and_then(|term| match term {
+                        InterfaceConstantTerm::Value(value) => value
+                            .to_index()
+                            .and_then(|index| self.constant_values.get(index)),
+                        _ => None,
+                    })
+                    .and_then(|value| match value.kind() {
+                        InterfaceConstantValueKind::Integer(index) => {
+                            index.to_u64().and_then(|index| u32::try_from(index).ok())
+                        }
+                        _ => None,
+                    });
+
+                if ordinal.is_none() {
+                    return Err(crate::semantic::codec::invalid_value(
+                        crate::InterfaceValidationField::Reference,
+                    ));
+                }
+            }
+        }
+
+        self.validate_dependency_projections(
+            carrier.path(),
+            symbol_count,
+            dependency_count,
+        )
     }
 
     fn validate_captured_projection(&self, projection: &InterfaceDependencyProjection,

@@ -296,7 +296,7 @@ impl ExecutionState {
                     if deferred.insert((owner.clone(), invocation.clone())) {
 
                         if extraction_evidence {
-                            pending.extend(entry.extracted_values.iter().cloned());
+                            pending.extend(entry.extracted_values.values().cloned());
                         }
                     }
                 }
@@ -498,7 +498,7 @@ impl ExecutionState {
 
         self.update_entry_snapshots(
             &|entry| entry.arguments.values().chain(entry.outputs.conditions()).any(&stale)
-                || entry.witness_inputs.iter().chain(&entry.extracted_values).any(&stale),
+                || entry.witness_inputs.iter().chain(entry.extracted_values.values()).any(&stale),
             &mut |entry| {
                 for value in entry.arguments.values_mut() {
                     *value = value.without_evaluation(mutation);
@@ -508,7 +508,7 @@ impl ExecutionState {
                     .expect("evaluation retirement is total");
 
                 entry.witness_inputs.retain(|owner| !stale(owner));
-                entry.extracted_values.retain(|value| !stale(value));
+                entry.extracted_values.retain(|_, value| !stale(value));
             },
         );
 
@@ -1197,6 +1197,10 @@ mod tests {
         let owner = input(0);
         let condition = permission(2);
 
+        let term = crate::test_support::semantic_values()
+            .intern_constant_term(bray_symbols::ConstantTermData::CallableArgument(SymbolOrdinal::new(0)))
+            .expect("the extraction's formal input");
+
         for (owned, recorded, own_context, extracted) in [
             (true, true, true, false), (false, true, true, false),
             (true, false, true, false), (true, true, false, false),
@@ -1214,7 +1218,7 @@ mod tests {
                 arguments: [(ExecutionPlace::argument(SymbolOrdinal::new(0)), owner.clone())].into(),
                 owned_inputs: if owned { [SymbolOrdinal::new(0)].into() } else { [].into() },
                 witness_inputs: if recorded { [owner.clone()].into() } else { BTreeSet::new() },
-                extracted_values: if extracted { [owner.clone()].into() } else { BTreeSet::new() },
+                extracted_values: if extracted { [(term, owner.clone())].into() } else { Default::default() },
                 trusted_assumptions: state.trusted_assumptions.clone(),
                 ..crate::ExecutionCallEvidence::default()
             });

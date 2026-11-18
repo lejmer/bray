@@ -154,6 +154,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             ExecutionInput::Static(selection) => {
                 let declaration = selection.template().declaration();
                 let duration = self.request.static_dependencies().get(&declaration)?.static_duration()?;
+
                 let reference = self.request.semantic_values().intern_static_reference(selection.as_ref().clone())
                     .expect("a checked static selection belongs to the semantic store");
 

@@ -329,6 +329,11 @@ start/observe/cancel, normal cleanup and abnormal duties are the integrated cont
   cases alongside the nullable positive and rejection cases.
   Both repairs must reuse captured handles. Reconsider any approach that allocates a
   new frame or owner identity or revisits a pointer's source after admission.
+  Completion now looks up the admitted snapshot by the formal transfer input.
+  The recursive custody traversal replaces the observer's flattened extraction set.
+  All four unit suites pass, and the same 34 behavioral controls fail. The nullable
+  exchange still rejects the live complete owner. Further work must trace the
+  caller's selected storage publication and witness invalidation on the same path.
 
 - Carry external support for a returned witness from its owning ledger entry.
   ExecutionWitness.dependencies and each selected ExecutionGuarantee.addresses
@@ -359,6 +364,17 @@ start/observe/cancel, normal cleanup and abnormal duties are the integrated cont
   interface round trip. The two behavioral panels retain the same 34 failures.
   Ordinary completion still uses its existing observation binding. The focused
   nullable and nested formal controls still fail.
+  Ordinary and deferred completion must install inferred carriers from the same
+  selected row, actual published value and portable support. The producer ledger
+  owns the support. Remove the inferred-carrier path that rediscovers supporting
+  lifetimes from declaration inputs and return origins. An unavailable owner or
+  descriptor withholds that inferred authority in both paths. Explicit declaration
+  clauses still use their own checked observation and entry binding until the
+  producer carries those identities directly. Avoid reinstalling declared authority
+  when a complete row already supports the clause. Keep first-entry observations
+  distinct from refreshed current borrowed contents. Compare the source/import
+  fresh owner, borrowed result, invalidation and fabricated-capability controls on
+  the same candidate. Reconsider if sharing discards an actual current referent.
 
 Await, scheduling, and opaque cleanup must consume the selected frame's transition directly. A capture can itself
 hold an unrelated frame formed at the same source site. Searching nested values by site can execute that other

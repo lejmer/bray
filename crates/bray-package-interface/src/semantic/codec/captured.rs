@@ -24,6 +24,7 @@ pub(super) fn encode_values(encoder: &mut WireEncoder, bindings: &[Binding]) {
         for carrier in binding.carriers.iter() {
             encoder.write_u32(carrier.guarantee().raw());
             encoder.write_u32(u32::from(carrier.support().is_some()));
+
             if let Some(support) = carrier.support() {
                 encode_support_owners(encoder, support.owners());
                 write_count(encoder, support.addresses().len());

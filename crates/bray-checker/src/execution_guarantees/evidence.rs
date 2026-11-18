@@ -35,8 +35,8 @@ pub struct ExecutionCallEvidence {
     /// private until completion uses this entry's captured truth and actual return.
     pub(crate) witness_inputs: std::collections::BTreeSet<super::ExecutionCondition>,
     /// Existing complete values selected by checked moves out of borrowed slots.
-    /// These retain private proof, without transferring ownership of the borrow.
-    pub(crate) extracted_values: std::collections::BTreeSet<super::ExecutionCondition>,
+    /// The transfer's input term identifies the original admission at completion.
+    pub(crate) extracted_values: std::collections::BTreeMap<bray_symbols::ConstantTermId, Condition>,
     /// Copy origins while their observations remain unchanged. These are value
     /// correlations, never language equality predicates or ownership authority.
     pub(crate) copy_sources:
@@ -89,7 +89,7 @@ impl ExecutionCallEvidence {
 
     pub(crate) fn conditions(&self) -> impl Iterator<Item = &Condition> {
         self.arguments.values().chain(self.outputs.conditions()).chain(self.copy_sources.values())
-            .chain(&self.witness_inputs).chain(&self.extracted_values)
+            .chain(&self.witness_inputs).chain(self.extracted_values.values())
             .chain(self.addresses.values().flat_map(|addresses| addresses.keys()))
             .chain(self.assumptions.iter().map(|(condition, _)| condition))
             .chain(self.trusted_assumptions.iter().map(|(condition, _)| condition))
@@ -117,7 +117,7 @@ impl ExecutionCallEvidence {
 
     /// Values whose existing evidence is admitted independently of result publication.
     pub(crate) fn witness_sources(&self) -> impl Iterator<Item = super::ExecutionCondition> + '_ {
-        self.owned_arguments().chain(self.extracted_values.iter().cloned())
+        self.owned_arguments().chain(self.extracted_values.values().cloned())
     }
 
     /// Ends admitted proof that no surviving value or result retains.
@@ -269,7 +269,7 @@ impl ExecutionCallEvidence {
             .map(&mut map)
             .collect::<Result<_, E>>()?;
 
-        mapped.extracted_values = self.extracted_values.iter().map(&mut map)
+        mapped.extracted_values = self.extracted_values.iter().map(|(term, value)| Ok((*term, map(value)?)))
             .collect::<Result<_, E>>()?;
 
         // Proof queries retain the physical dependencies of each independently mapped address.
@@ -394,7 +394,7 @@ impl ExecutionCallEvidence {
         self.witness_inputs
             .retain(|owner| other.witness_inputs.contains(owner));
 
-        self.extracted_values.retain(|value| other.extracted_values.contains(value));
+        self.extracted_values.retain(|term, value| other.extracted_values.get(term) == Some(value));
 
         addresses_changed
             || outputs_changed

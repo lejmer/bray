@@ -402,6 +402,7 @@ impl StructuralValueEncoder<'_, '_> {
             let addresses = support.addresses().iter().collect::<Vec<_>>();
 
             self.dependency_set(&owners, |encoder, owner| encoder.dependency_subject(owner))?;
+
             self.dependency_set(&addresses, |encoder, (descriptor, owners)| {
                 encoder.constant_term(**descriptor)?;
 

@@ -49,6 +49,7 @@ impl<Subject: Ord, Condition: Ord> DependencyWitnessSupport<Subject, Condition> 
         mut address: impl FnMut(&mut C, &Condition) -> Result<T, E>,
     ) -> Result<DependencyWitnessSupport<S, T>, E> {
         let owners = self.owners.iter().map(|source| owner(context, source)).collect::<Result<Vec<_>, _>>()?;
+
         let addresses = self.addresses.iter().map(|(descriptor, owners)| {
             let descriptor = address(context, descriptor)?;
             let owners = owners.iter().map(|source| owner(context, source)).collect::<Result<_, _>>()?;
@@ -114,6 +115,7 @@ impl<Projection: Ord + Clone, Condition: Ord + Copy, Subject: Ord + Clone> Depen
                 let matching = row.iter().filter(|candidate| {
                     candidate.guarantee == carrier.guarantee && candidate.path == carrier.path
                 });
+
                 let supported = matching.clone().filter_map(Self::support)
                     .min_by_key(|support| !support.is_independent());
 

@@ -354,7 +354,7 @@ impl super::ExecutionCallEvidence {
             .map(|owner| substitution.owner(owner))
             .collect();
 
-        let extracted_values = self.extracted_values.iter().map(rename).collect();
+        let extracted_values = self.extracted_values.iter().map(|(term, value)| (*term, rename(value))).collect();
 
         let rename_facts = |facts: &BTreeSet<(ExecutionCondition, bool)>| {
             facts

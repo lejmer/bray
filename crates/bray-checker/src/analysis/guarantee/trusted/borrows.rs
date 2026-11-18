@@ -1,5 +1,5 @@
 use crate::execution_guarantees::ExecutionAssumptions;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use bray_bound_tree::{BoundExecutionSite, BoundExpressionId, StorageProjection};
 use bray_symbols::{
@@ -78,21 +78,22 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         &self,
         invocation: BoundExecutionSite,
         entry: &crate::ExecutionCallEvidence,
-    ) -> BTreeSet<ExecutionCondition> {
-        let Some(dependencies) = self.dependencies.calls().get(&invocation) else { return BTreeSet::new(); };
+    ) -> BTreeMap<bray_symbols::ConstantTermId, ExecutionCondition> {
+        let Some(dependencies) = self.dependencies.calls().get(&invocation) else { return BTreeMap::new(); };
 
         self.feasible_owned_transfers(entry, &entry.assumptions, &ExecutionCondition::unknown(), &dependencies.owned_result())
             .into_iter().map(|(transfer, _)| transfer)
             .filter(|transfer| !dependencies.returned_value(transfer).is_borrowed())
             .filter_map(|transfer| {
-                let source = entry.bind_term(self.request.semantic_values(), transfer.input(), &ExecutionCondition::unknown());
+                let input = transfer.input();
+                let source = entry.bind_term(self.request.semantic_values(), input, &ExecutionCondition::unknown());
 
                 if !source.is_reference() { return None; }
 
                 let value = source.argument_value(false);
 
                 value.ownership_identity().is_some_and(|(role, _)|
-                    role == crate::execution_guarantees::ExecutionObservationKind::Owned).then_some(value)
+                    role == crate::execution_guarantees::ExecutionObservationKind::Owned).then_some((input, value))
             }).collect()
     }
 
@@ -102,28 +103,28 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         entry: &crate::ExecutionCallEvidence,
         result: &ExecutionCondition,
         ownership: &bray_symbols::DependencyOwnedResult,
+        call: Option<&bray_bound_tree::BoundCallDependencyContracts>,
     ) -> ReturnedValues {
         let mut fields = BTreeMap::new();
 
         for (transfer, _) in self.feasible_owned_transfers(entry, &state.assumptions, result, ownership) {
             if fields.contains_key(transfer) { continue; }
 
-            let value = entry.bind_term(self.request.semantic_values(), transfer.input(), result);
-
-            if value == ExecutionCondition::unknown() {
-                continue;
-            }
-
             let path = crate::storage::owned_storage_projections(self.dependencies, transfer.output());
-
             let actual = path.iter().copied().fold(result.clone(), ExecutionCondition::project);
 
-            let extracted = (value.is_reference() && !actual.is_reference())
-                .then(|| value.clone().argument_value(false))
-                .filter(|source| entry.extracted_values.contains(source));
+            let extraction = entry.extracted_values.get(&transfer.input()).filter(|_| {
+                call.map_or_else(|| !actual.is_reference(), |call| !call.returned_value(transfer).is_borrowed())
+            });
 
-            let is_extraction = extracted.is_some();
-            let source = extracted.unwrap_or(value);
+            let is_extraction = extraction.is_some();
+
+            let source = extraction.cloned()
+                .unwrap_or_else(|| entry.bind_term(self.request.semantic_values(), transfer.input(), result));
+
+            if source.is_unknown() { continue; }
+
+            let actual = if is_extraction && actual.is_reference() { actual.argument_value(false) } else { actual };
 
             let value = if actual.is_reference() || source.is_reference() || source.owner_identity() == actual.owner_identity() {
                 actual
@@ -478,7 +479,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         source: Option<BoundExecutionSite>, entry: &crate::ExecutionCallEvidence,
         result: ExecutionCondition, ownership: &bray_symbols::DependencyOwnedResult,
     ) -> ExecutionCondition {
-        let returned = self.transferred_values(state, entry, &result, ownership);
+        let call = source.and_then(|source| self.dependencies.calls().get(&source));
+        let returned = self.transferred_values(state, entry, &result, ownership, call);
 
         self.guard_returned_inputs(state, entry, &returned, &result, ownership);
 

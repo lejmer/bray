@@ -1539,8 +1539,10 @@ mod tests {
         let support = bray_symbols::DependencyWitnessSupport::new(
             [owner.clone()], [(crate::InterfaceConstantTermId::new(1), [owner].into())],
         );
+
         let carrier = bray_symbols::DependencyWitnessCarrier::new(crate::InterfaceConstantTermId::new(0), [])
             .with_support(Some(support));
+
         let contract = crate::InterfaceDependencyContract::new([])
             .with_effects([crate::InterfaceStorageEffect::Ambient, crate::InterfaceStorageEffect::Escape])
             .with_captured_values([outcome.with_effects([crate::InterfaceStorageEffect::Ambient]).with_carriers([carrier])]);
@@ -1566,6 +1568,7 @@ mod tests {
 
         let carrier = &contract.captured_values()[0].carriers[0];
         let support = carrier.support().expect("imported witness retains its external support");
+
         let owner = bray_symbols::DependencySubject::root(
             bray_symbols::DependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(0)),
         );

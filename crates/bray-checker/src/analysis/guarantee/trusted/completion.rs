@@ -446,7 +446,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             }
 
             let (storage, receiver) = selected?;
+
             let (_, route) = storage.subject(subject)?;
+
             let ordinal = root.input_ordinal(receiver)?;
             let argument = entry.arguments.get(&crate::ExecutionPlace::argument(ordinal))?;
 

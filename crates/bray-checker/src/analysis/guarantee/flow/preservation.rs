@@ -87,12 +87,10 @@ impl ValuePreservation {
         let source = path.iter().copied().fold(source.clone(), ExecutionCondition::project);
         let mask = self.at_mut(path);
 
-        let empty = Default::default();
+        let moved = state.entries.get(&mutation.occurrence()).into_iter()
+            .flat_map(|entry| entry.extracted_values.values().cloned())
+            .collect::<crate::execution_guarantees::RetainedSnapshots>();
 
-        let moved = state.entries.get(&mutation.occurrence())
-            .map_or(&empty, |entry| &entry.extracted_values);
-
-        let moved = crate::execution_guarantees::RetainedSnapshots::from(moved);
         let extracted = moved.retains_owner(&source);
         let next = mask.apply_bounded(&source, place, mutation, true, &moved, &mut { ExecutionCondition::WORK_LIMIT });
 
@@ -886,6 +884,10 @@ mod tests {
         let mut mask = ValuePreservation::default();
         let fresh = ExecutionCondition::new(crate::ExecutionConditionKind::Expression(sites[1]));
 
+        let term = crate::test_support::semantic_values()
+            .intern_constant_term(bray_symbols::ConstantTermData::CallableArgument(SymbolOrdinal::new(0)))
+            .expect("the extraction's formal input");
+
         for source in [owner.clone(), ExecutionCondition::owned_value(owner.clone(), previous.clone()), fresh] {
             let mut state = ExecutionState::default();
 
@@ -924,7 +926,7 @@ mod tests {
 
             extraction.entries.insert(sites[0].into(), crate::ExecutionCallEvidence {
                 outputs: Default::default(),
-                extracted_values: [source.clone()].into(),
+                extracted_values: [(term, source.clone())].into(),
                 ..Default::default()
             });
 
@@ -959,7 +961,7 @@ mod tests {
             if extracted {
                 state.entries.insert(sites[0].into(), crate::ExecutionCallEvidence {
                     outputs: Default::default(),
-                    extracted_values: [source.clone()].into(),
+                    extracted_values: [(term, source.clone())].into(),
                     ..Default::default()
                 });
             }

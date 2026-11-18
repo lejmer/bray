@@ -536,6 +536,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 self.complete_trusted_call(&mut branch, source, expression.into(), output, result, observations)
             } else {
                 branch.resume_owned_witnesses(entry);
+
                 let selected = candidate.callee.as_deref().and_then(|callee|
                     self.dependencies.frame_callees().get(callee).map(|body| (&body.storage, callee.receiver.is_some())));
 

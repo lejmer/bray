@@ -210,11 +210,15 @@ mod tests {
         let argument = ExecutionPlace::argument(SymbolOrdinal::new(0));
         let value = ExecutionCondition::new(crate::ExecutionConditionKind::Input(argument.clone()));
 
+        let term = crate::test_support::semantic_values()
+            .intern_constant_term(bray_symbols::ConstantTermData::CallableArgument(SymbolOrdinal::new(0)))
+            .expect("the extraction's formal input");
+
         let entry = Arc::new(ExecutionCallEvidence {
             outputs: Default::default(),
             arguments: [(argument.clone(), value.clone())].into(),
             witness_inputs: [value.clone()].into(),
-            extracted_values: [value.clone()].into(),
+            extracted_values: [(term, value.clone())].into(),
             ..ExecutionCallEvidence::default()
         });
 
@@ -269,7 +273,7 @@ mod tests {
         assert_eq!(entry.arguments[&argument], value);
         assert_eq!(completed.arguments[&argument], renamed);
         assert!(completed.witness_inputs.contains(&renamed));
-        assert_eq!(entry.extracted_values, [value].into());
-        assert_eq!(completed.extracted_values, [renamed].into());
+        assert_eq!(entry.extracted_values, [(term, value)].into());
+        assert_eq!(completed.extracted_values, [(term, renamed)].into());
     }
 }

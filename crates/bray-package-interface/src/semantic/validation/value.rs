@@ -113,59 +113,6 @@ impl InterfaceSemantics {
                 self.validate_owned_result_graph(&outcome.ownership, symbol_count, dependency_count, limits)?;
             }
 
-            for carrier in contract.captured_values.iter().flat_map(|row| row.carriers.iter()) {
-                validate_index(carrier.guarantee().to_index(), self.constant_terms.len())?;
-
-                if let Some(support) = carrier.support() {
-                    for owner in support.owner_subjects() {
-                        if !matches!(owner.subject_root(),
-                            InterfaceDependencySubjectRoot::Receiver | InterfaceDependencySubjectRoot::Parameter(_)
-                            | InterfaceDependencySubjectRoot::Result | InterfaceDependencySubjectRoot::StaticInstance(..))
-                        {
-                            return Err(crate::semantic::codec::invalid_value(crate::InterfaceValidationField::Dependency));
-                        }
-
-                        self.validate_dependency_subject(owner, symbol_count, dependency_count)?;
-                    }
-
-                    for address in support.addresses().keys() {
-                        validate_index(address.to_index(), self.constant_terms.len())?;
-                    }
-                }
-
-                for projection in carrier.path() {
-                    if let InterfaceDependencyProjection::Element(term) = projection {
-                        let ordinal = term
-                            .to_index()
-                            .and_then(|index| self.constant_terms.get(index))
-                            .and_then(|term| match term {
-                                InterfaceConstantTerm::Value(value) => value
-                                    .to_index()
-                                    .and_then(|index| self.constant_values.get(index)),
-                                _ => None,
-                            })
-                            .and_then(|value| match value.kind() {
-                                InterfaceConstantValueKind::Integer(index) => {
-                                    index.to_u64().and_then(|index| u32::try_from(index).ok())
-                                }
-                                _ => None,
-                            });
-
-                        if ordinal.is_none() {
-                            return Err(crate::semantic::codec::invalid_value(
-                                crate::InterfaceValidationField::Reference,
-                            ));
-                        }
-                    }
-                }
-
-                self.validate_dependency_projections(
-                    carrier.path(),
-                    symbol_count,
-                    dependency_count,
-                )?;
-            }
-
             for stored in contract.captured_values.iter().flat_map(|outcome| outcome.stored_values.iter()) {
                 for (endpoint, destination) in std::iter::once((stored.destination(), true))
                     .chain(stored.sources().iter().map(|source| (source, false))) {
