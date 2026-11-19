@@ -225,7 +225,24 @@ fn native_reuse_defers_optional_executable_body_decoding() {
         panic!("malformed executable body must retain its diagnostic: {error:?}");
     };
 
-    assert!(diagnostics.has_errors());
+    assert!(diagnostics.iter().any(|diagnostic| {
+        let truncated_header = diagnostic.args().iter().any(|arg| matches!(arg.value(),
+            bray_diagnostics::DiagnosticArgValue::InterfaceValidationFailure(
+                bray_diagnostics::DiagnosticInterfaceValidationFailure::Truncated {
+                    context: bray_diagnostics::DiagnosticInterfaceValidationContext::Artifact,
+                    field: bray_diagnostics::DiagnosticInterfaceValidationField::Value,
+                    offset: 0, expected_length: 4, actual_length: 1,
+                }
+            )
+        ));
+
+        truncated_header && diagnostic.notes().iter()
+            .filter(|note| note.kind() == bray_diagnostics::DiagnosticNoteKind::InterfaceDependencyContext)
+            .flat_map(|note| note.args())
+            .any(|arg| arg.name() == bray_diagnostics::DiagnosticArgName::ArtifactPath
+                && matches!(arg.value(), bray_diagnostics::DiagnosticArgValue::FilePath(path)
+                    if path.as_path() == std::path::Path::new("dependency.brayimpl")))
+    }), "fallback must report the truncated executable header in its artifact: {diagnostics:?}");
 }
 
 #[test]
