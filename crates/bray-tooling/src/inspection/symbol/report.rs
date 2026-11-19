@@ -754,6 +754,7 @@ mod tests {
         assert_eq!(origins[0]["source_id"], 1);
         assert_eq!(origins[0]["syntax_kind"], "trait_declaration");
         assert_eq!(enabled["modifiers"], serde_json::json!([]));
+        assert!(find_symbol_optional(&value, "struct", Some("Disabled")).is_none());
         assert!(diagnostics.is_empty(), "{diagnostics:?}");
     }
 

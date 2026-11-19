@@ -906,7 +906,6 @@ mod tests {
             "\n",
             "func main() -> i32\n",
             "{\n",
-            "    return ;\n",
             "}\n",
         );
 
@@ -924,8 +923,19 @@ mod tests {
         let value: Value = serde_json::from_str(&json)
             .unwrap_or_else(|error| panic!("recovered lowered JSON must parse: {error}"));
 
-        assert!(value["units"].is_array());
-        assert!(diagnostics.has_errors());
+        let units = value["units"].as_array().expect("lowered inspection reports its units");
+
+        let [unit] = units.as_slice() else {
+            panic!("inspection keeps the callable with its failed lowering");
+        };
+
+        assert_eq!(unit["representation"], "unavailable");
+        assert_eq!(unit["unit_kind"], "callable_body");
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            &diagnostics,
+            bray_diagnostics::DiagnosticKind::CheckingCallableResultRequired,
+        );
     }
 
     #[test]
@@ -970,7 +980,10 @@ mod tests {
                 .any(|unit| unit["representation"] == "compile_time")
         );
 
-        assert!(units.iter().any(|unit| unit["representation"] == "mir"));
+        for kind in ["callable_body", "anonymous_callable"] {
+            assert!(units.iter().any(|unit| unit["representation"] == "mir" && unit["mir"]["key"]["unit_kind"] == kind));
+        }
+
         assert!(diagnostics.is_empty(), "{diagnostics:?}");
     }
 
@@ -1101,7 +1114,20 @@ mod tests {
         let value: Value = serde_json::from_str(&json)
             .unwrap_or_else(|error| panic!("narrow lowered JSON must parse: {error}"));
 
-        assert_eq!(value["units"].as_array().map_or(0, std::vec::Vec::len), 1);
+        let units = value["units"].as_array().expect("lowered inspection reports its units");
+
+        let [unit] = units.as_slice() else {
+            panic!("a position selects only its owning callable");
+        };
+
+        let span = &unit["mir"]["source"]["syntax"]["span"];
+        let start = span["start"].as_u64().expect("the source anchor retains its first byte");
+        let end = span["end"].as_u64().expect("the source anchor retains its last byte");
+        let first = u64::try_from(source.find("return 1").expect("fixture first body marker")).expect("fixture source fits");
+        let second = u64::from(u32::from(position));
+
+        assert_eq!(unit["representation"], "mir");
+        assert!(first < start && start <= second && second < end);
 
         assert!(diagnostics.is_empty(), "{diagnostics:?}");
     }
