@@ -109,6 +109,8 @@ fn timed_callable_reuse_matches_ordinary_bindings_while_memory_observation_keeps
             Some((ordinary, false, false, None)),
         );
 
+        let mut ordinary_template = None;
+
         for observation in [
             bray_codegen::RuntimeObservationMode::None,
             bray_codegen::RuntimeObservationMode::PerformanceInterval {
@@ -136,6 +138,38 @@ fn timed_callable_reuse_matches_ordinary_bindings_while_memory_observation_keeps
                 usize::from(observation != bray_codegen::RuntimeObservationMode::Memory),
                 "{optimization:?} {observation:?}",
             );
+
+            let graph = reachability.graph();
+
+            if observation == bray_codegen::RuntimeObservationMode::Memory {
+                let imported = graph.instances().iter()
+                    .filter(|instance| matches!(instance.key().template(), MirUnitKey::ImportedExecutable(_)))
+                    .collect::<Vec<_>>();
+
+                let [instance] = imported.as_slice() else {
+                    panic!("memory observation must realize the imported hot body: {optimization:?}");
+                };
+
+                assert_eq!(Some(instance.key().template()), ordinary_template.as_ref());
+            } else {
+                let imported = graph.external_instances().iter()
+                    .filter(|key| matches!(key.template(), MirUnitKey::ImportedExecutable(_)))
+                    .collect::<Vec<_>>();
+
+                let [key] = imported.as_slice() else {
+                    panic!("one imported hot body must select its binding: {optimization:?} {observation:?}");
+                };
+
+                let binding = reachability.selected_native(key).expect("hot retains its exact native binding");
+
+                assert_eq!(binding.symbol.as_str(), "bray_test_precompiled");
+
+                if observation == bray_codegen::RuntimeObservationMode::None {
+                    ordinary_template = Some(key.template().clone());
+                } else {
+                    assert_eq!(Some(key.template()), ordinary_template.as_ref());
+                }
+            }
         }
     }
 }
@@ -495,10 +529,22 @@ fn selected_corrupt_native_payload_reports_dependency_validation_failure() {
         panic!("corrupt native unit must retain structured validation diagnostics: {error:?}");
     };
 
-    assert!(diagnostics.has_errors());
+    assert!(diagnostics.iter().any(|diagnostic| {
+        let args = diagnostic.args();
 
-    assert!(diagnostics.iter().any(|diagnostic| diagnostic.kind()
-        == bray_diagnostics::DiagnosticKind::InterfaceValidationFailed));
+        args.iter().any(|arg| matches!(arg.value(),
+            bray_diagnostics::DiagnosticArgValue::InterfaceValidationFailure(
+                bray_diagnostics::DiagnosticInterfaceValidationFailure::NativeArtifact {
+                    cause: bray_diagnostics::DiagnosticNativeArtifactCause::PayloadDigestMismatch,
+                    expected: Some(expected), actual: Some(actual), ..
+                }
+            ) if expected != actual
+        )) && args.iter().any(|arg| {
+            arg.name() == bray_diagnostics::DiagnosticArgName::ArtifactPath
+                && matches!(arg.value(), bray_diagnostics::DiagnosticArgValue::FilePath(path)
+                    if path.as_path() == std::path::Path::new("dependency.brayimpl"))
+        })
+    }), "selected native payload must report its artifact and unequal digests: {diagnostics:?}");
 }
 
 #[test]
