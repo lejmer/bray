@@ -122,6 +122,8 @@ Physical snapshots still supply ownership and reachable support. Their capture
 coordinates do not form part of a portable predicate subject.
 When a normal result binds an absent tag, its produced identity names the
 complete nullable. The selected outcome still leaves its payload inactive.
+At a join, a captured present value supplies its existing payload lineage.
+Rebase the whole nullable observation and its payload at their distinct paths.
 Direct calls and deferred bodies share the prepared input route and output type
 for each owning transfer. A deferred body reads its current typed input
 referent at activation through its retained descriptor. The operation and

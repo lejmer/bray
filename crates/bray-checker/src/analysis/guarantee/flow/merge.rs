@@ -804,14 +804,28 @@ pub(super) fn result_replacements(
         return;
     }
 
-    if let crate::ExecutionConditionKind::Present(payload) = value.kind() {
+    let contents = match value.kind() {
+        crate::ExecutionConditionKind::CapturedValue { value, .. } => value.as_ref(),
+        _ => value,
+    };
+
+    if let crate::ExecutionConditionKind::Present(payload) = contents.kind() {
         if !stable_values.contains(value) {
             insert_replacement(values, value, joined);
         }
 
+        let joined_contents = match joined.kind() {
+            crate::ExecutionConditionKind::CapturedValue { value, .. } => value.as_ref(),
+            _ => joined,
+        };
+
+        if contents != value && !stable_values.contains(contents) {
+            insert_replacement(values, contents, joined_contents);
+        }
+
         // Presence wraps the payload's existing owner. Move that owner to the
         // selected payload, never to both the nullable root and its child.
-        result_replacements(payload, &joined.clone().project(bray_bound_tree::StorageProjection::NullableValue),
+        result_replacements(payload, &joined_contents.clone().project(bray_bound_tree::StorageProjection::NullableValue),
             stable_values, stable_identities, values, identities);
 
         return;

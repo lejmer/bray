@@ -612,8 +612,8 @@ edges.
    skill after replacing the old paths.
 2. Compare the fixed inventory of 1,709 cases on the accepted candidate.
    Account for the test audit changes through `3afac09c5` and verify the
-   native replacements. The comparison at `8d3f4a2c5` had 1,660 passes and
-   49 failures, with every outcome matching the preceding frame capture build.
+   native replacements. The comparison at `020191205` had 1,662 passes and
+   47 failures. Both array witness cases recovered, with no new failures.
    Repeat the comparison after the remaining refactor and bootstrap repairs.
 3. After the refactor, check the owner entry, dispatch, and registration paths,
    including `dispatch_ready` and `start_frame`. Trace the allocation reached
