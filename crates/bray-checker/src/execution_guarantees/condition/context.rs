@@ -132,7 +132,7 @@ impl PreparedFacts {
 #[derive(Default)]
 pub(crate) struct ExecutionProofCache {
     facts: Mutex<HashMap<[usize; 2], Arc<PreparedFacts>>>,
-    inputs: Mutex<HashMap<Vec<(ExecutionCondition, bool)>, Arc<ProofMemo>>>,
+    inputs: Mutex<HashMap<ExecutionAssumptions, Arc<ProofMemo>>>,
     aliases: Mutex<HashMap<usize, (ExecutionAssumptions, Arc<ProofMemo>)>>,
 }
 
@@ -215,10 +215,8 @@ impl ExecutionProofCache {
             return Arc::clone(prepared);
         }
 
-        let key = input.iter().cloned().collect();
-
         let prepared = Arc::clone(self.inputs.lock().expect("proof input index lock is not poisoned")
-            .entry(key).or_insert_with(|| Arc::new(ProofMemo::new())));
+            .entry(input.clone()).or_insert_with(|| Arc::new(ProofMemo::new())));
 
         // Retain every physical alias, including equal independently allocated inputs.
         self.aliases.lock().expect("proof input aliases lock is not poisoned")
