@@ -8,7 +8,6 @@ fn source_attachment_owner_requires_the_native_thread_protocol() {
     let missing = Some(DiagnosticKind::CheckingTrustedObligationNotProven);
 
     assert_production_probes(
-        include_str!("fixtures/attachment-ownership.bray"),
         &[
             ("probe_attachment_cleanup", None),
             ("probe_attachment_finish", None),

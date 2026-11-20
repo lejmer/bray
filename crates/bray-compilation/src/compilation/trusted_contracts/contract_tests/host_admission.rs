@@ -178,7 +178,6 @@ fn closing_epoch_authority_cannot_be_copied_from_internal_fields() {
     let missing = Some(DiagnosticKind::CheckingTrustedObligationNotProven);
 
     assert_production_probes(
-        include_str!("fixtures/closing-epoch-ownership.bray"),
         &[
             ("probe_closing_epoch_selected", None),
             ("probe_closing_epoch_moved", None),

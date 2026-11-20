@@ -204,14 +204,14 @@ pub(in crate::compilation) fn production_host_compilation(caller: &str) -> Compi
 }
 
 pub(super) fn assert_production_probes(
-    source: &str,
     expected: &[(&str, Option<DiagnosticKind>)],
     expected_sites: &[(&str, &str)],
 ) {
     let compilation = production_probe_compilation();
 
-    let caller = compilation.sources().iter().find(|input| input.text() == source)
-        .expect("production probe source is retained").source_id();
+    let (first, _) = expected.first().expect("production probe test includes a callable");
+    let caller = source_function_body_key(compilation, first).source().syntax().source_id();
+    let source = compilation.sources().text(caller).expect("probe body retains its source");
 
     let symbols = compilation.symbol_graph().expect("production probe declarations");
 

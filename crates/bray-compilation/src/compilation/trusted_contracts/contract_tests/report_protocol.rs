@@ -8,7 +8,6 @@ fn native_report_addresses_retain_authority_only_for_the_unchanged_owner() {
     let missing = Some(DiagnosticKind::CheckingTrustedObligationNotProven);
 
     assert_production_probes(
-        include_str!("fixtures/primary-callback-ownership.bray"),
         &[
             ("probe_primary_callbacks_admitted", None),
             ("probe_primary_callbacks_independent_mutation", None),
@@ -149,7 +148,6 @@ fn source_report_chain_requires_unchanged_exclusive_ownership() {
     let missing = Some(DiagnosticKind::CheckingTrustedObligationNotProven);
 
     assert_production_probes(
-        include_str!("fixtures/report-chain-ownership.bray"),
         &[
             ("probe_report_chain_admitted", None),
             ("probe_report_chain_fabricated", missing),

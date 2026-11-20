@@ -38,10 +38,7 @@ using core.target;
 #[test]
 #[ignore = "tier:proof"]
 fn native_exit_authority_is_required_by_actual_production_operations() {
-    super::fixtures::assert_production_probes(include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../xtask/fixtures/native-execution/contracts/native-exit-authority.bray",
-    )), &[
+    super::fixtures::assert_production_probes(&[
         ("probe_explicit_scope", Some(DiagnosticKind::CheckingTrustedObligationNotProven)),
         ("probe_admitted_scope", None),
         ("probe_fabricated_scope", Some(DiagnosticKind::CheckingTrustedObligationNotProven)),
@@ -185,10 +182,7 @@ fn production_selected_exit_destructor_checks_its_mandatory_cleanup() {
 #[test]
 #[ignore = "tier:proof"]
 fn production_retirement_owner_preserves_its_frozen_row_and_lock() {
-    super::fixtures::assert_production_probes(include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../xtask/fixtures/native-execution/contracts/retirement-authority.bray",
-    )), &[
+    super::fixtures::assert_production_probes(&[
         ("probe_retirement_move", None),
         ("probe_retirement_frozen_host", None),
         ("probe_retirement_storage_loss", Some(DiagnosticKind::CheckingTrustedObligationNotProven)),
@@ -310,10 +304,7 @@ fn catastrophic_abort_skips_lease_cleanup_without_continuing() {
 #[test]
 #[ignore = "tier:proof"]
 fn production_shutdown_owner_uses_ordinary_completion_rules() {
-    super::fixtures::assert_production_probes(include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../xtask/fixtures/native-execution/contracts/shutdown-completion.bray",
-    )), &[
+    super::fixtures::assert_production_probes(&[
         ("probe_shutdown_pending", Some(DiagnosticKind::CheckingUnresolvedFinalization)),
         ("probe_shutdown_completed", None),
         ("probe_shutdown_attempt", Some(DiagnosticKind::CheckingUnresolvedFinalization)),
