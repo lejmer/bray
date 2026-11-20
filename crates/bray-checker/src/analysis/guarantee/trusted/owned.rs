@@ -44,11 +44,11 @@ impl super::check::TrustedChecks {
         } else { result.clone() };
 
         let result = &result;
-        let guards = super::captured::exit_guards(domain, state, result, &self.owned_entry_conditions);
         let return_substitution = super::super::flow::return_substitution(result);
+        let guards = super::captured::exit_guards(domain, state, result, &self.owned_entry_conditions, &return_substitution);
 
         Some(NormalReturn {
-            carriers: self.exit_carriers(domain.request, state, result),
+            carriers: self.exit_carriers(domain.request, state, result, &return_substitution),
             captured: super::captured::captured_outcome(domain, state, result, writes, &guards),
             transfers: if inputs.infer_result_witnesses { state.owned_result(result)
             .try_map(

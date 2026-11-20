@@ -52,8 +52,8 @@ pub(super) fn captured_bindings<C: CheckerRequestContext + ?Sized>(
 pub(super) fn exit_guards<C: CheckerRequestContext + ?Sized>(
     domain: &ExecutionFlowDomain<'_, '_, C>, state: &ExecutionState, result: &ExecutionCondition,
     entry_conditions: &std::collections::BTreeSet<(ExecutionCondition, bool)>,
+    return_substitution: &impl Fn(&ExecutionCondition) -> ExecutionCondition,
 ) -> Vec<bray_symbols::ConstantTermId> {
-    let return_substitution = super::super::flow::return_substitution(result);
     let mut guards = Vec::new();
 
         for (condition, holds) in state.assumptions.difference(entry_conditions) {

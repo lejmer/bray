@@ -116,6 +116,10 @@ An admitted extraction can retain its complete private snapshot through a write 
 the vacated slot. The selected outcome must preserve the captured value and its
 reached effects must leave the capture's carried regions untouched. The slot itself
 loses the transferred owner. The result receives its witness only on completion.
+Return publication uses one mapping from the actual result's logical observations
+to portable result paths for guards, formal transfers, and witness clauses.
+Physical snapshots still supply ownership and reachable support. Their capture
+coordinates do not form part of a portable predicate subject.
 Direct calls and deferred bodies share the prepared input route and output type
 for each owning transfer. A deferred body reads its current typed input
 referent at activation through its retained descriptor. The operation and

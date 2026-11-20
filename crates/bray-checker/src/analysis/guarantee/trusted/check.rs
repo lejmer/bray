@@ -262,7 +262,9 @@ impl TrustedChecks {
         kind: bray_symbols::DependencyFailureKind,
         writes: &BTreeSet<bray_bound_tree::StoragePath>,
     ) -> bray_symbols::CapturedFailureOutcome {
-        let guards = super::captured::exit_guards(domain, state, &crate::ExecutionCondition::unknown(), &self.owned_entry_conditions);
+        let result = crate::ExecutionCondition::unknown();
+        let return_substitution = super::super::flow::return_substitution(&result);
+        let guards = super::captured::exit_guards(domain, state, &result, &self.owned_entry_conditions, &return_substitution);
 
         bray_symbols::CapturedFailureOutcome {
             kind: Some(kind),

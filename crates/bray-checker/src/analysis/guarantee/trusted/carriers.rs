@@ -139,6 +139,7 @@ impl<C: crate::CheckerRequestContext + ?Sized> super::super::flow::ExecutionFlow
 impl super::check::TrustedChecks {
     pub(super) fn exit_carriers<C: crate::CheckerRequestContext + ?Sized>(&self, request: crate::CheckerUnitView<'_, C>,
         state: &ExecutionState, result: &ExecutionCondition,
+        return_substitution: &impl Fn(&ExecutionCondition) -> ExecutionCondition,
     ) -> BTreeSet<ReturnedCarrier> {
         let Some(inputs) = request.trusted_contracts() else { return BTreeSet::new(); };
 
@@ -150,13 +151,13 @@ impl super::check::TrustedChecks {
         for ((declared, _), (checked, _)) in inputs.guarantees.iter().zip(&self.guarantees) {
             let Some(term) = portable(request, declared) else { continue; };
 
-            for (path, support) in declared_carriers(request, state, result, &owners, checked) {
+            for (path, support) in declared_carriers(request, state, result, &owners, checked, return_substitution) {
                 carriers.insert(DependencyWitnessCarrier::new(term, path).with_support(support));
             }
         }
 
         if inputs.infer_result_witnesses {
-            carriers.extend(inferred_carriers(request, state, result, &owners));
+            carriers.extend(inferred_carriers(request, state, &owners, return_substitution));
         }
 
         carriers
@@ -184,12 +185,11 @@ pub(in crate::analysis) fn portable<C: crate::CheckerRequestContext + ?Sized>(
 fn inferred_carriers<C: crate::CheckerRequestContext + ?Sized>(
     request: crate::CheckerUnitView<'_, C>,
     state: &ExecutionState,
-    returned: &ExecutionCondition,
     owners: &BTreeMap<ExecutionCondition, Vec<StorageProjection>>,
+    return_substitution: &impl Fn(&ExecutionCondition) -> ExecutionCondition,
 ) -> BTreeSet<ReturnedCarrier> {
     let mut result = BTreeSet::new();
     let proof = state.proof();
-    let return_substitution = super::super::flow::return_substitution(returned);
 
     for (owner, witness) in &state.witnesses {
         let Some(path) = owners.get(owner) else {
@@ -213,7 +213,7 @@ fn inferred_carriers<C: crate::CheckerRequestContext + ?Sized>(
             let condition = return_substitution(condition);
 
             if let Some(term) = portable(request, &condition) {
-                let support = portable_support(request, witness, [support], &return_substitution);
+                let support = portable_support(request, witness, [support], return_substitution);
 
                 result.insert(DependencyWitnessCarrier::new(term, path.iter().copied()).with_support(support));
             }
@@ -239,6 +239,7 @@ pub(in crate::analysis::guarantee) fn result_projection(
 fn declared_carriers<C: crate::CheckerRequestContext + ?Sized>(
     request: crate::CheckerUnitView<'_, C>, state: &ExecutionState, result: &ExecutionCondition,
     owners: &BTreeMap<ExecutionCondition, Vec<StorageProjection>>, guarantee: &ExecutionCondition,
+    return_substitution: &impl Fn(&ExecutionCondition) -> ExecutionCondition,
 ) -> BTreeSet<(Vec<StorageProjection>, Option<DependencyWitnessSupport<ExecutionPlace>>)> {
         let proof = state.proof();
 
@@ -260,7 +261,6 @@ fn declared_carriers<C: crate::CheckerRequestContext + ?Sized>(
         }
 
         let mut paths = BTreeSet::new();
-        let return_substitution = super::super::flow::return_substitution(result);
 
         for (carrier, witness) in &state.witnesses {
             let Some(path) = owners.get(carrier) else {
@@ -307,7 +307,7 @@ fn declared_carriers<C: crate::CheckerRequestContext + ?Sized>(
                 let support = if independent {
                     Some(DependencyWitnessSupport::new([], []))
                 } else {
-                    portable_support(request, witness, supports, &return_substitution)
+                    portable_support(request, witness, supports, return_substitution)
                 };
 
                 paths.insert((path.clone(), support));

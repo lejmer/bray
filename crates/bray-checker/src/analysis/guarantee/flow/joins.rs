@@ -106,14 +106,16 @@ fn collect_current_content_identities(
     }
 }
 
+/// Rebase portable facts against the same observations used by predicate operands.
 pub(in crate::analysis::guarantee) fn return_substitution(
     result: &ExecutionCondition,
 ) -> impl Fn(&ExecutionCondition) -> ExecutionCondition {
+    let result = result.without_captured_storage();
     let mut values = BTreeMap::new();
     let mut identities = BTreeMap::new();
 
     result_replacements(
-        result,
+        &result,
         &ExecutionCondition::result(),
         &Default::default(),
         &Default::default(),
@@ -121,7 +123,7 @@ pub(in crate::analysis::guarantee) fn return_substitution(
         &mut identities,
     );
 
-    move |condition| condition.with_joined_values(&values, &identities)
+    move |condition| condition.without_captured_storage().with_joined_values(&values, &identities)
 }
 
 pub(in crate::analysis::guarantee) fn merge_returned(

@@ -46,6 +46,13 @@ live allocations, and authority each require their own evidence. Keep empty
 nullable payloads and unknown payloads distinct. Keep private results available
 to cleanup and publish them only after normal cleanup completes.
 
+Normal publication keeps a witness's predicate subject and its owning path.
+The portable subject names the same logical observation checked in the body.
+The carrier follows the actual ownership lineage, including a present payload
+that carries a claim on its nullable value. Absence removes the payload and can
+leave a witness on the whole object. Check nested outputs, inactive alternatives,
+and witnesses on the payload itself in source and imported summaries.
+
 Review production and test changes separately. Remove superseded and duplicate
 mechanisms. Keep the code needed to preserve the phase contracts and supported
 behavior.
@@ -572,13 +579,11 @@ edges.
   frames formed at one site, payload guards, and source and imported calls.
 - Trace trusted authority through admitted scoped exits. Keep protected cleanup
   tied to the actual backing effects and retire witnesses with their support.
-  On the last checked native candidate, `prepare_start` and `start_frame`
-  checked and lowered on all four targets. `dispatch_ready` still failed its
-  postcondition. The event retrieved from the host directory has an independent
-  result origin in that candidate, so retirement of its backing still widens.
-  After the refactor, trace the stored descriptor through registration and
-  release, including the acquisition and status observations across
-  `wait_execution` and `dispatch_task`.
+  The last native comparison passed `prepare_start` on all four targets.
+  `dispatch_ready`, `start_frame`, and `acquire_worker_ready` still fail.
+  Trace the retained descriptor through registration and release, including
+  the acquisition and status observations across `wait_execution` and
+  `dispatch_task`.
 - Check observation survival using the resolved normal effects and typed cell
   changes. Established pure admission can preserve inputs on normal completion.
   An unproved admission or an abnormal prefix still needs its reached effects.
@@ -607,10 +612,9 @@ edges.
    skill after replacing the old paths.
 2. Compare the fixed inventory of 1,709 cases on the accepted candidate.
    Account for the test audit changes through `3afac09c5` and verify the
-   native replacements. The frame capture comparison had 1,660 passes and
-   49 failures. Four cases recovered with no new failures against the preceding
-   build. Complete the same comparison after the remaining refactor and
-   bootstrap repairs.
+   native replacements. The comparison at `8d3f4a2c5` had 1,660 passes and
+   49 failures, with every outcome matching the preceding frame capture build.
+   Repeat the comparison after the remaining refactor and bootstrap repairs.
 3. After the refactor, check the owner entry, dispatch, and registration paths,
    including `dispatch_ready` and `start_frame`. Trace the allocation reached
    through the task slot and the lifetime that supports the acquired `Current`
@@ -619,9 +623,9 @@ edges.
    lowering on Windows and Linux for x86-64 and AArch64 on the same candidate.
    Run native workflows outside the sandbox.
 5. Measure an optimized build on 24 cores. Acceptance requires planning in the
-   prior 17–25 second range and a finished binary within 60 seconds. The Windows
-   standard-library build completed in 76.6 seconds. Planning took 33.4 seconds
-   and emission took 34.3 seconds. Profile the storage-flow solve and the export
-   proof scan on the same build to isolate the remaining regressions.
+   prior 17–25 second range and a finished binary within 60 seconds. The latest
+   profiled Windows standard-library build took 34.7 seconds to plan and 35.1
+   seconds to emit. Track the result dependency solve and export proof scan
+   alongside native reachability and emission.
 6. Complete the repository audit and independent review. Push to the existing
    draft PR. BRA-695 and BRA-696 cover native execution and shutdown.
