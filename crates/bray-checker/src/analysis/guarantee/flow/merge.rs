@@ -804,20 +804,14 @@ pub(super) fn result_replacements(
         return;
     }
 
-    let contents = match value.kind() {
-        crate::ExecutionConditionKind::CapturedValue { value, .. } => value.as_ref(),
-        _ => value,
-    };
+    let contents = value.value_inside_capture();
 
     if let crate::ExecutionConditionKind::Present(payload) = contents.kind() {
         if !stable_values.contains(value) {
             insert_replacement(values, value, joined);
         }
 
-        let joined_contents = match joined.kind() {
-            crate::ExecutionConditionKind::CapturedValue { value, .. } => value.as_ref(),
-            _ => joined,
-        };
+        let joined_contents = joined.value_inside_capture();
 
         if contents != value && !stable_values.contains(contents) {
             insert_replacement(values, contents, joined_contents);

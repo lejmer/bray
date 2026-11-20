@@ -1,6 +1,6 @@
 use super::{StorageFlowInput, StorageFlowState};
 use super::outcomes::StorageFlowOutcomes;
-use crate::analysis::outcomes::{cleanup_successor, edge_path, result_production_edges};
+use crate::analysis::outcomes::{cleanup_successor, edge_path};
 use crate::analysis::fixed_point::{FixedPointDomain, FlowDirection};
 use crate::analysis::guarantee::ExecutionJoin;
 use crate::analysis::id::{AnalysisBlockId, AnalysisEdgeId};
@@ -19,7 +19,6 @@ where
 {
     graph: &'analysis ControlFlowGraph,
     terminal_outputs: BTreeSet<AnalysisBlockId>,
-    result_edges: BTreeSet<AnalysisEdgeId>,
     failure_effects: RefCell<BTreeMap<AnalysisEdgeId, Vec<FailureEdgeEffects>>>,
     reached_cleanup_edges: RefCell<BTreeSet<AnalysisEdgeId>>,
     edge_lifetime_ends: &'analysis BTreeMap<AnalysisEdgeId, Vec<BoundDependencySubject>>,
@@ -66,7 +65,6 @@ where
         Self {
             graph,
             terminal_outputs: graph.exits().iter().map(|exit| exit.block()).collect(),
-            result_edges: result_production_edges(graph, storage),
             failure_effects: RefCell::default(),
             reached_cleanup_edges: RefCell::default(),
             edge_lifetime_ends,
@@ -287,7 +285,7 @@ where
                 reached_edge = true;
                 failure_effects.extend(performed);
 
-                let path = edge_path(self.graph, edge, path, self.result_edges.contains(&edge.id()), row);
+                let path = edge_path(self.graph, edge, path, self.execution.result_edges.contains(&edge.id()), row);
 
                 changed |= target.merge(join, path, Cow::Owned(incoming));
             };

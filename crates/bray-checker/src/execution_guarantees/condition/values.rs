@@ -531,7 +531,7 @@ impl ExecutionCondition {
         (!copied.is_unknown()).then_some(copied)
     }
 
-    fn value_inside_capture(&self) -> &Self {
+    pub(crate) fn value_inside_capture(&self) -> &Self {
         match self.kind() {
             K::CapturedValue { value, .. } => value,
             _ => self,

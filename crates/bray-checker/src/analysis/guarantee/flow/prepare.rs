@@ -44,7 +44,6 @@ pub(in crate::analysis::guarantee) fn analyze_execution_flow<
     );
 
     domain.excluded_edges = excluded_edges;
-    domain.result_edges = crate::analysis::outcomes::result_production_edges(&prepared.graph, storage);
 
     domain.checked_body = Some(checked_body);
 
@@ -188,7 +187,7 @@ pub(crate) fn prepare_execution_flow<'a, 'view, C: CheckerRequestContext + ?Size
         generator_observations: &prepared.generator_observations,
         graph: &prepared.graph,
         excluded_edges: BTreeSet::new(),
-        result_edges: BTreeSet::new(),
+        result_edges: &prepared.result_edges,
         invocation_failures: &prepared.invocation_failures,
         request,
         semantics,

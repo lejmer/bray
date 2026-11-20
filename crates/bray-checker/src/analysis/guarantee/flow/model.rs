@@ -43,7 +43,7 @@ pub(crate) struct ExecutionFlowDomain<'a, 'view, C: CheckerRequestContext + ?Siz
     pub(in crate::analysis) yield_targets: &'a BTreeMap<BoundExpressionId, BoundExpressionId>,
     pub(in crate::analysis::guarantee) graph: &'a ControlFlowGraph,
     pub(super) excluded_edges: BTreeSet<AnalysisEdgeId>,
-    pub(super) result_edges: BTreeSet<AnalysisEdgeId>,
+    pub(in crate::analysis) result_edges: &'a BTreeSet<AnalysisEdgeId>,
     pub(super) invocation_failures: &'a BTreeSet<(bray_bound_tree::BoundExecutionSite, bray_symbols::DependencyFailureKind)>,
     pub(in crate::analysis::guarantee) request: CheckerUnitView<'view, C>,
     pub(in crate::analysis) semantics: &'a CheckedExpressionSemantics,

@@ -8,6 +8,7 @@ use bray_bound_tree::{
 use bray_symbols::TypeId;
 
 use super::build::{ControlFlowGraphBuildOutcome, build_storage_control_flow_graph};
+use super::id::AnalysisEdgeId;
 use super::model::ControlFlowGraph;
 use crate::asynchronous::{CleanupShape, CleanupShapeResolver};
 use crate::{CheckerOutcome, CheckerRequestContext, CheckerUnitView};
@@ -16,6 +17,7 @@ use crate::{CheckerOutcome, CheckerRequestContext, CheckerUnitView};
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct PreparedBodyAnalysis {
     pub(crate) graph: ControlFlowGraph,
+    pub(in crate::analysis) result_edges: BTreeSet<AnalysisEdgeId>,
     pub(crate) invocation_failures: BTreeSet<(bray_bound_tree::BoundExecutionSite, bray_symbols::DependencyFailureKind)>,
     pub(crate) generator_observations: bray_bound_tree::GeneratorObservations,
     pub(crate) values: super::liveness::ValueRetention,
@@ -210,6 +212,7 @@ pub fn prepare_body_analysis<C: CheckerRequestContext + ?Sized>(
             expressions,
         ),
         values,
+        result_edges: super::outcomes::result_production_edges(&graph, storage),
         invocation_failures: graph.edges().iter().filter_map(|edge| match edge.refinement() {
             Some(super::model::AnalysisRefinement::InvocationFailure(site, kind)) => Some((site, kind)),
             _ => None,
