@@ -138,7 +138,7 @@ pub(super) fn assert_production_probe(caller: &str, valid: bool) {
     let compilation = production_host_compilation(caller);
     let key = source_function_body_key(&compilation, "production_probe");
     let expected = (!valid).then_some(DiagnosticKind::CheckingTrustedObligationNotProven);
-    let diagnostics = production_probe_diagnostics(&compilation, key, expected);
+    let diagnostics = production_probe_diagnostics(&compilation, key, expected, check_probe_storage);
 
     bray_testing::assert_goal_state_diagnostic_outcome(&diagnostics, expected, caller);
 }
@@ -174,7 +174,7 @@ pub(super) fn assert_production_contract(
     let compilation = production_host_compilation(caller);
     let key = source_function_body_key(&compilation, "production_probe");
     let source = key.source().syntax().source_id();
-    let diagnostics = production_probe_diagnostics(&compilation, key, expected);
+    let diagnostics = production_probe_diagnostics(&compilation, key, expected, check_probe_storage);
 
     bray_testing::assert_goal_state_diagnostic_outcome(&diagnostics, expected, caller);
 
@@ -206,6 +206,7 @@ pub(in crate::compilation) fn production_host_compilation(caller: &str) -> Compi
 pub(super) fn assert_production_probes(
     expected: &[(&str, Option<DiagnosticKind>)],
     expected_sites: &[(&str, &str)],
+    check_rejection: fn(&Compilation, BoundUnitKey) -> DiagnosticBag,
 ) {
     let compilation = production_probe_compilation();
 
@@ -231,7 +232,7 @@ pub(super) fn assert_production_probes(
         let expected = expected.remove(name)
             .expect("each declared probe has an expected outcome");
 
-        let diagnostics = production_probe_diagnostics(compilation, key, expected);
+        let diagnostics = production_probe_diagnostics(compilation, key, expected, check_rejection);
         bray_testing::assert_goal_state_diagnostic_outcome(&diagnostics, expected, name);
 
         if let Some((_, site)) = expected_sites.iter().find(|(probe, _)| *probe == name) {
@@ -243,15 +244,20 @@ pub(super) fn assert_production_probes(
     }
 }
 
+pub(super) fn check_probe_storage(compilation: &Compilation, key: BoundUnitKey) -> DiagnosticBag {
+    let checked = compilation.storage_flow(key).expect("production probe reaches the storage checker");
+
+    checked.diagnostics().clone()
+}
+
 fn production_probe_diagnostics(
     compilation: &Compilation,
     key: BoundUnitKey,
     expected: Option<DiagnosticKind>,
+    check_rejection: fn(&Compilation, BoundUnitKey) -> DiagnosticBag,
 ) -> DiagnosticBag {
     if expected.is_some() {
-        let checked = compilation.storage_flow(key).expect("production probe reaches the checker");
-
-        return checked.diagnostics().clone();
+        return check_rejection(compilation, key);
     }
 
     let lowered = compilation

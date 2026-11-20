@@ -14,7 +14,7 @@ fn native_report_addresses_retain_authority_only_for_the_unchanged_owner() {
             ("probe_primary_callbacks_mutated", missing),
             ("probe_primary_callbacks_copied", missing),
         ],
-        &[],
+        &[],super::fixtures::check_probe_storage,
     );
 }
 
@@ -155,7 +155,7 @@ fn source_report_chain_requires_unchanged_exclusive_ownership() {
             ("probe_report_chain_mutated", missing),
             ("probe_report_chain_replaced", missing),
         ],
-        &[],
+        &[],super::fixtures::check_probe_storage,
     );
 }
 

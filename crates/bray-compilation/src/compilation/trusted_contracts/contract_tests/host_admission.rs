@@ -185,7 +185,7 @@ fn closing_epoch_authority_cannot_be_copied_from_internal_fields() {
             ("probe_closing_epoch_fabricated_exit", missing),
             ("probe_closing_epoch_fabricated_retirement", missing),
         ],
-        &[],
+        &[],super::fixtures::check_probe_storage,
     );
 }
 

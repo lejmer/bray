@@ -14,7 +14,7 @@ fn source_attachment_owner_requires_the_native_thread_protocol() {
             ("probe_attachment_mutated", missing),
             ("probe_attachment_copied", missing),
         ],
-        &[],
+        &[],super::fixtures::check_probe_storage,
     );
 }
 

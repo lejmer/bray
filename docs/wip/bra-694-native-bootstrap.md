@@ -244,6 +244,20 @@ observations, and preserve paired storage.
 Check both destinations of the same-site Boolean and numeric guard cases,
 including source and imported calls and ordered and NaN real inputs.
 
+The same-site loop reaches await with the known producer and its output
+rows. The loop's current exit facts contradict the historical condition
+that allowed an earlier iteration to form the frame. Selection wrongly
+suppresses the known producer. The presence of an opaque alternative can
+also come from joining a carried frame with an unwrapped view of that
+evaluation. The joined slot is built before the predecessor frame rewrite
+and installed afterward. Trace the lifetime of the selectors and owning
+arguments through that installation. Simplifying the guards globally
+made the active numeric case pass incorrectly and discarded real
+input evidence. Preserve the facts that select a retained value or explain
+its copied input. Verify active extraction rejections, complete transfers,
+actual opaque producers, both loop destinations, and source and imported
+cases from the fixed comparison.
+
 The storage footprint records inline reference fields as descriptor slots.
 An effect on a sibling can invalidate the enclosing value while the checked
 physical frame still preserves the descriptor and supports its separate

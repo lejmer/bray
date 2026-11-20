@@ -65,7 +65,7 @@ fn native_exit_authority_is_required_by_actual_production_operations() {
         ("probe_bridge_current", "entry.bridge.current()"),
         ("probe_thread_storage_exit", "thread_storage_exit(std.memory.null"),
         ("probe_finish_native_attachment", "finish_native_attachment(std.memory.null"),
-    ]);
+    ], super::fixtures::check_probe_storage);
 }
 
 #[test]
@@ -188,7 +188,7 @@ fn production_retirement_owner_preserves_its_frozen_row_and_lock() {
         ("probe_retirement_storage_loss", Some(DiagnosticKind::CheckingTrustedObligationNotProven)),
         ("probe_retirement_identity_write", Some(DiagnosticKind::CheckingMissingMutationAuthority)),
         ("probe_retirement_lease_write", Some(DiagnosticKind::CheckingMissingMutationAuthority)),
-    ], &[]);
+    ], &[], super::fixtures::check_probe_storage);
 }
 
 #[test]
@@ -312,7 +312,13 @@ fn production_shutdown_owner_uses_ordinary_completion_rules() {
         ("probe_shutdown_panic", None),
         ("probe_shutdown_optional", Some(DiagnosticKind::CheckingUnresolvedFinalization)),
         ("probe_shutdown_result", Some(DiagnosticKind::CheckingUnresolvedFinalization)),
-    ], &[]);
+    ], &[], |compilation, key| {
+        let checked = compilation
+            .completed_unit_cleanup(&key, &crate::CancellationToken::new())
+            .expect("production shutdown probe reaches cleanup completion");
+
+        checked.result().diagnostics().clone()
+    });
 }
 
 #[test]
