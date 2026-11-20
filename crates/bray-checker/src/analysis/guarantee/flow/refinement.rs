@@ -131,6 +131,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     .component(bray_symbols::ConstantProjectionKind::NullableValue),
                 value,
             )),
+            AnalysisRefinement::InvocationVariant(invocation, variant) => {
+                Some((self.invocation_value(state, invocation).matches_variant(variant), true))
+            }
             AnalysisRefinement::PatternOutcome {
                 subject,
                 pattern,

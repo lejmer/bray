@@ -42,17 +42,46 @@ impl InterfaceSemantics {
 
             if !crate::validation::is_strictly_sorted(&outcome.carriers)
                 || !outcome.bindings.windows(2).all(|pair| pair[0].0 < pair[1].0)
+                || !outcome.report_payloads.windows(2).all(|pair| pair[0].destination < pair[1].destination)
             {
                 return Err(invalid());
+            }
+
+            for payload in &*outcome.report_payloads {
+                self.validate_dependency_subject(&payload.destination, symbol_count, dependency_count)?;
+
+                if *payload.destination.subject_root() != InterfaceDependencySubjectRoot::Result
+                    || !crate::validation::is_strictly_sorted(&payload.requirements)
+                {
+                    return Err(invalid());
+                }
             }
 
             for carrier in &*outcome.carriers {
                 self.validate_returned_carrier(carrier, symbol_count, dependency_count)?;
             }
 
+        }
+
+        let failures = contract.failure_outcomes.as_deref().into_iter().flatten();
+
+        for row in failures.clone() {
+            if !row.writes.windows(2).all(|pair| pair[0].0 < pair[1].0)
+                || row.writes.iter().any(|(destination, _)| {
+                    !matches!(destination.subject_root(), InterfaceDependencySubjectRoot::Receiver | InterfaceDependencySubjectRoot::Parameter(_))
+                })
+            {
+                return Err(invalid());
+            }
+        }
+
+        let bindings = contract.captured_values.iter().map(|row| row.bindings.as_ref())
+            .chain(failures.map(|row| row.writes.as_ref()));
+
+        for bindings in bindings {
             let mut pending = Vec::new();
 
-            for (destination, value) in outcome.bindings.iter() {
+            for (destination, value) in bindings {
                 self.validate_dependency_subject(destination, symbol_count, dependency_count)?;
                 pending.push((value, 1u64));
             }
@@ -222,7 +251,18 @@ impl InterfaceSemantics {
                 }
             }
 
-            for (_, value) in outcome.bindings.iter() {
+        }
+
+        let bindings = contract.captured_values.iter().flat_map(|row| row.bindings.iter())
+            .chain(contract.failure_outcomes.as_deref().into_iter().flatten().flat_map(|row| row.writes.iter()));
+
+        for (destination, value) in bindings {
+            if matches!(destination.subject_root(), InterfaceDependencySubjectRoot::Parameter(ordinal)
+                if ordinal.to_index().is_none_or(|index| index >= inputs))
+            {
+                return Err(invalid());
+            }
+
             for input in value.inputs() {
                 self.validate_returned_input(*input, inputs, surface)?;
             }
@@ -249,8 +289,6 @@ impl InterfaceSemantics {
                     _ => {}
                 }
             }
-        }
-
         }
 
         Ok(())

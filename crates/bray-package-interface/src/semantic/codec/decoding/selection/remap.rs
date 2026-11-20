@@ -304,11 +304,6 @@ fn remap_dependency_contract(
         remap_dependency_requirements(requirements, maps)?;
     }
 
-    contract.observed_result = contract
-        .observed_result
-        .map(|term| maps.constant_term_id(term))
-        .transpose()?;
-
     let remap_effect = |effect: &crate::InterfaceStorageEffect| effect.try_map(
         &mut (),
         |_, subject| {
@@ -329,32 +324,7 @@ fn remap_dependency_contract(
         |_, ty| maps.type_id(ty),
     );
 
-    if let Some(rows) = &contract.failure_outcomes {
-        let rows = rows.iter().cloned().map(|mut row| {
-            row.guard = row.guard.map(|term| maps.constant_term_id(term)).transpose()?;
-
-            row.effects = row.effects.as_deref().map(|effects| effects.iter().map(&remap_effect)
-                .collect::<Result<Vec<_>, _>>().map(bray_base::sorted_unique_shared_slice)).transpose()?;
-
-            if let Some(report) = &mut row.report {
-                remap_dependency_requirements(report, maps)?;
-            }
-
-            Ok(row)
-        }).collect::<Result<Vec<_>, InterfaceValidationError>>()?;
-
-        contract.failure_outcomes = Some(bray_base::sorted_unique_shared_slice(rows));
-    }
-
-    contract.captured_values = contract.captured_values.iter().map(|outcome| {
-        let guard = outcome.guard.map(|term| maps.constant_term_id(term)).transpose()?;
-        let mut report = outcome.report.clone();
-
-        if let Some(requirements) = &mut report {
-            remap_dependency_requirements(requirements, maps)?;
-        }
-
-        let bindings = outcome.bindings.iter().map(|(destination, value)| {
+    let remap_binding = |(destination, value): &crate::InterfaceCapturedBinding| {
         let mut destination = destination.clone();
 
         remap_dependency_subject(&mut destination, maps)?;
@@ -378,7 +348,47 @@ fn remap_dependency_contract(
                 dispatch: call.dispatch.map(|w| maps.implementation_instance_id(w)).transpose()?,
                 witnesses: call.witnesses.iter().map(|w| maps.implementation_instance_id(*w)).collect::<Result<_, _>>()?,
             }), &mut |variant| Ok(variant.clone()))?))
+    };
+
+    if let Some(rows) = &contract.failure_outcomes {
+        let rows = rows.iter().cloned().map(|mut row| {
+            row.guard = row.guard.map(|term| maps.constant_term_id(term)).transpose()?;
+
+            row.effects = row.effects.as_deref().map(|effects| effects.iter().map(&remap_effect)
+                .collect::<Result<Vec<_>, _>>().map(bray_base::sorted_unique_shared_slice)).transpose()?;
+
+            row.cell_changes = row.cell_changes.as_deref().map(|cells| cells.iter().map(&remap_effect)
+                .collect::<Result<Vec<_>, _>>().map(bray_base::sorted_unique_shared_slice)).transpose()?;
+
+            row.writes = bray_base::sorted_unique_shared_slice(row.writes.iter().map(&remap_binding)
+                .collect::<Result<Vec<_>, _>>()?);
+
+            if let Some(report) = &mut row.report {
+                remap_dependency_requirements(report, maps)?;
+            }
+
+            Ok(row)
         }).collect::<Result<Vec<_>, InterfaceValidationError>>()?;
+
+        contract.failure_outcomes = Some(bray_base::sorted_unique_shared_slice(rows));
+    }
+
+    contract.captured_values = contract.captured_values.iter().map(|outcome| {
+        let guard = outcome.guard.map(|term| maps.constant_term_id(term)).transpose()?;
+        let mut report = outcome.report.clone();
+
+        if let Some(requirements) = &mut report {
+            remap_dependency_requirements(requirements, maps)?;
+        }
+
+        let report_payloads = outcome.report_payloads.iter().cloned().map(|mut payload| {
+            remap_dependency_subject(&mut payload.destination, maps)?;
+            remap_dependency_requirements(&mut payload.requirements, maps)?;
+
+            Ok(payload)
+        }).collect::<Result<Vec<_>, InterfaceValidationError>>()?;
+
+        let bindings = outcome.bindings.iter().map(&remap_binding).collect::<Result<Vec<_>, _>>()?;
 
         let owned_result = outcome.ownership.try_map(
         &mut |transfer| {
@@ -434,7 +444,11 @@ fn remap_dependency_contract(
 
         let effects = outcome.effects.iter().map(remap_effect).collect::<Result<Vec<_>, _>>()?;
 
-        Ok(bray_symbols::CapturedValueOutcome::new(guard, bindings).with_effects(effects).with_carriers(carriers).with_report(report)
+        let cell_changes = outcome.cell_changes.as_deref().map(|cells| cells.iter().map(&remap_effect)
+            .collect::<Result<Vec<_>, _>>().map(bray_base::sorted_unique_shared_slice)).transpose()?;
+
+        Ok(bray_symbols::CapturedValueOutcome::new(guard, bindings).with_effects(effects).with_cell_changes(cell_changes).with_carriers(carriers).with_report(report)
+            .with_report_payloads(report_payloads)
             .with_ownership(owned_result).with_storage(references, stored_values)
             .with_inactive_payloads(inactive_payloads))
     }).collect::<Result<_, InterfaceValidationError>>()?;

@@ -24,7 +24,7 @@ pub(super) fn panic_requirement<C: CheckerRequestContext + ?Sized>(
     flow: &super::flow::ExecutionFlow<'_, '_, C>, node: bray_bound_tree::AnyBoundNodeId,
 ) -> CheckerQueryResult<Option<bray_diagnostics::DiagnosticContractObligation>, C::UpstreamError> {
     for edge in flow.domain.graph.edges() {
-        let Some(crate::analysis::model::AnalysisRefinement::PreconditionFailure(invocation)) = edge.refinement() else {
+        let Some(crate::analysis::model::AnalysisRefinement::InvocationEntry { invocation, admitted: false }) = edge.refinement() else {
             continue;
         };
 
@@ -76,7 +76,7 @@ fn condition<C: CheckerRequestContext + ?Sized>(
         crate::ExecutionConditionKind::Boolean(value) => Condition::Boolean(*value),
         crate::ExecutionConditionKind::Literal(value) => literal(domain, value.kind(), budget)?,
         crate::ExecutionConditionKind::Input(value)
-            | crate::ExecutionConditionKind::Joined(_, _, value) => place(domain, value, budget)?,
+            | crate::ExecutionConditionKind::Joined(_, value) => place(domain, value, budget)?,
         crate::ExecutionConditionKind::Result => Condition::Result,
         crate::ExecutionConditionKind::Expression(value) | crate::ExecutionConditionKind::ScopedCapability(value) => expression(domain, *value, budget)?,
         crate::ExecutionConditionKind::Present(value) => Condition::Present(Box::new(condition(domain, value, budget)?)),

@@ -21,7 +21,7 @@ fn production_spin_lock_rejects_fabricated_guard_authority() {
     ] {
         let caller = format!(
             r#"
-            trusted module app;
+            module app;
             using internal std.sync;
             struct Payload
             {{
@@ -116,7 +116,7 @@ fn production_rw_lock_requires_distinct_acquisition_authority() {
             let suffix = if nullable { "?" } else { "" };
 
             let source = format!(
-                r#"trusted module app; using internal std.sync;
+                r#"module app; using internal std.sync;
                 func production_probe()
                     requires(blocking_execution())
                 {{

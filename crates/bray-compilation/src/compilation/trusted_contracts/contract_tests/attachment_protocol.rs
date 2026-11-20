@@ -1,55 +1,22 @@
 use bray_diagnostics::{DiagnosticKind};
 use crate::test_support::{source_function_body_key};
-use super::fixtures::{production_host_compilation};
+use super::fixtures::{assert_production_probes, production_host_compilation};
 
 #[test]
 #[ignore = "tier:proof"]
 fn source_attachment_owner_requires_the_native_thread_protocol() {
-    for (body, valid) in [
-        ("let owner = trusted acquire();", true),
-        (
-            "let owner = trusted acquire(); _ = trusted finish(owner);",
-            true,
-        ),
-        (
-            "let mut owner = trusted acquire(); owner.identity = 1;",
-            false,
-        ),
-        (
-            "let owner = trusted acquire(); let copied: Owner = { status = owner.status, identity = owner.identity };",
-            false,
-        ),
-    ] {
-        let source = format!(
-            r#"
-            trusted internal module bray.runtime.bootstrap.host.attachment;
-            func production_probe()
-                requires(trusted native_acquisition())
-            {{
-                {body}
-            }}
-        "#
-        );
+    let missing = Some(DiagnosticKind::CheckingTrustedObligationNotProven);
 
-        let compilation = production_host_compilation(&source);
-
-        let checked = compilation
-            .lowered_unit(source_function_body_key(&compilation, "production_probe"))
-            .expect("fixture callable must lower successfully");
-
-        assert_eq!(
-            !checked.diagnostics().has_errors(),
-            valid,
-            "{body}: {checked:#?}"
-        );
-
-        if !valid {
-            bray_testing::assert_goal_state_diagnostic_kind(
-                checked.diagnostics(),
-                DiagnosticKind::CheckingTrustedObligationNotProven,
-            );
-        }
-    }
+    assert_production_probes(
+        include_str!("fixtures/attachment-ownership.bray"),
+        &[
+            ("probe_attachment_cleanup", None),
+            ("probe_attachment_finish", None),
+            ("probe_attachment_mutated", missing),
+            ("probe_attachment_copied", missing),
+        ],
+        &[],
+    );
 }
 
 #[test]

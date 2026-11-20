@@ -37,7 +37,7 @@ pub(in crate::analysis::guarantee) fn check_postconditions<C: CheckerRequestCont
     let proof = state.proof();
     let mut integer_ranges = super::integer::IntegerRanges::new();
 
-    for ((required, _), failed) in postconditions.iter().zip(failed) {
+    for ((required, span), failed) in postconditions.iter().zip(failed) {
         if failed.is_some() {
             continue;
         }
@@ -99,6 +99,21 @@ pub(in crate::analysis::guarantee) fn check_postconditions<C: CheckerRequestCont
         if !super::integer::unsigned_arithmetic_is_bounded(
             &condition.with_equalities(equalities), known, &|value| domain.unsigned_value(value),
         ) {
+            static TRACE_SOURCE: std::sync::OnceLock<Option<u32>> = std::sync::OnceLock::new();
+
+            if *TRACE_SOURCE.get_or_init(|| std::env::var("BRA_694_TRACE_POSTCONDITION").ok()?.parse().ok())
+                == Some(span.source_id().raw())
+            {
+                let known = known.iter().rev().take(20).map(|(condition, holds)| {
+                    (*holds, format!("{condition:?}").chars().take(720).collect::<String>())
+                }).collect::<Vec<_>>();
+
+                eprintln!(
+                    "unproven postcondition {:?} {span:?} required={:?} result={:?} condition={:?} known={known:?}",
+                    domain.storage.unit(), required.kind(), domain.returned_value(state).kind(), condition.kind()
+                );
+            }
+
             *failed = Some(crate::UnprovenExecutionCondition::new(required.clone(), condition));
         }
     }

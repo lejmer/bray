@@ -1,4 +1,5 @@
 use std::collections::BTreeSet;
+use std::sync::Arc;
 
 use super::target::{StorageOrigin as Origin, StorageTarget as Target};
 
@@ -93,45 +94,6 @@ impl StorageMutationTarget {
                 footprint
             }
         }).collect()
-    }
-
-    /// Follows a resolved effect route against one incoming memory snapshot. A possible
-    /// region can bound a final write, but cannot identify the slot for another load.
-    pub fn resolve_route(
-        mut targets: Vec<Self>,
-        projections: &[super::StorageProjection],
-        reads: &[u32],
-        mut read: impl FnMut(Target) -> Option<Vec<Self>>,
-    ) -> Option<Vec<Self>> {
-        let mut reads = reads.iter().copied().peekable();
-
-        let mut follow = |targets: Vec<Self>| {
-            let mut reached = Vec::new();
-
-            for target in targets {
-                reached.extend(read(target.address?)?);
-            }
-
-            Some(reached)
-        };
-
-        for index in 0..=projections.len() {
-            while reads.next_if(|position| *position as usize == index).is_some() {
-                targets = follow(targets)?;
-            }
-
-            if let Some(projection) = projections.get(index) {
-                targets = if *projection == super::StorageProjection::AddressTarget {
-                    follow(targets)?
-                } else {
-                    targets.into_iter().map(|target| target.project(std::slice::from_ref(projection))).collect()
-                };
-            }
-        }
-
-        assert!(reads.next().is_none(), "effect reads lie within the checked route");
-
-        Some(targets)
     }
 
     /// Selects a component of the captured operand without rereading its descriptor.
@@ -291,10 +253,31 @@ impl StorageAddressValue {
         }
     }
 
+    fn reaches_incarnation(&self, current: &Target, retirement: StorageValueRetirement) -> bool {
+        self.targets
+            .range(current.clone()..)
+            .take_while(|target| current.contains(target))
+            .any(|target| retirement.contains(current, target))
+    }
+
     /// Whether one current, undisplaced, nonempty address is established.
     pub fn is_exact(&self) -> bool {
-        self.has_values() && self.targets.len() == 1
-            && self.targets.first().expect("one address alternative").is_exact()
+        self.single_location().is_some_and(Target::is_exact)
+    }
+
+    /// Returns the only evaluated location when there is one nonempty alternative.
+    pub fn single_location(&self) -> Option<&Target> {
+        if self.has_values() && self.targets.len() == 1 {
+            self.targets.first()
+        } else {
+            None
+        }
+    }
+
+    /// Obtains the possible actual addresses of an evaluated descriptor.
+    pub fn actual_targets(&self) -> Option<Vec<Target>> {
+        (self.has_values() && self.targets.iter().all(Target::is_exact))
+            .then(|| self.targets.iter().cloned().collect())
     }
 
     /// Returns conservative regions when their enclosing allocation boundaries are known.
@@ -369,17 +352,59 @@ impl StorageDependencyCompleteness {
     }
 }
 
+/// Scope obligations and portable dependencies captured by the same report owner.
+#[derive(Clone, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct ReportDependencies {
+    /// Storage and borrow obligations retained by the report.
+    pub subjects: BTreeSet<crate::BoundDependencySubject>,
+    /// Reached storage that the report itself needs to remain available.
+    pub storage: BTreeSet<crate::StorageAccessId>,
+    /// Portable dependencies retained by the same report.
+    pub requirements: BTreeSet<bray_symbols::DependencyRequirement>,
+}
+
+impl ReportDependencies {
+    /// Combines the possible supports of two reached reports.
+    pub fn merge(self: &mut Arc<Self>, incoming: &Self) -> bool {
+        if std::ptr::eq(self.as_ref(), incoming)
+            || (incoming.subjects.is_subset(&self.subjects)
+                && incoming.storage.is_subset(&self.storage)
+                && incoming.requirements.is_subset(&self.requirements))
+        {
+            return false;
+        }
+
+        let retained = Arc::make_mut(self);
+
+        retained.subjects.extend(incoming.subjects.iter().copied());
+        retained.storage.extend(incoming.storage.iter().copied());
+        retained.requirements.extend(incoming.requirements.iter().cloned());
+
+        true
+    }
+}
+
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+struct CapturedReport {
+    dependencies: Arc<ReportDependencies>,
+    complete: bool,
+}
+
 /// One evaluated value's address and carried dependencies, captured and published together.
 #[derive(Clone, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct StorageValueBinding {
     /// Checked observation roles carried together by this actual value, never by a region bound.
     pub observations: BTreeSet<super::StorageObservationKind>,
+    report: Option<CapturedReport>,
+    dependency_support: Option<Arc<ReportDependencies>>,
+    borrow_capability: Option<crate::BorrowCapabilityId>,
     // An inactive payload contributes no value, independently of an actual null address.
     no_payload: bool,
     /// Actual descriptor knowledge, independently of carried dependency bounds.
     pub address: Option<StorageAddressValue>,
     /// Possible address origins carried by generic transport, never evaluated address identity.
     pub address_bounds: Option<StorageAddressValue>,
+    owned_backing: Option<Arc<StorageAddressValue>>,
     /// Possible whole-value dependency origins. These are not identity or ownership edges.
     pub sources: BTreeSet<Target>,
     /// Completeness of the possible dependency origins.
@@ -387,9 +412,73 @@ pub struct StorageValueBinding {
 }
 
 impl StorageValueBinding {
+    /// A formed loan publishes its capability with the evaluated descriptor.
+    pub fn borrowed(address: StorageAddressValue, capability: crate::BorrowCapabilityId) -> Self {
+        Self { borrow_capability: Some(capability), ..Self::from(address) }
+    }
+
+    /// Returns a capability carried by the actual descriptor, independently of its address.
+    pub fn borrow_capability(&self) -> Option<crate::BorrowCapabilityId> {
+        self.address.as_ref().is_some_and(|address| address.has_values() && !address.targets.is_empty()
+            && address.targets.iter().all(|target| !target.previous))
+            .then_some(self.borrow_capability).flatten()
+    }
+
+    /// Support retained by this evaluated value independently of its original slot.
+    pub fn dependency_support(&self) -> Option<&Arc<ReportDependencies>> {
+        self.dependency_support.as_ref()
+    }
+
+    pub(crate) fn include_dependency_support(&mut self, incoming: &Arc<ReportDependencies>) {
+        if let Some(support) = &mut self.dependency_support {
+            support.merge(incoming);
+        } else {
+            self.dependency_support = Some(Arc::clone(incoming));
+        }
+    }
+
     /// Creates a known inactive payload, distinct from null and unknown.
     pub fn no_payload() -> Self {
         Self { no_payload: true, ..Self::default() }
+    }
+
+    /// Returns carried report dependencies and whether they include every possible support.
+    pub fn report_dependencies(&self) -> Option<(&Arc<ReportDependencies>, bool)> {
+        self.report.as_ref().map(|report| (&report.dependencies, report.complete))
+    }
+
+    /// Attaches the already bound dependencies to the produced report.
+    pub fn attach_report_dependencies(&mut self, dependencies: Arc<ReportDependencies>, complete: bool) {
+        self.make_present();
+
+        if let Some(report) = &mut self.report {
+            report.dependencies.merge(&dependencies);
+            report.complete &= complete;
+        } else {
+            self.report = Some(CapturedReport { dependencies, complete });
+        }
+    }
+
+    fn merge_report_dependencies(&mut self, incoming: &Self, alternative: bool) {
+        match (&mut self.report, &incoming.report) {
+            (Some(report), Some(incoming)) => {
+                report.dependencies.merge(&incoming.dependencies);
+
+                report.complete = if alternative {
+                    report.complete && incoming.complete
+                } else {
+                    report.complete || incoming.complete
+                };
+            }
+            (Some(report), None) if alternative => report.complete = false,
+            (None, Some(incoming)) => {
+                self.report = Some(CapturedReport {
+                    dependencies: Arc::clone(&incoming.dependencies),
+                    complete: !alternative && incoming.complete,
+                });
+            }
+            _ => {}
+        }
     }
 
     /// Whether this alternative contains no active payload value.
@@ -426,6 +515,17 @@ impl StorageValueBinding {
         self.address.get_or_insert_with(StorageAddressValue::default)
     }
 
+    /// The backing reached by the evaluated owning representation.
+    pub fn owned_backing(&self) -> Option<&StorageAddressValue> {
+        self.owned_backing.as_deref()
+    }
+
+    /// Attaches the reached backing to its produced owner.
+    pub fn attach_owned_backing(&mut self, backing: StorageAddressValue) {
+        self.make_present();
+        self.owned_backing = Some(Arc::new(backing));
+    }
+
     /// Retains conservative input regions without claiming an evaluated address.
     pub fn capture_inputs(&mut self, captures: impl IntoIterator<Item = Target>) {
         self.make_present();
@@ -456,7 +556,7 @@ impl StorageValueBinding {
 
     /// Visits actual address knowledge and carried address bounds.
     pub fn references(&self) -> impl Iterator<Item = &StorageAddressValue> {
-        self.address.iter().chain(self.address_bounds.iter())
+        self.address.iter().chain(self.address_bounds.iter()).chain(self.owned_backing.as_deref())
     }
 
     /// Visits conservative alternatives, preferring a complete actual address value.
@@ -465,6 +565,11 @@ impl StorageValueBinding {
 
         self.address.iter().chain(self.address_bounds.iter().filter(move |_| !known))
             .filter(|_| !self.no_payload)
+    }
+
+    /// Reached regions carried by an owner or reference value.
+    pub fn carried_references(&self) -> impl Iterator<Item = &StorageAddressValue> {
+        self.possible_references().chain(self.owned_backing())
     }
 
     /// Captures descriptor knowledge while retaining its actual or bounded precision.
@@ -498,12 +603,36 @@ impl StorageValueBinding {
 
     /// Captures mutation operands without promoting possible regions to actual addresses.
     pub fn mutation_targets(&self) -> Option<Vec<StorageMutationTarget>> {
+        if self.is_no_payload() {
+            return Some(Vec::new());
+        }
+
         Some(StorageMutationTarget::reference(self.address.as_ref(), self.reference_regions()?))
     }
 
     /// Visits address components for conservative incarnation and knowledge updates.
     pub fn references_mut(&mut self) -> impl Iterator<Item = &mut StorageAddressValue> {
-        self.address.iter_mut().chain(self.address_bounds.iter_mut())
+        self.address.iter_mut().chain(self.address_bounds.iter_mut()).chain(self.owned_backing.iter_mut().map(Arc::make_mut))
+    }
+
+    /// Retires carried descriptors without copying an unaffected backing.
+    pub fn retire_references(&mut self, current: &Target, retirement: StorageValueRetirement) {
+        for address in self.address.iter_mut().chain(self.address_bounds.iter_mut()) {
+            address.retire(current, retirement);
+        }
+
+        if let Some(backing) = &mut self.owned_backing
+            && backing.reaches_incarnation(current, retirement)
+        {
+            Arc::make_mut(backing).retire(current, retirement);
+        }
+    }
+
+    /// Keeps known possible regions after a write can replace the owning value.
+    pub fn forget_owned_backing(&mut self) {
+        if let Some(backing) = &mut self.owned_backing {
+            Arc::make_mut(backing).forget_value();
+        }
     }
 
     /// Forgets the descriptor and its bounds without claiming an empty payload.
@@ -514,6 +643,7 @@ impl StorageValueBinding {
 
         self.address = None;
         self.address_bounds = None;
+        self.borrow_capability = None;
     }
 
     /// Drops value precision and completeness while retaining possible dependencies.
@@ -527,11 +657,16 @@ impl StorageValueBinding {
         }
 
         self.completeness.lose_completeness();
+        self.borrow_capability = None;
+
+        if let Some(report) = &mut self.report { report.complete = false; }
     }
 
     /// Demotes a value snapshot to possible dependency information only.
     pub fn into_dependency_bounds(mut self) -> Self {
         self.observations.clear();
+        self.borrow_capability = None;
+        if let Some(report) = &mut self.report { report.complete = false; }
 
         // Dependency bounds describe no payload presence or absence.
         if self.no_payload {
@@ -542,6 +677,10 @@ impl StorageValueBinding {
 
         if let Some(address) = self.address.take() {
             self.include_address_bound(&address);
+        }
+
+        if let Some(backing) = &mut self.owned_backing {
+            Arc::make_mut(backing).bound();
         }
 
         self
@@ -560,11 +699,16 @@ impl StorageValueBinding {
             return;
         }
 
+        self.merge_report_dependencies(incoming, true);
+        if self.borrow_capability != incoming.borrow_capability { self.borrow_capability = None; }
+
         let missing_address = self.address.is_none() || incoming.address.is_none();
         let missing_bounds = self.address_bounds.is_none() || incoming.address_bounds.is_none();
+        let missing_backing = self.owned_backing.is_none() || incoming.owned_backing.is_none();
 
         self.observations.retain(|kind| incoming.observations.contains(kind));
 
+        self.merge_backing(incoming, false);
         self.merge_contents(incoming, self.completeness.join(incoming.completeness));
 
         if missing_address && let Some(address) = &mut self.address {
@@ -573,6 +717,10 @@ impl StorageValueBinding {
 
         if missing_bounds && let Some(bounds) = &mut self.address_bounds {
             bounds.forget_value();
+        }
+
+        if missing_backing && let Some(backing) = &mut self.owned_backing {
+            Arc::make_mut(backing).forget_value();
         }
     }
 
@@ -583,17 +731,28 @@ impl StorageValueBinding {
         }
 
         self.sources.extend(incoming.sources.iter().cloned());
+        self.merge_report_dependencies(incoming, true);
+
+        if let Some(support) = incoming.dependency_support() {
+            self.include_dependency_support(support);
+        }
+
         self.completeness = self.completeness.include(incoming.completeness);
 
         for incoming in incoming.address.iter().chain(incoming.address_bounds.iter()) {
             self.include_address_bound(incoming);
         }
+
+        if incoming.owned_backing.is_some() { self.merge_backing(incoming, true); }
     }
 
     /// Join alternative evaluated values, including missing generic information.
     pub fn merge(&mut self, incoming: &Self) {
         if self.merge_presence(incoming) {
+            self.merge_report_dependencies(incoming, true);
+            if self.borrow_capability != incoming.borrow_capability { self.borrow_capability = None; }
             self.observations.retain(|kind| incoming.observations.contains(kind));
+            self.merge_backing(incoming, self.completeness.tracked() || incoming.completeness.tracked());
             self.merge_contents(incoming, self.completeness.join(incoming.completeness));
         }
     }
@@ -601,7 +760,16 @@ impl StorageValueBinding {
     /// Assemble captured contents whose explicit reference slots supplement opaque lineage.
     pub fn include_value(&mut self, incoming: &Self) {
         if self.merge_presence(incoming) {
+            self.merge_report_dependencies(incoming, false);
+
+            if self.address.is_none() {
+                self.borrow_capability = incoming.borrow_capability;
+            } else if incoming.address.is_some() && self.borrow_capability != incoming.borrow_capability {
+                self.borrow_capability = None;
+            }
+
             if self.observations.is_empty() { self.observations.clone_from(&incoming.observations); }
+            self.merge_backing(incoming, false);
             self.merge_contents(incoming, self.completeness.include(incoming.completeness));
         }
     }
@@ -639,10 +807,32 @@ impl StorageValueBinding {
         }
 
         self.sources.extend(incoming.sources.iter().cloned());
+
+        if let Some(support) = incoming.dependency_support() {
+            self.include_dependency_support(support);
+        }
+
         self.completeness = completeness;
 
         if let Some(bounds) = &incoming.address_bounds {
             self.include_address_bound(bounds);
+        }
+    }
+
+    fn merge_backing(&mut self, incoming: &Self, conservative: bool) {
+        match (&mut self.owned_backing, &incoming.owned_backing) {
+            (Some(backing), Some(incoming)) if backing.as_ref() != incoming.as_ref() => {
+                Arc::make_mut(backing).merge(incoming);
+            }
+            (Some(backing), None) if conservative => Arc::make_mut(backing).bound(),
+            (None, Some(backing)) => {
+                let mut backing = Arc::clone(backing);
+
+                if conservative { Arc::make_mut(&mut backing).bound(); }
+
+                self.owned_backing = Some(backing);
+            }
+            _ => {}
         }
     }
 }

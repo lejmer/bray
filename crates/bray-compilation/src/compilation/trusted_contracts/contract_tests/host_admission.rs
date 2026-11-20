@@ -1,6 +1,6 @@
 use bray_diagnostics::{DiagnosticKind};
 use crate::test_support::{source_function_body_key};
-use super::fixtures::{production_host_compilation};
+use super::fixtures::{assert_production_probes, production_host_compilation};
 
 #[test]
 #[ignore = "tier:proof"]
@@ -175,68 +175,19 @@ fn completion_witnesses_require_proven_preservation_across_calls() {
 #[test]
 #[ignore = "tier:proof"]
 fn closing_epoch_authority_cannot_be_copied_from_internal_fields() {
-    for (body, valid) in [
-        ("_ = complete_attachment_exit(selected);", true),
-        ("let moved = selected; _ = complete_attachment_exit(moved);", true),
-        ("selected.cleanup = none; _ = complete_attachment_exit(selected);", false),
-        (
-            r"let fake: AttachmentExit =
-                {
-                    identity = selected.identity,
-                    native_thread = selected.native_thread,
-                    cleanup = none
-                };
-                _ = complete_attachment_exit(fake);",
-            false,
-        ),
-        (
-            r"let own_lease = trusted host_access();
-                let fake: AttachmentRetirement =
-                {
-                    lease = own_lease,
-                    identity = selected.identity,
-                    native_thread = selected.native_thread,
-                    record = std.memory.null<Attachment>(),
-                    active = std.memory.null<usize>(),
-                    remaining_active = 0
-                };
-                let pointer = completed_attachment_pointer(&fake);",
-            false,
-        ),
-    ] {
-        let caller = format!(
-            r#"
-            trusted internal module bray.runtime.bootstrap.host;
+    let missing = Some(DiagnosticKind::CheckingTrustedObligationNotProven);
 
-            using std.memory;
-
-            func production_probe(pos mut selected: AttachmentExit)
-                requires(trusted attachment_exit_selected(owner = &selected))
-            {{
-                {body}
-            }}
-            "#
-        );
-
-        let compilation = production_host_compilation(&caller);
-
-        let checked = compilation
-            .lowered_unit(source_function_body_key(&compilation, "production_probe"))
-            .expect("closing epoch probe must retain its checked result");
-
-        assert_eq!(
-            !checked.diagnostics().has_errors(),
-            valid,
-            "{body}: {checked:#?}"
-        );
-
-        if !valid {
-            bray_testing::assert_goal_state_diagnostic_kind(
-                checked.diagnostics(),
-                DiagnosticKind::CheckingTrustedObligationNotProven,
-            );
-        }
-    }
+    assert_production_probes(
+        include_str!("fixtures/closing-epoch-ownership.bray"),
+        &[
+            ("probe_closing_epoch_selected", None),
+            ("probe_closing_epoch_moved", None),
+            ("probe_closing_epoch_mutated", missing),
+            ("probe_closing_epoch_fabricated_exit", missing),
+            ("probe_closing_epoch_fabricated_retirement", missing),
+        ],
+        &[],
+    );
 }
 
 #[test]

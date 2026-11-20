@@ -2,23 +2,11 @@ use std::collections::BTreeMap;
 
 use bray_bound_tree::{
     BoundExpressionId, BoundPatternId, BoundUnitView, StorageBinding,
-    StorageBindingTarget, StoragePlan, StorageScopeOwners,
+    StorageBindingTarget, StoragePlan,
 };
 
-use crate::{CheckerQueryError, CheckerRequestContext, CheckerUnitView};
+use crate::{CheckerRequestContext, CheckerUnitView};
 
-pub(crate) fn storage_scope_owners<C>(
-    request: CheckerUnitView<'_, C>,
-) -> Result<StorageScopeOwners, CheckerQueryError>
-where
-    C: CheckerRequestContext + ?Sized,
-{
-    Ok(
-        StorageScopeOwners::collect(request.unit()).unwrap_or_else(|error| {
-            panic!("storage_scope_owners must satisfy its checked construction contract: {error:?}")
-        }),
-    )
-}
 pub(crate) fn value_transfer_destinations<C>(
     request: CheckerUnitView<'_, C>,
     storage: &StoragePlan,

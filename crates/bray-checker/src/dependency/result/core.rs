@@ -112,6 +112,11 @@ impl<'a, 'state, C: CheckerRequestContext + ?Sized> Transfer<'a, 'state, C> {
                     .expression(id)
                     .expect("flow expression is bound");
 
+                if expression.accumulates_generator_result() {
+                    // Accepted yields already bound the prefix's complete dependency graph.
+                    return Ok(());
+                }
+
                 let values = self.expression_values(id, expression, completed)?;
 
                 super::state::assign(&mut self.state.values, id.into(), values);
@@ -143,8 +148,18 @@ impl<'a, 'state, C: CheckerRequestContext + ?Sized> Transfer<'a, 'state, C> {
                         .cloned()
                         .unwrap_or_default();
 
-                    super::state::assign(&mut self.state.values, target.into(), values);
-                    super::state::assign(&mut self.state.sources, target, sources);
+                    if self.request.view().expression(target).is_some_and(BoundExpression::accumulates_generator_result) {
+                        if !values.is_empty() {
+                            self.state.values.entry(target.into()).or_default().extend(values);
+                        }
+
+                        if !sources.is_empty() {
+                            self.state.sources.entry(target).or_default().extend(sources);
+                        }
+                    } else {
+                        super::state::assign(&mut self.state.values, target.into(), values);
+                        super::state::assign(&mut self.state.sources, target, sources);
+                    }
                 }
 
                 let returned = match expression {
@@ -160,22 +175,7 @@ impl<'a, 'state, C: CheckerRequestContext + ?Sized> Transfer<'a, 'state, C> {
                 };
 
                 if let Some(value) = returned {
-                    self.state.returned.extend(
-                        self.state
-                            .values
-                            .get(&(value).into())
-                            .into_iter()
-                            .flatten()
-                            .cloned(),
-                    );
-                }
-
-                if self.inputs.returned_errors.contains(&id) {
-                    let (value, projection) = self.inputs.error_exits[&id];
-
-                    let requirements = self.copied_values(value, &[projection])?;
-
-                    self.state.returned.extend(requirements);
+                    self.state.returned = self.state.values.get(&value.into()).cloned().unwrap_or_default();
                 }
             }
             bray_bound_tree::AnyBoundNodeId::Pattern(pattern) => {
@@ -274,30 +274,7 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
                 BoundExpression::Structured(value)
                     if value.kind() == BoundStructuredExpressionKind::With =>
                 {
-                    let mut values = self
-                        .state
-                        .values
-                        .get(&(id).into())
-                        .cloned()
-                        .unwrap_or_default();
-
-                    if let Some(SemanticSelection::ScopedUse(scoped)) =
-                        self.selections.expression(id)
-                    {
-                        if scoped.enter().1.result() != scoped.capability_type() {
-                            values.extend(self.scoped_values(scoped)?);
-                        }
-
-                        if crate::representation::type_representation(
-                            self.request,
-                            scoped.exit().1.result(),
-                        ) == Some(bray_compiler_known::RepresentationRole::Result)
-                        {
-                            values.extend(self.exit_values(scoped)?);
-                        }
-                    }
-
-                    values
+                    self.state.value_requirements(id).cloned().collect()
                 }
                 BoundExpression::Structured(value)
                     if value.kind() == BoundStructuredExpressionKind::Catch =>

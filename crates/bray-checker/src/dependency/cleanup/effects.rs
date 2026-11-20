@@ -6,23 +6,19 @@ use crate::{CheckerQueryError, CheckerRequestContext, CheckerUnitView};
 
 pub(in crate::dependency) fn prepare_future_effects<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
-    call: &bray_bound_tree::SelectedCall,
+    inputs: impl IntoIterator<Item = (DependencySubjectRoot, TypeId)>,
+    result: TypeId,
 ) -> Result<(Vec<Effect>, Vec<Effect>), CheckerQueryError<C::UpstreamError>> {
     let mut captures = Vec::new();
 
-    let inputs = call.arguments().iter().map(bray_bound_tree::SelectedInput::Argument)
-        .chain(call.receiver().map(bray_bound_tree::SelectedInput::Receiver));
-
-    for input in inputs {
+    for (root, ty) in inputs {
         captures.extend(resolve_effects(request, &[Effect::Direct { addressed: true,
-            subject: DependencySubject::root(input.root()), kind: Kind::Dispose(input.ty(request.semantic_values())), access_type: Some(input.ty(request.semantic_values())),
+            subject: DependencySubject::root(root), kind: Kind::Dispose(ty), access_type: Some(ty),
         }])?);
     }
 
-    let ty = call.resolution().result().completion_type();
-
     let result = resolve_effects(request, &[Effect::Direct { addressed: true,
-        subject: DependencySubject::root(DependencySubjectRoot::Result), kind: Kind::Dispose(ty), access_type: Some(ty),
+        subject: DependencySubject::root(DependencySubjectRoot::Result), kind: Kind::Dispose(result), access_type: Some(result),
     }])?;
 
     Ok((captures, result))
@@ -68,7 +64,26 @@ pub(crate) fn resolve_contract_effects<C: CheckerRequestContext + ?Sized>(
         }
     }
 
-    Ok(template.with_captured_values(outcomes).with_possible_effects(possible))
+    let possible = bray_base::sorted_unique_shared_slice(possible);
+
+    let failures = template.failure_outcomes().map(|rows| {
+        let mut prefixes = std::collections::BTreeMap::from([(template.effects(), std::sync::Arc::clone(&possible))]);
+
+        rows.iter().map(|row| {
+            let effects = row.effects.as_deref().map(|prefix| {
+                let expanded = match prefixes.entry(prefix) {
+                    std::collections::btree_map::Entry::Occupied(entry) => entry.into_mut(),
+                    std::collections::btree_map::Entry::Vacant(entry) => entry.insert(bray_base::sorted_unique_shared_slice(resolve_effects(request, prefix)?)),
+                };
+
+                Ok::<_, CheckerQueryError<C::UpstreamError>>(std::sync::Arc::clone(expanded))
+            }).transpose()?;
+
+            Ok(bray_symbols::CapturedFailureOutcome { effects, ..row.clone() })
+        }).collect::<Result<Vec<_>, _>>()
+    }).transpose()?;
+
+    Ok(template.with_captured_values(outcomes).with_failure_outcomes(failures).with_possible_effects(possible.iter().cloned()))
 }
 
 fn resolve_effects_using<C: CheckerRequestContext + ?Sized>(
@@ -167,6 +182,7 @@ fn expand<C: CheckerRequestContext + ?Sized>(
             part.projections().iter().map(|projection| match projection.projection() {
                 bray_bound_tree::StorageCleanupProjectionKind::Component(component) => crate::storage::dependency_projection(component),
                 bray_bound_tree::StorageCleanupProjectionKind::OwnedTarget(_) => Some(Projection::OwnedTarget),
+                bray_bound_tree::StorageCleanupProjectionKind::ArrayElements(_) => Some(Projection::AnyElement),
                 _ => None,
             }).collect::<Option<Vec<_>>>()
         });
@@ -186,7 +202,7 @@ fn expand<C: CheckerRequestContext + ?Sized>(
 
         let mut children = Vec::new();
 
-        append_part(request, *ty, part.as_ref().expect("concrete represented cleanup part"), &scope, &mut children, resolve)?;
+        append_part(request, shapes, *ty, part.as_ref().expect("concrete represented cleanup part"), &scope, &mut children, resolve)?;
 
         for child in children {
             expand(request, shapes, &child, active, resolved, resolve)?;
@@ -219,7 +235,7 @@ fn expand_region<C: CheckerRequestContext + ?Sized>(
     expand(request, shapes, &value, active, &mut effects, resolve)?;
 
     for effect in effects {
-        let kind = match &effect {
+        let kind = match effect.retirement_parts().0 {
             Effect::Direct { subject, kind, .. } if subject.subject_root() == DependencySubjectRoot::Result => Some(*kind),
             Effect::Indirect { reference, kind, .. } if reference.subject_root() == DependencySubjectRoot::Result => Some(*kind),
             _ => None,
@@ -237,6 +253,7 @@ fn expand_region<C: CheckerRequestContext + ?Sized>(
 
 fn append_part<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
+    shapes: &crate::asynchronous::CleanupShapeResolver<'_, C>,
     ty: TypeId,
     part: &bray_bound_tree::StorageCleanupPart,
     scope: &Effect,
@@ -244,9 +261,12 @@ fn append_part<C: CheckerRequestContext + ?Sized>(
     resolve: &mut impl FnMut(bray_symbols::CallableInstanceData) -> Result<Vec<Effect>, CheckerQueryError<C::UpstreamError>>,
 ) -> Result<(), CheckerQueryError<C::UpstreamError>> {
     if let Some(fields) = crate::representation::raw_buffer_fields(request, ty)? {
-        let pointer = [Projection::ProductField(fields.pointer)];
+        let backing = if matches!(scope, Effect::Direct { .. }) {
+            project(scope, &[Projection::OwnedTarget], Kind::Retire, None)
+        } else {
+            follow(scope, &[Projection::ProductField(fields.pointer)], Kind::Retire, None)
+        };
 
-        let backing = follow(scope, &pointer, Kind::Retire, None);
         let elements = project(&backing, &[Projection::AnyElement], Kind::Dispose(fields.element), Some(fields.element));
 
         effects.push(elements);
@@ -259,7 +279,7 @@ fn append_part<C: CheckerRequestContext + ?Sized>(
         return append_call(release.callable(), scope, effects, resolve);
     }
 
-    if !part.phases().includes_lifecycle() {
+    if !shapes.has_source_lifecycle(ty, Some(part))? {
         effects.push(scope.clone());
 
         return Ok(());
@@ -268,7 +288,8 @@ fn append_part<C: CheckerRequestContext + ?Sized>(
     for slot in [bray_symbols::TypeAssociatedLifecycleSlot::Finalizer, bray_symbols::TypeAssociatedLifecycleSlot::Destructor] {
         let selected = request.context().lifecycle_callable(ty, slot)?;
 
-        assert!(!selected.diagnostics().has_errors(), "selected cleanup lifecycle retains its checked declaration: {ty:?}");
+        assert!(!selected.diagnostics().has_errors(), "cleanup of {:?} has no checked {slot:?}: {:?}",
+            request.semantic_values().type_data(ty), selected.diagnostics());
 
         if let Some((callable, _)) = selected.value() {
             append_call(*callable, scope, effects, resolve)?;
@@ -286,7 +307,10 @@ fn append_call<E>(
 ) -> Result<(), CheckerQueryError<E>> {
     let selected = resolve(callable)?;
 
-    effects.extend(selected.iter().map(|effect| match effect {
+    effects.extend(selected.iter().map(|effect| {
+        let (effect, discharged) = effect.retirement_parts();
+
+        let projected = match effect {
         Effect::Direct { addressed, subject, kind, access_type } if cleanup_receiver(subject.subject_root()) => {
             let projected = project(scope, subject.projections(), *kind, *access_type);
 
@@ -316,13 +340,20 @@ fn append_call<E>(
         // Unknown effects keep the supplied receiver scope instead of exposing it.
         Effect::Unknown | Effect::Escape if !matches!(scope, Effect::UnboundedMutation { .. }) => scope.clone(),
         effect => effect.clone(),
+        };
+
+        if projected.is_addressed_retirement() && !discharged.is_empty() {
+            projected.with_retirement_discharges(discharged.into())
+        } else {
+            projected
+        }
     }));
 
     Ok(())
 }
 
 fn mutation(effect: &Effect) -> Option<(Kind, Option<TypeId>)> {
-    match effect {
+    match effect.retirement_parts().0 {
         Effect::Direct { kind, access_type, .. } | Effect::Indirect { kind, access_type, .. } | Effect::UnboundedMutation { kind, access_type, .. } => Some((*kind, *access_type)),
         _ => None,
     }

@@ -60,7 +60,7 @@ impl State {
         location: &'a Target,
     ) -> impl Iterator<Item = &'a Target> {
         storage_subtree(&self.values, location)
-            .flat_map(|(_, value)| value.possible_references().flat_map(|references| references.targets.iter()))
+            .flat_map(|(_, value)| value.carried_references().flat_map(|references| references.targets.iter()))
     }
 
     pub(in crate::analysis::storage_flow) fn raw_exposed_regions(&self) -> BTreeSet<Target> {
@@ -170,9 +170,9 @@ impl State {
         let candidates = self.contents.keys().chain(self.values.keys()).cloned()
             .chain(self.values.values().flat_map(|value| value.sources.iter().cloned()))
             .chain(self.values.values().flat_map(|value| {
-                value.possible_references().flat_map(|references| references.targets.iter().cloned())
+                value.carried_references().flat_map(|references| references.targets.iter().cloned())
             }))
-            .chain(self.borrows.values().flat_map(|references| references.targets.iter().cloned()))
+            .chain(self.borrows.values().flat_map(|references| references.address.targets.iter().cloned()))
             .chain(self.returned_inputs.values().flat_map(|references| references.targets.iter().cloned()))
             .filter(|target| self.unknown_reference_may_reach(target))
             .collect::<Vec<_>>();
@@ -209,7 +209,7 @@ impl State {
         roots: impl IntoIterator<Item = Target>,
     ) -> BTreeSet<Target> {
         let roots = roots.into_iter().map(|root| exposure_region(&root)).collect::<BTreeSet<_>>();
-        let reached = self.transitive_regions(roots.iter().cloned(), |region, slot| region.contains_storage(slot)).0;
+        let reached = self.walk_regions(roots.iter().cloned(), true, |region, slot| region.contains_storage(slot)).0;
 
         reached.iter().filter(|target| roots.contains(*target)
             || !reached.iter().any(|region| self.entry_field_is_reachable(region, target)))
@@ -289,6 +289,15 @@ impl State {
         roots: impl IntoIterator<Item = Target>,
         follow: impl Fn(&Target, &Target) -> bool,
     ) -> (BTreeSet<Target>, bool) {
+        self.walk_regions(roots, false, follow)
+    }
+
+    fn walk_regions(
+        &self,
+        roots: impl IntoIterator<Item = Target>,
+        contained_only: bool,
+        follow: impl Fn(&Target, &Target) -> bool,
+    ) -> (BTreeSet<Target>, bool) {
         let mut pending = roots.into_iter().collect::<Vec<_>>();
         let mut reached = BTreeSet::new();
         let mut unknown = false;
@@ -305,7 +314,15 @@ impl State {
                         .is_some_and(|ty| self.complete_reference_types.get(&ty) == Some(&true))
             });
 
-            for (slot, value) in &self.values {
+            // The same allocation and projection prefix form a contiguous range.
+            // Entry kinds and static selections have separate ordering coordinates.
+            let ranged = reference_free || contained_only
+                && matches!(target.origin, Origin::Storage(_) | Origin::Allocation { .. } | Origin::Returned { .. });
+
+            let contained = ranged.then(|| storage_subtree(&self.values, &target));
+            let all = (!ranged).then_some(&self.values);
+
+            for (slot, value) in contained.into_iter().flatten().chain(all.into_iter().flatten()) {
                 if follow(&target, slot)
                     // Typed scalars cannot load unrelated pointer slots. Explicit
                     // stored references and raw allocation views remain authoritative.
@@ -315,7 +332,7 @@ impl State {
                 {
                     unknown |= !reference_free && value.unknown_dependencies();
 
-                    for references in value.possible_references() {
+                    for references in value.carried_references() {
                         pending.extend(references.targets.iter().cloned());
                         unknown |= references.is_unknown() || references.is_displaced();
                     }
@@ -336,7 +353,7 @@ impl State {
         result: StorageIdentityId,
         absent: &BTreeMap<
             Place,
-            crate::analysis::storage_flow::model::StorageAbsence,
+            bray_bound_tree::StorageAbsence,
         >,
     ) -> ReferenceExit {
         let mut input_regions = BTreeSet::new();
@@ -388,7 +405,7 @@ impl State {
             .collect();
 
         let absent = absent.iter().filter_map(|(slot, reason)| {
-            (*reason == crate::analysis::storage_flow::model::StorageAbsence::NoPayload).then_some(slot)
+            (*reason == bray_bound_tree::StorageAbsence::NoPayload).then_some(slot)
         }).chain(slots.iter().filter_map(|(slot, value)| value.is_no_payload().then_some(slot))).cloned().collect();
 
         ReferenceExit {
@@ -468,13 +485,13 @@ impl State {
     ) -> Transfer {
         match source {
             super::Source::Value(source) => self.capture_value(source, destination),
+            super::Source::Captured(source) => source.materialize(destination),
             super::Source::Borrow(capability) => Transfer {
                 // The evaluated value owns the formed reference after its capability ends.
                 values: self
-                    .borrows
-                    .get(capability)
+                    .borrow_address(*capability)
                     .map(|references| {
-                        [(destination.clone(), ValueBinding::from(references.clone()))]
+                        [(destination.clone(), ValueBinding::borrowed(references.clone(), *capability))]
                             .into_iter()
                             .collect()
                     })
@@ -508,18 +525,18 @@ impl State {
         self.evaluated.clear();
     }
 
-    pub(in crate::analysis::storage_flow) fn take_retirements(&mut self) -> BTreeSet<(Target, Retirement)> {
-        std::mem::take(&mut self.retirements)
+    pub(in crate::analysis::storage_flow) fn take_retirements(&mut self) -> Vec<(Target, Retirement)> {
+        std::mem::take(&mut self.retirements).into_iter().collect()
     }
 
     pub(in crate::analysis::storage_flow::memory) fn commit_value(
         &mut self,
         mut transfer: Transfer,
     ) {
-        let mut enclosing: Option<&Target> = None;
+        let mut enclosing: Option<(&Target, Retirement)> = None;
 
         for target in transfer.payloads.keys() {
-            if enclosing.is_some_and(|enclosing| enclosing.contains_storage(target)) {
+            if enclosing.is_some_and(|(owner, scope)| scope.contains(owner, target)) {
                 continue;
             }
 
@@ -528,20 +545,28 @@ impl State {
             let retirement = Retirement::for_payload(target);
 
             self.retire_region(target, retirement);
+            enclosing = Some((target, retirement));
 
             if matches!(retirement, Retirement::Producer) {
                 continue;
             }
 
-            for references in transfer.values.values_mut().flat_map(|value| value.references_mut())
-                .chain(transfer.returned_inputs.values_mut()) {
+            for value in transfer.values.values_mut() {
+                value.retire_references(target, Retirement::Storage);
+            }
+
+            for references in transfer.returned_inputs.values_mut() {
                 references.retire(target, Retirement::Storage);
             }
 
-            enclosing = Some(target);
         }
 
-        self.values.extend(transfer.values);
+        let reported = &mut self.may_have_report_values;
+
+        self.values.extend(transfer.values.into_iter().inspect(|(_, value)| {
+            *reported = *reported || value.report_dependencies().is_some();
+        }));
+
         self.contents.extend(transfer.payloads);
 
         // Retired bounds stay in their historical epoch. This completion publishes
@@ -594,19 +619,16 @@ impl State {
 
     pub(in crate::analysis::storage_flow) fn end_storage(
         &mut self,
-        mut ended: impl FnMut(StorageIdentityId) -> bool,
+        identities: &[StorageIdentityId],
     ) {
         // Last-use pruning drops local value facts, not the addressed storage's lifetime.
         // Physical storage ends at its owning boundary, including locals pruned earlier.
-        let expired = self
-            .contents
-            .keys()
-            .filter_map(|target| target.storage_path())
-            .map(|place| place.root)
-            .collect::<BTreeSet<_>>();
+        for &identity in identities {
+            let root = Target::storage(Place::root(identity));
 
-        for identity in expired.into_iter().filter(|identity| ended(*identity)) {
-            self.retire(&Target::storage(Place::root(identity)));
+            if self.contents.range(root.clone()..).next().is_some_and(|(target, _)| root.contains(target)) {
+                self.retire(&root);
+            }
         }
     }
 

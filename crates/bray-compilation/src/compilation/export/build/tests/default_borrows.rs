@@ -524,10 +524,17 @@ fn imported_runtime_default_keeps_its_borrowed_result_type() {
 
     let result = store.type_data(surface.result());
 
-    assert!(matches!(
-        result.as_ref(),
-        bray_symbols::TypeData::Borrow { .. }
-    ));
+    let bray_symbols::TypeData::Borrow { kind: bray_symbols::BorrowKind::Shared, target } = result.as_ref() else {
+        panic!("the imported default promises a shared borrow: {result:?}");
+    };
+
+    let boolean = consumer.available_compiler_known_symbols()
+        .representation_symbol::<bray_symbols::StructSymbolId>(bray_compiler_known::RepresentationRole::ScalarBool)
+        .expect("the current target provides bool");
+
+    assert!(matches!(store.type_data(*target).as_ref(), bray_symbols::TypeData::Named {
+        definition: bray_symbols::NamedTypeSymbolId::Struct(definition), ..
+    } if *definition == boolean));
 }
 
 #[test]

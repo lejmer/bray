@@ -1,15 +1,16 @@
 use super::{StorageFlowInput, StorageFlowState};
 use super::outcomes::StorageFlowOutcomes;
-use crate::analysis::outcomes::{edge_path, result_production_edges};
+use crate::analysis::outcomes::{cleanup_successor, edge_path, result_production_edges};
 use crate::analysis::fixed_point::{FixedPointDomain, FlowDirection};
+use crate::analysis::guarantee::ExecutionJoin;
 use crate::analysis::id::{AnalysisBlockId, AnalysisEdgeId};
 use crate::analysis::model::{AnalysisBlock, AnalysisEdge, AnalysisEdgeKind, ControlFlowGraph};
 use crate::analysis::reachability::ReachabilityResult;
-use crate::analysis::storage_flow::check::StorageFlowCollector;
-use crate::storage::StorageScopeOwners;
+use crate::analysis::storage_flow::check::{FailureEdgeEffects, StorageFlowCollector};
 use crate::{CheckerRequestContext, CheckerUnitView};
 use bray_bound_tree::{BoundDependencySubject, CheckedMemoryOperations, Liveness, StoragePlan};
 use std::borrow::Cow;
+use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 
 pub(in crate::analysis::storage_flow) struct StorageFlowDomain<'analysis, C>
@@ -17,7 +18,10 @@ where
     C: CheckerRequestContext + ?Sized,
 {
     graph: &'analysis ControlFlowGraph,
+    terminal_outputs: BTreeSet<AnalysisBlockId>,
     result_edges: BTreeSet<AnalysisEdgeId>,
+    failure_effects: RefCell<BTreeMap<AnalysisEdgeId, Vec<FailureEdgeEffects>>>,
+    reached_cleanup_edges: RefCell<BTreeSet<AnalysisEdgeId>>,
     edge_lifetime_ends: &'analysis BTreeMap<AnalysisEdgeId, Vec<BoundDependencySubject>>,
     reachability: &'analysis ReachabilityResult,
     storage: &'analysis StoragePlan,
@@ -25,7 +29,6 @@ where
     refinements: &'analysis crate::analysis::refinement::RefinementUniverse,
     memory: &'analysis CheckedMemoryOperations,
     input: &'analysis StorageFlowInput,
-    owners: &'analysis StorageScopeOwners,
     request: CheckerUnitView<'analysis, C>,
     execution: &'analysis crate::analysis::guarantee::ExecutionFlowDomain<'analysis, 'analysis, C>,
     dependencies: &'analysis bray_bound_tree::CheckedDependencyContracts,
@@ -50,7 +53,6 @@ where
         refinements: &'analysis crate::analysis::refinement::RefinementUniverse,
         memory: &'analysis CheckedMemoryOperations,
         input: &'analysis StorageFlowInput,
-        owners: &'analysis StorageScopeOwners,
         request: CheckerUnitView<'analysis, C>,
         execution: &'analysis crate::analysis::guarantee::ExecutionFlowDomain<
             'analysis,
@@ -63,7 +65,10 @@ where
     ) -> Self {
         Self {
             graph,
+            terminal_outputs: graph.exits().iter().map(|exit| exit.block()).collect(),
             result_edges: result_production_edges(graph, storage),
+            failure_effects: RefCell::default(),
+            reached_cleanup_edges: RefCell::default(),
             edge_lifetime_ends,
             reachability,
             storage,
@@ -71,7 +76,6 @@ where
             refinements,
             memory,
             input,
-            owners,
             request,
             execution,
             dependencies,
@@ -88,12 +92,17 @@ where
             self.refinements,
             self.memory,
             self.input,
-            self.owners,
             self.execution,
             self.dependencies,
             self.values,
             self.patterns,
         )
+    }
+
+    pub(in crate::analysis::storage_flow) fn into_edge_outcomes(
+        self,
+    ) -> (BTreeMap<AnalysisEdgeId, Vec<FailureEdgeEffects>>, BTreeSet<AnalysisEdgeId>) {
+        (self.failure_effects.into_inner(), self.reached_cleanup_edges.into_inner())
     }
 
     fn transfer_block(&self, block: &AnalysisBlock, source: &StorageFlowOutcomes) -> StorageFlowOutcomes {
@@ -116,14 +125,28 @@ where
     }
     fn propagate_state(
         &self,
-        source: &StorageFlowState,
+        source: Cow<'_, StorageFlowState>,
         edge: &AnalysisEdge,
-    ) -> Option<StorageFlowState> {
-        let mut incoming = match edge.refinement() {
-            Some(crate::analysis::model::AnalysisRefinement::InvocationFailure(occurrence, kind)) =>
-                self.collector().failure_edge_state(source, occurrence, kind)?,
-            _ => source.clone(),
+        row: Option<usize>,
+    ) -> Option<(StorageFlowState, Option<FailureEdgeEffects>)> {
+        let cleanup = cleanup_successor(source.cleanup.as_ref(), edge)?;
+
+        let recovered = source.recovered;
+
+        let (mut incoming, failure_effects) = match edge.refinement() {
+            Some(crate::analysis::model::AnalysisRefinement::InvocationFailure(occurrence, kind)) => {
+                let mut collector = self.collector();
+
+                collector.report_boundary = self.graph.block(edge.source()).expect("call source exists").report_boundary();
+
+                let (state, record) = collector.failure_edge_state(&source, edge.id(), occurrence, kind, row)?;
+
+                (state, Some(record))
+            }
+            _ => (source.into_owned(), None),
         };
+
+        incoming.cleanup = cleanup;
 
         if edge.kind() != AnalysisEdgeKind::Suspension {
             incoming.failure_entry = None;
@@ -154,40 +177,47 @@ where
             }
         }
 
-        if let Some(crate::analysis::model::AnalysisRefinement::PropagationOutcome {
-            expression,
-            outcome: crate::analysis::model::AnalysisPropagationOutcome::Failure,
-        }) = edge.refinement()
-        {
-            self.collector()
-                .propagate_reference_result(&mut incoming, expression);
-        }
+        use crate::analysis::model::AnalysisPropagationOutcome;
 
-        if let Some(crate::analysis::model::AnalysisRefinement::InvocationFailure(occurrence, kind)) =
-            edge.refinement()
+        if let Some(crate::analysis::model::AnalysisRefinement::PropagationOutcome { expression, outcome }) = edge.refinement()
+            && matches!(outcome, AnalysisPropagationOutcome::Failure | AnalysisPropagationOutcome::RunFailure(_))
         {
             let mut collector = self.collector();
 
-            collector.report_boundary = self
-                .graph
-                .block(edge.source())
-                .expect("call source exists")
-                .report_boundary();
+            match outcome {
+                AnalysisPropagationOutcome::Failure => collector.propagate_reference_result(&mut incoming, expression),
+                AnalysisPropagationOutcome::RunFailure(bray_symbols::DependencyFailureKind::Panic) => {
+                    collector.report_boundary = self.graph.block(edge.source()).expect("propagation retains its source").report_boundary();
+                    collector.propagate_run_report(&mut incoming, expression);
+                }
+                _ => {}
+            }
 
-            collector.retain_call_reports(
-                &mut incoming,
-                occurrence,
-                bray_bound_tree::CallReportOutput::Abnormal(Some(kind)),
-                false,
-            );
+            collector.retire_consumed_value_slots(&mut incoming, expression.into(),
+                Some(bray_bound_tree::StorageValueConsumptionPhase::Completion));
         }
 
+        use crate::analysis::model::AnalysisCaughtResult;
+
+        let caught = match edge.refinement() {
+            Some(crate::analysis::model::AnalysisRefinement::CaughtResult { expression, outcome }) => Some((expression, outcome)),
+            _ => None,
+        };
+
+        let mut report = None;
+
         for boundary in self.graph.exited_report_boundaries(edge) {
-            incoming.transfer_report_boundary(
+            let transferred = incoming.transfer_report_boundary(
                 boundary,
                 self.graph.report_parent(boundary),
-                edge.kind() == AnalysisEdgeKind::Catch,
+                caught == Some((boundary, AnalysisCaughtResult::Panicked)),
             );
+
+            if transferred.is_some() { report = transferred; }
+        }
+
+        if let Some((expression, outcome)) = caught {
+            self.collector().publish_caught_value(&mut incoming, expression, outcome, report);
         }
 
         let ends = self
@@ -196,7 +226,9 @@ where
             .map(Vec::as_slice)
             .unwrap_or_default();
 
-        if !ends.is_empty() && !source.recovered && !self.liveness.is_recovered() {
+        if !ends.is_empty() && !recovered && !self.liveness.is_recovered() {
+            let retained = incoming.retained_borrow_lookup(self.input);
+
             let ended_borrows = ends
                 .iter()
                 .filter_map(|end| {
@@ -208,10 +240,12 @@ where
                         .storage
                         .borrow_capability(id)
                         .is_some_and(|borrow| borrow.entry_binding().is_none())
-                        && !incoming.retains_borrow(id, self.input))
+                        && !retained(id))
                     .then_some(id)
                 })
                 .collect::<BTreeSet<_>>();
+
+            drop(retained);
 
             if !ended_borrows.is_empty() {
                 incoming.end_borrows(&ended_borrows, self.storage);
@@ -219,14 +253,80 @@ where
 
             for end in ends {
                 if let bray_bound_tree::BoundDependencySubject::Storage(id) = *end
-                    && self.input.cleanup_free_storage.contains(&id)
+                    && self.input.cleanup_requirements.ends_at_last_use(id)
                 {
                     incoming.end_storage_lifetime(id, self.storage);
                 }
             }
         }
 
-        Some(incoming)
+        Some((incoming, failure_effects))
+    }
+
+    fn propagate_states<'state, Path: std::borrow::Borrow<crate::analysis::outcomes::OutcomePath>>(
+        &self,
+        source: impl IntoIterator<Item = (Option<Path>, Cow<'state, StorageFlowState>)>,
+        edge: &AnalysisEdge,
+        target: &mut StorageFlowOutcomes,
+    ) -> bool {
+        if !self.reachability.is_edge_reachable(edge.id()) {
+            return false;
+        }
+
+        let mut changed = false;
+        let mut reached_edge = false;
+        let mut failure_effects = Vec::new();
+        let join = ExecutionJoin::incoming_block(self.graph, edge.target());
+
+        for (path, state) in source {
+            let path = path.as_ref().map(std::borrow::Borrow::borrow);
+
+            let mut merge = |reached, row| {
+                let Some((incoming, performed)) = reached else { return; };
+
+                reached_edge = true;
+                failure_effects.extend(performed);
+
+                let path = edge_path(self.graph, edge, path, self.result_edges.contains(&edge.id()), row);
+
+                changed |= target.merge(join, path, Cow::Owned(incoming));
+            };
+
+            if let Some(crate::analysis::model::AnalysisRefinement::InvocationFailure(occurrence, kind)) = edge.refinement() {
+                let admitted = state.failure_at(occurrence).map_or(state.as_ref(), |entry| entry.state.as_ref());
+
+                if let Some(execution) = &admitted.execution {
+                    for row in self.execution.invocation_failure_rows(execution, occurrence, kind) {
+                        merge(self.propagate_state(Cow::Borrowed(state.as_ref()), edge, row), row);
+                    }
+                }
+            } else {
+                merge(self.propagate_state(state, edge, None), None);
+            }
+        }
+
+        if matches!(edge.refinement(),
+            Some(crate::analysis::model::AnalysisRefinement::CleanupOutcome { failure: Some(_), .. }
+                | crate::analysis::model::AnalysisRefinement::InvocationFailure(bray_bound_tree::BoundExecutionSite::ScopedExit(_), _)
+                | crate::analysis::model::AnalysisRefinement::InvocationEntry { invocation: bray_bound_tree::BoundExecutionSite::ScopedExit(_), admitted: false })) {
+            let mut edges = self.reached_cleanup_edges.borrow_mut();
+
+            if reached_edge { edges.insert(edge.id()); }
+            else { edges.remove(&edge.id()); }
+        }
+
+        if matches!(edge.refinement(), Some(crate::analysis::model::AnalysisRefinement::InvocationFailure(..))) {
+            // A changed loop contribution supersedes the effects of its earlier approximation.
+            let mut records = self.failure_effects.borrow_mut();
+
+            if failure_effects.is_empty() {
+                records.remove(&edge.id());
+            } else {
+                records.insert(edge.id(), failure_effects);
+            }
+        }
+
+        changed
     }
 }
 
@@ -265,9 +365,10 @@ where
         boundary: &Self::State,
     ) -> bool {
         let mut changed = false;
+        let join = block.map_or(ExecutionJoin::Boundary, |block| ExecutionJoin::incoming_block(self.graph, block));
 
         for (path, state) in boundary.iter() {
-            changed |= target.merge(block, path.cloned(), Cow::Borrowed(state));
+            changed |= target.merge(join, path.cloned(), Cow::Borrowed(state));
         }
 
         changed
@@ -278,21 +379,24 @@ where
     }
 
     fn propagate(&self, source: &Self::State, edge: &AnalysisEdge, target: &mut Self::State) -> bool {
-        if !self.reachability.is_edge_reachable(edge.id()) {
-            return false;
-        }
+        self.propagate_states(source.iter().map(|(path, state)| (path, Cow::Borrowed(state))), edge, target)
+    }
 
-        let mut changed = false;
+    fn can_consume_settled_output(&self, source: &AnalysisBlock, edge: &AnalysisEdge) -> bool {
+        self.reachability.is_edge_reachable(edge.id())
+            && !self.terminal_outputs.contains(&source.id())
+            && self.graph.is_last_successor(source, edge, |successor| self.reachability.is_edge_reachable(successor))
+    }
 
-        for (path, state) in source.iter() {
-            let Some(incoming) = self.propagate_state(state, edge) else { continue; };
+    fn propagate_settled_output(
+        &self,
+        source: &mut Option<Self::State>,
+        edge: &AnalysisEdge,
+        target: &mut Self::State,
+    ) -> bool {
+        let source = source.take().expect("settled predecessor has an output");
 
-            let path = edge_path(self.graph, edge, path, self.result_edges.contains(&edge.id()));
-
-            changed |= target.merge(Some(edge.target()), path, Cow::Owned(incoming));
-        }
-
-        changed
+        self.propagate_states(source.into_states().map(|(path, state)| (path, Cow::Owned(state))), edge, target)
     }
 
     fn convergence_bound(&self, graph: &ControlFlowGraph) -> usize {
@@ -311,5 +415,22 @@ where
             .len()
             .saturating_mul(domain_size)
             .saturating_add(self.execution.convergence_bound(graph))
+    }
+
+    fn trace_cycle_delta(&self, block: AnalysisBlockId, previous: &Self::State, incoming: &Self::State) {
+        let incoming = incoming.iter().collect::<BTreeMap<_, _>>();
+
+        for (path, previous) in previous.iter() {
+            let Some(next) = incoming.get(&path) else { continue; };
+
+            eprintln!("cycle storage delta {block:?}: physical={} refinements={} deps={} failure={} moved={} effects={}",
+                previous.memory != next.memory, previous.refinements != next.refinements,
+                previous.result_dependencies != next.result_dependencies, previous.failure_entry != next.failure_entry,
+                previous.moved != next.moved, previous.effect_prefix != next.effect_prefix);
+
+            if let (Some(previous), Some(next)) = (&previous.execution, &next.execution) {
+                previous.trace_cycle_delta(next);
+            }
+        }
     }
 }

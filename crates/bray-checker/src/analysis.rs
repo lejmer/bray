@@ -24,24 +24,21 @@ pub(crate) use check::check_control_flow;
 pub(crate) use execution::exclude_impossible_call_outcomes;
 pub use execution::implementation_hook_may_propagate_synchronous_panic;
 pub use guarantee::{
-    UnwindCall, UnwindCandidate, check_execution_candidate, check_unwind_candidate,
+    UnwindCall, UnwindCandidate, check_unwind_candidate, with_execution_candidate_checker,
 };
 pub(crate) use liveness::analyze_storage_liveness_with_graph;
 pub(crate) use model::{
     AnalysisCallPhase, AnalysisOperationKind, AnalysisResultPhase, AnalysisSuspensionKind,
-    AnalysisTaskOperationKind, ControlFlowGraph,
+    AnalysisTaskOperationKind, ControlFlowGraph, ScopedResultDestination, ScopedResultTransfer,
 };
 pub use prepare::{PreparedBodyAnalysis, prepare_body_analysis};
 pub(crate) use reachability::analyze_reachability_excluding;
 pub(crate) use refinement::prepare_refinements;
 pub(crate) use result::check_callable_result;
-pub(crate) use storage_flow::check_storage_flow_with_graph;
+pub(crate) use storage_flow::{StorageFlowInput, check_storage_flow_with_graph};
 pub use storage_flow::{closed_type_is_copyable, type_is_copyable, type_is_copyable_in_context};
-mod storage_invalidation;
 
-pub(crate) use storage_invalidation::call_preserves_storage;
-
-pub(crate) use cleanup::exclude_cleanup_free_edges;
+pub(crate) use cleanup::{exclude_infallible_cleanup_edges, scope_cleanup_failure};
 
 #[cfg(test)]
 pub(crate) use build::{ControlFlowGraphBuildOutcome, build_storage_control_flow_graph};

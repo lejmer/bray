@@ -117,7 +117,7 @@ fn async_analysis_respects_anonymous_callable_execution_modes() {
 }
 
 #[test]
-fn ordinary_valid_awaits_retain_their_inferred_dependency_contract() {
+fn a_future_parameter_can_suspend_without_a_local_producer() {
     let compilation = compilation(
         r#"
         module app;
@@ -136,12 +136,8 @@ fn ordinary_valid_awaits_retain_their_inferred_dependency_contract() {
     let key = source_callable_body_key(&compilation);
 
     let analysis = compilation
-        .async_analysis(key.clone())
+        .async_analysis(key)
         .unwrap_or_else(|error| panic!("async analysis must publish: {error:?}"));
-
-    let dependencies = compilation
-        .dependency_contracts(key)
-        .unwrap_or_else(|error| panic!("dependency contracts must publish: {error:?}"));
 
     let awaits = analysis
         .value()
@@ -159,11 +155,6 @@ fn ordinary_valid_awaits_retain_their_inferred_dependency_contract() {
         panic!("the direct await must publish one await suspension point");
     };
 
-    let contract = suspension
-        .dependency_contract()
-        .unwrap_or_else(|| panic!("a valid await must select its inferred contract"));
-
-    assert!(dependencies.value().contract(contract).is_some());
     assert!(suspension.deferred_calls().is_empty());
     assert!(!suspension.is_recovered());
 }
@@ -201,7 +192,15 @@ fn async_analysis_follows_deferred_calls_through_local_future_bindings() {
         panic!("the direct await must publish one suspension point");
     };
 
-    assert_eq!(suspension.deferred_calls().len(), 1);
+    let [call] = suspension.deferred_calls() else {
+        panic!("one selected frame reaches the await: {suspension:#?}");
+    };
+
+    let cancellation = crate::CancellationToken::new();
+    let binding = compilation.binding_context(&cancellation).expect("fixture declarations bind");
+    let callable = call.target().declaration().expect("the deferred body is declared");
+
+    assert_eq!(binding.member_name(callable.symbol()).expect("deferred declaration has a name").map(|name| name.as_str()), Some("child"));
     assert!(!suspension.is_recovered());
     assert!(!analysis.value().frame_dependencies().is_empty());
 
@@ -221,21 +220,16 @@ fn async_analysis_follows_deferred_calls_through_local_future_bindings() {
                 .contains(&entry.subject()))
     );
 
+    let flow = compilation.storage_flow(key.clone()).expect("await cleanup publishes");
+
     assert!(
-        analysis
-            .value()
-            .scope_exits()
-            .iter()
+        flow.value().exits().iter()
             .all(|exit| exit.cancellation_broadcast() == exit.lifecycle_resolution())
     );
 
     // Await consumes the frame. The caller must not schedule it for cleanup again.
     assert!(
-        analysis
-            .value()
-            .scope_exits()
-            .iter()
-            .all(|exit| exit.cancellation_broadcast().is_empty())
+        flow.value().exits().iter().all(|exit| exit.cancellation_broadcast().is_empty())
     );
 
     let repeated = match compilation.async_analysis(key) {
@@ -559,7 +553,7 @@ fn implicit_async_cleanup_retains_pending_owners_and_dependencies() {
 
         let (finalizer, _) = owner_finalizer.value().as_ref().expect("Owner has a finalizer");
 
-        let task_exit = analysis.value().scope_exits().iter().find(|exit|
+        let task_exit = flow.value().exits().iter().find(|exit|
             exit.lifecycle_resolution().iter().any(|access| plan.root_identity(*access) == Some(pending))
         ).expect("the lexical exit resolves the pending Task");
 
@@ -858,7 +852,7 @@ fn replacement_cleanup_retains_the_old_and_incoming_dependencies() {
         .async_analysis(key)
         .expect("fixture callable must complete async analysis");
 
-    let replacement = analysis
+    let replacement = flow
         .value()
         .replacements()
         .first()

@@ -1,5 +1,5 @@
 mod bundle;
-mod common;
+pub(super) mod common;
 pub(super) mod contract;
 mod declaration;
 mod directory;

@@ -197,9 +197,7 @@ impl Lowerer<'_> {
         let initializer = self.lower_scope_enter(id, current, join, result_type)?;
 
         let Some(current) = initializer.block else {
-            self.finish_unreachable_blocks(&[join], &initializer.source)?;
-
-            return Ok(initializer);
+            return self.finish_result_join(entry, join, result, initializer.source);
         };
 
         let Some(value) = initializer.value else {
@@ -209,8 +207,6 @@ impl Lowerer<'_> {
             );
         };
 
-        let current = self.bind_scoped_capability(id, *pattern, value, current)?;
-
         let [body] = expression.blocks() else {
             panic!(
                 "lowering contract violation: UnsupportedExpression {value:?}",
@@ -218,11 +214,17 @@ impl Lowerer<'_> {
             );
         };
 
+        let current = self.bind_scoped_capability(id, *pattern, *body, value, current)?;
+
         let success_type = match self.input.semantic_selections().expression(id) {
             Some(bray_bound_tree::SemanticSelection::ScopedUse(scoped))
                 if scoped.failure_type().is_some() =>
             {
-                Some(self.named_type_arguments(result_type)[0])
+                let ([success, _], _) = self.input.available_compiler_known_symbols()
+                    .result_payloads(self.input.semantic_values(), result_type)
+                    .expect("a fallible with expression retains its checked Result");
+
+                Some(success)
             }
             _ => None,
         };

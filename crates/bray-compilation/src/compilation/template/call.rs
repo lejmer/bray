@@ -534,15 +534,16 @@ impl SourceTemplateBuilder<'_, '_, '_> {
         expression: BoundExpressionId,
         call: &bray_bound_tree::SelectedCall,
     ) -> Result<CheckedTemplateOperation, FactQueryError> {
-        let evidence = self
-            .execution
-            .and_then(|execution| execution.dependency_evidence(expression.into(), call.target()));
-
         let body = call
             .resolution()
             .anonymous_body()
             .map(|(body, _)| body)
-            .or_else(|| evidence.and_then(bray_checker::ExecutionCallEvidence::anonymous_target))
+            .or_else(|| {
+                let mut entries = self.execution?.dependency_evidence(expression.into(), call.target());
+                let body = entries.next()?.anonymous_target()?;
+
+                entries.all(|entry| entry.anonymous_target() == Some(body)).then_some(body)
+            })
             .ok_or_else(|| {
                 incomplete("checked callable value lacks its selected implementation")
             })?;

@@ -120,9 +120,8 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             )?,
         };
 
-        let payloads = crate::operand::result_payloads(
+        let payloads = self.context.compiler_known_symbols().result_payloads(
             self.context.semantic_values(),
-            self.context.compiler_known_symbols(),
             callable.result.completion_type(),
         );
 

@@ -1,31 +1,7 @@
-use bray_bound_tree::BoundExpressionId;
+use bray_bound_tree::{BoundExpressionId, ReportDependencies};
 use bray_symbols::{DependencyRequirement, LocalBindingSymbolId};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
-
-/// Scope obligations and portable dependencies captured by the same report owner.
-#[derive(Clone, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub(crate) struct ReportDependencies {
-    pub(crate) subjects: BTreeSet<bray_bound_tree::BoundDependencySubject>,
-    pub(crate) requirements: BTreeSet<DependencyRequirement>,
-}
-
-impl ReportDependencies {
-    pub(crate) fn merge(self: &mut Arc<Self>, incoming: &Self) -> bool {
-        if incoming.subjects.is_subset(&self.subjects)
-            && incoming.requirements.is_subset(&self.requirements)
-        {
-            return false;
-        }
-
-        let retained = Arc::make_mut(self);
-
-        retained.subjects.extend(incoming.subjects.iter().copied());
-        retained.requirements.extend(incoming.requirements.iter().cloned());
-
-        true
-    }
-}
 
 /// Snapshots retain the outcome they came from through joins and frame capture.
 /// An unindexed snapshot represents an opaque producer.
@@ -78,7 +54,6 @@ pub(crate) struct State {
     pub(super) sources: BTreeMap<BoundExpressionId, BTreeSet<super::sources::SourcePath>>,
     pub(super) call_definitions: BTreeMap<u32, BTreeSet<DependencyRequirement>>,
     pub(super) returned: BTreeSet<DependencyRequirement>,
-    reports: BTreeMap<Option<BoundExpressionId>, BTreeSet<DependencyRequirement>>,
     report_candidates: BTreeMap<
         (
             bray_bound_tree::BoundExecutionSite,
@@ -96,7 +71,6 @@ impl State {
         changed |= merge_map(&mut self.local_sources, &incoming.local_sources);
         changed |= merge_map(&mut self.sources, &incoming.sources);
         changed |= merge_map(&mut self.call_definitions, &incoming.call_definitions);
-        changed |= merge_map(&mut self.reports, &incoming.reports);
 
         for (output, dependencies) in &incoming.report_candidates {
             if let Some(previous) = self.report_candidates.get_mut(output) {
@@ -126,10 +100,6 @@ impl State {
     pub(crate) fn merge_returns(&mut self, incoming: &Self) {
         merge_map(&mut self.call_definitions, &incoming.call_definitions);
         self.returned.extend(incoming.returned.iter().cloned());
-    }
-
-    pub(crate) fn completed_report(&self) -> Option<Arc<[DependencyRequirement]>> {
-        (!self.reports.is_empty()).then(|| self.closed_requirements(self.reports.values().flatten().cloned().collect()).into())
     }
 
     pub(crate) fn prepare_reports(
@@ -172,6 +142,10 @@ impl State {
         root: bray_bound_tree::StorageIdentityId,
         formal: Option<bray_symbols::DependencySubjectRoot>,
     ) -> BTreeSet<DependencyRequirement> {
+        if formal == Some(bray_symbols::DependencySubjectRoot::Result) {
+            return self.returned.clone();
+        }
+
         if let Some(formal) = formal {
             return BTreeSet::from([DependencyRequirement::direct(
                 bray_symbols::DependencySubject::root(formal),
@@ -200,13 +174,21 @@ impl State {
                     .cloned(),
                 );
             }
+            Some(bray_bound_tree::StorageIdentity::InvocationResult(invocation)) => {
+                values.extend(self.value_requirements(invocation).cloned());
+            }
+            Some(bray_bound_tree::StorageIdentity::ScopedCapability { expression, .. }) => {
+                values.extend(self.value_requirements(bray_bound_tree::BoundExecutionSite::ScopedEnter(expression)).cloned());
+            }
+            Some(bray_bound_tree::StorageIdentity::ScopedResultReplacement(expression)) => {
+                values.extend(self.value_requirements(bray_bound_tree::BoundExecutionSite::Cleanup(expression.into())).cloned());
+            }
             Some(
                 bray_bound_tree::StorageIdentity::Temporary(expression)
                 | bray_bound_tree::StorageIdentity::Evaluated(expression)
                 | bray_bound_tree::StorageIdentity::Result(
                     bray_bound_tree::AnyBoundNodeId::Expression(expression),
-                )
-                | bray_bound_tree::StorageIdentity::ScopedCapability { expression, .. },
+                ),
             ) => {
                 values.extend(self.value_requirements(expression).cloned());
             }
@@ -223,30 +205,50 @@ impl State {
         self.values.get(&expression.into()).into_iter().flatten()
     }
 
-    pub(crate) fn retain_reports(
-        &mut self,
-        boundary: Option<BoundExpressionId>,
-        requirements: impl IntoIterator<Item = DependencyRequirement>,
-    ) {
-        self.reports
-            .entry(boundary)
-            .or_default()
-            .extend(requirements);
+    pub(crate) fn take_value(&mut self, site: bray_bound_tree::BoundExecutionSite) -> BTreeSet<DependencyRequirement> {
+        self.values.remove(&site).unwrap_or_default()
     }
 
-    pub(crate) fn transfer_report_boundary(
+    pub(crate) fn abandon_transfer(
+        &mut self,
+        storage: &bray_bound_tree::StoragePlan,
+        value: bray_bound_tree::StorageIdentityId,
+    ) {
+        if storage.binding(bray_bound_tree::StorageBindingTarget::Result) == Some(bray_bound_tree::StorageBinding::Identity(value)) {
+            self.returned.clear();
+        } else if let Some(bray_bound_tree::AnyBoundNodeId::Expression(expression)) =
+            storage.identity(value).and_then(|identity| identity.definition_node())
+            && storage.value_slot(expression) == Some(value)
+        {
+            self.values.remove(&expression.into());
+            self.sources.remove(&expression);
+        }
+    }
+
+    pub(crate) fn select_scoped_region(&mut self, transfer: crate::analysis::ScopedResultTransfer) {
+        let crate::analysis::ScopedResultDestination::Region { displaced, .. } = transfer.destination else {
+            return;
+        };
+
+        let expression = transfer.invocation.expression().expect("scoped region retains its source expression");
+        let site = expression.into();
+        let requirements = if transfer.source.is_some() { self.take_value(transfer.invocation) } else { BTreeSet::new() };
+
+        if displaced.is_some() {
+            let previous = self.take_value(site);
+
+            assign(&mut self.values, bray_bound_tree::BoundExecutionSite::Cleanup(expression.into()), previous);
+        }
+
+        assign(&mut self.values, site, requirements);
+    }
+
+    pub(crate) fn publish_catch_value(
         &mut self,
         boundary: BoundExpressionId,
-        parent: Option<BoundExpressionId>,
-        caught: bool,
+        requirements: BTreeSet<DependencyRequirement>,
     ) {
-        if let Some(requirements) = self.reports.remove(&Some(boundary)) {
-            if caught {
-                assign(&mut self.values, boundary.into(), requirements);
-            } else {
-                self.retain_reports(parent, requirements);
-            }
-        }
+        assign(&mut self.values, boundary.into(), requirements);
     }
 
     pub(crate) fn summary(mut self) -> bray_symbols::DependencyContractTemplateData {
@@ -255,7 +257,7 @@ impl State {
         bray_symbols::DependencyContractTemplateData::new(self.closed_requirements(returned))
     }
 
-    fn closed_requirements(
+    pub(crate) fn closed_requirements(
         &self,
         requirements: BTreeSet<DependencyRequirement>,
     ) -> Vec<DependencyRequirement> {

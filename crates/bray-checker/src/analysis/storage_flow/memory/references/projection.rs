@@ -1,4 +1,4 @@
-use super::super::model::{Origin, Place, AddressValue, State, Target};
+use super::super::model::{Origin, Place, AddressValue, RetainedBorrow, State, Target};
 use super::slots::storage_subtree;
 use bray_bound_tree::{BorrowCapabilityId, StorageIdentityId, StorageProjection};
 use bray_symbols::TypeId;
@@ -6,7 +6,7 @@ use bray_symbols::TypeId;
 impl State {
     pub(in crate::analysis::storage_flow) fn for_storage(
         storage: &bray_bound_tree::StoragePlan,
-        cleanup_free: &std::collections::BTreeSet<StorageIdentityId>,
+        cleanup: &crate::asynchronous::StorageCleanupRequirements,
         complete_reference_types: &std::sync::Arc<std::collections::BTreeMap<TypeId, bool>>,
     ) -> Self {
         let borrowed = storage
@@ -47,7 +47,7 @@ impl State {
         let unaddressed_storage = owned_storage
             .iter()
             .copied()
-            .filter(|identity| cleanup_free.contains(identity) && !borrowed.contains(identity))
+            .filter(|identity| cleanup.ends_at_last_use(*identity) && !borrowed.contains(identity))
             .collect();
 
         Self {
@@ -297,9 +297,13 @@ impl State {
             _ => None,
         };
 
-        if slot.is_some_and(|slot| self.is_owned_inline_storage(slot)) {
-            // An original input cannot address this invocation's inline slots. Owned
-            // heap storage can predate the invocation and already have incoming aliases.
+        if slot.is_some_and(|slot| {
+            self.is_owned_inline_storage(slot) || slot.is_inline()
+                && usize::try_from(slot.root.ordinal()).ok().and_then(|index| self.storage_slots.get(index))
+                    .is_some_and(|identity| matches!(identity, bray_bound_tree::StorageIdentity::PostconditionResult(_)))
+        }) {
+            // Entry references predate both local inline slots and the produced
+            // result observed by a postcondition. Reached pointees keep their own origins.
             return bray_bound_tree::StorageRelationship::Disjoint;
         }
 
@@ -337,37 +341,6 @@ impl State {
         Some(location.clone())
     }
 
-    pub(in crate::analysis::storage_flow) fn staged_mutation_targets(
-        &self,
-        invocation: bray_bound_tree::BoundExecutionSite,
-        root: &Target,
-        location: &Target,
-    ) -> Option<Vec<super::super::MutationTarget>> {
-        let staged = self.pending.get(&invocation)?;
-
-        staged.values.get(location)
-            .or_else(|| (!root.contains_storage(location)).then(|| self.values.get(location)).flatten())?
-            .mutation_targets()
-    }
-
-    pub(in crate::analysis::storage_flow) fn staged_contained_regions(
-        &self,
-        invocation: bray_bound_tree::BoundExecutionSite,
-        value: &Target,
-    ) -> (std::collections::BTreeSet<Target>, bool) {
-        let staged = self.pending.get(&invocation).expect("captured completion references retain their prepared transfer");
-        let mut targets = std::collections::BTreeSet::new();
-        let mut unknown = false;
-
-        for references in staged.values.range(value.clone()..).take_while(|(slot, _)| value.contains(slot))
-            .filter(|(slot, _)| value.contains_storage(slot)).flat_map(|(_, value)| value.possible_references()) {
-            targets.extend(references.targets.iter().cloned());
-            unknown |= references.is_unknown() || references.is_displaced();
-        }
-
-        (targets, unknown)
-    }
-
     pub(in crate::analysis::storage_flow) fn referenced_regions(
         &self,
         location: &Target,
@@ -381,34 +354,79 @@ impl State {
     ) -> Option<Vec<Target>> {
         let references = self.values.get(location)?.address.as_ref()?;
 
-        (references.has_values()
-            && references.targets.iter().all(Target::is_exact))
-        .then(|| references.targets.iter().cloned().collect())
+        references.actual_targets()
     }
 
     pub(in crate::analysis::storage_flow) fn borrow_regions(
         &self,
         capability: BorrowCapabilityId,
     ) -> Option<Vec<Target>> {
-        self.borrows.get(&capability)?.regions()
+        self.borrow_address(capability)?.regions()
+    }
+
+    pub(in crate::analysis::storage_flow) fn borrow_address(
+        &self,
+        capability: BorrowCapabilityId,
+    ) -> Option<&AddressValue> {
+        self.borrows.get(&capability).map(|borrow| &borrow.address)
+    }
+
+    pub(in crate::analysis::storage_flow) fn borrow_ancestors(
+        &self,
+        capability: BorrowCapabilityId,
+    ) -> Option<&[BorrowCapabilityId]> {
+        let borrow = self.borrows.get(&capability)?;
+
+        (!borrow.address.is_unknown() && borrow.address.targets.iter().all(|target| !target.previous))
+            .then_some(borrow.ancestors.as_ref())
+    }
+
+    pub(in crate::analysis::storage_flow) fn borrow_relationship<'target>(
+        &self,
+        capability: BorrowCapabilityId,
+        targets: impl Iterator<Item = &'target Target> + Clone,
+        located: bool,
+    ) -> bray_bound_tree::StorageRelationship {
+        use bray_bound_tree::StorageRelationship;
+
+        let Some(borrow) = self.borrow_address(capability) else {
+            return StorageRelationship::PotentiallyOverlapping;
+        };
+
+        if targets.clone().next().is_none() || borrow.targets.is_empty() || borrow.is_unknown() || borrow.is_displaced() {
+            return StorageRelationship::PotentiallyOverlapping;
+        }
+
+        let mut relationship = StorageRelationship::Disjoint;
+
+        for region in &borrow.targets {
+            for target in targets.clone() {
+                match self.target_relationship(region, target) {
+                    StorageRelationship::Identical if located && borrow.has_values()
+                        && region.is_exact() && target.is_exact() => return StorageRelationship::Identical,
+                    StorageRelationship::Disjoint => {}
+                    _ => relationship = StorageRelationship::PotentiallyOverlapping,
+                }
+            }
+        }
+
+        relationship
     }
 
     pub(in crate::analysis::storage_flow) fn borrow_targets(
         &self,
         capability: BorrowCapabilityId,
     ) -> Option<Vec<Target>> {
-        let references = self.borrows.get(&capability)?;
+        let references = self.borrow_address(capability)?;
 
-        (references.has_values()
-            && references.targets.iter().all(Target::is_exact))
-        .then(|| references.targets.iter().cloned().collect())
+        references.actual_targets()
     }
 
     pub(in crate::analysis::storage_flow) fn borrow_observation(
         &self,
         capability: BorrowCapabilityId,
     ) -> Option<Place> {
-        let references = self.borrows.get(&capability)?;
+        let references = self.borrow_address(capability)?;
 
         if !references.is_exact() {
             return None;
@@ -449,7 +467,8 @@ impl State {
 
     pub(in crate::analysis::storage_flow) fn has_value(&self, target: &Target) -> bool {
         storage_subtree(&self.values, target)
-            .any(|(_, value)| value.reference().is_some() || value.whole_sources().is_some())
+            .any(|(_, value)| value.reference().is_some() || value.owned_backing().is_some()
+                || value.whole_sources().is_some() || value.report_dependencies().is_some())
             || storage_subtree(&self.contents, target)
                 .any(|(candidate, _)| {
                     candidate.projections()[target.projections().len()..]
@@ -473,10 +492,10 @@ impl State {
             .or_default()
             .storage_type = Some(ty);
 
-        self.values
-            .insert(Target::storage(reference), AddressValue::one(target.clone()).into());
+        self.values.insert(Target::storage(reference),
+            super::super::model::ValueBinding::borrowed(AddressValue::one(target.clone()), capability));
 
-        self.borrows.insert(capability, AddressValue::one(target));
+        self.borrows.insert(capability, RetainedBorrow { address: AddressValue::one(target), ancestors: Default::default() });
     }
 
     pub(in crate::analysis::storage_flow) fn borrow_target(
@@ -484,9 +503,10 @@ impl State {
         capability: BorrowCapabilityId,
         ty: TypeId,
     ) -> Option<Target> {
-        self.typed_target(self.borrows.get(&capability)?, ty)
+        self.typed_target(self.borrow_address(capability)?, ty)
     }
 
+    #[cfg(test)]
     pub(in crate::analysis::storage_flow) fn value_target(
         &self,
         location: &Target,
@@ -591,6 +611,7 @@ impl State {
         (targets.len() == 1).then(|| targets.first().expect("one current typed reference has one target").clone())
     }
 
+    #[cfg(test)]
     pub(in crate::analysis::storage_flow) fn borrow_target_storage(
         &mut self,
         values: &bray_symbols::SemanticValueStore,
@@ -598,20 +619,28 @@ impl State {
         targets: impl IntoIterator<Item = Target>,
         ty: TypeId,
     ) {
-        let mut references = AddressValue::default();
+        self.borrow_reached_storage(values, capability, AddressValue::from_targets(targets), ty, Default::default());
+    }
 
-        for target in targets {
-            let ty = if target.projections().last() == Some(&StorageProjection::OwnedTarget) {
+    pub(in crate::analysis::storage_flow) fn borrow_reached_storage(
+        &mut self,
+        values: &bray_symbols::SemanticValueStore,
+        capability: BorrowCapabilityId,
+        address: AddressValue,
+        ty: TypeId,
+        ancestors: std::sync::Arc<[BorrowCapabilityId]>,
+    ) {
+        for target in address.targets.iter().filter(|_| address.has_values()) {
+            let cell = if target.projections().last() == Some(&StorageProjection::OwnedTarget) {
                 Self::owned_element_type(values, ty)
             } else {
                 ty
             };
 
-            self.contents.entry(target.clone()).or_default().storage_type.get_or_insert(ty);
-            references.targets.insert(target);
+            self.contents.entry(target.clone()).or_default().storage_type.get_or_insert(cell);
         }
 
-        self.borrows.insert(capability, references);
+        self.borrows.insert(capability, RetainedBorrow { address, ancestors });
     }
 
     fn owned_element_type(values: &bray_symbols::SemanticValueStore, ty: TypeId) -> TypeId {

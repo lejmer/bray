@@ -1,5 +1,5 @@
 mod effect;
-pub use effect::{DependencyEffectOutcomes, DependencyMutationKind, DependencyStorageEffect};
+pub use effect::{DependencyEffectOutcomes, DependencyMutationKind, DependencyStorageEffect, StorageDischarge};
 mod application;
 mod captured;
 mod constant;
@@ -20,7 +20,7 @@ pub use application::{
     CallableDefinitionId, CallableInstanceData, ImplementationInstanceData, PredicateInstanceData,
     TraitApplicationData,
 };
-pub use captured::{CapturedCallable, CapturedDeferredInvocation, CapturedFailureOutcome, CapturedValueOutcome, CapturedValueOperation, CapturedValueTemplate, DependencyFailureKind};
+pub use captured::{common_cell_changes, CapturedCallable, CapturedDeferredInvocation, CapturedFailureOutcome, CapturedReportPayload, CapturedValueOutcome, CapturedValueOperation, CapturedValueTemplate, DependencyFailureKind};
 pub use constant::{
     AnyConstantDefinitionId, ConstantBinaryOperation, ConstantField, ConstantProjection,
     ConstantProjectionKind, ConstantTermData, ConstantUnaryOperation, ConstantValueData,

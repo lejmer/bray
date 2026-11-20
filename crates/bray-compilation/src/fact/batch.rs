@@ -243,13 +243,17 @@ mod tests {
         let runtime = FactRuntime::new(WorkerBudget::serial());
         let cancellation = CancellationToken::new();
 
+        struct EvaluatorInvariant;
+
         let outcome = catch_unwind(AssertUnwindSafe(|| {
             runtime.complete_batch([1], &cancellation, |_| -> Result<BatchWork<u32, ()>, ()> {
-                panic!("test evaluator invariant failed")
+                std::panic::panic_any(EvaluatorInvariant)
             })
         }));
 
-        assert!(outcome.is_err());
+        let payload = outcome.expect_err("the evaluator invariant must escape the batch");
+
+        assert!(payload.is::<EvaluatorInvariant>());
     }
 
     #[test]

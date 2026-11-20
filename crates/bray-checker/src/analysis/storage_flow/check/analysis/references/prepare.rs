@@ -1,8 +1,6 @@
-use crate::analysis::storage_flow::memory::{Origin, Source, Target};
+use crate::analysis::storage_flow::memory::{Origin, Place, ReachedAccess, State, Target};
 use crate::CheckerRequestContext;
-use crate::analysis::storage_flow::memory::Place;
-use crate::analysis::guarantee::CleanupMutation;
-use bray_symbols::{DependencyStorageEffect, DependencySubjectRoot};
+use bray_bound_tree::{StorageAccessId, StorageAddressValue, StoragePlan, StorageReferencePath};
 
 impl crate::analysis::storage_flow::model::StorageFlowInput {
     pub(in crate::analysis::storage_flow) fn reference_slots<'a>(
@@ -73,13 +71,25 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
         storage: &bray_bound_tree::StoragePlan,
         access: bray_bound_tree::StorageAccessId,
     ) -> Option<crate::analysis::storage_flow::memory::Target> {
-        let targets = self.reference_targets(values, memory, storage, access)?;
+        if let Some(target) = self.direct_reference_target(storage, access) {
+            return Some(target);
+        }
 
-        let [target] = targets.as_slice() else {
-            return None;
-        };
+        let mut targets = self.reference_targets(values, memory, storage, access)?;
 
-        Some(target.clone())
+        (targets.len() == 1).then(|| targets.pop()).flatten()
+    }
+
+    pub(in crate::analysis::storage_flow) fn direct_reference_target(
+        &self,
+        storage: &bray_bound_tree::StoragePlan,
+        access: bray_bound_tree::StorageAccessId,
+    ) -> Option<Target> {
+        let (_, path) = storage.reference_route(access)?;
+
+        if !path.steps().is_empty() { return None; }
+
+        Some(Target::storage(storage.logical_path(access)?.clone()))
     }
 
     pub(in crate::analysis::storage_flow) fn reference_targets(
@@ -89,9 +99,36 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
         storage: &bray_bound_tree::StoragePlan,
         access: bray_bound_tree::StorageAccessId,
     ) -> Option<Vec<crate::analysis::storage_flow::memory::Target>> {
+        let (start, path, root_borrow) = self.reference_start(memory, storage, access)?;
+
+        memory.reference_locations(values, start, path, root_borrow.map(|(target, _)| target))
+    }
+
+    pub(in crate::analysis::storage_flow) fn reached_access(
+        &self,
+        values: &bray_symbols::SemanticValueStore,
+        memory: &crate::analysis::storage_flow::memory::State,
+        storage: &bray_bound_tree::StoragePlan,
+        access: bray_bound_tree::StorageAccessId,
+    ) -> Option<ReachedAccess> {
+        if let Some(target) = self.direct_reference_target(storage, access) {
+            return Some(ReachedAccess { address: StorageAddressValue::one(target), loan: None });
+        }
+
+        let (start, path, root_borrow) = self.reference_start(memory, storage, access)?;
+
+        memory.reached_access(values, start, path, root_borrow)
+    }
+
+    fn reference_start<'storage>(
+        &self,
+        memory: &State,
+        storage: &'storage StoragePlan,
+        access: StorageAccessId,
+    ) -> Option<(Target, &'storage StorageReferencePath, Option<(Target, bray_bound_tree::BorrowCapabilityId)>)> {
         let logical = storage.logical_path(access)?;
 
-        let (_, path) = self.reference_paths.get(&access)?;
+        let (_, path) = storage.reference_route(access)?;
 
         let entry = storage
             .access(access)?
@@ -104,59 +141,36 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
             });
 
         let root_borrow = match (entry, path.reads().next()) {
-            (Some(capability), Some((0, 0, ty, bray_symbols::DependencyReferenceKind::Borrow))) => Some(memory.borrow_target(capability, ty)?),
+            (Some(capability), Some((0, 0, ty, bray_symbols::DependencyReferenceKind::Borrow))) =>
+                Some((memory.borrow_target(capability, ty)?, capability)),
             _ => None,
         };
 
-        memory.reference_locations(values, Target::storage(Place::root(logical.root)), path, root_borrow)
+        Some((Target::storage(Place::root(logical.root)), path, root_borrow))
     }
 
-    pub(in crate::analysis::storage_flow) fn prepare_reference_paths<
+    pub(in crate::analysis::storage_flow) fn index_observation_accesses<
         C: CheckerRequestContext + ?Sized,
     >(
         &mut self,
         request: crate::CheckerUnitView<'_, C>,
         storage: &bray_bound_tree::StoragePlan,
-    ) -> crate::CheckerQueryResult<(), C::UpstreamError> {
+    ) {
         for (access, reached) in storage.access_entries() {
             let Some(path) = storage.logical_path(access) else {
                 continue;
             };
 
-            let Some(ty) = storage.identity_type(path.root) else {
-                // A direct result slot has identity before its value type is installed.
-                if path.projections.is_empty()
-                    && matches!(
-                        reached.root(),
-                        bray_bound_tree::StorageAccessRoot::Storage(_)
-                    )
-                {
-                    self.reference_paths.insert(
-                        access,
-                        (
-                            reached.reached_type(),
-                            bray_bound_tree::StorageReferencePath::new(
-                                path.projections.clone(),
-                                std::sync::Arc::from([]),
-                            ),
-                        ),
-                    );
-                }
+            let stored_loan = matches!(reached.root(), bray_bound_tree::StorageAccessRoot::Storage(_))
+                && crate::representation::reference_kind(request, reached.reached_type())
+                    == Some(bray_symbols::DependencyReferenceKind::Borrow);
 
-                continue;
-            };
-
-            if let Some(prepared) = crate::storage::reference_path(
-                request,
-                ty,
-                path.projections.clone(),
-                Some(reached.reached_type()),
-            )? {
-                self.reference_paths.insert(access, prepared);
+            if storage.reference_route(access).is_some_and(|(_, route)| route.steps().is_empty()) && !stored_loan {
+                self.direct_observation_accesses.entry(path.root).or_default().push(access);
+            } else {
+                self.indirect_observation_accesses.push(access);
             }
         }
-
-        Ok(())
     }
 
     pub(in crate::analysis::storage_flow) fn prepare_reference_constructions<
@@ -287,50 +301,6 @@ pub(super) fn project<C: CheckerRequestContext + ?Sized>(
 }
 
 impl<C: CheckerRequestContext + ?Sized> super::super::core::StorageFlowCollector<'_, C> {
-    pub(in crate::analysis::storage_flow::check::analysis) fn observe_call_reference_inputs(
-        &mut self,
-        state: &mut crate::analysis::storage_flow::model::StorageFlowState,
-        occurrence: bray_bound_tree::BoundExecutionSite,
-    ) {
-
-        let Some(contracts) = self.dependencies.calls().get(&occurrence) else {
-            return;
-        };
-
-        for (subject, ty, _) in contracts.storage().subjects() {
-            if !matches!(
-                subject.subject_root(),
-                bray_symbols::DependencySubjectRoot::Receiver
-                    | bray_symbols::DependencySubjectRoot::Parameter(_)
-            ) {
-                continue;
-            }
-
-            let Some(pointee) = crate::representation::reference_target_type(self.request, ty)
-            else {
-                continue;
-            };
-
-            let Some(logical) = self.invocation_logical_path(occurrence, subject)
-            else {
-                continue;
-            };
-
-            let Some(sources) = self.invocation_sources(state, occurrence, subject) else {
-                continue;
-            };
-
-            let [Source::Value(location)] = sources.as_slice() else {
-                continue;
-            };
-
-            if let Err(error) = self.observe_stored_reference(&mut state.memory, location.clone(), logical, pointee) {
-                self.query_failure = Some(error);
-                return;
-            }
-        }
-    }
-
     pub(in crate::analysis::storage_flow::check::analysis) fn observe_stored_reference(
         &self,
         memory: &mut crate::analysis::storage_flow::memory::State,
@@ -367,66 +337,5 @@ impl<C: CheckerRequestContext + ?Sized> super::super::core::StorageFlowCollector
             .collect::<Vec<_>>();
 
         memory.observe_reference(self.request, location, logical, pointee, inputs)
-    }
-
-    pub(in crate::analysis::storage_flow::check::analysis) fn observe_cleanup_reference_inputs(
-        &self,
-        memory: &mut crate::analysis::storage_flow::memory::State,
-        receiver: &Target,
-        mutation: &CleanupMutation<'_>,
-    ) -> crate::CheckerQueryResult<(), C::UpstreamError> {
-        let logical = match mutation {
-            CleanupMutation::Opaque { path, .. } => *path,
-            CleanupMutation::Lifecycle(call) => call.path,
-            CleanupMutation::Unchanged | CleanupMutation::Recovery => unreachable!("only an actual cleanup has a receiver"),
-        }.expect("resolved cleanup receiver retains its logical path");
-
-        let effects = match mutation {
-            CleanupMutation::Opaque { ty, .. } => self.input.buffer_cleanup_effects.get(ty).map(Vec::as_slice),
-            CleanupMutation::Lifecycle(call) => Some(call.contract.effects()),
-            CleanupMutation::Unchanged | CleanupMutation::Recovery => None,
-        };
-
-        let subjects = effects.into_iter().flatten().filter_map(|effect| match effect {
-            DependencyStorageEffect::Indirect { reference, .. } => Some(reference),
-            _ => None,
-        }).collect::<std::collections::BTreeSet<_>>();
-
-        let mut inputs = subjects.into_iter().filter_map(|subject| {
-            let prepared = match mutation {
-                CleanupMutation::Opaque { ty, .. } => self.input.buffer_cleanup_paths.get(&(*ty, subject.clone())).map(|(ty, path)| (*ty, path)),
-                CleanupMutation::Lifecycle(call) => self.input.lifecycle_storage[&call.lifecycle.call.callable].subject(subject),
-                CleanupMutation::Unchanged | CleanupMutation::Recovery => None,
-            }?;
-
-            Some((subject, prepared))
-        }).collect::<Vec<_>>();
-
-        // A parent descriptor supplies the current backing for nested owned paths.
-        inputs.sort_by_key(|(_, (_, path))| path.projections().len());
-
-        for (subject, (ty, path)) in inputs {
-            let Some(pointee) = crate::representation::reference_target_type(self.request, ty) else {
-                continue;
-            };
-
-            let Some(locations) = self.cleanup_subject_locations(memory, Some(receiver), subject, Some(path)) else {
-                continue;
-            };
-
-            for location in locations {
-                let logical = if subject.subject_root() == DependencySubjectRoot::Receiver {
-                    Place { root: logical.root, projections: logical.projections.iter().chain(path.projections()).copied().collect() }
-                } else if let Some(logical) = location.observation_path() {
-                    logical
-                } else {
-                    continue;
-                };
-
-                self.observe_stored_reference(memory, location, logical, pointee)?;
-            }
-        }
-
-        Ok(())
     }
 }

@@ -1,17 +1,15 @@
 use std::collections::BTreeSet;
 
 use super::{Liveness, StoragePlan};
-use crate::{BoundDependencyContractId, BoundDependencySubject, CheckedDependencyContracts};
+use crate::BoundDependencySubject;
 
 impl Liveness {
     /// Returns the complete ordered subject set retained across one suspension.
     pub fn retained_suspension_subjects(
         &self,
-        dependencies: &CheckedDependencyContracts,
         storage: &StoragePlan,
         occurrence: impl Into<crate::BoundExecutionSite>,
-        dependency_contract: Option<BoundDependencyContractId>,
-        state: Option<&super::StorageSuspensionState>,
+        state: &super::StorageSuspensionState,
     ) -> Vec<BoundDependencySubject> {
         let occurrence = occurrence.into();
 
@@ -22,20 +20,7 @@ impl Liveness {
             .map(|entry| entry.subject())
             .collect::<BTreeSet<_>>();
 
-        if let Some(id) = dependency_contract {
-            let contract = dependencies
-                .contract(id)
-                .expect("suspension retains its checked dependency contract");
-
-            retained.extend(contract.required_subjects());
-        }
-
-        retained.extend(
-            state
-                .into_iter()
-                .flat_map(|state| state.cleanup_retention())
-                .copied(),
-        );
+        retained.extend(state.cleanup_retention().iter().chain(state.execution_retention()).copied());
 
         retained
             .into_iter()

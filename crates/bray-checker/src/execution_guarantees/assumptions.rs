@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::BTreeSet;
 use std::sync::{Arc, LazyLock};
 
@@ -36,6 +37,19 @@ impl ExecutionAssumptions {
         if self.0.contains(&condition) { return false; }
 
         Arc::make_mut(&mut self.0).insert(condition)
+    }
+
+    /// Extends a proof context without copying an already sufficient snapshot.
+    pub(crate) fn joined_with<'a>(&'a self, other: &'a Self) -> Cow<'a, Self> {
+        if Arc::ptr_eq(&self.0, &other.0) || other.is_subset(self) {
+            return Cow::Borrowed(self);
+        }
+
+        if self.is_subset(other) {
+            return Cow::Borrowed(other);
+        }
+
+        Cow::Owned(self.union(other).cloned().collect())
     }
 
     pub(crate) fn retain(&mut self, mut keep: impl FnMut(&(ExecutionCondition, bool)) -> bool) {

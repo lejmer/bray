@@ -1,3 +1,6 @@
+use std::collections::BTreeMap;
+use std::sync::Arc;
+
 use crate::execution_guarantees::ExecutionObservationKind as ObservationKind;
 use super::state::ExecutionState;
 use crate::ExecutionCondition;
@@ -8,25 +11,46 @@ type OwnedLayout = DependencyOwnedResult<StorageProjection, ExecutionCondition>;
 
 /// Formal lineage is indexed by logical contents. Physical capture coordinates do not name a different value.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub(super) struct OwnedResults(std::collections::BTreeMap<ExecutionCondition, OwnedLayout>);
+pub(super) struct OwnedResults(Arc<BTreeMap<ExecutionCondition, OwnedLayout>>);
 
 impl OwnedResults {
     pub(super) fn get(&self, value: &ExecutionCondition) -> Option<&OwnedLayout> {
         self.0.get(&value.without_captured_storage())
     }
 
-    pub(super) fn insert(&mut self, value: ExecutionCondition, layout: OwnedLayout) -> Option<OwnedLayout> {
-        self.0.insert(value.without_captured_storage(), layout)
+    pub(super) fn insert(&mut self, value: ExecutionCondition, layout: OwnedLayout) -> bool {
+        let value = value.without_captured_storage();
+
+        if self.0.get(&value) == Some(&layout) {
+            return false;
+        }
+
+        Arc::make_mut(&mut self.0).insert(value, layout);
+
+        true
     }
 
     pub(super) fn entry(&mut self, value: ExecutionCondition)
         -> std::collections::btree_map::Entry<'_, ExecutionCondition, OwnedLayout>
     {
-        self.0.entry(value.without_captured_storage())
+        Arc::make_mut(&mut self.0).entry(value.without_captured_storage())
     }
 
-    pub(super) fn retain(&mut self, mut keep: impl FnMut(&ExecutionCondition, &mut OwnedLayout) -> bool) {
-        self.0.retain(|value, layout| keep(value, layout));
+    pub(super) fn retain(&mut self, mut keep: impl FnMut(&ExecutionCondition) -> bool) {
+        if let Some(layouts) = Arc::get_mut(&mut self.0) {
+            layouts.retain(|value, _| keep(value));
+            return;
+        }
+
+        let removed = self.0.keys().filter(|value| !keep(value)).cloned().collect::<Vec<_>>();
+
+        if !removed.is_empty() {
+            let layouts = Arc::make_mut(&mut self.0);
+
+            for value in removed {
+                layouts.remove(&value);
+            }
+        }
     }
 
     #[cfg(test)]
@@ -43,7 +67,7 @@ impl IntoIterator for OwnedResults {
     type Item = (ExecutionCondition, OwnedLayout);
     type IntoIter = std::collections::btree_map::IntoIter<ExecutionCondition, OwnedLayout>;
 
-    fn into_iter(self) -> Self::IntoIter { self.0.into_iter() }
+    fn into_iter(self) -> Self::IntoIter { Arc::unwrap_or_clone(self.0).into_iter() }
 }
 
 impl ExecutionState {
@@ -55,7 +79,6 @@ impl ExecutionState {
         extracted: bool,
         mut preservation: impl FnMut(&[StorageProjection]) -> DependencyValuePreservation<StorageProjection>,
     ) {
-
         // A checked extraction transfers current borrowed contents. Capture its
         // formal origin before framing replaces the source, without treating an
         // ordinary borrow as ownership or overwriting an explicit empty layout.
@@ -92,7 +115,6 @@ impl ExecutionState {
         ).expect("physical ownership preservation is infallible");
 
         self.owned_results.insert(next.clone(), ownership);
-
     }
 
     /// Selects exact formal ownership from retained snapshots and joined layouts.
@@ -477,11 +499,7 @@ fn selected_data(
 
     *budget = remaining;
 
-    Some(path.iter().fold(value.clone(), |value, field| {
-        let selected = value.project(*field);
-
-        selected.nullable_payload_snapshot().cloned().unwrap_or(selected)
-    }))
+    Some(path.iter().fold(value.clone(), |value, field| value.project(*field).into_component_data()))
 }
 
 fn without_empty_guards(

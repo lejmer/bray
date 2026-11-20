@@ -33,83 +33,13 @@ impl Compilation {
 
         let mut diagnostics = DiagnosticBag::new();
 
-        for root in self.declared_unit_keys()? {
-            if root.is_static_initializer()
-                || matches!(
-                    root.kind(),
-                    bray_bound_tree::BoundUnitKind::PredicateDefinition
-                        | bray_bound_tree::BoundUnitKind::ContractClause
-                        | bray_bound_tree::BoundUnitKind::Constraint
-                )
-            {
-                let checked =
-                    self.certified_execution_with_cancellation(root.clone(), cancellation)?;
+        let roots = self.declared_unit_keys()?;
+        let root_diagnostics = self.state.fact_runtime.map_indexed(roots.len(), |index| {
+            self.execution_root_diagnostics(&roots[index], cancellation)
+        })?;
 
-                diagnostics.add_range(checked.result().diagnostics().iter().cloned());
-                continue;
-            }
-
-            if !matches!(
-                root.kind(),
-                bray_bound_tree::BoundUnitKind::CallableBody
-                    | bray_bound_tree::BoundUnitKind::AnonymousCallable
-            ) {
-                continue;
-            }
-
-            let mut pending = vec![root.clone()];
-
-            while let Some(key) = pending.pop() {
-                cancellation.check()?;
-
-                let nested = match self.published_source_output(&key, cancellation)? {
-                    Some(output) => output
-                        .nested
-                        .iter()
-                        .map(|(_, _, _, key)| key.clone())
-                        .collect(),
-                    None => self
-                        .bound_unit_with_cancellation(key.clone(), cancellation)?
-                        .result()
-                        .value()
-                        .nested_units()
-                        .to_vec(),
-                };
-
-                pending.extend(nested.into_iter().rev());
-
-                if !matches!(
-                    key.kind(),
-                    bray_bound_tree::BoundUnitKind::CallableBody
-                        | bray_bound_tree::BoundUnitKind::AnonymousCallable
-                ) {
-                    continue;
-                }
-
-                let declaration = self.execution_unit_declaration(&key)?;
-
-                if key.kind() == bray_bound_tree::BoundUnitKind::CallableBody {
-                    diagnostics.add_range(self.check_execution_declaration_conditions(
-                        &key,
-                        declaration.value(),
-                        cancellation,
-                    )?);
-                }
-
-                let declared_const = self.unit_requires_constant_evaluation(&key, cancellation)?;
-
-                if !declaration.value().clauses().is_empty()
-                    || declared_const
-                    || declaration
-                        .value()
-                        .domains()
-                        .iter()
-                        .any(|domain| !domain.postconditions.is_empty())
-                {
-                    // Aggregate diagnostics and retain the immutable key beyond this bound-unit borrow.
-                    diagnostics.add_range(self.execution_properties(key)?.diagnostics().clone());
-                }
-            }
+        for root in root_diagnostics {
+            diagnostics.add_range(root?);
         }
 
         for declaration in source_graph.declarations().declarations() {
@@ -186,6 +116,65 @@ impl Compilation {
 
         diagnostics
             .add_range(self.callable_type_guarantee_diagnostics(source_graph, cancellation)?);
+
+        Ok(diagnostics)
+    }
+
+    fn execution_root_diagnostics(
+        &self,
+        root: &bray_bound_tree::BoundUnitKey,
+        cancellation: &crate::fact::CancellationToken,
+    ) -> Result<DiagnosticBag, crate::fact::FactQueryError> {
+        use bray_bound_tree::BoundUnitKind;
+
+        cancellation.check()?;
+
+        if root.is_static_initializer()
+            || matches!(root.kind(), BoundUnitKind::PredicateDefinition | BoundUnitKind::ContractClause | BoundUnitKind::Constraint)
+        {
+            let checked = self.certified_execution_with_cancellation(root.clone(), cancellation)?;
+
+            return Ok(checked.result().diagnostics().clone());
+        }
+
+        let mut diagnostics = DiagnosticBag::new();
+
+        if !matches!(root.kind(), BoundUnitKind::CallableBody | BoundUnitKind::AnonymousCallable) {
+            return Ok(diagnostics);
+        }
+
+        let mut pending = vec![root.clone()];
+
+        while let Some(key) = pending.pop() {
+            cancellation.check()?;
+
+            if let Some(output) = self.published_source_output(&key, cancellation)? {
+                pending.extend(output.nested.iter().rev().map(|(_, _, _, key)| key.clone()));
+            } else {
+                let unit = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
+
+                pending.extend(unit.result().value().nested_units().iter().rev().cloned());
+            }
+
+            if !matches!(key.kind(), BoundUnitKind::CallableBody | BoundUnitKind::AnonymousCallable) {
+                continue;
+            }
+
+            let declaration = self.execution_unit_declaration(&key)?;
+            let declared = declaration.value();
+
+            if key.kind() == BoundUnitKind::CallableBody {
+                diagnostics.add_range(self.check_execution_declaration_conditions(&key, declared, cancellation)?);
+            }
+
+            let declared_const = self.unit_requires_constant_evaluation(&key, cancellation)?;
+
+            if !declared.clauses().is_empty() || declared_const
+                || declared.domains().iter().any(|domain| !domain.postconditions.is_empty())
+            {
+                diagnostics.add_range(self.execution_properties(key)?.diagnostics().clone());
+            }
+        }
 
         Ok(diagnostics)
     }

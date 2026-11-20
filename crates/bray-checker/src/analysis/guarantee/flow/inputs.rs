@@ -14,29 +14,30 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         invocation: BoundExecutionSite,
         observations: &bray_bound_tree::StorageCompletion,
     ) {
-        if let Some(entry) = state.entries.get_mut(&invocation) {
+        if let Some(entry) = state.admitted_call_mut(invocation) {
             entry.pending_execution = false;
         }
 
-        // This transition defines one actual output in the planned protocol slot.
-        let result = match invocation {
-            BoundExecutionSite::ScopedEnter(expression) => ExecutionCondition::new(crate::ExecutionConditionKind::ScopedCapability(expression)),
-            BoundExecutionSite::Iterate(_) | BoundExecutionSite::Next(_) => ExecutionCondition::post_state(
-                bray_bound_tree::StorageMutation::Operation(invocation),
-                ExecutionCondition::new(crate::ExecutionConditionKind::Input(self.input_place(invocation).expect("completed protocol invocation retains its result slot"))),
-            ),
-            BoundExecutionSite::ScopedExit(_) => ExecutionCondition::unknown(),
-            _ => unreachable!("implicit completion has a protocol invocation"),
+        let place = self.invocation_result_place(invocation);
+        let storage = self.storage.invocation_result(invocation).and_then(|access| self.storage.root_identity(access));
+
+        // An infallible enter produces the capability directly. Other results keep their own type and slot.
+        let result = match storage.and_then(|identity| self.storage.identity(identity)) {
+            Some(bray_bound_tree::StorageIdentity::ScopedCapability { expression, .. }) => {
+                ExecutionCondition::new(crate::ExecutionConditionKind::ScopedCapability(expression))
+            }
+            _ => place.as_ref().map_or_else(ExecutionCondition::unknown, |place| {
+                ExecutionCondition::post_state(
+                    bray_bound_tree::StorageMutation::Operation(invocation),
+                    ExecutionCondition::new(crate::ExecutionConditionKind::Input(place.clone())),
+                )
+            }),
         };
 
-        let result = self.complete_trusted_call(state, invocation, invocation, self.invocation_result_place(invocation).as_ref(), result, observations);
+        let result = self.complete_trusted_call(state, (invocation, invocation), None, place.as_ref(), result, observations);
 
-        if matches!(invocation, BoundExecutionSite::Iterate(_) | BoundExecutionSite::Next(_) | BoundExecutionSite::ScopedEnter(_)) {
-            state.assign(
-                self.input_place(invocation).expect("completed protocol invocation retains its result slot"),
-                result,
-                None,
-            );
+        if let Some(place) = place {
+            state.assign(place, result, None);
         }
 
     }
@@ -128,7 +129,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
                     super::super::completion::converted_argument(
                         self.request.semantic_values(),
-                        self.value(state, *expression),
+                        self.operand_value(state, *expression),
                         conversion,
                     )
                 },
@@ -298,7 +299,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     ) -> ExecutionCondition {
         let value = match input {
             BoundExecutionSite::Node(bray_bound_tree::AnyBoundNodeId::Expression(expression)) => {
-                self.value(state, expression)
+                self.operand_value(state, expression)
             }
             BoundExecutionSite::CallInput { .. }
             | BoundExecutionSite::Iterate(_)
@@ -412,7 +413,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 ExecutionCondition::new(crate::ExecutionConditionKind::Input(place)),
             );
 
-            let value = self.storage.occurrence_plans(invocation).fold(self.value(state, source), |value, plan| {
+            let value = self.storage.occurrence_plans(invocation).fold(self.operand_value(state, source), |value, plan| {
                 self.copied_access_value(identity.clone(), value, plan)
             });
 
@@ -437,9 +438,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 _ => Default::default(),
             },
             witness_inputs: Default::default(),
+            witness_allocations: Default::default(),
             extracted_values: Default::default(),
-            copy_sources: Default::default(),
             owned_inputs: Default::default(),
+            borrow_owners: Default::default(),
             addresses: Default::default(),
             anonymous_target: None,
             trusted_boundary: !state.trust_boundaries.is_empty(),
@@ -454,7 +456,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         &self,
         state: &mut ExecutionState,
         invocation: BoundExecutionSite,
-    ) {
+    ) -> bool {
         let BoundExecutionSite::CallInput {
             expression,
             ordinal,
@@ -478,8 +480,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .get(&invocation)
             .expect("input completion follows its captured entry");
 
-        let value = if let Some(provider) = input.default_provider() {
-            self.observed_default(selection, provider, ordinal, &entry.arguments)
+        let value = if input.default_provider().is_some() {
+            // The guarded call completion supplies the default's produced value.
+            ExecutionCondition::unknown()
         } else {
             let value = ExecutionPlace::argument(SymbolOrdinal::new(0))
                 .value_in(&entry.arguments)
@@ -509,57 +512,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         };
 
         state.assign(place, value, None);
-    }
 
-    fn observed_default(
-        &self,
-        selection: &SemanticSelection,
-        provider: bray_symbols::DefaultValueProvider,
-        ordinal: SymbolOrdinal,
-        arguments: &BTreeMap<ExecutionPlace, ExecutionCondition>,
-    ) -> ExecutionCondition {
-        let Some(term) = self.request.default_observed_result(provider) else {
-            return ExecutionCondition::unknown();
-        };
-
-        let values = self.request.semantic_values();
-
-        let substitution = selection
-            .input_instance()
-            .map(|instance| instance.substitution())
-            .or_else(
-                || match values.type_data(selection.result_type()?).as_ref() {
-                    bray_symbols::TypeData::Named { substitution, .. } => Some(*substitution),
-                    _ => None,
-                },
-            );
-
-        let term = match substitution {
-            Some(substitution) => values
-                .substitute_constant_term(term, substitution)
-                .expect("checked default application belongs to this semantic store"),
-            None => term,
-        };
-
-        let count = if matches!(
-            provider,
-            bray_symbols::DefaultValueProvider::CallableParameter(_)
-        ) {
-            usize::try_from(ordinal.raw()).expect("input ordinal fits host")
-        } else {
-            0
-        };
-
-        crate::execution_condition_from_type_term(values, term, count)
-            .expect("checked default observation belongs to this semantic store")
-            .substitute(
-                &|place| {
-                    place
-                        .value_in(arguments)
-                        .unwrap_or_else(ExecutionCondition::unknown)
-                },
-                &ExecutionCondition::unknown(),
-                &mut { ExecutionCondition::WORK_LIMIT },
-            )
+        input.inline_materialization_path().is_some()
     }
 }

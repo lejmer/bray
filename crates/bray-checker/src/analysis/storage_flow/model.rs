@@ -7,7 +7,8 @@ mod state;
 mod tests;
 
 pub(super) use domain::StorageFlowDomain;
-pub(super) use input::StorageFlowInput;
-pub(in crate::analysis) use state::{StorageAbsence, StorageFlowState};
+pub(crate) use input::StorageFlowInput;
+pub(super) use outcomes::StorageFlowOutcomes;
+pub(in crate::analysis) use state::StorageFlowState;
 
-pub(super) use state::{EffectPrefix, merge_fully_moved};
+pub(super) use state::{AdmittedFailure, EffectPrefix, merge_fully_moved};

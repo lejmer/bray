@@ -1,37 +1,52 @@
-use super::super::model::{Contents, DependencyCompleteness, Origin, Place, AddressValue, Retirement, State, Target, Transfer, ValueBinding};
-use super::slots::{storage_subtree, take_subtree};
+use super::super::model::{Contents, DependencyCompleteness, Origin, Place, AddressValue, ReachedAccess, Retirement, State, Target, Transfer, ValueBinding};
+use super::slots::take_subtree;
 use bray_bound_tree::{BorrowCapabilityId, BoundExpressionId, StorageIdentityId};
 use bray_symbols::TypeId;
 
 impl State {
+    pub(in crate::analysis::storage_flow) fn capture_assignment_destination(
+        &mut self,
+        assignment: BoundExpressionId,
+        destination: Option<ReachedAccess>,
+    ) {
+        let destination = destination.unwrap_or_else(|| ReachedAccess {
+            address: AddressValue::unknown(), loan: None,
+        });
+
+        self.assignment_destinations.insert(assignment, destination);
+    }
+
+    pub(in crate::analysis::storage_flow) fn assignment_destination(
+        &self,
+        assignment: BoundExpressionId,
+    ) -> Option<&ReachedAccess> {
+        self.assignment_destinations.get(&assignment)
+    }
+
+    pub(in crate::analysis::storage_flow) fn finish_assignment(&mut self, assignment: BoundExpressionId) {
+        self.assignment_destinations.remove(&assignment);
+    }
+
     pub(in crate::analysis::storage_flow) fn begin_transition(
         &mut self,
         call: bray_bound_tree::BoundExecutionSite,
     ) {
-        self.pending.insert(call, Default::default());
+        self.stage_transition(call, Transfer::default());
     }
 
-    pub(in crate::analysis::storage_flow) fn capture_reference_inputs(
+    pub(in crate::analysis::storage_flow) fn stage_transition(
         &mut self,
         call: bray_bound_tree::BoundExecutionSite,
-        roots: impl IntoIterator<Item = Target>,
+        transition: Transfer,
     ) {
-        let inputs = &mut self.pending.get_mut(&call)
-            .expect("prepared invocation retains its input transfer").inputs;
-
-        for root in roots {
-            inputs.extend(storage_subtree(&self.values, &root)
-                .map(|(slot, references)| (slot.clone(), references.clone())));
-        }
+        self.pending.insert(call, transition);
     }
 
-    #[cfg(test)]
-    pub(in crate::analysis::storage_flow) fn defer_effects(
+    pub(in crate::analysis::storage_flow) fn take_transition(
         &mut self,
         call: bray_bound_tree::BoundExecutionSite,
-        effects: Option<super::super::EffectOutcomes>,
-    ) {
-        self.pending.entry(call).or_default().deferred_effects = effects;
+    ) -> Option<Transfer> {
+        self.pending.remove(&call)
     }
 
     #[cfg(test)]
@@ -220,7 +235,7 @@ impl State {
                 if !established_payloads.contains(&slot)
                     && let Some(contents) = pending.payloads.get_mut(&slot)
                 {
-                    contents.initialized.clear();
+                    contents.clear_initialization();
                 }
             }
         }
@@ -386,7 +401,7 @@ impl State {
             .take_while(|(target, _)| destination.contains(target))
             .filter(|(target, _)| destination.contains_storage(target))
         {
-            contents.initialized.clear();
+            contents.clear_initialization();
         }
     }
 
@@ -396,7 +411,7 @@ impl State {
         source: BorrowCapabilityId,
         destination: Target,
     ) {
-        let Some(references) = self.borrows.get(&source) else {
+        let Some(references) = self.borrow_address(source).cloned() else {
             return;
         };
 
@@ -406,8 +421,7 @@ impl State {
             .values
             .entry(destination)
             .or_default()
-            .produced_address()
-            .merge(references);
+            .include_value(&ValueBinding::borrowed(references, source));
     }
 
     pub(in crate::analysis::storage_flow) fn stage_address(
@@ -446,18 +460,40 @@ impl State {
     pub(in crate::analysis::storage_flow) fn capture_failure_effects(
         &mut self,
         call: bray_bound_tree::BoundExecutionSite,
-        kind: bray_symbols::DependencyFailureKind,
+        outcome: (bray_symbols::DependencyFailureKind, Option<usize>),
         effects: std::sync::Arc<super::super::CapturedEffects>,
     ) {
-        self.pending.entry(call).or_default().failure_effects.insert(kind, effects);
+        self.pending.entry(call).or_default().failure_effects.insert(outcome, effects);
     }
 
-    pub(in crate::analysis::storage_flow) fn take_failure_effects(
+    pub(in crate::analysis::storage_flow) fn fail_transition(
         &mut self,
         call: bray_bound_tree::BoundExecutionSite,
-        kind: bray_symbols::DependencyFailureKind,
+        outcome: (bray_symbols::DependencyFailureKind, Option<usize>),
+        keep_outputs: bool,
     ) -> Option<std::sync::Arc<super::super::CapturedEffects>> {
-        self.pending.get_mut(&call)?.failure_effects.remove(&kind)
+        let mut effects = if keep_outputs {
+            std::mem::take(&mut self.pending.get_mut(&call)?.failure_effects)
+        } else {
+            self.pending.remove(&call)?.failure_effects
+        };
+
+        if outcome.1.is_some() {
+            return effects.remove(&outcome);
+        }
+
+        let mut prefixes = effects.into_iter()
+            .filter_map(|((kind, _), effects)| (kind == outcome.0).then_some(effects));
+
+        let mut possible = prefixes.next()?;
+
+        for prefix in prefixes {
+            if possible != prefix {
+                std::sync::Arc::make_mut(&mut possible).merge(&prefix);
+            }
+        }
+
+        Some(possible)
     }
 
     pub(in crate::analysis::storage_flow) fn weaken_transition(&mut self, call: bray_bound_tree::BoundExecutionSite) {
@@ -468,7 +504,7 @@ impl State {
         &mut self,
         call: bray_bound_tree::BoundExecutionSite,
     ) {
-        if let Some(transfer) = self.pending.get_mut(&call).map(Transfer::take_outputs) {
+        if let Some(mut transfer) = self.pending.get_mut(&call).map(Transfer::take_outputs) {
             if transfer.weak_outputs {
                 self.commit_weak_value(transfer);
                 return;
@@ -478,8 +514,38 @@ impl State {
                 self.clear_value(slot);
             }
 
+            let cells = std::mem::take(&mut transfer.cell_changes);
+
             self.commit_value(transfer);
+
+            self.apply_cell_changes(cells, call);
         }
+    }
+
+    pub(in crate::analysis::storage_flow) fn stage_cell_changes(
+        &mut self,
+        call: bray_bound_tree::BoundExecutionSite,
+        effects: &[super::super::Effect],
+    ) {
+        let cells = self.checked_cell_changes(effects);
+
+        if !cells.is_empty() {
+            self.pending.entry(call).or_default().cell_changes.extend(cells);
+        }
+    }
+
+    pub(in crate::analysis::storage_flow) fn checked_cell_changes(
+        &self,
+        effects: &[super::super::Effect],
+    ) -> Vec<(Target, bray_symbols::DependencyMutationKind)> {
+        let cells = effects.iter().filter_map(super::super::Effect::cell_change).collect::<Vec<_>>();
+
+        cells.iter().copied().filter(|(target, kind)| {
+            cells.iter().all(|(other, other_kind)| {
+                (other == target && other_kind == kind)
+                    || self.target_relationship(target, other) == bray_bound_tree::StorageRelationship::Disjoint
+            })
+        }).map(|(target, kind)| (target.clone(), kind)).collect()
     }
 
     pub(in crate::analysis::storage_flow) fn complete_transition(
@@ -495,6 +561,81 @@ impl State {
         slot: Place,
         allocation: BoundExpressionId,
     ) -> Target {
+        let current = self.allocate_current(&slot, allocation);
+
+        self.values.insert(Target::storage(slot), AddressValue::one(current.clone()).into());
+
+        current
+    }
+
+    pub(in crate::analysis::storage_flow) fn acquire_owned_backing(&mut self, owner: Place, producer: BoundExpressionId) {
+        let backing = self.allocate_current(&owner, producer);
+
+        self.values.entry(Target::storage(owner)).or_default().attach_owned_backing(AddressValue::one(backing));
+    }
+
+    pub(in crate::analysis::storage_flow) fn declare_entry_backing(&mut self, owner: Target, ty: TypeId) {
+        if self.values.get(&owner).is_some_and(|value| value.owned_backing().is_some()) { return; }
+
+        let backing = owner.project(&[bray_bound_tree::StorageProjection::OwnedTarget]);
+
+        if backing.is_exact() {
+            let contents = self.contents.entry(backing.clone()).or_default();
+
+            contents.storage_type = Some(ty);
+            contents.observe_initialized(ty);
+        }
+
+        self.values.entry(owner).or_default().attach_owned_backing(AddressValue::one(backing));
+    }
+
+    pub(in crate::analysis::storage_flow) fn owned_backing(&self, owner: &Target) -> Option<&Target> {
+        let backing = self.values.get(owner)?.owned_backing()?;
+
+        backing.is_exact().then(|| backing.targets.first()).flatten()
+    }
+
+    pub(in crate::analysis::storage_flow) fn stage_owned_backing(
+        &mut self,
+        call: bray_bound_tree::BoundExecutionSite,
+        owner: Target,
+        produced: Place,
+        initialized: Option<TypeId>,
+        allocated: bool,
+    ) -> Option<Target> {
+        let backing = Target {
+            previous: false,
+            origin: if allocated {
+                Origin::Allocation { allocation: produced, projections: [].into() }
+            } else {
+                Origin::Returned { reference: produced, projections: [].into() }
+            },
+        };
+
+        let pending = self.pending.entry(call).or_default();
+        let value = pending.values.entry(owner).or_default();
+
+        if value.is_no_payload() || value.owned_backing().is_some() { return None; }
+
+        value.attach_owned_backing(AddressValue::one(backing.clone()));
+
+        if let Origin::Returned { reference, .. } = &backing.origin {
+            pending.returned_inputs.entry(reference.clone()).or_insert_with(AddressValue::unknown);
+        }
+
+        let contents = pending.payloads.entry(backing.clone()).or_default();
+
+        contents.allocations.extend(call.expression());
+
+        if let Some(ty) = initialized {
+            contents.storage_type = Some(ty);
+            contents.record_write(ty);
+        }
+
+        Some(backing)
+    }
+
+    pub(in crate::analysis::storage_flow) fn allocate_current(&mut self, slot: &Place, allocation: BoundExpressionId) -> Target {
         // A new execution cannot equate old aliases with this incarnation.
         let current = Target {
             origin: Origin::Allocation { allocation: slot.clone(), projections: [].into() },
@@ -503,15 +644,11 @@ impl State {
 
         self.retire_region(&current, Retirement::Producer);
 
-        let contents = Contents {
-            allocations: [allocation].into_iter().collect(),
-            ..Contents::default()
-        };
+        let mut contents = Contents::default();
+
+        contents.allocations.insert(allocation);
 
         self.contents.insert(current.clone(), contents);
-
-        self.values
-            .insert(Target::storage(slot), AddressValue::one(current.clone()).into());
 
         current
     }
@@ -538,13 +675,11 @@ impl State {
     pub(in crate::analysis::storage_flow) fn uninit(&mut self, target: Target, element: TypeId) {
         self.retire(&target);
 
-        self.contents.insert(
-            target,
-            Contents {
-                storage_type: Some(element),
-                ..Contents::default()
-            },
-        );
+        let mut contents = Contents::default();
+
+        contents.storage_type = Some(element);
+
+        self.contents.insert(target, contents);
     }
 
     fn owned_value(
@@ -555,22 +690,6 @@ impl State {
         self.values
             .get(&owner.project(&[pointer]))
             .filter(|value| value.reference().is_some())
-            .or_else(|| self.values.get(owner).filter(|value| value.reference().is_some_and(|references| !references.is_unknown())))
-    }
-
-    pub(in crate::analysis::storage_flow) fn stage_owned_buffer_reference(
-        &mut self,
-        call: bray_bound_tree::BoundExecutionSite,
-        owner: Target,
-        destination: Target,
-        reference: Place,
-        element: TypeId,
-    ) {
-        // A produced owning descriptor names its backing region, just as an
-        // owning formal does. This declares neither freshness nor initialization.
-        let backing = owner.project(&[bray_bound_tree::StorageProjection::OwnedTarget]);
-
-        self.stage_bounded_reference(call, destination, reference, element, AddressValue::one(backing));
     }
 
     pub(in crate::analysis::storage_flow) fn declare_owned_buffer(
@@ -584,12 +703,6 @@ impl State {
         }
 
         if self.values.get(&pointer).is_some_and(|value| value.reference().is_some()) {
-            return;
-        }
-
-        if let Some(recorded) = self.values.get(&owner).and_then(|value| value.address.clone()) {
-            *self.values.entry(pointer).or_default().produced_address() = recorded;
-
             return;
         }
 
@@ -681,36 +794,62 @@ impl State {
         current: &Target,
         retirement: Retirement,
     ) {
+        if current.previous { return; }
+
+        // A projected view can survive as a historical alias while other parts
+        // of the returned region still belong to the current incarnation.
+        let has_returned_region = if let Origin::Returned { reference, projections } = &current.origin {
+            let key = (reference.clone(), false);
+
+            let bounds = if projections.is_empty() && retirement == Retirement::Producer {
+                self.returned_inputs.remove(&key)
+            } else {
+                self.returned_inputs.get(&key).cloned()
+            };
+
+            // First publication has no prior evaluation for retained captures to retire.
+            let Some(bounds) = bounds else { return; };
+
+            self.returned_inputs.entry((reference.clone(), true)).or_default().merge(&bounds);
+
+            true
+        } else {
+            // Returned bounds are flattened to their original input regions at publication.
+            for bounds in self.returned_inputs.values_mut() {
+                bounds.retire(current, retirement);
+            }
+
+            false
+        };
+
         self.retirements.insert((current.clone(), retirement));
 
-        for bounds in self.returned_inputs.values_mut() {
-            bounds.retire(current, retirement);
+        for destination in self.assignment_destinations.values_mut() {
+            destination.retire(current, retirement);
         }
 
-        if !self
+        if !has_returned_region && !self
             .contents
             .range(current.clone()..)
             .take_while(|(target, _)| current.contains(target))
             .any(|(target, _)| retirement.contains(current, target))
             && !self.values.range(current.clone()..).take_while(|(target, _)| current.contains(target))
-                .any(|(target, value)| retirement.contains(current, target) && value.whole_sources().is_some())
+                .any(|(target, value)| retirement.contains(current, target)
+                    && (value.whole_sources().is_some() || value.report_dependencies().is_some()))
         {
             return;
         }
 
-        for references in self.values.values_mut().flat_map(|value| value.references_mut())
-            .chain(self.borrows.values_mut()) {
+        for value in self.values.values_mut() {
+            value.retire_references(current, retirement);
+        }
+
+        for references in self.borrows.values_mut() {
             references.retire(current, retirement);
         }
 
         for transfer in self.pending.values_mut() {
             transfer.retire_dependencies(current, retirement);
-        }
-
-        if let Origin::Returned { reference, projections } = &current.origin
-            && projections.is_empty()
-            && let Some(bounds) = self.returned_inputs.remove(&(reference.clone(), false)) {
-            self.returned_inputs.entry((reference.clone(), true)).or_default().merge(&bounds);
         }
 
         let values = take_subtree(&mut self.values, current, retirement).collect::<Vec<_>>();
@@ -735,7 +874,7 @@ impl State {
 
         for (target, mut contents) in contents {
             // Older instances share a summary target, so no definite contents survive.
-            contents.initialized.clear();
+            contents.clear_initialization();
 
             let previous = Target {
                 previous: true,

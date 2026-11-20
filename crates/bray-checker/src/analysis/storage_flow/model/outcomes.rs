@@ -1,12 +1,16 @@
 use std::borrow::Cow;
+use std::sync::Arc;
 
+use crate::analysis::guarantee::ExecutionJoin;
 use crate::analysis::id::AnalysisBlockId;
 use crate::analysis::model::{AnalysisCallPhase, AnalysisOperation, AnalysisOperationKind};
 use crate::analysis::storage_flow::check::StorageFlowCollector;
-use crate::analysis::outcomes::{FlowOutcomes, OutcomePath, OutcomeStep, apply_call_rows, extend_path};
-use crate::CheckerRequestContext;
+use crate::analysis::outcomes::{FlowOutcomes, OutcomePath, OutcomeStep, apply_call_rows, extend_path, reach_cleanup_iteration};
+use crate::{CheckerRequestContext, ExecutionDeferredValue};
 
 use super::StorageFlowState;
+
+type FrameAlternatives = (Arc<ExecutionDeferredValue>, Vec<ExecutionDeferredValue>);
 
 /// Storage states kept distinct by the edges that delivered actual result values.
 #[derive(Clone, Default, Eq, PartialEq)]
@@ -25,19 +29,35 @@ impl StorageFlowOutcomes {
         self.0.iter()
     }
 
+    pub(super) fn into_states(mut self) -> impl Iterator<Item = (Option<OutcomePath>, StorageFlowState)> {
+        self.0.take().flat_map(|(_, states)| states)
+    }
+
     pub(in crate::analysis::storage_flow) fn apply_operation<C: CheckerRequestContext + ?Sized>(
         &mut self,
         collector: &mut StorageFlowCollector<'_, C>,
         block: AnalysisBlockId,
         operation: &AnalysisOperation,
     ) {
-        let (mut budget, incoming) = self.0.take();
+        for (mut budget, incoming) in self.0.take() {
+            self.apply_paths(collector, block, operation, &mut budget, incoming);
+        }
+    }
+
+    fn apply_paths<C: CheckerRequestContext + ?Sized>(
+        &mut self,
+        collector: &mut StorageFlowCollector<'_, C>,
+        block: AnalysisBlockId,
+        operation: &AnalysisOperation,
+        budget: &mut usize,
+        incoming: impl IntoIterator<Item = (Option<OutcomePath>, StorageFlowState)>,
+    ) {
 
         for (path, mut state) in incoming {
-            let rows = collector.prepare_operation_outcomes(&mut state, operation.kind());
+            let rows = collector.prepare_operation_outcomes(&mut state, operation);
             let invocation = operation.kind().occurrence();
 
-            apply_call_rows(state, path, invocation, &rows, &mut budget, |mut branch, path, row, budget| {
+            apply_call_rows(state, path, invocation, &rows, budget, |mut branch, path, row, budget| {
                 if let Some(row) = row {
                     branch.execution.as_mut().expect("a bound output has an execution state")
                         .select_call_output(invocation, row);
@@ -61,34 +81,20 @@ impl StorageFlowOutcomes {
         let site = kind.occurrence();
         let execution = state.execution.as_ref().expect("reached operation retains execution facts");
 
-        if *budget > 0
-            && let Some((frame, alternatives)) = collector.execution.deferred_alternatives(execution, kind)
-            && alternatives.len() - 1 <= *budget
-        {
-            *budget -= alternatives.len() - 1;
+        let frames = match collector.execution.deferred_alternatives(execution, kind) {
+            Some((frame, alternatives)) if alternatives.len() - 1 <= *budget => {
+                *budget -= alternatives.len() - 1;
 
-            let mut alternatives = alternatives.into_iter().peekable();
+                collector.execution.visit_deferred_alternatives(state, kind, (frame, alternatives), operation_execution, |producer, branch| {
+                    let path = Some(extend_path(path.as_ref(), OutcomeStep::Frame(site, producer)));
 
-            while let Some(alternative) = alternatives.next() {
-                let producer = alternative.producers.keys().next().cloned();
-                let mut branch = if alternatives.peek().is_some() { state.clone() } else { std::mem::take(&mut state) };
-                let execution = branch.execution.as_mut().expect("selected frame retains execution facts");
+                    self.apply_selected(collector, block, operation, path, branch, budget);
+                });
 
-                collector.execution.select_deferred(execution, frame.clone(), alternative);
-
-                if matches!(kind, AnalysisOperationKind::Call { phase: AnalysisCallPhase::Completion, .. })
-                    && !collector.execution.normal_completion(execution, site)
-                {
-                    continue;
-                }
-
-                let path = Some(extend_path(path.as_ref(), OutcomeStep::Frame(site, producer)));
-
-                self.apply_selected(collector, block, operation, path, branch, budget);
+                return;
             }
-
-            return;
-        }
+            frames => frames,
+        };
 
         if let Some((frame, producer, rows)) = collector.execution.direct_await_outputs(execution, kind) {
             apply_call_rows(state, path, site, &rows, budget, |mut branch, path, row, _| {
@@ -97,39 +103,119 @@ impl StorageFlowOutcomes {
                         .select_frame_output(&frame, &producer, row);
                 }
 
-                collector.apply_operation(&mut branch, operation);
+                collector.apply_operation(&mut branch, operation, None);
                 self.merge(Some(block), path, Cow::Owned(branch));
             });
 
             return;
         }
 
-        if let Some(alternatives) = collector.execution.split_task_completion(execution, kind, *budget + 1) {
-            *budget -= alternatives.len().saturating_sub(1);
+        if let Some(mut alternatives) = collector.execution.split_task_completion(execution, kind, *budget + 1) {
+            let Some(last) = alternatives.pop() else { return; };
 
-            let mut alternatives = alternatives.into_iter().peekable();
+            *budget -= alternatives.len();
+            state.execution = None;
 
-            while let Some((outcome, execution)) = alternatives.next() {
-                let mut branch = if alternatives.peek().is_some() { state.clone() } else { std::mem::take(&mut state) };
-
+            let mut apply = |mut branch: StorageFlowState, (selected, execution): (crate::analysis::guarantee::TaskSelection, _)| {
                 branch.execution = Some(execution);
-                collector.apply_operation(&mut branch, operation);
 
-                let path = Some(extend_path(path.as_ref(), OutcomeStep::TaskCompletion(site, outcome)));
+                let path = Some(extend_path(path.as_ref(), OutcomeStep::TaskCompletion(site, selected.outcome)));
+                let branch = Self::apply_refined(collector, operation, branch, Some(selected));
 
                 self.merge(Some(block), path, Cow::Owned(branch));
+            };
+
+            for alternative in alternatives {
+                // Task result siblings each own their physical transition.
+                apply(state.clone(), alternative);
             }
+
+            apply(state, last);
 
             return;
         }
 
-        collector.apply_operation(&mut state, operation);
-        self.merge(Some(block), path, Cow::Owned(state));
+        let branch = Self::apply_widened(collector, operation, state, frames, None);
+
+        let mut continuations = std::mem::take(&mut collector.cleanup_continuations);
+        let mut iterations = std::collections::BTreeMap::new();
+
+        while let Some(mut continued) = continuations.pop() {
+            if !reach_cleanup_iteration(&mut iterations, &mut continued, |current, incoming| current.merge(incoming, None)) {
+                continue;
+            }
+
+            if continued.cleanup.as_ref().is_some_and(|cleanup| cleanup.resumes_at(operation.id())) {
+                collector.resume_cleanup(&mut continued, operation);
+                continuations.append(&mut collector.cleanup_continuations);
+            }
+
+            self.merge(Some(block), path.clone(), Cow::Owned(continued));
+        }
+
+        self.merge(Some(block), path, Cow::Owned(branch));
     }
 
-    pub(super) fn merge(
+    fn apply_refined<C: CheckerRequestContext + ?Sized>(
+        collector: &mut StorageFlowCollector<'_, C>,
+        operation: &AnalysisOperation,
+        state: StorageFlowState,
+        task: Option<crate::analysis::guarantee::TaskSelection>,
+    ) -> StorageFlowState {
+        let execution = state.execution.as_ref().expect("refined operation retains execution facts");
+        let frames = collector.execution.deferred_alternatives(execution, operation.kind());
+
+        Self::apply_widened(collector, operation, state, frames, task)
+    }
+
+    fn apply_widened<C: CheckerRequestContext + ?Sized>(
+        collector: &mut StorageFlowCollector<'_, C>,
+        operation: &AnalysisOperation,
+        mut state: StorageFlowState,
+        frames: Option<FrameAlternatives>,
+        task: Option<crate::analysis::guarantee::TaskSelection>,
+    ) -> StorageFlowState {
+        let Some(frames) = frames else {
+            // The provisional enclosing Completed branch can now identify its body.
+            let task = task.filter(|selection| selection.outcome != bray_bound_tree::StorageTaskOutcome::Widened);
+
+            collector.apply_operation(&mut state, operation, task);
+
+            return state;
+        };
+
+        let kind = operation.kind();
+        let mut merged = StorageFlowState::default();
+
+        // Keep the nested merge at this producer before returning to the enclosing frame.
+        collector.execution.visit_deferred_alternatives(state, kind, frames, operation_execution, |_, branch| {
+            let mut branch = Self::apply_refined(collector, operation, branch, task.clone());
+
+            if !merged.reachable {
+                merged = branch;
+            } else if matches!(kind, AnalysisOperationKind::Call { phase: AnalysisCallPhase::Completion, .. }) {
+                let expression = kind.occurrence().expression().expect("deferred completion retains its await expression");
+
+                collector.merge_completed(&mut merged, &mut branch, expression);
+            } else {
+                let join = if matches!(kind,
+                    AnalysisOperationKind::Call { phase: AnalysisCallPhase::Attempt, .. } | AnalysisOperationKind::Bound(_))
+                {
+                    ExecutionJoin::Production(kind.occurrence().expression().expect("frame attempt retains its result"))
+                } else {
+                    ExecutionJoin::Boundary
+                };
+
+                merged.merge(&branch, join);
+            }
+        });
+
+        merged
+    }
+
+    pub(super) fn merge<'join>(
         &mut self,
-        block: Option<AnalysisBlockId>,
+        join: impl Into<ExecutionJoin<'join>>,
         path: Option<OutcomePath>,
         incoming: Cow<'_, StorageFlowState>,
     ) -> bool {
@@ -137,6 +223,12 @@ impl StorageFlowOutcomes {
             return false;
         }
 
-        self.0.merge(path, incoming, |state, incoming| state.merge(incoming, block))
+        let join = join.into();
+
+        self.0.merge(path, incoming, |state, incoming| state.merge(incoming, join))
     }
+}
+
+fn operation_execution(branch: &mut StorageFlowState) -> &mut crate::analysis::guarantee::ExecutionState {
+    branch.execution.as_mut().expect("selected frame retains execution facts")
 }

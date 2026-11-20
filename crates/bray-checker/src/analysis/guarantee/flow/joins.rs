@@ -1,12 +1,10 @@
 use bray_bound_tree::BoundOperator;
 use crate::execution_guarantees::ExecutionObservationKind;
-use crate::execution_guarantees::ExecutionSubstitution;
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::super::state::ExecutionState;
 use super::merge::result_replacements;
 use crate::ExecutionCondition;
-use crate::execution_guarantees::common_components;
 
 /// Join actual predecessor constraints without inventing an unevaluated operand.
 /// Only immutable observations participate. A missing constraint contributes true,
@@ -47,9 +45,9 @@ pub(super) fn current_content_identities(
     left: &ExecutionState,
     right: &ExecutionState,
     places: &BTreeSet<&crate::ExecutionPlace>,
-    block: Option<crate::analysis::id::AnalysisBlockId>,
+    site: Option<crate::ExecutionJoinSite>,
 ) -> BTreeMap<ExecutionCondition, ExecutionCondition> {
-    let Some(block) = block else { return BTreeMap::new(); };
+    let Some(site) = site else { return BTreeMap::new(); };
 
     let mut owners = BTreeMap::new();
 
@@ -59,7 +57,7 @@ pub(super) fn current_content_identities(
 
         let (Some(left), Some(right)) = (place.value_in(&left.current), place.value_in(&right.current)) else { continue; };
 
-        collect_current_content_identities(&left, &right, super::merge::joined_observation(block, place), &mut owners);
+        collect_current_content_identities(&left, &right, super::merge::joined_observation(site, place), &mut owners);
     }
 
     owners.iter().map(|(owner, (_, contents))| {
@@ -134,92 +132,18 @@ pub(in crate::analysis::guarantee) fn merge_returned(
     root: &ExecutionCondition,
     expression: bray_bound_tree::BoundExpressionId,
 ) -> ExecutionCondition {
-    let mut incoming = incoming.clone();
-    let mut facts = Vec::new();
+    super::merge::join_states(target, incoming, super::merge::ExecutionJoin::Result {
+        expression,
+        sources: [left_value, right_value],
+        root,
+    });
 
-    let joined = common_components(
-        left_value,
-        right_value,
-        Some(root.clone()),
-        (&target.proofs.ordinary_proof(&target.assumptions), &incoming.proofs.ordinary_proof(&incoming.assumptions)),
-        &mut facts,
-        &mut { ExecutionCondition::WORK_LIMIT },
-    );
-
-    let mut left = BTreeMap::new();
-    let mut right = BTreeMap::new();
-    let mut left_ids = BTreeMap::new();
-    let mut right_ids = BTreeMap::new();
-
-    let (stable_values, stable_identities) = super::merge::stable_observations(target, &incoming);
-
-    for (source, replacements, identities) in [
-        (left_value, &mut left, &mut left_ids),
-        (right_value, &mut right, &mut right_ids),
-    ] {
-        result_replacements(
-            source,
-            &joined,
-            &stable_values,
-            &stable_identities,
-            replacements,
-            identities,
-        );
-    }
-
-    // Pin independently retained observations before renaming their containing owner.
-    for value in stable_values {
-        left.insert(value.clone(), value.clone());
-        right.insert(value.clone(), value);
-    }
-
-    for value in stable_identities {
-        left_ids.insert(value.clone(), value.clone());
-        right_ids.insert(value.clone(), value);
-    }
-
-    let left_substitution = ExecutionSubstitution::new(&left, &left_ids);
-    let right_substitution = ExecutionSubstitution::new(&right, &right_ids);
-
-    let conditions = super::witnesses::conditional_facts(
-        (target, &left_substitution),
-        (&incoming, &right_substitution),
-        &BTreeMap::new(),
-        [([Some(left_value), Some(right_value)], &joined)],
-        &BTreeSet::new(),
-        None,
-        &mut facts,
-    );
-
-    let ownership = super::witnesses::owned_alternatives(
-        (target, left_value),
-        (&incoming, right_value),
-        &joined,
-    );
-
-    target.join_values(&left_substitution);
-    incoming.join_values(&right_substitution);
-    super::witnesses::retain_conditional_guarantees(target, &mut incoming, &conditions);
-
-    for (condition, holds) in facts {
-        condition.clone().assume(holds, &mut target.assumptions);
-        condition.assume(holds, &mut incoming.assumptions);
-    }
-
-    let mut completed = Some(target.clone());
-
-    super::merge::merge(&mut completed, &Some(incoming), super::merge::ExecutionJoin::Result(expression));
-    *target = completed.expect("reachable normal return retains a state");
-    target.pending_results.remove(&expression);
-
-    target.owned_results.insert(joined.clone(), ownership);
-
-    joined
+    target.pending_results.remove(&expression).expect("a reached outcome join publishes its result")
 }
 
 #[cfg(test)]
 mod tests {
-    use super::common_components;
+    use crate::execution_guarantees::common_components;
     use crate::analysis::guarantee::state::ExecutionState;
     use crate::analysis::id::AnalysisBlockId;
     use crate::execution_guarantees::ExecutionObservationKind;
@@ -386,7 +310,11 @@ mod tests {
         ))));
 
         let place = ExecutionPlace::argument(SymbolOrdinal::new(0));
-        let identity = |version| ExecutionCondition::new(crate::ExecutionConditionKind::Joined(BoundUnitId::new(0), version, place.clone()));
+        let identity = |version| {
+            let join = crate::ExecutionJoinSite::Block(BoundUnitId::new(0), version);
+
+            ExecutionCondition::new(crate::ExecutionConditionKind::Joined(join, place.clone()))
+        };
         let conditions = Default::default();
         let cache = crate::execution_guarantees::ExecutionProofCache::default();
         let conditions = cache.ordinary_proof(&conditions);
@@ -534,9 +462,10 @@ mod tests {
         let marker = ExecutionCondition::boolean(true);
 
         let nested = |version| {
+            let join = crate::ExecutionJoinSite::Block(BoundUnitId::new(0), version);
+
             ExecutionCondition::constructed(ExecutionCondition::new(crate::ExecutionConditionKind::Joined(
-                    BoundUnitId::new(0),
-                    version,
+                    join,
                     place.clone(),
                 )),
                 [(field, marker.clone())].into(),
@@ -577,7 +506,8 @@ mod tests {
         let place = ExecutionPlace::argument(SymbolOrdinal::new(0));
         let descriptor = ExecutionCondition::new(crate::ExecutionConditionKind::Input(place.clone()));
         let field = ConstantProjectionKind::TupleElement(SymbolOrdinal::new(0));
-        let current = ExecutionCondition::new(crate::ExecutionConditionKind::Joined(BoundUnitId::new(0), 2, place.clone()));
+        let join = crate::ExecutionJoinSite::Block(BoundUnitId::new(0), 2);
+        let current = ExecutionCondition::new(crate::ExecutionConditionKind::Joined(join, place.clone()));
         let conditions = Default::default();
         let cache = crate::execution_guarantees::ExecutionProofCache::default();
         let conditions = cache.ordinary_proof(&conditions);
@@ -600,7 +530,8 @@ mod tests {
                 [false, true].map(move |component| (context, unchanged, component))))
         {
             let branch = |version| {
-                let data = ExecutionCondition::new(crate::ExecutionConditionKind::Joined(BoundUnitId::new(0), version, place.clone()));
+                let join = crate::ExecutionJoinSite::Block(BoundUnitId::new(0), version);
+                let data = ExecutionCondition::new(crate::ExecutionConditionKind::Joined(join, place.clone()));
 
                 match context {
                     Context::Owned => ExecutionCondition::owned_value(descriptor.clone(), data),

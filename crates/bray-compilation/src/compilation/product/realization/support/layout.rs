@@ -79,7 +79,7 @@ pub(in crate::compilation::product::realization) fn atomic_storage_is_padding_fr
 pub(in crate::compilation::product::realization) fn atomic_representation_for_type(
     compilation: &Compilation,
     ty: TypeId,
-    target: &CodegenTarget,
+    target: &bray_target::TargetProfile,
     cancellation: &CancellationToken,
 ) -> Result<Option<TargetAtomicRepresentation>, CodegenPreparationError> {
     let values = compilation.semantic_value_store()?;
@@ -95,7 +95,7 @@ pub(in crate::compilation::product::realization) fn atomic_representation_for_ty
     if let Some(representation) = role.and_then(|role| {
         bray_checker::atomic_target_representation(
             role,
-            target.profile().machine().pointer_width_bits().get(),
+            target.machine().pointer_width_bits().get(),
         )
     }) {
         return Ok(Some(representation));

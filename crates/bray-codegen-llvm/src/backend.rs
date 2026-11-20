@@ -631,17 +631,35 @@ mod tests {
             panic!("test mappings must produce a valid LLVM module");
         };
 
-        for kind in [
-            BackendArtifactKind::RelocatableObject,
-            BackendArtifactKind::Assembly,
-            BackendArtifactKind::BackendIr,
-            BackendArtifactKind::BackendBitcode,
-        ] {
-            let Ok(content) = serialize_artifact(&machine, &module, kind) else {
-                panic!("{kind:?} must serialize");
-            };
+        let emit = |kind| {
+            serialize_artifact(&machine, &module, kind)
+                .unwrap_or_else(|error| panic!("{kind:?} must serialize: {error:?}"))
+                .read_shared()
+                .expect("serialized artifact bytes are readable")
+        };
 
-            assert_ne!(content.byte_len(), 0, "{kind:?}");
+        let object = emit(BackendArtifactKind::RelocatableObject);
+
+        assert!(object.starts_with(b"\x7fELF"));
+
+        let assembly = emit(BackendArtifactKind::Assembly);
+        let assembly = std::str::from_utf8(&assembly).expect("emitted assembly is text");
+
+        assert!(assembly.lines().any(|line| line.split_whitespace().next() == Some("bray_test_0:")));
+
+        let ir = emit(BackendArtifactKind::BackendIr);
+        let terminated = ir.iter().copied().chain([0]).collect::<Vec<_>>();
+        let buffer = inkwell::memory_buffer::MemoryBuffer::create_from_memory_range(&terminated, "emitted LLVM text");
+        let parsed_ir = context.create_module_from_ir(buffer).expect("emitted LLVM text parses");
+        let bitcode = emit(BackendArtifactKind::BackendBitcode);
+        let parsed_bitcode = crate::parse_bitcode(&bitcode, &context).expect("emitted bitcode parses");
+
+        for parsed in [parsed_ir, parsed_bitcode] {
+            parsed.verify().expect("the emitted module verifies");
+
+            let function = parsed.get_function("bray_test_0").expect("the emitted module retains the mapped function");
+
+            assert_ne!(function.count_basic_blocks(), 0);
         }
     }
 

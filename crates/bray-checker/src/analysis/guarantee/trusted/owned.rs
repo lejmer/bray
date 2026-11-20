@@ -26,7 +26,7 @@ impl super::check::TrustedChecks {
         domain: &ExecutionFlowDomain<'_, '_, C>,
         state: &ExecutionState,
         result: &ExecutionCondition,
-        writes: &std::collections::BTreeSet<bray_symbols::DependencySubjectRoot>,
+        writes: &std::collections::BTreeSet<bray_bound_tree::StoragePath>,
     ) -> Option<NormalReturn> {
         let inputs = domain.request.trusted_contracts()?;
 
@@ -156,44 +156,22 @@ fn activity(
 }
 
 impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
-    pub(in crate::analysis::guarantee) fn owned_normal_completion(
-        &self,
-        assumptions: &ExecutionAssumptions,
-        invocation: bray_bound_tree::BoundExecutionSite,
-        entry: &crate::ExecutionCallEvidence,
-        result: &ExecutionCondition,
-    ) -> bool {
-        let Some(contract) = self.dependencies.calls().get(&invocation) else {
-            return true;
-        };
-
-        self.outcome_reachable(assumptions, entry, result, contract.captured_values())
-    }
-
     pub(in crate::analysis::guarantee) fn outcome_reachable(
         &self, assumptions: &ExecutionAssumptions, entry: &crate::ExecutionCallEvidence, result: &ExecutionCondition,
-        outcomes: &[bray_symbols::CapturedValueOutcome],
     ) -> bool {
-        let admits = |guard: ExecutionCondition, ownership: &DependencyOwnedResult| {
-            self.admits_output(assumptions, entry, result, &guard, ownership)
-        };
+        entry.outputs.0.is_empty() || entry.outputs.reachable_rows().any(|row| {
+            let guard = row.guard.bind(entry, result);
 
-        if !entry.outputs.0.is_empty() {
-            return entry.outputs.0.iter().any(|row| admits(row.guard.bind(entry, result), &row.ownership));
-        }
-
-        outcomes.is_empty() || outcomes.iter().any(|row| admits(
-            row.guard.map(|term| entry.bind_term(self.request.semantic_values(), term, result)).unwrap_or_else(|| ExecutionCondition::boolean(true)), &row.ownership,
-        ))
+            self.admits_output(assumptions, entry, result, &guard, &row.ownership)
+        })
     }
     pub(in crate::analysis::guarantee) fn admits_output(&self, assumptions: &ExecutionAssumptions,
         entry: &crate::ExecutionCallEvidence, result: &ExecutionCondition, guard: &ExecutionCondition, ownership: &DependencyOwnedResult,
     ) -> bool {
-        let mut selected = assumptions.clone();
+        let mut selected = assumptions.joined_with(&entry.assumptions);
 
-        selected.extend(entry.assumptions.iter().cloned());
         if !self.proofs.ordinary_proof(&selected).can_assume(guard, true) { return false; }
-        guard.clone().assume(true, &mut selected);
+        guard.clone().assume(true, selected.to_mut());
 
         feasible_layout(ownership, &selected, &|term| entry.bind_term(self.request.semantic_values(), term, result))
     }

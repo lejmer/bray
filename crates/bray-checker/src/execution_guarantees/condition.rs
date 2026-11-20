@@ -16,7 +16,7 @@ mod storage;
 #[cfg(test)]
 mod tests;
 
-pub use model::{ExecutionCondition, ExecutionConditionKind, ExecutionDescriptorKind, ExecutionObservationKind};
+pub use model::{ExecutionCondition, ExecutionConditionKind, ExecutionDescriptorKind, ExecutionJoinSite, ExecutionObservationKind};
 pub(in crate::execution_guarantees) use model::PreparedCondition;
 
 pub(crate) use retention::Set as ObservationSet;

@@ -15,7 +15,7 @@ use super::{
 };
 use crate::availability::resolve_owned_availability;
 use crate::provider::SymbolProvider;
-use crate::{AnySymbolId, ExactSymbolId, NamedTypeSymbolId};
+use crate::{AnySymbolId, ExactSymbolId, GenericArgument, NamedTypeSymbolId, SemanticValueStore, TypeData, TypeId};
 
 /// An immutable target-filtered view over one complete compiler-known symbol provider.
 ///
@@ -346,6 +346,38 @@ impl AvailableCompilerKnownSymbols {
             self.declaration_by_key("ResultVariant1Error")?,
             self.declaration_by_key("ResultVariant1ErrorError")?,
         ))
+    }
+
+    /// Returns the checked payload types and exact declarations of a `Result` type.
+    pub fn result_payloads(
+        &self,
+        values: &SemanticValueStore,
+        ty: TypeId,
+    ) -> Option<([TypeId; 2], CompilerKnownResultRepresentation)> {
+        let data = values.type_data(ty);
+
+        let TypeData::Named { definition: NamedTypeSymbolId::Union(definition), substitution } = data.as_ref() else {
+            return None;
+        };
+
+        if self.symbol_representation(*definition) != Some(RepresentationRole::Result) {
+            return None;
+        }
+
+        let substitution = values.generic_substitution_data(*substitution);
+
+        let [success, error] = substitution.bindings() else {
+            panic!("checked Result {ty:?} retains exactly two payload bindings");
+        };
+
+        let (GenericArgument::Type(success), GenericArgument::Type(error)) = (success.argument(), error.argument()) else {
+            panic!("checked Result {ty:?} retains type-valued payload bindings");
+        };
+
+        let representation = self.result_representation()
+            .expect("checked Result retains its compiler-known representation");
+
+        Some(([success, error], representation))
     }
 
     /// Returns the available declarations defining the `RunResult` representation.

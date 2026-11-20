@@ -291,7 +291,7 @@ pub fn map_execution_condition_references<E>(
             map_execution_condition_references(value, map, input, literal, call)?.component(*field)
         }
         crate::ExecutionConditionKind::CapturedValue { value, storage } =>
-            map_execution_condition_references(value, map, input, literal, call)?.captured_value(storage.as_ref().clone()),
+            map_execution_condition_references(value, map, input, literal, call)?.captured_value(storage.clone()),
         crate::ExecutionConditionKind::DeferredValue { value, frame } => {
             let value = map_execution_condition_references(value, map, input, literal, call)?;
             let frame = frame.try_map_conditions(|value| map_execution_condition_references(value, map, input, literal, call))?;

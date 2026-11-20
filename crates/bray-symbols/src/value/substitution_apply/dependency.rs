@@ -204,10 +204,7 @@ impl SemanticValueStore {
 
         let effects = template.effects().iter().map(effect).collect::<Result<Vec<_>, _>>()?;
 
-        let captured_values = substituted.captured_values().iter().map(|outcome| {
-                    let guard = outcome.guard.map(|term| self.substitute_constant_term_data(term, substitution)).transpose()?;
-
-                    let bindings = outcome.bindings.iter().map(|(destination, value)| {
+        let bind_value = |(destination, value): &(DependencySubject, super::super::CapturedValueTemplate)| {
                         Ok((self.substitute_dependency_subject(destination, substitution)?, value.try_map(
                             &mut |term| self.substitute_constant_term_data(*term, substitution),
                             &mut |projection| self.substitute_dependency_projection(projection, substitution),
@@ -220,7 +217,12 @@ impl SemanticValueStore {
                                 dispatch: callee.dispatch.map(|w| self.substitute_implementation_instance_data(w, substitution)).transpose()?,
                                 witnesses: callee.witnesses.iter().map(|w| self.substitute_implementation_instance_data(*w, substitution)).collect::<Result<_, _>>()?,
                             }), &mut |variant| Ok(*variant))?))
-                    }).collect::<Result<Vec<_>, SemanticValueStoreError>>()?;
+        };
+
+        let captured_values = substituted.captured_values().iter().map(|outcome| {
+                    let guard = outcome.guard.map(|term| self.substitute_constant_term_data(term, substitution)).transpose()?;
+
+                    let bindings = outcome.bindings.iter().map(bind_value).collect::<Result<Vec<_>, _>>()?;
 
                     let ownership = outcome.ownership.try_map(
                     &mut |transfer| {
@@ -278,7 +280,20 @@ impl SemanticValueStore {
 
                     let effects = outcome.effects.iter().map(effect).collect::<Result<Vec<_>, _>>()?;
 
-                    Ok(super::super::CapturedValueOutcome::new(guard, bindings).with_effects(effects).with_carriers(carriers).with_ownership(ownership).with_report(outcome.report.clone())
+                    let cell_changes = outcome.cell_changes.as_deref().map(|cells| {
+                        cells.iter().map(effect).collect::<Result<Vec<_>, _>>().map(bray_base::sorted_unique_shared_slice)
+                    }).transpose()?;
+
+                    let report_payloads = outcome.report_payloads.iter().map(|payload| {
+                        Ok(super::super::CapturedReportPayload {
+                            destination: self.substitute_dependency_subject(&payload.destination, substitution)?,
+                            requirements: std::sync::Arc::clone(&payload.requirements),
+                            complete: payload.complete,
+                        })
+                    }).collect::<Result<Vec<_>, SemanticValueStoreError>>()?;
+
+                    Ok(super::super::CapturedValueOutcome::new(guard, bindings).with_effects(effects).with_cell_changes(cell_changes).with_carriers(carriers).with_ownership(ownership).with_report(outcome.report.clone())
+                        .with_report_payloads(report_payloads)
                         .with_storage(self.substitute_dependency_borrows(&outcome.references, substitution)?,
                             self.substitute_stored_dependencies(&outcome.stored_values, substitution)?)
                         .with_inactive_payloads(outcome.inactive_payloads.iter().map(|payload|
@@ -291,17 +306,16 @@ impl SemanticValueStore {
                 kind: row.kind,
                 guard: row.guard.map(|term| self.substitute_constant_term_data(term, substitution)).transpose()?,
                 effects: row.effects.as_deref().map(|effects| effects.iter().map(effect).collect::<Result<_, _>>()).transpose()?,
+                cell_changes: row.cell_changes.as_deref().map(|cells| {
+                    cells.iter().map(effect).collect::<Result<Vec<_>, _>>().map(bray_base::sorted_unique_shared_slice)
+                }).transpose()?,
+                writes: bray_base::sorted_unique_shared_slice(row.writes.iter().map(bind_value).collect::<Result<Vec<_>, _>>()?),
                 report: row.report.clone(),
             })
         }).collect::<Result<Vec<_>, SemanticValueStoreError>>()).transpose()?;
 
         self.intern_dependency_contract_template(
-            substituted.with_captured_values(captured_values).with_failure_outcomes(failures).with_observed_result(
-                    template
-                        .observed_result()
-                        .map(|term| self.substitute_constant_term_data(term, substitution))
-                        .transpose()?,
-                )
+            substituted.with_captured_values(captured_values).with_failure_outcomes(failures)
                 .with_possible_effects(effects),
         )
     }

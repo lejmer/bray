@@ -40,7 +40,7 @@ pub use model::{
     InterfaceDeclaredType, InterfaceDependencyCallInput, InterfaceDependencyContract,
     InterfaceDependencyContractId, InterfaceDependencyGuard, InterfaceDependencyProjection,
     InterfaceDependencyRequirement, InterfaceDependencyRequirementKind,
-    InterfaceDependencyRequirementValue, InterfaceCapturedCallable, InterfaceFailureOutcome, InterfaceNormalOutcome, InterfaceStorageEffect, InterfaceDependencySubject,
+    InterfaceDependencyRequirementValue, InterfaceCapturedBinding, InterfaceCapturedCallable, InterfaceFailureOutcome, InterfaceNormalOutcome, InterfaceStorageEffect, InterfaceDependencySubject,
     InterfaceDependencySubjectRoot, InterfaceGenericArgument, InterfaceGenericBinding,
     InterfaceGenericDeclaration, InterfaceGenericSubstitution, InterfaceGenericSubstitutionId,
     InterfaceImplementationInstance, InterfaceStaticReference, InterfaceImplementationInstanceId,

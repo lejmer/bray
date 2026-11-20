@@ -222,7 +222,7 @@ fn encode(
         | K::ScopedCapability(_)
         | K::PostState(_, _)
         | K::InitializedSnapshot(_, _, _)
-        | K::Joined(_, _, _)
+        | K::Joined(..)
         | K::Discriminant(_)
         | K::ScalarValue(_) => return Ok(None),
     };

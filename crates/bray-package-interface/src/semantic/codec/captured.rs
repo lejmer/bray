@@ -17,7 +17,16 @@ pub(super) fn encode_values(encoder: &mut WireEncoder, bindings: &[Binding]) {
 
     for binding in bindings {
         super::encoding::contract::encode_optional_requirements(encoder, binding.report.as_deref());
+        write_count(encoder, binding.report_payloads.len());
+
+        for payload in &*binding.report_payloads {
+            super::encoding::contract::encode_dependency_subject(encoder, &payload.destination);
+            encoder.write_u32(u32::from(payload.complete));
+            super::encoding::contract::encode_dependency_requirements(encoder, &payload.requirements);
+        }
+
         super::encoding::contract::encode_dependency_effects(encoder, &binding.effects);
+        super::encoding::contract::encode_optional_effects(encoder, binding.cell_changes.as_deref());
         super::ownership::encode_owned_result(encoder, &binding.ownership);
         write_count(encoder, binding.carriers.len());
 
@@ -46,12 +55,16 @@ pub(super) fn encode_values(encoder: &mut WireEncoder, bindings: &[Binding]) {
         }
 
         write_optional_u32(encoder, binding.guard.map(|term| term.raw()));
-        write_count(encoder, binding.bindings.len());
+        encode_bindings(encoder, &binding.bindings);
+    }
+}
 
-        for (destination, value) in binding.bindings.iter() {
-            super::encoding::contract::encode_dependency_subject(encoder, destination);
-            encode_value(encoder, value);
-        }
+pub(super) fn encode_bindings(encoder: &mut WireEncoder, bindings: &[crate::InterfaceCapturedBinding]) {
+    write_count(encoder, bindings.len());
+
+    for (destination, value) in bindings {
+        super::encoding::contract::encode_dependency_subject(encoder, destination);
+        encode_value(encoder, value);
     }
 }
 
@@ -186,7 +199,19 @@ pub(super) fn decode_values(reader: &mut WireReader<'_>, limits: InterfaceValida
 
     for _ in 0..count {
         let report = super::decoding::contract::decode_optional_requirements(reader, limits, context)?.map(Arc::from);
+        let count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
+        let mut report_payloads = context.allocate_items(reader, count)?;
+
+        for _ in 0..count {
+            report_payloads.push(bray_symbols::CapturedReportPayload {
+                destination: super::decoding::contract::decode_dependency_subject(reader, limits, context)?,
+                complete: super::decoding::common::decode_bool(reader, InterfaceValidationField::Dependency)?,
+                requirements: super::decoding::contract::decode_dependency_requirements(reader, limits, context, 0)?.into(),
+            });
+        }
+
         let effects = super::decoding::contract::decode_dependency_effects(reader, limits, context)?;
+        let cell_changes = super::decoding::contract::decode_optional_effects(reader, limits, context)?;
         let ownership = super::ownership::decode_owned_result(reader, limits, context)?;
         let count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
         let mut carriers = context.allocate_items(reader, count)?;
@@ -232,22 +257,30 @@ pub(super) fn decode_values(reader: &mut WireReader<'_>, limits: InterfaceValida
         }
 
         let guard = read_optional_u32(reader)?.map(InterfaceConstantTermId::new);
-        let count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
-        let mut bindings = context.allocate_items(reader, count)?;
-
-        for _ in 0..count {
-            bindings.push((super::decoding::contract::decode_dependency_subject(reader, limits, context)?,
-                decode_value(reader, limits, context, 1)?));
-        }
+        let bindings = decode_bindings(reader, limits, context)?;
 
         values.push(Binding {
-            guard, report, effects: effects.into(), bindings: bindings.into(), ownership, carriers: carriers.into(),
+            guard, report, report_payloads: report_payloads.into(), effects: effects.into(), cell_changes, bindings, ownership, carriers: carriers.into(),
             references: references.into(), stored_values: stored_values.into(),
             inactive_payloads: inactive_payloads.into(),
         });
     }
 
     Ok(values)
+}
+
+pub(super) fn decode_bindings(reader: &mut WireReader<'_>, limits: InterfaceValidationLimits,
+    context: &mut SemanticDecodeContext,
+) -> Result<Arc<[crate::InterfaceCapturedBinding]>, InterfaceValidationError> {
+    let count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
+    let mut bindings = context.allocate_items(reader, count)?;
+
+    for _ in 0..count {
+        bindings.push((super::decoding::contract::decode_dependency_subject(reader, limits, context)?,
+            decode_value(reader, limits, context, 1)?));
+    }
+
+    Ok(bindings.into())
 }
 
 fn decode_support_owners(

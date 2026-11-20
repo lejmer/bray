@@ -249,7 +249,8 @@ impl DependencyFailureKind {
     /// Both ways of leaving execution without a normal result.
     pub const ALL: [Self; 2] = [Self::Panic, Self::Cancellation];
 
-    pub(super) const fn index(self) -> usize {
+    /// Its position in the complete set of failure channels.
+    pub const fn index(self) -> usize {
         match self {
             Self::Panic => 0,
             Self::Cancellation => 1,
@@ -260,21 +261,74 @@ impl DependencyFailureKind {
 /// Performed effects and the report produced together on one abnormal exit.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CapturedFailureOutcome<Guard = ConstantTermId, Report = Arc<[super::DependencyRequirement]>,
-    Effect = super::DependencyStorageEffect> {
+    Effect = super::DependencyStorageEffect, Write = (super::DependencySubject, CapturedValueTemplate)> {
     /// The actual exit kind, or an opaque summary covering either kind.
     pub kind: Option<DependencyFailureKind>,
     /// Entry condition for this exit, independent of any normal result.
     pub guard: Option<Guard>,
     /// Performed effect bound. Absence uses the callable's conservative envelope.
     pub effects: Option<Arc<[Effect]>>,
+    /// Exact typed cell updates established on this exit.
+    pub cell_changes: Option<Arc<[Effect]>>,
+    /// Values installed in caller storage before this failure. No normal result is published.
+    pub writes: Arc<[Write]>,
     /// Report dependencies. An empty present list describes an independent report.
     pub report: Option<Report>,
 }
 
-impl<Guard, Report, Effect> CapturedFailureOutcome<Guard, Report, Effect> {
+impl<Guard, Report, Effect, Write> CapturedFailureOutcome<Guard, Report, Effect, Write> {
     /// An opaque outcome conservatively covers any abnormal exit.
     pub fn covers(&self, kind: DependencyFailureKind) -> bool {
         self.kind.is_none_or(|actual| actual == kind)
+    }
+}
+
+impl CapturedFailureOutcome {
+    /// Widens recursive failure writes while preserving distinct performed prefixes and reports.
+    pub fn join_reachable(left: &[Self], right: &[Self]) -> Vec<Self> {
+        if left == right { return left.to_vec(); }
+
+        let mut outcomes = std::collections::BTreeMap::new();
+
+        for row in left.iter().chain(right) {
+            let key = (row.kind, row.guard, row.effects.clone(), row.cell_changes.clone(), row.report.clone());
+
+            outcomes.entry(key).and_modify(|known: &mut Self| {
+                if known.writes != row.writes {
+                    known.writes = common_bindings([known.writes.as_ref(), row.writes.as_ref()].into_iter(),
+                        &CapturedValueTemplate::Unknown);
+                }
+            }).or_insert_with(|| row.clone());
+        }
+
+        outcomes.into_values().collect()
+    }
+}
+
+/// The dependencies of a report held in the produced value at a normal exit.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct CapturedReportPayload<Subject = super::DependencySubject, Report = super::DependencyRequirement> {
+    /// Checked storage path of the report in the produced value.
+    pub destination: Subject,
+    /// Portable requirements retained by that payload.
+    pub requirements: Arc<[Report]>,
+    /// Every possible dependency of this payload is represented.
+    pub complete: bool,
+}
+
+impl<Subject, Report> CapturedReportPayload<Subject, Report> {
+    /// Remaps the produced storage path and its portable requirements together.
+    pub fn try_map<Context, OtherSubject, OtherReport, E>(
+        &self,
+        context: &mut Context,
+        destination: impl FnOnce(&mut Context, &Subject) -> Result<OtherSubject, E>,
+        requirements: impl FnOnce(&mut Context, &[Report]) -> Result<Arc<[OtherReport]>, E>,
+    ) -> Result<CapturedReportPayload<OtherSubject, OtherReport>, E> {
+        Ok(CapturedReportPayload {
+            destination: destination(context, &self.destination)?,
+            requirements: requirements(context, &self.requirements)?,
+            complete: self.complete,
+        })
     }
 }
 
@@ -285,8 +339,12 @@ pub struct CapturedValueOutcome<Subject = super::DependencySubject, Input = Cons
     Report = super::DependencyRequirement, Effect = super::DependencyStorageEffect, WitnessSubject = super::DependencySubject> {
     /// The report produced on this exit, including any storage dependencies it carries.
     pub report: Option<Arc<[Report]>>,
+    /// Explicit report payloads held in this exit's produced values.
+    pub report_payloads: Arc<[CapturedReportPayload<Subject, Report>]>,
     /// Possible transitions on paths reaching this exit.
     pub effects: Arc<[Effect]>,
+    /// Exact typed cell updates established on this exit.
+    pub cell_changes: Option<Arc<[Effect]>>,
     /// Checked guarantees and the returned owners supporting them on this exit.
     pub carriers: Arc<[super::DependencyWitnessCarrier<Projection, Guard, WitnessSubject>]>,
     /// Transfers of existing input ownership on this exit, sharing its guard and result.
@@ -304,11 +362,68 @@ pub struct CapturedValueOutcome<Subject = super::DependencySubject, Input = Cons
     pub bindings: Arc<[(Subject, CapturedValueTemplate<Input, Projection, Static, Callee, Variant>)]>,
 }
 
+impl CapturedValueOutcome {
+    /// Whole contents established for a callable root by this outcome.
+    pub fn root_binding(&self, root: super::DependencySubjectRoot) -> Option<&CapturedValueTemplate> {
+        self.bindings.iter().find_map(|(subject, value)| {
+            (subject.subject_root() == root && subject.projections().is_empty()).then_some(value)
+        })
+    }
+
+    /// Exact tag carried by a produced union value, when the row establishes it.
+    pub fn result_variant(&self) -> Option<crate::UnionVariantSymbolId> {
+        let mut value = self.root_binding(super::DependencySubjectRoot::Result)?;
+
+        loop {
+            match value {
+                CapturedValueTemplate::Tagged(variant, _) => return Some(*variant),
+                CapturedValueTemplate::Aggregate { base, .. } => value = base,
+                CapturedValueTemplate::Operation(CapturedValueOperation::Owned | CapturedValueOperation::Scalar, inputs) => value = &inputs[1],
+                CapturedValueTemplate::Operation(CapturedValueOperation::Inline, inputs) => value = &inputs[0],
+                _ => return None,
+            }
+        }
+    }
+}
+
 impl<Subject, Input, Projection, Static, Guard, OwnedProjection, Callee: Eq, Variant: Eq, Report, Effect, WitnessSubject> CapturedValueOutcome<Subject, Input, Projection, Static, Guard, OwnedProjection, Callee, Variant, Report, Effect, WitnessSubject>
 where Subject: Ord, Input: Eq, Projection: Eq, Static: Eq {
     /// Retains the report accompanying this normal result.
     pub fn with_report(mut self, report: Option<Arc<[Report]>>) -> Self {
         self.report = report;
+
+        self
+    }
+
+    /// Retains the selected result's actual report payloads.
+    pub fn with_report_payloads(mut self, payloads: impl IntoIterator<Item = CapturedReportPayload<Subject, Report>>) -> Self
+    where Report: Clone + Ord {
+        let mut payloads = payloads.into_iter().collect::<Vec<_>>();
+
+        payloads.sort_unstable_by(|left, right| left.destination.cmp(&right.destination));
+
+        payloads.dedup_by(|next, current| {
+            if next.destination != current.destination {
+                return false;
+            }
+
+            current.requirements = bray_base::sorted_unique_shared_slice(
+                current.requirements.iter().chain(next.requirements.iter()).cloned(),
+            );
+
+            current.complete &= next.complete;
+
+            true
+        });
+
+        self.report_payloads = payloads.into();
+
+        self
+    }
+
+    /// Records exact typed cell changes that survive this outcome.
+    pub fn with_cell_changes(mut self, cell_changes: Option<Arc<[Effect]>>) -> Self {
+        self.cell_changes = cell_changes;
 
         self
     }
@@ -376,7 +491,9 @@ where Subject: Ord, Input: Eq, Projection: Eq, Static: Eq {
         Self {
             guard,
             report: None,
+            report_payloads: Arc::default(),
             effects: Arc::default(),
+            cell_changes: None,
             carriers: Arc::default(),
             bindings: writes.into_iter().collect(),
             ownership: Default::default(),
@@ -446,7 +563,13 @@ impl<Subject: Ord + Clone, Input: Ord + Clone, Projection: Ord + Clone, Static: 
     /// Joins known stored dependencies without treating a missing active slot as independent.
     pub fn stored_dependencies<'a>(rows: impl IntoIterator<Item = &'a Self>, contains: impl Fn(&Subject, &Subject) -> bool) -> Arc<[super::DependencyStoredValue<Subject>]>
     where Self: 'a {
-        let rows = rows.into_iter().collect::<Vec<_>>();
+        let mut rows = rows.into_iter();
+
+        let Some(first) = rows.next() else { return Arc::new([]); };
+
+        let Some(second) = rows.next() else { return Arc::clone(&first.stored_values); };
+
+        let rows = [first, second].into_iter().chain(rows).collect::<Vec<_>>();
 
         let merged = super::DependencyStoredValue::normalize(
             rows.iter().flat_map(|row| row.stored_values.iter().cloned()),
@@ -471,7 +594,13 @@ impl<Subject: Ord + Clone, Input: Ord + Clone, Projection: Ord + Clone, Static: 
     /// Retains inactive subtrees established by every feasible normal exit.
     pub fn common_inactive_payloads<'a>(rows: impl IntoIterator<Item = &'a Self>, contains: impl Fn(&Subject, &Subject) -> bool) -> Arc<[Subject]>
     where Self: 'a {
-        let rows = rows.into_iter().collect::<Vec<_>>();
+        let mut rows = rows.into_iter();
+
+        let Some(first) = rows.next() else { return Arc::new([]); };
+
+        let Some(second) = rows.next() else { return Arc::clone(&first.inactive_payloads); };
+
+        let rows = [first, second].into_iter().chain(rows).collect::<Vec<_>>();
 
         bray_base::sorted_unique_shared_slice(rows.iter().flat_map(|row| row.inactive_payloads.iter())
             .filter(|payload| rows.iter().all(|row| row.inactive_payloads.iter().any(|ancestor| contains(ancestor, payload))))
@@ -490,6 +619,34 @@ impl<Subject: Ord + Clone, Input: Ord + Clone, Projection: Ord + Clone, Static: 
         } else {
             Some(Arc::clone(first))
         }
+    }
+
+    /// Whether this row accounts for all support of a report at the checked path.
+    pub fn accounts_for_report_payload(&self, destination: &Subject, contains: impl Fn(&Subject, &Subject) -> bool) -> bool {
+        match self.report_payloads.binary_search_by(|payload| payload.destination.cmp(destination)) {
+            Ok(index) => self.report_payloads[index].complete,
+            Err(_) => self.inactive_payloads.iter().any(|payload| contains(payload, destination)),
+        }
+    }
+
+    fn joined_report_payloads(rows: &[Self], contains: impl Fn(&Subject, &Subject) -> bool)
+        -> Arc<[CapturedReportPayload<Subject, Report>]> {
+        use std::collections::{BTreeMap, BTreeSet};
+
+        let mut payloads = BTreeMap::<_, BTreeSet<_>>::new();
+
+        for row in rows {
+            for payload in &*row.report_payloads {
+                payloads.entry(&payload.destination).or_default()
+                    .extend(payload.requirements.iter().cloned());
+            }
+        }
+
+        payloads.into_iter().map(|(destination, requirements)| {
+            let complete = rows.iter().all(|row| row.accounts_for_report_payload(destination, &contains));
+
+            CapturedReportPayload { destination: destination.clone(), requirements: requirements.into_iter().collect(), complete }
+        }).collect()
     }
 
     /// Widens successive approximations of reachable exits at a fixed point.
@@ -512,17 +669,7 @@ impl<Subject: Ord + Clone, Input: Ord + Clone, Projection: Ord + Clone, Static: 
             else {
                 old.extend(new);
 
-                let bindings = old[0].bindings.iter().filter_map(|(destination, value)| {
-                    let mut common = value;
-
-                    for row in &old[1..] {
-                        let index = row.bindings.binary_search_by(|(other, _)| other.cmp(destination)).ok()?;
-
-                        if &row.bindings[index].1 != value { common = &CapturedValueTemplate::Unknown; }
-                    }
-
-                    Some((destination.clone(), common.clone()))
-                }).collect();
+                let bindings = common_bindings(old.iter().map(|row| row.bindings.as_ref()), &CapturedValueTemplate::Unknown);
 
                 let carriers = Self::common_carriers(&old);
                 let references = Self::reference_origins(&old, &contains);
@@ -530,15 +677,55 @@ impl<Subject: Ord + Clone, Input: Ord + Clone, Projection: Ord + Clone, Static: 
 
                 let inactive_payloads = Self::common_inactive_payloads(&old, &contains);
                 let report = Self::possible_report(&old);
+                let report_payloads = Self::joined_report_payloads(&old, &contains);
                 let effects = bray_base::sorted_unique_shared_slice(old.iter().flat_map(|row| row.effects.iter().cloned()));
+                let cell_changes = common_cell_changes(old.iter().map(|row| row.cell_changes.as_ref()));
                 let ownership = super::DependencyOwnedResult::choice(old.into_iter().map(|row| row.ownership));
 
-                result.push(Self { guard, report, effects, bindings, ownership, carriers, references, stored_values, inactive_payloads });
+                result.push(Self { guard, report, report_payloads, effects, cell_changes, bindings, ownership, carriers, references, stored_values, inactive_payloads });
             }
         }
 
         result.into()
     }
+}
+
+fn common_bindings<'a, Subject: Clone + Ord + 'a, Value: Clone + Eq + 'a>(
+    mut rows: impl Iterator<Item = &'a [(Subject, Value)]> + Clone,
+    unknown: &Value,
+) -> Arc<[(Subject, Value)]> {
+    let Some(first) = rows.next() else { return Arc::new([]); };
+
+    first.iter().filter_map(|(destination, value)| {
+        let mut matches = true;
+
+        for row in rows.clone() {
+            let index = row.binary_search_by(|(other, _)| other.cmp(destination)).ok()?;
+
+            matches &= value == &row[index].1;
+        }
+
+        Some((destination.clone(), if matches { value.clone() } else { unknown.clone() }))
+    }).collect()
+}
+
+/// Intersects the definite cell transfers supplied by every feasible outcome.
+pub fn common_cell_changes<'a, Effect: Clone + Ord + 'a>(
+    mut rows: impl Iterator<Item = Option<&'a Arc<[Effect]>>> + Clone,
+) -> Option<Arc<[Effect]>> {
+    let first = rows.next()??;
+
+    if rows.clone().any(|row| row.is_none()) { return None; }
+
+    if rows.clone().all(|row| row.is_some_and(|row| row == first)) {
+        return Some(Arc::clone(first));
+    }
+
+    let common = first.iter().filter(|effect| rows.clone().all(|row| {
+        row.is_some_and(|row| row.binary_search(effect).is_ok())
+    })).cloned().collect::<Vec<_>>();
+
+    Some(common.into())
 }
 
 #[cfg(test)]

@@ -1,5 +1,7 @@
-use crate::{StorageTarget as Target, StorageValueRetirement as Retirement, StorageMutationTarget as MutationTarget};
-use bray_symbols::{DependencyMutationKind, TypeId};
+use std::sync::Arc;
+
+use crate::{StorageProjection, StorageTarget as Target, StorageValueRetirement as Retirement, StorageMutationTarget as MutationTarget};
+use bray_symbols::{DependencyMutationKind, StorageDischarge, TypeId};
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum StorageEffect {
@@ -12,6 +14,7 @@ pub enum StorageEffect {
     Mutation {
         address: Option<Target>,
         footprint: Target,
+        discharged: Option<Arc<[StorageDischarge<StorageProjection>]>>,
         kind: DependencyMutationKind,
         access_type: Option<TypeId>,
     },
@@ -46,7 +49,19 @@ impl StorageEffect {
     ) -> Self {
         let kind = if target.address.is_some() { kind } else { kind.region_kind() };
 
-        Self::Mutation { address: target.address, footprint: target.footprint, kind, access_type }
+        Self::Mutation { address: target.address, footprint: target.footprint, discharged: None, kind, access_type }
+    }
+
+    pub fn with_retirement_discharges(mut self, duties: impl IntoIterator<Item = StorageDischarge<StorageProjection>>) -> Self {
+        if let Self::Mutation { address: Some(_), kind: DependencyMutationKind::Retire, discharged, .. } = &mut self {
+            let duties = duties.into_iter().collect::<Vec<_>>();
+
+            if !duties.is_empty() {
+                *discharged = Some(bray_base::sorted_unique_shared_slice(duties));
+            }
+        }
+
+        self
     }
 
     pub fn is_ambient(&self) -> bool {
@@ -55,6 +70,19 @@ impl StorageEffect {
 
     pub fn may_reach_all_inputs(&self) -> bool {
         matches!(self, Self::Unknown | Self::UnboundedMutation { ambient: false, .. })
+    }
+
+    /// Whether this effect leaves backing storage lifetimes intact.
+    pub fn preserves_storage_lifetimes(&self) -> bool {
+        match self {
+            Self::Unknown | Self::Ambient => false,
+            Self::Escape | Self::Atomic => true,
+            Self::Mutation { kind, .. } | Self::UnboundedMutation { kind, .. } => !matches!(
+                kind,
+                DependencyMutationKind::Dispose(_) | DependencyMutationKind::Cleanup(_)
+                    | DependencyMutationKind::Retire
+            ),
+        }
     }
 
     pub fn unbounded(
@@ -77,13 +105,14 @@ impl StorageEffect {
     }
 
     pub fn retire(&mut self, current: &Target, retirement: Retirement) {
-        if let Self::Mutation { address, footprint, kind, .. } = self {
+        if let Self::Mutation { address, footprint, discharged, kind, .. } = self {
             if retirement.contains(current, footprint) {
                 footprint.previous = true;
             }
 
             if address.as_ref().is_some_and(|target| retirement.contains(current, target)) {
                 *address = None;
+                *discharged = None;
                 *kind = kind.region_kind();
             }
         }
@@ -94,6 +123,15 @@ impl StorageEffect {
             Self::Mutation { address, footprint, .. } => address.iter().chain(std::iter::once(footprint))
                 .any(|target| retirement.contains(current, target)),
             _ => false,
+        }
+    }
+
+    /// Returns a definite typed update to a reached cell.
+    pub fn cell_change(&self) -> Option<(&Target, DependencyMutationKind)> {
+        match self {
+            Self::Mutation { address: Some(target), kind: kind @ (DependencyMutationKind::Replace(_) | DependencyMutationKind::Discharge(_)), .. }
+                if target.is_exact() => Some((target, *kind)),
+            _ => None,
         }
     }
 
@@ -111,22 +149,36 @@ impl StorageEffect {
 /// Effects resolved before input ownership transfers, retained only until the call outcome.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct StorageCapturedEffects {
-    pub mutations: Vec<StorageEffect>,
+    pub mutations: Arc<[StorageEffect]>,
+    pub cell_changes: Option<Arc<[StorageEffect]>>,
     pub escaped: Vec<Target>,
     /// Entry-relative escape effects captured before the input slots were consumed.
-    pub escape_prefix: std::sync::Arc<[bray_symbols::DependencyStorageEffect]>,
+    pub escape_prefix: Arc<[bray_symbols::DependencyStorageEffect]>,
     pub invalidation: crate::StorageInvalidation,
 }
 
 impl StorageCapturedEffects {
     pub fn references(&self, current: &Target, retirement: Retirement) -> bool {
         self.escaped.iter().any(|target| retirement.contains(current, target))
-            || self.mutations.iter().any(|effect| effect.references(current, retirement))
+            || self.mutations.iter().chain(self.cell_changes.iter().flat_map(|changes| changes.iter()))
+                .any(|effect| effect.references(current, retirement))
     }
 
     pub fn retire(&mut self, current: &Target, retirement: Retirement) {
-        for effect in &mut self.mutations {
-            effect.retire(current, retirement);
+        if self.mutations.iter().any(|effect| effect.references(current, retirement)) {
+            self.mutations = bray_base::sorted_unique_shared_slice(self.mutations.iter().cloned().map(|mut effect| {
+                effect.retire(current, retirement);
+
+                effect
+            }));
+        }
+
+        if let Some(changes) = self.cell_changes.as_ref()
+            && changes.iter().any(|effect| effect.references(current, retirement))
+        {
+            let retained = changes.iter().filter(|effect| !effect.references(current, retirement)).cloned().collect::<Vec<_>>();
+
+            self.cell_changes = Some(retained.into());
         }
 
         for target in &mut self.escaped {
@@ -139,16 +191,16 @@ impl StorageCapturedEffects {
     }
 
     fn normalize(&mut self) {
-        // Retiring or joining incarnations can merge already summarized targets.
-        self.mutations.sort_unstable();
-        self.mutations.dedup();
         self.escaped.sort_unstable();
         self.escaped.dedup();
     }
 
     pub fn merge(&mut self, incoming: &Self) {
-        // Outcome sets copy descriptors and share immutable projection paths.
-        self.mutations.extend(incoming.mutations.iter().cloned());
+        if self.mutations != incoming.mutations {
+            self.mutations = bray_base::sorted_unique_shared_slice(self.mutations.iter().chain(incoming.mutations.iter()).cloned());
+        }
+
+        self.cell_changes = bray_symbols::common_cell_changes([self.cell_changes.as_ref(), incoming.cell_changes.as_ref()].into_iter());
         self.escaped.extend(incoming.escaped.iter().cloned());
 
         if self.escape_prefix != incoming.escape_prefix {

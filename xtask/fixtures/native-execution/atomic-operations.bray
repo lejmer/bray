@@ -1,4 +1,4 @@
-module application;
+trusted module application;
 
 using core.atomic;
 using core.memory;
@@ -18,7 +18,8 @@ struct Pair
     high: u16;
 }
 
-func main() -> i32
+trusted func main() -> i32
+    uses(intrinsic)
 {
     let counter = core.atomic.initialize<u32>(1);
 
@@ -79,8 +80,18 @@ func main() -> i32
     let pointer_restore = core.atomic.compare_exchange<DataPointer<u32>, 4, 1>(
         &pointer,
         loaded_pointer,
-        exchanged_pointer
+        second_pointer
     );
+
+    let final_pointer = core.atomic.load<DataPointer<u32>, 1>(&pointer);
+
+    let pointers_match = core.target.address_equal<u32>(loaded_pointer, first_pointer) && core.target.address_equal<
+        u32
+    >(exchanged_pointer, first_pointer) && pointer_exchange.1 && core.target.address_equal<u32>(
+        pointer_exchange.0,
+        second_pointer
+    ) && pointer_restore.1 && core.target.address_equal<u32>(pointer_restore.0, first_pointer) &&
+        core.target.address_equal<u32>(final_pointer, second_pointer);
 
     let wrapped = core.atomic.initialize<Counter>(
         Counter
@@ -142,14 +153,15 @@ func main() -> i32
     core.atomic.notify_all<Pair>(&pair);
 
     let exchanged_pair = pair_exchange.0;
+    let final_pair = core.atomic.load<Pair, 1>(&pair);
 
     let valid = exchanged == 2 && strong.0 == 3 && strong.1 && weak.0 == 5 && flag_previous && flag_exchange.0 ==
         false && flag_exchange.1 && core.atomic.load<bool, 4>(&flag) && sized_previous == 4 && core.atomic.load<
         usize,
         1
-    >(&sized) == 7 && pointer_exchange.1 && pointer_restore.1 && wrapped_previous.value == 11 && wrapped_value.value ==
-        13 && pair_previous.low == 1 && pair_previous.high == 2 && exchanged_pair.low == 3 && exchanged_pair.high ==
-        4 && pair_exchange.1;
+    >(&sized) == 7 && pointers_match && wrapped_previous.value == 11 && wrapped_value.value == 13 &&
+        pair_previous.low == 1 && pair_previous.high == 2 && exchanged_pair.low == 3 && exchanged_pair.high == 4 &&
+        pair_exchange.1 && final_pair.low == 5 && final_pair.high == 6;
 
     if valid
     {

@@ -1,4 +1,3 @@
-use bray_symbols::DependencyStorageEffect;
 use crate::validation::is_strictly_sorted;
 use crate::{
     InterfaceLimit, InterfaceSemantics, InterfaceTypeId, InterfaceValidationError,
@@ -86,16 +85,6 @@ impl InterfaceSemantics {
                 ));
             }
 
-            if let Some(term) = contract.observed_result {
-                validate_index(term.to_index(), self.constant_terms.len())?;
-
-                if !contract.normal_completion || !contract.normal_effects().all(bray_symbols::DependencyStorageEffect::preserves_storage) {
-                    return Err(crate::semantic::codec::invalid_value(
-                        crate::InterfaceValidationField::Constant,
-                    ));
-                }
-            }
-
             for outcome in &*contract.captured_values {
                 if !outcome.effects.windows(2).all(|pair| pair[0] < pair[1])
                     || outcome.effects.iter().any(|effect| contract.effects.binary_search(effect).is_err())
@@ -145,7 +134,13 @@ impl InterfaceSemantics {
                 )?;
             }
 
-            for effect in &*contract.effects {
+            if !contract.cell_changes().all(bray_symbols::DependencyStorageEffect::is_cell_change)
+                || contract.effects.iter().any(bray_symbols::DependencyStorageEffect::is_discharge)
+            {
+                return Err(crate::semantic::codec::invalid_value(crate::InterfaceValidationField::Dependency));
+            }
+
+            for effect in contract.effects.iter().chain(contract.cell_changes()) {
                 if !effect.is_valid_route() {
                     return Err(crate::semantic::codec::invalid_value(crate::InterfaceValidationField::Dependency));
                 }
@@ -154,43 +149,16 @@ impl InterfaceSemantics {
                     validate_index(ty.to_index(), self.types.len())?;
                 }
 
-                match effect {
-                    DependencyStorageEffect::UnboundedMutation { .. }
-                | DependencyStorageEffect::Atomic
-                    | DependencyStorageEffect::Ambient
-                    | DependencyStorageEffect::Unknown
-                    | DependencyStorageEffect::Escape => {}
-                    DependencyStorageEffect::Direct { subject, .. } => {
-                        self.validate_dependency_subject(subject, symbol_count, dependency_count)?
-                    }
-                    DependencyStorageEffect::Indirect {
-                        reference,
-                        projections,
-                        ..
-                    } => {
-                        self.validate_dependency_subject(
-                            reference,
-                            symbol_count,
-                            dependency_count,
-                        )?;
+                if let Some(subject) = effect.subject() {
+                    self.validate_dependency_subject(subject, symbol_count, dependency_count)?;
+                }
 
-                        self.validate_dependency_projections(
-                            projections,
-                            symbol_count,
-                            dependency_count,
-                        )?;
-                    }
+                for projections in effect.projection_paths() {
+                    self.validate_dependency_projections(projections, symbol_count, dependency_count)?;
                 }
             }
 
-            for requirement in contract
-                .requirements
-                .iter()
-                .chain(
-                    contract.captured_values.iter().flat_map(|row| row.report.iter().flat_map(|report| report.iter())),
-                )
-                .chain(contract.failure_reports().flatten())
-            {
+            for requirement in contract.output_requirements() {
                 self.validate_dependency_requirement(
                     requirement,
                     symbol_count,

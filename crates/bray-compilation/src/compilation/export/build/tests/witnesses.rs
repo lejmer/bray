@@ -1337,7 +1337,7 @@ const CASES: &[(&str, &str, bool)] = &[
         }
         else
         {
-            yield api.choose_nullable(existing);
+            yield api.choose_nullable(!repeat);
         };
 
         match consume selected
@@ -1557,7 +1557,7 @@ fn witness_ownership_survives_imported_control_flow() {
             &provider,
             &format!(
                 r"
-                trusted module app;
+                module app;
 
                 using core.memory;
                 using example.package.api;

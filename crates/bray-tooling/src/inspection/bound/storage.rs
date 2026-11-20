@@ -226,6 +226,7 @@ impl InspectionStorageProvenance {
             | StorageIdentity::Evaluated(expression)
             | StorageIdentity::CustomIndexBorrow(expression)
             | StorageIdentity::ScopedCapability { expression, .. }
+            | StorageIdentity::ScopedResultReplacement(expression)
             | StorageIdentity::Allocation(expression) => Ok(Self::Expression {
                 expression: expression.ordinal(),
             }),
@@ -623,6 +624,8 @@ enum InspectionStorageBindingTarget {
     LocalSymbol { symbol_kind: &'static str, id: u32 },
     InvocationInput { expression: u32, ordinal: u32 },
     InvocationResult { occurrence: InspectionExecutionSite },
+    ScopedResultReplacement { expression: u32 },
+    ScopedResultPayload { expression: u32 },
     Result,
 }
 
@@ -663,6 +666,12 @@ impl From<StorageBindingTarget> for InspectionStorageBindingTarget {
             },
             StorageBindingTarget::InvocationResult(occurrence) => Self::InvocationResult {
                 occurrence: occurrence.into(),
+            },
+            StorageBindingTarget::ScopedResultReplacement(expression) => Self::ScopedResultReplacement {
+                expression: expression.ordinal(),
+            },
+            StorageBindingTarget::ScopedResultPayload(expression) => Self::ScopedResultPayload {
+                expression: expression.ordinal(),
             },
             StorageBindingTarget::InvocationInput {
                 expression,

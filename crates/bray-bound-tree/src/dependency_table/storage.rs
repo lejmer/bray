@@ -1,7 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
 use bray_symbols::{
-    CapturedValueOutcome, DependencyBorrowRelation, DependencyStoredValuePath, DependencySubject, TypeId,
+    CapturedValueOutcome, DependencyBorrowRelation, DependencyStorageEffect, DependencyStoredValuePath, DependencySubject, TypeId,
 };
 
 use crate::StorageReferencePath;
@@ -11,8 +12,15 @@ use crate::StorageReferencePath;
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct BoundCallReference {
     relation: bray_symbols::DependencyBorrowRelation,
+    route: ReferenceOutputRoute,
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+struct ReferenceOutputRoute {
     preserves_value: bool,
     addressed_type: Option<bray_symbols::TypeId>,
+    reads: Option<StorageReferencePath>,
+    target: Option<StorageReferencePath>,
 }
 
 impl BoundCallReference {
@@ -24,9 +32,16 @@ impl BoundCallReference {
     ) -> Self {
         Self {
             relation,
-            preserves_value,
-            addressed_type,
+            route: ReferenceOutputRoute { preserves_value, addressed_type, reads: None, target: None },
         }
+    }
+
+    /// Attaches the typed reads from the actual source and from its reached target.
+    pub fn with_routes(mut self, reads: Option<StorageReferencePath>, target: Option<StorageReferencePath>) -> Self {
+        self.route.reads = reads;
+        self.route.target = target;
+
+        self
     }
 
     /// Returns the checked formal reference relation.
@@ -36,21 +51,31 @@ impl BoundCallReference {
 
     /// The reached storage type when forming an address or a bounded reference.
     pub const fn addressed_type(&self) -> Option<bray_symbols::TypeId> {
-        self.addressed_type
+        self.route.addressed_type
     }
 
     /// Whether the output retains the input reference value, rather than only its target.
     pub const fn preserves_value(&self) -> bool {
-        self.preserves_value && self.relation.is_exact()
+        self.route.preserves_value && self.relation.is_exact()
     }
+
+    /// Descriptor reads before the source supplies the returned reference.
+    pub fn reads(&self) -> Option<&StorageReferencePath> { self.route.reads.as_ref() }
+
+    /// The checked selections and reads after the source's reached address.
+    pub fn target_path(&self) -> Option<&StorageReferencePath> { self.route.target.as_ref() }
 }
 
 /// Typed routes shared by the effects and outcomes of an invocation.
 #[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
 pub struct BoundCallStorage {
     subjects: BTreeMap<DependencySubject, (TypeId, StorageReferencePath)>,
-    reference_types: BTreeMap<DependencyBorrowRelation, (bool, Option<TypeId>)>,
+    reference_types: BTreeMap<DependencyBorrowRelation, ReferenceOutputRoute>,
     stored_paths: BTreeMap<DependencyStoredValuePath, (TypeId, StorageReferencePath)>,
+    effect_paths: BTreeMap<DependencyStorageEffect, StorageReferencePath>,
+    write_paths: BTreeMap<DependencySubject, (TypeId, StorageReferencePath)>,
+    returned_values: BTreeMap<bray_symbols::ConstantTermId,
+        BTreeMap<Arc<[bray_symbols::ConstantProjectionKind]>, crate::BoundReturnedValue>>,
 }
 
 impl BoundCallStorage {
@@ -62,10 +87,40 @@ impl BoundCallStorage {
     ) -> Self {
         let reference_types = references.into_iter().map(|reference| (
             reference.relation.with_exactness(false),
-            (reference.preserves_value, reference.addressed_type),
+            reference.route,
         )).collect();
 
-        Self { subjects, reference_types, stored_paths }
+        Self { subjects, reference_types, stored_paths, effect_paths: Default::default(), write_paths: Default::default(), returned_values: Default::default() }
+    }
+
+    /// Shares the checked shape of each possible input transfer with direct and deferred calls.
+    pub fn with_returned_values(
+        mut self,
+        values: impl IntoIterator<Item = (bray_symbols::DependencyOwnedTransfer, crate::BoundReturnedValue)>,
+    ) -> Self {
+        for (transfer, route) in values {
+            self.returned_values.entry(transfer.input()).or_default().insert(transfer.output().into(), route);
+        }
+
+        self
+    }
+
+    /// Returns the prepared route and role of the selected transfer.
+    pub fn returned_value(&self, transfer: &bray_symbols::DependencyOwnedTransfer) -> &crate::BoundReturnedValue {
+        self.returned_values.get(&transfer.input()).and_then(|paths| paths.get(transfer.output()))
+            .expect("selected owned transfer retains its checked value description")
+    }
+
+    /// Retains the typed suffix followed after the first admitted descriptor.
+    pub fn with_effect_paths(mut self, paths: BTreeMap<DependencyStorageEffect, StorageReferencePath>) -> Self {
+        self.effect_paths = paths;
+
+        self
+    }
+
+    /// Reads the checked continuation of this effect's admitted reference.
+    pub fn effect_path(&self, effect: &DependencyStorageEffect) -> Option<&StorageReferencePath> {
+        self.effect_paths.get(effect.retirement_parts().0)
     }
 
     /// Subjects with checked routes from an actual input, static or result root.
@@ -76,6 +131,18 @@ impl BoundCallStorage {
     /// The reached type and route of a subject from its root.
     pub fn subject(&self, subject: &DependencySubject) -> Option<(TypeId, &StorageReferencePath)> {
         self.subjects.get(subject).map(|(ty, path)| (*ty, path))
+    }
+
+    /// Shares the checked routes for writing into incoming loans.
+    pub fn with_write_paths(mut self, paths: BTreeMap<DependencySubject, (TypeId, StorageReferencePath)>) -> Self {
+        self.write_paths = paths;
+
+        self
+    }
+
+    /// A committed write follows its checked mutable loan, including stored loans.
+    pub fn mutable_write(&self, subject: &DependencySubject) -> Option<(TypeId, &StorageReferencePath)> {
+        self.write_paths.get(subject).map(|(ty, path)| (*ty, path))
     }
 
     /// The reached type and route of an endpoint, including terminal loads.
@@ -93,8 +160,8 @@ impl BoundCallStorage {
         let mut references = Vec::with_capacity(relations.len());
 
         for relation in relations.iter().cloned() {
-            if let Some(&(forwards_value, addressed_type)) = self.reference_types.get(&relation.clone().with_exactness(false)) {
-                references.push(BoundCallReference::new(relation, forwards_value, addressed_type));
+            if let Some(route) = self.reference_types.get(&relation.clone().with_exactness(false)) {
+                references.push(BoundCallReference { relation, route: route.clone() });
             } else {
                 unavailable.insert(relation.exit().clone());
             }

@@ -9,15 +9,13 @@ pub type ConditionCallReferences = BTreeMap<
     (bool, Arc<[bray_symbols::DependencyBorrowRelation]>),
 >;
 
-use bray_symbols::AnyLocalSymbolId;
-
 use super::BoundCallDependencyContracts;
 #[cfg(test)]
 use super::BoundCallReference;
 
 use crate::{
-    BorrowCapabilityId, BoundDependencyContract, BoundDependencyContractId, BoundExpression,
-    BoundExpressionId, BoundReferenceTarget, BoundUnit, BoundUnitId, BoundUnitKind,
+    BorrowCapabilityId, BoundDependencyContract, BoundDependencyContractId,
+    BoundUnit, BoundUnitId, BoundUnitKind,
     StorageAccessId, StoragePlan,
 };
 
@@ -212,7 +210,7 @@ impl CheckedDependencyContracts {
             DependencyContractsBuildError::InvalidBorrow,
         )?;
 
-        let mut result = Self {
+        Ok(Self {
             projection_variants: BTreeMap::new(),
             static_carriers: BTreeMap::new(),
             unit: unit.unit(),
@@ -228,11 +226,7 @@ impl CheckedDependencyContracts {
             lifecycle_dependencies: Arc::default(),
             condition_references: Arc::default(),
             is_recovered,
-        };
-
-        result.lifecycle_consumers = Arc::new(result.prepare_lifecycle_dependencies(unit, storage));
-
-        Ok(result)
+        })
     }
 
     /// Publishes selected-call contracts after checking their unit-local subjects.
@@ -335,45 +329,6 @@ impl CheckedDependencyContracts {
         occurrence: impl Into<crate::BoundExecutionSite>,
     ) -> Option<BoundDependencyContractId> {
         find_contract(&self.deferred_expressions, occurrence.into())
-    }
-
-    /// Resolves the deferred contract carried through local reference bindings.
-    pub fn deferred_expression_through_bindings(
-        &self,
-        unit: &BoundUnit,
-        expression: BoundExpressionId,
-    ) -> Option<BoundDependencyContractId> {
-        if self.unit != unit.unit() || expression.unit() != self.unit {
-            return None;
-        }
-
-        let initializers = unit.tree().local_initializers();
-        let mut current = expression;
-        let mut active = BTreeSet::new();
-
-        loop {
-            if let Some(contract) = self.deferred_expression(current) {
-                return Some(contract);
-            }
-
-            if !active.insert(current) {
-                return None;
-            }
-
-            current = match unit.view().expression(current)? {
-                BoundExpression::Name(name) => {
-                    let BoundReferenceTarget::Local(local) = name.target() else {
-                        return None;
-                    };
-
-                    *initializers.get(&local)?
-                }
-                BoundExpression::PatternReference(reference) => {
-                    *initializers.get(&AnyLocalSymbolId::from(reference.binding()))?
-                }
-                _ => return None,
-            };
-        }
     }
 
     /// Returns the contract carried by one evaluated storage access.
@@ -688,7 +643,10 @@ mod tests {
         let outcome = bray_symbols::CapturedValueOutcome::new(None, [])
             .with_storage([relation.clone()], []);
 
-        let phases = phases.with_captured_values([outcome]);
+        let template = bray_symbols::DependencyContractTemplateData::new([])
+            .with_captured_values([outcome]);
+
+        let phases = phases.with_captured_outcomes(&template);
         let references = vec![super::BoundCallReference::new(relation, true, None)];
 
         let retained = Some(std::collections::BTreeSet::from([expression.into()]));
@@ -702,6 +660,7 @@ mod tests {
 
         let call = &published.calls()[&expression.into()];
 
+        assert!(std::ptr::eq(call.captured_values(), template.captured_values()));
         assert_eq!(call.invocation(), &invocation);
         assert_eq!(call.result(), &result);
         assert_eq!(call.deferred(), Some(&deferred));

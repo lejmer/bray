@@ -315,6 +315,7 @@ fn portable_storage_identity(
         | StorageIdentity::CustomIndexBorrow(_)
         | StorageIdentity::InvocationResult(_)
         | StorageIdentity::ScopedCapability { .. }
+        | StorageIdentity::ScopedResultReplacement(_)
         | StorageIdentity::Allocation(_)
         | StorageIdentity::CompilerCreated(_)
         | StorageIdentity::Error(_) => return Ok(None),

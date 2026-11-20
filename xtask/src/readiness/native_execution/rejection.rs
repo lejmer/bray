@@ -22,6 +22,7 @@ pub(super) fn audit_rejections(
         None,
         INVALID_MEMORY_FIXTURE,
         DiagnosticKind::CheckingUninitializedRawStorage,
+        "core.memory.read<u8>(pointer)",
         "invalid memory obligations",
     )?;
 
@@ -31,6 +32,7 @@ pub(super) fn audit_rejections(
         Some(standard_library),
         THREAD_BORROW_CONFLICT_FIXTURE,
         DiagnosticKind::CheckingConflictingBorrow,
+        "value = 2",
         "a write conflicting with native-thread state",
     )?;
 
@@ -40,6 +42,7 @@ pub(super) fn audit_rejections(
         Some(standard_library),
         THREAD_BORROW_ESCAPE_FIXTURE,
         DiagnosticKind::CheckingEscapingStorageDependency,
+        "return thread",
         "native-thread state escaping its source scope",
     )
 }
@@ -50,10 +53,21 @@ fn expect_rejection(
     standard_library: Option<&Path>,
     fixture: &str,
     diagnostic: DiagnosticKind,
+    site: &str,
     description: &str,
 ) -> Result<(), String> {
     let compiler = crate::native_toolchain::compiler_executable(root, "brayc");
     let fixture = root.join(fixture);
+
+    let source = std::fs::read_to_string(&fixture)
+        .map_err(|error| format!("could not read fixture for {description}: {error}"))?;
+
+    let mut sites = source.match_indices(site);
+
+    let Some((start, _)) = sites.next().filter(|_| sites.next().is_none()) else {
+        return Err(format!("fixture for {description} must contain one diagnostic site"));
+    };
+
     let mut command = Command::new(compiler);
 
     command.current_dir(root).args([
@@ -86,9 +100,13 @@ fn expect_rejection(
         .filter(|reported| reported["severity"] == "error").peekable();
 
     if errors.peek().is_some() && errors.all(|reported| {
+        let span = &reported["primary_span"];
+
         reported["code"].as_u64() == Some(u64::from(diagnostic.code().raw()))
-            && reported["primary_span"]["source_origin"]["file_path"].as_str()
+            && span["source_origin"]["file_path"].as_str()
                 .is_some_and(|path| Path::new(path).file_name() == fixture.file_name())
+            && span["start"].as_u64().is_some_and(|byte| byte < (start + site.len()) as u64)
+            && span["end"].as_u64().is_some_and(|byte| byte > start as u64)
     }) {
         Ok(())
     } else {

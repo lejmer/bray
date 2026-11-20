@@ -20,17 +20,18 @@ mod target;
 mod transition;
 mod value;
 
-pub use value::{StorageAddressValue, StorageDependencyCompleteness, StorageMutationTarget, StorageValueBinding, StorageValueRetirement};
-pub use capture::{StorageCapturedEffects, StorageCapturedTransition, StorageDeferredTransition, StorageContents, StorageEffect,
+pub use value::{ReportDependencies, StorageAddressValue, StorageDependencyCompleteness, StorageMutationTarget, StorageValueBinding, StorageValueRetirement};
+pub use capture::{StorageCapturedEffects, StorageCapturedTransition, StorageDeferredProducer, StorageDeferredTransition, StorageContents, StorageEffect, StorageEffectRow,
     StorageCapturedValue, merge_storage_bindings, merge_storage_contents,
     selected_storage_values, storage_selector_parent, storage_value_subtree};
 
 pub use target::{StorageOrigin, StorageTarget};
-pub use transition::{StorageSnapshotRoot, StorageValueBoundary, StorageValueCapture, StorageValueDestination, StorageValueInput, StorageValuePhase, StorageValueTransition, merge_storage_value_transitions};
+pub use transition::{StorageSnapshotRoot, StorageValueBoundary, StorageValueCapture, StorageValueDestination, StorageValueInput, StorageValueTransition, merge_storage_value_captures, merge_storage_value_transitions};
 
 pub use builder::{StoragePlanBuildError, StoragePlanBuilder};
 pub use flow::{
-    StorageExitDecision, StorageExitPoint, StorageFlow, StorageFlowBuildError,
+    StorageOutcomeRows,
+    AnalysisEdgeId, AnalysisOperationId, StorageAbsence, StorageCleanupEntry, StorageCleanupRemainder, StorageCleanupSchedule, StorageExitDecision, StorageExitPoint, StorageFlow, StorageFlowBuildError,
     StorageOperationDecision, StorageOperationStatus, StorageStateTarget, StorageSuspensionState,
 };
 pub use liveness::{
@@ -40,7 +41,7 @@ pub use model::{
     BorrowCapabilityId, StorageAccess, StorageAccessId, StorageAccessRoot, StorageAlternativeId,
     StorageIdentity, StorageIdentityId, StorageProjection, StorageRelationship,
 };
-pub use observation::{StorageCompletion, StorageMutation, StorageObservationKind, StorageObservationTransition, StorageTaskOutcome};
+pub use observation::{StorageCleanupAction, StorageCleanupActionKind, StorageCompletion, StorageFailureWrites, StorageMutation, StorageObservationKind, StorageObservationTransition, StorageObservedTarget, StorageTaskOutcome};
 pub use parts::{
     StorageCleanupPart, StorageCleanupProjection, StorageCleanupProjectionKind, StorageProtocolCall,
 };
@@ -49,7 +50,7 @@ pub use plan::{
     StorageAlternative, StorageBinding, StorageBindingTarget, StoragePlan,
 };
 pub use replacement::{
-    StorageReplacementDecision, StorageReplacementPlan, StorageReplacementState,
+    StorageReplacementDecision, StorageReplacementState,
 };
 pub use scope::{
     StorageScope, StorageScopeBuildError, StorageScopeOwners, scoped_exit_completes_result,

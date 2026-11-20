@@ -12,6 +12,14 @@ pub(crate) enum OperationInput {
 }
 
 impl OperationInput {
+    pub(crate) fn site(self) -> Option<bray_bound_tree::BoundExecutionSite> {
+        match self {
+            Self::Value(site) => Some(site),
+            Self::Borrow(expression, _) | Self::Nullable(Some(expression)) => Some(expression.into()),
+            Self::Nullable(None) => None,
+        }
+    }
+
     pub(crate) fn borrow_plan(
         self,
         storage: &bray_bound_tree::StoragePlan,

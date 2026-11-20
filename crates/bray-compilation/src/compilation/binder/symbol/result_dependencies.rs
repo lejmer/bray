@@ -396,13 +396,20 @@ fn infer_component(
         for (callable, inputs) in &units {
             let body = inputs.check(compilation, cancellation, Some(&templates), &recursive)?;
             let values = context.semantic_values();
-            let previous = values.dependency_contract_template_data(templates[callable]);
+            let checked = body.value().storage_flow().dependencies();
+            let previous = templates[callable];
+
+            let template = if previous == empty {
+                // The first solved body already owns the complete portable contract.
+                checked.clone()
+            } else {
+                let previous = values.dependency_contract_template_data(previous);
+
+                body_result_dependencies(checked, &previous)
+            };
 
             let dependencies = values
-                .intern_dependency_contract_template(body_result_dependencies(
-                    body.value().storage_flow().dependencies(),
-                    &previous,
-                ))
+                .intern_dependency_contract_template(template)
                 .expect("checked component summary has established semantic identities");
 
             bodies.insert(callable.clone(), BodyAnalysis { dependencies, body });
@@ -442,12 +449,7 @@ pub(in crate::compilation) fn expression_result_dependencies(
     let values = context.semantic_values();
 
     let result = values
-        .intern_dependency_contract_template(body_result_dependencies(
-            body.result().value().storage_flow().dependencies(),
-            &bray_symbols::DependencyContractTemplateData::new([])
-                .with_effects([])
-                .with_normal_completion(false),
-        ))
+        .intern_dependency_contract_template(body.result().value().storage_flow().dependencies().clone())
         .expect("checked default summary retains its semantic identities");
 
     Ok(DiagnosticResult::new(result, diagnostics))
@@ -461,8 +463,9 @@ fn body_result_dependencies(
     // only where the same widening retains their supporting observations.
     let outcomes = combined_result_values(checked, previous);
 
-    let failures = checked.failure_outcomes().map(|checked|
-        previous.failure_outcomes().into_iter().flatten().chain(checked).cloned());
+    let failures = checked.failure_outcomes().map(|checked| {
+        bray_symbols::CapturedFailureOutcome::join_reachable(previous.failure_outcomes().unwrap_or_default(), checked)
+    });
 
     bray_symbols::DependencyContractTemplateData::new(
         previous
@@ -473,15 +476,6 @@ fn body_result_dependencies(
     )
     .with_captured_values(outcomes)
     .with_failure_outcomes(failures)
-    .with_observed_result(if !previous.normal_completion() {
-        checked.observed_result()
-    } else if !checked.normal_completion()
-        || previous.observed_result() == checked.observed_result()
-    {
-        previous.observed_result()
-    } else {
-        None
-    })
     .with_possible_effects(previous.effects().iter().chain(checked.effects()).cloned())
     .with_synchronous_cleanup(
         previous

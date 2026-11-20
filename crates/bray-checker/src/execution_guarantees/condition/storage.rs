@@ -9,7 +9,7 @@ impl ExecutionCondition {
     /// Retains the captured environment on the actual value rather than in an owner lookup table.
     pub(crate) fn with_deferred_value(self, frame: std::sync::Arc<crate::execution_guarantees::ExecutionDeferredValue>) -> Self {
         if let K::CapturedValue { value, storage } = self.kind() {
-            return value.as_ref().clone().with_deferred_value(frame).captured_value(storage.as_ref().clone());
+            return value.as_ref().clone().with_deferred_value(frame).captured_value(storage.clone());
         }
 
         let value = match self.kind() {
@@ -25,20 +25,20 @@ impl ExecutionCondition {
         match self.kind() {
             K::DeferredValue { frame, .. } => Some(frame),
             K::CapturedValue { value, .. } | K::Observation { contents: value, .. } | K::Borrowed(value) => value.deferred_value(),
-            _ => None,
+            _ => self.nullable_payload_snapshot()?.deferred_value(),
         }
     }
 
     /// Captures physical information with this evaluated value, sharing its data and carried graph.
-    pub(crate) fn captured_value(self, storage: bray_bound_tree::StorageCapturedValue) -> Self {
-        if self.captured_storage() == Some(&storage) { return self; }
+    pub(crate) fn captured_value(self, storage: impl std::borrow::Borrow<StorageCapturedValue> + Into<Arc<StorageCapturedValue>>) -> Self {
+        if self.captured_storage() == Some(storage.borrow()) { return self; }
 
         let value = match self.kind() {
-            K::CapturedValue { value, .. } => std::sync::Arc::clone(value),
-            _ => std::sync::Arc::new(self),
+            K::CapturedValue { value, .. } => Arc::clone(value),
+            _ => Arc::new(self),
         };
 
-        Self::new(K::CapturedValue { value, storage: std::sync::Arc::new(storage) })
+        Self::new(K::CapturedValue { value, storage: storage.into() })
     }
 
     pub(crate) fn captured_storage(&self) -> Option<&bray_bound_tree::StorageCapturedValue> {
@@ -61,7 +61,7 @@ impl ExecutionCondition {
     /// Proof data observes the value, independently of physical transport metadata.
     /// CurrentValues retains the paired snapshot for storage propagation and fixed-point equality.
     pub(crate) fn without_captured_storage(&self) -> Self {
-        Self::map_value_metadata(|_| None, |_| false, |_, frame| Some(Arc::clone(frame)))(self)
+        Self::map_value_metadata(Self::contains_storage, |_| None, |_| false, |_, frame| Some(Arc::clone(frame)))(self)
     }
 
     /// Actual owning subvalues and their prepared observation roles, expressed as value selectors.
@@ -70,6 +70,8 @@ impl ExecutionCondition {
         let mut observations = Vec::new();
 
         while let Some((path, value)) = pending.pop() {
+            if !value.contains_storage() { continue; }
+
             if let Some(storage) = value.inline_captured_storage() {
                 observations.extend(storage.observations().map(|(suffix, kind)|
                     (path.iter().copied().chain(suffix.iter().copied()).collect(), kind)));
@@ -99,21 +101,15 @@ impl ExecutionCondition {
         observations
     }
 
-    /// Retires one storage incarnation throughout a forest of shared evaluated values.
-    pub(crate) fn retiring_storage(target: &bray_bound_tree::StorageTarget,
-        retirement: bray_bound_tree::StorageValueRetirement,
-    ) -> impl FnMut(&Self) -> Self {
-        Self::map_value_metadata(move |storage| Some(if storage.references(target, retirement) {
-            Arc::new(storage.retired(target, retirement))
-        } else { Arc::clone(storage) }), |_| true, move |_, frame| {
-            if !frame.storage_references(target, retirement) { return Some(Arc::clone(frame)); }
+    /// Applies the reached retirements to a forest of shared evaluated values.
+    pub(crate) fn retiring_storage(retirements: &[(bray_bound_tree::StorageTarget, bray_bound_tree::StorageValueRetirement)])
+        -> impl FnMut(&Self) -> Self + '_ {
+        let mut snapshots = std::collections::HashMap::new();
 
-            let mut retired = frame.as_ref().clone();
-
-            retired.retire_storage(target, retirement);
-
-            Some(Arc::new(retired))
-        })
+        Self::map_value_metadata(Self::contains_storage, move |storage| {
+            Some(Arc::clone(snapshots.entry(Arc::as_ptr(storage)).or_insert_with(||
+                storage.retired(retirements).map_or_else(|| Arc::clone(storage), Arc::new))))
+        }, |_| true, move |_, frame| Some(frame.retiring_storage(retirements)))
     }
 
     /// Shares transformed records across all holders in a single state transition.
@@ -121,10 +117,11 @@ impl ExecutionCondition {
         keep: impl Fn(&Self) -> bool,
         map: impl FnMut(&Arc<ExecutionDeferredValue>, &Arc<ExecutionDeferredValue>) -> Option<Arc<ExecutionDeferredValue>>,
     ) -> impl FnMut(&Self) -> Self {
-        Self::map_value_metadata(|storage| Some(Arc::clone(storage)), keep, map)
+        Self::map_value_metadata(Self::contains_deferred, |storage| Some(Arc::clone(storage)), keep, map)
     }
 
     fn map_value_metadata(
+        visit: impl Fn(&Self) -> bool,
         mut storage: impl FnMut(&Arc<StorageCapturedValue>) -> Option<Arc<StorageCapturedValue>>,
         keep: impl Fn(&Self) -> bool,
         mut deferred: impl FnMut(&Arc<ExecutionDeferredValue>, &Arc<ExecutionDeferredValue>) -> Option<Arc<ExecutionDeferredValue>>,
@@ -136,6 +133,12 @@ impl ExecutionCondition {
         let mut frames = HashMap::new();
 
         move |root| {
+            if !visit(root) { return root.clone(); }
+
+            let key = std::ptr::from_ref(root.kind());
+
+            if let Some((_, updated)) = mapped.get(&key) { return updated.clone(); }
+
             let mut pending = vec![(root, false)];
 
             while let Some((value, expanded)) = pending.pop() {
@@ -147,16 +150,19 @@ impl ExecutionCondition {
                     pending.push((value, true));
 
                     if let K::DeferredValue { value: data, .. } = value.kind() && !keep(value) {
-                        pending.push((data.as_ref(), false));
+                        if visit(data) { pending.push((data.as_ref(), false)); }
                     } else {
-                        pending.extend(value.structural_children().map(|child| (child, false)));
+                        pending.extend(value.structural_children().filter(|child| visit(child)).map(|child| (child, false)));
                     }
 
                     continue;
                 }
 
-                let child = |child: &Self| mapped[&std::ptr::from_ref(child.kind())].1.clone();
-                let changed = |original: &Self| !std::ptr::eq(child(original).kind(), original.kind());
+                let mapped_child = |child: &Self| mapped.get(&std::ptr::from_ref(child.kind())).map(|(_, value)| value);
+                let child = |child: &Self| mapped_child(child).map_or_else(|| child.clone(), Clone::clone);
+
+                let changed = |original: &Self| mapped_child(original).is_some_and(|mapped|
+                    !std::ptr::eq(mapped.kind(), original.kind()));
 
                 let rewritten = match value.kind() {
                     K::CapturedValue { value: data, storage: original } => match storage(original) {
@@ -195,7 +201,7 @@ impl ExecutionCondition {
     /// Private production supplies the identity of fresh data, without replacing captured inputs.
     pub(crate) fn with_producer(self, producer: Self) -> Self {
         match self.kind() {
-            K::CapturedValue { value, storage } => value.as_ref().clone().with_producer(producer).captured_value(storage.as_ref().clone()),
+            K::CapturedValue { value, storage } => value.as_ref().clone().with_producer(producer).captured_value(storage.clone()),
             K::DeferredValue { value, frame } => value.as_ref().clone().with_producer(producer).with_deferred_value(std::sync::Arc::clone(frame)),
             K::Unknown => producer,
             K::Constructed(base, fields) => {
@@ -209,7 +215,9 @@ impl ExecutionCondition {
             K::Observation { owner, contents, kind } => Self::observation(
                 if owner.is_unknown() { producer.clone() } else { owner.as_ref().clone() },
                 contents.as_ref().clone().with_producer(producer), *kind),
-            K::Present(value) => value.as_ref().clone().with_producer(producer.project(StorageProjection::NullableValue)).present(),
+            K::Present(value) => Self::new(K::Present(Arc::new(
+                value.as_ref().clone().with_producer(producer.project(StorageProjection::NullableValue)),
+            ))),
             K::Tagged(variant, value) => Self::new(K::Tagged(*variant, std::sync::Arc::new(value.as_ref().clone().with_producer(producer)))),
             _ => self,
         }
@@ -240,7 +248,15 @@ impl ExecutionCondition {
                     }
                 };
 
-                return Self::scalar_observation(value.owner_identity().clone(), contents);
+                let context = match contents.observation_kind() {
+                    // A checked view can already name the actual storage of its
+                    // referent. The descriptor's handle would supply a second
+                    // context for the same reached object.
+                    Some(super::ExecutionObservationKind::Owned | super::ExecutionObservationKind::Scalar) => contents.owner_identity(),
+                    _ => value.owner_identity(),
+                };
+
+                return Self::scalar_observation(context.clone(), contents);
             }
             (Operation::Add | Operation::Subtract, [left, right]) => return Self::operation(
                 if operation == Operation::Add { bray_bound_tree::BoundOperator::Add } else { bray_bound_tree::BoundOperator::Subtract },

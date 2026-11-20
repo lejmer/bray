@@ -6,7 +6,7 @@ use bray_diagnostics::DiagnosticBag;
 use bray_symbols::CallableSignatureQuery;
 
 use crate::analysis::{
-    analyze_storage_liveness_with_graph, check_callable_result, check_storage_flow_with_graph,
+    StorageFlowInput, analyze_storage_liveness_with_graph, check_callable_result, check_storage_flow_with_graph,
     prepare_refinements,
 };
 use crate::asynchronous::check_async_analysis_with_graph;
@@ -67,10 +67,11 @@ where
     let graph = &prepared.graph;
 
     let mut diagnostics = DiagnosticBag::new();
+    let profile_start = std::env::var_os("BRA_694_PROFILE_FLOW").map(|_| std::time::Instant::now());
 
     let refinement_universe = complete!(
         diagnostics,
-        prepare_refinements(request, patterns, expressions, storage, graph, memory)
+        prepare_refinements(request, patterns, expressions, storage, graph)
     );
 
     let mut value_inputs = match crate::dependency::ValueInputs::prepare(
@@ -103,19 +104,6 @@ where
 
     let completion_contracts = std::collections::BTreeMap::new();
 
-    let execution = crate::analysis::guarantee::prepare_execution_flow(
-        prepared,
-        request,
-        expressions,
-        &[],
-        storage,
-        memory,
-        &refinement_universe.invalidating_accesses,
-        &completion_contracts,
-        &disposal,
-        &dependencies,
-    );
-
     let effects = crate::analysis::liveness::OperationEffects::from_checked_inputs(
         request,
         expressions,
@@ -127,88 +115,107 @@ where
         &prepared.cleanup,
     );
 
+    let (mut storage_inputs, preparation_diagnostics) = match StorageFlowInput::prepare(
+        &mut cleanup_shapes,
+        request,
+        storage,
+        &dependencies,
+        &effects,
+        expressions.selections(),
+        expressions.types(),
+        &prepared.cleanup,
+        memory,
+    ) {
+        Ok(prepared) => prepared,
+        Err(error) => return CheckerOutcome::from_query_error(error),
+    };
+
     let mut excluded = std::collections::BTreeSet::new();
 
     crate::analysis::exclude_impossible_call_outcomes(graph, request, &mut excluded);
 
-    let (liveness, flow, refinements, asynchronous, completion) = loop {
-        let Some(reachability) =
-            crate::analysis::analyze_reachability_excluding(graph, request, &excluded)
-        else {
-            return CheckerOutcome::Cancelled;
-        };
+    crate::analysis::exclude_infallible_cleanup_edges(
+        graph, request.view(), storage, &prepared.cleanup, &dependencies, &mut excluded,
+    );
 
-        let mut round_diagnostics = DiagnosticBag::new();
-
-        let (liveness, edge_lifetime_ends) = complete!(
-            round_diagnostics,
-            analyze_storage_liveness_with_graph(request, &effects, storage, graph, &reachability,)
-        );
-
-        let (flow, refinements) = complete!(
-            round_diagnostics,
-            check_storage_flow_with_graph(
-                &mut cleanup_shapes,
-                request,
-                &execution,
-                &dependencies,
-                effects.value_inputs(),
-                patterns,
-                storage,
-                &liveness,
-                &refinement_universe,
-                memory,
-                graph,
-                &reachability,
-                &edge_lifetime_ends,
-            )
-        );
-
-        let asynchronous = complete!(
-            round_diagnostics,
-            check_async_analysis_with_graph(
-                &mut cleanup_shapes,
-                request,
-                expressions.types(),
-                expressions.selections(),
-                &liveness,
-                &dependencies,
-                storage,
-                &refinements,
-                &flow,
-                graph,
-                &prepared.cleanup,
-            )
-        );
-
-        if !crate::analysis::exclude_cleanup_free_edges(graph, &asynchronous, &mut excluded) {
-            diagnostics.add_range(round_diagnostics);
-
-            break (
-                liveness,
-                flow,
-                refinements,
-                asynchronous,
-                reachability.completion(),
-            );
-        }
-
-        // Each change removes at least one impossible cleanup edge. Liveness depends
-        // on that feasibility, so recompute it before solving the correlated flow again.
-        // Structural selection, dependencies, effects and the graph remain prepared once.
+    let Some(reachability) = crate::analysis::analyze_reachability_excluding(graph, request, &excluded) else {
+        return CheckerOutcome::Cancelled;
     };
+
+    let (liveness, edge_lifetime_ends) = complete!(
+        diagnostics,
+        analyze_storage_liveness_with_graph(request, &effects, storage, graph, &reachability,)
+    );
+
+    let execution = crate::analysis::guarantee::prepare_execution_flow(
+        prepared,
+        request,
+        expressions,
+        std::borrow::Cow::Borrowed(&[]),
+        storage,
+        memory,
+        &completion_contracts,
+        &disposal,
+        &dependencies,
+        &liveness,
+    );
+
+    diagnostics.add_range(preparation_diagnostics);
+
+    let profile_flow = profile_start.map(|_| std::time::Instant::now());
+
+    let (flow, refinements, fallthrough) = complete!(
+        diagnostics,
+        check_storage_flow_with_graph(
+            &mut storage_inputs,
+            &mut cleanup_shapes,
+            request,
+            &execution,
+            &dependencies,
+            effects.value_inputs(),
+            patterns,
+            storage,
+            &liveness,
+            &refinement_universe,
+            memory,
+            graph,
+            &reachability,
+            &edge_lifetime_ends,
+            &excluded,
+        )
+    );
+
+    if let (Some(start), Some(solve)) = (profile_start, profile_flow)
+        && start.elapsed() >= std::time::Duration::from_millis(100)
+    {
+        eprintln!("flow profile {:?}: accesses={} prepare_ms={} solve_ms={}", storage.unit(),
+            storage.accesses().len(), (solve - start).as_millis(), solve.elapsed().as_millis());
+    }
+
+    let asynchronous = complete!(
+        diagnostics,
+        check_async_analysis_with_graph(
+            &mut cleanup_shapes,
+            request,
+            expressions.selections(),
+            &liveness,
+            storage,
+            &flow,
+            graph,
+            &prepared.cleanup,
+        )
+    );
 
     complete!(
         diagnostics,
-        check_callable_result(request, expressions, completion.can_complete_normally())
+        check_callable_result(request, expressions, fallthrough)
     );
 
-    let behavior = behavior.clone().with_deferred_calls(
-        asynchronous
-            .suspensions()
-            .iter()
-            .flat_map(|suspension| suspension.deferred_calls().iter().cloned()),
-    );
+    let implicit_calls = asynchronous.suspensions().iter()
+        .filter(|point| !matches!(point.kind(), bray_bound_tree::AsyncSuspensionKind::Await { .. }))
+        .flat_map(|point| point.deferred_calls());
+
+    let behavior = behavior.clone().with_deferred_calls(flow.deferred_calls().chain(implicit_calls).cloned());
 
     let semantics = match CheckedBodySemantics::try_new(
         liveness,

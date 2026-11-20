@@ -1,6 +1,6 @@
 use bray_bound_tree::{
-    BoundDependencyContractId, BoundDependencySubject, BoundExpressionId, BoundNodeOrigin,
-    BoundSourceAnchor, CheckedDependencyContracts, CheckedRefinements, StorageIdentity,
+    BoundDependencyRequirementKind, BoundDependencySubject, BoundExpressionId, BoundNodeOrigin,
+    BoundSourceAnchor, StorageIdentity,
     StoragePlan,
 };
 use bray_diagnostics::{
@@ -9,21 +9,13 @@ use bray_diagnostics::{
     SeverityKind,
 };
 
-use super::dependency::{UnsatisfiedDependency, unsatisfied_dependency_subjects};
 use crate::diagnostic::{bound_node_origin, diagnostic_id, expression_span};
 use crate::{CheckerRequestContext, CheckerUnitView};
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "await dependency validation consumes the exact independently checked inputs"
-)]
 pub(super) fn check_await_dependencies<C>(
     request: CheckerUnitView<'_, C>,
-    dependencies: &CheckedDependencyContracts,
     storage: &StoragePlan,
-    refinements: &CheckedRefinements,
     expression: BoundExpressionId,
-    dependency_contract: Option<BoundDependencyContractId>,
     suspension_state: &bray_bound_tree::StorageSuspensionState,
     syntax_recovered: bool,
     diagnostics: &mut DiagnosticBag,
@@ -34,69 +26,61 @@ pub(super) fn check_await_dependencies<C>(
         return;
     }
 
-    let Some(dependency_contract) = dependency_contract else {
-        panic!(
-            "A non-recovered await expression has no selected dependency contract. in check_await_dependencies, expression: {:?}",
-            expression
-        );
-    };
-
-    let Some(contract) = dependencies.contract(dependency_contract) else {
-        panic!(
-            "An await expression names a dependency contract absent from its source body. in check_await_dependencies, expression: {:?}, contract: {:?}",
-            expression, dependency_contract
-        );
-    };
-
-    let unsatisfied = unsatisfied_dependency_subjects(
-        request.semantic_values(),
-        storage,
-        refinements,
-        expression,
-        suspension_state,
-        contract,
-    ).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in check_await_dependencies: {error:?}"));
+    let unsatisfied = suspension_state.unavailable_dependencies();
 
     if !unsatisfied.is_empty() {
-        add_unavailable_await_dependency_diagnostic(
+        let diagnostic = unavailable_dependency_diagnostic(
             request,
             storage,
             expression,
-            &unsatisfied,
-            diagnostics,
+            unsatisfied,
+            diagnostic_id(diagnostics.len()),
+            (DiagnosticKind::CheckingUnavailableAwaitDependency, DiagnosticLabelKind::UnavailableAwaitDependency),
         );
+
+        diagnostics.add(diagnostic);
     }
 }
 
-fn add_unavailable_await_dependency_diagnostic<C>(
+pub(crate) fn task_start_dependency_diagnostic<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     storage: &StoragePlan,
     expression: BoundExpressionId,
-    dependencies: &[UnsatisfiedDependency],
-    diagnostics: &mut DiagnosticBag,
-) where
+    dependencies: &[(BoundDependencySubject, BoundDependencyRequirementKind)],
+) -> Diagnostic {
+    unavailable_dependency_diagnostic(
+        request,
+        storage,
+        expression,
+        dependencies,
+        diagnostic_id(0),
+        (DiagnosticKind::CheckingUnavailableTaskStartDependency, DiagnosticLabelKind::UnavailableTaskStartDependency),
+    )
+}
+
+fn unavailable_dependency_diagnostic<C>(
+    request: CheckerUnitView<'_, C>,
+    storage: &StoragePlan,
+    expression: BoundExpressionId,
+    dependencies: &[(BoundDependencySubject, BoundDependencyRequirementKind)],
+    id: bray_diagnostics::DiagnosticId,
+    (kind, label): (DiagnosticKind, DiagnosticLabelKind),
+) -> Diagnostic where
     C: CheckerRequestContext + ?Sized,
 {
     let span = expression_span(request, expression);
 
-    let mut diagnostic = Diagnostic::new(
-        diagnostic_id(diagnostics.len()),
-        DiagnosticKind::CheckingUnavailableAwaitDependency,
-        SeverityKind::Error,
-    )
-    .with_primary_span(span)
-    .with_label(DiagnosticLabel::primary(
-        DiagnosticLabelKind::UnavailableAwaitDependency,
-        span,
-    ));
+    let mut diagnostic = Diagnostic::new(id, kind, SeverityKind::Error)
+        .with_primary_span(span)
+        .with_label(DiagnosticLabel::primary(label, span));
 
-    for (index, dependency) in dependencies.iter().enumerate() {
+    for (index, &(dependency_subject, dependency_requirement)) in dependencies.iter().enumerate() {
         let subject = DiagnosticArg::dependency_subject_kind(diagnostic_dependency_subject(
-            dependency.subject,
+            dependency_subject,
         ));
 
         let requirement = DiagnosticArg::dependency_requirement_kind(
-            diagnostic_dependency_requirement(dependency.requirement),
+            diagnostic_dependency_requirement(dependency_requirement),
         );
 
         if index == 0 {
@@ -106,12 +90,12 @@ fn add_unavailable_await_dependency_diagnostic<C>(
         }
 
         diagnostic = diagnostic.with_note(
-            DiagnosticNote::new(DiagnosticNoteKind::AwaitDependencyUnavailable)
+            DiagnosticNote::new(DiagnosticNoteKind::DeferredDependencyUnavailable)
                 .with_arg(subject)
                 .with_arg(requirement),
         );
 
-        if let Some(origin) = await_dependency_origin(request, storage, dependency.subject) {
+        if let Some(origin) = dependency_origin(request, storage, dependency_subject) {
             if origin == span {
                 continue;
             }
@@ -123,10 +107,10 @@ fn add_unavailable_await_dependency_diagnostic<C>(
         }
     }
 
-    diagnostics.add(diagnostic);
+    diagnostic
 }
 
-fn await_dependency_origin<C>(
+fn dependency_origin<C>(
     request: CheckerUnitView<'_, C>,
     storage: &StoragePlan,
     subject: BoundDependencySubject,
@@ -168,6 +152,7 @@ where
 
     match identity {
         StorageIdentity::CompilerCreated(origin) => Some(origin.source_anchor()),
+        StorageIdentity::ScopedResultReplacement(expression) => bound_node_origin(request, expression.into()).map(BoundNodeOrigin::source_anchor),
         StorageIdentity::Error(source) => Some(source),
         StorageIdentity::LocalOwned(_)
         | StorageIdentity::Parameter(_)

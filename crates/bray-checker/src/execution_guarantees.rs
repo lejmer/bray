@@ -25,7 +25,7 @@ pub(crate) use snapshot::common_components;
 pub(crate) use snapshot::owned_snapshot;
 
 pub use bray_symbols::ExecutionProperty;
-pub use condition::{ExecutionCondition, ExecutionConditionKind, ExecutionDescriptorKind, ExecutionOperands, ExecutionObservationKind};
+pub use condition::{ExecutionCondition, ExecutionConditionKind, ExecutionDescriptorKind, ExecutionJoinSite, ExecutionOperands, ExecutionObservationKind};
 pub(crate) use condition::{ ExecutionProof, ExecutionProofCache, ExecutionSubstitution, GuardSubstitution, SnapshotSubstitution, ObservationSet, RetainedSnapshots, memoize_condition, memoize_observations};
 pub use declaration::declared_execution_properties;
 pub use implication::{
@@ -33,8 +33,9 @@ pub use implication::{
     remap_execution_condition_inputs, substitute_execution_condition,
 };
 pub use evidence::{ExecutionCallEvidence, UnprovenExecutionCondition};
+pub(crate) use evidence::ExecutionFailureRow;
 pub use deferred::{ExecutionDeferredInvocation, ExecutionDeferredValue};
-pub(crate) use deferred::{DeferredProducer, deferred_selection, deferred_possible};
+pub(crate) use deferred::{FrameReportOwner, deferred_selection, deferred_possible};
 pub use model::{
     DeclaredExecutionProperty, ExecutionCandidate, ExecutionCandidates,
     ExecutionCertification, ExecutionCleanup, ExecutionCompletionContract,

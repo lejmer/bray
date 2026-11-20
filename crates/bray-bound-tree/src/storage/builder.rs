@@ -456,6 +456,7 @@ impl StoragePlanBuilder {
                     | StorageBindingTarget::Local(_)
                     | StorageBindingTarget::PatternDiscard(_)
                     | StorageBindingTarget::PatternSubject(_)
+                    | StorageBindingTarget::ScopedResultPayload(_)
             );
         };
 
@@ -472,6 +473,10 @@ impl StoragePlanBuilder {
                 StorageBindingTarget::InvocationResult(crate::BoundExecutionSite::ScopedEnter(expected)),
                 Some(StorageIdentity::ScopedCapability { expression, .. }),
             ) => expected == expression,
+            (
+                StorageBindingTarget::ScopedResultReplacement(expected),
+                Some(StorageIdentity::ScopedResultReplacement(actual)),
+            ) => expected == actual,
             (
                 StorageBindingTarget::InvocationInput {
                     expression,

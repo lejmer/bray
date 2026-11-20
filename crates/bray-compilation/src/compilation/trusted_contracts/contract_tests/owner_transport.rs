@@ -636,7 +636,7 @@ fn consuming_transitions_introduce_child_owners_without_detaching_parent_authori
             }}
             struct Parent
             {{
-                marker: Marker;
+                mut marker: Marker;
                 mut child: Child;
             }}
             trusted predicate parent_owned(marker: &Marker);
@@ -672,12 +672,12 @@ fn consuming_transitions_introduce_child_owners_without_detaching_parent_authori
                 observe_parent(&owner);
                 return child;
             }}
-            trusted func take(pos owner: Parent, pos flag: bool) -> {result}
+            trusted func take(pos mut owner: Parent, pos flag: bool) -> {result}
                 requires(trusted parent_owned(&owner.marker))
                 ensures({guarantee})
                 uses(raw_memory)
             {{
-                return trusted core.memory.read<{result}>(core.memory.address_of<{result}>(&owner.{field}));
+                return trusted core.memory.read<{result}>(core.memory.address_of_mut<{result}>(&mut owner.{field}));
             }}
             func caller(pos owner: Parent, pos flag: bool) -> {result}
                 requires(trusted parent_owned(&owner.marker))

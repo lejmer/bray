@@ -133,15 +133,6 @@ impl InterfaceSemantics {
             .to_index()
             .expect("validated dependency index")];
 
-        if let Some(term) = result_dependencies.observed_result {
-            self.validate_execution_term(
-                term,
-                signature.parameters.len() + usize::from(signature.receiver.is_some()),
-                false,
-                surface,
-            )?;
-        }
-
         self.validate_captured_execution(result_dependencies,
             signature.parameters.len() + usize::from(signature.receiver.is_some()), surface)?;
 
@@ -381,41 +372,9 @@ impl InterfaceSemantics {
         let invalid =
             || crate::semantic::codec::invalid_value(crate::InterfaceValidationField::Reference);
 
-        let mut pending = condition
-            .into_iter()
-            .map(|term| (term, false))
-            .collect::<Vec<_>>();
-
-        let mut active = BTreeSet::new();
-        let mut complete = BTreeSet::new();
         let mut execution = false;
 
-        // This boundary can run before the value graph is validated. Traverse each
-        // reachable term once, retaining the active path to reject malformed cycles.
-        while let Some((id, exit)) = pending.pop() {
-            if exit {
-                active.remove(&id);
-                complete.insert(id);
-                continue;
-            }
-
-            if complete.contains(&id) {
-                continue;
-            }
-
-            if !active.insert(id) {
-                return Err(invalid());
-            }
-
-            let term = self
-                .constant_terms
-                .get(id.to_index().ok_or_else(invalid)?)
-                .ok_or_else(invalid)?;
-
-            pending.push((id, true));
-
-            let mut child = |id| pending.push((id, false));
-
+        self.visit_constant_term_graph(condition, |term, child| {
             match term {
                 Term::Typed { term, .. } => child(*term),
                 Term::Unary { operand, .. } | Term::Conversion { operand, .. } => child(*operand),
@@ -429,11 +388,11 @@ impl InterfaceSemantics {
                     child(*right);
                 }
                 Term::VariantTest { subject, .. } => child(*subject),
-                Term::Tuple(values) | Term::Array(values) => values.iter().copied().for_each(child),
+                Term::Tuple(values) | Term::Array(values) => values.iter().copied().for_each(&mut *child),
                 Term::Product(fields) | Term::Union { fields, .. } => {
-                    fields.iter().map(|field| *field.value()).for_each(child);
+                    fields.iter().map(|field| *field.value()).for_each(&mut *child);
                 }
-                Term::Call { arguments, .. } => arguments.iter().copied().for_each(child),
+                Term::Call { arguments, .. } => arguments.iter().copied().for_each(&mut *child),
                 Term::PredicateCall {
                     predicate,
                     arguments,
@@ -467,11 +426,11 @@ impl InterfaceSemantics {
                         child(condition);
                     }
 
-                    arguments.iter().copied().for_each(child);
+                    arguments.iter().copied().for_each(&mut *child);
                 }
                 Term::Projection { subject, kind } => {
                     child(*subject);
-                    kind.term_references().for_each(child);
+                    kind.term_references().for_each(&mut *child);
                 }
                 Term::Value(_)
                 | Term::IntegerLiteral { .. }
@@ -481,7 +440,8 @@ impl InterfaceSemantics {
                 | Term::DefinitionApplication { .. } => {}
                 Term::TraitConstant { .. } => {}
             }
-        }
+            Ok(())
+        })?;
 
         Ok(execution)
     }

@@ -163,6 +163,13 @@ pub(crate) struct Footprint {
 }
 
 impl Footprint {
+    pub(crate) fn references_below<'a>(&'a self, path: &'a StoragePath) -> impl Iterator<Item = (&'a StoragePath, TypeId)> {
+        let first = self.references.partition_point(|(candidate, _)| candidate < path);
+
+        self.references[first..].iter().take_while(move |(candidate, _)| path.contains(candidate))
+            .map(|(candidate, ty)| (candidate, *ty))
+    }
+
     pub(crate) fn typed_observations(&self, ty: TypeId) -> impl Iterator<Item = (&[StorageProjection], Observation)> {
         self.shapes.get(&ty).into_iter().flat_map(|shape| shape.observations.iter())
             .map(|(path, kind)| (path.as_slice(), *kind))
@@ -418,32 +425,21 @@ pub(crate) fn prepare<C: CheckerRequestContext + ?Sized>(
         unreachable!("footprint construction starts with its complete observation domain");
     };
 
+    // Logical clauses observe only fields actually projected by the expression.
+    // Expanding unrelated pointees would demand unrelated callable contracts.
+    let clause = matches!(storage.kind(), bray_bound_tree::BoundUnitKind::ContractClause
+        | bray_bound_tree::BoundUnitKind::PredicateDefinition);
+
     for (root, identity) in storage.identity_entries() {
         let access = storage.root_access(root);
+        let ty = storage.storage_type(root);
 
-        let Some(ty) = storage.storage_type(root) else {
-            if let Some(access) = access {
-                accesses.insert(access, vec![StoragePath::root(root)]);
-            }
-
-            continue;
-        };
-
-        // Logical clauses observe their enclosing context without owning or
-        // mutating its backing. Keep reference slots, and resolve only fields
-        // actually projected by the checked expression. Expanding every pointee
-        // here would demand the callable contracts of unrelated sibling fields.
-        if matches!(
-            storage.kind(),
-            bray_bound_tree::BoundUnitKind::ContractClause
-                | bray_bound_tree::BoundUnitKind::PredicateDefinition
-        ) {
+        if clause || ty.is_none() {
             let path = StoragePath::root(root);
 
-            if matches!(
-                request.semantic_values().type_data(ty).as_ref(),
-                TypeData::Borrow { .. }
-            ) {
+            if let Some(ty) = ty
+                && matches!(request.semantic_values().type_data(ty).as_ref(), TypeData::Borrow { .. })
+            {
                 footprint.references.push((path.clone(), ty));
             }
 
@@ -453,6 +449,8 @@ pub(crate) fn prepare<C: CheckerRequestContext + ?Sized>(
 
             continue;
         }
+
+        let ty = ty.expect("a represented root retains its storage type");
 
         let shared = match request.semantic_values().type_data(ty).as_ref() {
             TypeData::Borrow {
@@ -558,7 +556,18 @@ pub(crate) fn prepare<C: CheckerRequestContext + ?Sized>(
                 };
 
                 match observation {
-                    Observation::Reference(_) => None,
+                    Observation::Reference(_) => {
+                        if identity.is_invocation_owned(storage.kind())
+                            && StoragePath::inline_projections(projections)
+                            && !(0..projections.len()).any(|length| borrowed_paths.contains_key(&projections[..length]))
+                        {
+                            // A write to a sibling can reach the containing value without
+                            // changing this inline slot or the loan stored in it.
+                            footprint.owned_observations.entry(root).or_default().push((path, Observation::Identity));
+                        }
+
+                        None
+                    }
                     Observation::Identity | Observation::Marker(_) | Observation::Initialization => {
                         if shared.is_some()
                             || identity.is_invocation_owned(storage.kind())
@@ -636,6 +645,9 @@ pub(crate) fn prepare<C: CheckerRequestContext + ?Sized>(
             accesses.insert(access, paths);
         }
     }
+
+    // Each evaluated capture reads the prepared range for its storage path.
+    footprint.references.sort_by(|(left, _), (right, _)| left.cmp(right));
 
     Ok(footprint)
 }
@@ -1099,7 +1111,7 @@ pub(crate) fn restrict(
                     stable_pointees,
                 };
             }
-            StorageInvalidation::Paths(_) => return frame.clone(),
+            StorageInvalidation::Unchanged => return StorageInvalidation::Unchanged,
         };
 
     let intersect = |path: &StoragePath| {

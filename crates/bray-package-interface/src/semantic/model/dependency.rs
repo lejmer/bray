@@ -324,15 +324,18 @@ pub type InterfaceStorageEffect = bray_symbols::DependencyStorageEffect<
 pub type InterfaceNormalOutcome = bray_symbols::CapturedValueOutcome<InterfaceDependencySubject, InterfaceConstantTermId,
     InterfaceDependencyProjection, super::InterfaceStaticReference, InterfaceConstantTermId, super::InterfaceConstantProjection, InterfaceCapturedCallable, crate::InterfaceSymbolReference, InterfaceDependencyRequirement, InterfaceStorageEffect, InterfaceDependencySubject>;
 
+/// An evaluated value bound to its caller-visible storage destination.
+pub type InterfaceCapturedBinding = (InterfaceDependencySubject, bray_symbols::CapturedValueTemplate<InterfaceConstantTermId,
+    InterfaceDependencyProjection, super::InterfaceStaticReference, InterfaceCapturedCallable, crate::InterfaceSymbolReference>);
+
 /// One abnormal outcome using interface-local identities.
 pub type InterfaceFailureOutcome = bray_symbols::CapturedFailureOutcome<InterfaceConstantTermId,
-    Arc<[InterfaceDependencyRequirement]>, InterfaceStorageEffect>;
+    Arc<[InterfaceDependencyRequirement]>, InterfaceStorageEffect, InterfaceCapturedBinding>;
 
 /// One normalized portable dependency contract.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct InterfaceDependencyContract {
     pub(crate) captured_values: Arc<[InterfaceNormalOutcome]>,
-    pub(crate) observed_result: Option<super::InterfaceConstantTermId>,
     pub(crate) synchronous_cleanup: Arc<[InterfaceDependencyRequirement]>,
     pub(crate) normal_completion: bool,
     pub(crate) requirements: Arc<[InterfaceDependencyRequirement]>,
@@ -348,13 +351,6 @@ impl InterfaceDependencyContract {
         self
     }
 
-    /// Records the value observation without introducing storage identity or authority.
-    pub fn with_observed_result(mut self, result: Option<super::InterfaceConstantTermId>) -> Self {
-        self.observed_result = result;
-
-        self
-    }
-
     /// Creates a dependency contract in canonical requirement order.
     pub fn new(requirements: impl IntoIterator<Item = InterfaceDependencyRequirement>) -> Self {
         Self {
@@ -363,7 +359,6 @@ impl InterfaceDependencyContract {
             failure_outcomes: None,
             synchronous_cleanup: Arc::new([]),
             normal_completion: true,
-            observed_result: None,
             effects: sorted_unique_shared_slice(InterfaceStorageEffect::opaque_call()),
         }
     }
@@ -397,6 +392,8 @@ impl InterfaceDependencyContract {
             guard: None,
             report: Some(sorted_unique_shared_slice(requirements)),
             effects: None,
+            cell_changes: None,
+            writes: Arc::new([]),
         }]))
     }
 
@@ -408,15 +405,20 @@ impl InterfaceDependencyContract {
     }
 
     pub(crate) fn all_requirements(&self) -> impl Iterator<Item = &InterfaceDependencyRequirement> {
+        self.output_requirements().chain(self.synchronous_cleanup.iter())
+    }
+
+    pub(crate) fn output_requirements(&self) -> impl Iterator<Item = &InterfaceDependencyRequirement> {
         self.requirements
             .iter()
             .chain(
                 self.captured_values.iter().flat_map(|row| row.report.iter().flat_map(|requirements| requirements.iter())),
             )
+            .chain(self.captured_values.iter().flat_map(|row| row.report_payloads.iter())
+                .flat_map(|payload| payload.requirements.iter()))
             .chain(
                 self.failure_reports().flatten(),
             )
-            .chain(self.synchronous_cleanup.iter())
     }
 
     pub(crate) fn failure_reports(&self) -> impl Iterator<Item = &[InterfaceDependencyRequirement]> {
@@ -430,9 +432,10 @@ impl InterfaceDependencyContract {
         self
     }
 
-    pub(crate) fn normal_effects(&self) -> impl Iterator<Item = &InterfaceStorageEffect> {
-        self.effects.iter().filter(|_| self.normal_completion && self.captured_values.is_empty())
-            .chain(self.captured_values.iter().filter(|_| self.normal_completion).flat_map(|row| row.effects.iter()))
+    pub(crate) fn cell_changes(&self) -> impl Iterator<Item = &InterfaceStorageEffect> {
+        self.captured_values.iter().flat_map(|row| row.cell_changes.as_deref().into_iter().flatten())
+            .chain(self.failure_outcomes.as_deref().into_iter().flatten()
+                .flat_map(|row| row.cell_changes.as_deref().into_iter().flatten()))
     }
 
     /// Records cleanup that must be synchronous after generic substitution.

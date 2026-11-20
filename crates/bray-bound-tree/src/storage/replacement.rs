@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{ops::Range, sync::Arc};
 
 use bray_base::sorted_unique_shared_slice;
 
@@ -17,52 +17,6 @@ pub enum StorageReplacementState {
     Conditional,
 }
 
-/// Complete cleanup selection for one replacement destination.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub struct StorageReplacementPlan {
-    expression: BoundExpressionId,
-    access: StorageAccessId,
-    cleanup: AsyncStorageCleanupRequirement,
-    parts: Option<Arc<[StorageCleanupPart]>>,
-}
-
-impl StorageReplacementPlan {
-    /// Selects whole or represented-part cleanup before replacement installation.
-    pub fn new(
-        expression: BoundExpressionId,
-        access: StorageAccessId,
-        cleanup: AsyncStorageCleanupRequirement,
-        parts: Option<Vec<StorageCleanupPart>>,
-    ) -> Self {
-        Self {
-            expression,
-            access,
-            cleanup,
-            parts: parts.map(Into::into),
-        }
-    }
-
-    /// Returns the assignment whose old contents are resolved.
-    pub const fn expression(&self) -> BoundExpressionId {
-        self.expression
-    }
-
-    /// Returns the destination established before evaluating the new value.
-    pub const fn access(&self) -> StorageAccessId {
-        self.access
-    }
-
-    /// Returns the required old-value cleanup phases or exact recovery cause.
-    pub const fn cleanup(&self) -> AsyncStorageCleanupRequirement {
-        self.cleanup
-    }
-
-    /// Returns the complete partial-value partition, or no partition for whole cleanup.
-    pub fn parts(&self) -> Option<&[StorageCleanupPart]> {
-        self.parts.as_deref()
-    }
-}
-
 /// Checked destination state before old cleanup and replacement installation.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct StorageReplacementDecision {
@@ -73,6 +27,8 @@ pub struct StorageReplacementDecision {
     definitely_absent: Arc<[crate::StoragePath]>,
     root_initialized: bool,
     is_recovered: bool,
+    cleanup: AsyncStorageCleanupRequirement,
+    parts: Option<(Arc<[StorageCleanupPart]>, Range<usize>)>,
 }
 
 impl StorageReplacementDecision {
@@ -94,7 +50,39 @@ impl StorageReplacementDecision {
             definitely_absent: sorted_unique_shared_slice(definitely_absent),
             root_initialized,
             is_recovered,
+            cleanup: AsyncStorageCleanupRequirement::None,
+            parts: None,
         }
+    }
+
+    /// Attaches the reached old value's cleanup phases and represented parts.
+    pub fn with_cleanup_selection(
+        mut self,
+        cleanup: AsyncStorageCleanupRequirement,
+        parts: Option<(Arc<[StorageCleanupPart]>, Range<usize>)>,
+    ) -> Self {
+        assert!(parts.as_ref().is_none_or(|(partition, range)| range.start < range.end && range.end <= partition.len()),
+            "selected replacement parts belong to the checked partition");
+
+        self.cleanup = cleanup;
+        self.parts = parts;
+
+        self
+    }
+
+    /// Returns the required old-value cleanup phases or exact recovery cause.
+    pub const fn cleanup(&self) -> AsyncStorageCleanupRequirement {
+        self.cleanup
+    }
+
+    /// Returns the represented parts selected for partial-value cleanup.
+    pub fn parts(&self) -> Option<&[StorageCleanupPart]> {
+        self.parts.as_ref().map(|(parts, range)| &parts[range.clone()])
+    }
+
+    /// Returns the selected range in the owning storage's prepared cleanup partition.
+    pub fn part_range(&self) -> Option<Range<usize>> {
+        self.parts.as_ref().map(|(_, range)| range.clone())
     }
 
     /// Returns the source assignment.
@@ -173,13 +161,15 @@ mod tests {
         );
 
         let flow =
-            StorageFlow::try_new(unit, BoundUnitKind::CallableBody, [], [], [], [], [], false)
+            StorageFlow::try_new(unit, BoundUnitKind::CallableBody, [], [], [], [], false)
                 .expect("fixture storage flow must be valid")
                 .with_replacements([decision.clone()])
                 .expect("fixture `with_replacements` call must succeed");
 
         assert!(decision.root_initialized());
         assert_eq!(decision.definitely_absent(), &[moved]);
+        assert_eq!(flow.replacement(expression), Some(&decision));
+        assert!(flow.replacement(BoundExpressionId::from_slot(BoundUnitId::new(8), 3)).is_none());
         assert_eq!(flow.replacements(), &[decision]);
     }
 
@@ -200,7 +190,7 @@ mod tests {
         );
 
         let flow = || {
-            StorageFlow::try_new(unit, BoundUnitKind::CallableBody, [], [], [], [], [], false)
+            StorageFlow::try_new(unit, BoundUnitKind::CallableBody, [], [], [], [], false)
                 .expect("fixture storage flow must be valid")
         };
 

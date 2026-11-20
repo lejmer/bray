@@ -232,9 +232,8 @@ impl Lowerer<'_> {
         value: MirOperand,
         result_type: TypeId,
     ) -> Result<(MirBlockId, MirOperand, MirBlockId, MirOperand), LoweringError> {
-        let (types, representation) = crate::operand::result_payloads(
+        let (types, representation) = self.input.available_compiler_known_symbols().result_payloads(
             self.input.semantic_values(),
-            self.input.available_compiler_known_symbols(),
             result_type,
         )
         .expect("checked Result branch retains its payload representation");

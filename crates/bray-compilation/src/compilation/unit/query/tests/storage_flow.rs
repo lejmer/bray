@@ -8,6 +8,215 @@ use bray_diagnostics::{
 use bray_testing::assert_goal_state_diagnostic_kind;
 
 #[test]
+fn storage_errors_in_both_branches_publish_in_graph_order() {
+    let source = r#"
+        module app;
+
+        struct Token { value: i32; }
+
+        func caller(pos choose: bool)
+        {
+            if choose
+            {
+                let left: Token = Token { value = 1 };
+                let moved: Token = left;
+                assert(left matches { value = 1 });
+            }
+            else
+            {
+                let right: Token = Token { value = 2 };
+                let moved: Token = right;
+                assert(right matches { value = 2 });
+            }
+        }
+    "#;
+
+    let compilation = compilation(source);
+    let key = crate::test_support::source_function_body_key(&compilation, "caller");
+    let checked = compilation.storage_flow(key).expect("fixture caller checks storage");
+
+    let rejected = checked.diagnostics().errors().enumerate().map(|(index, diagnostic)| {
+        assert_eq!(diagnostic.kind(), DiagnosticKind::CheckingUseOfMovedStorage);
+        assert_eq!(diagnostic.id(), bray_diagnostics::DiagnosticId::from_index(index));
+
+        let [origin] = diagnostic.related_locations() else {
+            panic!("moved use has one origin: {diagnostic:?}");
+        };
+
+        assert_eq!(origin.kind(), DiagnosticRelatedLocationKind::MoveOrigin);
+
+        (
+            diagnostic.primary_span().expect("rejected move has a source span").start().bytes() as usize,
+            origin.span().start().bytes() as usize,
+        )
+    }).collect::<Vec<_>>();
+
+    let expected = ["left", "right"].map(|name| {
+        let assertion = format!("assert({name} matches");
+
+        let moved = format!("let moved: Token = {name};");
+
+        (
+            source.find(&assertion).expect("fixture observes the moved owner") + "assert(".len(),
+            source.find(&moved).expect("fixture moves the owner") + "let moved: Token = ".len(),
+        )
+    });
+
+    assert_eq!(rejected, expected);
+}
+
+#[test]
+fn repeated_scoped_exit_operations_capture_the_actual_borrow_separately() {
+    let source = r#"
+        module app;
+
+        struct Flag { ready: bool; }
+
+        struct Lease
+        {
+            mut current: &Flag;
+            mut expected: bool;
+        }
+
+        struct Resource
+        {
+            initial: &Flag;
+
+            enter() -> Lease executes(total)
+            {
+                return Lease { current = self.initial, expected = true };
+            }
+
+            exit(pos lease: Lease)
+                requires(lease.current.ready == lease.expected)
+                executes(total)
+            {
+            }
+        }
+
+        func caller(pos first: &Flag, pos second: &Flag, pos stop: bool)
+            requires(first.ready, !second.ready)
+            executes(total)
+        {
+            let resource = Resource { initial = first };
+
+            _ = with mut lease = resource
+            {
+                if stop
+                {
+                    lease.current = second;
+                    lease.expected = $EXPECTED;
+                    return;
+                }
+                yield unit;
+            };
+        }
+    "#;
+
+    for expected in [false, true] {
+        let source = source.replace("$EXPECTED", if expected { "true" } else { "false" });
+        let compilation = compilation(&source);
+        let key = crate::test_support::source_function_body_key(&compilation, "caller");
+        let checked = compilation.storage_flow(key.clone()).expect("fixture caller checks storage");
+
+        assert!(!checked.diagnostics().has_errors(), "{:?}", checked.diagnostics());
+
+        let origins = checked.value().input_admissions().flat_map(|(_, _, captures)| captures)
+            .flat_map(|capture| {
+                capture.value.component_projections().filter_map(move |projection| {
+                    capture.value.project(projection).known_address().map(|address| address.origin.clone())
+                })
+            }).collect::<std::collections::BTreeSet<_>>();
+
+        let plan = compilation.storage_plan(key.clone()).expect("fixture caller plans its inputs");
+        let values = compilation.semantic_value_store().expect("fixture types are checked");
+
+        let endpoints = plan.value().identity_entries().filter_map(|(id, identity)| {
+            if !matches!(identity, bray_bound_tree::StorageIdentity::Parameter(_)) { return None; }
+
+            let ty = plan.value().identity_type(id).expect("parameter has its checked type");
+
+            matches!(values.type_data(ty).as_ref(), bray_symbols::TypeData::Borrow { .. }).then(|| {
+                bray_bound_tree::StorageOrigin::entry(bray_bound_tree::StoragePath::root(id), bray_symbols::DependencyReferenceKind::Borrow)
+            })
+        }).collect::<std::collections::BTreeSet<_>>();
+
+        assert_eq!(endpoints.len(), 2);
+        assert_eq!(origins, endpoints);
+
+        let execution = compilation.execution_properties(key).expect("fixture caller checks totality");
+
+        assert_eq!(execution.value().properties.contains(&bray_symbols::ExecutionProperty::Total), !expected);
+
+        let errors = execution.diagnostics().errors().collect::<Vec<_>>();
+
+        if expected {
+            let [error] = errors.as_slice() else {
+                panic!("the mismatched exit rejects the caller's totality: {errors:?}");
+            };
+
+            assert_eq!(error.kind(), DiagnosticKind::CheckingExecutionGuaranteeNotProven);
+
+            assert_eq!(
+                error.primary_span().expect("totality rejection has a source span").start().bytes() as usize,
+                source.rfind("executes(total)").expect("caller declares totality") + "executes(".len(),
+            );
+        } else {
+            assert!(errors.is_empty(), "{errors:?}");
+        }
+    }
+}
+
+#[test]
+fn a_panicking_call_keeps_its_checked_inputs_without_a_normal_completion() {
+    let compilation = compilation(
+        r#"
+        module app;
+
+        func stop(pos value: &i32)
+        {
+            _ = value;
+            panic("stop");
+        }
+
+        func caller(pos input: &i32)
+        {
+            stop(input);
+        }
+        "#,
+    );
+
+    let key = crate::test_support::source_function_body_key(&compilation, "caller");
+    let bound = compilation.bound_unit(key.clone()).expect("fixture caller binds");
+
+    let invocation = bound.value().tree().expressions()
+        .find_map(|(expression, bound)| matches!(bound, bray_bound_tree::BoundExpression::Call(_)).then_some(expression.into()))
+        .expect("fixture caller invokes stop");
+
+    let checked = compilation.storage_flow(key).expect("fixture caller checks storage");
+
+    assert!(!checked.diagnostics().has_errors(), "{:?}", checked.diagnostics());
+
+    let flow = checked.value();
+
+    assert!(!flow.invocation_completes(invocation));
+
+    let mut inputs = flow.input_admissions().filter_map(|(point, producer, captures)|
+        (producer.is_none() && !captures.is_empty()).then_some((point, captures)));
+
+    let (_, captures) = inputs.next().expect("the reached call captured its input");
+
+    assert!(inputs.next().is_none());
+
+    let [capture] = captures else {
+        panic!("stop has one input");
+    };
+
+    assert_eq!(capture.input, bray_symbols::SymbolOrdinal::new(0));
+    assert!(capture.value.known_address().is_some());
+}
+
+#[test]
 fn normal_reports_follow_calls_and_consumed_futures() {
     for (execution, invocation) in [
         ("", "collect"),
@@ -180,6 +389,7 @@ fn recursive_inactive_cleanup_report_dependencies_remain_finite() {
         module app;
         struct Wrapper<T> { value: T; }
         async func hold<T>(pos value: T) {}
+        extern func choose() -> bool;
         func discard<T>(pos value: T, pos stop: bool) {
             if stop {
                 let pending = hold<T>(value);
@@ -189,12 +399,29 @@ fn recursive_inactive_cleanup_report_dependencies_remain_finite() {
             discard<Wrapper<T>>(wrapped, stop);
         }
         func caller() { discard<i32>(1, true); }
+        func collect<T>(pos value: T, pos stop: bool) -> Result<unit, PanicReport> {
+            if stop {
+                return catch {
+                    let pending = hold<T>(value);
+                    if choose() { panic("abandon pending computation"); }
+                };
+            }
+            let wrapped: Wrapper<T> = { value = value };
+            return collect<Wrapper<T>>(wrapped, choose());
+        }
+        func observe() { _ = collect<i32>(1, true); }
     "#,
     );
 
     let diagnostics = application.check_diagnostics();
 
     assert!(!diagnostics.has_errors(), "{diagnostics:#?}");
+
+    let summary = crate::compilation::result_dependencies::source_function_dependencies(&application, "collect");
+
+    assert!(summary.captured_values().iter().any(|row| {
+        row.report_payloads.iter().any(|payload| !payload.requirements.is_empty())
+    }), "{summary:#?}");
 }
 
 #[test]
@@ -225,6 +452,7 @@ fn inactive_generic_cleanup_reports_retain_capture_dependencies() {
             func discard<T>(pos value: T)
             {
                 let pending: FutureType = hold<T>(value);
+                panic("abandon pending computation");
             }
 
             func caller(pos input: &bool)
@@ -256,11 +484,14 @@ fn inactive_generic_cleanup_reports_retain_capture_dependencies() {
                 "caller",
             );
 
-            assert!(
-                summary
-                    .completion_reports()
-                    .is_some_and(|requirements| !requirements.is_empty())
-            );
+            assert!(!summary.normal_completion(), "{summary:?}");
+
+            assert!(summary.failure_outcomes().is_some_and(|outcomes| {
+                outcomes.iter().any(|row| {
+                    row.kind == Some(bray_symbols::DependencyFailureKind::Panic)
+                        && row.report.as_ref().is_some_and(|requirements| !requirements.is_empty())
+                })
+            }), "{summary:?}");
         }
     }
 }
@@ -862,16 +1093,12 @@ fn storage_flow_accepts_mutation_through_mutable_borrow_parameter() {
         Err(error) => panic!("storage-flow checking must publish: {error:?}"),
     };
 
-    assert!(
-        analysis.value().operations().iter().all(|operation| {
-            !matches!(
-                operation.status(),
-                bray_bound_tree::StorageOperationStatus::MissingMutationAuthority
-                    | bray_bound_tree::StorageOperationStatus::ConflictingBorrow
-            )
-        }),
-        "{analysis:?}"
-    );
+    assert!(!analysis.diagnostics().has_errors(), "{analysis:?}");
+
+    assert!(analysis.value().operations().iter().any(|operation| {
+        operation.purpose() == StorageAccessPurpose::Assignment
+            && operation.status() == bray_bound_tree::StorageOperationStatus::Valid
+    }), "{analysis:?}");
 }
 
 #[test]
@@ -1107,28 +1334,38 @@ fn storage_flow_allows_assignment_to_reinitialize_moved_storage() {
         "    let mut resource: Resource = Resource { value = 1 };\n",
         "    let moved: Resource = resource;\n",
         "    resource = Resource { value = 2 };\n",
-        "    resource;\n",
-        "    moved;\n",
+        "    let current: i32 = resource.value;\n",
+        "    let previous: i32 = moved.value;\n",
         "}\n",
     ));
 
     let key = source_callable_body_key(&compilation);
+
+    let plan = compilation.storage_plan(key.clone()).expect("resource has checked storage");
 
     let analysis = match compilation.storage_flow(key) {
         Ok(analysis) => analysis,
         Err(error) => panic!("storage-flow checking must publish: {error:?}"),
     };
 
-    assert!(
-        analysis.value().operations().iter().all(|operation| {
-            !matches!(
-                operation.status(),
-                bray_bound_tree::StorageOperationStatus::Uninitialized
-                    | bray_bound_tree::StorageOperationStatus::Moved
-            )
-        }),
-        "{analysis:?}"
-    );
+    assert!(!analysis.diagnostics().has_errors(), "{analysis:?}");
+
+    let operations = analysis.value().operations();
+
+    let assignment = operations.iter().find(|operation| {
+        operation.purpose() == StorageAccessPurpose::Assignment
+            && operation.status() == bray_bound_tree::StorageOperationStatus::Valid
+    }).expect("assignment reinitializes the moved owner");
+
+    let root = plan.value().root_identity(assignment.access()).expect("assignment targets local storage");
+
+    for purpose in [StorageAccessPurpose::Move, StorageAccessPurpose::Copy] {
+        assert!(operations.iter().any(|operation| {
+            operation.purpose() == purpose
+                && operation.status() == bray_bound_tree::StorageOperationStatus::Valid
+                && plan.value().root_identity(operation.access()) == Some(root)
+        }), "{purpose:?}: {analysis:?}");
+    }
 }
 
 #[test]

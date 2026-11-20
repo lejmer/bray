@@ -1,60 +1,22 @@
 use bray_diagnostics::{DiagnosticKind};
 use crate::test_support::{source_function_body_key, source_module_function_body_key};
-use super::fixtures::{assert_production_contract, diagnostic_at_call, production_host_compilation};
+use super::fixtures::{assert_production_probes, assert_production_contract, diagnostic_at_call, production_host_compilation};
 
 #[test]
 #[ignore = "tier:proof"]
 fn native_report_addresses_retain_authority_only_for_the_unchanged_owner() {
-    for (body, valid) in [
-        (
-            "let callbacks = bray.runtime.bootstrap.primary_callbacks(&primary);",
-            true,
-        ),
-        (
-            "other.message_length = 0; let callbacks = bray.runtime.bootstrap.primary_callbacks(&primary);",
-            true,
-        ),
-        (
-            "primary.release_message = 0; let callbacks = bray.runtime.bootstrap.primary_callbacks(&primary);",
-            false,
-        ),
-        (
-            "let mut forged = bray.runtime.bootstrap.empty_primary(); forged.release_message = primary.release_message; let callbacks = bray.runtime.bootstrap.primary_callbacks(&forged);",
-            false,
-        ),
-    ] {
-        let compilation = production_host_compilation(&format!(
-            r#"
-            trusted internal module bray.runtime.bootstrap;
-            trusted func production_probe(
-                pos mut primary: bray.runtime.bootstrap.ReportPrimary,
-                pos other: &mut bray.runtime.bootstrap.ReportPrimary,
-            )
-                requires(trusted bray.runtime.bootstrap.native_primary_callbacks(primary = &primary))
-            {{
-                {body}
-            }}
-        "#,
-        ));
+    let missing = Some(DiagnosticKind::CheckingTrustedObligationNotProven);
 
-        let lowered = compilation
-            .lowered_unit(source_function_body_key(&compilation, "production_probe"))
-            .expect("fixture callable must lower successfully");
-
-        assert_eq!(
-            !lowered.diagnostics().has_errors(),
-            valid,
-            "{body}: {:?}",
-            lowered.diagnostics()
-        );
-
-        if !valid {
-            bray_testing::assert_goal_state_diagnostic_kind(
-                lowered.diagnostics(),
-                DiagnosticKind::CheckingTrustedObligationNotProven,
-            );
-        }
-    }
+    assert_production_probes(
+        include_str!("fixtures/primary-callback-ownership.bray"),
+        &[
+            ("probe_primary_callbacks_admitted", None),
+            ("probe_primary_callbacks_independent_mutation", None),
+            ("probe_primary_callbacks_mutated", missing),
+            ("probe_primary_callbacks_copied", missing),
+        ],
+        &[],
+    );
 }
 
 #[test]
@@ -184,55 +146,19 @@ fn incident_outcome_destinations_require_distinct_exclusive_borrows() {
 #[test]
 #[ignore = "tier:proof"]
 fn source_report_chain_requires_unchanged_exclusive_ownership() {
-    for (body, valid) in [
-        ("let owner = admit(2);", true),
-        (
-            "let owner: Owner = { records = bray.runtime.bootstrap.ReportRecords { head = 1, tail = 1, count = 1 }, status = 0 };",
-            false,
-        ),
-        (
-            "let owner = admit(2); let copied: Owner = { records = owner.records, status = owner.status };",
-            false,
-        ),
-        (
-            "let mut owner = admit(2); owner.records.head = 1;",
-            false,
-        ),
-        (
-            "let mut owner = admit(2); let other = admit(2); owner.records = other.records;",
-            false,
-        ),
-    ] {
-        let source = format!(
-            r#"
-            trusted internal module bray.runtime.bootstrap.report.chain;
-            using internal bray.runtime.bootstrap;
-            func production_probe()
-            {{
-                {body}
-            }}
-        "#
-        );
+    let missing = Some(DiagnosticKind::CheckingTrustedObligationNotProven);
 
-        let compilation = production_host_compilation(&source);
-
-        let checked = compilation
-            .lowered_unit(source_function_body_key(&compilation, "production_probe"))
-            .expect("fixture callable must lower successfully");
-
-        assert_eq!(
-            !checked.diagnostics().has_errors(),
-            valid,
-            "{body}: {checked:#?}"
-        );
-
-        if !valid {
-            bray_testing::assert_goal_state_diagnostic_kind(
-                checked.diagnostics(),
-                DiagnosticKind::CheckingTrustedObligationNotProven,
-            );
-        }
-    }
+    assert_production_probes(
+        include_str!("fixtures/report-chain-ownership.bray"),
+        &[
+            ("probe_report_chain_admitted", None),
+            ("probe_report_chain_fabricated", missing),
+            ("probe_report_chain_copied", missing),
+            ("probe_report_chain_mutated", missing),
+            ("probe_report_chain_replaced", missing),
+        ],
+        &[],
+    );
 }
 
 #[test]

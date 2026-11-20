@@ -401,7 +401,6 @@ trusted internal func platform_path_metadata_value(pos path: PlatformPath) -> Re
     }
 }
 
-@copy
 @layout(c)
 internal struct NativeWindowsDirectory
 {
@@ -654,30 +653,30 @@ trusted internal func native_directory_close_handle(
     pos handle: u64,
     pos terminal: bool
 ) -> (std.platform.PlatformStatus, bool)
-    uses(foreign_call, raw_memory)
+    uses(foreign_call, raw_memory, unchecked_init)
 {
-    let pointer: DataPointer<NativeWindowsDirectory> = trusted native_windows_directory_pointer(handle);
-    let native: NativeWindowsDirectory = trusted std.memory.read<NativeWindowsDirectory>(pointer);
+    let pointer = trusted native_windows_directory_pointer(handle);
+    let native = trusted std.memory.read<NativeWindowsDirectory>(pointer);
 
-    if trusted std.os.windows.find_close(trusted internal std.platform.handle_pointer(native.handle)) == 0
+    let status = if trusted std.os.windows.find_close(trusted internal std.platform.handle_pointer(native.handle)) == 0
     {
         let status: std.platform.PlatformStatus = trusted internal std.platform.windows_error_status();
 
-        if terminal
+        if !terminal
         {
-            let current: DataPointer<NativeWindowsDirectory> = trusted native_windows_directory_pointer(handle);
-
-            trusted internal std.memory.deallocate_value<NativeWindowsDirectory>(current);
-            return (status, true);
+            trusted std.memory.write<NativeWindowsDirectory>(pointer, native);
+            return (status, false);
         }
 
-        return (status, false);
+        yield status;
     }
+    else
+    {
+        yield internal std.platform.success_status();
+    };
 
-    let current: DataPointer<NativeWindowsDirectory> = trusted native_windows_directory_pointer(handle);
-
-    trusted internal std.memory.deallocate_value<NativeWindowsDirectory>(current);
-    return (internal std.platform.success_status(), true);
+    trusted internal std.memory.deallocate_value<NativeWindowsDirectory>(pointer);
+    return (status, true);
 }
 
 internal func windows_metadata(

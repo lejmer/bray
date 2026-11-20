@@ -1,0 +1,33 @@
+trusted internal module bray.runtime.bootstrap.host.attachment;
+
+func probe_attachment_cleanup()
+    requires(trusted native_acquisition())
+{
+    let owner = trusted acquire();
+}
+
+func probe_attachment_finish()
+    requires(trusted native_acquisition())
+{
+    let owner = trusted acquire();
+    _ = trusted finish(owner);
+}
+
+func probe_attachment_mutated()
+    requires(trusted native_acquisition())
+{
+    let mut owner = trusted acquire();
+    owner.identity = 1;
+}
+
+func probe_attachment_copied()
+    requires(trusted native_acquisition())
+{
+    let owner = trusted acquire();
+
+    let copied: Owner =
+    {
+        status = owner.status,
+        identity = owner.identity,
+    };
+}

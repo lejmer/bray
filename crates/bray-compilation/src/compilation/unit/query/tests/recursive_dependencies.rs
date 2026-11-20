@@ -771,14 +771,14 @@ fn awaiting_a_future_consumes_it_and_unawaited_frames_remain_owned() {
 
     let key = crate::test_support::source_function_body_key(&valid, "caller");
 
-    let analysis = valid
-        .async_analysis(key)
-        .expect("fixture callable must complete async analysis");
+    let flow = valid
+        .storage_flow(key)
+        .expect("fixture callable must publish reached cleanup");
 
     assert!(
-        analysis
+        flow
             .value()
-            .scope_exits()
+            .exits()
             .iter()
             .any(|exit| !exit.lifecycle_resolution().is_empty())
     );

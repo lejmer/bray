@@ -33,6 +33,20 @@ impl StoragePath {
             && StorageProjection::remains_in_allocation(&other.projections[self.projections.len()..])
     }
 
+    /// Expresses a known subpath relative to another base with the same value shape.
+    pub fn rebase(&self, source: &Self, destination: &Self) -> Option<Self> {
+        if self.root != source.root {
+            return None;
+        }
+
+        let suffix = self.projections.strip_prefix(source.projections.as_ref())?;
+
+        Some(Self {
+            root: destination.root,
+            projections: destination.projections.iter().chain(suffix).copied().collect(),
+        })
+    }
+
     /// Compares value slots without following references held in those slots.
     pub fn relationship(&self, other: &Self) -> StorageRelationship {
         if self.root != other.root {

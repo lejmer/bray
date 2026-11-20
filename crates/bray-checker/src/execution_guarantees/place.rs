@@ -8,6 +8,22 @@ pub(crate) trait ExecutionValues {
     fn get_value(&self, place: &ExecutionPlace) -> Option<&super::ExecutionCondition>;
     fn get_value_mut(&mut self, place: &ExecutionPlace) -> Option<&mut super::ExecutionCondition>;
 
+    fn value_at(&self, place: &ExecutionPlace) -> Option<super::ExecutionCondition> {
+        for length in (0..=place.projections.len()).rev() {
+            let prefix = ExecutionPlace {
+                root: place.root.clone(),
+                projections: place.projections[..length].into(),
+            };
+
+            if let Some(value) = self.get_value(&prefix) {
+                return Some(place.projections[length..].iter().copied()
+                    .fold(value.clone(), super::ExecutionCondition::component));
+            }
+        }
+
+        None
+    }
+
     /// Declaration normalization may introduce an unbound formal once. An
     /// execution-state reader must not recover an entry after losing its value.
     fn formal_input(&self, place: &ExecutionPlace) -> Option<super::ExecutionCondition> {
@@ -284,16 +300,7 @@ impl ExecutionPlace {
                     }))
                 {
                     reference
-                } else if matches!(
-                    kind,
-                    bray_bound_tree::StorageIdentity::LocalOwned(_)
-                        | bray_bound_tree::StorageIdentity::Temporary(_)
-                        | bray_bound_tree::StorageIdentity::Evaluated(_)
-                        | bray_bound_tree::StorageIdentity::Result(_)
-                        | bray_bound_tree::StorageIdentity::InvocationInput { .. }
-                        | bray_bound_tree::StorageIdentity::InvocationResult(_)
-                        | bray_bound_tree::StorageIdentity::ScopedCapability { .. }
-                ) {
+                } else if Self::tracks_local_storage(&kind) {
                     return Some(Self {
                         root: ExecutionInput::Storage(identity),
                         projections: Arc::new([]),
@@ -305,6 +312,19 @@ impl ExecutionPlace {
         };
 
         Some(Self::from(root))
+    }
+
+    pub(crate) fn tracks_local_storage(kind: &bray_bound_tree::StorageIdentity) -> bool {
+        matches!(kind,
+            bray_bound_tree::StorageIdentity::LocalOwned(_)
+                | bray_bound_tree::StorageIdentity::Temporary(_)
+                | bray_bound_tree::StorageIdentity::Evaluated(_)
+                | bray_bound_tree::StorageIdentity::Result(_)
+                | bray_bound_tree::StorageIdentity::InvocationInput { .. }
+                | bray_bound_tree::StorageIdentity::InvocationResult(_)
+                | bray_bound_tree::StorageIdentity::ScopedCapability { .. }
+                | bray_bound_tree::StorageIdentity::ScopedResultReplacement(_)
+        )
     }
 
     pub(crate) fn project(
@@ -360,25 +380,7 @@ impl ExecutionPlace {
         &self,
         values: &(impl ExecutionValues + ?Sized),
     ) -> Option<super::ExecutionCondition> {
-        for length in (0..=self.projections.len()).rev() {
-            let prefix = Self {
-                root: self.root.clone(),
-                projections: self.projections[..length].into(),
-            };
-
-            if let Some(value) = values.get_value(&prefix) {
-                // Component projections retain the same immutable snapshot as their containing value.
-                let mut value = value.clone();
-
-                for projection in self.projections.iter().skip(length) {
-                    value = value.component(*projection);
-                }
-
-                return Some(value);
-            }
-        }
-
-        None
+        values.value_at(self)
     }
 
     pub(crate) fn component(mut self, projection: ConstantProjectionKind) -> Self {
@@ -416,10 +418,6 @@ impl ExecutionPlace {
 
             places.contains(&prefix)
         })
-    }
-
-    pub(crate) fn overlaps(&self, other: &Self) -> bool {
-        self.contains(other) || other.contains(self)
     }
 }
 

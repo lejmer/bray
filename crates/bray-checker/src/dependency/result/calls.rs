@@ -158,62 +158,6 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
         })
     }
 
-    pub(crate) fn exit_values(
-        &self,
-        scoped: &bray_bound_tree::SelectedScopedUse,
-    ) -> Result<BTreeSet<DependencyRequirement>, CheckerQueryError<C::UpstreamError>> {
-        let instance = scoped.exit().0;
-
-        let template = self
-            .request
-            .callable_result_dependencies(instance.definition().callable_symbol())?;
-
-        let template = crate::dependency::returned::resolved_result_template(
-            self.request,
-            Some(instance),
-            template,
-            None,
-        )?;
-
-        self.map_exit_values(scoped, template.requirements())
-    }
-
-    fn map_exit_values(
-        &self,
-        scoped: &bray_bound_tree::SelectedScopedUse,
-        requirements: &[DependencyRequirement],
-    ) -> Result<BTreeSet<DependencyRequirement>, CheckerQueryError<C::UpstreamError>> {
-        let input = self.scoped_values(scoped)?;
-
-        Ok(
-            crate::dependency::witness::map_requirements::<std::convert::Infallible>(requirements, &mut |subject, kind, _| {
-                if subject.subject_root()
-                    != bray_symbols::DependencySubjectRoot::Parameter(
-                        bray_symbols::SymbolOrdinal::new(0),
-                    )
-                {
-                    return Ok(vec![DependencyRequirement::direct(subject.clone(), kind)]);
-                }
-
-                if kind == DependencyRequirementKind::ValueDependencies {
-                    // The returned capability's dependencies already describe the entry result.
-                    // Keeping the whole set is conservative when its payload has several fields.
-                    Ok(input.iter().cloned().collect())
-                } else {
-                    Ok(vec![DependencyRequirement::direct(
-                        bray_symbols::DependencySubject::root(
-                            bray_symbols::DependencySubjectRoot::EvaluationStorage,
-                        ),
-                        kind,
-                    )])
-                }
-            })
-            .expect("exit requirements retain checked variable binding")
-            .into_iter()
-            .collect(),
-        )
-    }
-
     pub(crate) fn report_values(
         &self,
         occurrence: bray_bound_tree::BoundExecutionSite,

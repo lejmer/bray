@@ -2,8 +2,9 @@ use std::collections::BTreeMap;
 
 use bray_bound_tree::{
     BoundDependencyContract, BoundDependencyRequirement, BoundDependencyRequirementKind,
-    BoundDependencySubject, CheckedDependencyContracts, CheckedSemanticSelections,
-    DependencyContractInstantiationError, SemanticSelection, StoragePlan,
+    BoundDependencySubject, BoundExecutionSite, BoundExpression, CheckedDependencyContracts,
+    CheckedSemanticSelections, DependencyContractInstantiationError, SemanticSelection,
+    StorageAccessPurpose, StorageIdentityId, StoragePlan,
 };
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{CallableSignatureQuery, ExactSymbolId};
@@ -283,7 +284,8 @@ where
     .expect(
         "checked source access plans and selected invocations define valid dependency contracts",
     )
-    .with_lifecycle_dependencies(lifecycle_dependencies);
+    .with_lifecycle_dependencies(lifecycle_dependencies)
+    .with_lifecycle_dependencies_from_storage(storage, lifecycle_storage_sources(request, storage));
 
     let prepared = super::conditions::references(request).and_then(|references| {
         prepare_static_carriers(request, contracts.with_condition_references(references))
@@ -307,6 +309,27 @@ where
         Err(CheckerQueryError::Cancelled) => CheckerOutcome::Cancelled,
         Err(CheckerQueryError::Upstream(error)) => CheckerOutcome::UpstreamFailure(error),
     }
+}
+
+fn lifecycle_storage_sources<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
+    storage: &StoragePlan,
+) -> BTreeMap<BoundExecutionSite, Vec<StorageIdentityId>> {
+    let mut sources = crate::storage::value_transfer_destinations(request, storage);
+
+    for plan in storage.access_plans().iter().filter(|plan| plan.purpose() == StorageAccessPurpose::Assignment) {
+        let Some(root) = storage.root_identity(plan.access()) else { continue; };
+
+        let Some(BoundExpression::Assignment(assignment)) = request.view().expression(plan.expression()) else { continue; };
+
+        let [_, source] = assignment.operands() else { continue; };
+
+        let source = if assignment.operator().binary_operator().is_some() { plan.occurrence() } else { (*source).into() };
+
+        sources.entry(source).or_default().push(root);
+    }
+
+    sources
 }
 
 fn borrow_requirements(
@@ -421,10 +444,16 @@ where C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQ
     let mut callees = BTreeMap::new();
     let values = request.semantic_values();
 
-    let bindings = contracts.calls().values().flat_map(|call| call.captured_values())
-        .chain(contracts.lifecycle_dependencies().values().flat_map(|contract| contract.captured_values()));
+    let bindings = contracts.calls().values().flat_map(|call| {
+        call.captured_values().iter().flat_map(|row| row.bindings.iter())
+            .chain([Some(call.reports()), call.deferred_reports()].into_iter().flatten()
+                .flat_map(|reports| reports.failures().into_iter().flatten()).flat_map(|row| row.writes.iter()))
+    }).chain(contracts.lifecycle_dependencies().values().flat_map(|contract| {
+        contract.captured_values().iter().flat_map(|row| row.bindings.iter())
+            .chain(contract.failure_outcomes().into_iter().flatten().flat_map(|row| row.writes.iter()))
+    }));
 
-    for callee in bindings.flat_map(|outcome| outcome.bindings.iter()).flat_map(|(_, value)| value.callees()) {
+    for callee in bindings.flat_map(|(_, value)| value.callees()) {
         if callees.contains_key(callee) { continue; }
 
         let instance = values.callable_instance_data(callee.instance);
@@ -452,8 +481,28 @@ where C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQ
             panic!("a carried selection retains its checked callable signature");
         };
 
-        let storage = super::prepare_call_storage(request, &summary, [], [], |subject| {
-            use bray_symbols::DependencySubjectRoot;
+        let execution = signature.dependency_contracts().deferred_execution()
+            .map(|contract| values.dependency_contract_template_data(contract));
+
+        use bray_symbols::DependencySubjectRoot;
+
+        let captures = callee.receiver.map(|ty| (DependencySubjectRoot::Receiver, ty))
+            .into_iter()
+            .chain(signature.parameters().iter().enumerate().map(|(index, parameter)| {
+                let ordinal = bray_symbols::SymbolOrdinal::new(u32::try_from(index).expect("checked parameter ordinal fits"));
+
+                (DependencySubjectRoot::Parameter(ordinal), parameter.ty())
+            })).collect::<Vec<_>>();
+
+        let (capture_cleanup, result_cleanup) = super::cleanup::prepare_future_effects(
+            request, captures.iter().copied(), signature.result(),
+        )?;
+
+        let execution_subjects = execution.iter().flat_map(|contract| contract.requirement_subjects());
+
+        let cleanup = capture_cleanup.iter().chain(&result_cleanup);
+
+        let storage = super::prepare_call_storage(request, &summary, cleanup, execution_subjects, [], |subject| {
 
             let root = subject.subject_root();
 
@@ -472,8 +521,13 @@ where C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQ
         })?;
 
         callees.insert(callee.clone(), bray_bound_tree::BoundDeferredCallable {
+            instance,
             storage,
-            summary: values.intern_dependency_contract_template(summary.as_ref().clone()).expect("selected body belongs to its store"),
+            capture_types: captures.iter().map(|(_, ty)| *ty).collect(),
+            capture_cleanup: capture_cleanup.into(),
+            result_cleanup: result_cleanup.into(),
+            summary,
+            execution,
             hook: request.implementation_hook(instance.definition().symbol())?
                 .filter(|resolution| resolution.is_available()).map(|resolution| resolution.hook()),
         });

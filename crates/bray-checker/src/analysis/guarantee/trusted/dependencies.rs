@@ -1,5 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
+use bray_bound_tree::{BoundCallReference, BoundExecutionSite};
+
 use super::super::flow::ExecutionFlowDomain;
 use super::observations::GuaranteeSource;
 use crate::{CheckerRequestContext, ExecutionCondition};
@@ -8,7 +10,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     /// Classifies actual value lifetimes separately from raw-address access.
     pub(super) fn result_guarantee_owners(
         &self,
-        invocation: bray_bound_tree::BoundExecutionSite,
+        (invocation, references): (BoundExecutionSite, &[BoundCallReference]),
         entry: &BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
         guarantee: &ExecutionCondition,
         owning: bool,
@@ -30,7 +32,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let mut retained = BTreeSet::new();
 
         let mut addresses = self.input_guarantee_addresses(
-            invocation,
+            (invocation, references),
             entry,
             guarantee,
             owners,
@@ -49,8 +51,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
                 continue;
             };
-
-            let references = dependencies.references();
 
             if source.borrowed.is_empty() {
                 let sources = &source.addresses;
@@ -127,7 +127,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                             sources,
                             expression,
                             call,
-                            dependencies,
+                            references,
                             entry,
                         );
                     }
@@ -220,13 +220,13 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         sources: &crate::execution_guarantees::AddressDependencies,
         expression: bray_bound_tree::BoundExpressionId,
         call: &bray_bound_tree::SelectedCall,
-        dependencies: &bray_bound_tree::BoundCallDependencyContracts,
+        references: &[BoundCallReference],
         arguments: &BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
     ) {
         let mut known = false;
         let mut unknown = false;
 
-        for reference in dependencies.references().iter().filter(|reference| {
+        for reference in references.iter().filter(|reference| {
             reference.relation().kind() == bray_symbols::DependencyReferenceKind::Address
                 && reference.relation().exit().subject_root()
                     == bray_symbols::DependencySubjectRoot::Result
@@ -279,7 +279,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     /// Input access promises are bounded by the supplied storage, without tying unrelated clauses to it.
     pub(super) fn input_guarantee_addresses(
         &self,
-        invocation: bray_bound_tree::BoundExecutionSite,
+        origins: (BoundExecutionSite, &[BoundCallReference]),
         entry: &BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
         guarantee: &ExecutionCondition,
         sources: &BTreeMap<bray_bound_tree::BoundExecutionSite, GuaranteeSource>,
@@ -310,7 +310,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 .values()
                 .any(|source| source.addresses.contains_key(&address));
 
-            let origins = self.input_address_origins(invocation, subject);
+            let origins = self.input_address_origins(origins, subject);
 
             for (input, source) in sources {
                 if let Some(origins) = &origins {
@@ -354,8 +354,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     /// Copyable input access facts can describe an address without observing its borrowed carrier.
     pub(super) fn carry_input_access_guarantees(
         &self,
-        invocation: bray_bound_tree::BoundExecutionSite,
+        origins: (BoundExecutionSite, &[BoundCallReference]),
         state: &mut super::super::state::ExecutionState,
+        arguments: &BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
         subjects: &[(ExecutionCondition, ExecutionCondition, bool)],
         sources: &BTreeMap<bray_bound_tree::BoundExecutionSite, GuaranteeSource>,
         instantiate: &impl Fn(&ExecutionCondition) -> ExecutionCondition,
@@ -379,12 +380,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             let guarantee = instantiate(template);
 
             let addresses = self.input_guarantee_addresses(
-                invocation,
-                &state
-                    .entries
-                    .get(&invocation)
-                    .expect("completed invocation retains its captured arguments")
-                    .arguments,
+                origins,
+                arguments,
                 template,
                 sources,
                 subjects,
@@ -408,15 +405,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     /// Resolve a mutated input address through the checked entry/exit relationship.
     fn input_address_origins(
         &self,
-        invocation: bray_bound_tree::BoundExecutionSite,
+        (invocation, references): (BoundExecutionSite, &[BoundCallReference]),
         subject: &ExecutionCondition,
     ) -> Option<BTreeMap<bray_bound_tree::BoundExecutionSite, BTreeSet<ExecutionCondition>>> {
         let (expression, call) = self.observation_call(invocation)?;
 
-        let dependencies = self.dependencies.calls().get(&invocation)?;
         let mut origins = BTreeMap::<_, BTreeSet<_>>::new();
 
-        for reference in dependencies.references().iter().filter(|reference| {
+        for reference in references.iter().filter(|reference| {
             let relation = reference.relation();
 
             relation.kind() == bray_symbols::DependencyReferenceKind::Address

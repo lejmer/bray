@@ -349,7 +349,6 @@ mod tests {
                 bray_bound_tree::AsyncSuspensionKind::Await {
                     operand: expressions[1],
                 },
-                None,
                 [BodyBehaviorCall::new(
                     BoundCallableTarget::Indirect(callable_type),
                     BodyBehaviorPhase::DeferredExecution,
@@ -358,7 +357,6 @@ mod tests {
                 [],
                 false,
             )],
-            [],
             [],
             [],
             [],

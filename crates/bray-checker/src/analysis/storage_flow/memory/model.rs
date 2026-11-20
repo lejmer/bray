@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::analysis::storage_flow::model::StorageAbsence;
+use bray_bound_tree::StorageAbsence;
 use bray_bound_tree::{BorrowCapabilityId, BoundExecutionSite};
 use bray_symbols::TypeId;
 use super::effect::Effect;
@@ -18,6 +18,69 @@ pub(super) use bray_bound_tree::{
     StorageValueBinding as ValueBinding, StorageValueRetirement as Retirement,
 };
 
+/// A reached place and the loan that authorized its evaluation.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(in crate::analysis::storage_flow) struct ReachedAccess {
+    pub(in crate::analysis::storage_flow) address: AddressValue,
+    pub(in crate::analysis::storage_flow) loan: Option<BorrowCapabilityId>,
+}
+
+impl ReachedAccess {
+    fn merge(&mut self, other: &Self) -> bool {
+        let changed = self.address.merge(&other.address);
+
+        if self.loan.is_some() && self.loan != other.loan {
+            self.loan = None;
+
+            return true;
+        }
+
+        changed
+    }
+
+    pub(super) fn retire(&mut self, current: &Target, retirement: Retirement) {
+        self.address.retire(current, retirement);
+
+        if self.address.targets.iter().any(|target| target.previous) {
+            self.loan = None;
+        }
+    }
+}
+
+/// Live borrow evidence retains its admitting ancestors with its reached address.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) struct RetainedBorrow {
+    pub(super) address: AddressValue,
+    pub(super) ancestors: std::sync::Arc<[BorrowCapabilityId]>,
+}
+
+impl RetainedBorrow {
+    fn merge(&mut self, other: &Self) -> bool {
+        let changed = self.address.merge(&other.address);
+
+        if self.ancestors.iter().any(|ancestor| !other.ancestors.contains(ancestor)) {
+            self.ancestors = self.ancestors.iter().copied().filter(|ancestor| other.ancestors.contains(ancestor)).collect();
+
+            return true;
+        }
+
+        changed
+    }
+
+    fn forget(&mut self) -> bool {
+        let changed = !self.address.is_unknown() || !self.ancestors.is_empty();
+
+        self.address.forget_value();
+        self.ancestors = Default::default();
+
+        changed
+    }
+
+    pub(super) fn retire(&mut self, current: &Target, retirement: Retirement) {
+        self.address.retire(current, retirement);
+    }
+}
+
 /// Reference values are copied between slots. Contents and obligations belong to targets once.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(in crate::analysis::storage_flow) struct State {
@@ -32,7 +95,11 @@ pub(in crate::analysis::storage_flow) struct State {
     // Bounds retain the producing slot and whether its evaluation has retired.
     pub(super) returned_inputs: BTreeMap<(Place, bool), AddressValue>,
     pub(super) values: BTreeMap<Target, ValueBinding>,
-    pub(super) borrows: BTreeMap<BorrowCapabilityId, AddressValue>,
+    // Addresses retained between destination evaluation and its assignment.
+    pub(super) assignment_destinations: BTreeMap<bray_bound_tree::BoundExpressionId, ReachedAccess>,
+    // A current value can carry report subjects only after one was published.
+    pub(super) may_have_report_values: bool,
+    pub(super) borrows: BTreeMap<BorrowCapabilityId, RetainedBorrow>,
     pub(super) pending: BTreeMap<BoundExecutionSite, Transfer>,
     pub(super) contents: BTreeMap<Target, Contents>,
     // Consumed inline values remain available to the current operation's value transfers.
@@ -72,13 +139,28 @@ impl State {
             right_absent,
         );
 
+        let destination_count = self.assignment_destinations.len();
+
+        self.assignment_destinations.retain(|assignment, destination| {
+            let Some(other) = incoming.assignment_destinations.get(assignment) else { return false; };
+
+            changed |= destination.merge(other);
+
+            true
+        });
+
+        changed |= destination_count != self.assignment_destinations.len();
+
+        changed |= incoming.may_have_report_values && !self.may_have_report_values;
+        self.may_have_report_values |= incoming.may_have_report_values;
+
         for (reference, roots) in &incoming.returned_inputs {
             let previous = self.returned_inputs.entry(reference.clone()).or_default();
 
             changed |= previous.merge(roots);
         }
 
-        changed |= merge_references(&mut self.borrows, &incoming.borrows, |_| false, |_| false);
+        changed |= merge_borrows(&mut self.borrows, &incoming.borrows);
 
         let empty = Transfer::default();
 
@@ -101,43 +183,25 @@ impl State {
     }
 }
 
-fn merge_references<K: Clone + Ord>(
-    target: &mut BTreeMap<K, AddressValue>,
-    incoming: &BTreeMap<K, AddressValue>,
-    target_absent: impl Fn(&K) -> bool,
-    incoming_absent: impl Fn(&K) -> bool,
+fn merge_borrows(
+    target: &mut BTreeMap<BorrowCapabilityId, RetainedBorrow>,
+    incoming: &BTreeMap<BorrowCapabilityId, RetainedBorrow>,
 ) -> bool {
     let mut changed = false;
 
-    for (slot, references) in target.iter_mut() {
-        match incoming.get(slot) {
-            Some(incoming) if target_absent(slot) => {
-                if references != incoming {
-                    // The inactive predecessor contributes no address alternative.
-                    // Each value owns its alternatives and shares immutable target paths.
-                    *references = incoming.clone();
-                    changed = true;
-                }
-            }
-            Some(_) if incoming_absent(slot) => {}
-            Some(incoming) => {
-                changed |= references.merge(incoming);
-            }
-            None if !references.is_unknown() && !incoming_absent(slot) => {
-                references.forget_value();
-                changed = true;
-            }
-            None => {}
-        }
+    for (loan, reached) in target.iter_mut() {
+        changed |= match incoming.get(loan) {
+            Some(incoming) => reached.merge(incoming),
+            None => reached.forget(),
+        };
     }
 
-    for (slot, references) in incoming {
-        if !target.contains_key(slot) {
-            // Joined slots own their target alternatives independently of predecessor state.
-            let mut references = references.clone();
+    for (loan, reached) in incoming {
+        if let std::collections::btree_map::Entry::Vacant(slot) = target.entry(*loan) {
+            let mut reached = reached.clone();
 
-            if !target_absent(slot) { references.forget_value(); }
-            target.insert(slot.clone(), references);
+            reached.forget();
+            slot.insert(reached);
             changed = true;
         }
     }
@@ -178,8 +242,27 @@ impl ReferenceExit {
         self.slots.keys()
     }
 
+    pub(in crate::analysis::storage_flow) fn owned_backings(&self) -> impl Iterator<Item = (&Place, &Target)> {
+        self.slots.iter().filter_map(|(slot, value)| {
+            let backing = value.owned_backing().filter(|backing| backing.is_exact())?;
+            let target = backing.targets.first().filter(|target| !target.previous)?;
+
+            (!self.absent.iter().any(|absent| absent.contains_storage(slot))).then_some((slot, target))
+        })
+    }
+
     pub(in crate::analysis::storage_flow) fn absent_payloads(&self) -> &BTreeSet<Place> {
         &self.absent
+    }
+
+    pub(in crate::analysis::storage_flow) fn report_payloads(&self, result: bray_bound_tree::StorageIdentityId)
+        -> impl Iterator<Item = (&Place, &bray_bound_tree::ReportDependencies, bool)> {
+        self.slots.range(Place::root(result)..).take_while(move |(slot, _)| slot.root == result).filter_map(|(slot, value)| {
+            let (report, complete) = value.report_dependencies()?;
+
+            (!self.absent.iter().any(|absent| absent.contains_storage(slot)))
+                .then_some((slot, report.as_ref(), complete))
+        })
     }
 
     pub(in crate::analysis::storage_flow) fn whole_sources(&self) -> impl Iterator<Item = (&Target, &BTreeSet<Target>, bool)> {

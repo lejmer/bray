@@ -346,9 +346,8 @@ impl Lowerer<'_> {
 
                 continuations.push(continuation);
             } else {
-                let (panicked, _, destination) = self
-                    .cleanup_failure_targets
-                    .clone()
+                let super::cleanup::CleanupFailureTargets { panicked, report: destination, .. } = self
+                    .register_cleanup_continuation(source, None)?
                     .expect("ordinary scoped exit retains its prepared cleanup failure targets");
 
                 self.push_operation(

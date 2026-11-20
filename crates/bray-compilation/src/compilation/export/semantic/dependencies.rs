@@ -40,11 +40,6 @@ impl<'a> SemanticExporter<'a> {
         let contract = InterfaceDependencyContract::new(requirements)
             .with_failure_outcomes(failures)
             .with_captured_values(self.dependency_captured_bindings(data.captured_values())?)
-            .with_observed_result(
-                data.observed_result()
-                    .map(|term| self.constant_term_id(term))
-                    .transpose()?,
-            )
             .with_effects(effects)
             .with_synchronous_cleanup(self.dependency_requirements(data.synchronous_cleanup())?)
             .with_normal_completion(data.normal_completion());
@@ -66,6 +61,8 @@ impl<'a> SemanticExporter<'a> {
                 guard: row.guard.map(|term| self.constant_term_id(term)).transpose()?,
                 report: row.report.as_deref().map(|report| self.dependency_requirements(report).map(bray_base::sorted_unique_shared_slice)).transpose()?,
                 effects: row.effects.as_deref().map(|effects| self.dependency_effects(effects).map(bray_base::sorted_unique_shared_slice)).transpose()?,
+                cell_changes: row.cell_changes.as_deref().map(|cells| self.dependency_effects(cells).map(bray_base::sorted_unique_shared_slice)).transpose()?,
+                writes: bray_base::sorted_unique_shared_slice(self.dependency_bindings(&row.writes)?),
             })).collect()
     }
 
@@ -132,7 +129,60 @@ impl<'a> SemanticExporter<'a> {
                 let report = outcome.report.as_ref().map(|requirements|
                     self.dependency_requirements(requirements).map(bray_base::sorted_unique_shared_slice)).transpose()?;
 
-                let bindings = self.dependency_order(&outcome.bindings, |encoder, write| encoder.dependency_captured_write(write))?
+                let report_payloads = self.dependency_order(&outcome.report_payloads, |encoder, payload| {
+                    encoder.dependency_subject(&payload.destination)
+                })?.into_iter().map(|payload| payload.try_map(
+                    self,
+                    Self::dependency_subject,
+                    |exporter, requirements| exporter.dependency_requirements(requirements).map(bray_base::sorted_unique_shared_slice),
+                )).collect::<Result<Vec<_>, _>>()?;
+
+                let bindings = self.dependency_bindings(&outcome.bindings)?;
+
+        let carriers = self
+            .dependency_order(&outcome.carriers, |encoder, item| {
+                encoder.dependency_carrier(item)
+            })?
+            .into_iter()
+            .map(|carrier| {
+                let support = carrier.support().map(|support| support.try_map(
+                    self, Self::dependency_subject,
+                    |exporter, address| exporter.constant_term_id(*address),
+                )).transpose()?;
+
+                Ok(bray_symbols::DependencyWitnessCarrier::new(
+                    self.constant_term_id(carrier.guarantee())?,
+                    carrier
+                        .path()
+                        .iter()
+                        .map(|projection| self.dependency_projection(projection))
+                        .collect::<Result<Vec<_>, _>>()?,
+                ).with_support(support))
+            })
+            .collect::<Result<Vec<_>, PackageInterfaceExportError>>()?;
+
+                let effects = self.dependency_effects(&outcome.effects)?;
+
+                let cell_changes = outcome.cell_changes.as_deref().map(|cells| {
+                    self.dependency_effects(cells).map(bray_base::sorted_unique_shared_slice)
+                }).transpose()?;
+
+                Ok(bray_symbols::CapturedValueOutcome::new(guard, bindings).with_effects(effects).with_cell_changes(cell_changes).with_carriers(carriers).with_report(report)
+                    .with_report_payloads(report_payloads)
+                    .with_ownership(self.dependency_owned_result(&outcome.ownership)?)
+                    .with_storage(self.dependency_borrow_relations(&outcome.references)?,
+                        self.dependency_stored_values(&outcome.stored_values)?)
+                    .with_inactive_payloads(self.dependency_order(&outcome.inactive_payloads, |encoder, subject| encoder.dependency_subject(subject))?
+                        .into_iter().map(|subject| self.dependency_subject(subject))
+                        .collect::<Result<Vec<_>, _>>()?))
+            }).collect()
+    }
+
+    fn dependency_bindings(
+        &mut self,
+        bindings: &[(DependencySubject, bray_symbols::CapturedValueTemplate)],
+    ) -> Result<Vec<bray_package_interface::InterfaceCapturedBinding>, PackageInterfaceExportError> {
+        self.dependency_order(bindings, |encoder, write| encoder.dependency_captured_write(write))?
                     .into_iter().map(|(destination, value)| {
                 let mut inputs = std::collections::BTreeMap::new();
                 let mut projections = std::collections::BTreeMap::new();
@@ -169,40 +219,7 @@ impl<'a> SemanticExporter<'a> {
                         &mut |projection| Ok(projections[projection].clone()),
                         &mut |root| self.captured_static_reference(root), &mut |callee| Ok(callees[callee].clone()),
                         &mut |variant| Ok(variants[variant].clone()))?))
-                }).collect::<Result<Vec<_>, PackageInterfaceExportError>>()?;
-
-        let carriers = self
-            .dependency_order(&outcome.carriers, |encoder, item| {
-                encoder.dependency_carrier(item)
-            })?
-            .into_iter()
-            .map(|carrier| {
-                let support = carrier.support().map(|support| support.try_map(
-                    self, Self::dependency_subject,
-                    |exporter, address| exporter.constant_term_id(*address),
-                )).transpose()?;
-
-                Ok(bray_symbols::DependencyWitnessCarrier::new(
-                    self.constant_term_id(carrier.guarantee())?,
-                    carrier
-                        .path()
-                        .iter()
-                        .map(|projection| self.dependency_projection(projection))
-                        .collect::<Result<Vec<_>, _>>()?,
-                ).with_support(support))
-            })
-            .collect::<Result<Vec<_>, PackageInterfaceExportError>>()?;
-
-                let effects = self.dependency_effects(&outcome.effects)?;
-
-                Ok(bray_symbols::CapturedValueOutcome::new(guard, bindings).with_effects(effects).with_carriers(carriers).with_report(report)
-                    .with_ownership(self.dependency_owned_result(&outcome.ownership)?)
-                    .with_storage(self.dependency_borrow_relations(&outcome.references)?,
-                        self.dependency_stored_values(&outcome.stored_values)?)
-                    .with_inactive_payloads(self.dependency_order(&outcome.inactive_payloads, |encoder, subject| encoder.dependency_subject(subject))?
-                        .into_iter().map(|subject| self.dependency_subject(subject))
-                        .collect::<Result<Vec<_>, _>>()?))
-            }).collect()
+                }).collect()
     }
 
     fn captured_static_reference(&mut self, root: &bray_symbols::StaticReferenceSelection)

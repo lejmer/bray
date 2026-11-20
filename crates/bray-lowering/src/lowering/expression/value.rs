@@ -259,31 +259,16 @@ impl Lowerer<'_> {
                                 [],
                             );
 
-                            let (continued, value) = self.push_checked_value_operation(
-                                bray_bound_tree::BoundExecutionSite::CallInput {
-                                    expression: id,
-                                    ordinal: bray_symbols::SymbolOrdinal::new(ordinal),
-                                },
-                                block,
-                                Self::retained_source(&source),
-                                MirOperationKind::Call(call),
-                                ty,
-                            )?;
+                            let site = bray_bound_tree::BoundExecutionSite::CallInput {
+                                expression: id,
+                                ordinal: bray_symbols::SymbolOrdinal::new(ordinal),
+                            };
+
+                            let Some((continued, value)) = self.lower_default_value(site, block, &source, call, ty)? else {
+                                return Ok(LoweredExpression::terminated(source));
+                            };
 
                             block = continued;
-
-                            let ty = self.builder.operand_type(&value);
-
-                            let value = self.materialize_call_input(
-                                bray_bound_tree::BoundExecutionSite::CallInput {
-                                    expression: id,
-                                    ordinal: bray_symbols::SymbolOrdinal::new(ordinal),
-                                },
-                                block,
-                                &source,
-                                value,
-                                ty,
-                            )?;
 
                             inputs.push(MirConstructionInput::new(input, ordinal, value));
                         }

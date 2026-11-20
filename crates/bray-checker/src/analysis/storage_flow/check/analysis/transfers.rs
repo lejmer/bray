@@ -1,79 +1,78 @@
-use bray_bound_tree::{CheckedMemoryOperationKind as Operation, StorageInvalidation, StorageObservationKind as Observation, StorageRelationship};
+use bray_bound_tree::{CheckedMemoryOperationKind as Operation, StorageAddressValue, StorageInvalidation, StorageObservationKind as Observation, StorageRelationship};
 use bray_symbols::DependencyMutationKind as Mutation;
 
-use super::core::StorageFlowCollector;
+use super::core::{OperationAccesses, StorageFlowCollector};
 use crate::CheckerRequestContext;
-use crate::analysis::storage_flow::memory::{Effect, State, Target};
+use crate::analysis::storage_flow::memory::{Effect, Target};
 use crate::analysis::storage_flow::model::StorageFlowState;
 
-impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
-    pub(super) fn observation_transition(
-        &self,
-        operation: crate::analysis::model::AnalysisOperationKind,
-    ) -> bray_bound_tree::StorageObservationTransition {
-        use bray_bound_tree::StorageObservationTransition;
+pub(super) fn location_effects(
+    address: Option<&StorageAddressValue>,
+    mutation: Mutation,
+    ty: Option<bray_symbols::TypeId>,
+) -> impl Iterator<Item = Effect> + '_ {
+    let exact = address.is_some_and(StorageAddressValue::is_exact);
+    let regions = address.and_then(StorageAddressValue::regions);
+    let unbounded = regions.is_none().then(|| Effect::unbounded(mutation, ty, false));
 
-        let occurrence = operation.occurrence();
-
-        let contents = matches!(occurrence, bray_bound_tree::BoundExecutionSite::Node(_))
-            && occurrence.expression().and_then(|expression| self.memory.operation(expression))
-                .is_some_and(|operation| crate::memory::execution::storage_effect(operation.kind())
-                    == crate::memory::execution::StorageEffect::Contents);
-
-        if contents { return StorageObservationTransition::Contents; }
-
-        let invocation = self.dependencies.calls().contains_key(&occurrence)
-            || occurrence.expression().is_some_and(|expression|
-                matches!(self.request.view().expression(expression), Some(bray_bound_tree::BoundExpression::Await(_))));
-
-        if !invocation && !self.storage.occurrence_plans(occurrence)
-            .any(|plan| plan.purpose() == bray_bound_tree::StorageAccessPurpose::Assignment) {
-            StorageObservationTransition::Transfer
+    regions.into_iter().flatten().map(move |target| {
+        if exact {
+            Effect::at(target, mutation, ty)
         } else {
-            StorageObservationTransition::Unknown
+            Effect::bounded(target, mutation, ty)
         }
-    }
+    }).chain(unbounded)
+}
 
-    pub(super) fn value_transfer_effects(
+impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
+    pub(super) fn capture_transfer_accesses(
         &self,
         state: &StorageFlowState,
         kind: crate::analysis::model::AnalysisOperationKind,
-    ) -> Option<Vec<Effect>> {
-        if self.call_attempt(kind).is_some()
-            || kind.occurrence().expression().is_some_and(|expression| self.memory.operation(expression).is_some())
-            || kind.storage_plans(self.storage).any(|plan| {
-                self.storage.effective_purpose(plan) == bray_bound_tree::StorageAccessPurpose::Assignment
-            }) {
-            return None;
-        }
+    ) -> OperationAccesses {
+        kind.storage_plans(self.storage).filter(|plan| {
+            plan.purpose().transfers_value()
+                && !self.storage.access_is_produced_at(plan.access(), kind.occurrence())
+        }).map(|plan| {
+            let reached = self.input.reached_access(self.request.semantic_values(), &state.memory, self.storage, plan.access());
 
+            (plan, reached)
+        }).collect()
+    }
+
+    pub(super) fn value_transfer_effects(
+        &self, kind: crate::analysis::model::AnalysisOperationKind, accesses: &OperationAccesses,
+    ) -> Vec<Effect> {
         let mut effects = Vec::new();
 
-        for plan in kind.storage_plans(self.storage)
-            .filter(|plan| self.storage.effective_purpose(*plan) == bray_bound_tree::StorageAccessPurpose::Move) {
+        for plan in kind.storage_plans(self.storage).filter(|plan| {
+            self.storage.effective_purpose(*plan) == bray_bound_tree::StorageAccessPurpose::Move
+                && !self.storage.access_is_produced_at(plan.access(), kind.occurrence())
+        }) {
             let ty = self.storage.access(plan.access()).expect("a checked move retains its type").reached_type();
-            let targets = self.input.reference_targets(self.request.semantic_values(), &state.memory, self.storage, plan.access())?;
+            let targets = accesses.get(&plan).expect("input transfer retains its resolved access");
 
-            effects.extend(targets.into_iter().map(|target| Effect::at(target, Mutation::Consume, Some(ty))));
+            effects.extend(location_effects(targets.as_ref().map(|targets| &targets.address), Mutation::Consume, Some(ty)));
         }
 
-        if let Some(phase) = kind.value_consumption_phase() {
-            effects.extend(self.storage.value_retirements(kind.occurrence(), phase).map(|path| {
-                Effect::at(Target::storage(path.clone()), Mutation::Consume, self.storage.storage_type(path.root))
-            }));
-        }
-
-        Some(effects)
+        // Evaluated result handles retire after their destination is published.
+        // They are separate from mutations of the source values used here.
+        effects
     }
 
     pub(super) fn preserve_storage_values(
         &mut self,
         state: &StorageFlowState,
-        memory: &State,
         operation: Option<&bray_bound_tree::CheckedMemoryOperation>,
         effects: Option<&[Effect]>,
         invalidation: &mut StorageInvalidation,
     ) {
+        if invalidation.observation_transition() == bray_bound_tree::StorageObservationTransition::Unchanged {
+            return;
+        }
+
+        let memory = &state.memory;
+
         let typed_transfer = operation.and_then(|operation| match operation.kind() {
             Operation::Read { pointee, kind: bray_bound_tree::MemoryReadKind::Move }
             | Operation::VolatileRead { pointee, kind: bray_bound_tree::MemoryReadKind::Move, .. }
@@ -113,7 +112,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                         match memory.projected_type(self.request, target) {
                             Ok(ty) => ty,
                             Err(error) => {
-                                self.query_failure = Some(error);
+                                self.fail_query(error);
 
                                 None
                             }
@@ -126,7 +125,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             transfers.push((effect, ty, raw));
         }
 
-        let ambient = memory.ambient_regions(effects.unwrap_or(&unknown));
+        let ambient = std::cell::OnceCell::new();
 
         let transfers_owner = |owner: Option<bray_symbols::TypeId>, ty: Option<bray_symbols::TypeId>| {
             owner.and_then(|owner| self.input.footprint.inline_carriers(owner))
@@ -162,9 +161,16 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 if !transports { return true; }
 
                 let retained = match effect {
-                    Effect::Mutation { footprint: reached, .. } => memory.target_relationship(reached, target) == StorageRelationship::Disjoint,
-                    Effect::UnboundedMutation { ambient: true, .. } | Effect::Ambient => ambient.as_ref()
-                        .is_some_and(|(regions, unknown)| {
+                    Effect::Mutation { footprint: reached, .. } => {
+                        let writes_inside_payload = !raw && observation == Observation::Discriminant
+                            && reached.projections().len() > target.projections().len()
+                            && target.contains_storage(reached);
+
+                        writes_inside_payload || memory.target_relationship(reached, target) == StorageRelationship::Disjoint
+                    }
+                    Effect::UnboundedMutation { ambient: true, .. } | Effect::Ambient => ambient
+                        .get_or_init(|| memory.ambient_regions(effects.unwrap_or(&unknown)))
+                        .as_ref().is_some_and(|(regions, unknown)| {
                             (!*unknown || !memory.unknown_reference_may_reach(target))
                                 && regions.iter().all(|reached| memory.target_relationship(reached, target) == StorageRelationship::Disjoint)
                         }),
@@ -194,7 +200,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     stable_values.insert(path.clone(), bray_bound_tree::StorageObservationKind::Value);
                 }
             }
-            StorageInvalidation::Paths(_) => return,
+            StorageInvalidation::Unchanged => return,
         }
 
         let shared = |target: &Target, observation, ty| survives(target, observation, Some(ty), Some(bray_symbols::BorrowKind::Shared));
@@ -208,7 +214,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let pointees = match invalidation {
             StorageInvalidation::All { stable_pointees, .. }
             | StorageInvalidation::Observed { stable_pointees, .. } => stable_pointees,
-            StorageInvalidation::Paths(_) => unreachable!("physical preservation follows flow resolution"),
+            StorageInvalidation::Unchanged => unreachable!("physical preservation follows flow resolution"),
         };
 
         for (target, ty) in memory.typed_storage().filter(|(target, _)| target.value_observation_path().is_none()) {

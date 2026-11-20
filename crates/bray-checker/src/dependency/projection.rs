@@ -461,12 +461,13 @@ pub(super) fn prepare_variants<C: crate::CheckerRequestContext + ?Sized>(
             .chain(call.deferred_effects().into_iter().flatten())
             .chain(call.deferred_capture_cleanup().into_iter().flatten())
             .chain(call.deferred_result_cleanup().into_iter().flatten())
+            .chain(call.cell_changes())
         {
             if let Some(subject) = effect.subject() {
                 retain(subject.projections());
             }
 
-            if let bray_symbols::DependencyStorageEffect::Indirect { projections, .. } = effect {
+            for projections in effect.projection_paths() {
                 retain(projections);
             }
         }
@@ -483,10 +484,9 @@ pub(super) fn prepare_variants<C: crate::CheckerRequestContext + ?Sized>(
         }
     }
 
-    let frame_bodies = contracts.frame_callees().values()
-        .map(|callee| request.semantic_values().dependency_contract_template_data(callee.summary)).collect::<Vec<_>>();
+    let frame_bodies = contracts.frame_callees().values().map(|callee| callee.summary.as_ref());
 
-    for contract in contracts.lifecycle_dependencies().values().chain(frame_bodies.iter().map(AsRef::as_ref)) {
+    for contract in contracts.lifecycle_dependencies().values().chain(frame_bodies) {
         for carrier in contract.captured_values().iter().flat_map(|row| row.carriers.iter()) { retain(carrier.path()); }
 
         for (destination, value) in contract.captured_values().iter().flat_map(|outcome| outcome.bindings.iter()) {
@@ -498,16 +498,16 @@ pub(super) fn prepare_variants<C: crate::CheckerRequestContext + ?Sized>(
             retain(subject.projections());
         }
 
-        for relation in contract.borrows().iter() {
+        for relation in contract.captured_values().iter().flat_map(|row| row.references.iter()) {
             retain(relation.target_projections());
         }
 
-        for effect in contract.effects() {
+        for effect in contract.effects().iter().chain(contract.cell_changes()) {
             if let Some(subject) = effect.subject() {
                 retain(subject.projections());
             }
 
-            if let bray_symbols::DependencyStorageEffect::Indirect { projections, .. } = effect {
+            for projections in effect.projection_paths() {
                 retain(projections);
             }
         }
@@ -533,7 +533,7 @@ pub(super) fn prepare_variants<C: crate::CheckerRequestContext + ?Sized>(
         }
     }
 
-    for (_, projection) in values.error_exits.values() {
+    for (_, projection, _) in values.error_exits.values() {
         retain(std::slice::from_ref(projection));
     }
 

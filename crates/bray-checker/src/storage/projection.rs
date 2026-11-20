@@ -248,39 +248,72 @@ pub(crate) fn projected_owned_type<C: CheckerRequestContext + ?Sized>(
 /// A selected access can additionally require dereferencing the final value to its reached type.
 pub(crate) fn reference_path<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
-    mut ty: TypeId,
+    ty: TypeId,
     projections: std::sync::Arc<[StorageProjection]>,
     reached: Option<TypeId>,
 ) -> Result<
     Option<(TypeId, bray_bound_tree::StorageReferencePath)>,
     CheckerQueryError<C::UpstreamError>,
 > {
+    prepare_reference_path(request, ty, projections, reached, None)
+}
+
+/// A portable effect records the exact number and position of descriptor reads.
+pub(crate) fn effect_reference_path<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
+    ty: TypeId,
+    projections: std::sync::Arc<[StorageProjection]>,
+    reads: &[u32],
+) -> crate::CheckerQueryResult<Option<(TypeId, bray_bound_tree::StorageReferencePath)>, C::UpstreamError> {
+    prepare_reference_path(request, ty, projections, None, Some(reads))
+}
+
+fn prepare_reference_path<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
+    mut ty: TypeId,
+    projections: std::sync::Arc<[StorageProjection]>,
+    reached: Option<TypeId>,
+    reads: Option<&[u32]>,
+) -> crate::CheckerQueryResult<Option<(TypeId, bray_bound_tree::StorageReferencePath)>, C::UpstreamError> {
     use bray_bound_tree::StorageReferenceStep;
-    use bray_symbols::DependencyReferenceKind;
 
     let mut steps = Vec::new();
+    let mut reads = reads.map(|reads| reads.iter().copied().peekable());
+    let mut address_reads = Vec::new();
 
     for index in 0..=projections.len() {
-        while let TypeData::Borrow { target, .. } = request.semantic_values().type_data(ty).as_ref()
-        {
-            if index == projections.len() && reached.is_none_or(|reached| reached == ty) {
-                break;
-            }
+        if let Some(reads) = &mut reads {
+            while reads.next_if(|position| *position as usize == index).is_some() {
+                let offset = index + address_reads.len();
 
-            ty = *target;
-            steps.push(StorageReferenceStep::Read { index, target: ty, kind: DependencyReferenceKind::Borrow });
+                if let TypeData::Borrow { kind, target } = *request.semantic_values().type_data(ty) {
+                    ty = target;
+                    steps.push(StorageReferenceStep::ReadBorrow { index: offset, target, mode: kind });
+                } else {
+                    let Some(target) = address_target_type(request, ty) else { return Ok(None); };
+
+                    ty = target;
+                    address_reads.push(index);
+                    steps.push(StorageReferenceStep::ReadAddress { index: offset, target });
+                }
+            }
+        } else {
+            while let TypeData::Borrow { kind, target } = *request.semantic_values().type_data(ty) {
+                if index == projections.len() && reached.is_none_or(|reached| reached == ty) { break; }
+
+                ty = target;
+                steps.push(StorageReferenceStep::ReadBorrow { index, target, mode: kind });
+            }
         }
 
         if let Some(projection) = projections.get(index) {
-            if *projection == StorageProjection::AddressTarget {
-                if crate::representation::reference_kind(request, ty) != Some(bray_symbols::DependencyReferenceKind::Address) {
-                    return Ok(None);
-                }
+            let index = index + address_reads.len();
 
-                let Some(target) = crate::representation::reference_target_type(request, ty) else { return Ok(None); };
+            if *projection == StorageProjection::AddressTarget {
+                let Some(target) = address_target_type(request, ty) else { return Ok(None); };
 
                 ty = target;
-                steps.push(StorageReferenceStep::Read { index, target: ty, kind: DependencyReferenceKind::Address });
+                steps.push(StorageReferenceStep::ReadAddress { index, target: ty });
                 continue;
             }
 
@@ -300,10 +333,30 @@ pub(crate) fn reference_path<C: CheckerRequestContext + ?Sized>(
         }
     }
 
+    assert!(reads.as_mut().is_none_or(|reads| reads.peek().is_none()), "effect reads lie within the checked route");
+
+    let projections = if address_reads.is_empty() {
+        projections
+    } else {
+        let mut reads = address_reads.into_iter().peekable();
+
+        (0..=projections.len()).flat_map(|index| {
+            let count = std::iter::from_fn(|| reads.next_if_eq(&index)).count();
+
+            std::iter::repeat_n(StorageProjection::AddressTarget, count).chain(projections.get(index).copied())
+        }).collect()
+    };
+
     Ok(Some((
         ty,
         bray_bound_tree::StorageReferencePath::new(projections, steps.into()),
     )))
+}
+
+fn address_target_type<C: CheckerRequestContext + ?Sized>(request: CheckerUnitView<'_, C>, ty: TypeId) -> Option<TypeId> {
+    if crate::representation::reference_kind(request, ty) != Some(bray_symbols::DependencyReferenceKind::Address) { return None; }
+
+    crate::representation::reference_target_type(request, ty)
 }
 
 pub(crate) fn resolve_storage_projections<C: CheckerRequestContext + ?Sized>(
@@ -543,4 +596,28 @@ pub(crate) fn dependency_projection(
         StorageProjection::AnyElement => Some(DependencyProjection::AnyElement),
         _ => None,
     }
+}
+
+/// Returns the portable path component of an actual evaluated value.
+pub(crate) fn value_dependency_projection<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
+    projection: StorageProjection,
+) -> Option<DependencyProjection> {
+    let StorageProjection::ElementFromStart(index) = projection else {
+        return dependency_projection(projection);
+    };
+
+    let values = request.semantic_values();
+
+    let value = values
+        .intern_constant_value(bray_symbols::ConstantValueData::new(
+            crate::representation::representation_type(request, bray_compiler_known::RepresentationRole::ScalarUsize),
+            bray_symbols::ConstantValueKind::Integer(bray_symbols::IntegerConstant::from_u64(u64::from(index.raw()))),
+        ))
+        .expect("checked array index belongs to the same semantic store");
+
+    let term = values.intern_constant_term(bray_symbols::ConstantTermData::Value(value))
+        .expect("checked array selector belongs to the same semantic store");
+
+    Some(DependencyProjection::Element(term))
 }

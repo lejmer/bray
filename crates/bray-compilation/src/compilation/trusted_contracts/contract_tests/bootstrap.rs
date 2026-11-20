@@ -52,8 +52,27 @@ fn assert_bootstrap_contracts(target: NativeTarget) {
             source_module_function_body_key(&compilation, &["bray", "runtime", "bootstrap", "execution"], name)
         };
 
+        eprintln!("{} checking {name}", target.as_str());
+
         let properties = compilation.execution_properties(key.clone()).expect("native bootstrap contracts are checked");
+
+        eprintln!("{} lowering {name}", target.as_str());
+
         let lowered = compilation.lowered_unit(key).expect("native bootstrap body lowers");
+
+        if std::env::var_os("BRA_694_TRACE_BOOTSTRAP").is_some() {
+            for diagnostic in properties.diagnostics().iter().chain(lowered.diagnostics().iter()) {
+                eprintln!("bootstrap {name} {:?}", diagnostic.kind());
+
+                let spans = diagnostic.primary_span().into_iter().chain(diagnostic.related_locations().iter().map(|location| location.span()));
+
+                for span in spans {
+                    if let Some(source) = compilation.source(span.source_id()) {
+                        eprintln!("  {:?} {:?}: {:?}", source.origin(), span.range(), source.text_slice(span.range()).map(|slice| slice.chars().take(220).collect::<String>()));
+                    }
+                }
+            }
+        }
 
         if properties.diagnostics().has_errors() {
             failures.push(format!("{name} contracts: {:#?}", properties.diagnostics()));

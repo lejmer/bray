@@ -1,4 +1,3 @@
-use crate::DependencyStorageEffect;
 use super::{
     super::{
         CallableInstanceData, ConstantTermData, ConstantValueData, ConstantValueKind,
@@ -317,14 +316,11 @@ fn validate_application_owner(
 }
 
 fn validate_captured_bindings(tables: &SemanticTables, store: SemanticValueStoreId,
-    bindings: &[crate::CapturedValueOutcome],
+    bindings: &[(crate::DependencySubject, crate::CapturedValueTemplate)],
 ) {
-    for outcome in bindings {
-        if let Some(guard) = outcome.guard { tables.constant_terms.get(store, guard); }
-        assert!(outcome.carriers.windows(2).all(|pair| pair[0] < pair[1]), "outcome witness carriers are unique and ordered");
-        assert!(outcome.bindings.windows(2).all(|pair| pair[0].0 < pair[1].0), "outcome destinations are unique and ordered");
+    assert!(bindings.windows(2).all(|pair| pair[0].0 < pair[1].0), "outcome destinations are unique and ordered");
 
-        for (destination, value) in outcome.bindings.iter() {
+    for (destination, value) in bindings {
         validate_dependency_projections(tables, store, destination.projections());
 
         for input in value.terms() { tables.constant_terms.get(store, *input); }
@@ -379,8 +375,6 @@ fn validate_captured_bindings(tables: &SemanticTables, store: SemanticValueStore
             }
         }
     }
-
-    }
 }
 
 pub(super) fn validate_dependency_template_data(
@@ -388,17 +382,25 @@ pub(super) fn validate_dependency_template_data(
     store: SemanticValueStoreId,
     data: &DependencyContractTemplateData,
 ) {
-    validate_captured_bindings(tables, store, data.captured_values());
-
-    if let Some(result) = data.observed_result() {
-        tables.constant_terms.get(store, result);
+    for outcome in data.captured_values() {
+        if let Some(guard) = outcome.guard { tables.constant_terms.get(store, guard); }
+        assert!(outcome.carriers.windows(2).all(|pair| pair[0] < pair[1]), "outcome witness carriers are unique and ordered");
+        validate_captured_bindings(tables, store, &outcome.bindings);
     }
 
-    for condition in data.owned_result().conditions() {
+    for outcome in data.failure_outcomes().into_iter().flatten() {
+        assert!(outcome.writes.iter().all(|(destination, _)| matches!(destination.subject_root(),
+            crate::DependencySubjectRoot::Receiver | crate::DependencySubjectRoot::Parameter(_))),
+            "abnormal exits publish only caller-visible writes");
+
+        validate_captured_bindings(tables, store, &outcome.writes);
+    }
+
+    for condition in data.captured_values().iter().flat_map(|row| row.ownership.conditions()) {
         tables.constant_terms.get(store, *condition);
     }
 
-    for transfer in data.owned_result().transfers() {
+    for transfer in data.captured_values().iter().flat_map(|row| row.ownership.transfers()) {
         tables.constant_terms.get(store, transfer.input());
 
         assert!(
@@ -463,30 +465,22 @@ pub(super) fn validate_dependency_template_data(
         validate_dependency_projections(tables, store, relation.target_projections());
     }
 
-    for effect in data.effects() {
+    assert!(data.cell_changes().all(crate::DependencyStorageEffect::is_cell_change), "an exit establishes only exact typed cell changes");
+    assert!(!data.effects().iter().any(crate::DependencyStorageEffect::is_discharge), "possible effects cannot establish a definite discharge");
+
+    for effect in data.effects().iter().chain(data.cell_changes()) {
         assert!(effect.is_valid_route(), "invalid storage effect route: {effect:?}");
 
         for ty in effect.referenced_types() {
             tables.types.get(store, *ty);
         }
 
-        match effect {
-            DependencyStorageEffect::UnboundedMutation { .. }
-                | DependencyStorageEffect::Atomic
-            | DependencyStorageEffect::Ambient
-            | DependencyStorageEffect::Unknown
-            | DependencyStorageEffect::Escape => {}
-            DependencyStorageEffect::Direct { subject, .. } => {
-                validate_dependency_subject(tables, store, subject)
-            }
-            DependencyStorageEffect::Indirect {
-                reference,
-                projections,
-                ..
-            } => {
-                validate_dependency_subject(tables, store, reference);
-                validate_dependency_projections(tables, store, projections);
-            }
+        if let Some(subject) = effect.subject() {
+            validate_dependency_subject(tables, store, subject);
+        }
+
+        for projections in effect.projection_paths() {
+            validate_dependency_projections(tables, store, projections);
         }
     }
 

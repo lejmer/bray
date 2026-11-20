@@ -18,7 +18,7 @@ impl ExecutionCondition {
         let (root, projections) = self.observation_path()?;
 
         let place = match root.kind() {
-            crate::ExecutionConditionKind::Joined(_, _, place) => place,
+            crate::ExecutionConditionKind::Joined(_, place) => place,
             crate::ExecutionConditionKind::PostState(_, origin) => match origin.kind() {
                 crate::ExecutionConditionKind::Input(place) => place,
                 _ => return None,
@@ -72,7 +72,7 @@ impl ExecutionCondition {
             crate::ExecutionConditionKind::DeferredValue { value, frame } =>
                 value.without_evaluation(mutation).with_deferred_value(std::sync::Arc::clone(frame)),
             crate::ExecutionConditionKind::CapturedValue { value, storage } =>
-                value.without_evaluation(mutation).captured_value(storage.as_ref().clone()),
+                value.without_evaluation(mutation).captured_value(storage.clone()),
             crate::ExecutionConditionKind::StorageValue(operation, values) => Self::storage_value(*operation,
                 values.iter().map(|value| value.without_evaluation(mutation)).collect()),
             crate::ExecutionConditionKind::Constructed(base, fields) => Self::constructed(
@@ -223,7 +223,7 @@ impl ExecutionCondition {
                     value = value.nullable_payload_snapshot().unwrap_or(parent);
                 }
                 crate::ExecutionConditionKind::Input(_) | crate::ExecutionConditionKind::Expression(_) | crate::ExecutionConditionKind::ScopedCapability(_)
-                | crate::ExecutionConditionKind::PostState(_, _) | crate::ExecutionConditionKind::Joined(_, _, _) | crate::ExecutionConditionKind::Result
+                | crate::ExecutionConditionKind::PostState(_, _) | crate::ExecutionConditionKind::Joined(..) | crate::ExecutionConditionKind::Result
                 => return Some((role, identity)),
                 crate::ExecutionConditionKind::StorageValue(bray_symbols::CapturedValueOperation::Last, _) => return Some((role, identity)),
                 _ => return None,
@@ -278,7 +278,7 @@ impl ExecutionCondition {
                 crate::ExecutionConditionKind::Expression(_)
                 | crate::ExecutionConditionKind::ScopedCapability(_)
                 | crate::ExecutionConditionKind::PostState(_, _)
-                | crate::ExecutionConditionKind::Joined(_, _, _)
+                | crate::ExecutionConditionKind::Joined(..)
                 | crate::ExecutionConditionKind::Result => {
                     path.reverse();
 

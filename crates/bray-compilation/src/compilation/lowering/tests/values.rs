@@ -301,22 +301,31 @@ fn trust_boundary_preserves_a_completed_call_result() {
     let compilation = compilation(r#"
         trusted module app;
 
+        trusted predicate permitted(value: i32);
+        trusted predicate readable(value: &i32);
+
         trusted func identity(pos value: i32) -> i32
+            requires(trusted permitted(value))
+            ensures(result == value)
         {
             return value;
         }
 
         trusted func borrow(pos value: &i32) -> &i32
+            requires(trusted readable(value))
         {
             return value;
         }
 
         func forward(pos value: &i32) -> &i32
+            requires(trusted readable(value))
         {
             return trusted borrow(value);
         }
 
         func main() -> i32
+            requires(trusted permitted(7))
+            ensures(result == 7)
         {
             let first = trusted identity(7);
             return trusted identity(first);
@@ -331,6 +340,18 @@ fn trust_boundary_preserves_a_completed_call_result() {
 
         lowered_mir(&lowered);
     }
+
+    let forwarded = crate::compilation::result_dependencies::source_function_dependencies(&compilation, "forward");
+
+    assert!(forwarded.borrows().iter().any(|relation| {
+        relation.is_exact()
+            && relation.kind() == bray_symbols::DependencyReferenceKind::Borrow
+            && relation.exit().subject_root() == bray_symbols::DependencySubjectRoot::Result
+            && relation.entry().is_some_and(|entry| {
+                entry.subject_root() == bray_symbols::DependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(0))
+                    && entry.projections().is_empty()
+            })
+    }), "{forwarded:?}");
 }
 
 #[test]

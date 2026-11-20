@@ -203,7 +203,7 @@ pub use semantic::{
 };
 pub use surface_kind::catalog_declaration_symbol_kind;
 pub use value::{
-    CapturedCallable, CapturedDeferredInvocation, CapturedFailureOutcome, CapturedValueOutcome, CapturedValueOperation, CapturedValueTemplate, DependencyFailureKind,
+    common_cell_changes, CapturedCallable, CapturedDeferredInvocation, CapturedFailureOutcome, CapturedReportPayload, CapturedValueOutcome, CapturedValueOperation, CapturedValueTemplate, DependencyFailureKind,
     AnyConstantDefinitionId, BorrowKind, CallableAbi, CallableConstness, CallableDefinitionId,
     CallableDependencyContracts, CallableExecution, CallableInstanceData, CallableInstanceId,
     CallableParameterData, CallableParameterMode, CallableParameterName, CallablePosition,
@@ -214,7 +214,7 @@ pub use value::{
     DependencyContractTemplateId, DependencyEffectOutcomes, DependencyGuard, DependencyMutationKind, DependencyOwnedResult,
     DependencyOwnedTransfer, DependencyValuePreservation, DependencyProjection, DependencyReferenceKind,
     DependencyReferenceProvenance, DependencyRequirement, DependencyRequirementKind,
-    DependencyStorageEffect, DependencyStoredValue, DependencyStoredValuePath, DependencySubject, DependencySubjectRoot, DependencyWitnessCarrier, DependencyWitnessSupport,
+    DependencyStorageEffect, StorageDischarge, DependencyStoredValue, DependencyStoredValuePath, DependencySubject, DependencySubjectRoot, DependencyWitnessCarrier, DependencyWitnessSupport,
     GenericArgument, GenericArgumentKind, GenericBinding, GenericOwnerId, GenericSubstitutionData,
     GenericSubstitutionId, GenericSubstitutionShapeError, GuardedDependencyRequirement,
     ImplementationInstanceData, ImplementationInstanceId, IntegerConstant, IntegerSign,

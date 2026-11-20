@@ -183,13 +183,13 @@ fn renewed_loan_guarantees_survive_loop_joins_in_source_and_imported_calls() {
         {
         }
 
-        trusted func obtain(pos owner: &Owner) -> &Owner
+        trusted func obtain(pos owner: &mut Owner) -> &mut Owner
             ensures(trusted held(owner = &result.acquisition))
         {
             return owner;
         }
 
-        trusted func renew(pos owner: &Owner)
+        trusted func renew(pos owner: &mut Owner)
             requires(trusted held(owner = &owner.acquisition))
             ensures(trusted held(owner = &owner.acquisition))
             uses(raw_memory, unchecked_init)
@@ -200,13 +200,13 @@ fn renewed_loan_guarantees_survive_loop_joins_in_source_and_imported_calls() {
                 pointer = owner.pointer
             };
 
-            let pointer = core.memory.address_of<Owner>(owner);
+            let pointer = core.memory.address_of_mut<Owner>(owner);
             authorize(pointer);
             trusted core.memory.write<Owner>(pointer, replacement);
         }
 
-        func observe(pos owner: &Owner)
-            requires(trusted held(owner = &owner.acquisition))
+        func observe(pos marker: &Marker)
+            requires(trusted held(owner = marker))
         {
         }
     "#;
@@ -235,16 +235,18 @@ fn renewed_loan_guarantees_survive_loop_joins_in_source_and_imported_calls() {
             ] {
                 let api = if imported { "example.package.api" } else { "api" };
                 let borrowed = origin == "borrowed";
-                let source_type = if borrowed { "&" } else { "" };
-                let source_borrow = if borrowed { "" } else { "&" };
+                let source_type = if borrowed { "&mut " } else { "" };
+                let source_borrow = if borrowed { "" } else { "&mut " };
 
                 let parameter = if origin == "fresh" { String::new() } else {
-                    format!("pos source: {source_type}{api}.Owner, ")
+                    let binding = if borrowed { "source" } else { "mut source" };
+
+                    format!("pos {binding}: {source_type}{api}.Owner, ")
                 };
 
                 let initial = if origin == "fresh" {
                     format!(r#"
-                        let source: {api}.Owner =
+                        let mut source: {api}.Owner =
                         {{
                             acquisition = {api}.Marker {{}},
                             pointer = core.memory.null<u64>()
@@ -274,11 +276,11 @@ fn renewed_loan_guarantees_survive_loop_joins_in_source_and_imported_calls() {
 
                         while again
                         {{
-                            {api}.observe(owner);
+                            {api}.observe(&owner.acquisition);
                             {api}.renew(owner);
                         }}
 
-                        {api}.observe(owner);
+                        {api}.observe(&owner.acquisition);
                     }}
                 "#);
 
@@ -1448,6 +1450,129 @@ fn execution_guarantees_preserve_selected_predicate_guards() {
 }
 
 #[test]
+fn total_scope_cleanup_certifies_the_reached_owners() {
+    let owners = r#"
+        extern func observe();
+        struct Payload { destruct() { observe(); } }
+        struct Remaining { destruct() executes(total) {} }
+        struct Pair { boxed: box Payload; remaining: Remaining; }
+        struct Finalized
+        {
+            child: (box Payload)?;
+            finalize() executes(total) {}
+        }
+    "#;
+
+    let provider = compilation(&format!("module api; {owners}"));
+    let dependency = execution_dependency(&provider);
+
+    for (guard, valid) in [("keep", true), ("!keep", false)] {
+        for imported in [false, true] {
+            let (prefix, module) = if imported {
+                ("using example.package.api;", "example.package.api.")
+            } else {
+                (owners, "")
+            };
+
+            let source = format!(r#"
+                module app;
+                {prefix}
+                func relay(pos value: box {module}Payload, pos keep: bool, pos remaining: {module}Remaining)
+                    -> (box {module}Payload)?
+                    when({guard}) {{ executes(total) }}
+                {{
+                    let result: (box {module}Payload)? = if keep {{ yield value; }} else {{ yield none; }};
+                    return result;
+                }}
+
+                func relay_field(pos value: {module}Pair, pos keep: bool)
+                    -> (box {module}Payload)?
+                    when({guard}) {{ executes(total) }}
+                {{
+                    let result: (box {module}Payload)? = if keep {{ yield value.boxed; }} else {{ yield none; }};
+                    return result;
+                }}
+
+                func finalize_without_child(pos value: {module}Finalized)
+                    when(value.child matches none) {{ executes(total) }}
+                {{}}
+            "#);
+
+            let compilation = if imported {
+                crate::test_support::compilation_with_dependencies(&source, [dependency.clone()])
+            } else {
+                compilation(&source)
+            };
+
+            let diagnostics = compilation.check_diagnostics();
+
+            if valid {
+                assert!(diagnostics.is_empty(), "{source}: {}", super::fixtures::diagnostic_messages(diagnostics));
+            } else {
+                bray_testing::assert_goal_state_diagnostic_kind(
+                    diagnostics,
+                    bray_diagnostics::DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn successful_admission_keeps_guarded_completion_evidence() {
+    let definition = r#"
+        func observe(pos flag: bool)
+            requires(flag)
+            when(flag) { executes(pure, total) }
+        {}
+    "#;
+
+    let provider = compilation(&format!("module api; {definition}"));
+    let dependency = execution_dependency(&provider);
+
+    for (property, requires, valid) in [
+        ("pure", "", true),
+        ("total", "requires(flag)", true),
+        ("total", "", false),
+    ] {
+        for imported in [false, true] {
+            let (prefix, observe) = if imported {
+                ("using example.package.api;".to_owned(), "example.package.api.observe")
+            } else {
+                (definition.to_owned(), "observe")
+            };
+
+            let source = format!(r#"
+                module app;
+                {prefix}
+                func root(pos flag: bool) {requires} executes({property})
+                {{
+                    let choice: i32 = if flag {{ yield 1; }} else {{ yield 2; }};
+                    {observe}(flag);
+                }}
+            "#);
+
+            let checked = if imported {
+                crate::test_support::compilation_with_dependencies(&source, [dependency.clone()])
+            } else {
+                compilation(&source)
+            };
+
+            let diagnostics = checked.check_diagnostics();
+
+            if valid {
+                assert!(diagnostics.is_empty(), "{source}: {}", super::fixtures::diagnostic_messages(diagnostics));
+            } else {
+                bray_testing::assert_goal_state_diagnostic_kind(
+                    diagnostics,
+                    bray_diagnostics::DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn execution_guarantees_round_trip_and_reject_result_as_an_entry_guard() {
     let provider = compilation(
         r#"
@@ -1505,34 +1630,64 @@ fn execution_guarantees_round_trip_and_reject_result_as_an_entry_guard() {
         original.semantics().callable_contracts()
     );
 
-    let contracts = decoded
-        .callable_contracts()
-        .iter()
-        .map(|contract| {
-            let mut execution = contract.execution_contract().clone();
+    use bray_package_interface::{
+        InterfaceConstantTerm, InterfaceMalformedCause, InterfaceSemanticRecordKind,
+        InterfaceValidationContext, InterfaceValidationError, InterfaceValidationField,
+        PackageInterfaceExportBuildError,
+    };
 
-            for domain in Arc::make_mut(&mut execution.domains) {
-                if let Some((_, post)) = domain.postconditions.first() {
-                    domain.entry = Arc::from([*post]);
-                }
-            }
+    let checked = original.surface().exports().iter()
+        .find(|edge| edge.name().as_str() == "checked")
+        .expect("fixture function is exported")
+        .target();
 
-            contract.clone().with_execution_contract(execution)
-        })
-        .collect::<Vec<_>>();
+    let mut contracts = decoded.callable_contracts().to_vec();
+
+    let index = contracts.iter().position(|contract| contract.owner() == checked)
+        .expect("fixture function has a decoded contract");
+
+    let mut execution = contracts[index].execution_contract().clone();
+
+    let domain = Arc::make_mut(&mut execution.domains).iter_mut()
+        .find(|domain| !domain.entry.is_empty())
+        .expect("fixture function has a guarded domain");
+
+    // The result follows the selected function's one input in execution terms.
+    let result_term = InterfaceConstantTerm::CallableArgument(bray_symbols::SymbolOrdinal::new(1));
+
+    let result_index = decoded.constant_terms().iter().position(|term| *term == result_term)
+        .expect("fixture exports a one-argument callable result term");
+
+    let result = bray_package_interface::InterfaceConstantTermId::new(
+        u32::try_from(result_index).expect("fixture result term index"),
+    );
+
+    domain.entry = Arc::from([result]);
+    contracts[index] = contracts[index].clone().with_execution_contract(execution);
 
     let semantics = decoded
         .clone()
         .with_contracts(decoded.constraints().iter().cloned(), contracts);
 
-    assert!(
-        PackageInterfaceExportBundle::try_new(
-            original.surface().clone(),
-            semantics,
-            original.language_revision(),
-            original.implementation_configuration().clone()
-        )
-        .is_err()
+    let error = PackageInterfaceExportBundle::try_new(
+        original.surface().clone(),
+        semantics,
+        original.language_revision(),
+        original.implementation_configuration().clone(),
+    )
+    .expect_err("an entry guard cannot read the callable result");
+
+    assert_eq!(
+        error,
+        PackageInterfaceExportBuildError::Validation(InterfaceValidationError::Malformed {
+            context: InterfaceValidationContext::SemanticRecord {
+                kind: InterfaceSemanticRecordKind::CallableContracts,
+                index: u64::try_from(index).expect("fixture contract index"),
+            },
+            cause: InterfaceMalformedCause::InvalidValue {
+                field: InterfaceValidationField::Reference,
+            },
+        }),
     );
 }
 

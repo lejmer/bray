@@ -192,7 +192,7 @@ pub(super) fn finite_step<C: CheckerRequestContext + ?Sized>(
         return;
     };
 
-    for (occurrence, evidence) in &candidate.calls {
+    for (occurrence, admissions) in &candidate.calls {
         let Some(expression) = occurrence.expression() else {
             continue;
         };
@@ -280,10 +280,9 @@ pub(super) fn finite_step<C: CheckerRequestContext + ?Sized>(
             // The next receiver must still be the original input, not a replacement cursor.
             let base = ExecutionCondition::new(crate::ExecutionConditionKind::Input(place.clone()));
 
-            if ExecutionPlace::argument(input)
-                .value_in(&evidence.arguments)
-                .as_ref()
-                != Some(&base)
+            if !admissions.iter().all(|evidence| {
+                ExecutionPlace::argument(input).value_in(&evidence.arguments).as_ref() == Some(&base)
+            })
                 && !finite_prefix(flow, ranks, &exits, &path, *occurrence)
             {
                 continue;
@@ -421,10 +420,9 @@ pub(super) fn finite_protocol_loops<C: CheckerRequestContext + ?Sized>(
                             .operations()
                     })
                     .filter_map(|id| flow.domain.graph.operation(*id))
-                    .map(|operation| operation.kind().occurrence())
-                    .any(|site| {
-                        site != occurrence
-                            && flow.domain.refinements.get(&site).is_some_and(|effect| {
+                    .any(|operation| {
+                        operation.kind().occurrence() != occurrence
+                            && body.storage_flow().operation_invalidation(operation.id()).is_some_and(|effect| {
                                 effect.invalidates(access, flow.domain.storage)
                             })
                     });
@@ -692,15 +690,17 @@ fn finite_prefix<C: CheckerRequestContext + ?Sized>(
                                         return false;
                                     }
 
-                                    let cursor_write =
-                                        flow.domain.refinements.get(&site).is_some_and(|effect| {
-                                            effect.invalidates(access, flow.domain.storage)
-                                        });
+                                    let effect = flow.domain.checked_body.and_then(|body| {
+                                        body.storage_flow().operation_invalidation(operation.id())
+                                    });
 
-                                    let phase_effect =
-                                        flow.domain.refinements.get(&site).is_some_and(|effect| {
-                                            effect.invalidates(phase_access, flow.domain.storage)
-                                        });
+                                    let cursor_write = effect.is_some_and(|effect| {
+                                        effect.invalidates(access, flow.domain.storage)
+                                    });
+
+                                    let phase_effect = effect.is_some_and(|effect| {
+                                        effect.invalidates(phase_access, flow.domain.storage)
+                                    });
 
                                     let phase_write = if let AnalysisOperationKind::Bound(
                                         bray_bound_tree::AnyBoundNodeId::Expression(expression),

@@ -25,6 +25,7 @@ pub(in crate::analysis::liveness) struct OperationEffect {
 pub(crate) struct OperationEffects {
     pub(super) boundary_uses: BTreeMap<(bray_bound_tree::BoundExecutionSite, bray_bound_tree::StorageValueConsumptionPhase), BTreeSet<BoundDependencySubject>>,
     pub(super) by_occurrence: BTreeMap<bray_bound_tree::BoundExecutionSite, OperationEffect>,
+    transfers: BTreeMap<crate::analysis::id::AnalysisOperationId, OperationEffect>,
     operation_result_definitions:
         BTreeMap<bray_bound_tree::BoundExecutionSite, BTreeSet<BoundDependencySubject>>,
     private_results: BTreeMap<bray_bound_tree::BoundExecutionSite, BoundDependencySubject>,
@@ -43,6 +44,13 @@ pub(crate) struct OperationEffects {
 impl OperationEffects {
     pub(crate) fn value_inputs(&self) -> &ValueInputs {
         &self.value_inputs
+    }
+
+    pub(in crate::analysis) fn retained_by(
+        &self,
+        occurrence: bray_bound_tree::BoundExecutionSite,
+    ) -> impl Iterator<Item = BoundDependencySubject> + '_ {
+        self.owner_dependencies.get(&occurrence).into_iter().flatten().copied()
     }
 
     #[expect(
@@ -67,6 +75,42 @@ impl OperationEffects {
 
         effects.value_inputs = value_inputs;
         effects.add_selected_call_dependencies(request, selections, storage, dependencies);
+
+        for operation in graph.operations() {
+            use crate::analysis::model::ScopedResultDestination as Destination;
+
+            let mut effect = OperationEffect::default();
+
+            match operation.kind() {
+                AnalysisOperationKind::ScopedResult(transfer) => {
+                    effect.uses.extend(transfer.source.map(BoundDependencySubject::Storage));
+
+                    match transfer.destination {
+                        Destination::Capability(slot) | Destination::Region { slot, displaced: None } => {
+                            effect.definitions.insert(BoundDependencySubject::Storage(slot));
+                        }
+                        Destination::Region { slot, displaced: Some(displaced) } => {
+                            effect.uses.insert(BoundDependencySubject::Storage(slot));
+                            effect.definitions.insert(BoundDependencySubject::Storage(displaced));
+                        }
+                        Destination::Incident { .. } | Destination::Discard => {}
+                    }
+                }
+                AnalysisOperationKind::AssignmentInstall(expression) => {
+                    let slot = storage.invocation_result(expression.into()).and_then(|access| storage.root_identity(access))
+                        .expect("installation consumes the selected operator's private result");
+
+                    effect.uses.insert(BoundDependencySubject::Storage(slot));
+                    effect.definitions.extend(storage.value_slot(expression).map(BoundDependencySubject::Storage));
+
+                    effect.uses.extend(operation.kind().storage_plans(storage).filter_map(|plan| storage.access(plan.access()))
+                        .flat_map(|access| access_root_subjects(storage, access.root())));
+                }
+                _ => continue,
+            }
+
+            effects.transfers.insert(operation.id(), effect);
+        }
 
         for (expression, source) in effects.value_inputs.deferred_sources() {
             let completed = dependencies
@@ -178,6 +222,19 @@ impl OperationEffects {
         effects.retain_owned_call_dependencies(request, storage, selections);
         effects.retain_input_dependencies(request.unit(), dependencies);
 
+        for (yielded, generator) in graph.generator_yields() {
+            let Some(BoundExpression::ControlTransfer(transfer)) = request.view().expression(yielded) else { continue; };
+
+            let Some(element) = transfer.operand() else { continue; };
+
+            let Some(owner) = storage.value_slot(generator) else { continue; };
+
+            let retained = retained_subtree_subjects(&effects.value_inputs, element, &effects.owner_dependencies);
+
+            effects.extend_uses(yielded, [BoundDependencySubject::Storage(owner)]);
+            effects.owner_dependencies.entry(generator.into()).or_default().extend(retained);
+        }
+
         if let bray_bound_tree::BoundUnitRoot::Expression(root) = request.unit().root() {
             let retained =
                 retained_subtree_subjects(&effects.value_inputs, root, &effects.owner_dependencies);
@@ -237,7 +294,9 @@ impl OperationEffects {
         }
 
         effects.private_results.extend(storage.value_slots().filter_map(|(expression, slot)| {
-            unit.tree().expression(expression)?.has_result_region()
+            let node = unit.tree().expression(expression)?;
+
+            (node.has_result_region() || node.accumulates_generator_result())
                 .then_some((expression.into(), BoundDependencySubject::Storage(slot)))
         }));
 
@@ -438,6 +497,10 @@ impl OperationEffects {
             let mut returned =
                 dependency_subjects(request, contracts.result().requirements(), storage, &self.value_inputs, selections);
 
+            if let Some(loan) = forwarded_implicit_loan(storage, selections, *occurrence, contracts) {
+                returned.extend(borrow_capability_subjects(storage, loan));
+            }
+
             if let Some(SemanticSelection::Call(call)) = occurrence
                 .expression()
                 .and_then(|expression| selections.expression(expression))
@@ -587,6 +650,12 @@ impl OperationEffects {
         let private_result = self.private_results.get(&occurrence);
 
         let phase = match kind {
+            AnalysisOperationKind::ScopedResult(_) | AnalysisOperationKind::AssignmentInstall(_) => {
+                return self.transfers.get(&operation.id()).map(|effect| OperationEffectView {
+                    effect, boundary_uses: None, phase: None, result_definitions: None,
+                    private_result: None, result_phase: None, recovered: false,
+                });
+            }
             AnalysisOperationKind::Result {
                 phase: AnalysisResultPhase::Begin, ..
             } if private_result.is_none() => return None,
@@ -648,10 +717,64 @@ impl OperationEffects {
 
     pub(in crate::analysis::liveness) fn retained_at_exit(
         &self,
+        scope: bray_bound_tree::StorageScope,
         exit: AnyBoundNodeId,
-    ) -> impl Iterator<Item = &BoundDependencySubject> {
-        self.exit_dependencies.get(&exit).into_iter().flatten()
+        preserves_exit_value: bool,
+    ) -> impl Iterator<Item = BoundDependencySubject> + '_ {
+        let abandoned = match scope {
+            bray_bound_tree::StorageScope::AbandonedTransfer { transfer, value } => Some((transfer, value)),
+            _ => None,
+        };
+
+        (preserves_exit_value || abandoned.is_some()).then(|| self.exit_dependencies.get(&exit)).flatten()
+            .into_iter().flatten().copied()
+            .chain(abandoned.map(|(_, value)| BoundDependencySubject::Storage(value)))
+            .chain(abandoned.into_iter().flat_map(|(transfer, _)| self.retained_by(transfer.into())))
     }
+
+    pub(in crate::analysis::liveness) fn failed_invocation_subjects(
+        &self,
+        invocation: bray_bound_tree::BoundExecutionSite,
+        consumption: Option<bray_bound_tree::StorageValueConsumptionPhase>,
+    ) -> impl Iterator<Item = &BoundDependencySubject> {
+        let effects = self.by_occurrence.get(&invocation);
+        let results = self.operation_result_definitions.get(&invocation);
+        let boundary = consumption.and_then(|phase| self.boundary_uses.get(&(invocation, phase)));
+
+        effects.into_iter().flat_map(|effect| effect.uses.iter().chain(&effect.definitions))
+            .chain(boundary.into_iter().flatten())
+            .filter(move |subject| results.is_none_or(|results| !results.contains(subject)))
+    }
+}
+
+fn forwarded_implicit_loan(
+    storage: &StoragePlan,
+    selections: &CheckedSemanticSelections,
+    occurrence: bray_bound_tree::BoundExecutionSite,
+    contracts: &bray_bound_tree::BoundCallDependencyContracts,
+) -> Option<bray_bound_tree::BorrowCapabilityId> {
+    use bray_symbols::{DependencyReferenceKind, DependencySubjectRoot, SymbolOrdinal};
+
+    let input = storage.implicit_input_plan(occurrence)?;
+    let loan = storage.borrow_for_plan(input)?;
+    let selection = selections.expression(occurrence.expression()?)?;
+    let root = selection.invocation_input_root(occurrence, SymbolOrdinal::new(0))?;
+
+    // A forwarded descriptor still requires the capability formed at input.
+    // An address formation or a reached region carries different support.
+    contracts.captured_values().iter()
+        .flat_map(|row| contracts.storage().reference_outputs([row]))
+        .any(|reference| {
+            let relation = reference.relation();
+
+            relation.exit().subject_root() == DependencySubjectRoot::Result
+                && relation.kind() == DependencyReferenceKind::Borrow
+                && relation.is_exact()
+                && relation.entry().is_some_and(|entry| entry.subject_root() == root && entry.projections().is_empty())
+                && relation.dereferences() == 0
+                && relation.target_projections().is_empty()
+                && reference.addressed_type().is_none()
+        }).then_some(loan)
 }
 
 #[derive(Clone, Copy)]
@@ -725,16 +848,6 @@ impl<'a> OperationEffectView<'a> {
                 self.phase,
                 Some(AnalysisCallPhase::Input | AnalysisCallPhase::Attempt)
             )
-        })
-    }
-
-    pub(in crate::analysis::liveness) fn failed_invocation_subjects(
-        self,
-    ) -> impl Iterator<Item = &'a BoundDependencySubject> + Clone + 'a {
-        self.lifetime_subjects().filter(move |subject| {
-            !self
-                .result_definitions
-                .is_some_and(|definitions| definitions.contains(subject))
         })
     }
 

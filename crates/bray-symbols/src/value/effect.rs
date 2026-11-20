@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use super::{CapturedFailureOutcome, DependencyFailureKind, DependencyProjection, DependencySubject};
+use super::{DependencyFailureKind, DependencyProjection, DependencySubject};
 
 /// Possible transitions and the prefixes that can reach each completion channel.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -14,9 +14,15 @@ pub struct DependencyEffectOutcomes<Effect> {
 impl<Effect: Ord + Clone> DependencyEffectOutcomes<Effect> {
     /// Creates a conservative contract in which every transition can occur on either outcome.
     pub fn new(effects: impl IntoIterator<Item = Effect>) -> Self {
-        let possible = bray_base::sorted_unique_shared_slice(effects);
+        Self::from_envelope(bray_base::sorted_unique_shared_slice(effects))
+    }
 
+    fn from_envelope(possible: Arc<[Effect]>) -> Self {
         Self { normal: Arc::clone(&possible), possible, abnormal: None, failures: [None, None] }
+    }
+
+    pub(super) fn with_unselected_outcomes(&self) -> Self {
+        Self::from_envelope(Arc::clone(&self.possible))
     }
 
     /// Records normal transitions, retaining them among all possible transitions.
@@ -47,24 +53,6 @@ impl<Effect: Ord + Clone> DependencyEffectOutcomes<Effect> {
         self.failures = [None, None];
 
         self
-    }
-
-    /// Selects performed prefixes before resolving addresses in the admitted frame.
-    pub fn with_selected_failures<Guard, Report>(
-        self,
-        rows: Option<&[CapturedFailureOutcome<Guard, Report, Effect>]>,
-        mut admitted: impl FnMut(usize) -> bool,
-    ) -> Self {
-        let Some(rows) = rows else { return self; };
-
-        let rows = rows.iter().enumerate().filter_map(|(index, row)| admitted(index).then_some(row)).collect::<Vec<_>>();
-
-        let failures = DependencyFailureKind::ALL.map(|kind| {
-            bray_base::sorted_unique_shared_slice(rows.iter().filter(|row| row.covers(kind))
-                .flat_map(|row| row.effects.as_deref().unwrap_or_else(|| self.failure(kind))).cloned())
-        });
-
-        self.with_failure_prefixes(failures)
     }
 
     /// Installs distinct resolved prefixes and derives their common envelope.
@@ -112,41 +100,64 @@ impl<Effect: Ord + Clone> DependencyEffectOutcomes<Effect> {
     /// Binds each transition once, retaining its outcome guards on every resolved alternative.
     pub fn try_flat_map<Mapped: Ord + Clone, Produced: IntoIterator<Item = Mapped>, Error>(
         &self,
-        map: impl FnMut(&Effect) -> Result<Produced, Error>,
+        mut map: impl FnMut(&Effect) -> Result<Produced, Error>,
     ) -> Result<DependencyEffectOutcomes<Mapped>, Error> {
-        self.try_flat_map_admitted(|_| true, map)
+        self.try_flat_map_selected(false, std::iter::empty(), |effect, _| Ok((true, [false; 2], map(effect)?)))
     }
 
-    /// Binds all effects against entry memory while selecting feasible normal effects.
-    pub fn try_flat_map_admitted<Mapped: Ord + Clone, Produced: IntoIterator<Item = Mapped>, Error>(
-        &self,
-        mut admitted_normal: impl FnMut(&Effect) -> bool,
-        mut map: impl FnMut(&Effect) -> Result<Produced, Error>,
+    /// Binds the possible envelope once while selecting each transition's reached channels.
+    ///
+    /// When the caller has a complete failure table, its two selections replace the
+    /// template's unfiltered failure channels. An opaque body uses those channels directly.
+    pub fn try_flat_map_selected<'effect, Mapped: Ord + Clone, Produced: IntoIterator<Item = Mapped>, Error>(
+        &'effect self,
+        select_failures: bool,
+        additional_failure_effects: impl IntoIterator<Item = &'effect Effect>,
+        mut bind: impl FnMut(&Effect, bool) -> Result<(bool, [bool; 2], Produced), Error>,
     ) -> Result<DependencyEffectOutcomes<Mapped>, Error> {
         let mut possible = Vec::with_capacity(self.possible.len());
         let mut normal = Vec::with_capacity(self.normal.len());
-        let mut abnormal = self.abnormal.as_ref().map(|effects| Vec::with_capacity(effects.len()));
-        let mut failures = self.failures.each_ref().map(|effects| effects.as_ref().map(|effects| Vec::with_capacity(effects.len())));
+        let mut abnormal = (select_failures || self.abnormal.is_some()).then(Vec::new);
 
-        for effect in &*self.possible {
-            let on_normal_path = self.normal.binary_search(effect).is_ok() && admitted_normal(effect);
+        let mut failures = self.failures.each_ref().map(|effects| {
+            (select_failures || effects.is_some()).then(Vec::new)
+        });
 
-            let on_abnormal_path = self.abnormal.as_ref().is_some_and(|effects|
-                effects.binary_search(effect).is_ok());
+        let selected_effects = self.possible.iter().map(|effect| (effect, true)).chain(
+            additional_failure_effects.into_iter().filter(|effect| self.possible.binary_search(effect).is_err())
+                .map(|effect| (effect, false)),
+        );
 
-            for mapped in map(effect)? {
+        for (effect, in_envelope) in selected_effects {
+            let (admitted_normal, admitted_failures, resolved) = bind(effect, in_envelope)?;
+
+            let on_normal_path = admitted_normal && in_envelope
+                && (Arc::ptr_eq(&self.normal, &self.possible) || self.normal.binary_search(effect).is_ok());
+
+            let on_failure_paths = if select_failures {
+                admitted_failures
+            } else {
+                self.failures.each_ref().map(|effects| effects.as_ref().is_some_and(|effects| effects.binary_search(effect).is_ok()))
+            };
+
+            let on_abnormal_path = if select_failures {
+                on_failure_paths.into_iter().any(|selected| selected)
+            } else {
+                self.abnormal.as_ref().is_some_and(|effects| effects.binary_search(effect).is_ok())
+            };
+
+            for mapped in resolved {
                 if on_normal_path {
-                    // Translate each identity once, then share it between the outcomes that use it.
                     normal.push(mapped.clone());
                 }
 
                 if on_abnormal_path {
-                    abnormal.as_mut().expect("known failure effect retains its channel").push(mapped.clone());
+                    abnormal.as_mut().expect("a selected failure has an abnormal envelope").push(mapped.clone());
                 }
 
-                for (source, output) in self.failures.iter().zip(&mut failures) {
-                    if source.as_ref().is_some_and(|effects| effects.binary_search(effect).is_ok()) {
-                        output.as_mut().expect("known failure prefix retains its kind").push(mapped.clone());
+                for (selected, output) in on_failure_paths.into_iter().zip(&mut failures) {
+                    if selected {
+                        output.as_mut().expect("a selected failure has a channel").push(mapped.clone());
                     }
                 }
 
@@ -154,16 +165,16 @@ impl<Effect: Ord + Clone> DependencyEffectOutcomes<Effect> {
             }
         }
 
-        let bound = DependencyEffectOutcomes::new(possible).with_normal(normal);
+        let possible = bray_base::sorted_unique_shared_slice(possible);
+        let normal = bray_base::sorted_unique_shared_slice(normal);
+        let normal = if normal == possible { Arc::clone(&possible) } else { normal };
 
-        let mut bound = match abnormal {
-            Some(effects) => bound.with_abnormal(effects),
-            None => bound,
-        };
-
-        bound.failures = failures.map(|effects| effects.map(bray_base::sorted_unique_shared_slice));
-
-        Ok(bound)
+        Ok(DependencyEffectOutcomes {
+            possible,
+            normal,
+            abnormal: abnormal.map(bray_base::sorted_unique_shared_slice),
+            failures: failures.map(|effects| effects.map(bray_base::sorted_unique_shared_slice)),
+        })
     }
 }
 
@@ -179,7 +190,16 @@ impl<Effect> DependencyEffectOutcomes<Effect> {
 
     /// Transitions that can reach the selected abnormal exit.
     pub fn failure(&self, kind: DependencyFailureKind) -> &[Effect] {
-        self.failures[kind.index()].as_deref().unwrap_or_else(|| self.abnormal())
+        self.failure_transitions(kind).as_ref()
+    }
+
+    /// Shares the resolved prefix with a consumer that keeps it through the failure edge.
+    pub fn shared_failure(&self, kind: DependencyFailureKind) -> Arc<[Effect]> {
+        Arc::clone(self.failure_transitions(kind))
+    }
+
+    fn failure_transitions(&self, kind: DependencyFailureKind) -> &Arc<[Effect]> {
+        self.failures[kind.index()].as_ref().or(self.abnormal.as_ref()).unwrap_or(&self.possible)
     }
 }
 
@@ -209,6 +229,8 @@ pub enum DependencyMutationKind<Type = super::TypeId> {
     Cleanup(Type),
     /// Remove initialized contents without retiring the storage.
     Consume,
+    /// A selected cell update has transferred the complete stored value of this type.
+    Discharge(Type),
     /// End the storage lifetime and revoke dependencies on that lifetime.
     Retire,
 }
@@ -218,9 +240,19 @@ impl<Type> DependencyMutationKind<Type> {
     pub fn region_kind(self) -> Self {
         match self {
             Self::Dispose(ty) => Self::Cleanup(ty),
+            Self::Discharge(_) => Self::Consume,
             other => other,
         }
     }
+}
+
+/// A typed duty discharged at a known path within a retired allocation.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct StorageDischarge<Projection, Type = super::TypeId> {
+    /// Inline selectors relative to the captured retirement address.
+    pub projections: Arc<[Projection]>,
+    /// Type of the complete value removed from that cell.
+    pub ty: Type,
 }
 
 /// A possible mutation expressed over entry values, separately from their reference targets.
@@ -230,6 +262,13 @@ pub enum DependencyStorageEffect<
     Projection = DependencyProjection,
     Type = super::TypeId,
 > {
+    /// A retirement and the typed discharges that precede it.
+    OrderedRetirement {
+        /// Actual captured operand, using the same route as other effects.
+        retirement: Box<Self>,
+        /// Discharges performed before this retirement.
+        discharged: Arc<[StorageDischarge<Projection, Type>]>,
+    },
     /// Protected atomic payloads may change through unresolved aliases.
     Atomic,
     /// Mutate externally reachable storage without exposing invocation-local inputs.
@@ -279,6 +318,33 @@ pub enum DependencyStorageEffect<
 }
 
 impl<Subject, Projection, Type> DependencyStorageEffect<Subject, Projection, Type> {
+    /// Returns the actual mutation and any discharges established before it.
+    pub fn retirement_parts(&self) -> (&Self, &[StorageDischarge<Projection, Type>]) {
+        match self {
+            Self::OrderedRetirement { retirement, discharged } => (retirement, discharged),
+            _ => (self, &[]),
+        }
+    }
+
+    /// Whether the effect can carry ordered discharge facts.
+    pub fn is_addressed_retirement(&self) -> bool {
+        matches!(self,
+            Self::Direct { addressed: true, kind: DependencyMutationKind::Retire, .. }
+            | Self::Indirect { addressed: true, kind: DependencyMutationKind::Retire, .. }
+        )
+    }
+
+    /// Attaches definite discharges to the exact retirement operand.
+    pub fn with_retirement_discharges(self, discharged: Arc<[StorageDischarge<Projection, Type>]>) -> Self {
+        if discharged.is_empty() {
+            return self;
+        }
+
+        assert!(self.is_addressed_retirement(), "a discharge prefix requires an addressed retirement");
+
+        Self::OrderedRetirement { retirement: Box::new(self), discharged }
+    }
+
     /// Translates an effect without changing its captured reads, precision or transition kind.
     pub fn try_map<C, S, P, T, E>(
         &self,
@@ -290,7 +356,10 @@ impl<Subject, Projection, Type> DependencyStorageEffect<Subject, Projection, Typ
     where Type: Copy {
         use DependencyStorageEffect as Effect;
 
-        Ok(match self {
+        let (effect, discharged) = self.retirement_parts();
+
+        let mapped = match effect {
+            Self::OrderedRetirement { .. } => unreachable!("retirement has only one discharge prefix"),
             Self::Atomic => Effect::Atomic,
             Self::Ambient => Effect::Ambient,
             Self::Unknown => Effect::Unknown,
@@ -314,12 +383,26 @@ impl<Subject, Projection, Type> DependencyStorageEffect<Subject, Projection, Typ
                 kind: kind.try_map_type(|value| ty(context, value))?,
                 access_type: access_type.map(|value| ty(context, value)).transpose()?,
             },
-        })
+        };
+
+        if discharged.is_empty() {
+            return Ok(mapped);
+        }
+
+        let discharged = discharged.iter().map(|discharge| {
+            Ok(StorageDischarge {
+                projections: projections(context, &discharge.projections)?,
+                ty: ty(context, discharge.ty)?,
+            })
+        }).collect::<Result<Vec<_>, E>>()?;
+
+        Ok(mapped.with_retirement_discharges(discharged.into()))
     }
 
     /// Keeps this route as a footprint after losing the actual operand.
     pub fn into_region(self) -> Self {
         match self {
+            Self::OrderedRetirement { retirement, .. } => (*retirement).into_region(),
             Self::Direct { subject, kind, access_type, .. } => Self::Direct {
                 subject, addressed: false, kind: kind.region_kind(), access_type,
             },
@@ -335,11 +418,31 @@ impl<Subject, Projection, Type> DependencyStorageEffect<Subject, Projection, Typ
         matches!(self, Self::Direct { kind: DependencyMutationKind::Consume, .. })
     }
 
+    /// Whether this update records a definite typed discharge.
+    pub fn is_discharge(&self) -> bool {
+        matches!(self, Self::Direct { kind: DependencyMutationKind::Discharge(_), .. }
+            | Self::Indirect { kind: DependencyMutationKind::Discharge(_), .. }
+            | Self::UnboundedMutation { kind: DependencyMutationKind::Discharge(_), .. })
+    }
+
+    /// Whether this update names a complete typed cell.
+    pub fn is_cell_change(&self) -> bool {
+        matches!(self,
+            Self::Direct { addressed: true, kind: DependencyMutationKind::Replace(_) | DependencyMutationKind::Discharge(_), .. }
+            | Self::Indirect { addressed: true, kind: DependencyMutationKind::Replace(_) | DependencyMutationKind::Discharge(_), .. }
+        )
+    }
+
     /// Whether the route can be executed in order and its precision admits the requested layout.
     pub fn is_valid_route(&self) -> bool {
         match self {
+            Self::OrderedRetirement { retirement, discharged } => !discharged.is_empty()
+                && retirement.is_addressed_retirement()
+                && retirement.is_valid_route(),
             Self::Direct { addressed: false, kind: DependencyMutationKind::Dispose(_), .. }
-            | Self::Indirect { addressed: false, kind: DependencyMutationKind::Dispose(_), .. } => false,
+            | Self::Indirect { addressed: false, kind: DependencyMutationKind::Dispose(_) | DependencyMutationKind::Discharge(_), .. }
+            | Self::Direct { addressed: false, kind: DependencyMutationKind::Discharge(_), .. }
+            | Self::UnboundedMutation { kind: DependencyMutationKind::Discharge(_), .. } => false,
             Self::Indirect { reads, projections, .. } => reads.is_sorted()
                 && reads.last().is_none_or(|index| (*index as usize) <= projections.len()),
             _ => true,
@@ -348,27 +451,41 @@ impl<Subject, Projection, Type> DependencyStorageEffect<Subject, Projection, Typ
 
     /// Entry slot whose value or reference bounds this effect.
     pub fn subject(&self) -> Option<&Subject> {
-        match self {
+        match self.retirement_parts().0 {
             Self::Direct { subject, .. } => Some(subject),
             Self::Indirect { reference, .. } => Some(reference),
             _ => None,
         }
     }
 
+    /// Projection routes carried by the mutation and its ordered discharges.
+    pub fn projection_paths(&self) -> impl Iterator<Item = &[Projection]> {
+        let (effect, discharged) = self.retirement_parts();
+
+        let route = match effect {
+            Self::Indirect { projections, .. } => Some(projections.as_ref()),
+            _ => None,
+        };
+
+        route.into_iter().chain(discharged.iter().map(|duty| duty.projections.as_ref()))
+    }
+
     /// Types required to retain and interpret this effect across semantic boundaries.
     pub fn referenced_types(&self) -> impl Iterator<Item = &Type> {
-        match self {
+        let (effect, discharged) = self.retirement_parts();
+
+        match effect {
             Self::Direct { access_type, kind, .. }
             | Self::Indirect { access_type, kind, .. }
             | Self::UnboundedMutation { access_type, kind, .. } => [
                 access_type.as_ref(),
                 match kind {
-                    DependencyMutationKind::Replace(ty) | DependencyMutationKind::Dispose(ty) | DependencyMutationKind::Cleanup(ty) => Some(ty),
+                    DependencyMutationKind::Replace(ty) | DependencyMutationKind::Dispose(ty) | DependencyMutationKind::Cleanup(ty) | DependencyMutationKind::Discharge(ty) => Some(ty),
                     _ => None,
                 },
             ],
-            Self::Atomic | Self::Ambient | Self::Unknown | Self::Escape => [None, None],
-        }.into_iter().flatten()
+            _ => [None, None],
+        }.into_iter().flatten().chain(discharged.iter().map(|duty| &duty.ty))
     }
 
     /// Conservative effects when the callable can have an unknown captured environment.
@@ -387,6 +504,9 @@ impl<Subject, Projection, Type> DependencyStorageEffect<Subject, Projection, Typ
         match kind {
             DependencyMutationKind::Atomic => Self::Atomic,
             DependencyMutationKind::Escape => Self::Escape,
+            DependencyMutationKind::Discharge(_) => Self::UnboundedMutation {
+                kind: DependencyMutationKind::Consume, access_type, ambient: false,
+            },
             DependencyMutationKind::Write
             | DependencyMutationKind::Replace(_)
             | DependencyMutationKind::Dispose(_)
@@ -418,6 +538,7 @@ impl<Type> DependencyMutationKind<Type> {
             Self::Dispose(ty) => DependencyMutationKind::Dispose(map(ty)?),
             Self::Cleanup(ty) => DependencyMutationKind::Cleanup(map(ty)?),
             Self::Consume => DependencyMutationKind::Consume,
+            Self::Discharge(ty) => DependencyMutationKind::Discharge(map(ty)?),
             Self::Retire => DependencyMutationKind::Retire,
         })
     }

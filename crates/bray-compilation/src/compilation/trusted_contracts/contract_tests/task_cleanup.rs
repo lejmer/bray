@@ -201,7 +201,11 @@ fn opaque_drivers_retain_the_borrows_held_by_deferred_values() {
             "&mut pending",
         ),
     ] {
-        let application = compilation(&format!(
+        let asynchronous = parameter.contains("Task<");
+        let execution = if asynchronous { "async " } else { "" };
+        let await_driver = if asynchronous { "await " } else { "" };
+
+        let source = format!(
             r#"
             trusted module app;
             struct Marker
@@ -225,7 +229,7 @@ fn opaque_drivers_retain_the_borrows_held_by_deferred_values() {
             {{
                 replace(owner);
             }}
-            extern func drive(pos pending: {parameter});
+            extern {execution}func drive(pos pending: {parameter});
             func observe(pos owner: &Owner)
                 requires(trusted live(&owner.marker))
             {{
@@ -235,13 +239,14 @@ fn opaque_drivers_retain_the_borrows_held_by_deferred_values() {
                 let mut owner = make();
                 {{
                     let mut pending = {initialize};
-                    drive({argument});
+                    {await_driver}drive({argument});
                 }}
                 observe(&owner);
             }}
         "#
-        ));
+        );
 
+        let application = compilation(&source);
         let diagnostics = application.check_diagnostics();
 
         assert!(
@@ -260,13 +265,12 @@ fn opaque_drivers_retain_the_borrows_held_by_deferred_values() {
             "{parameter}: {diagnostics:?}"
         );
 
-        assert!(
-            diagnostics
-                .by_kind(bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven)
-                .next()
-                .is_some(),
-            "{parameter}: {diagnostics:?}"
-        );
+        let source_id = source_function_body_key(&application, "caller").source().syntax().source_id();
+
+        assert!(diagnostics.iter().any(|diagnostic| {
+            diagnostic.kind() == DiagnosticKind::CheckingTrustedObligationNotProven
+                && super::fixtures::diagnostic_at_call(diagnostic, source_id, &source, "observe(&owner)")
+        }), "{parameter}: {diagnostics:?}");
     }
 }
 
@@ -372,11 +376,15 @@ fn task_cleanup_retains_loans_until_the_task_is_consumed() {
             true,
         ),
         (
-            "let mut task = work(&value).start(); task = work(&value).start(); value = 1;",
+            "let mut task = work(&previous).start(); task = work(&value).start(); previous = 1; try await task.join();",
+            true,
+        ),
+        (
+            "let mut task = work(&previous).start(); task = work(&value).start(); value = 1;",
             false,
         ),
     ] {
-        let application = compilation(&format!(
+        let source = format!(
             r#"
             module app;
             extern async func work(pos value: &u32);
@@ -388,11 +396,13 @@ fn task_cleanup_retains_loans_until_the_task_is_consumed() {
             async func caller(pos flag: bool)
             {{
                 let mut value: u32 = 0;
+                let mut previous: u32 = 0;
                 {body}
             }}
         "#
-        ));
+        );
 
+        let application = compilation(&source);
         let diagnostics = application.check_diagnostics();
 
         if valid {
@@ -402,6 +412,13 @@ fn task_cleanup_retains_loans_until_the_task_is_consumed() {
                 diagnostics,
                 DiagnosticKind::CheckingConflictingBorrow,
             );
+
+            let source_id = source_function_body_key(&application, "caller").source().syntax().source_id();
+
+            assert!(diagnostics.iter().all(|diagnostic| {
+                diagnostic.kind() != DiagnosticKind::CheckingConflictingBorrow
+                    || super::fixtures::diagnostic_at_call(diagnostic, source_id, &source, "value = 1")
+            }), "{body}: {diagnostics:?}");
         }
     }
 }

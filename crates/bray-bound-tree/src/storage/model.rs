@@ -90,7 +90,11 @@ pub enum StorageIdentity {
         expression: BoundExpressionId,
         /// The pattern reached only after successful entry initializes the capability.
         pattern: crate::BoundPatternId,
+        /// Fallible entry first produces a tagged result. Its success edge transfers the capability.
+        fallible_entry: bool,
     },
+    /// A with expression's previous result, owned by its replacement cleanup.
+    ScopedResultReplacement(BoundExpressionId),
     /// Storage created by an allocation operation.
     Allocation(BoundExpressionId),
     /// Storage introduced by a compiler-required operation.
@@ -123,6 +127,7 @@ impl StorageIdentity {
                 | StorageIdentity::InvocationInput { .. }
                 | StorageIdentity::InvocationResult(_)
                 | StorageIdentity::ScopedCapability { .. }
+                | StorageIdentity::ScopedResultReplacement(_)
                 | StorageIdentity::Allocation(_)
                 | StorageIdentity::CompilerCreated(_)
         )
@@ -185,6 +190,7 @@ impl StorageIdentity {
             Self::CustomIndexBorrow(_) => "custom_index_borrow",
             Self::InvocationResult(_) => "invocation_result",
             Self::ScopedCapability { .. } => "scoped_capability",
+            Self::ScopedResultReplacement(_) => "scoped_result_replacement",
             Self::Allocation(_) => "allocation",
             Self::CompilerCreated(_) => "compiler_created",
             Self::Alternative { .. } => "alternative",
@@ -217,9 +223,10 @@ impl StorageIdentity {
                 expression: *expression,
                 ordinal: *ordinal,
             }),
-            Self::ScopedCapability { expression, .. } => {
+            Self::ScopedCapability { expression, fallible_entry: false, .. } => {
                 Some(crate::BoundExecutionSite::ScopedEnter(*expression))
             }
+            Self::ScopedCapability { fallible_entry: true, .. } => None,
             _ => match self.definition_node() {
                 Some(node) => Some(crate::BoundExecutionSite::Node(node)),
                 None => None,
@@ -247,6 +254,7 @@ impl StorageIdentity {
             | Self::AnonymousParameter(_)
             | Self::PredicateParameter(_)
             | Self::PostconditionResult(_)
+            | Self::ScopedResultReplacement(_)
             | Self::CompilerCreated(_)
             | Self::Error(_) => None,
         }
@@ -260,6 +268,7 @@ impl StorageIdentity {
             | Self::Evaluated(expression)
             | Self::InvocationInput { expression, .. }
             | Self::CustomIndexBorrow(expression)
+            | Self::ScopedResultReplacement(expression)
             | Self::Allocation(expression) => expression.unit() == unit,
             Self::Alternative {
                 pattern,
@@ -268,6 +277,7 @@ impl StorageIdentity {
             Self::ScopedCapability {
                 expression,
                 pattern,
+                ..
             } => expression.unit() == unit && pattern.unit() == unit,
             Self::AnonymousParameter(parameter) => parameter.region().raw() == unit.raw(),
             Self::ContractParameter(parameter) => parameter.region().raw() == unit.raw(),

@@ -11,7 +11,7 @@ use crate::{CheckerRequestContext, CheckerUnitRoot, CheckerUnitView};
 use super::assembly::ControlFlowGraphAssembler;
 use super::id::AnalysisBlockId;
 use super::model::{
-    AnalysisCallPhase, AnalysisEdgeKind, AnalysisExitKind, AnalysisRefinement,
+    AnalysisCallPhase, AnalysisEdgeKind, AnalysisExitKind, AnalysisOperationKind, AnalysisRefinement,
     AnalysisSuspensionKind, ControlFlowGraph,
 };
 
@@ -31,7 +31,7 @@ where
         request,
         None,
         None,
-        Default::default(),
+        None,
         Default::default(),
         None,
         None,
@@ -46,8 +46,8 @@ pub(crate) fn build_storage_control_flow_graph<C: CheckerRequestContext + ?Sized
     patterns: Option<&bray_bound_tree::CheckedPatterns>,
     completion_semantics: Option<&bray_bound_tree::CheckedExpressionSemantics>,
 ) -> ControlFlowGraphBuildOutcome<C::UpstreamError> {
-    let (scopes, cleanup_free_operations) =
-        match crate::asynchronous::cleanup_scopes(cleanup_shapes, request, storage) {
+    let (cleanup_requirements, cleanup_free_operations) =
+        match crate::asynchronous::graph_cleanup_requirements(cleanup_shapes, request, storage) {
             Ok(scopes) => scopes,
             Err(crate::CheckerQueryError::Cancelled) => {
                 return ControlFlowGraphBuildOutcome::Cancelled;
@@ -61,7 +61,7 @@ pub(crate) fn build_storage_control_flow_graph<C: CheckerRequestContext + ?Sized
         request,
         Some(storage),
         Some(selections),
-        scopes,
+        Some(cleanup_requirements),
         cleanup_free_operations,
         patterns,
         completion_semantics,
@@ -72,7 +72,7 @@ fn build_control_flow_graph_with_storage<C, E>(
     request: CheckerUnitView<'_, C>,
     checked_storage: Option<&StoragePlan>,
     selections: Option<&bray_bound_tree::CheckedSemanticSelections>,
-    cleanup_scopes: std::collections::BTreeSet<StorageScope>,
+    cleanup_requirements: Option<std::sync::Arc<crate::asynchronous::StorageCleanupRequirements>>,
     cleanup_free_operations: std::collections::BTreeSet<BoundExpressionId>,
     patterns: Option<&bray_bound_tree::CheckedPatterns>,
     completion_semantics: Option<&bray_bound_tree::CheckedExpressionSemantics>,
@@ -84,7 +84,7 @@ where
         request,
         checked_storage,
         selections,
-        cleanup_scopes,
+        cleanup_requirements,
         cleanup_free_operations,
     );
 
@@ -126,11 +126,12 @@ where
     pub(super) loops: Vec<LoopContext>,
     pub(super) catches: Vec<CatchContext>,
     pub(super) yield_regions: Vec<(SyntaxAnchor, BoundExpressionId)>,
+    generator_yields: std::collections::BTreeMap<BoundExpressionId, BoundExpressionId>,
     pub(super) result_yields: Vec<ResultYieldContext>,
     pub(super) scopes: Vec<StorageScope>,
     checked_storage: Option<&'view StoragePlan>,
     selections: Option<&'view bray_bound_tree::CheckedSemanticSelections>,
-    pub(super) cleanup_scopes: std::collections::BTreeSet<StorageScope>,
+    pub(super) cleanup_requirements: Option<std::sync::Arc<crate::asynchronous::StorageCleanupRequirements>>,
     cleanup_free_operations: std::collections::BTreeSet<BoundExpressionId>,
     pub(super) scoped_uses: std::collections::BTreeMap<StorageScope, BoundExpressionId>,
     pub(super) patterns: Option<&'view bray_bound_tree::CheckedPatterns>,
@@ -157,6 +158,7 @@ pub(super) struct ResultYieldContext {
     pub(super) target: SyntaxAnchor,
     pub(super) completion: AnalysisBlockId,
     pub(super) scope_depth: usize,
+    pub(super) destination: Option<bray_bound_tree::StorageIdentityId>,
 }
 
 impl<'view, C> ControlFlowGraphBuilder<'view, C>
@@ -167,7 +169,7 @@ where
         request: CheckerUnitView<'view, C>,
         checked_storage: Option<&'view StoragePlan>,
         selections: Option<&'view bray_bound_tree::CheckedSemanticSelections>,
-        mut cleanup_scopes: std::collections::BTreeSet<StorageScope>,
+        cleanup_requirements: Option<std::sync::Arc<crate::asynchronous::StorageCleanupRequirements>>,
         cleanup_free_operations: std::collections::BTreeSet<BoundExpressionId>,
     ) -> Self {
         let scoped_uses: std::collections::BTreeMap<_, _> = selections
@@ -191,8 +193,6 @@ where
             })
             .collect();
 
-        cleanup_scopes.extend(scoped_uses.keys().copied());
-
         Self {
             request,
             view: request.view(),
@@ -204,9 +204,10 @@ where
             scopes: Vec::new(),
             checked_storage,
             selections,
-            cleanup_scopes,
+            cleanup_requirements,
             cleanup_free_operations,
             scoped_uses,
+            generator_yields: Default::default(),
             patterns: None,
             completion_semantics: None,
         }
@@ -303,12 +304,16 @@ where
         };
 
         if let Some(rejected) = rejected {
-            let rejected = self.push_scope_exit(rejected, scope, id.into());
+            let rejected = self.push_scope_exit(rejected, scope, id.into(), None);
 
             self.push_exit(rejected, AnalysisExitKind::NormalFallthrough, id.into());
         }
 
-        Some(has_fallthrough.then(|| self.push_scope_exit(current, scope, id.into())))
+        Some(has_fallthrough.then(|| {
+            self.push_scoped_fallthrough(current, scope);
+
+            self.push_scope_exit(current, scope, id.into(), None)
+        }))
     }
 
     fn build_block_item(
@@ -360,7 +365,7 @@ where
         }
 
         match expression {
-            BoundExpression::Block(expression) => self.build_block_expression(*expression, current),
+            BoundExpression::Block(expression) => self.build_block_expression(id, *expression, current),
             BoundExpression::Binary(expression)
                 if matches!(
                     expression.operator(),
@@ -392,8 +397,6 @@ where
             BoundExpression::ControlTransfer(expression) => {
                 let current = self.build_optional_operand(expression.operand(), current)?;
 
-                self.push_bound(current, id.into());
-
                 Some(self.push_control_transfer(
                     id,
                     current,
@@ -407,6 +410,7 @@ where
 
     fn build_block_expression(
         &mut self,
+        id: BoundExpressionId,
         expression: bray_bound_tree::BoundBlockExpression,
         current: AnalysisBlockId,
     ) -> Option<Option<AnalysisBlockId>> {
@@ -416,6 +420,7 @@ where
             target: expression.origin().source_anchor().syntax(),
             completion,
             scope_depth: self.scope_depth(),
+            destination: self.checked_storage.and_then(|storage| storage.value_slot(id)),
         });
 
         let block_completion = self.build_block(expression.block(), current);
@@ -462,7 +467,20 @@ where
                 .unwrap_or_else(|| self.push_block());
         }
 
-        let mut current = self.push_source_operation(id, current);
+        let selected_assignment = matches!(expression, BoundExpression::Assignment(_))
+            && self.view.node_is_recovered(id.into()) == Some(false)
+            && matches!(selections.and_then(|selections| selections.expression(id)),
+                Some(SemanticSelection::Operation(bray_bound_tree::SelectedOperation::CompoundAssignment(_))));
+
+        let mut current = if selected_assignment {
+            let called = self.push_invocation(id, current, self.source_operation_may_propagate_panic(id));
+
+            self.storage.push_operation(called, AnalysisOperationKind::AssignmentInstall(id));
+
+            called
+        } else {
+            self.push_source_operation(id, current)
+        };
 
         if matches!(expression, BoundExpression::Assignment(_))
             && !self.cleanup_free_operations.contains(&id)
@@ -665,13 +683,19 @@ where
             .map(|completion| completion.unwrap_or_else(|| self.push_block()))
     }
 
-    pub(super) fn push_control_transfer(
+    fn push_control_transfer(
         &mut self,
         id: BoundExpressionId,
         block: AnalysisBlockId,
         kind: BoundControlTransferKind,
         target: Option<SyntaxAnchor>,
     ) -> Option<AnalysisBlockId> {
+        if kind == BoundControlTransferKind::Yield {
+            return self.push_yield(id, block, target);
+        }
+
+        self.push_bound(block, id.into());
+
         let target_loop = match target {
             Some(target) => self
                 .loops
@@ -683,54 +707,7 @@ where
         .copied();
 
         match kind {
-            BoundControlTransferKind::Yield => {
-                let target_result = target.and_then(|target| {
-                    self.result_yields
-                        .iter()
-                        .rev()
-                        .find(|context| context.target == target)
-                        .copied()
-                });
-
-                if let Some(context) = target_result {
-                    self.push_cleanup_failures(block, context.scope_depth, id.into());
-
-                    let block = self.resolve_scopes(block, context.scope_depth, id.into(), true);
-
-                    self.push_edge(block, context.completion, AnalysisEdgeKind::Yield, None);
-
-                    return None;
-                }
-
-                if let Some((_, region)) = target
-                    .and_then(|target| {
-                        self.yield_regions
-                            .iter()
-                            .rev()
-                            .find(|(anchor, _)| *anchor == target)
-                    })
-                    .copied()
-                {
-                    // Growth is fallible before the staged element becomes part of the prefix.
-                    let block = if matches!(self.view.expression(region), Some(BoundExpression::Structured(region))
-                        if region.kind() == bray_bound_tree::BoundStructuredExpressionKind::GeneralGenerator)
-                    {
-                        self.push_generator_storage_failure(block, id.into(), region)
-                    } else {
-                        block
-                    };
-
-                    let continuation = self.push_block();
-
-                    self.push_edge(block, continuation, AnalysisEdgeKind::Yield, None);
-
-                    return Some(continuation);
-                }
-
-                self.push_exit(block, AnalysisExitKind::Yield, id.into());
-
-                None
-            }
+            BoundControlTransferKind::Yield => unreachable!("yield chooses its storage admission before committing"),
             BoundControlTransferKind::Return => {
                 self.push_exit(block, AnalysisExitKind::Return, id.into());
 
@@ -738,9 +715,11 @@ where
             }
             BoundControlTransferKind::Break => match target_loop {
                 Some(context) => {
-                    self.push_cleanup_failures(block, context.scope_depth, id.into());
+                    let value = self.checked_storage.and_then(|storage| {
+                        storage.root_identity(storage.control_transfer_destination(id)?)
+                    });
 
-                    let block = self.resolve_scopes(block, context.scope_depth, id.into(), true);
+                    let block = self.resolve_scopes(block, context.scope_depth, id.into(), true, value);
 
                     self.push_edge(block, context.completion, AnalysisEdgeKind::LoopBreak, None);
 
@@ -755,10 +734,8 @@ where
             BoundControlTransferKind::Continue => match target_loop {
                 Some(context) => match context.continue_target {
                     Some(header) => {
-                        self.push_cleanup_failures(block, context.scope_depth, id.into());
-
                         let block =
-                            self.resolve_scopes(block, context.scope_depth, id.into(), true);
+                            self.resolve_scopes(block, context.scope_depth, id.into(), true, None);
 
                         self.push_edge(block, header, AnalysisEdgeKind::LoopContinue, None);
 
@@ -777,6 +754,65 @@ where
                 }
             },
         }
+    }
+
+    fn push_yield(
+        &mut self,
+        id: BoundExpressionId,
+        block: AnalysisBlockId,
+        target: Option<SyntaxAnchor>,
+    ) -> Option<AnalysisBlockId> {
+        if let Some(context) = target.and_then(|target| self.result_yield_target(target)) {
+            self.push_bound(block, id.into());
+            self.push_result_yield(block, id, context);
+
+            return None;
+        }
+
+        let region = target.and_then(|target| self.yield_regions.iter().rev()
+            .find_map(|(anchor, region)| (*anchor == target).then_some(*region)));
+
+        let block = if let Some(region) = region
+            && matches!(self.view.expression(region), Some(BoundExpression::Structured(expression))
+                if expression.kind() == bray_bound_tree::BoundStructuredExpressionKind::GeneralGenerator)
+        {
+            // The rejected edge still owns the evaluated element.
+            self.push_storage_admission(block, id.into(),
+                Some(super::model::AnalysisRefinement::GeneratorStorageFailure(region)))
+        } else {
+            block
+        };
+
+        self.push_bound(block, id.into());
+
+        if let Some(region) = region {
+            self.generator_yields.insert(id, region);
+
+            let continuation = self.push_block();
+
+            self.push_edge(block, continuation, AnalysisEdgeKind::Yield, None);
+
+            Some(continuation)
+        } else {
+            self.push_exit(block, AnalysisExitKind::Yield, id.into());
+
+            None
+        }
+    }
+
+    pub(super) fn result_yield_target(&self, target: SyntaxAnchor) -> Option<ResultYieldContext> {
+        self.result_yields.iter().rev().find(|context| context.target == target).copied()
+    }
+
+    pub(super) fn push_result_yield(
+        &mut self,
+        block: AnalysisBlockId,
+        expression: BoundExpressionId,
+        context: ResultYieldContext,
+    ) {
+        let block = self.resolve_scopes(block, context.scope_depth, expression.into(), true, context.destination);
+
+        self.push_edge(block, context.completion, AnalysisEdgeKind::Yield, None);
     }
 
     pub(super) fn push_block(&mut self) -> AnalysisBlockId {
@@ -863,7 +899,8 @@ where
     }
 
     fn finish(self, entry: AnalysisBlockId) -> ControlFlowGraph {
-        self.storage.finish(entry)
+        self.storage.finish(entry).with_scoped_uses(self.scoped_uses)
+            .with_generator_yields(self.generator_yields)
     }
 }
 
@@ -1669,11 +1706,11 @@ mod tests {
                     inner.into(),
                     AnalysisScopeExitPhase::TaskCancellationBroadcast
                 ),
-                (inner.into(), AnalysisScopeExitPhase::LifecycleResolution),
                 (
                     outer.into(),
                     AnalysisScopeExitPhase::TaskCancellationBroadcast
                 ),
+                (inner.into(), AnalysisScopeExitPhase::LifecycleResolution),
                 (outer.into(), AnalysisScopeExitPhase::LifecycleResolution),
             ]
         );

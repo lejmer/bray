@@ -71,6 +71,24 @@ impl StoragePlan {
         )
     }
 
+    /// Returns the payload initialized by a fallible with expression's success yield.
+    pub fn scoped_result_payload(&self, expression: crate::BoundExpressionId) -> Option<StorageAccessId> {
+        let super::StorageBinding::Access(access) = self.binding(super::StorageBindingTarget::ScopedResultPayload(expression))? else {
+            unreachable!("scoped success payload has a checked projected access");
+        };
+
+        Some(access)
+    }
+
+    /// Returns the storage initialized by the checked return, yield, or break transfer.
+    pub fn control_transfer_destination(&self, expression: crate::BoundExpressionId) -> Option<StorageAccessId> {
+        self.scoped_result_payload(expression).or_else(|| {
+            self.node_plans(expression.into())
+                .find(|plan| plan.purpose() == crate::StorageAccessPurpose::Initialize)
+                .map(|plan| plan.access())
+        })
+    }
+
     /// Returns the checked type stored by one persistent storage origin.
     pub fn storage_type(&self, identity: StorageIdentityId) -> Option<TypeId> {
         self.identity_type(identity).or_else(|| {

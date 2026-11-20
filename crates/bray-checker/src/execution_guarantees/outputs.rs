@@ -43,11 +43,47 @@ pub(crate) struct ExecutionOutput {
     pub(crate) writes: BTreeMap<Destination, Condition>,
 }
 
+impl ExecutionOutput {
+    fn admits_source(&self, index: usize) -> bool {
+        self.sources.as_deref().is_none_or(|sources| sources.binary_search(&index).is_ok())
+    }
+
+    pub(crate) fn reference_relations(
+        selected: Option<&Self>,
+        storage: &bray_bound_tree::BoundCallStorage,
+        rows: &[bray_symbols::CapturedValueOutcome],
+    ) -> Vec<bray_bound_tree::BoundCallReference> {
+        storage.reference_outputs(rows.iter().enumerate().filter_map(|(index, row)| {
+            selected.is_none_or(|selected| selected.admits_source(index)).then_some(row)
+        }))
+    }
+}
+
 /// Admitted normal alternatives. An unspecified completion has no established writes.
 #[derive(Clone, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub(crate) struct ExecutionOutputs(pub(crate) Arc<[ExecutionOutput]>);
 
 impl ExecutionOutputs {
+    pub(crate) fn retire_storage(&mut self, retirements: &[(bray_bound_tree::StorageTarget, bray_bound_tree::StorageValueRetirement)]) {
+        if self.0.is_empty() || retirements.is_empty() { return; }
+
+        let mut retire = Condition::retiring_storage(retirements);
+
+        if self.conditions().any(|value| !std::ptr::eq(retire(value).kind(), value.kind())) {
+            *self = self.try_map(|value| Ok::<_, std::convert::Infallible>(retire(value)))
+                .expect("retirement of captured writes is infallible");
+        }
+    }
+
+    /// Possible writes retain dependencies even when they cannot establish one current value.
+    pub(crate) fn possible_writes(&self) -> impl Iterator<Item = (&bray_bound_tree::StorageTarget, &Condition)> {
+        self.reachable_rows().flat_map(|row| &row.writes).filter_map(|(destination, value)| match destination {
+            Destination::Region { target, .. } => Some((target, value)),
+            Destination::Current { target, .. } if self.common_value(destination).is_none() => Some((target, value)),
+            _ => None,
+        })
+    }
+
     pub(crate) fn conditions(&self) -> impl Iterator<Item = &Condition> {
         self.0.iter().flat_map(|row| row.guard.bound().into_iter().chain(row.writes.values()))
     }
@@ -62,19 +98,25 @@ impl ExecutionOutputs {
         })).collect::<Result<_, E>>()?))
     }
 
-    pub(crate) fn can_complete(&self, proof: &ExecutionProof<'_>, entry: &super::ExecutionCallEvidence, result: &Condition) -> bool {
-        self.0.is_empty() || self.0.iter().any(|row| proof.can_assume(&row.guard.bind(entry, result), true))
+    pub(crate) fn reachable_rows(&self) -> impl Clone + Iterator<Item = &ExecutionOutput> {
+        self.0.iter().filter(|row| row.guard.is_reachable())
     }
 
-    fn reachable_rows(&self) -> impl Clone + Iterator<Item = &ExecutionOutput> {
-        self.0.iter().filter(|row| row.guard.is_reachable())
+    /// Returns the possible source rows, when every admitted output identifies its row.
+    pub(crate) fn reached_source_rows(&self) -> Option<Arc<[usize]>> {
+        let mut reached = self.reachable_rows();
+        let first = reached.next()?;
+
+        if let Some(second) = reached.next() {
+            merged_sources([first, second].into_iter().chain(reached))
+        } else {
+            first.sources.clone()
+        }
     }
 
     /// Shares the admission decision with the matching physical summary row.
     pub(crate) fn is_admitted(&self, index: usize) -> bool {
-        self.0.is_empty() || self.reachable_rows().any(|row| {
-            row.sources.as_deref().is_none_or(|sources| sources.binary_search(&index).is_ok())
-        })
+        self.0.is_empty() || self.reachable_rows().any(|row| row.admits_source(index))
     }
 
     pub(crate) fn possible_region_values(&self) -> impl Iterator<Item = (&bray_bound_tree::StorageTarget, &Condition)> {

@@ -507,16 +507,20 @@ fn imported_union_cleanup_retains_members_without_exported_field_identities() {
         r#"
             module types;
 
+            extern func observe();
+
             struct Guard
             {
                 destruct()
                 {
+                    observe();
                 }
             }
 
             union Choice
             {
                 Pair(pos left: Guard, pos right: Guard);
+                Empty;
             }
         "#,
     );
@@ -550,6 +554,7 @@ fn imported_union_cleanup_retains_members_without_exported_field_identities() {
                     {
                         take(left);
                     }
+                    case Empty {}
                 }
             }
         "#,
@@ -648,10 +653,11 @@ fn imported_union_cleanup_retains_members_without_exported_field_identities() {
                     {
                         take(left);
                     }
+                    case Empty {}
                 }
             }
         "#,
-        [dependency],
+        [dependency.clone()],
     );
 
     assert!(
@@ -682,6 +688,31 @@ fn imported_union_cleanup_retains_members_without_exported_field_identities() {
         .expect("fixture instance must retain its MIR");
 
     assert!(mir.operations().iter().any(|operation| matches!(operation.kind(), MirOperationKind::Cleanup { place, .. } if place.projections().iter().any(|projection| matches!(projection.kind(), MirProjectionKind::ActiveUnionPayloadElement { ordinal, .. } if ordinal.raw() == 1)))), "{mir:?}");
+
+    for (pattern, valid) in [("Choice.Empty", true), ("Choice.Pair(..)", false)] {
+        let app = crate::test_support::compilation_with_dependencies(
+            &format!(r#"
+                module app;
+                using example.package.types;
+
+                func drop_choice(pos value: example.package.types.Choice)
+                    when(value matches example.package.types.{pattern}) {{ executes(total) }}
+                {{}}
+            "#),
+            [dependency.clone()],
+        );
+
+        let diagnostics = app.check_diagnostics();
+
+        if valid {
+            assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+        } else {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                diagnostics,
+                bray_diagnostics::DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+            );
+        }
+    }
 }
 
 #[test]

@@ -654,20 +654,6 @@ mod tests {
         assert!(RuntimeDefaultGenericContext::generic([], substitution).is_none());
     }
 
-    fn empty_owned_behavior(
-        dependencies: crate::DependencyContractTemplateId,
-    ) -> RuntimeDefaultBehavior {
-        RuntimeDefaultBehavior::new(
-            RuntimeDefaultOwnership::Owned,
-            [],
-            [],
-            [],
-            [],
-            dependencies,
-            dependencies,
-        )
-    }
-
     fn interface_template() -> RuntimeDefaultTemplateReference {
         RuntimeDefaultTemplateReference::Interface {
             interface: ImportedInterfaceId::new(2),

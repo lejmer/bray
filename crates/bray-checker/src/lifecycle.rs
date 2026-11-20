@@ -261,7 +261,7 @@ pub fn invocation_execution_requirements(
 }
 
 /// The certified disposition of a selected finalizer at an ownership end.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum FinalizerCompletion {
     /// No certified successful completion is available for this invocation.
     Unresolved,

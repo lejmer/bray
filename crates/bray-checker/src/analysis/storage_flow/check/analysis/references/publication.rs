@@ -13,10 +13,10 @@ use bray_symbols::{
 impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     pub(in crate::analysis::storage_flow::check::analysis) fn result_dependencies(
         &mut self,
+        diagnostics: &mut bray_diagnostics::DiagnosticBag,
     ) -> crate::CheckerQueryResult<bray_symbols::DependencyContractTemplateData, C::UpstreamError>
     {
         let mut guards = BTreeMap::new();
-        let observed_result = self.trusted.observed_result.flatten();
         let mut captured_values = Vec::new();
 
         let exits = std::mem::take(&mut self.normal_exits);
@@ -25,22 +25,28 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             .filter(|path| self.formal_root(path.root) == Some(DependencySubjectRoot::Result))
             .cloned().collect::<BTreeSet<_>>();
 
-        for super::super::core::NormalExit { storage: physical, value, returned, report, effects } in exits {
+        for super::super::core::NormalExit {
+            storage: physical, value, returned, report, report_payloads, cell_changes, effects,
+        } in exits {
             let (stored_values, embedded) = self.stored_values(&physical)?;
 
             let exit_references = self.borrow_relations(&physical)?.into_iter().chain(embedded);
 
             let inactive_payloads = physical.absent_payloads().iter().filter_map(|absent| {
                 let root = self.formal_root(absent.root)?;
-                let path = dependency_projections(&absent.projections)?;
+
+                let path = absent.projections.iter().copied()
+                    .map(|projection| crate::storage::value_dependency_projection(self.request, projection))
+                    .collect::<Option<Vec<_>>>()?;
 
                 Some(DependencySubject::new(root, path))
             }).chain(result_slots.iter().filter_map(|slot| self.inactive_result_payload(slot, &value)))
                 .collect::<Vec<_>>();
 
             let Some(crate::analysis::guarantee::NormalReturn { captured: outcome, carriers, transfers: ownership }) = returned else {
-                captured_values.push(bray_symbols::CapturedValueOutcome::new(None, []).with_report(report).with_effects(effects.iter().cloned())
-                    .with_storage(exit_references, stored_values).with_inactive_payloads(inactive_payloads));
+                captured_values.push(bray_symbols::CapturedValueOutcome::new(None, []).with_cell_changes(cell_changes).with_report(report).with_effects(effects.iter().cloned())
+                    .with_storage(exit_references, stored_values).with_inactive_payloads(inactive_payloads)
+                    .with_report_payloads(report_payloads));
 
                 continue;
             };
@@ -95,17 +101,13 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 ).with_support(support));
             }
 
-            captured_values.push(outcome.with_report(report).with_effects(effects.iter().cloned()).with_ownership(self.owned_result(ownership)?)
+            captured_values.push(outcome.with_cell_changes(cell_changes).with_report(report).with_effects(effects.iter().cloned()).with_ownership(self.owned_result(ownership)?)
                 .with_carriers(published).with_storage(exit_references, stored_values)
+                .with_report_payloads(report_payloads)
                 .with_inactive_payloads(inactive_payloads));
         }
 
-        self.diagnostics
-            .add_range(std::mem::take(&mut self.trusted).finish(self.execution)?);
-
-        if let Some(error) = self.query_failure.take() {
-            return Err(error);
-        }
+        diagnostics.add_range(std::mem::take(&mut self.trusted).finish(self.execution)?);
 
         let relations = bray_symbols::CapturedValueOutcome::reference_origins(&captured_values, DependencySubject::contains);
         let normal = !captured_values.is_empty();
@@ -141,8 +143,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             .with_requirements(requirements)
             .with_normal_completion(normal)
             .with_captured_values(captured_values)
-            .with_failure_outcomes(Some(std::mem::take(&mut self.failure_outcomes)))
-            .with_observed_result(observed_result))
+            .with_failure_outcomes(Some(std::mem::take(&mut self.failure_outcomes))))
     }
 
     fn witness_owner_subject(&self, place: &crate::ExecutionPlace) -> Option<DependencySubject> {
@@ -189,7 +190,11 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         for (depth, projection) in slot.projections.iter().copied().enumerate() {
             if value.excludes_component(projection) {
-                return Some(DependencySubject::new(DependencySubjectRoot::Result, dependency_projections(&slot.projections[..=depth])?));
+                let path = slot.projections[..=depth].iter().copied()
+                    .map(|projection| crate::storage::value_dependency_projection(self.request, projection))
+                    .collect::<Option<Vec<_>>>()?;
+
+                return Some(DependencySubject::new(DependencySubjectRoot::Result, path));
             }
 
             value = value.project(projection);
@@ -297,7 +302,19 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         type Paths = BTreeMap<DependencyStoredValuePath, (BTreeSet<DependencyStoredValuePath>, bool)>;
         type Physical = BTreeMap<DependencyStoredValuePath, (BTreeSet<DependencyBorrowRelation>, bool)>;
 
-        let mut anchors = BTreeMap::<Place, Vec<(Place, Vec<bray_bound_tree::StorageProjection>, bool)>>::new();
+        let mut anchors = BTreeMap::<(Place, bool), Vec<(Place, Vec<bray_bound_tree::StorageProjection>, bool)>>::new();
+
+        for (owner, backing) in exit.owned_backings() {
+            if self.formal_root(owner.root).is_none() { continue; }
+
+            let (producer, projections, allocated) = match &backing.origin {
+                Origin::Allocation { allocation, projections } => (allocation, projections, true),
+                Origin::Returned { reference, projections } => (reference, projections, false),
+                _ => continue,
+            };
+
+            anchors.entry((producer.clone(), allocated)).or_default().push((owner.clone(), projections.to_vec(), true));
+        }
 
         for (slot, origin, exact, bounds) in exit.targets() {
             let Origin::Allocation { allocation, projections } = origin else { continue; };
@@ -330,7 +347,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     }
                 }
 
-                anchors.entry(allocation.clone()).or_default().push((anchor, projections.to_vec(), owned));
+                anchors.entry((allocation.clone(), true)).or_default().push((anchor, projections.to_vec(), owned));
             }
         }
 
@@ -360,7 +377,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let mut physical = Physical::new();
 
         for (destination, value) in exit.stored_bindings() {
-            if !matches!(&destination.origin, Origin::Allocation { .. })
+            if !matches!(&destination.origin, Origin::Allocation { .. } | Origin::Returned { .. })
                 && !destination.projections().contains(&bray_bound_tree::StorageProjection::OwnedTarget) {
                 continue;
             }
@@ -437,7 +454,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         &self,
         target: &crate::analysis::storage_flow::memory::Target,
         source: bool,
-        anchors: &std::collections::BTreeMap<Place, Vec<(Place, Vec<bray_bound_tree::StorageProjection>, bool)>>,
+        anchors: &std::collections::BTreeMap<(Place, bool), Vec<(Place, Vec<bray_bound_tree::StorageProjection>, bool)>>,
     ) -> crate::CheckerQueryResult<Option<(bray_symbols::DependencyStoredValuePath, Place, bool)>, C::UpstreamError> {
 
         if target.previous { return Ok(None); }
@@ -481,8 +498,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
                 (Place { root: reference.root, projections: combined.into() }, terminal)
             }
-            Origin::Allocation { allocation, projections } if !source => {
-                let Some((anchor, prefix, owned)) = anchors.get(allocation).into_iter().flatten()
+            Origin::Allocation { allocation, projections } | Origin::Returned { reference: allocation, projections } if !source => {
+                let allocated = matches!(&target.origin, Origin::Allocation { .. });
+
+                let Some((anchor, prefix, owned)) = anchors.get(&(allocation.clone(), allocated)).into_iter().flatten()
                     .find(|(_, prefix, _)| projections.starts_with(prefix)) else { return Ok(None); };
 
                 let mut path = anchor.projections.to_vec();
@@ -518,14 +537,12 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         for projection in projections.iter().copied() {
             result.push(match projection {
                 StorageProjection::AnyElement => DependencyProjection::AnyElement,
-                StorageProjection::ElementFromStart(_) => crate::analysis::guarantee::portable_carrier_path(self.request, &[projection])
-                    .into_iter().next().expect("one checked array selector has one portable projection"),
                 StorageProjection::Element(_) | StorageProjection::ElementFromEnd(_) => {
                     precise = false;
 
                     DependencyProjection::AnyElement
                 }
-                _ => dependency_projection(projection)?,
+                _ => crate::storage::value_dependency_projection(self.request, projection)?,
             });
         }
 

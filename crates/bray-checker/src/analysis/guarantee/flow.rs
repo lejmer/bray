@@ -1,6 +1,7 @@
 mod completion;
 mod captured;
 mod deferred;
+mod deferred_reports;
 mod inputs;
 mod invalidation;
 mod joins;
@@ -17,6 +18,7 @@ mod value;
 mod witnesses;
 
 pub(super) use joins::{merge_returned, return_substitution};
+pub(in crate::analysis) use completion::TaskSelection;
 pub(in crate::analysis) use merge::{ExecutionJoin, merge as merge_execution};
 pub(super) use model::ExecutionFlow;
 pub(crate) use model::ExecutionFlowDomain;

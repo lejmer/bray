@@ -1,8 +1,15 @@
-use bray_symbols::{PackageIdentity};
 use std::collections::BTreeMap;
+use std::sync::OnceLock;
+
+use bray_bound_tree::{BoundUnitKey, BoundUnitKind};
+use bray_diagnostics::{DiagnosticBag, DiagnosticKind};
+use bray_symbols::PackageIdentity;
+
+use crate::test_support::{
+    ProductionFixtureCache, production_fixture, production_native_link_inputs,
+    production_source_inputs, source_function_body_key,
+};
 use crate::{Compilation, CompilationRequest, WorkerBudget};
-use crate::test_support::{ProductionFixtureCache, production_fixture, production_native_link_inputs, production_source_inputs};
-use std::sync::{OnceLock};
 
 /// Shared declarations for pointer-bound receipt fixtures.
 pub(super) const RECEIPT_DECLARATIONS: &str = r#"
@@ -129,19 +136,11 @@ pub(super) fn body_belongs_to(
 #[track_caller]
 pub(super) fn assert_production_probe(caller: &str, valid: bool) {
     let compilation = production_host_compilation(caller);
+    let key = source_function_body_key(&compilation, "production_probe");
+    let expected = (!valid).then_some(DiagnosticKind::CheckingTrustedObligationNotProven);
+    let diagnostics = production_probe_diagnostics(&compilation, key, expected);
 
-    let checked = compilation
-        .lowered_unit(crate::test_support::source_function_body_key(
-            &compilation,
-            "production_probe",
-        ))
-        .expect("fixture callable must lower successfully");
-
-    bray_testing::assert_goal_state_diagnostic_outcome(
-        checked.diagnostics(),
-        (!valid).then_some(bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven),
-        caller,
-    );
+    bray_testing::assert_goal_state_diagnostic_outcome(&diagnostics, expected, caller);
 }
 
 pub(super) use crate::test_support::diagnostic_at_call;
@@ -164,21 +163,20 @@ fn condition_contains_predicate(condition: &bray_diagnostics::DiagnosticConditio
 #[track_caller]
 pub(super) fn assert_production_contract(
     caller: &str,
-    expected: Option<bray_diagnostics::DiagnosticKind>,
+    expected: Option<DiagnosticKind>,
     site: &str,
     predicate: &str,
 ) {
     use bray_diagnostics::{
-        DiagnosticArgValue, DiagnosticContractObligationKind, DiagnosticKind, DiagnosticWitnessTransferKind,
+        DiagnosticArgValue, DiagnosticContractObligationKind, DiagnosticWitnessTransferKind,
     };
 
     let compilation = production_host_compilation(caller);
-    let key = crate::test_support::source_function_body_key(&compilation, "production_probe");
+    let key = source_function_body_key(&compilation, "production_probe");
     let source = key.source().syntax().source_id();
-    let checked = compilation.lowered_unit(key).expect("fixture callable must lower successfully");
-    let diagnostics = checked.diagnostics();
+    let diagnostics = production_probe_diagnostics(&compilation, key, expected);
 
-    bray_testing::assert_goal_state_diagnostic_outcome(diagnostics, expected, caller);
+    bray_testing::assert_goal_state_diagnostic_outcome(&diagnostics, expected, caller);
 
     let Some(expected) = expected else { return; };
 
@@ -207,7 +205,7 @@ pub(in crate::compilation) fn production_host_compilation(caller: &str) -> Compi
 
 pub(super) fn assert_production_probes(
     source: &str,
-    expected: &[(&str, Option<bray_diagnostics::DiagnosticKind>)],
+    expected: &[(&str, Option<DiagnosticKind>)],
     expected_sites: &[(&str, &str)],
 ) {
     let compilation = production_probe_compilation();
@@ -218,7 +216,7 @@ pub(super) fn assert_production_probes(
     let symbols = compilation.symbol_graph().expect("production probe declarations");
 
     let probes = compilation.declared_unit_keys_for_test().expect("production probe units").into_iter()
-        .filter(|key| key.kind() == bray_bound_tree::BoundUnitKind::CallableBody
+        .filter(|key| key.kind() == BoundUnitKind::CallableBody
             && key.source().syntax().source_id() == caller)
         .collect::<Vec<_>>();
 
@@ -233,18 +231,38 @@ pub(super) fn assert_production_probes(
         let expected = expected.remove(name)
             .expect("each declared probe has an expected outcome");
 
-        let checked = compilation.lowered_unit(key).expect("production probe lowers for diagnostic inspection");
-
-        bray_testing::assert_goal_state_diagnostic_outcome(checked.diagnostics(), expected, name);
+        let diagnostics = production_probe_diagnostics(compilation, key, expected);
+        bray_testing::assert_goal_state_diagnostic_outcome(&diagnostics, expected, name);
 
         if let Some((_, site)) = expected_sites.iter().find(|(probe, _)| *probe == name) {
-            assert!(checked.diagnostics().iter().any(|diagnostic| {
+            assert!(diagnostics.iter().any(|diagnostic| {
                 Some(diagnostic.kind()) == expected && diagnostic_at_call(diagnostic, caller, source, site)
-            }), "{name}, {site}: {:?}", checked.diagnostics());
+            }), "{name}, {site}: {diagnostics:?}");
         }
 
     }
+}
 
+fn production_probe_diagnostics(
+    compilation: &Compilation,
+    key: BoundUnitKey,
+    expected: Option<DiagnosticKind>,
+) -> DiagnosticBag {
+    if expected.is_some() {
+        let checked = compilation.storage_flow(key).expect("production probe reaches the checker");
+
+        return checked.diagnostics().clone();
+    }
+
+    let lowered = compilation
+        .lowered_unit(key)
+        .expect("accepted production probe reaches lowering");
+    assert!(
+        lowered.value().is_some() || lowered.diagnostics().has_errors(),
+        "accepted production probe must produce a lowered body"
+    );
+
+    lowered.diagnostics().clone()
 }
 
 pub(in crate::compilation) fn production_host_compilation_for_target(
@@ -260,7 +278,7 @@ pub(in crate::compilation) fn production_host_compilation_for_target(
     })
 }
 
-fn production_probe_compilation() -> Compilation {
+fn production_probe_compilation() -> &'static Compilation {
     static PROBES: OnceLock<Compilation> = OnceLock::new();
 
     PROBES.get_or_init(|| {
@@ -268,10 +286,11 @@ fn production_probe_compilation() -> Compilation {
             "standard-library/std/src",
             "runtime/bootstrap/src",
             "xtask/fixtures/native-execution/contracts",
+            "crates/bray-compilation/src/compilation/trusted_contracts/contract_tests/fixtures",
         ], "module app;");
 
         build_production_host(sources, crate::SelectedTarget::baseline(), WorkerBudget::available_parallelism())
-    }).clone()
+    })
 }
 
 fn build_production_host(

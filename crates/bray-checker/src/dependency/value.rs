@@ -39,8 +39,7 @@ pub(crate) struct ValueInputs {
         Vec<(BoundExpressionId, Vec<bray_symbols::DependencyProjection>)>,
     >,
     pub(super) error_exits:
-        BTreeMap<BoundExpressionId, (BoundExpressionId, bray_symbols::DependencyProjection)>,
-    pub(super) returned_errors: std::collections::BTreeSet<BoundExpressionId>,
+        BTreeMap<BoundExpressionId, (BoundExpressionId, bray_symbols::DependencyProjection, bray_symbols::TypeId)>,
     pub(super) expressions: BTreeMap<BoundExpressionId, Vec<BoundExpressionId>>,
     pub(super) projected_initializers: BTreeMap<BoundExpressionId, BoundExpressionId>,
 }
@@ -115,7 +114,6 @@ impl ValueInputs {
             deferred_sources: BTreeMap::new(),
             projected: BTreeMap::new(),
             error_exits: BTreeMap::new(),
-            returned_errors: Default::default(),
             expressions,
             projected_initializers: BTreeMap::new(),
             pattern_subjects: unit
@@ -361,7 +359,7 @@ impl ValueInputs {
     > {
         self.error_exits
             .iter()
-            .map(|(exit, (value, projection))| (*exit, *value, *projection))
+            .map(|(exit, (value, projection, _))| (*exit, *value, *projection))
     }
 
     pub(crate) fn filter_independent<C: CheckerRequestContext + ?Sized>(

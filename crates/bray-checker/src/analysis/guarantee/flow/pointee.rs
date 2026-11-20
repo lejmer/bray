@@ -13,15 +13,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .or_else(|| path.projections.is_empty().then(|| self.storage.storage_type(path.root)).flatten())
     }
 
-    pub(in crate::analysis::guarantee) fn borrowed_path_type(&self, path: &StoragePath) -> Option<TypeId> {
-        let ty = self.storage_path_type(path)?;
-
-        match self.request.semantic_values().type_data(ty).as_ref() {
-            TypeData::Borrow { target, .. } => Some(*target),
-            _ => None,
-        }
-    }
-
     /// The established typed slot and whether a language loan is used to reach it.
     pub(in crate::analysis::guarantee) fn current_target_place(&self, target: &StorageTarget, ty: TypeId) -> (ExecutionPlace, bool) {
         let path = target.value_observation_path();
@@ -63,45 +54,22 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         } else { value })
     }
 
-    pub(in crate::analysis::guarantee) fn publish_returned_pointees(
+    /// Binds a produced result's reference fields to the reached post-state.
+    pub(in crate::analysis::guarantee) fn complete_returned_references(
         &self,
         state: &mut ExecutionState,
+        (mutation, admitted): (bray_bound_tree::StorageMutation, Option<(bray_bound_tree::BoundExecutionSite, &crate::ExecutionCallEvidence)>),
         output: Option<&ExecutionPlace>,
-        result: &ExecutionCondition,
+        result: ExecutionCondition,
         completion: &bray_bound_tree::StorageCompletion,
-    ) {
-        let Some(output) = output else {
-            return;
-        };
+    ) -> ExecutionCondition {
+        let mut result = self.complete_captured_references(state, mutation, admitted, result);
+        let Some(output) = output else { return result; };
 
-        for (path, target) in completion.references() {
-            if target.previous || !target.is_exact() || target.value_observation_path().is_some() {
-                continue;
-            }
+        for (path, observation) in completion.references() {
+            let target = &observation.target;
 
-            let static_root = match &target.origin {
-                bray_bound_tree::StorageOrigin::Static { .. } => true,
-                bray_bound_tree::StorageOrigin::Storage(path)
-                | bray_bound_tree::StorageOrigin::Entry { reference: path, .. } => {
-                    matches!(self.storage.identity(path.root), Some(bray_bound_tree::StorageIdentity::Static(_)))
-                }
-                _ => false,
-            };
-
-            if static_root {
-                // Declaration-only physical paths do not identify a selected
-                // generic or exact-thread static instance.
-                continue;
-            }
-
-            if let bray_bound_tree::StorageOrigin::Returned { reference, .. } = &target.origin
-                && (!reference.projections.is_empty() || !matches!(self.storage.identity(reference.root),
-                    Some(bray_bound_tree::StorageIdentity::Temporary(_)
-                        | bray_bound_tree::StorageIdentity::Evaluated(_)
-                        | bray_bound_tree::StorageIdentity::InvocationResult(_)
-                        | bray_bound_tree::StorageIdentity::ScopedCapability { .. }))) {
-                // Opaque field rereads have a separate producer-retirement
-                // transition. Their declaration is not that producer's epoch.
+            if target.previous || !target.is_exact() {
                 continue;
             }
 
@@ -109,35 +77,78 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 continue;
             };
 
-            let Some(ty) = self.borrowed_path_type(path) else {
-                continue;
-            };
+            let ty = observation.pointee.expect("a completed reference retains its checked pointee type");
+            let projections = &place.projections[output.projections.len()..];
+            let reference = projections.iter().fold(result.clone(), |value, projection| value.component(*projection));
+            let reached = self.current_target_value(state, target, Some(ty))
+                .or_else(|| self.publish_returned_pointee(state, target, ty, &reference));
 
-            let physical = ExecutionPlace::pointee(self.storage, target, ty);
+            if let Some(reached) = reached {
+                let reference = if reference.is_reference() { reference.with_referent(reached) } else { reached.borrowed() };
+                let path = &path.projections[path.projections.len() - projections.len()..];
 
-            // Another view does not reinitialize a consumed object. Producer
-            // re-evaluation removes the old epoch before publishing its new one.
-            if state.current.get(&physical).is_some() {
-                continue;
-            }
-
-            let reference = place.projections[output.projections.len()..].iter()
-                .fold(result.clone(), |value, projection| value.component(*projection));
-
-            let value = ExecutionCondition::storage_value(bray_symbols::CapturedValueOperation::Read, vec![reference].into())
-                .copied_value().clone();
-
-            if !value.is_unknown() {
-                state.current.insert(physical, value);
+                result = result.with_storage_component(path, reference);
             }
         }
+
+        result
+    }
+
+    fn publish_returned_pointee(
+        &self,
+        state: &mut ExecutionState,
+        target: &StorageTarget,
+        ty: TypeId,
+        reference: &ExecutionCondition,
+    ) -> Option<ExecutionCondition> {
+        if target.value_observation_path().is_some() { return None; }
+
+        let static_root = match &target.origin {
+            bray_bound_tree::StorageOrigin::Static { .. } => true,
+            bray_bound_tree::StorageOrigin::Storage(path)
+            | bray_bound_tree::StorageOrigin::Entry { reference: path, .. } => {
+                matches!(self.storage.identity(path.root), Some(bray_bound_tree::StorageIdentity::Static(_)))
+            }
+            _ => false,
+        };
+
+        if static_root {
+            // Declaration-only paths cannot identify a generic or exact-thread instance.
+            return None;
+        }
+
+        if let bray_bound_tree::StorageOrigin::Returned { reference, .. } = &target.origin
+            && (!reference.projections.is_empty() || !matches!(self.storage.identity(reference.root),
+                Some(bray_bound_tree::StorageIdentity::Temporary(_)
+                    | bray_bound_tree::StorageIdentity::Evaluated(_)
+                    | bray_bound_tree::StorageIdentity::InvocationResult(_)
+                    | bray_bound_tree::StorageIdentity::ScopedCapability { .. }))) {
+            // An opaque field declaration does not identify the producer's epoch.
+            return None;
+        }
+
+        let physical = ExecutionPlace::pointee(self.storage, target, ty);
+
+        // A new view cannot reinitialize storage when a preceding value consumed it.
+        if state.current.get(&physical).is_some() || !reference.is_reference() {
+            return None;
+        }
+
+        let value = ExecutionCondition::storage_value(bray_symbols::CapturedValueOperation::Read, vec![reference.clone()].into())
+            .copied_value().clone();
+
+        if value.is_unknown() { return None; }
+
+        state.current.insert(physical, value.clone());
+
+        Some(value)
     }
 
     pub(super) fn pointee_preservations(
         &self,
         state: &ExecutionState,
         invalidation: &bray_bound_tree::StorageInvalidation,
-        observations: &mut crate::execution_guarantees::ObservationSet,
+        mut observations: Option<&mut crate::execution_guarantees::ObservationSet>,
     ) -> Vec<(ExecutionPlace, std::sync::Arc<[bray_bound_tree::StorageProjection]>, bray_bound_tree::StorageObservationKind)> {
         let mut preserved = Vec::new();
 
@@ -149,10 +160,13 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             };
 
             for (path, kind) in paths {
-                let value = path.iter().copied().fold(value.clone(), ExecutionCondition::project);
+                if let Some(observations) = &mut observations {
+                    let value = path.iter().copied().fold(value.clone(), ExecutionCondition::project);
 
-                observations.insert_classified(value.clone(), *kind);
-                observations.insert_classified(value.borrowed(), *kind);
+                    observations.insert_classified(value.clone(), *kind);
+                    observations.insert_classified(value.borrowed(), *kind);
+                }
+
                 preserved.push((place.clone(), std::sync::Arc::clone(path), *kind));
             }
         }

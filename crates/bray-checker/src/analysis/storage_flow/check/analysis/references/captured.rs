@@ -1,9 +1,10 @@
 use std::sync::Arc;
 
-use bray_bound_tree::{BoundExecutionSite, StorageValueCapture, StorageValueDestination, StorageValueTransition};
+use bray_bound_tree::{AnalysisOperationId, BoundExecutionSite, StorageOutcomeRows, StorageValueBoundary, StorageValueCapture, StorageValueDestination, StorageValueTransition};
 use bray_symbols::TypeData;
 
 use super::super::core::StorageFlowCollector;
+use crate::analysis::storage_flow::memory::Source;
 use crate::analysis::storage_flow::model::StorageFlowState;
 use crate::CheckerRequestContext;
 
@@ -12,9 +13,11 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         if target.is_exact()
             && matches!(target.origin, bray_bound_tree::StorageOrigin::Entry { layer: 1, kind: bray_symbols::DependencyReferenceKind::Borrow, .. })
             && let Some(path) = target.inline_state_path()
-            && let Some(input) = self.formal_root(path.root)
+            && self.formal_root(path.root).is_some()
+            && !state.written_inputs.iter().any(|written| written.contains(&path))
         {
-            state.written_inputs.insert(input);
+            state.written_inputs.retain(|written| !path.contains(written));
+            state.written_inputs.insert(path);
         }
     }
 
@@ -25,7 +28,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let snapshots = match invalidation {
             bray_bound_tree::StorageInvalidation::All { normal_snapshots, .. }
             | bray_bound_tree::StorageInvalidation::Observed { normal_snapshots, .. } => normal_snapshots,
-            bray_bound_tree::StorageInvalidation::Paths(_) => unreachable!("captured outputs retain resolved observations"),
+            bray_bound_tree::StorageInvalidation::Unchanged => unreachable!("captured outputs retain resolved observations"),
         };
 
         let Some(outputs) = execution.admitted_call(invocation).map(|entry| &entry.outputs) else { return; };
@@ -71,13 +74,16 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 }
             };
 
-            let produced = (destination == StorageValueDestination::Result)
-                .then(|| state.memory.capture_produced_reference(&target)).flatten();
+            let produced = match destination {
+                StorageValueDestination::Result => state.memory.capture_produced_reference(&target),
+                StorageValueDestination::Current { installed: true, .. } => Some(state.memory.capture_reached_value(&target)),
+                _ => None,
+            };
 
             let mut snapshot = produced.unwrap_or_else(|| {
                 // Install the actual component captures before reading the new
                 // destination. The preceding contents do not describe this value.
-                self.publish_value_graph(state, target.clone(), value.clone());
+                self.publish_value_graph(state, target.clone(), value.clone(), destination == StorageValueDestination::Result);
 
                 state.memory.capture_reached_value(&target)
             });
@@ -90,7 +96,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             // Publication and replay share the produced snapshot. Both apply physical retirements
             // at the end of this same operation, including those raised by installing its payload.
             let snapshot = std::sync::Arc::new(snapshot);
-            let value = value.captured_value(snapshot.as_ref().clone());
+            let value = value.captured_value(snapshot.clone());
 
             self.execution.publish_captured_output(state.execution.as_mut().expect("publication retains its paired execution state"),
                 invocation, &destination, value);
@@ -108,26 +114,31 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     }
 
     fn value_observations<'a>(&'a self, coordinate: &'a bray_bound_tree::StoragePath)
-        -> impl Iterator<Item = (Vec<bray_bound_tree::StorageProjection>, bray_bound_tree::StorageObservationKind)> + 'a
+        -> impl Iterator<Item = (&'a [bray_bound_tree::StorageProjection], bray_bound_tree::StorageObservationKind)> + 'a
     {
-        self.input.footprint.observations(coordinate).map(|(path, kind)|
-            (path.projections[coordinate.projections.len()..].to_vec(), kind))
-            .chain(self.input.footprint.references.iter().filter(|(path, _)| coordinate.contains(path))
-                .map(|(path, ty)| (path.projections[coordinate.projections.len()..].to_vec(), bray_bound_tree::StorageObservationKind::Reference(*ty))))
+        self.input.footprint.observations(coordinate)
+            .chain(self.input.footprint.references_below(coordinate)
+                .map(|(path, ty)| (path, bray_bound_tree::StorageObservationKind::Reference(ty))))
+            .map(move |(path, kind)| (&path.projections[coordinate.projections.len()..], kind))
     }
 
-    fn publish_value_graph(&self, state: &mut StorageFlowState, target: bray_bound_tree::StorageTarget,
-        value: crate::ExecutionCondition,
+    pub(in crate::analysis::storage_flow::check::analysis) fn publish_value_graph(&self, state: &mut StorageFlowState, target: bray_bound_tree::StorageTarget,
+        value: crate::ExecutionCondition, result: bool,
     ) {
         use crate::ExecutionConditionKind as K;
         use bray_bound_tree::StorageProjection;
         use bray_symbols::CapturedValueOperation as Op;
 
-        let mut pending = vec![(target, value, false)];
+        let mut pending = vec![(target, value, false, result)];
 
-        while let Some((target, value, mut covered)) = pending.pop() {
+        while let Some((target, value, mut covered, result)) = pending.pop() {
             if !covered && let Some(storage) = value.inline_captured_storage() {
-                state.memory.publish_captured_value(&target, storage);
+                if result && target.is_exact() {
+                    state.memory.complete_result_capture(&target, storage);
+                } else {
+                    state.memory.publish_captured_value(&target, storage);
+                }
+
                 covered = true;
             }
 
@@ -151,6 +162,17 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                         let mut prefix = &contents[0];
 
                         loop {
+                            if let Some(captured) = prefix.inline_captured_storage() {
+                                if prefix.prefix_starts_empty() && descriptor.known_address() == Some(&region) {
+                                    state.memory.clear_value(&elements);
+                                }
+
+                                state.memory.include_captured_bounds(&elements, captured);
+                                break;
+                            }
+
+                            // A portable outcome can introduce new elements. Bind their actual
+                            // operands only as far back as the first reached prefix snapshot.
                             match prefix.computed_value().kind() {
                                 K::StorageValue(Op::Append, operands) => {
                                     values.push(operands[1].clone());
@@ -161,19 +183,16 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                                     break;
                                 }
                                 _ => {
-                                    if let Some(bounds) = prefix.inline_captured_storage() {
-                                        state.memory.publish_captured_value(&elements, bounds);
-                                    } else { state.memory.lose_captured_information(&elements); }
-
+                                    state.memory.lose_captured_information(&elements);
                                     break;
                                 }
                             }
                         }
 
-                        pending.extend(values.into_iter().map(|value| (elements.clone(), value, false)));
+                        pending.extend(values.into_iter().map(|value| (elements.clone(), value, false, false)));
                     }
                 } else {
-                    pending.push((target.project(&[projection]), child, covered));
+                    pending.push((target.project(&[projection]), child, covered, result));
                 }
             }
         }
@@ -181,64 +200,126 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
     pub(in crate::analysis::storage_flow::check::analysis) fn record_capture_retirements(&mut self,
         execution: &mut crate::analysis::guarantee::ExecutionState,
-        mutation: bray_bound_tree::StorageMutation, phase: bray_bound_tree::StorageValuePhase, boundary: bray_bound_tree::StorageValueBoundary,
-        retirements: std::collections::BTreeSet<(bray_bound_tree::StorageTarget, bray_bound_tree::StorageValueRetirement)>,
+        mutation: bray_bound_tree::StorageMutation, boundary: StorageValueBoundary,
+        retirements: Vec<(bray_bound_tree::StorageTarget, bray_bound_tree::StorageValueRetirement)>,
     ) {
         if retirements.is_empty() { return; }
 
-        let values = retirements.into_iter().collect::<Vec<_>>();
+        execution.retire_captured_storage(&retirements);
 
-        execution.retire_captured_storage(&values);
+        self.publish_retirements(mutation, boundary, retirements);
+    }
 
-        if self.publish { self.capture_retirements.entry((mutation, phase, boundary)).or_default().extend(values); }
+    pub(in crate::analysis::storage_flow::check::analysis) fn publish_retirements(&mut self,
+        mutation: bray_bound_tree::StorageMutation, boundary: StorageValueBoundary,
+        values: impl IntoIterator<Item = (bray_bound_tree::StorageTarget, bray_bound_tree::StorageValueRetirement)>,
+    ) {
+        let mut values = values.into_iter().peekable();
+
+        if self.publish && values.peek().is_some() {
+            self.capture_retirements.entry((mutation, boundary)).or_default().extend(values);
+        }
     }
 
     pub(in crate::analysis::storage_flow::check::analysis) fn publish_capture_retirements(&mut self,
-        state: &mut StorageFlowState, operation: crate::analysis::model::AnalysisOperationKind, boundary: bray_bound_tree::StorageValueBoundary,
+        state: &mut StorageFlowState, (operation, rows): (AnalysisOperationId, Option<&StorageOutcomeRows>), boundary: StorageValueBoundary,
     ) {
         let retirements = state.memory.take_retirements();
+
+        if retirements.is_empty() { return; }
+
         let execution = state.execution.as_mut().expect("storage retirement retains its paired execution state");
 
-        self.record_capture_retirements(execution, bray_bound_tree::StorageMutation::Operation(operation.occurrence()),
-            operation.storage_value_phase(), boundary, retirements);
+        execution.retire_captured_storage(&retirements);
+        self.publish_operation_retirements((operation, rows), boundary, retirements);
+    }
+
+    pub(in crate::analysis::storage_flow::check::analysis) fn publish_operation_retirements(
+        &mut self,
+        (operation, rows): (AnalysisOperationId, Option<&StorageOutcomeRows>),
+        boundary: StorageValueBoundary,
+        retirements: Vec<(bray_bound_tree::StorageTarget, bray_bound_tree::StorageValueRetirement)>,
+    ) {
+        if self.publish && !retirements.is_empty() {
+            self.operation_retirements.entry(((operation, boundary), rows.cloned().unwrap_or_default()))
+                .or_default().extend(retirements);
+        }
     }
 
     pub(in crate::analysis::storage_flow::check::analysis) fn resolve_value_captures(&mut self,
-        state: &mut StorageFlowState, operation: crate::analysis::model::AnalysisOperationKind,
+        state: &mut StorageFlowState, operation: &crate::analysis::model::AnalysisOperation,
     ) -> Option<Arc<[StorageValueCapture]>> {
-        if !matches!(operation, crate::analysis::model::AnalysisOperationKind::Call {
-            phase: crate::analysis::model::AnalysisCallPhase::Input, ..
-        }) && self.execution.single_phase_invocation(operation).is_none() { return None; }
+        let kind = operation.kind();
 
-        let invocation = operation.occurrence();
+        if !matches!(kind, crate::analysis::model::AnalysisOperationKind::Call {
+            phase: crate::analysis::model::AnalysisCallPhase::Input, ..
+        }) && self.execution.single_phase_invocation(kind).is_none() { return None; }
+
+        let invocation = kind.occurrence();
 
         let expression = invocation.expression()?;
         let selection = self.execution.semantics.selections().expression(expression)?;
-        let implicit = invocation != expression.into();
         let values = self.request.semantic_values();
 
-        let implicit_input = if implicit {
-            let plan = self.storage.implicit_input_plan(invocation)?;
-            let ordinal = bray_symbols::SymbolOrdinal::new(0);
+        let carries_frame = self.dependencies.calls().get(&invocation).is_some_and(|call| {
+            call.captured_values().iter().flat_map(|row| row.bindings.iter())
+                .any(|(_, value)| value.callees().next().is_some())
+        });
 
-            let root = selection.invocation_input_root(invocation, ordinal)
-                .expect("implicit storage input has a receiver-first ordinal");
+        let sole_input = match invocation {
+            BoundExecutionSite::CallInput { ordinal, .. } => {
+                let selected = selection.input(ordinal).expect("materialization retains its selected input");
 
-            Some((root, ordinal, crate::storage::implicit_input_type(values, self.storage, plan)))
-        } else {
-            None
+                selected.expression().map(|source| {
+                    let ty = match selected {
+                        // Receiver staging evaluates the selected loan even
+                        // when its source expression names an owned value.
+                        bray_bound_tree::SelectedInput::Receiver(_) => selected.ty(values),
+                        _ => self.execution.semantics.types().expression(source)
+                            .expect("evaluated conversion source retains its checked type").ty(),
+                    };
+
+                    (bray_symbols::DependencySubjectRoot::Receiver, bray_symbols::SymbolOrdinal::new(0), ty)
+                })
+            }
+            _ => self.storage.implicit_input_plan(invocation).map(|plan| {
+                let ordinal = bray_symbols::SymbolOrdinal::new(0);
+
+                let root = selection.invocation_input_root(invocation, ordinal)
+                    .expect("implicit storage input has a receiver-first ordinal");
+
+                (root, ordinal, crate::storage::implicit_input_type(values, self.storage, plan))
+            }),
         };
 
-        self.observe_call_reference_inputs(state, invocation);
+        let operation_inputs = match (invocation, selection) {
+            (BoundExecutionSite::Node(_), bray_bound_tree::SemanticSelection::Operation(operation))
+                if !matches!(operation, bray_bound_tree::SelectedOperation::Construction(_)) => {
+                crate::dependency::operation_inputs(self.request.view(), expression, operation)
+            }
+            _ => Vec::new(),
+        };
 
-        let inputs = selection.inputs().map(|input| {
+        let ordinary_inputs = selection.inputs().filter(|_| sole_input.is_none()).filter_map(|input| {
             let root = input.root();
+            let ordinal = selection.invocation_input_ordinal(invocation, root)?;
 
-            let ordinal = selection.input_ordinal(root)
-                .expect("selected input has a receiver-first ordinal");
+            Some((root, ordinal, input.ty(values)))
+        });
 
-            (root, ordinal, input.ty(values))
-        }).chain(implicit_input);
+        let operation_inputs = operation_inputs.into_iter().filter_map(|(root, input)| {
+            let ordinal = selection.input_ordinal(root)?;
+
+            let ty = if let Some(plan) = input.borrow_plan(self.storage) {
+                crate::storage::implicit_input_type(values, self.storage, plan)
+            } else {
+                self.storage.access(input.access(self.storage)?)?.reached_type()
+            };
+
+            Some((root, ordinal, ty))
+        });
+
+        let inputs = ordinary_inputs.chain(sole_input).chain(operation_inputs);
 
         let mut captures = Vec::new();
 
@@ -255,16 +336,30 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 _ => None,
             };
 
-            let value = if implicit && borrowed.is_some() {
+            let value = if (sole_input.is_some() || matches!(source, Source::Borrow(_))) && borrowed.is_some() {
                 // The descriptor is the passed loan. Its contents are captured separately.
-                value.with_observations([(Vec::new(), bray_bound_tree::StorageObservationKind::Reference(ty))])
+                value.with_observations([(&[][..], bray_bound_tree::StorageObservationKind::Reference(ty))])
             } else {
                 value.with_observations(self.value_observations(&coordinate))
             };
 
-            let referent = borrowed.and_then(|ty| value.known_address().map(|target|
-                (ty, std::sync::Arc::new(state.memory.capture_reached_value(target)
-                    .with_observations(self.input.footprint.typed_observations(ty).map(|(path, kind)| (path.to_vec(), kind)))))));
+            let value = if carries_frame
+                && let Some(site) = selection.invocation_input_site(invocation, root)
+            {
+                let support = bray_bound_tree::ReportDependencies {
+                    subjects: self.liveness.retained_by(site).collect(),
+                    requirements: state.result_dependencies.value_requirements(site).cloned().collect(),
+                    ..Default::default()
+                };
+
+                value.with_dependency_support(Arc::new(support))
+            } else {
+                value
+            };
+
+            let referent = borrowed.and_then(|ty| capture_input_referent(
+                &state.memory, &value, ty, self.input.footprint.typed_observations(ty),
+            ));
 
             let element_bounds = self.input.raw_buffers.get(&values.unborrowed_type(ty)).and_then(|fields| {
                 let pointer = bray_bound_tree::StorageProjection::ProductField(fields.pointer);
@@ -288,11 +383,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let captures: Arc<[StorageValueCapture]> = captures.into();
 
         if self.publish {
-            self.value_captures.entry(invocation).and_modify(|previous| {
-                let mut completion = bray_bound_tree::StorageCompletion::default().with_captures(std::sync::Arc::clone(previous));
-
-                completion.merge(&bray_bound_tree::StorageCompletion::default().with_captures(std::sync::Arc::clone(&captures)));
-                *previous = completion.captures().into();
+            self.value_captures.entry((operation.id(), None)).and_modify(|known| {
+                bray_bound_tree::merge_storage_value_captures(known, &captures);
             }).or_insert_with(|| Arc::clone(&captures));
         }
 
@@ -300,42 +392,90 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     }
 
     pub(in crate::analysis::storage_flow::check::analysis) fn begin_value_transition(
-        &mut self, execution: &mut crate::analysis::guarantee::ExecutionState,
-        invocation: BoundExecutionSite, effects: &[crate::analysis::storage_flow::memory::Effect],
+        &mut self, memory: &crate::analysis::storage_flow::memory::State, execution: &mut crate::analysis::guarantee::ExecutionState,
+        operation: &crate::analysis::model::AnalysisOperation, effects: &[crate::analysis::storage_flow::memory::Effect],
     ) {
+        let invocation = operation.kind().occurrence();
+
         self.execution.prepare_failure_rows(execution, invocation);
 
-        let (values, portable_order): (Arc<[StorageValueTransition]>, bool) =
+        let values: Arc<[StorageValueTransition]> =
             if let BoundExecutionSite::Node(bray_bound_tree::AnyBoundNodeId::Expression(expression)) = invocation
             && let Some(operation) = self.memory.operation(expression)
         {
-            (self.resolve_memory_values(execution, operation, effects), false)
+            self.resolve_memory_values(execution, operation, effects)
         } else if let Some(contract) = self.dependencies.calls().get(&invocation)
             && contract.deferred_effects().is_none()
         {
-            (self.execution.invocation_value_transitions(execution, invocation, contract.captured_values()).into(), true)
+            let resolve = memory.reached_write_resolver(self.request.semantic_values());
+
+            self.execution.invocation_value_transitions(execution, invocation, contract.captured_values(), &resolve).into()
         } else {
             return;
         };
 
-        self.execution.prepare_captured_values(execution, invocation, &values, portable_order);
+        self.execution.prepare_captured_values(execution, invocation, &values);
 
         if self.publish {
-            self.value_transitions.entry(invocation).and_modify(|previous| {
+            self.value_transitions.entry((operation.id(), None)).and_modify(|previous| {
                 bray_bound_tree::merge_storage_value_transitions(previous, &values);
             }).or_insert(values);
         }
     }
 
+    pub(in crate::analysis::storage_flow::check::analysis) fn prepare_frame_execution(
+        &mut self,
+        memory: &crate::analysis::storage_flow::memory::State,
+        execution: &mut crate::analysis::guarantee::ExecutionState,
+        operation: &crate::analysis::model::AnalysisOperation,
+    ) {
+        let publish = self.publish;
+        let footprint = &self.input.footprint;
+        let values = self.request.semantic_values();
+        let captures = &mut self.value_captures;
+        let transitions = &mut self.value_transitions;
+        let resolve = memory.reached_write_resolver(values);
+        let capture = |entry: &crate::ExecutionCallEvidence| entry.positional_arguments().filter_map(|(input, value)| {
+            let descriptor = value.inline_captured_storage()?;
+            let ty = descriptor.observations().find_map(|(path, kind)| match kind {
+                bray_bound_tree::StorageObservationKind::Reference(ty) if path.is_empty() => Some(ty),
+                _ => None,
+            })?;
+            let ty = crate::representation::borrow_target_type(values, ty)?;
+            let referent = capture_input_referent(memory, descriptor, ty, footprint.typed_observations(ty))?;
+
+            Some(StorageValueCapture {
+                input, value: Arc::new(descriptor.clone()), referent: Some(referent), element_bounds: None,
+            })
+        }).collect();
+
+        self.execution.prepare_frame_execution(execution, operation, Some((&resolve, &capture)), |producer, inputs, values| {
+            if publish {
+                let values = values.into();
+
+                let key = (operation.id(), Some(producer.clone()));
+
+                captures.entry(key.clone()).and_modify(|previous| {
+                    bray_bound_tree::merge_storage_value_captures(previous, &inputs);
+                }).or_insert_with(|| inputs.into());
+                transitions.entry(key).and_modify(|previous| {
+                    bray_bound_tree::merge_storage_value_transitions(previous, &values);
+                }).or_insert(values);
+            }
+        });
+    }
+
     pub(in crate::analysis::storage_flow) fn prepare_operation_outcomes(
-        &mut self, state: &mut StorageFlowState, kind: crate::analysis::model::AnalysisOperationKind,
+        &mut self, state: &mut StorageFlowState, operation: &crate::analysis::model::AnalysisOperation,
     ) -> Vec<usize> {
         use crate::analysis::model::{AnalysisCallPhase, AnalysisOperationKind};
+
+        let kind = operation.kind();
 
         if kind.awaited_expression().is_some() {
             let execution = state.execution.as_mut().expect("reachable await retains execution facts");
 
-            self.execution.prepare_await_execution(execution, kind);
+            self.prepare_frame_execution(&state.memory, execution, operation);
 
             return Vec::new();
         }
@@ -354,8 +494,20 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         let execution = state.execution.as_mut().expect("reachable call attempt has an execution state");
 
-        self.begin_value_transition(execution, invocation, &[]);
+        self.begin_value_transition(&state.memory, execution, operation, &[]);
 
         self.execution.feasible_call_outputs(execution, invocation)
     }
+}
+
+fn capture_input_referent<'path>(
+    memory: &crate::analysis::storage_flow::memory::State,
+    descriptor: &bray_bound_tree::StorageCapturedValue,
+    ty: bray_symbols::TypeId,
+    observations: impl IntoIterator<Item = (&'path [bray_bound_tree::StorageProjection], bray_bound_tree::StorageObservationKind)>,
+) -> Option<(bray_symbols::TypeId, Arc<bray_bound_tree::StorageCapturedValue>)> {
+    let target = descriptor.known_address()?;
+    let value = memory.capture_reached_value(target).with_observations(observations);
+
+    Some((ty, Arc::new(value)))
 }

@@ -4503,7 +4503,7 @@ fn typed_links_preserve_pure_pointer_transport_without_address_observation() {
 #[test]
 fn copied_opaque_pointee_fields_do_not_retain_the_reading_loan() {
     let owner = r#"
-        trusted module std.memory;
+        trusted module std.loan_fixture;
 
         using core.memory;
         using std.memory;
@@ -4622,7 +4622,7 @@ fn copied_opaque_pointee_fields_do_not_retain_the_reading_loan() {
     let envelope = r#"
                 let pin = number;
 
-                let mut envelope: std.memory.Envelope =
+                let mut envelope: std.loan_fixture.Envelope =
                 {
                     owner = guard,
                     pin = &pin
@@ -4631,21 +4631,21 @@ fn copied_opaque_pointee_fields_do_not_retain_the_reading_loan() {
 
     for (result, setup, view, before, returned, failure) in [
         ("DataPointer<u32>", "", "guard", "", "state.link.pointer", None),
-        ("std.memory.Link", "", "guard", "", "state.link", None),
-        ("&std.memory.Link", "", "guard", "", "&state.link", escaping),
+        ("std.loan_fixture.Link", "", "guard", "", "state.link", None),
+        ("&std.loan_fixture.Link", "", "guard", "", "&state.link", escaping),
         ("&u32", "", "guard", "", "state.borrowed", escaping),
-        ("std.memory.Link", "", "guard", "let link = state.link;\n                let moved = guard;", "link", None),
-        ("std.memory.Link", "", "guard", "let moved = guard;", "state.link", Some(bray_diagnostics::DiagnosticKind::CheckingConflictingBorrow)),
-        ("std.memory.Link", "", "guard", "", "std.memory.read_link(state)", None),
-        ("DataPointer<u32>", "", "guard", "", "std.memory.read_pointer(state)", None),
-        ("std.memory.Link", envelope, "envelope.owner", "", "state.link", None),
-        ("std.memory.Link", envelope, "envelope.owner", "", "std.memory.read_link(state)", None),
-        ("&std.memory.Link", envelope, "envelope.owner", "", "&state.link", escaping),
-        ("std.memory.Link", envelope, "envelope.owner", "", "std.memory.take_link(state)", None),
-        ("std.memory.Link?", envelope, "envelope.owner", "let link: std.memory.Link? = std.memory.take_link(state);", "link", None),
-        ("(u64, bool, std.memory.Link?)", envelope, "envelope.owner", "let link: std.memory.Link? = std.memory.take_link(state);", "(0, false, link)", None),
-        ("std.memory.Link", "", "", "", "trusted std.memory.read_link_from_guard(&mut guard)", None),
-        ("&std.memory.Link", "", "", "", "trusted std.memory.read_borrow_from_guard(&mut guard)", escaping),
+        ("std.loan_fixture.Link", "", "guard", "let link = state.link;\n                let moved = guard;", "link", None),
+        ("std.loan_fixture.Link", "", "guard", "let moved = guard;", "state.link", Some(bray_diagnostics::DiagnosticKind::CheckingConflictingBorrow)),
+        ("std.loan_fixture.Link", "", "guard", "", "std.loan_fixture.read_link(state)", None),
+        ("DataPointer<u32>", "", "guard", "", "std.loan_fixture.read_pointer(state)", None),
+        ("std.loan_fixture.Link", envelope, "envelope.owner", "", "state.link", None),
+        ("std.loan_fixture.Link", envelope, "envelope.owner", "", "std.loan_fixture.read_link(state)", None),
+        ("&std.loan_fixture.Link", envelope, "envelope.owner", "", "&state.link", escaping),
+        ("std.loan_fixture.Link", envelope, "envelope.owner", "", "std.loan_fixture.take_link(state)", None),
+        ("std.loan_fixture.Link?", envelope, "envelope.owner", "let link: std.loan_fixture.Link? = std.loan_fixture.take_link(state);", "link", None),
+        ("(u64, bool, std.loan_fixture.Link?)", envelope, "envelope.owner", "let link: std.loan_fixture.Link? = std.loan_fixture.take_link(state);", "(0, false, link)", None),
+        ("std.loan_fixture.Link", "", "", "", "trusted std.loan_fixture.read_link_from_guard(&mut guard)", None),
+        ("&std.loan_fixture.Link", "", "", "", "trusted std.loan_fixture.read_borrow_from_guard(&mut guard)", escaping),
     ] {
         let valid = failure.is_none();
 
@@ -4659,9 +4659,10 @@ fn copied_opaque_pointee_fields_do_not_retain_the_reading_loan() {
             trusted module app;
 
             using std.memory;
+            using std.loan_fixture;
 
-            trusted func caller(pos mut guard: std.memory.Guard, pos number: u32) -> {result}
-                requires(trusted std.memory.active(&guard.acquisition))
+            trusted func caller(pos mut guard: std.loan_fixture.Guard, pos number: u32) -> {result}
+                requires(trusted std.loan_fixture.active(&guard.acquisition))
             {{
                 {setup}
                 {read_view}

@@ -155,13 +155,6 @@ impl StructuralValueEncoder<'_, '_> {
 
         self.dependency_set(data.captured_values(), Self::dependency_captured_binding)?;
 
-        self.digest
-            .write_u8(u8::from(data.observed_result().is_some()));
-
-        if let Some(term) = data.observed_result() {
-            self.constant_term(term)?;
-        }
-
         self.dependency_set(data.synchronous_cleanup(), Self::dependency_requirement)?;
 
         self.dependency_set(data.effects(), Self::dependency_effect)
@@ -210,15 +203,24 @@ impl StructuralValueEncoder<'_, '_> {
         if let Some(guard) = row.guard { self.constant_term(guard)?; }
 
         self.dependency_optional_report(row.report.as_deref())?;
-        self.digest.write_u8(u8::from(row.effects.is_some()));
-        if let Some(effects) = &row.effects { self.dependency_set(effects, Self::dependency_effect)?; }
+        self.dependency_optional_effects(row.effects.as_deref())?;
+        self.dependency_optional_effects(row.cell_changes.as_deref())?;
 
-        Ok(())
+        self.dependency_set(&row.writes, Self::dependency_captured_write)
     }
 
     pub(in crate::compilation) fn dependency_captured_binding(&mut self, binding: &bray_symbols::CapturedValueOutcome) -> Result<(), FactQueryError> {
         self.dependency_optional_report(binding.report.as_deref())?;
+
+        self.dependency_set(&binding.report_payloads, |encoder, payload| {
+            encoder.dependency_subject(&payload.destination)?;
+            encoder.tag(u8::from(payload.complete));
+
+            encoder.dependency_requirements(&payload.requirements)
+        })?;
+
         self.dependency_set(&binding.effects, Self::dependency_effect)?;
+        self.dependency_optional_effects(binding.cell_changes.as_deref())?;
         self.dependency_owned_result(&binding.ownership)?;
         self.dependency_set(&binding.carriers, Self::dependency_carrier)?;
         self.dependency_set(&binding.references, Self::dependency_borrow)?;
@@ -239,6 +241,13 @@ impl StructuralValueEncoder<'_, '_> {
         self.dependency_subject(destination)?;
 
         self.dependency_captured_value(value)
+    }
+
+    fn dependency_optional_effects(&mut self, effects: Option<&[bray_symbols::DependencyStorageEffect]>) -> Result<(), FactQueryError> {
+        self.tag(u8::from(effects.is_some()));
+        if let Some(effects) = effects { self.dependency_set(effects, Self::dependency_effect)?; }
+
+        Ok(())
     }
 
     fn dependency_captured_value(&mut self, value: &bray_symbols::CapturedValueTemplate) -> Result<(), FactQueryError> {
@@ -439,6 +448,16 @@ impl StructuralValueEncoder<'_, '_> {
     ) -> Result<(), FactQueryError> {
 
         let (kind, access_type) = match effect {
+            DependencyStorageEffect::OrderedRetirement { retirement, discharged } => {
+                self.tag(10);
+                self.dependency_effect(retirement)?;
+
+                return self.dependency_set(discharged, |encoder, discharge| {
+                    encoder.dependency_projections(&discharge.projections)?;
+
+                    encoder.ty(discharge.ty)
+                });
+            }
             DependencyStorageEffect::UnboundedMutation { kind, access_type, ambient } => {
                 self.tag(7);
                 self.tag(u8::from(*ambient));
@@ -501,9 +520,10 @@ impl StructuralValueEncoder<'_, '_> {
             DependencyMutationKind::Escape => 7,
             DependencyMutationKind::Cleanup(_) => 8,
             DependencyMutationKind::Dispose(_) => 9,
+            DependencyMutationKind::Discharge(_) => 10,
         });
 
-        if let DependencyMutationKind::Replace(ty) | DependencyMutationKind::Dispose(ty) | DependencyMutationKind::Cleanup(ty) = kind {
+        if let DependencyMutationKind::Replace(ty) | DependencyMutationKind::Dispose(ty) | DependencyMutationKind::Cleanup(ty) | DependencyMutationKind::Discharge(ty) = kind {
             self.ty(*ty)?;
         }
 

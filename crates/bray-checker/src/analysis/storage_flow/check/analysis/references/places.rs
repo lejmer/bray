@@ -1,81 +1,56 @@
+use std::borrow::Cow;
+
 use super::super::core::StorageFlowCollector;
 use crate::CheckerRequestContext;
-use crate::analysis::storage_flow::memory::{Place, Source, Target};
+use crate::analysis::storage_flow::memory::{Place, ReachedAccess, Source, Target};
 use crate::analysis::storage_flow::model::StorageFlowState;
 use bray_bound_tree::{AnyBoundNodeId, BoundExpressionId, StorageAccessPurpose};
 
 impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
-    fn staged_memory_input(
+    pub(in crate::analysis::storage_flow::check::analysis) fn captured_memory_operand<'entry>(
         &self,
+        execution: &'entry crate::analysis::guarantee::ExecutionState,
         operation: &bray_bound_tree::CheckedMemoryOperation,
         argument: BoundExpressionId,
-    ) -> Option<bray_symbols::DependencySubjectRoot> {
+    ) -> Option<&'entry bray_bound_tree::StorageCapturedValue> {
+        let invocation = operation.expression().into();
         let selection = self.execution.semantics.selections().expression(operation.expression())?;
+        let input = selection.inputs().find(|input| input.expression() == Some(argument))?;
+        let ordinal = selection.invocation_input_ordinal(invocation, input.root())?;
 
-        if !selection.stages_inputs() {
-            return None;
-        }
-
-        selection.inputs().find(|input| input.expression() == Some(argument)).map(|input| input.root())
+        execution.admitted_call(invocation)?.argument_storage(ordinal)
     }
 
-    pub(in crate::analysis::storage_flow::check::analysis) fn memory_argument_target(
+    pub(super) fn memory_operand_place(
         &self,
-        state: &StorageFlowState,
         operation: &bray_bound_tree::CheckedMemoryOperation,
         argument: BoundExpressionId,
-    ) -> Option<Target> {
-        if self.execution.semantics.selections().expression(operation.expression()).is_some_and(|selection| selection.stages_inputs()) {
-            let root = self.staged_memory_input(operation, argument)?;
+    ) -> Option<Place> {
+        let selection = self.execution.semantics.selections().expression(operation.expression())?;
+        let input = selection.inputs().find(|input| input.expression() == Some(argument))?;
 
-            return self.invocation_place(operation.expression().into(), root).map(Target::storage);
-        }
-
-        self.expression_target(state, argument)
-    }
-
-    pub(in crate::analysis::storage_flow::check::analysis) fn memory_argument_reference(
-        &self,
-        state: &StorageFlowState,
-        operation: &bray_bound_tree::CheckedMemoryOperation,
-        argument: BoundExpressionId,
-    ) -> Option<Source> {
-        if self.execution.semantics.selections().expression(operation.expression()).is_some_and(|selection| selection.stages_inputs()) {
-            let root = self.staged_memory_input(operation, argument)?;
-
-            return self.invocation_reference(state, operation.expression().into(), root);
-        }
-
-        self.expression_reference(state, argument)
+        self.invocation_place(operation.expression().into(), input.root())
     }
 
     pub(in crate::analysis::storage_flow::check::analysis) fn memory_uninit_target(
         &self,
         state: &StorageFlowState,
+        execution: &crate::analysis::guarantee::ExecutionState,
         operation: &bray_bound_tree::CheckedMemoryOperation,
         argument: BoundExpressionId,
     ) -> Option<Target> {
-        let selection = self.execution.semantics.selections().expression(operation.expression());
+        let selection = self.execution.semantics.selections().expression(operation.expression())?;
+        let input = selection.inputs().find(|input| input.expression() == Some(argument))?;
+        let values = self.request.semantic_values();
 
-        if !selection.is_some_and(|selection| selection.stages_inputs()) {
-            return self.uninit_target(state, argument);
-        }
+        let target = if let bray_symbols::TypeData::Borrow { target, .. } = *values.type_data(input.ty(values)) {
+            let capture = self.captured_memory_operand(execution, operation, argument)?;
 
-        let root = self.staged_memory_input(operation, argument)?;
-        let selection = selection?;
-        let input = selection.inputs().find(|input| input.root() == root)?;
-
-        let borrowed = matches!(self.request.semantic_values().type_data(input.ty(self.request.semantic_values())).as_ref(),
-            bray_symbols::TypeData::Borrow { .. });
-
-        let target = if borrowed {
-            let mut regions = self.memory_argument_reference(state, operation, argument)?.regions(&state.memory)?;
-
-            if regions.len() != 1 { return None; }
-
-            regions.pop().expect("one protected input target")
+            state.memory.captured_value_target(capture.binding()?, target)?
+        } else if selection.stages_inputs() {
+            self.invocation_place(operation.expression().into(), input.root()).map(Target::storage)?
         } else {
-            self.memory_argument_target(state, operation, argument)?
+            self.expression_target(state, argument)?
         };
 
         Some(target.project(&[bray_bound_tree::StorageProjection::UninitPayload]))
@@ -90,19 +65,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         matches!(
             self.request.semantic_values().type_data(ty).as_ref(),
             bray_symbols::TypeData::Nullable(_)
-        ) && matches!((self.execution.value(execution, expression)).kind(), crate::ExecutionConditionKind::Literal(value)
+        ) && matches!((self.execution.operand_value(execution, expression)).kind(), crate::ExecutionConditionKind::Literal(value)
                 if matches!(value.kind(), bray_symbols::ConstantValueKind::NullableAbsent))
-    }
-
-    pub(in crate::analysis::storage_flow::check::analysis) fn assignment_targets(
-        &self,
-        state: &StorageFlowState,
-        node: AnyBoundNodeId,
-    ) -> Option<Vec<Target>> {
-        let access = self.assignment_access(node)?;
-
-        self.input
-            .reference_targets(self.request.semantic_values(), &state.memory, self.storage, access)
     }
 
     pub(super) fn assignment_access(&self, node: AnyBoundNodeId) -> Option<bray_bound_tree::StorageAccessId> {
@@ -110,6 +74,21 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             .node_plans(node)
             .find(|plan| plan.purpose() == StorageAccessPurpose::Assignment)
             .map(|plan| plan.access())
+    }
+
+    pub(in crate::analysis::storage_flow::check::analysis) fn assignment_destination<'memory>(
+        &self,
+        memory: &'memory crate::analysis::storage_flow::memory::State,
+        expression: BoundExpressionId,
+        access: bray_bound_tree::StorageAccessId,
+    ) -> Option<Cow<'memory, ReachedAccess>> {
+        if let Some(target) = self.input.direct_reference_target(self.storage, access) {
+            return Some(Cow::Owned(ReachedAccess { address: bray_bound_tree::StorageAddressValue::one(target), loan: None }));
+        }
+
+        let address = memory.assignment_destination(expression)?;
+
+        (!address.address.is_unknown()).then_some(Cow::Borrowed(address))
     }
 
     pub(in crate::analysis::storage_flow::check::analysis) fn expression_is_borrowed(
@@ -126,35 +105,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     bray_symbols::TypeData::Borrow { .. }
                 )
             })
-    }
-
-    pub(in crate::analysis::storage_flow::check::analysis) fn uninit_target(
-        &self,
-        state: &StorageFlowState,
-        expression: BoundExpressionId,
-    ) -> Option<Target> {
-        let borrowed = self.expression_is_borrowed(expression);
-
-        let storage = if borrowed {
-            // A selected element has one bounded location even when its offset
-            // is unknown. Memory transitions retain that target's inexactness.
-            let targets = self
-                .expression_reference(state, expression)?
-                .regions(&state.memory)?;
-
-            if targets.len() != 1 {
-                return None;
-            }
-
-            targets
-                .into_iter()
-                .next()
-                .expect("one protected storage target")
-        } else {
-            self.expression_target(state, expression)?
-        };
-
-        Some(storage.project(&[bray_bound_tree::StorageProjection::UninitPayload]))
     }
 
     pub(in crate::analysis::storage_flow::check::analysis) fn expression_target(

@@ -1366,6 +1366,637 @@ fn check_matrix_case(imported: bool, index: usize, expected: &str) {
     check_cases(provider, imported, &CASES[index..index + 1]);
 }
 
+#[test]
+fn returned_frame_contributes_its_body_only_when_executed() {
+    let provider = super::matrix::provider("returned-frame-behavior", r"
+        module api;
+
+        struct State { ready: bool; }
+        async func child(pos state: &State) -> bool { return state.ready; }
+        async func replaced() -> bool { return false; }
+        func factory(pos state: &State) -> Future<bool> { return child(state); }
+    ");
+
+    let source = r"
+        module app;
+        using api;
+
+        async func awaited()
+        {
+            let state = api.State { ready = true };
+            let pending = api.factory(&state);
+            let moved = pending;
+            _ = await moved;
+        }
+        async func started()
+        {
+            let state = api.State { ready = true };
+            let pending = api.factory(&state);
+            let moved = pending;
+            _ = await moved.start().join();
+        }
+        async func discarded()
+        {
+            let state = api.State { ready = false };
+            _ = api.factory(&state);
+        }
+        async func replaced()
+        {
+            let state = api.State { ready = true };
+            let mut pending = api.replaced();
+            pending = api.factory(&state);
+            _ = await pending;
+        }
+    ";
+
+    for imported in [false, true] {
+        let consumer = if imported {
+            execution_consumer(&provider, &source.replace("using api;", "using example.package.api;")
+                .replace("api.", "example.package.api."))
+        } else {
+            crate::test_support::with_fixture_caller(&provider, source)
+        };
+
+        let cancellation = crate::CancellationToken::new();
+        let binding = consumer.binding_context(&cancellation).expect("fixture declarations bind");
+
+        for (name, expected) in [("awaited", &["child"][..]), ("started", &["child"][..]), ("discarded", &[][..]), ("replaced", &["child"][..])] {
+            let key = crate::test_support::source_module_function_body_key(&consumer, &["app"], name);
+            let flow = consumer.storage_flow(key.clone()).expect("the frame has checked storage flow");
+            let lowered = consumer.lowered_unit(key).expect("the frame use reaches lowering");
+
+            assert!(lowered.value().is_some() && !lowered.diagnostics().has_errors(), "{name}, imported={imported}: {lowered:#?}");
+
+            let called = flow.value().deferred_calls().map(|call| {
+                let declaration = call.target().declaration().expect("selected producer is a declaration");
+
+                binding.member_name(declaration.symbol()).expect("selected declaration resolves")
+                    .expect("selected producer has a name").as_str()
+            }).filter(|name| matches!(*name, "child" | "replaced")).collect::<Vec<_>>();
+
+            assert_eq!(called, expected, "{name}, imported={imported}");
+        }
+    }
+}
+
+#[test]
+fn widened_frame_producers_keep_only_authority_from_normal_completions() {
+    let provider = super::matrix::provider("deferred-widening", API);
+    let mut selections = String::new();
+
+    for index in 0..9 {
+        use std::fmt::Write;
+
+        write!(selections, "if selector == {index} {{ yield api.pass<api.Marker>(api.make()); }} else ")
+            .expect("writing fixture selections cannot fail");
+    }
+
+    for imported in [false, true] {
+        for (observation, last_completes) in [
+            ("await pending", false),
+            ("await pending", true),
+            ("try await pending.start().join()", false),
+            ("try await pending.start().join()", true),
+        ] {
+            let source = format!(r"
+                module app;
+                using api;
+
+                async func caller(pos selector: u8)
+                {{
+                    let pending = {selections} {{ yield api.only<api.Marker>(api.Marker {{}}, {last_completes}); }};
+                    let value = {observation};
+                    api.observe(&value);
+                }}
+            ");
+
+            let consumer = if imported {
+                execution_consumer(&provider, &source.replace("using api;", "using example.package.api;")
+                    .replace("api.", "example.package.api."))
+            } else {
+                crate::test_support::with_fixture_caller(&provider, &source)
+            };
+
+            let result = consumer.lowered_unit(crate::test_support::source_function_body_key(&consumer, "caller"))
+                .expect("widened frame producer reaches lowering");
+
+            if last_completes {
+                bray_testing::assert_goal_state_diagnostic_kind(result.diagnostics(),
+                    bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven);
+            } else {
+                assert!(result.value().is_some() && !result.diagnostics().has_errors(), "{result:#?}");
+            }
+        }
+    }
+}
+
+#[test]
+fn widened_task_observation_keeps_completed_report_dependencies() {
+    let provider = super::matrix::provider("task-observation-reports", API);
+    let mut selections = String::new();
+
+    for index in 0..9 {
+        use std::fmt::Write;
+
+        write!(selections, "if selector == {index} {{ yield api.retain_state_in_report(state, cell); }} else ")
+            .expect("writing fixture selections cannot fail");
+    }
+
+    let source = format!(r"
+        module app;
+        using api;
+
+        async func caller(pos selector: u8, pos state: &api.State, pos cell: &api.Cell)
+        {{
+            let pending: Future<Result<(&api.Cell), bool>> = {selections} {{
+                yield api.only<Result<(&api.Cell), bool>>(Ok(cell), false);
+            }};
+            let task = pending.start();
+            _ = try await task.join();
+        }}
+    ");
+
+    for imported in [false, true] {
+        use bray_symbols::{DependencyRequirement, DependencyRequirementKind, DependencySubject, DependencySubjectRoot, SymbolOrdinal};
+
+        let consumer = if imported {
+            execution_consumer(&provider, &source.replace("using api;", "using example.package.api;")
+                .replace("api.", "example.package.api."))
+        } else {
+            crate::test_support::with_fixture_caller(&provider, &source)
+        };
+
+        let name = "caller";
+
+        let lowered = consumer.lowered_unit(crate::test_support::source_function_body_key(&consumer, name))
+            .expect("widened task observer lowers");
+
+        assert!(lowered.value().is_some() && !lowered.diagnostics().has_errors(), "imported={imported}: {lowered:#?}");
+
+        let expected = DependencyRequirement::direct(
+            DependencySubject::root(DependencySubjectRoot::Parameter(SymbolOrdinal::new(1))),
+            DependencyRequirementKind::ValueDependencies,
+        );
+
+        let summary = crate::compilation::result_dependencies::source_function_dependencies(&consumer, name);
+
+        assert_eq!(summary.completion_reports().as_deref(), Some(&[expected][..]), "imported={imported}");
+    }
+}
+
+#[test]
+fn fully_widened_task_result_retains_the_possible_panic_payload() {
+    use bray_symbols::{DependencyRequirement, DependencyRequirementKind, DependencySubject, DependencySubjectRoot, SymbolOrdinal};
+    use std::fmt::Write;
+
+    let provider = super::matrix::provider("fully-widened-task-report", r#"
+        module api;
+        struct Incident { value: &bool; }
+        struct Resource
+        {
+            value: &bool;
+            enter() -> &bool { return self.value; }
+            exit(pos lease: &bool) -> Result<unit, Incident> { return Error(Incident { value = lease }); }
+        }
+        async func run(pos should_panic: bool, pos left: &bool, pos right: &bool) -> u8
+        {
+            if should_panic
+            {
+                let resource = Resource { value = left };
+                _ = with _ = resource { panic("child"); };
+            }
+            return 7;
+        }
+    "#);
+
+    let mut choices = String::new();
+
+    for index in 0..7 {
+        write!(choices, "if selector == {index} {{ yield {index}; }} else ").expect("writing fixture branches succeeds");
+    }
+
+    for (arguments, escapes) in [("&local, right", true), ("right, &local", false)] {
+        let source = format!(r"
+            module app;
+            using api;
+            async func observe(pos selector: u8, pos branch: bool, pos right: &bool) -> (u8, RunResult<u8>)
+            {{
+                let prior: u8 = {choices} {{ yield 7; }};
+                let local = selector == 4;
+                return (prior, await api.run(branch, {arguments}).start().join());
+            }}
+        ");
+
+        for imported in [false, true] {
+            let consumer = if imported {
+                execution_consumer(&provider, &source.replace("using api;", "using example.package.api;")
+                    .replace("api.", "example.package.api."))
+            } else {
+                crate::test_support::with_fixture_caller(&provider, &source)
+            };
+
+            let flow = consumer.storage_flow(crate::test_support::source_function_body_key(&consumer, "observe"))
+                .expect("the widened observation reaches storage checking");
+
+            if escapes {
+                bray_testing::assert_goal_state_diagnostic_kind(flow.diagnostics(),
+                    bray_diagnostics::DiagnosticKind::CheckingEscapingStorageDependency);
+            } else {
+                assert!(!flow.diagnostics().has_errors(), "imported={imported}: {:?}", flow.diagnostics());
+
+                let expected = DependencyRequirement::direct(
+                    DependencySubject::root(DependencySubjectRoot::Parameter(SymbolOrdinal::new(2))),
+                    DependencyRequirementKind::ValueDependencies,
+                );
+
+                assert!(flow.value().dependencies().requirements().contains(&expected), "imported={imported}");
+            }
+        }
+    }
+}
+
+#[test]
+fn task_panic_report_moves_from_a_value_to_its_propagation_boundary() {
+    use bray_symbols::{DependencyFailureKind, DependencyRequirement, DependencyRequirementKind, DependencySubject, DependencySubjectRoot, SymbolOrdinal};
+
+    let provider = super::matrix::provider("task-panic-report-propagation", r#"
+        module api;
+        struct Incident { value: &bool; }
+        struct Resource
+        {
+            value: &bool;
+            enter() -> &bool { return self.value; }
+            exit(pos lease: &bool) -> Result<unit, Incident> { return Error(Incident { value = lease }); }
+        }
+        async func stop(pos choose: bool, pos left: &bool, pos right: &bool)
+        {
+            if choose
+            {
+                let resource = Resource { value = left };
+                _ = with _ = resource { panic("left"); };
+            }
+            let resource = Resource { value = right };
+            _ = with _ = resource { panic("right"); };
+        }
+
+        async func observe(pos choose: bool, pos left: &bool, pos right: &bool) -> RunResult<unit>
+        {
+            return await stop(choose, left, right).start().join();
+        }
+
+        async func observe_both(pos left: &bool, pos right: &bool) -> [RunResult<unit>; 2]
+        {
+            return [await observe(true, left, right), await observe(false, left, right)];
+        }
+    "#);
+
+    let source = r"
+        module app;
+        using api;
+        async func return_left(pos left: &bool, pos right: &bool) -> RunResult<unit>
+        {
+            return await api.stop(true, left, right).start().join();
+        }
+        async func propagate_right(pos left: &bool, pos right: &bool)
+        {
+            let observed = await api.stop(false, left, right).start().join();
+            try observed;
+        }
+        async func catch_left(pos left: &bool, pos right: &bool) -> Result<unit, PanicReport>
+        {
+            return catch { try await api.stop(true, left, right).start().join(); };
+        }
+        async func escaping(pos choose: bool, pos right: &bool)
+        {
+            let local = choose;
+            let observed = await api.stop(true, &local, right).start().join();
+            try observed;
+        }
+        async func independent(pos choose: bool, pos right: &bool)
+        {
+            let local = choose;
+            let observed = await api.stop(false, &local, right).start().join();
+            try observed;
+        }
+        async func escaping_catch(pos choose: bool, pos right: &bool) -> Result<unit, PanicReport>
+        {
+            let local = choose;
+            let observed = await api.stop(true, &local, right).start().join();
+            let caught = catch { try observed; };
+            return caught;
+        }
+        async func independent_catch(pos choose: bool, pos right: &bool) -> Result<unit, PanicReport>
+        {
+            let local = choose;
+            let observed = await api.stop(false, &local, right).start().join();
+            let caught = catch { try observed; };
+            return caught;
+        }
+        async func escaping_return(pos choose: bool, pos right: &bool) -> RunResult<unit>
+        {
+            let local = choose;
+            return await api.stop(true, &local, right).start().join();
+        }
+        async func independent_return(pos choose: bool, pos right: &bool) -> RunResult<unit>
+        {
+            let local = choose;
+            return await api.stop(false, &local, right).start().join();
+        }
+        async func escaping_forwarded(pos choose: bool, pos right: &bool) -> Result<unit, PanicReport>
+        {
+            let local = choose;
+            let observed = await api.observe(true, &local, right);
+            return catch { try observed; };
+        }
+        async func independent_forwarded(pos choose: bool, pos right: &bool) -> Result<unit, PanicReport>
+        {
+            let local = choose;
+            let observed = await api.observe(false, &local, right);
+            return catch { try observed; };
+        }
+        async func escaping_selected_late(pos choose: bool, pos right: &bool) -> Result<unit, PanicReport>
+        {
+            let local = choose;
+            let pending = api.observe(choose, &local, right);
+            if choose
+            {
+                let observed = await pending;
+                return catch { try observed; };
+            }
+            return catch {};
+        }
+        async func independent_selected_late(pos choose: bool, pos right: &bool) -> Result<unit, PanicReport>
+        {
+            let local = choose;
+            let pending = api.observe(choose, &local, right);
+            if !choose
+            {
+                let observed = await pending;
+                return catch { try observed; };
+            }
+            return catch {};
+        }
+        async func escaping_wrapped(pos choose: bool, pos right: &bool) -> Result<RunResult<unit>, PanicReport>
+        {
+            let local = choose;
+            let observed = await api.stop(true, &local, right).start().join();
+            return catch (observed);
+        }
+        async func independent_wrapped(pos choose: bool, pos right: &bool) -> Result<RunResult<unit>, PanicReport>
+        {
+            let local = choose;
+            let observed = await api.stop(false, &local, right).start().join();
+            return catch (observed);
+        }
+        async func discarded(pos choose: bool, pos right: &bool)
+        {
+            let local = choose;
+            _ = await api.stop(true, &local, right).start().join();
+        }
+        async func forward_both(pos left: &bool, pos right: &bool) -> [RunResult<unit>; 2]
+        {
+            return await api.observe_both(left, right);
+        }
+    ";
+
+    for imported in [false, true] {
+        let consumer = if imported {
+            execution_consumer(&provider, &source.replace("using api;", "using example.package.api;")
+                .replace("api.", "example.package.api."))
+        } else {
+            crate::test_support::with_fixture_caller(&provider, source)
+        };
+
+        let dependency = |ordinal| DependencyRequirement::direct(
+            DependencySubject::root(DependencySubjectRoot::Parameter(SymbolOrdinal::new(ordinal))),
+            DependencyRequirementKind::ValueDependencies,
+        );
+
+        for name in ["escaping", "escaping_catch", "escaping_return", "escaping_wrapped", "escaping_forwarded", "escaping_selected_late"] {
+            let escaping = consumer.storage_flow(crate::test_support::source_function_body_key(&consumer, name))
+                .expect("escaping report reaches storage checking");
+
+            bray_testing::assert_goal_state_diagnostic_kind(escaping.diagnostics(),
+                bray_diagnostics::DiagnosticKind::CheckingEscapingStorageDependency);
+        }
+
+        for name in ["independent", "independent_catch", "independent_return", "independent_wrapped", "independent_forwarded", "independent_selected_late", "discarded"] {
+            let independent = consumer.lowered_unit(crate::test_support::source_function_body_key(&consumer, name))
+                .expect("independently backed report reaches lowering");
+
+            assert!(independent.value().is_some() && !independent.diagnostics().has_errors(),
+                "{name}, imported={imported}: {independent:#?}");
+        }
+
+        for name in ["return_left", "propagate_right", "catch_left"] {
+            let lowered = consumer.lowered_unit(crate::test_support::source_function_body_key(&consumer, name))
+                .expect("task report reaches lowering");
+
+            assert!(lowered.value().is_some() && !lowered.diagnostics().has_errors(), "{name}, imported={imported}: {lowered:#?}");
+
+            let summary = crate::compilation::result_dependencies::source_function_dependencies(&consumer, name);
+
+            assert!(summary.completion_reports().is_none(), "{name}, imported={imported}: {summary:#?}");
+
+            if name == "propagate_right" {
+                let rows = summary.failure_outcomes().expect("propagated report has a panic outcome");
+
+                let borrowed = rows.iter().filter(|row| row.kind == Some(DependencyFailureKind::Panic))
+                    .filter_map(|row| row.report.as_deref()).filter(|report| !report.is_empty()).collect::<Vec<_>>();
+
+                assert!(!borrowed.is_empty(), "{name}, imported={imported}: {rows:#?}");
+
+                assert!(borrowed.iter().all(|report| *report == [dependency(1)]),
+                    "{name}, imported={imported}: {borrowed:#?}");
+            } else {
+                assert_eq!(summary.requirements(), &[dependency(0)], "{name}, imported={imported}");
+            }
+        }
+
+        let lowered = consumer.lowered_unit(crate::test_support::source_function_body_key(&consumer, "forward_both"))
+            .expect("both array report payloads reach lowering");
+
+        assert!(lowered.value().is_some() && !lowered.diagnostics().has_errors(), "imported={imported}: {lowered:#?}");
+
+        let summary = crate::compilation::result_dependencies::source_function_dependencies(&consumer, "forward_both");
+        let values = consumer.semantic_value_store().expect("array selectors belong to the consumer's semantic store");
+        let mut carried = std::collections::BTreeSet::new();
+
+        for payload in summary.captured_values().iter().flat_map(|row| &*row.report_payloads) {
+            let [bray_symbols::DependencyProjection::Element(term), bray_symbols::DependencyProjection::UnionPayloadField(_)] =
+                payload.destination.projections() else { panic!("report retains its precise array component: {payload:?}"); };
+
+            let index = values.constant_term_integer(*term).and_then(|value| value.to_u64())
+                .and_then(|index| u32::try_from(index).ok()).expect("array report selector is a checked ordinal");
+
+            if !payload.requirements.is_empty() {
+                assert_eq!(payload.requirements.as_ref(), &[dependency(index)], "imported={imported}: {payload:?}");
+
+                carried.insert(index);
+            }
+        }
+
+        assert_eq!(carried, [0, 1].into(), "imported={imported}: {summary:#?}");
+    }
+}
+
+#[test]
+fn task_observation_keeps_both_failure_kinds_when_panic_rows_fill_the_budget() {
+    use std::fmt::Write;
+
+    let mut fields = String::new();
+    let mut panics = String::new();
+
+    for index in 0..8 {
+        write!(fields, "mut slot{index}: bool; ").expect("writing fixture fields cannot fail");
+
+        write!(panics, "if selector == {index} {{ target.slot{index} = true; panic(\"stop\"); }} ")
+            .expect("writing fixture branches cannot fail");
+    }
+
+    let provider = super::matrix::provider("task-result-kind-budget", &format!(r"
+        module api;
+        struct Cell {{ {fields} }}
+        async func stop(pos selector: u8, pos target: &mut Cell) {{ {panics} loop {{}} }}
+    "));
+
+    let source = r"
+        module app;
+        using api;
+        async func caller(pos selector: u8, pos target: &mut api.Cell)
+        {
+            _ = await api.stop(selector, target).start().join();
+        }
+    ";
+
+    for imported in [false, true] {
+        use bray_bound_tree::{BoundExpression, StorageTaskOutcome};
+        use bray_symbols::DependencyFailureKind;
+
+        let consumer = if imported {
+            execution_consumer(&provider, &source.replace("using api;", "using example.package.api;")
+                .replace("api.", "example.package.api."))
+        } else {
+            crate::test_support::with_fixture_caller(&provider, source)
+        };
+
+        let key = crate::test_support::source_function_body_key(&consumer, "caller");
+        let unit = consumer.bound_unit(key.clone()).expect("task observer binds");
+        let flow = consumer.storage_flow(key.clone()).expect("task observer checks");
+        let lowered = consumer.lowered_unit(key).expect("task observer lowers");
+
+        assert!(lowered.value().is_some() && !lowered.diagnostics().has_errors(), "imported={imported}: {lowered:#?}");
+
+        let await_site = unit.value().tree().expressions().find_map(|(id, expression)| {
+            matches!(expression, BoundExpression::Await(_)).then_some(id.into())
+        }).expect("caller awaits the task observation");
+
+        let outcomes = flow.value().task_outcome_mutations(await_site).map(|(outcome, _)| outcome).collect::<Vec<_>>();
+
+        assert!(outcomes.contains(&StorageTaskOutcome::Abnormal {
+            depth: 0,
+            kind: DependencyFailureKind::Panic,
+            row: None,
+        }), "panic rows share one group, imported={imported}: {outcomes:?}");
+
+        assert!(outcomes.iter().any(|outcome| matches!(outcome, StorageTaskOutcome::Abnormal {
+            depth: 0,
+            kind: DependencyFailureKind::Cancellation,
+            ..
+        })), "the cancellation group remains reachable, imported={imported}: {outcomes:?}");
+
+        assert!(!outcomes.iter().any(|outcome| matches!(outcome, StorageTaskOutcome::Completed { .. } | StorageTaskOutcome::Widened)),
+            "the noncompleting body publishes only the two abnormal kinds, imported={imported}: {outcomes:?}");
+    }
+}
+
+#[test]
+fn task_observation_keeps_the_selected_panic_row() {
+    let provider = super::matrix::provider("task-panic-rows", r#"
+        module api;
+        struct Cell { mut value: bool; }
+
+        async func stop(pos choose: bool, pos left: &mut Cell, pos right: &mut Cell)
+        {
+            if choose { left.value = false; panic("left"); }
+            right.value = false;
+            panic("right");
+        }
+    "#);
+
+    let source = r"
+        module app;
+        using api;
+
+        async func selected(pos choose: bool, pos left: &mut api.Cell, pos right: &mut api.Cell)
+        {
+            let task = api.stop(choose, left, right).start();
+            if choose { _ = await task.join(); }
+            else { _ = await task.join(); }
+        }
+
+        async func both(pos choose: bool, pos left: &mut api.Cell, pos right: &mut api.Cell)
+        {
+            let task = api.stop(choose, left, right).start();
+            _ = await task.join();
+        }
+    ";
+
+    for imported in [false, true] {
+        use bray_bound_tree::StorageTaskOutcome;
+
+        let consumer = if imported {
+            execution_consumer(&provider, &source.replace("using api;", "using example.package.api;")
+                .replace("api.", "example.package.api."))
+        } else {
+            crate::test_support::with_fixture_caller(&provider, source)
+        };
+
+        let panic_rows = |name| {
+            let key = crate::test_support::source_function_body_key(&consumer, name);
+            let unit = consumer.bound_unit(key.clone()).expect("task observer binds");
+            let flow = consumer.storage_flow(key.clone()).expect("task observer checks");
+            let lowered = consumer.lowered_unit(key).expect("task observer lowers");
+
+            assert!(lowered.value().is_some() && !lowered.diagnostics().has_errors(), "{lowered:#?}");
+
+            unit.value().tree().expressions().filter_map(|(expression, node)| {
+                let bray_bound_tree::BoundExpression::Await(_) = node else { return None; };
+
+                let mut rows = Vec::new();
+
+                for (outcome, _) in flow.value().task_outcome_mutations(expression.into()) {
+                    match outcome {
+                        StorageTaskOutcome::Abnormal { depth: 0, kind: bray_symbols::DependencyFailureKind::Panic, row } => {
+                            rows.push(row.expect("a reached panic retains its body row"));
+                        }
+                        StorageTaskOutcome::Completed { .. } => panic!("the panicking task has no normal output"),
+                        _ => {}
+                    }
+                }
+
+                Some(rows)
+            }).collect::<Vec<_>>()
+        };
+
+        let selected = panic_rows("selected");
+
+        let [left, right] = selected.as_slice() else { panic!("each guard arm awaits once: {selected:?}"); };
+
+        let ([left], [right]) = (left.as_slice(), right.as_slice()) else {
+            panic!("each guard selects one body panic: {selected:?}");
+        };
+
+        assert_ne!(left, right);
+
+        let mut expected = [*left, *right];
+
+        expected.sort_unstable();
+
+        assert_eq!(panic_rows("both"), [expected.to_vec()]);
+    }
+}
+
 super::matrix::cases! {
     formal_tuple_task_resumes_nested_carrier = 0,
     formal_array_task_resumes_nested_carrier = 1,

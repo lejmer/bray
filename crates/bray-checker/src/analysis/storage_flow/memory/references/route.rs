@@ -1,14 +1,25 @@
+use std::borrow::Cow;
+use std::collections::BTreeSet;
+
 use bray_bound_tree::{
-    StorageCapturedValue, StorageMutationTarget, StorageProjection, StorageReferencePath,
+    BorrowCapabilityId, StorageCapturedValue, StorageMutationTarget, StorageProjection, StorageReferencePath,
     StorageReferenceStep,
 };
 use bray_symbols::TypeId;
 
-use super::super::model::{AddressValue, State, Target};
+use super::super::model::{AddressValue, ReachedAccess, State, Target, ValueBinding};
 
 enum ReferenceRouteValue {
     Capture(StorageCapturedValue),
-    Locations(Vec<Target>),
+    Locations(Vec<Target>, Option<BorrowCapabilityId>),
+    Regions(Vec<Target>),
+}
+
+#[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
+enum ReferencePrecision {
+    Region,
+    TypedRegion,
+    Location,
 }
 
 impl ReferenceRouteValue {
@@ -16,13 +27,50 @@ impl ReferenceRouteValue {
         match self {
             Self::Capture(value) => Self::Capture(projections.iter().copied()
                 .fold(value, |value, projection| value.project(projection))),
-            Self::Locations(targets) => Self::Locations(targets.into_iter()
-                .map(|target| target.project(projections)).collect()),
+            Self::Locations(targets, loan) => Self::Locations(targets.into_iter()
+                .map(|target| target.project(projections)).collect(), loan),
+            regions @ Self::Regions(_) => regions,
         }
     }
 }
 
 impl State {
+    pub(in crate::analysis::storage_flow) fn follow_source_reference_reads(
+        &self,
+        values: &bray_symbols::SemanticValueStore,
+        source: super::Source,
+        path: &StorageReferencePath,
+    ) -> Option<Vec<super::Source>> {
+        let locations = match source {
+            super::Source::Captured(value) => return self.captured_reference_sources(values, &value, path),
+            super::Source::Value(location) => self.reference_locations(values, location, path, None)?,
+            super::Source::Borrow(capability) => {
+                let mut reached = Vec::new();
+
+                for target in self.borrow_targets(capability)? {
+                    reached.extend(self.reference_locations(values, target.clone(), path, Some(target))?);
+                }
+
+                reached
+            }
+        };
+
+        Some(locations.into_iter().map(super::Source::Value).collect())
+    }
+
+    pub(in crate::analysis::storage_flow) fn captured_reference_sources(
+        &self,
+        values: &bray_symbols::SemanticValueStore,
+        value: &StorageCapturedValue,
+        path: &StorageReferencePath,
+    ) -> Option<Vec<super::Source>> {
+        Some(match self.captured_route(values, value, path)? {
+            ReferenceRouteValue::Capture(value) => vec![super::Source::Captured(value)],
+            ReferenceRouteValue::Locations(locations, _) => locations.into_iter().map(super::Source::Value).collect(),
+            ReferenceRouteValue::Regions(..) => return None,
+        })
+    }
+
     pub(in crate::analysis::storage_flow) fn reference_locations(
         &self,
         values: &bray_symbols::SemanticValueStore,
@@ -30,8 +78,32 @@ impl State {
         path: &bray_bound_tree::StorageReferencePath,
         root_borrow: Option<Target>,
     ) -> Option<Vec<Target>> {
-        self.reference_locations_in(values, target, path, root_borrow,
-            |target| self.values.get(target).and_then(|value| value.address.as_ref()))
+        self.reference_locations_in(values, target, path, root_borrow, |target| self.values.get(target))
+    }
+
+    pub(in crate::analysis::storage_flow) fn reached_access(
+        &self,
+        values: &bray_symbols::SemanticValueStore,
+        target: Target,
+        path: &StorageReferencePath,
+        root_borrow: Option<(Target, BorrowCapabilityId)>,
+    ) -> Option<ReachedAccess> {
+        let start = ReferenceRouteValue::Locations(vec![target], None);
+        let root_borrow = root_borrow.map(|(target, loan)| (target, Some(loan)));
+
+        match self.follow_reference_route(values, start, path, root_borrow, |target| self.values.get(target))? {
+            ReferenceRouteValue::Locations(locations, loan) => Some(ReachedAccess {
+                address: AddressValue::from_targets(locations), loan,
+            }),
+            ReferenceRouteValue::Regions(regions) => {
+                let mut address = AddressValue::from_targets(regions);
+
+                address.bound();
+
+                Some(ReachedAccess { address, loan: None })
+            }
+            ReferenceRouteValue::Capture(_) => unreachable!("an actual storage route remains in memory"),
+        }
     }
 
     pub(in crate::analysis::storage_flow) fn staged_reference_locations(
@@ -46,33 +118,7 @@ impl State {
 
         self.reference_locations_in(values, start.clone(), path, None, |target| {
             staged.values.get(target).or_else(|| (!root.contains_storage(target)).then(|| self.values.get(target)).flatten())
-                .and_then(|value| value.address.as_ref())
         })
-    }
-
-    pub(in crate::analysis::storage_flow) fn captured_input_target(
-        &self,
-        invocation: bray_bound_tree::BoundExecutionSite,
-        values: &bray_symbols::SemanticValueStore,
-        root: &Target,
-        path: &bray_bound_tree::StorageReferencePath,
-    ) -> Option<Target> {
-        let captured = &self.pending.get(&invocation)?.inputs;
-
-        let lookup = |target: &Target| {
-            (if root.contains_storage(target) { captured.get(target) } else { self.values.get(target) }).and_then(|value| value.address.as_ref())
-        };
-
-        let locations = self.reference_locations_in(values, root.clone(), path, None, lookup)?;
-
-        let [location] = locations.as_slice() else {
-            return None;
-        };
-
-        let references = lookup(location)?;
-
-        references.is_exact().then(|| references.targets.first()
-            .expect("exact captured input has one referent").clone())
     }
 
     pub(in crate::analysis::storage_flow) fn captured_effect_targets(
@@ -82,15 +128,95 @@ impl State {
         path: &StorageReferencePath,
         indirect: bool,
     ) -> Option<Vec<StorageMutationTarget>> {
-        let lookup = |target: &Target| self.values.get(target).and_then(|value| value.reference());
-        let root = ReferenceRouteValue::Capture(value.clone());
+        self.mutation_route(self.captured_route(values, value, path)?, indirect)
+    }
 
-        match self.follow_reference_route(values, root, path, None, lookup)? {
+    /// The physical state resolves write destinations from the admitted capture.
+    pub(in crate::analysis::storage_flow) fn reached_write_resolver<'a>(
+        &'a self,
+        values: &'a bray_symbols::SemanticValueStore,
+    ) -> impl Fn(&StorageCapturedValue, &StorageReferencePath) -> Option<Vec<StorageMutationTarget>> + 'a {
+        move |value, path| self.captured_effect_targets(values, value, path, false)
+    }
+
+    pub(in crate::analysis::storage_flow) fn reference_effect_targets(
+        &self,
+        values: &bray_symbols::SemanticValueStore,
+        start: Target,
+        path: Option<&StorageReferencePath>,
+        indirect: bool,
+    ) -> Option<Vec<StorageMutationTarget>> {
+        let start = ReferenceRouteValue::Locations(vec![start], None);
+
+        let reached = if let Some(path) = path {
+            self.follow_reference_route(values, start, path, None, |target| self.values.get(target))?
+        } else {
+            start
+        };
+
+        self.mutation_route(reached, indirect)
+    }
+
+    pub(in crate::analysis::storage_flow) fn follow_effect_path(
+        &self,
+        values: &bray_symbols::SemanticValueStore,
+        targets: Vec<StorageMutationTarget>,
+        path: &StorageReferencePath,
+    ) -> Option<Vec<StorageMutationTarget>> {
+        if path.steps().is_empty() {
+            return Some(targets.into_iter().map(|target| target.project(path.projections())).collect());
+        }
+
+        let owning = path.steps().iter().all(|step| matches!(step, StorageReferenceStep::Backing { .. }));
+        let mut reached = Vec::new();
+
+        for target in targets {
+            if let Some(actual) = target.address.and_then(|address| self.reference_effect_targets(values, address, Some(path), false)) {
+                reached.extend(actual);
+            } else if owning {
+                // Owning storage bounds its backing even when activation cannot
+                // read the pointer. This footprint supplies no mutation operand.
+                reached.push(StorageMutationTarget::bounded(target.footprint.project(path.projections())));
+            } else {
+                return None;
+            }
+        }
+
+        Some(reached)
+    }
+
+    fn mutation_route(&self, reached: ReferenceRouteValue, indirect: bool) -> Option<Vec<StorageMutationTarget>> {
+        match reached {
             ReferenceRouteValue::Capture(value) if indirect => value.mutation_targets(),
             ReferenceRouteValue::Capture(_) => None,
-            ReferenceRouteValue::Locations(locations) => StorageMutationTarget::resolve_locations(
+            ReferenceRouteValue::Locations(locations, _) => StorageMutationTarget::resolve_locations(
                 locations, indirect, |location| self.values.get(&location)?.mutation_targets()),
+            ReferenceRouteValue::Regions(regions) if !indirect => {
+                Some(regions.into_iter().map(StorageMutationTarget::bounded).collect())
+            }
+            ReferenceRouteValue::Regions(..) => None,
         }
+    }
+
+    pub(in crate::analysis::storage_flow) fn captured_dependency_targets(
+        &self,
+        values: &bray_symbols::SemanticValueStore,
+        value: &StorageCapturedValue,
+        path: &StorageReferencePath,
+    ) -> Option<(Vec<Target>, Option<BorrowCapabilityId>)> {
+        match self.captured_route(values, value, path)? {
+            ReferenceRouteValue::Locations(targets, loan) => Some((targets, loan)),
+            ReferenceRouteValue::Capture(_) | ReferenceRouteValue::Regions(..) => None,
+        }
+    }
+
+    fn captured_route(
+        &self,
+        values: &bray_symbols::SemanticValueStore,
+        value: &StorageCapturedValue,
+        path: &StorageReferencePath,
+    ) -> Option<ReferenceRouteValue> {
+        self.follow_reference_route(values, ReferenceRouteValue::Capture(value.clone()), path, None, |target| self.values.get(target))
     }
 
     fn reference_locations_in<'a>(
@@ -99,17 +225,16 @@ impl State {
         target: Target,
         path: &StorageReferencePath,
         root_borrow: Option<Target>,
-        lookup: impl Fn(&Target) -> Option<&'a AddressValue>,
+        lookup: impl Fn(&Target) -> Option<&'a ValueBinding>,
     ) -> Option<Vec<Target>> {
-        let start = ReferenceRouteValue::Locations(vec![target]);
+        let start = ReferenceRouteValue::Locations(vec![target], None);
+        let root_borrow = root_borrow.map(|target| (target, None));
 
-        let ReferenceRouteValue::Locations(locations) =
-            self.follow_reference_route(values, start, path, root_borrow, lookup)?
-        else {
-            unreachable!("an actual storage route remains in memory");
-        };
-
-        Some(locations)
+        match self.follow_reference_route(values, start, path, root_borrow, lookup)? {
+            ReferenceRouteValue::Locations(locations, _) => Some(locations),
+            ReferenceRouteValue::Regions(..) => None,
+            ReferenceRouteValue::Capture(_) => unreachable!("an actual storage route remains in memory"),
+        }
     }
 
     fn follow_reference_route<'a>(
@@ -117,10 +242,11 @@ impl State {
         values: &bray_symbols::SemanticValueStore,
         mut reached: ReferenceRouteValue,
         path: &StorageReferencePath,
-        mut root_borrow: Option<Target>,
-        lookup: impl Fn(&Target) -> Option<&'a AddressValue>,
+        mut root_borrow: Option<(Target, Option<BorrowCapabilityId>)>,
+        lookup: impl Fn(&Target) -> Option<&'a ValueBinding>,
     ) -> Option<ReferenceRouteValue> {
         let mut selected = 0;
+        let captured = matches!(&reached, ReferenceRouteValue::Capture(_));
 
         for (step, operation) in path.steps().iter().copied().enumerate() {
             let index = operation.index();
@@ -130,49 +256,134 @@ impl State {
             }
 
             let (pointer, consumes) = match operation {
-                StorageReferenceStep::Read { kind, .. } =>
-                    (None, kind == bray_symbols::DependencyReferenceKind::Address),
+                StorageReferenceStep::ReadBorrow { .. } => (None, false),
+                StorageReferenceStep::ReadAddress { .. } => (None, true),
                 StorageReferenceStep::Backing { pointer: Some(pointer), .. } =>
                     (Some(StorageProjection::ProductField(pointer)), true),
                 StorageReferenceStep::Backing { pointer: None, .. } => {
-                    if matches!(reached, ReferenceRouteValue::Capture(_)) {
-                        return None;
-                    }
+                    reached = match reached {
+                        ReferenceRouteValue::Capture(value) => {
+                            let binding = value.binding()?;
 
-                    reached = reached.project(&[StorageProjection::OwnedTarget]);
+                            if binding.is_no_payload() {
+                                return Some(ReferenceRouteValue::Locations(Vec::new(), None));
+                            }
+
+                            let backing = binding.owned_backing()?;
+
+                            if let Some(actual) = backing.actual_targets() {
+                                ReferenceRouteValue::Locations(actual, None)
+                            } else { ReferenceRouteValue::Regions(backing.regions()?) }
+                        }
+                        ReferenceRouteValue::Locations(owners, _) => {
+                            let mut targets = std::collections::BTreeSet::new();
+                            let mut actual = true;
+
+                            for owner in owners {
+                                let binding = lookup(&owner)?;
+
+                                if binding.is_no_payload() {
+                                    continue;
+                                }
+
+                                let backing = binding.owned_backing()?;
+
+                                if let Some(reached) = backing.actual_targets() {
+                                    targets.extend(reached);
+                                } else {
+                                    actual = false;
+                                    targets.extend(backing.regions()?);
+                                }
+                            }
+
+                            let targets = targets.into_iter().collect();
+
+                            if actual { ReferenceRouteValue::Locations(targets, None) }
+                            else { ReferenceRouteValue::Regions(targets) }
+                        }
+                        ReferenceRouteValue::Regions(..) => return None,
+                    };
+
                     selected = index + 1;
                     continue;
                 }
             };
 
-            if let Some(root) = root_borrow.take().filter(|_| step == 0 && index == 0 && !consumes) {
-                reached = ReferenceRouteValue::Locations(vec![root]);
+            if let Some((root, loan)) = root_borrow.take().filter(|_| step == 0 && index == 0 && !consumes) {
+                reached = ReferenceRouteValue::Locations(vec![root], loan);
             } else {
                 if let Some(pointer) = pointer {
                     reached = reached.project(&[pointer]);
                 }
 
-                let targets = match reached {
+                let borrow_read = matches!(operation, StorageReferenceStep::ReadBorrow { .. });
+
+                let (targets, loan, precision) = match reached {
                     ReferenceRouteValue::Capture(value) => {
-                        let reference = value.binding()?.reference()?;
+                        let binding = value.binding()?;
 
-                        self.reference_step_targets(values, operation, reference)?.iter().cloned().collect()
-                    }
-                    ReferenceRouteValue::Locations(locations) => {
-                        let mut targets = std::collections::BTreeSet::new();
-
-                        for location in locations {
-                            let reference = lookup(&location)?;
-
-                            targets.extend(self.reference_step_targets(values, operation, reference)?.iter().cloned());
+                        if binding.is_no_payload() {
+                            return Some(ReferenceRouteValue::Locations(Vec::new(), None));
                         }
 
-                        targets.into_iter().collect()
+                        let (targets, precision) = self.reference_step_targets(values, operation, binding.reference()?)?;
+
+                        (targets.iter().cloned().collect::<Vec<_>>(), if borrow_read { binding.borrow_capability() } else { None }, precision)
                     }
+                    ReferenceRouteValue::Locations(locations, _) => {
+                        let mut targets = BTreeSet::new();
+                        let mut common_loan = None;
+                        let mut precision = ReferencePrecision::Location;
+
+                        for location in locations {
+                            let binding = lookup(&location)?;
+
+                            if binding.is_no_payload() {
+                                continue;
+                            }
+
+                            let reference = if captured { binding.reference() } else { binding.address.as_ref() }?;
+                            let loan = binding.borrow_capability();
+
+                            let (reached, reached_precision) = self.reference_step_targets(values, operation, reference)?;
+
+                            targets.extend(reached.iter().cloned());
+                            precision = precision.min(reached_precision);
+
+                            if borrow_read {
+                                common_loan = Some(match common_loan {
+                                    None => loan,
+                                    Some(previous) if previous == loan => previous,
+                                    Some(_) => None,
+                                });
+                            }
+                        }
+
+                        (targets.into_iter().collect(), common_loan.flatten(), precision)
+                    }
+                    ReferenceRouteValue::Regions(..) => return None,
                 };
 
                 // A captured descriptor is read once. Further steps read activation memory.
-                reached = ReferenceRouteValue::Locations(targets);
+                if precision != ReferencePrecision::Location {
+                    if step + 1 != path.steps().len() {
+                        return None;
+                    }
+
+                    // An established layout supports inline projection of the bound.
+                    // Reading another stored descriptor still requires a reached location.
+                    let suffix = &path.projections()[index + usize::from(consumes)..];
+
+                    let bounds = if precision == ReferencePrecision::TypedRegion && !suffix.is_empty() {
+                        targets.into_iter().map(|target| target.project(suffix)).collect()
+                    } else {
+                        targets
+                    };
+
+                    return Some(ReferenceRouteValue::Regions(bounds));
+                }
+
+                reached = ReferenceRouteValue::Locations(targets, loan);
             }
 
             selected = index + usize::from(consumes);
@@ -188,12 +399,33 @@ impl State {
         values: &bray_symbols::SemanticValueStore,
         operation: StorageReferenceStep,
         reference: &'a AddressValue,
-    ) -> Option<&'a std::collections::BTreeSet<Target>> {
+    ) -> Option<(Cow<'a, BTreeSet<Target>>, ReferencePrecision)> {
         match operation {
-            StorageReferenceStep::Read { target, .. } => self.route_pointer_targets(values, reference, target),
+            StorageReferenceStep::ReadBorrow { target, .. } | StorageReferenceStep::ReadAddress { target, .. } => {
+                if let Some(targets) = self.route_pointer_targets(values, reference, target) {
+                    let precision = if reference.has_values() {
+                        ReferencePrecision::Location
+                    } else {
+                        ReferencePrecision::TypedRegion
+                    };
+
+                    Some((Cow::Borrowed(targets), precision))
+                } else {
+                    Some((Cow::Owned(reference.regions()?.into_iter().collect()), ReferencePrecision::Region))
+                }
+            }
             StorageReferenceStep::Backing { pointer: Some(_), .. } => {
-                // Backing selection follows the actual allocation descriptor without loading its elements.
-                reference.has_values().then_some(&reference.targets)
+                if reference.is_displaced() {
+                    Some((Cow::Owned(reference.regions()?.into_iter().collect()), ReferencePrecision::Region))
+                } else {
+                    let precision = if reference.has_values() {
+                        ReferencePrecision::Location
+                    } else {
+                        ReferencePrecision::Region
+                    };
+
+                    (!reference.is_unknown()).then_some((Cow::Borrowed(&reference.targets), precision))
+                }
             }
             StorageReferenceStep::Backing { pointer: None, .. } =>
                 unreachable!("structural backing has no descriptor read"),

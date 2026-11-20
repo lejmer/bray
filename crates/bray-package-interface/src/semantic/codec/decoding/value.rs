@@ -804,7 +804,10 @@ mod tests {
                 .into(),
                 kind: DependencyMutationKind::Retire,
                 access_type: None,
-            },
+            }.with_retirement_discharges([bray_symbols::StorageDischarge {
+                projections: [].into(),
+                ty: crate::InterfaceTypeId::new(0),
+            }].into()),
         ];
 
         semantics.dependency_contracts = vec![
@@ -917,10 +920,18 @@ mod tests {
             DependencyStorageEffect::Direct { kind: DependencyMutationKind::Replace(ty), .. }
                 if *ty == imported.types()[0])));
 
-        assert!(
-            template.effects().iter().any(|effect| matches!(effect, DependencyStorageEffect::Indirect { reads, projections, kind: DependencyMutationKind::Retire, .. }
-            if reads.as_ref() == [0, 1, 1] && projections.as_ref() == [bray_symbols::DependencyProjection::Element(imported.constant_terms()[0])]))
-        );
+        let (retirement, discharged) = template.effects().iter()
+            .find(|effect| matches!(effect, DependencyStorageEffect::OrderedRetirement { .. }))
+            .expect("the retirement must keep its preceding duty transfer")
+            .retirement_parts();
+
+        assert!(matches!(retirement, DependencyStorageEffect::Indirect { reads, projections, kind: DependencyMutationKind::Retire, .. }
+            if reads.as_ref() == [0, 1, 1] && projections.as_ref() == [bray_symbols::DependencyProjection::Element(imported.constant_terms()[0])]));
+
+        assert_eq!(discharged, &[bray_symbols::StorageDischarge {
+            projections: [].into(),
+            ty: imported.types()[0],
+        }]);
     }
 
     #[test]

@@ -1,4 +1,5 @@
 use bray_bound_tree::BoundUnitId;
+pub(crate) use bray_bound_tree::{AnalysisEdgeId, AnalysisOperationId};
 
 macro_rules! define_analysis_ids {
     ($($name:ident),+ $(,)?) => {
@@ -34,7 +35,5 @@ macro_rules! define_analysis_ids {
 
 define_analysis_ids! {
     AnalysisBlockId,
-    AnalysisEdgeId,
-    AnalysisOperationId,
     ProgramPointId,
 }

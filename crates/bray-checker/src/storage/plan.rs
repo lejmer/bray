@@ -271,7 +271,7 @@ where
             );
         };
 
-        let plan = builder.finish();
+        let plan = self.resolve_reference_routes(builder.finish())?;
 
         let (copyable, diagnostics) =
             super::copyability::storage_copyable_types(self.request, &plan)?;
@@ -279,6 +279,30 @@ where
         self.diagnostics.add_range(diagnostics);
 
         Ok(plan.with_copyable_types(copyable))
+    }
+
+    fn resolve_reference_routes(
+        &self,
+        plan: StoragePlan,
+    ) -> Result<StoragePlan, PlanError<C::UpstreamError>> {
+        let mut routes = Vec::new();
+
+        for (access, reached) in plan.access_entries() {
+            let Some(path) = plan.logical_path(access) else { continue; };
+
+            let route = if let Some(ty) = plan.identity_type(path.root) {
+                super::reference_path(self.request, ty, path.projections.clone(), Some(reached.reached_type()))?
+            } else {
+                // A direct result slot has an identity before its value type is installed.
+                (path.projections.is_empty() && matches!(reached.root(), StorageAccessRoot::Storage(_))).then(|| {
+                    (reached.reached_type(), bray_bound_tree::StorageReferencePath::new(path.projections.clone(), std::sync::Arc::from([])))
+                })
+            };
+
+            if let Some(route) = route { routes.push((access, route)); }
+        }
+
+        Ok(plan.with_reference_routes(routes))
     }
 
     fn install_entry_storage(&mut self) -> Result<(), PlanError<C::UpstreamError>> {

@@ -1713,7 +1713,7 @@ fn staged_reborrows_follow_source_and_imported_result_contracts() {
     ] {
         let declaration = format!(
             r#"
-            trusted module api;
+            module api;
 
             using core.memory;
 

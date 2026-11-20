@@ -1,10 +1,11 @@
 use super::model::{ExecutionFlow, ExecutionFlowDomain};
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{BoundExpressionId, CheckedExpressionSemantics};
 
 use crate::execution_guarantees::ExecutionCondition;
-use crate::{CheckerOutcome, CheckerRequestContext, CheckerUnitView};
+use crate::{CheckerRequestContext, CheckerUnitView};
 
 use super::super::super::fixed_point::{FixedPointOutcome, solve_fixed_point};
 
@@ -21,52 +22,51 @@ pub(in crate::analysis::guarantee) fn analyze_execution_flow<
     excluded_edges: BTreeSet<crate::analysis::id::AnalysisEdgeId>,
     request: CheckerUnitView<'view, C>,
     semantics: &'a CheckedExpressionSemantics,
-    assumptions: &'a [ExecutionCondition],
+    assumptions: &[ExecutionCondition],
     storage: &'a bray_bound_tree::StoragePlan,
     memory: &'a bray_bound_tree::CheckedMemoryOperations,
     checked_body: &'a bray_bound_tree::CheckedBodySemantics,
-    refinements: &'a std::collections::BTreeMap<
-        bray_bound_tree::BoundExecutionSite,
-        bray_bound_tree::StorageInvalidation,
-    >,
     contracts: &'a BTreeMap<BoundExpressionId, Vec<crate::ExecutionCompletionContract>>,
     disposal: &'a super::super::cleanup::Cleanup<'a>,
     dependencies: &'a bray_bound_tree::CheckedDependencyContracts,
-) -> CheckerOutcome<ExecutionFlow<'a, 'view, C>, C::UpstreamError> {
+) -> Option<ExecutionFlow<'a, 'view, C>> {
     let mut domain = prepare_execution_flow(
         prepared,
         request,
         semantics,
-        assumptions,
+        Cow::Owned(assumptions.to_vec()),
         storage,
         memory,
-        refinements,
         contracts,
         disposal,
         dependencies,
+        checked_body.liveness(),
     );
 
     domain.excluded_edges = excluded_edges;
     domain.result_edges = crate::analysis::outcomes::result_production_edges(&prepared.graph, storage);
 
-    domain.failure_sites = prepared.graph.edges().iter()
-        .filter(|edge| !domain.excluded_edges.contains(&edge.id()))
-        .filter_map(|edge| match edge.refinement() {
-            Some(crate::analysis::model::AnalysisRefinement::InvocationFailure(site, _)) => Some(site),
-            _ => None,
-        }).collect();
-
     domain.checked_body = Some(checked_body);
 
     let states = match solve_fixed_point(&prepared.graph, &domain, &request) {
         FixedPointOutcome::Complete(states) => states,
-        FixedPointOutcome::Cancelled => return CheckerOutcome::Cancelled,
+        FixedPointOutcome::Cancelled => return None,
         FixedPointOutcome::ConvergenceInvariantViolated => {
             panic!("execution condition flow exceeded its finite convergence bound");
         }
     };
 
-    CheckerOutcome::without_diagnostics(ExecutionFlow { domain, states })
+    Some(ExecutionFlow { domain, states })
+}
+
+impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
+    pub(in crate::analysis::guarantee) fn matches_inputs(
+        &self,
+        assumptions: &[ExecutionCondition],
+        excluded: &BTreeSet<crate::analysis::id::AnalysisEdgeId>,
+    ) -> bool {
+        self.domain.assumptions.as_ref() == assumptions && &self.domain.excluded_edges == excluded
+    }
 }
 
 #[expect(
@@ -77,16 +77,13 @@ pub(crate) fn prepare_execution_flow<'a, 'view, C: CheckerRequestContext + ?Size
     prepared: &'a crate::PreparedBodyAnalysis,
     request: CheckerUnitView<'view, C>,
     semantics: &'a CheckedExpressionSemantics,
-    assumptions: &'a [ExecutionCondition],
+    assumptions: Cow<'a, [ExecutionCondition]>,
     storage: &'a bray_bound_tree::StoragePlan,
     memory: &'a bray_bound_tree::CheckedMemoryOperations,
-    refinements: &'a std::collections::BTreeMap<
-        bray_bound_tree::BoundExecutionSite,
-        bray_bound_tree::StorageInvalidation,
-    >,
     contracts: &'a BTreeMap<BoundExpressionId, Vec<crate::ExecutionCompletionContract>>,
     disposal: &'a super::super::cleanup::Cleanup<'a>,
     dependencies: &'a bray_bound_tree::CheckedDependencyContracts,
+    liveness: &'a bray_bound_tree::Liveness,
 ) -> ExecutionFlowDomain<'a, 'view, C> {
     const POINTER_PREDICATES: &[(&str, bool, &[usize])] = &[
         ("ValidRead", true, &[0]),
@@ -155,10 +152,22 @@ pub(crate) fn prepare_execution_flow<'a, 'view, C: CheckerRequestContext + ?Size
 
     content_predicates.extend(owned_allocation);
 
+    let mut retained_storage = BTreeSet::new();
+
+    for call in dependencies.calls().values() {
+        collect_retained_storage(call.result().requirements(), &mut retained_storage);
+
+        for report in call.report_contracts() {
+            collect_retained_storage(report.requirements(), &mut retained_storage);
+        }
+    }
+
     ExecutionFlowDomain {
         // Exact immutable query results survive cleanup-feasibility rounds within this body.
         proofs: Default::default(),
         dependencies,
+        liveness,
+        retained_storage,
         sequence_length: request
             .context()
             .available_compiler_known_symbols()
@@ -180,7 +189,7 @@ pub(crate) fn prepare_execution_flow<'a, 'view, C: CheckerRequestContext + ?Size
         graph: &prepared.graph,
         excluded_edges: BTreeSet::new(),
         result_edges: BTreeSet::new(),
-        failure_sites: BTreeSet::new(),
+        invocation_failures: &prepared.invocation_failures,
         request,
         semantics,
         assumptions,
@@ -190,12 +199,24 @@ pub(crate) fn prepare_execution_flow<'a, 'view, C: CheckerRequestContext + ?Size
         storage,
         contracts,
         disposal,
-        refinements,
         memory,
         checked_body: None,
         pointer_predicates,
         content_predicates,
         owned_allocation,
         initialized_range,
+    }
+}
+
+fn collect_retained_storage(
+    requirements: &[bray_bound_tree::BoundDependencyRequirement],
+    output: &mut BTreeSet<bray_bound_tree::StorageAccessId>,
+) {
+    for requirement in requirements {
+        if let Some(access) = requirement.retained_storage_access() {
+            output.insert(access);
+        } else if let bray_bound_tree::BoundDependencyRequirement::Guarded(guard) = requirement {
+            collect_retained_storage(guard.requirements(), output);
+        }
     }
 }

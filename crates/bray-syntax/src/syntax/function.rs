@@ -328,7 +328,7 @@ mod tests {
         callable_body_block_expression, directive_argument, snapshot as test_snapshot, token,
     };
     use crate::{
-        DirectiveArgumentListSyntax, FunctionDeclarationSyntax, FunctionDirectivesSyntax,
+        DirectiveArgumentListSyntax, EntrypointDirectiveSyntax, FunctionDeclarationSyntax, FunctionDirectivesSyntax,
         FunctionModifiersSyntax, LinkDirectiveSyntax, ParameterListSyntax, SyntaxKind, SyntaxText,
         SyntaxTrivia,
     };
@@ -374,7 +374,7 @@ mod tests {
 
     #[test]
     fn function_directives_store_directives_in_source_order() {
-        let snapshot = test_snapshot("syntax-function-test", "@link(\"m\")");
+        let snapshot = test_snapshot("syntax-function-test", "@link(\"m\")@entrypoint");
 
         let mut directives = FunctionDirectivesSyntax::builder(snapshot.clone(), TextSize::ZERO);
         let mut link = LinkDirectiveSyntax::builder(snapshot.clone(), TextSize::ZERO);
@@ -397,12 +397,27 @@ mod tests {
         link.push_name_token(token(SyntaxKind::IdentifierToken, 1, 5));
         link.push_directive_argument_list(arguments.build());
 
+        let mut entrypoint = EntrypointDirectiveSyntax::builder(snapshot, TextSize::new(10));
+
+        entrypoint.push_directive_marker_token(token(SyntaxKind::AtToken, 10, 11));
+        entrypoint.push_name_token(token(SyntaxKind::IdentifierToken, 11, 21));
+
         directives.push_link_directive(link.build());
+        directives.push_entrypoint_directive(entrypoint.build());
 
         let directives = directives.build();
 
-        assert_eq!(directives.full_text(), "@link(\"m\")");
-        assert_eq!(directives.link_directives().count(), 1);
+        let kinds = directives.node.children().iter().map(|child| {
+            let crate::green::GreenElement::Node(node) = child else {
+                panic!("function directive collection contains only directive nodes");
+            };
+
+            node.kind()
+        }).collect::<Vec<_>>();
+
+        assert_eq!(kinds, [SyntaxKind::LinkDirective, SyntaxKind::EntrypointDirective]);
+        assert_eq!(directives.link_directives().map(|directive| directive.full_text()).collect::<Vec<_>>(), ["@link(\"m\")"]);
+        assert_eq!(directives.entrypoint_directives().map(|directive| directive.full_text()).collect::<Vec<_>>(), ["@entrypoint"]);
         assert_eq!(directives.skipped_syntax().count(), 0);
     }
 

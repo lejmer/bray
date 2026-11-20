@@ -80,7 +80,7 @@ pub(super) fn decode_tag<T: WireTag>(value: u32) -> Result<T, InterfaceValidatio
     ))
 }
 
-pub(super) fn decode_bool(
+pub(in crate::semantic::codec) fn decode_bool(
     reader: &mut WireReader<'_>,
     field: crate::InterfaceValidationField,
 ) -> Result<bool, InterfaceValidationError> {

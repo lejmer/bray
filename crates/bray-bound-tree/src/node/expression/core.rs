@@ -96,6 +96,12 @@ impl BoundExpression {
                 | BoundStructuredExpressionKind::BooleanAnyFold))
     }
 
+    /// Whether this expression builds an owned prefix before publishing its result.
+    pub fn accumulates_generator_result(&self) -> bool {
+        matches!(self, Self::Structured(expression) if matches!(expression.kind(),
+            BoundStructuredExpressionKind::ArrayGenerator | BoundStructuredExpressionKind::GeneralGenerator))
+    }
+
     /// Returns this expression's stable machine-readable category name.
     pub const fn kind_name(&self) -> &'static str {
         match self {

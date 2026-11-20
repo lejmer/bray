@@ -440,7 +440,12 @@ fn completion_observes_the_evaluated_borrow_after_its_source_slot_changes() {
         (
             "redirect(holder.slot, &mut holder);",
             "first",
-            Some(DiagnosticKind::CheckingConflictingBorrow),
+            None,
+        ),
+        (
+            "redirect(holder.slot, &mut holder);",
+            "second",
+            Some(DiagnosticKind::CheckingTrustedObligationNotProven),
         ),
         (
             "let selected: &Owner = holder.slot; redirect(selected, &mut holder);",

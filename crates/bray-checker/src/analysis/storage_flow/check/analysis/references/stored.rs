@@ -1,44 +1,11 @@
 use super::super::core::StorageFlowCollector;
 use crate::CheckerRequestContext;
-use crate::analysis::storage_flow::memory::{Source, State, Target};
+use crate::analysis::storage_flow::memory::Target;
 use crate::analysis::storage_flow::model::StorageFlowState;
 use bray_bound_tree::BoundExecutionSite;
-use bray_symbols::{DependencyStoredValue, DependencyStoredValuePath, DependencySubjectRoot, TypeId};
+use bray_symbols::DependencySubjectRoot;
 
 impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
-    pub(in crate::analysis::storage_flow::check::analysis) fn prepare_stored_values(
-        &self,
-        state: &mut StorageFlowState,
-        occurrence: BoundExecutionSite,
-        contracts: &bray_bound_tree::BoundCallDependencyContracts,
-        stored_values: &[DependencyStoredValue],
-    ) {
-        let transfers = self.stored_transfers(
-            stored_values,
-            |endpoint, output| {
-                let subject = endpoint.subject();
-
-                let (ty, path) = contracts.storage().stored_value_path(endpoint)?;
-
-                let sources = if !output && endpoint.dereferences() == 0
-                    && !path.projections().contains(&bray_bound_tree::StorageProjection::OwnedTarget) {
-
-                    self.invocation_sources(state, occurrence, subject)?
-                } else {
-                    self.invocation_stored_locations(state, occurrence, subject, path, output)?
-                        .into_iter().map(Source::Value).collect()
-                };
-
-                Some((ty, sources))
-            },
-            |endpoint| self.invocation_stored_root(occurrence, endpoint.subject().subject_root()),
-        );
-
-        for (destination, sources, complete) in transfers {
-            state.memory.stage_whole_sources(occurrence, destination, sources, complete, false);
-        }
-    }
-
     pub(in crate::analysis::storage_flow::check::analysis) fn invocation_stored_locations(
         &self,
         state: &StorageFlowState,
@@ -70,87 +37,5 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             self.invocation_place(occurrence, root).map(Target::storage)
                 .or_else(|| self.static_location(&bray_symbols::DependencySubject::root(root)))
         }
-    }
-
-    pub(in crate::analysis::storage_flow::check::analysis) fn prepare_lifecycle_stored_values(
-        &self,
-        memory: &mut State,
-        occurrence: BoundExecutionSite,
-        storage: &bray_bound_tree::BoundCallStorage,
-        receiver: &Target,
-        stored: &[DependencyStoredValue],
-    ) {
-        let transfers = self.stored_transfers(
-            stored,
-            |endpoint, _| {
-                let (ty, path) = storage.stored_value_path(endpoint)?;
-
-                let locations = self.cleanup_subject_locations(memory, Some(receiver), endpoint.subject(), Some(path))?;
-
-                Some((ty, locations.into_iter().map(Source::Value).collect()))
-            },
-            |endpoint| {
-                let root = endpoint.subject().subject_root();
-
-                if root == DependencySubjectRoot::Receiver {
-                    Some(receiver.clone())
-                } else {
-                    self.static_location(&bray_symbols::DependencySubject::root(root))
-                }
-            },
-        );
-
-        for (destination, sources, complete) in transfers {
-            memory.stage_whole_sources(occurrence, destination, sources, complete, false);
-        }
-    }
-
-    fn stored_transfers(
-        &self,
-        stored: &[DependencyStoredValue],
-        resolve: impl Fn(&DependencyStoredValuePath, bool) -> Option<(TypeId, Vec<Source>)>,
-        containing: impl Fn(&DependencyStoredValuePath) -> Option<Target>,
-    ) -> Vec<(Target, Vec<Source>, bool)> {
-        let mut transfers = Vec::new();
-
-        for value in stored {
-            let Some((ty, destinations)) = resolve(value.destination(), true) else {
-                if let Some(root) = containing(value.destination()) {
-                    transfers.push((root, Vec::new(), false));
-                }
-
-                continue;
-            };
-
-            if self.input.footprint.complete_reference_types.get(&ty) == Some(&true) {
-                continue;
-            }
-
-            let mut sources = Vec::new();
-            let mut complete = value.is_complete() && destinations.len() == 1;
-
-            for source in value.sources() {
-                match resolve(source, false) {
-                    Some((ty, resolved)) => {
-                        if self.input.footprint.complete_reference_types.get(&ty) != Some(&true) {
-                            complete &= !resolved.is_empty();
-                            sources.extend(resolved);
-                        }
-                    }
-                    None => complete = false,
-                }
-            }
-
-            for destination in destinations {
-                let Source::Value(destination) = destination else {
-                    panic!("stored output endpoint must resolve to a value location");
-                };
-
-                // Alternative outputs share captured source identities, never mutable value state.
-                transfers.push((destination, sources.clone(), complete));
-            }
-        }
-
-        transfers
     }
 }

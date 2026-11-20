@@ -43,14 +43,48 @@ impl RetainedSnapshots {
     }
 
     pub(crate) fn retains_owner(&self, value: &ExecutionCondition) -> bool {
+        self.retains_identity(value, false)
+    }
+
+    /// Actual frames held in the retained owning tree.
+    pub(crate) fn owned_deferred_frames(&self) -> impl Iterator<Item = &std::sync::Arc<super::super::ExecutionDeferredValue>> {
+        self.roots.iter().any(ExecutionCondition::contains_deferred).then(|| self.index()).into_iter()
+            .flat_map(|index| index.nodes.iter())
+            .filter_map(|(value, reached)| match value.kind() {
+                crate::ExecutionConditionKind::DeferredValue { frame, .. } if !reached => Some(frame),
+                _ => None,
+            })
+    }
+
+    /// A live reference can keep a carrier observable when checked effects preserve its data.
+    pub(crate) fn retains_witness_carrier(&self, value: &ExecutionCondition) -> bool {
+        self.retains_identity(value, true)
+    }
+
+    fn retains_identity(&self, value: &ExecutionCondition, observe_referents: bool) -> bool {
         if self.roots.is_empty() { return false; }
 
-        let Some((role, owner)) = value.ownership_identity() else { return false; };
+        let Some(identity) = value.ownership_identity() else { return false; };
+        let index = self.index();
+        let memo = if observe_referents { &index.witness_carriers } else { &index.owned };
 
-        cached_condition(&self.index().owned, value, || {
-            self.matching(value, false, |selected| {
-                !selected.is_unknown() && selected.ownership_identity() == Some((role, owner))
+        cached_condition(memo, value, || {
+            self.matching(value, observe_referents, |selected| {
+                !selected.is_unknown() && selected.ownership_identity() == Some(identity)
             })
+        })
+    }
+
+    /// Checks the actual retained tree for an unchanged snapshot without following loans.
+    pub(crate) fn retains_owned_snapshot(&self, value: &ExecutionCondition) -> bool {
+        let (borrowed, owner) = value.owner_match_key();
+
+        let index = self.index();
+
+        index.owners.get(&(borrowed, owner.clone())).into_iter().flatten().any(|id| {
+            let (snapshot, reached) = &index.nodes[*id];
+
+            !reached && snapshot == value
         })
     }
 
@@ -156,6 +190,7 @@ impl RetainedSnapshots {
 #[derive(Default)]
 struct SnapshotIndex {
     owned: ConditionMemo,
+    witness_carriers: ConditionMemo,
     preserved: ConditionMemo,
     nodes: Vec<(ExecutionCondition, bool)>,
     owners: BTreeMap<(bool, ExecutionCondition), Vec<usize>>,

@@ -14,18 +14,9 @@ impl DeferredValue {
     pub(super) fn join_values(
         &mut self,
         substitution: &ExecutionSubstitution<'_>,
-        current: &super::current::CurrentValues,
-        context: Option<&Selection>,
+        current_fact: &impl Fn(&ExecutionCondition) -> bool,
+        context: &Selection,
     ) {
-        let current_fact = |condition: &ExecutionCondition| {
-            !condition.observations().any(|observed| matches!(observed.kind(), crate::ExecutionConditionKind::ScalarValue(_))
-                && observed.selector_place().is_some_and(|place| current.live_value(&place)
-                    .is_none_or(|value| value.copied_value() != observed)))
-        };
-
-        let context = context.map(|facts| facts.iter().filter(|(condition, _)| current_fact(condition))
-            .cloned().collect::<Selection>());
-
         for guard in self.unknown.iter_mut().map(|candidate| &mut candidate.selection).chain(
             self.producers
                 .values_mut()
@@ -33,9 +24,7 @@ impl DeferredValue {
         ) {
             guard.retain(|(condition, _)| current_fact(condition));
 
-            if let Some(context) = &context {
-                guard.extend(selection(context));
-            }
+            guard.extend(context.iter().cloned());
 
             if !substitution.has_changes() {
                 continue;
@@ -55,19 +44,14 @@ impl DeferredValue {
         }
 
         for candidate in self.producers.values_mut() {
-            let captured = context.as_ref().map(|context| candidate.entry.captured_facts(context)).unwrap_or_default();
+            let stale = candidate.entry.assumptions.iter().chain(&candidate.entry.trusted_assumptions)
+                .any(|(condition, _)| !current_fact(condition));
 
-            let stale = candidate.entry.copy_sources.values().any(|source| !current_fact(source))
-                || candidate.entry.assumptions.iter().chain(&candidate.entry.trusted_assumptions)
-                    .any(|(condition, _)| !current_fact(condition));
-
-            if stale || !captured.is_subset(&candidate.entry.assumptions) {
+            if stale {
                 let entry = Arc::make_mut(&mut candidate.entry);
 
-                entry.copy_sources.retain(|_, source| current_fact(source));
                 entry.assumptions.retain(|(condition, _)| current_fact(condition));
                 entry.trusted_assumptions.retain(|(condition, _)| current_fact(condition));
-                entry.assumptions.extend(captured);
             }
 
             if let Some(entry) = candidate.entry.joined_values(substitution) {
@@ -89,7 +73,7 @@ mod tests {
     use std::sync::Arc;
 
     fn carried(state: &ExecutionState) -> &DeferredValue {
-        state.current.values().find_map(|value| value.deferred_value().map(Arc::as_ref))
+        state.current.iter().find_map(|(_, value)| value.deferred_value().map(Arc::as_ref))
             .expect("test state retains its actual frame value")
     }
 
@@ -101,7 +85,8 @@ mod tests {
 
         let owner = ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expressions[0]));
         let place = ExecutionPlace::argument(SymbolOrdinal::new(0));
-        let source = ExecutionCondition::new(crate::ExecutionConditionKind::ScalarValue(Arc::new(ExecutionCondition::new(crate::ExecutionConditionKind::Joined(BoundUnitId::new(92), 6, place.clone())))));
+        let join = crate::ExecutionJoinSite::Block(BoundUnitId::new(92), 6);
+        let source = ExecutionCondition::opaque_scalar(ExecutionCondition::new(crate::ExecutionConditionKind::Joined(join, place.clone())));
 
         let captured = ExecutionCondition::opaque_scalar(ExecutionCondition::new(
             crate::ExecutionConditionKind::Expression(expressions[1])));
@@ -116,7 +101,9 @@ mod tests {
                 entry: Arc::new(ExecutionCallEvidence {
                     outputs: Default::default(),
                     arguments: [(place.clone(), captured.clone())].into(),
-                    copy_sources: [(place.clone(), source.clone())].into(), pending_execution: true, ..Default::default()
+                    assumptions: [(captured.clone(), true), (source.clone(), true)].into(),
+                    pending_execution: true,
+                    ..Default::default()
                 }), completed: None, reports: Default::default(), selection: Default::default(),
             })].into(),
             unknown: Some(DeferredInvocation { callee: None, transition: None, entry: (), completed: None, reports: Default::default(), selection: [(source.clone(), true)].into() }),
@@ -135,7 +122,6 @@ mod tests {
         let unchanged = &carried(&state).producers[&expressions[0].into()];
 
         assert!(!unchanged.selection.contains(&(source.clone(), true)), "identity joins still prune stale selectors");
-        assert!(unchanged.entry.copy_sources.is_empty(), "identity joins still revoke stale copy origins");
 
         let target = ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expressions[1]));
 
@@ -146,7 +132,6 @@ mod tests {
         assert!(!moved.selection.contains(&(source.clone(), true)));
         assert!(!moved.entry.assumptions.contains(&(source, true)));
         assert!(carried(&state).unknown.as_ref().expect("opaque predecessor remains possible").selection.is_empty());
-        assert!(moved.entry.copy_sources.is_empty());
         assert!(moved.entry.assumptions.contains(&(captured, true)));
     }
 
@@ -159,7 +144,7 @@ mod tests {
             DependencySubject::root(DependencySubjectRoot::Parameter(SymbolOrdinal::new(ordinal))),
             DependencyRequirementKind::ValueDependencies);
 
-        let captured = |ordinal| Arc::new(crate::dependency::ReportDependencies {
+        let captured = |ordinal| Arc::new(bray_bound_tree::ReportDependencies {
             requirements: [requirement(ordinal)].into(), ..Default::default()
         });
 
@@ -176,23 +161,25 @@ mod tests {
         let panicked = DeferredAbnormal(Some(DependencyFailureKind::Panic));
         let cancelled = DeferredAbnormal(Some(DependencyFailureKind::Cancellation));
 
+        use crate::execution_guarantees::FrameReportOwner::Boundary;
+
         let mut first = DeferredInvocation { callee: None, transition: None,
             entry: (), selection: Default::default(), completed: None,
-            reports: [(DeferredCompleted, reports(Some(0), Arc::clone(&completed))),
-                (panicked, reports(None, Arc::clone(&panic)))].into(),
+            reports: [(Boundary(DeferredCompleted), reports(Some(0), Arc::clone(&completed))),
+                (Boundary(panicked), reports(None, Arc::clone(&panic)))].into(),
         };
 
         let second = DeferredInvocation { callee: None, transition: None,
             entry: (), selection: Default::default(), completed: None,
-            reports: [(DeferredCompleted, reports(Some(1), captured(2))),
-                (cancelled, reports(None, captured(3)))].into(),
+            reports: [(Boundary(DeferredCompleted), reports(Some(1), captured(2))),
+                (Boundary(cancelled), reports(None, captured(3)))].into(),
         };
 
         assert!(first.merge_capture(&second));
 
-        let possible = first.reports[&DeferredCompleted].admitted(|_| true).unwrap();
-        let retained_panic = first.reports[&panicked].admitted(|_| true).unwrap();
-        let retained_cancellation = first.reports[&cancelled].admitted(|_| true).unwrap();
+        let possible = first.reports[&Boundary(DeferredCompleted)].admitted(|_| true).unwrap();
+        let retained_panic = first.reports[&Boundary(panicked)].admitted(|_| true).unwrap();
+        let retained_cancellation = first.reports[&Boundary(cancelled)].admitted(|_| true).unwrap();
 
         assert_eq!(possible.requirements, [requirement(0), requirement(2)].into());
         assert_eq!(retained_panic.requirements, [requirement(1)].into());
@@ -211,7 +198,7 @@ mod tests {
             )]
         });
 
-        let source: crate::execution_guarantees::DeferredProducer = source[0].into();
+        let source: bray_bound_tree::StorageDeferredProducer = source[0].into();
         let argument = ExecutionPlace::argument(SymbolOrdinal::new(0));
         let value = ExecutionCondition::new(crate::ExecutionConditionKind::Input(argument.clone()));
 
@@ -222,7 +209,7 @@ mod tests {
         let entry = Arc::new(ExecutionCallEvidence {
             outputs: Default::default(),
             arguments: [(argument.clone(), value.clone())].into(),
-            witness_inputs: [value.clone()].into(),
+            witness_inputs: [(value.clone(), Arc::new(Default::default()))].into(),
             extracted_values: [(term, value.clone())].into(),
             ..ExecutionCallEvidence::default()
         });
@@ -277,7 +264,7 @@ mod tests {
         assert!(!Arc::ptr_eq(&entry, completed));
         assert_eq!(entry.arguments[&argument], value);
         assert_eq!(completed.arguments[&argument], renamed);
-        assert!(completed.witness_inputs.contains(&renamed));
+        assert!(completed.witness_inputs.contains_key(&renamed));
         assert_eq!(entry.extracted_values, [(term, value)].into());
         assert_eq!(completed.extracted_values, [(term, renamed)].into());
     }

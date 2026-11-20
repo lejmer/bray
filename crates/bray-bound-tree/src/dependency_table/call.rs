@@ -1,6 +1,5 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::sync::Arc;
-use bray_base::sorted_unique_shared_slice;
 
 use crate::{BoundDependencyContract, BoundUnitId};
 
@@ -69,18 +68,28 @@ pub type BoundCallFailure = bray_symbols::CapturedFailureOutcome<bray_symbols::C
 #[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
 pub struct BoundCallReports {
     completed: Arc<[Option<BoundCallReport>]>,
+    payloads: std::collections::BTreeMap<(usize, bray_symbols::DependencySubject), BoundCallReport>,
     failures: Option<Arc<[BoundCallFailure]>>,
 }
 
 impl BoundCallReports {
     /// Creates the report contracts in the same order as the normal outcome rows.
-    pub const fn new(completed: Arc<[Option<BoundCallReport>]>, failures: Option<Arc<[BoundCallFailure]>>) -> Self {
-        Self { completed, failures }
+    pub const fn new(
+        completed: Arc<[Option<BoundCallReport>]>,
+        payloads: std::collections::BTreeMap<(usize, bray_symbols::DependencySubject), BoundCallReport>,
+        failures: Option<Arc<[BoundCallFailure]>>,
+    ) -> Self {
+        Self { completed, payloads, failures }
     }
 
     /// Enumerates completed report contracts with their normal outcome index.
     pub fn completed(&self) -> impl Iterator<Item = (usize, &BoundCallReport)> {
         self.completed.iter().enumerate().filter_map(|(index, report)| Some((index, report.as_ref()?)))
+    }
+
+    /// Explicit produced report payloads in portable normal row order.
+    pub fn payloads(&self) -> impl Iterator<Item = (usize, &bray_symbols::DependencySubject, &BoundCallReport)> {
+        self.payloads.iter().map(|((index, destination), report)| (*index, destination, report))
     }
 
     /// Reached failure prefixes with their associated report obligations.
@@ -96,6 +105,7 @@ impl BoundCallReports {
     /// Enumerates all possible report obligations at this phase.
     fn contracts(&self) -> impl Iterator<Item = &BoundDependencyContract> {
         self.completed().map(|(_, report)| report.storage())
+            .chain(self.payloads().map(|(_, _, report)| report.storage()))
             .chain(self.abnormal().map(|(_, _, report)| report.storage()))
     }
 }
@@ -132,10 +142,20 @@ impl BoundReturnedValue {
 /// Declaration metadata needed to execute a frame outside its forming body.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct BoundDeferredCallable {
-    /// The selected body's specialized summary in the current semantic store.
-    pub summary: bray_symbols::DependencyContractTemplateId,
+    /// The selected body after binding any implementation witness.
+    pub instance: bray_symbols::CallableInstanceData,
+    /// The selected body's immutable specialized summary.
+    pub summary: Arc<bray_symbols::DependencyContractTemplateData>,
+    /// The selected callable's declared deferred requirements.
+    pub execution: Option<Arc<bray_symbols::DependencyContractTemplateData>>,
     /// Typed routes from the frame's selected input and result signature.
     pub storage: BoundCallStorage,
+    /// Captured input types in receiver-first order, after specialization.
+    pub capture_types: Arc<[bray_symbols::TypeId]>,
+    /// Cleanup of the captured inputs before execution.
+    pub capture_cleanup: Arc<[bray_symbols::DependencyStorageEffect]>,
+    /// Cleanup of an unobserved result produced by the selected body.
+    pub result_cleanup: Arc<[bray_symbols::DependencyStorageEffect]>,
     /// Selected runtime behavior, including task observation.
     pub hook: Option<bray_compiler_known::ImplementationHook>,
 }
@@ -146,12 +166,11 @@ pub struct BoundCallDependencyContracts {
     synchronous_cleanup: Arc<[bray_symbols::DependencyRequirement]>,
     input_count: usize,
     captured_values: Arc<[bray_symbols::CapturedValueOutcome]>,
-    returned_values: BTreeMap<bray_symbols::ConstantTermId,
-        BTreeMap<Arc<[bray_symbols::ConstantProjectionKind]>, BoundReturnedValue>>,
     invocation: BoundDependencyContract,
     result: BoundDependencyContract,
     deferred_result: Option<BoundDependencyContract>,
     deferred: Option<BoundDependencyContract>,
+    deferred_template: Option<Arc<bray_symbols::DependencyContractTemplateData>>,
     reports: BoundCallReports,
     deferred_reports: Option<BoundCallReports>,
     storage: BoundCallStorage,
@@ -165,9 +184,12 @@ pub struct BoundCallDependencyContracts {
 }
 
 impl BoundCallDependencyContracts {
-    /// Retains the checked portable expression for the actual normal value.
-    pub fn with_captured_values(mut self, values: impl IntoIterator<Item = bray_symbols::CapturedValueOutcome>) -> Self {
-        self.captured_values = sorted_unique_shared_slice(values);
+    /// Shares the selected template's normalized normal outcomes.
+    pub fn with_captured_outcomes(
+        mut self,
+        template: &bray_symbols::DependencyContractTemplateData,
+    ) -> Self {
+        self.captured_values = template.shared_captured_values();
 
         self
     }
@@ -175,31 +197,14 @@ impl BoundCallDependencyContracts {
     /// Returns the actual value expression bound by this invocation.
     pub fn captured_values(&self) -> &[bray_symbols::CapturedValueOutcome] { &self.captured_values }
 
-    /// Derives the checked ownership layout before selecting a normal exit.
-    pub fn owned_result(&self) -> bray_symbols::DependencyOwnedResult {
-        bray_symbols::CapturedValueOutcome::ownership_layout(&self.captured_values)
-    }
-
-    /// Retains the checked ordinary shape and conditions of each possible input transfer.
-    pub fn with_returned_values(
-        mut self,
-        values: impl IntoIterator<Item = (bray_symbols::DependencyOwnedTransfer, BoundReturnedValue)>,
-    ) -> Self {
-        for (transfer, route) in values {
-            self.returned_values.entry(transfer.input()).or_default()
-                .insert(transfer.output().into(), route);
-        }
-
-        self
-    }
-
-    /// Returns the checked input route and conditions for one selected transfer.
-    pub fn returned_value(
-        &self,
-        transfer: &bray_symbols::DependencyOwnedTransfer,
-    ) -> &BoundReturnedValue {
-        self.returned_values.get(&transfer.input()).and_then(|paths| paths.get(transfer.output()))
-            .expect("selected owned transfer retains its checked value description")
+    /// Exact typed changes made by the selected invocation or deferred body.
+    pub fn cell_changes(&self) -> impl Iterator<Item = &bray_symbols::DependencyStorageEffect> {
+        self.captured_values.iter().flat_map(|row| row.cell_changes.as_deref().into_iter().flatten())
+            .chain(
+                std::iter::once(self.reports()).chain(self.deferred_reports())
+                    .flat_map(|reports| reports.failures().into_iter().flatten())
+                    .flat_map(|row| row.cell_changes.as_deref().into_iter().flatten())
+            )
     }
 
     /// Creates the instantiated phase contracts for a selected call.
@@ -213,10 +218,10 @@ impl BoundCallDependencyContracts {
             result,
             deferred_result: None,
             captured_values: Arc::new([]),
-            returned_values: BTreeMap::new(),
             input_count: 0,
             synchronous_cleanup: Arc::new([]),
             deferred,
+            deferred_template: None,
             reports: BoundCallReports::default(),
             deferred_reports: None,
             storage: BoundCallStorage::default(),
@@ -431,6 +436,18 @@ impl BoundCallDependencyContracts {
     /// Returns the requirements for driving deferred execution, when present.
     pub const fn deferred(&self) -> Option<&BoundDependencyContract> {
         self.deferred.as_ref()
+    }
+
+    /// Retains the formal deferred requirements for binding to an actual frame.
+    pub fn with_deferred_template(mut self, template: Option<Arc<bray_symbols::DependencyContractTemplateData>>) -> Self {
+        self.deferred_template = template;
+
+        self
+    }
+
+    /// Formal requirements of selected deferred execution.
+    pub fn deferred_template(&self) -> Option<&bray_symbols::DependencyContractTemplateData> {
+        self.deferred_template.as_deref()
     }
 
     /// Returns every checked value, invocation, deferred and report contract.

@@ -2,16 +2,14 @@ use super::StorageFlowInput;
 use bray_bound_tree::{
     BorrowCapabilityId, BoundExpressionId, StorageAccessId, StorageIdentityId, StoragePlan,
 };
-use std::collections::{BTreeMap, BTreeSet};
+use std::borrow::Cow;
+use std::collections::{BTreeMap, BTreeSet, btree_map::Entry};
 use std::sync::Arc;
 
-pub(in crate::analysis::storage_flow) type EffectPrefix = Arc<BTreeSet<bray_symbols::DependencyStorageEffect>>;
+use bray_bound_tree::{ReportDependencies, StorageAbsence};
+use crate::analysis::outcomes::{CleanupProgress, OutcomeState};
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::analysis) enum StorageAbsence {
-    Moved,
-    NoPayload,
-}
+pub(in crate::analysis::storage_flow) type EffectPrefix = Arc<BTreeSet<bray_symbols::DependencyStorageEffect>>;
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(in crate::analysis) struct StorageFlowState {
@@ -25,52 +23,84 @@ pub(in crate::analysis) struct StorageFlowState {
     pub(in crate::analysis) moved:
         BTreeMap<bray_bound_tree::StoragePath, BTreeMap<BoundExpressionId, bray_symbols::TypeId>>,
     pub(in crate::analysis) definitely_absent:
-        BTreeMap<bray_bound_tree::StoragePath, StorageAbsence>,
+        Arc<BTreeMap<bray_bound_tree::StoragePath, StorageAbsence>>,
     // Every path that created this storage has transferred its whole value.
     pub(in crate::analysis) fully_moved: BTreeSet<StorageIdentityId>,
     pub(in crate::analysis::storage_flow) active_borrows: BTreeSet<BorrowCapabilityId>,
     pub(in crate::analysis::storage_flow) definitely_active_borrows: BTreeSet<BorrowCapabilityId>,
-    // Entry referents whose inline contents were written on every path to this state.
-    pub(in crate::analysis::storage_flow) written_inputs: BTreeSet<bray_symbols::DependencySubjectRoot>,
+    // Committed writes into entry referents along every path to this state.
+    pub(in crate::analysis::storage_flow) written_inputs: BTreeSet<bray_bound_tree::StoragePath>,
     pub(in crate::analysis::storage_flow) effect_prefix: EffectPrefix,
     // Admitted inputs shared by both successors before applying the normal outcome.
-    pub(in crate::analysis::storage_flow) failure_entry:
-        Option<(bray_bound_tree::BoundExecutionSite, Box<Self>)>,
+    pub(in crate::analysis::storage_flow) failure_entry: Option<AdmittedFailure>,
+    pub(in crate::analysis::storage_flow) cleanup: Option<CleanupProgress>,
     pub(in crate::analysis::storage_flow) result_dependencies: crate::dependency::ResultState,
     pub(in crate::analysis::storage_flow) memory: crate::analysis::storage_flow::memory::State,
     reports: BTreeMap<Option<BoundExpressionId>, RetainedReports>,
-    pub(in crate::analysis::storage_flow) recovered: bool,
+    pub(in crate::analysis) recovered: bool,
 }
 
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::analysis::storage_flow) struct AdmittedFailure {
+    pub(in crate::analysis::storage_flow) occurrence: bray_bound_tree::BoundExecutionSite,
+    pub(in crate::analysis::storage_flow) state: Arc<StorageFlowState>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 struct RetainedReports {
-    dependencies: BTreeSet<bray_bound_tree::BoundDependencySubject>,
+    dependencies: Arc<ReportDependencies>,
     pending: bool,
+}
+
+impl OutcomeState for StorageFlowState {
+    fn cleanup_progress(&self) -> Option<&CleanupProgress> {
+        self.cleanup.as_ref()
+    }
 }
 
 impl RetainedReports {
     fn merge(&mut self, incoming: &Self) -> bool {
-        let previous = self.dependencies.len();
+        let changed = self.dependencies.merge(&incoming.dependencies);
+
         let pending = self.pending;
 
-        self.dependencies.extend(&incoming.dependencies);
         self.pending |= incoming.pending;
 
-        self.dependencies.len() != previous || self.pending != pending
+        changed || self.pending != pending
     }
 }
 
 impl StorageFlowState {
+    pub(in crate::analysis::storage_flow) fn failure_at(&self, occurrence: bray_bound_tree::BoundExecutionSite) -> Option<&AdmittedFailure> {
+        self.failure_entry.as_ref().filter(|entry| entry.occurrence == occurrence)
+    }
+
     pub(in crate::analysis::storage_flow) fn retain_reports(
         &mut self,
         boundary: Option<BoundExpressionId>,
-        dependencies: impl IntoIterator<Item = bray_bound_tree::BoundDependencySubject>,
+        dependencies: Arc<ReportDependencies>,
         pending: bool,
     ) {
-        let reports = self.reports.entry(boundary).or_default();
+        self.merge_retained_reports(boundary, Cow::Owned(RetainedReports { dependencies, pending }));
+    }
 
-        reports.dependencies.extend(dependencies);
-        reports.pending |= pending;
+    fn merge_retained_reports(&mut self, boundary: Option<BoundExpressionId>, reports: Cow<'_, RetainedReports>) -> bool {
+        match self.reports.entry(boundary) {
+            Entry::Vacant(entry) => {
+                entry.insert(reports.into_owned());
+
+                true
+            }
+            Entry::Occupied(mut entry) => entry.get_mut().merge(&reports),
+        }
+    }
+
+    pub(in crate::analysis::storage_flow) fn completed_report(&self) -> Option<Arc<[bray_symbols::DependencyRequirement]>> {
+        if self.reports.is_empty() { return None; }
+
+        let requirements = self.reports.values().flat_map(|report| report.dependencies.requirements.iter().cloned()).collect();
+
+        Some(self.result_dependencies.closed_requirements(requirements).into())
     }
 
     pub(in crate::analysis::storage_flow) fn pending_report_boundaries(
@@ -94,7 +124,7 @@ impl StorageFlowState {
             }
 
             // Both indexes own their physical path, sharing its immutable projections.
-            self.definitely_absent
+            Arc::make_mut(&mut self.definitely_absent)
                 .insert(path.clone(), StorageAbsence::Moved);
         }
 
@@ -117,13 +147,15 @@ impl StorageFlowState {
         }
 
         // An uncertain write cannot prove initialization, but can make prior absence uncertain.
-        self.definitely_absent.retain(|absent, _| {
-            path.root != absent.root
-                || bray_bound_tree::StorageProjection::relationship(
-                    &path.projections,
-                    &absent.projections,
-                ) == bray_bound_tree::StorageRelationship::Disjoint
-        });
+        if !self.definitely_absent.is_empty() {
+            Arc::make_mut(&mut self.definitely_absent).retain(|absent, _| {
+                path.root != absent.root
+                    || bray_bound_tree::StorageProjection::relationship(
+                        &path.projections,
+                        &absent.projections,
+                    ) == bray_bound_tree::StorageRelationship::Disjoint
+            });
+        }
     }
 
     pub(in crate::analysis::storage_flow) fn end_storage_lifetime(
@@ -132,7 +164,7 @@ impl StorageFlowState {
         storage: &StoragePlan,
     ) {
         if bray_bound_tree::storage_identity_transfers_at_unit_exit(storage, identity)
-            || self.report_retains(bray_bound_tree::BoundDependencySubject::Storage(identity))
+            || self.retained_report_value_requires(bray_bound_tree::BoundDependencySubject::Storage(identity))
             || self.recovered
             || self.active_borrows.iter().any(|borrow| {
                 storage
@@ -146,43 +178,53 @@ impl StorageFlowState {
         self.forget_storage(identity);
     }
 
-    pub(in crate::analysis::storage_flow) fn retains_borrow(
-        &self,
-        borrow: BorrowCapabilityId,
-        input: &StorageFlowInput,
-    ) -> bool {
-        self.report_retains(bray_bound_tree::BoundDependencySubject::BorrowCapability(
-            borrow,
-        )) || input
-            .cleanup_dependency_owners
-            .get(&bray_bound_tree::BoundDependencySubject::BorrowCapability(
-                borrow,
-            ))
-            .is_some_and(|owners| self.has_live_cleanup_owner(owners))
+    pub(in crate::analysis::storage_flow) fn retained_borrow_lookup<'state>(
+        &'state self,
+        input: &'state StorageFlowInput,
+    ) -> impl Fn(BorrowCapabilityId) -> bool + 'state {
+        use bray_bound_tree::BoundDependencySubject::BorrowCapability;
+
+        let report_borrows = std::cell::OnceCell::<BTreeSet<BorrowCapabilityId>>::new();
+
+        move |borrow| {
+            input.cleanup_dependency_owners.get(&BorrowCapability(borrow))
+                .is_some_and(|owners| self.has_live_cleanup_owner(owners))
+                || report_borrows.get_or_init(|| {
+                    self.reachable_reports(|_| true).flat_map(|report| report.subjects.iter())
+                        .filter_map(|subject| match *subject {
+                            BorrowCapability(borrow) => Some(borrow),
+                            _ => None,
+                        }).collect()
+                }).contains(&borrow)
+        }
+    }
+
+    pub(in crate::analysis::storage_flow) fn reachable_reports<'state>(&'state self,
+        owner_remains: impl Fn(bray_bound_tree::StorageIdentityId) -> bool + 'state,
+    ) -> impl Iterator<Item = &'state ReportDependencies> + 'state {
+        let carried = self.memory.carried_reports(move |target| {
+            target.storage_path().is_none_or(|path| {
+                self.live.contains(&path.root)
+                    && !self.fully_moved.contains(&path.root)
+                    && owner_remains(path.root)
+                    && !self.definitely_absent.keys().any(|absent| absent.contains(path))
+            })
+        });
+
+        self.reports.values().map(|report| report.dependencies.as_ref()).chain(carried)
+    }
+
+    pub(super) fn retained_report_value_requires(&self, subject: bray_bound_tree::BoundDependencySubject) -> bool {
+        self.reachable_reports(|_| true).any(|report| report.subjects.contains(&subject))
     }
 
     pub(in crate::analysis::storage_flow) fn retained_dependencies<'a>(
         &'a self,
         input: &'a StorageFlowInput,
     ) -> impl Iterator<Item = bray_bound_tree::BoundDependencySubject> + 'a {
-        input
-            .cleanup_dependency_owners
-            .iter()
+        input.cleanup_dependency_owners.iter()
             .filter_map(|(subject, owners)| self.has_live_cleanup_owner(owners).then_some(*subject))
-            .chain(
-                self.reports
-                    .values()
-                    .flat_map(|reports| reports.dependencies.iter().copied()),
-            )
-    }
-
-    pub(in crate::analysis::storage_flow) fn report_retains(
-        &self,
-        subject: bray_bound_tree::BoundDependencySubject,
-    ) -> bool {
-        self.reports
-            .values()
-            .any(|reports| reports.dependencies.contains(&subject))
+            .chain(self.reachable_reports(|_| true).flat_map(|report| report.subjects.iter().copied()))
     }
 
     pub(in crate::analysis::storage_flow) fn transfer_report_boundary(
@@ -190,15 +232,16 @@ impl StorageFlowState {
         boundary: BoundExpressionId,
         parent: Option<BoundExpressionId>,
         caught: bool,
-    ) {
-        if let Some(subjects) = self.reports.remove(&Some(boundary))
-            && !caught
-        {
-            self.reports.entry(parent).or_default().merge(&subjects);
-        }
+    ) -> Option<Arc<ReportDependencies>> {
+        let report = self.reports.remove(&Some(boundary))?;
 
-        self.result_dependencies
-            .transfer_report_boundary(boundary, parent, caught);
+        if caught {
+            Some(report.dependencies)
+        } else {
+            self.merge_retained_reports(parent, Cow::Owned(report));
+
+            None
+        }
     }
 
     fn has_live_cleanup_owner(&self, owners: &BTreeSet<StorageIdentityId>) -> bool {
@@ -212,6 +255,16 @@ impl StorageFlowState {
         ended: &BTreeSet<BorrowCapabilityId>,
         storage: &StoragePlan,
     ) {
+        if !ended.is_empty() && std::env::var_os("BRA_694_TRACE_BORROWS").is_some() {
+            for borrow in ended {
+                eprintln!(
+                    "ending borrow {borrow:?} plan={:?} reached={:?}",
+                    storage.borrow_capability(*borrow),
+                    self.memory.borrow_address(*borrow)
+                );
+            }
+        }
+
         self.memory.end_borrows(ended);
         self.active_borrows.retain(|borrow| !ended.contains(borrow));
 
@@ -234,8 +287,9 @@ impl StorageFlowState {
     }
 
     pub(in crate::analysis::storage_flow) fn retain_absent_storage(&mut self) {
-        self.definitely_absent
-            .retain(|path, _| self.live.contains(&path.root));
+        if !self.definitely_absent.is_empty() {
+            Arc::make_mut(&mut self.definitely_absent).retain(|path, _| self.live.contains(&path.root));
+        }
     }
 
     pub(in crate::analysis::storage_flow) fn mark_absent(
@@ -245,7 +299,7 @@ impl StorageFlowState {
         storage: &StoragePlan,
     ) {
         if let Some(path) = storage.logical_path(access).cloned() {
-            self.definitely_absent
+            Arc::make_mut(&mut self.definitely_absent)
                 .entry(path)
                 .and_modify(|current| {
                     if reason == StorageAbsence::Moved {
@@ -259,16 +313,19 @@ impl StorageFlowState {
     pub(in crate::analysis::storage_flow) fn invalidate_observed_absence(
         &mut self,
         invalidation: &bray_bound_tree::StorageInvalidation,
-        storage: &StoragePlan,
         discriminants: &BTreeMap<StorageIdentityId, BTreeSet<bray_bound_tree::StoragePath>>,
     ) {
-        self.definitely_absent.retain(|access, reason| {
+        if self.definitely_absent.is_empty() {
+            return;
+        }
+
+        Arc::make_mut(&mut self.definitely_absent).retain(|access, reason| {
             if *reason == StorageAbsence::Moved {
                 return true;
             }
 
             let Some((_, parent)) = access.projections.split_last() else {
-                return !invalidation.invalidates_path(access, storage);
+                return !invalidation.invalidates_path(access);
             };
 
             let descriptor = bray_bound_tree::StoragePath {
@@ -276,12 +333,9 @@ impl StorageFlowState {
                 projections: parent.into(),
             };
 
-            !crate::analysis::storage_invalidation::discriminant_invalidated(
-                invalidation,
-                &descriptor,
-                storage,
-                discriminants,
-            )
+            let observed = discriminants.get(&descriptor.root).is_some_and(|paths| paths.contains(&descriptor));
+
+            !invalidation.invalidates_discriminant(&descriptor, observed)
         });
     }
 
@@ -305,7 +359,7 @@ impl StorageFlowState {
 
         let mut memory = crate::analysis::storage_flow::memory::State::for_storage(
             storage,
-            &input.cleanup_free_storage,
+            &input.cleanup_requirements,
             &input.footprint.complete_reference_types,
         );
 
@@ -334,7 +388,7 @@ impl StorageFlowState {
             initialized,
             observed_pattern_bindings: BTreeSet::new(),
             moved: BTreeMap::new(),
-            definitely_absent: BTreeMap::new(),
+            definitely_absent: Default::default(),
             fully_moved: BTreeSet::new(),
             definitely_active_borrows: active_borrows.clone(),
             active_borrows,
@@ -342,6 +396,7 @@ impl StorageFlowState {
             written_inputs: BTreeSet::new(),
             effect_prefix: EffectPrefix::default(),
             failure_entry: None,
+            cleanup: None,
             result_dependencies: Default::default(),
             reports: BTreeMap::new(),
             recovered: false,
@@ -372,11 +427,12 @@ impl StorageFlowState {
             join,
         );
 
-        let failure_changed = if let Some((site, branch)) = &incoming.failure_entry {
-            if let Some((previous_site, previous)) = &mut self.failure_entry {
-                assert_eq!(site, previous_site, "merged attempts retain the same failure edge");
+        let failure_changed = if let Some(branch) = &incoming.failure_entry {
+            if let Some(previous) = &mut self.failure_entry {
+                assert_eq!(branch.occurrence, previous.occurrence, "merged attempts retain their admitted invocation");
 
-                previous.merge(branch, join)
+                !Arc::ptr_eq(&previous.state, &branch.state)
+                    && Arc::make_mut(&mut previous.state).merge(&branch.state, join)
             } else {
                 self.failure_entry = incoming.failure_entry.clone();
 
@@ -394,9 +450,21 @@ impl StorageFlowState {
             Arc::make_mut(&mut self.effect_prefix).extend(incoming.effect_prefix.iter().cloned());
         }
 
-        let written_count = self.written_inputs.len();
+        let writes_changed = if self.written_inputs == incoming.written_inputs {
+            false
+        } else {
+            let writes = self.written_inputs.iter().filter(|path|
+                incoming.written_inputs.iter().any(|other| other.contains(path)))
+                .chain(incoming.written_inputs.iter().filter(|path|
+                    self.written_inputs.iter().any(|other| other.contains(path))))
+                .cloned().collect::<BTreeSet<_>>();
 
-        self.written_inputs.retain(|input| incoming.written_inputs.contains(input));
+            let changed = self.written_inputs != writes;
+
+            self.written_inputs = writes;
+
+            changed
+        };
 
         let dependencies_changed = self
             .result_dependencies
@@ -404,17 +472,8 @@ impl StorageFlowState {
 
         let mut reports_changed = false;
 
-        for (boundary, subjects) in &incoming.reports {
-            match self.reports.entry(*boundary) {
-                std::collections::btree_map::Entry::Vacant(entry) => {
-                    // Joined paths own independent sets of retained semantic identities.
-                    entry.insert(subjects.clone());
-                    reports_changed = true;
-                }
-                std::collections::btree_map::Entry::Occupied(mut entry) => {
-                    reports_changed |= entry.get_mut().merge(subjects);
-                }
-            }
+        for (boundary, reports) in &incoming.reports {
+            reports_changed |= self.merge_retained_reports(*boundary, Cow::Borrowed(reports));
         }
 
         let refinements_changed = self.refinements.intersect(&incoming.refinements);
@@ -459,20 +518,22 @@ impl StorageFlowState {
             &incoming.definitely_absent,
         );
 
-        self.definitely_absent.retain(|access, reason| {
-            let Some(incoming) = incoming.definitely_absent.get(access) else {
-                absence_changed = true;
+        if !self.definitely_absent.is_empty() && !Arc::ptr_eq(&self.definitely_absent, &incoming.definitely_absent) {
+            Arc::make_mut(&mut self.definitely_absent).retain(|access, reason| {
+                let Some(incoming) = incoming.definitely_absent.get(access) else {
+                    absence_changed = true;
 
-                return false;
-            };
+                    return false;
+                };
 
-            if *reason == StorageAbsence::Moved && *incoming == StorageAbsence::NoPayload {
-                *reason = StorageAbsence::NoPayload;
-                absence_changed = true;
-            }
+                if *reason == StorageAbsence::Moved && *incoming == StorageAbsence::NoPayload {
+                    *reason = StorageAbsence::NoPayload;
+                    absence_changed = true;
+                }
 
-            true
-        });
+                true
+            });
+        }
 
         self.active_borrows
             .extend(incoming.active_borrows.iter().copied());
@@ -484,7 +545,7 @@ impl StorageFlowState {
 
         effects_changed
             || failure_changed
-            || self.written_inputs.len() != written_count
+            || writes_changed
             || dependencies_changed
             || reports_changed
             || execution_changed

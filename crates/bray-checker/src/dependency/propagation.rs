@@ -60,12 +60,10 @@ impl super::ValueInputs {
             let projection = DependencyProjection::UnionPayloadField(*field);
 
             self.error_exits
-                .insert(entry.expression(), (operand, projection));
+                .insert(entry.expression(), (operand, projection, error_conversion.source_type()));
 
             match boundary {
-                SelectedPropagationBoundary::Callable => {
-                    self.returned_errors.insert(entry.expression());
-                }
+                SelectedPropagationBoundary::Callable => {}
                 SelectedPropagationBoundary::YieldRegion(target) => {
                     let owner = targets
                         .get(target)

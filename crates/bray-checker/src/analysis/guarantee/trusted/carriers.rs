@@ -1,5 +1,6 @@
 use crate::execution_guarantees::ExecutionObservationKind as ObservationKind;
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
 use super::super::state::ExecutionState;
 use crate::{ExecutionCondition, ExecutionPlace};
@@ -404,30 +405,10 @@ pub(in crate::analysis) fn portable_path<C: crate::CheckerRequestContext + ?Size
     path: &[StorageProjection],
 ) -> Vec<DependencyProjection> {
     path.iter()
-        .map(|projection| match projection {
-            StorageProjection::ElementFromStart(index) => {
-                let values = request.semantic_values();
-
-                let value = values
-                    .intern_constant_value(bray_symbols::ConstantValueData::new(
-                        crate::representation::representation_type(
-                            request,
-                            bray_compiler_known::RepresentationRole::ScalarUsize,
-                        ),
-                        bray_symbols::ConstantValueKind::Integer(
-                            bray_symbols::IntegerConstant::from_u64(u64::from(index.raw())),
-                        ),
-                    ))
-                    .expect("checked array index belongs to the same semantic store");
-
-                DependencyProjection::Element(
-                    values
-                        .intern_constant_term(bray_symbols::ConstantTermData::Value(value))
-                        .expect("checked array selector belongs to the same semantic store"),
-                )
-            }
-            projection => crate::storage::dependency_projection(*projection)
-                .expect("returned owner retains a portable storage projection"),
+        .copied()
+        .map(|projection| {
+            crate::storage::value_dependency_projection(request, projection)
+                .expect("returned owner retains a portable storage projection")
         })
         .collect()
 }
@@ -449,71 +430,53 @@ impl ExecutionState {
     }
 
     pub(in crate::analysis::guarantee) fn refine_deferred_witnesses(&mut self) {
-        let mut updates = std::collections::HashMap::new();
+        let ordinary = self.assumptions.clone();
+        let proofs = Arc::clone(&self.proofs);
+        let ambient = proofs.ordinary_proof(&ordinary);
 
-        for frame in self.deferred_values() {
+        self.update_stored_values(ExecutionCondition::mapping_frames(|_| true, |_, frame| {
+            let mut updated = Arc::clone(frame);
+
             for (source, candidate) in &frame.producers {
                 let entry = &candidate.entry;
 
                 if !entry.pending_execution
-                    || !super::super::deferred::possible(&candidate.selection, &self.ordinary_proof())
+                    || !entry.witness_inputs.values().any(|witness| witness.has_guards())
+                    || !super::super::deferred::possible(&candidate.selection, &ambient)
                 {
                     continue;
                 }
 
-                let owners = self.owned_witnesses(entry.owned_arguments())
-                    .filter(|(_, witness)| witness.has_guards())
-                    .map(|(owner, _)| owner.clone()).collect::<BTreeSet<_>>();
+                let mut assumptions = entry.assumptions.joined_with(&ordinary).into_owned();
 
-                if owners.is_empty() && entry.copy_sources.is_empty() {
-                    continue;
-                }
-
-                let mut assumptions = entry.assumptions.clone();
-
-                assumptions.extend(self.assumptions.iter().cloned());
                 assumptions.extend(candidate.selection.iter().cloned());
 
-                let captured = entry.captured_facts(&assumptions);
-
-                assumptions.extend(captured.iter().cloned());
-
                 let mut trusted = entry.trusted_assumptions.clone();
+                let mut refined_entry = Arc::clone(entry);
 
-                for owner in owners {
-                    if let Some(witness) = self.witnesses.get_mut(&owner) {
-                        witness.refine(&mut trusted, &mut assumptions, &self.proofs);
+                for (owner, witness) in entry.witness_inputs.iter().filter(|(_, witness)| witness.has_guards()) {
+                    let mut refined = Arc::clone(witness);
+
+                    refined.refine(&mut trusted, &mut assumptions, &proofs);
+
+                    if !Arc::ptr_eq(witness, &refined) {
+                        Arc::make_mut(&mut refined_entry).witness_inputs.insert(owner.clone(), refined);
                     }
                 }
 
-                // Immutable copied data remains available independently of the child run's proof.
-                self.assumptions.extend(captured.iter().cloned());
-
-                if !captured.is_subset(&entry.assumptions) || trusted != entry.trusted_assumptions {
-                    updates.entry(std::sync::Arc::as_ptr(&frame)).or_insert_with(Vec::new)
-                        .push((source.clone(), captured, trusted));
+                if trusted != entry.trusted_assumptions {
+                    Arc::make_mut(&mut refined_entry).trusted_assumptions = trusted;
                 }
-            }
-        }
 
-        if updates.is_empty() { return; }
-
-        self.update_stored_values(ExecutionCondition::mapping_frames(|_| true, |original, mapped| {
-            let mut frame = std::sync::Arc::clone(mapped);
-
-            if let Some(updates) = updates.get(&std::sync::Arc::as_ptr(original)) {
-                let frame = std::sync::Arc::make_mut(&mut frame);
-
-                for (source, assumptions, trusted) in updates {
+                if !Arc::ptr_eq(entry, &refined_entry) {
+                    let frame = Arc::make_mut(&mut updated);
                     let candidate = frame.producers.get_mut(source).expect("proof refinement retains the selected producer");
-                    let entry = std::sync::Arc::make_mut(&mut candidate.entry);
 
-                    entry.assumptions.extend(assumptions.iter().cloned());
-                    entry.trusted_assumptions.clone_from(trusted);
+                    candidate.entry = refined_entry;
                 }
             }
 
-            Some(frame)
+            Some(updated)
         }));
     }
 }

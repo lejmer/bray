@@ -17,41 +17,8 @@ pub(crate) fn rename_witnesses(
             continue;
         }
 
-        let mut conditions = BTreeMap::<_, ExecutionGuarantee>::new();
-
-        for (condition, guarantee) in &witness.conditions {
-            let condition = rename(condition);
-
-            if condition == ExecutionCondition::unknown() {
-                continue;
-            }
-
-            let retained = conditions.entry(condition).or_default();
-
-            retained.witness |= guarantee.witness;
-
-            for (address, owners) in &guarantee.addresses {
-                let address = rename(address);
-
-                if address != ExecutionCondition::unknown() {
-                    retained
-                        .addresses
-                        .entry(address)
-                        .or_default()
-                        .extend(owners.iter().cloned());
-                }
-            }
-        }
-
-        let witness = if conditions == witness.conditions {
-            Arc::clone(witness)
-        } else {
-            Arc::new(ExecutionWitness {
-                available: witness.available,
-                dependencies: witness.dependencies.clone(),
-                conditions,
-            })
-        };
+        let witness = witness.try_map_conditions(|condition| Ok::<_, std::convert::Infallible>(rename(condition)))
+            .expect("witness substitution is infallible");
 
         if let Some(previous) = renamed.get_mut(&carrier) {
             previous.merge(&witness);
@@ -67,7 +34,7 @@ pub(crate) fn rename_witnesses(
 pub(crate) type AddressDependencies = BTreeMap<ExecutionCondition, BTreeSet<ExecutionPlace>>;
 
 /// One carried clause distinguishes ownership authority from copyable access facts.
-#[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub(crate) struct ExecutionGuarantee {
     pub(crate) witness: bool,
     pub(crate) addresses: AddressDependencies,
@@ -98,7 +65,7 @@ impl ExecutionGuarantee {
 pub(super) type WitnessConditions = BTreeMap<ExecutionCondition, ExecutionGuarantee>;
 
 /// Trusted evidence retained by one complete value identity.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub(crate) struct ExecutionWitness {
     /// This run can use the evidence. Pending child execution retains validity separately.
     pub(crate) available: bool,
@@ -119,6 +86,39 @@ impl Default for ExecutionWitness {
 }
 
 impl ExecutionWitness {
+    pub(crate) fn try_map_conditions<E>(
+        self: &Arc<Self>,
+        mut map: impl FnMut(&ExecutionCondition) -> Result<ExecutionCondition, E>,
+    ) -> Result<Arc<Self>, E> {
+        let mut conditions = WitnessConditions::new();
+
+        for (condition, guarantee) in &self.conditions {
+            let condition = map(condition)?;
+
+            if condition == ExecutionCondition::unknown() {
+                continue;
+            }
+
+            let retained = conditions.entry(condition).or_default();
+
+            retained.witness |= guarantee.witness;
+
+            for (address, owners) in &guarantee.addresses {
+                let address = map(address)?;
+
+                if address != ExecutionCondition::unknown() {
+                    retained.addresses.entry(address).or_default().extend(owners.iter().cloned());
+                }
+            }
+        }
+
+        Ok(if conditions == self.conditions {
+            Arc::clone(self)
+        } else {
+            Arc::new(Self { available: self.available, conditions, dependencies: self.dependencies.clone() })
+        })
+    }
+
     pub(crate) fn has_guards(&self) -> bool {
         self.conditions.keys().any(|condition| {
             matches!((
@@ -346,13 +346,18 @@ impl super::ExecutionCallEvidence {
 
         let arguments = rename_arguments(&self.arguments);
         let outputs = self.outputs.try_map(|value| Ok::<_, std::convert::Infallible>(rename(value))).expect("value substitution is total");
-        let copy_sources = rename_arguments(&self.copy_sources);
+        let failure_rows = self.try_map_failure_guards(|value| Ok::<_, std::convert::Infallible>(rename(value))).expect("value substitution is total");
 
-        let witness_inputs = self
-            .witness_inputs
-            .iter()
-            .map(|owner| substitution.owner(owner))
-            .collect();
+        let mut witness_inputs = self.witness_inputs.clone();
+
+        rename_witnesses(&mut witness_inputs, &rename, &|owner| substitution.owner(owner));
+
+        let witness_allocations = self.witness_allocations.iter().filter_map(|(condition, owner)| {
+            let owner = substitution.owner(owner);
+            let condition = rename(condition);
+
+            (condition != ExecutionCondition::unknown() && witness_inputs.contains_key(&owner)).then_some((condition, owner))
+        }).collect();
 
         let extracted_values = self.extracted_values.iter().map(|(term, value)| (*term, rename(value))).collect();
 
@@ -388,8 +393,9 @@ impl super::ExecutionCallEvidence {
 
         if arguments == self.arguments
             && outputs == self.outputs
-            && copy_sources == self.copy_sources
+            && failure_rows == self.failure_rows
             && witness_inputs == self.witness_inputs
+            && witness_allocations == self.witness_allocations
             && extracted_values == self.extracted_values
             && assumptions == self.assumptions
             && trusted_assumptions == self.trusted_assumptions
@@ -400,17 +406,18 @@ impl super::ExecutionCallEvidence {
 
         // Reuse each mapped field once, without copying the original historical context first.
         Some(Self {
-            failure_rows: self.failure_rows.clone(),
+            failure_rows,
             outputs,
             implementation_witnesses: Arc::clone(&self.implementation_witnesses),
             arguments,
-            copy_sources,
             witness_inputs,
+            witness_allocations,
             extracted_values,
             assumptions,
             trusted_assumptions,
             addresses,
             owned_inputs: Arc::clone(&self.owned_inputs),
+            borrow_owners: self.borrow_owners.clone(),
             anonymous_target: self.anonymous_target.clone(),
             trusted_boundary: self.trusted_boundary,
             pending_execution: self.pending_execution,

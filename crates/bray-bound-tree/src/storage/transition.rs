@@ -2,22 +2,11 @@ use bray_symbols::{SymbolOrdinal, TypeId};
 
 use super::{StorageProjection, StorageTarget};
 
-/// The existing operation boundary at which captured physical information changes.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum StorageValuePhase {
-    /// Evaluated arguments enter their captured environment.
-    Input,
-    /// Admitted execution applies its effects.
-    Attempt,
-    /// A private result is initialized before required cleanup.
-    Production,
-    /// Normal publication and consumption of remaining input handles.
-    Completion,
-}
-
-/// Ordering of physical retirements within one existing operation phase.
+/// Ordering of physical retirements within one reached operation or outcome.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum StorageValueBoundary {
+    /// Consumed input slots retire once before either outcome executes.
+    Admission,
     /// Effects already performed before logical completion and publication.
     Execution,
     /// Last-use and consumed-handle retirement after that phase completes.
@@ -35,6 +24,40 @@ pub struct StorageValueCapture {
     pub referent: Option<(TypeId, std::sync::Arc<crate::StorageCapturedValue>)>,
     /// Possible element dependencies behind a buffer descriptor, without identifying a particular element.
     pub element_bounds: Option<(StorageProjection, std::sync::Arc<crate::StorageCapturedValue>)>,
+}
+
+/// Retains checked input captures common to the reached alternatives.
+pub fn merge_storage_value_captures(
+    observed: &mut std::sync::Arc<[StorageValueCapture]>,
+    incoming: &[StorageValueCapture],
+) {
+    if observed.as_ref() == incoming {
+        return;
+    }
+
+    *observed = observed.iter().filter_map(|capture| {
+        let other = incoming.iter().find(|other| other.input == capture.input)?;
+
+        let referent = match (&capture.referent, &other.referent) {
+            (Some((ty, left)), Some((other_ty, right))) if ty == other_ty => Some((*ty, std::sync::Arc::new(left.merged(right)))),
+            _ => None,
+        };
+
+        let element_bounds = match (&capture.element_bounds, &other.element_bounds) {
+            (Some((pointer, left)), Some((other_pointer, right))) if pointer == other_pointer =>
+                Some((*pointer, std::sync::Arc::new(left.merged(right)))),
+            (Some((pointer, bounds)), None) | (None, Some((pointer, bounds))) =>
+                Some((*pointer, std::sync::Arc::new(bounds.with_unknown_alternative()))),
+            _ => None,
+        };
+
+        Some(StorageValueCapture {
+            input: capture.input,
+            element_bounds,
+            value: std::sync::Arc::new(capture.value.merged(&other.value)),
+            referent,
+        })
+    }).collect();
 }
 
 /// A source in the operation's captured entry environment.
@@ -65,6 +88,8 @@ pub enum StorageValueDestination {
         target: StorageTarget,
         /// Type established by the checked storage operation.
         ty: TypeId,
+        /// The selected physical transition already installed this value.
+        installed: bool,
     },
 }
 
@@ -72,14 +97,58 @@ pub enum StorageValueDestination {
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum StorageSnapshotRoot {
     /// A captured input snapshot selected before execution changes current memory.
-    Input(bray_symbols::DependencySubjectRoot),
+    Argument(SymbolOrdinal),
+    /// A checked extraction from an admitted reference, before normal effects.
+    Extracted {
+        /// The body that owns the admitted reference for a deferred activation.
+        producer: Option<crate::StorageDeferredProducer>,
+        /// The checked input of the ownership transfer.
+        term: bray_symbols::ConstantTermId,
+    },
+    /// The private result of a checked memory read.
+    PendingResult,
     /// The same prebound value that private production will install.
     Produced(StorageValueDestination),
 }
 
-/// One guarded set of whole-value publications over evaluated inputs and actual destinations.
-pub type StorageValueTransition = bray_symbols::CapturedValueOutcome<StorageValueDestination, StorageValueInput,
+type StorageValueOutcome = bray_symbols::CapturedValueOutcome<StorageValueDestination, StorageValueInput,
     StorageProjection, bray_symbols::StaticReferenceSelection, bray_symbols::ConstantTermId>;
+
+/// One guarded set of reached publications and its source row in the callable contract.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct StorageValueTransition {
+    /// The contract row whose effects and dependencies accompany this publication.
+    pub source_row: Option<usize>,
+    /// The guarded publications bound to this operation's actual destinations.
+    pub outcome: StorageValueOutcome,
+    write_inputs: std::sync::Arc<[(SymbolOrdinal, std::sync::Arc<[StorageProjection]>, StorageTarget)]>,
+}
+
+impl StorageValueTransition {
+    /// Records reached publications with no portable contract row, such as a memory intrinsic.
+    pub fn new(
+        guard: Option<bray_symbols::ConstantTermId>,
+        bindings: impl IntoIterator<Item = (StorageValueDestination, bray_symbols::CapturedValueTemplate<StorageValueInput, StorageProjection>)>,
+    ) -> Self {
+        Self {
+            source_row: None,
+            outcome: StorageValueOutcome::new(guard, bindings),
+            write_inputs: Default::default(),
+        }
+    }
+
+    /// Retains the actual admitted descriptors that establish exact writes in this row.
+    pub fn with_write_inputs(mut self, inputs: impl IntoIterator<Item = (SymbolOrdinal, std::sync::Arc<[StorageProjection]>, StorageTarget)>) -> Self {
+        self.write_inputs = bray_base::sorted_unique_shared_slice(inputs);
+
+        self
+    }
+
+    /// The input ordinals, stored descriptor selectors, and evaluated addresses behind exact writes.
+    pub fn write_inputs(&self) -> &[(SymbolOrdinal, std::sync::Arc<[StorageProjection]>, StorageTarget)] {
+        &self.write_inputs
+    }
+}
 
 /// Joins finite checked alternatives observed at the same operation during CFG replay.
 /// A path with no known publications remains feasible alongside the other paths.
@@ -117,11 +186,16 @@ mod tests {
             CapturedValueTemplate::Input(StorageValueInput::Argument(SymbolOrdinal::new(ordinal))),
         )]);
 
-        let incoming = Arc::from([row(1)]);
+        let mut selected = row(0);
+
+        selected.source_row = Some(2);
+
+        let incoming = Arc::from([row(1), selected.clone()]);
         let mut observed = Arc::from([row(0)]);
 
         merge_storage_value_transitions(&mut observed, &incoming);
         assert!(observed.contains(&row(0)) && observed.contains(&row(1)));
+        assert!(observed.contains(&selected), "identical writes can accompany different contract effects");
 
         merge_storage_value_transitions(&mut observed, &Arc::default());
         assert!(observed.contains(&StorageValueTransition::new(None, [])));

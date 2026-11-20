@@ -1,7 +1,5 @@
 // rust-style: allow(module-too-large, reason = "selective decoding shares one recursive dependency traversal and remapping state")
 
-use bray_symbols::DependencyStorageEffect;
-
 use std::collections::BTreeSet;
 
 use bray_symbols::InterfaceSymbolId;
@@ -1058,18 +1056,22 @@ impl<'bytes, 'records> SelectionBuilder<'bytes, 'records> {
             self.include_dependency_projections(relation.target_projections());
         }
 
-        if let Some(term) = contract.observed_result {
-            self.enqueue(PendingRecord::ConstantTerm(term.raw()));
-        }
-
         for binding in &*contract.captured_values {
+            for payload in &*binding.report_payloads {
+                self.include_dependency_subject(&payload.destination);
+            }
+
             for payload in binding.inactive_payloads.iter() {
                 self.include_dependency_subject(payload);
             }
 
             if let Some(guard) = binding.guard { self.enqueue(PendingRecord::ConstantTerm(guard.raw())); }
+        }
 
-            for (destination, value) in binding.bindings.iter() {
+        let values = contract.captured_values.iter().flat_map(|row| row.bindings.iter())
+            .chain(contract.failure_outcomes.as_deref().into_iter().flatten().flat_map(|row| row.writes.iter()));
+
+        for (destination, value) in values {
             self.include_dependency_subject(destination);
 
             for input in value.terms() { self.enqueue(PendingRecord::ConstantTerm(input.raw())); }
@@ -1093,7 +1095,6 @@ impl<'bytes, 'records> SelectionBuilder<'bytes, 'records> {
             }
 
             self.include_dependency_projections(&value.projections().cloned().collect::<Vec<_>>());
-            }
         }
 
         for condition in contract.captured_values.iter().flat_map(|row| row.ownership.conditions()) {
@@ -1119,29 +1120,18 @@ impl<'bytes, 'records> SelectionBuilder<'bytes, 'records> {
             }
         }
 
-        for effect in &*contract.effects {
+        for effect in contract.effects.iter().chain(contract.cell_changes()) {
 
             for ty in effect.referenced_types() {
                 self.enqueue(PendingRecord::Type(ty.raw()));
             }
 
-            match effect {
-                DependencyStorageEffect::UnboundedMutation { .. }
-                | DependencyStorageEffect::Atomic
-                | DependencyStorageEffect::Ambient
-                | DependencyStorageEffect::Unknown
-                | DependencyStorageEffect::Escape => {}
-                DependencyStorageEffect::Direct { subject, .. } => {
-                    self.include_dependency_subject(subject)
-                }
-                DependencyStorageEffect::Indirect {
-                    reference,
-                    projections,
-                    ..
-                } => {
-                    self.include_dependency_subject(reference);
-                    self.include_dependency_projections(projections);
-                }
+            if let Some(subject) = effect.subject() {
+                self.include_dependency_subject(subject);
+            }
+
+            for projections in effect.projection_paths() {
+                self.include_dependency_projections(projections);
             }
         }
 

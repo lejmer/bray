@@ -5,7 +5,7 @@ use super::{
     ConstructionTarget, SelectedArgument, SelectedConstructionInput, SelectedConversion,
     SelectedOperation, SelectedReceiver, SemanticSelection,
 };
-use crate::{BoundExecutionSite, BoundExpressionId, BoundReferenceTarget};
+use crate::{BoundExecutionSite, BoundExpressionId, BoundReferenceTarget, ConversionTarget, StorageProjection};
 
 /// One evaluated invocation input, borrowing its existing checked selection.
 #[derive(Clone, Copy, Debug)]
@@ -67,6 +67,16 @@ impl<'a> SelectedInput<'a> {
             | Self::Construction(SelectedConstructionInput::Explicit { conversion, .. }) => {
                 Some(conversion)
             }
+            _ => None,
+        }
+    }
+
+    /// The destination of an evaluated operand that needs no call or data conversion.
+    pub fn inline_materialization_path(self) -> Option<&'static [StorageProjection]> {
+        match self.conversion().map(SelectedConversion::target) {
+            None if self.expression().is_some() => Some(&[]),
+            Some(ConversionTarget::Identity | ConversionTarget::CallableContract) => Some(&[]),
+            Some(ConversionTarget::NullablePresent) => Some(&[StorageProjection::NullableValue]),
             _ => None,
         }
     }
@@ -203,6 +213,8 @@ impl SemanticSelection {
                 DependencySubjectRoot::Parameter(ordinal) => Some(ordinal),
                 _ => None,
             },
+            Self::Operation(SelectedOperation::Conversion(_) | SelectedOperation::Operator { .. }
+                | SelectedOperation::CompoundAssignment(_) | SelectedOperation::Index { .. }) => root.input_ordinal(true),
             _ => None,
         }
     }

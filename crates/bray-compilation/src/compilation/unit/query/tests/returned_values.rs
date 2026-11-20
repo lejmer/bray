@@ -1460,10 +1460,6 @@ fn returned_borrow_storage_uses_exact_relations_instead_of_lifetime_anchors() {
             .storage_flow(key.clone())
             .expect("fixture callable must complete storage-flow analysis");
 
-        let refinements = application
-            .refinements(key.clone())
-            .expect("fixture callable must have checked refinements");
-
         let storage = application
             .storage_plan(key)
             .expect("fixture callable must have a storage plan");
@@ -1491,11 +1487,10 @@ fn returned_borrow_storage_uses_exact_relations_instead_of_lifetime_anchors() {
             "storage planning leaves call results symbolic"
         );
 
-        let observed = refinements
+        let observed = flow
             .value()
-            .invalidations()
-            .values()
-            .filter_map(|invalidation| {
+            .operation_invalidations()
+            .filter_map(|(_, invalidation)| {
                 let bray_bound_tree::StorageInvalidation::Observed { accesses, .. } = invalidation
                 else {
                     return None;
@@ -1514,7 +1509,7 @@ fn returned_borrow_storage_uses_exact_relations_instead_of_lifetime_anchors() {
             !observed.is_empty(),
             exact,
             "{source}\n{:?}",
-            refinements.value().invalidations()
+            flow.value().operation_invalidations().collect::<Vec<_>>()
         );
 
         if exact {
@@ -1852,13 +1847,13 @@ fn mutation_observations_preserve_siblings_and_exclusive_input_referents() {
         .storage_plan(key.clone())
         .expect("fixture callable must have a storage plan");
 
-    let refinements = application
-        .refinements(key)
-        .expect("fixture callable must have checked refinements");
+    let flow = application
+        .storage_flow(key)
+        .expect("fixture callable must have checked storage flow");
 
     let storage = storage.value();
 
-    let mutation = refinements.value().invalidations().values().find(|invalidation| {
+    let (_, mutation) = flow.value().operation_invalidations().find(|(_, invalidation)| {
         matches!(invalidation, bray_bound_tree::StorageInvalidation::Observed { accesses, .. } if !accesses.is_empty())
     }).expect("assignment publishes resolved observations");
 

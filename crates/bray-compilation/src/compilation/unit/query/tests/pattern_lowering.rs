@@ -160,11 +160,11 @@ fn singleton_member_moves_preserve_containing_lifecycle_obligations() {
                     DiagnosticKind::CheckingIncompleteLifecycleStorage,
                 );
 
-                assert!(analysis.value().scope_exits().iter().flat_map(|exit| exit.storage()).any(|decision|
+                assert!(flow.value().exits().iter().flat_map(|exit| exit.cleanup_recoveries()).any(|decision|
                         decision.identity() == root && decision.disposition() ==
                             bray_bound_tree::AsyncStorageExitDisposition::Recovered(
                                 bray_bound_tree::AsyncStorageExitRecoveryCause::UnavailablePartialCleanup)),
-                        "{source}: {:?}", analysis.value());
+                        "{source}: {:?}", flow.value().exits());
             }
         }
     }
@@ -231,29 +231,28 @@ fn literal_string_cleanup_publishes_its_proven_empty_effect() {
     let key = source_function_body_key(&compilation, "main");
 
     let flow = compilation
-        .storage_flow(key.clone())
+        .storage_flow(key)
         .expect("fixture callable must complete storage-flow analysis");
-
-    let cleanup = compilation
-        .async_analysis(key)
-        .expect("fixture callable must complete async analysis");
 
     let mut checked = 0;
 
-    for plan in cleanup.value().scope_exits() {
+    for plan in flow.value().exits() {
         for access in plan.lifecycle_resolution() {
-            let mutation = bray_bound_tree::StorageMutation::Cleanup {
-                occurrence: bray_bound_tree::BoundExecutionSite::Cleanup(plan.exit()),
-                access: *access,
-                part: 0,
-            };
+            let occurrence = bray_bound_tree::BoundExecutionSite::Cleanup(plan.exit());
+            let mut mutations = flow.value().opaque_cleanup_mutations(occurrence, *access).peekable();
 
-            assert!(matches!(
-                flow.value().outcome_mutation(mutation),
-                Some(bray_bound_tree::StorageInvalidation::Observed { accesses, .. }) if accesses.is_empty()
-            ));
+            assert!(mutations.peek().is_some(), "scheduled literal cleanup must reach a mutation");
 
-            checked += 1;
+            for (_, part, invalidation) in mutations {
+                assert_eq!(part, 0);
+
+                assert!(matches!(
+                    invalidation,
+                    bray_bound_tree::StorageInvalidation::Observed { accesses, .. } if accesses.is_empty()
+                ));
+
+                checked += 1;
+            }
         }
     }
 

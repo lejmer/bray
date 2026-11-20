@@ -14,18 +14,20 @@ use super::state::ExecutionState;
 use crate::execution_guarantees::{ExecutionCandidate, ExecutionProperty};
 use crate::{CheckerOutcome, CheckerRequestContext, CheckerUnitView};
 
-/// Checks body-local operations and records selected dependencies without certifying them.
+type CandidateOutcome<C> = CheckerOutcome<
+    ExecutionCandidate,
+    <C as CheckerRequestContext>::UpstreamError,
+>;
+
+/// Checks obligations against the same solved flow while their input facts and edges agree.
 #[expect(
     clippy::too_many_arguments,
-    reason = "execution certification consumes independently computed checker facts in query order"
+    reason = "candidate checks share independently computed body and call inputs"
 )]
-pub fn check_execution_candidate<C: CheckerRequestContext + ?Sized>(
+pub fn with_execution_candidate_checker<C: CheckerRequestContext + ?Sized, R>(
     request: CheckerUnitView<'_, C>,
     prepared: &crate::PreparedBodyAnalysis,
-    obligation: Option<crate::ExecutionObligation>,
     predicate: bool,
-    assumptions: &[crate::ExecutionCondition],
-    postconditions: &[(crate::ExecutionCondition, bray_source::SourceSpan)],
     contracts: &std::collections::BTreeMap<
         bray_bound_tree::BoundExpressionId,
         Vec<crate::ExecutionCompletionContract>,
@@ -34,77 +36,87 @@ pub fn check_execution_candidate<C: CheckerRequestContext + ?Sized>(
     storage: &StoragePlan,
     body: &CheckedBodySemantics,
     memory: &CheckedMemoryOperations,
-) -> CheckerOutcome<ExecutionCandidate, C::UpstreamError> {
+    check: impl FnOnce(&mut dyn FnMut(
+        Option<crate::ExecutionObligation>,
+        &[crate::ExecutionCondition],
+        &[(crate::ExecutionCondition, bray_source::SourceSpan)],
+    ) -> CandidateOutcome<C>) -> R,
+) -> R {
     assert_execution_inputs(request, expressions, storage, body, memory);
 
-    let internal = obligation.is_some_and(crate::ExecutionObligation::is_internal);
-
-    let property = obligation.and_then(|obligation| {
-        obligation.property().or(match obligation {
-            crate::ExecutionObligation::Observation => Some(ExecutionProperty::Pure),
-            crate::ExecutionObligation::Termination
-            | crate::ExecutionObligation::FiniteIteration => Some(ExecutionProperty::Total),
-            _ => None,
-        })
-    });
-
-    // Execution obligations replay the same checked physical effects as cleanup publication.
-    // Observation confinement classifies dependencies without replacing that storage state.
-    let invalidations = body.refinements().invalidations();
-
     let graph = &prepared.graph;
-    let mut diagnostics = bray_diagnostics::DiagnosticBag::new();
 
-    let disposal = super::cleanup::Cleanup::new(&prepared.cleanup, body.dependencies(), request.semantic_values())
-        .with_selection(body.asynchronous(), body.storage_flow());
+    let disposal = super::cleanup::Cleanup::new(
+        &prepared.cleanup,
+        body.dependencies(),
+        request.semantic_values(),
+    );
 
-    let mut excluded = graph
-        .edges()
-        .iter()
-        .filter(|edge| {
-            // Async guarantees describe execution after entry. Pre-entry abandonment
-            // remains part of ownership and unwind analysis, not this body proof.
+    let checked_exclusions: BTreeSet<_> = body.storage_flow().excluded_edges().iter().copied().collect();
+
+    let mut previous = None::<super::flow::ExecutionFlow<'_, '_, C>>;
+
+    check(&mut |obligation, assumptions, postconditions| {
+        if request.is_cancelled() {
+            return CheckerOutcome::Cancelled;
+        }
+
+        let internal = obligation.is_some_and(crate::ExecutionObligation::is_internal);
+
+        let property = obligation.and_then(|obligation| {
+            obligation.property().or(match obligation {
+                crate::ExecutionObligation::Observation => Some(ExecutionProperty::Pure),
+                crate::ExecutionObligation::Termination
+                | crate::ExecutionObligation::FiniteIteration => Some(ExecutionProperty::Total),
+                _ => None,
+            })
+        });
+
+        let mut excluded = checked_exclusions.clone();
+
+        excluded.extend(graph.edges().iter().filter(|edge| {
+            // Pre-entry abandonment belongs to ownership and unwind analysis.
             edge.kind() == AnalysisEdgeKind::EntryCancellation
                 || (property != Some(ExecutionProperty::Pure) && edge.is_dependency_failure())
-                // Checked template observation eliminates collection storage, while
-                // ordinary native construction retains its admission and growth failures.
+                // Template observation removes materialization failures for checked producers.
                 || (predicate || internal)
                     && matches!(edge.refinement(), Some(AnalysisRefinement::GeneratorStorageFailure(producer))
                         if prepared.generator_observations.producer(producer).is_some())
-        })
-        .map(|edge| edge.id())
-        .collect();
+        }).map(|edge| edge.id()));
 
-    crate::analysis::exclude_impossible_call_outcomes(graph, request, &mut excluded);
+        if previous.as_ref().is_none_or(|flow| !flow.matches_inputs(assumptions, &excluded)) {
+            // Release the old states before solving a new proof environment.
+            drop(previous.take());
 
-    let reachable = match analyze_execution_flow(
-        prepared,
-        excluded,
-        request,
-        expressions,
-        assumptions,
-        storage,
-        memory,
-        body,
-        invalidations,
-        contracts,
-        &disposal,
-        body.dependencies(),
-    ) {
-        CheckerOutcome::Complete(flow) => {
-            let (flow, additional) = flow.into_parts();
-
-            diagnostics.add_range(additional);
-
-            flow
+            previous = analyze_execution_flow(
+                prepared, excluded, request, expressions, assumptions, storage, memory,
+                body, contracts, &disposal, body.dependencies(),
+            );
         }
-        CheckerOutcome::Cancelled => {
-            return CheckerOutcome::Cancelled;
-        }
-        CheckerOutcome::UpstreamFailure(error) => return CheckerOutcome::UpstreamFailure(error),
-    };
 
-    let mut candidate = reachable.candidate(memory, obligation);
+        match &previous {
+            Some(flow) => check_execution_candidate(flow, obligation, property, predicate, internal, postconditions),
+            None => CheckerOutcome::Cancelled,
+        }
+    })
+}
+
+fn check_execution_candidate<C: CheckerRequestContext + ?Sized>(
+    reachable: &super::flow::ExecutionFlow<'_, '_, C>,
+    obligation: Option<crate::ExecutionObligation>,
+    property: Option<ExecutionProperty>,
+    predicate: bool,
+    internal: bool,
+    postconditions: &[(crate::ExecutionCondition, bray_source::SourceSpan)],
+) -> CandidateOutcome<C> {
+    let request = reachable.domain.request;
+    let graph = reachable.domain.graph;
+    let expressions = reachable.domain.semantics;
+    let body = reachable.domain.checked_body.expect("candidate checks retain checked body semantics");
+    let memory = reachable.domain.memory;
+    let mut diagnostics = bray_diagnostics::DiagnosticBag::new();
+
+    let (mut candidate, reached_cleanup) = reachable.candidate(memory, obligation, property);
 
     if property == Some(ExecutionProperty::Pure) && !internal {
         reachable.domain.check_predicate_blocks(body.storage_flow(), &mut diagnostics);
@@ -120,12 +132,13 @@ pub fn check_execution_candidate<C: CheckerRequestContext + ?Sized>(
 
     if let Some(property) = property {
         match check_operations(
-            &reachable,
+            reachable,
             property,
             predicate,
             internal,
             body,
             memory,
+            &reached_cleanup,
             &mut candidate,
             &mut diagnostics,
         ) {
@@ -153,15 +166,15 @@ pub fn check_execution_candidate<C: CheckerRequestContext + ?Sized>(
         Vec::new()
     };
 
-    let bounded_loops = super::termination::bounded_loop_ranks(&reachable, &cycles);
+    let bounded_loops = super::termination::bounded_loop_ranks(reachable, &cycles);
 
     let finite_loops =
-        super::termination::finite_protocol_loops(&reachable, &cycles, &mut candidate);
+        super::termination::finite_protocol_loops(reachable, &cycles, &mut candidate);
 
     match check_completion(
         request,
         graph,
-        &reachable,
+        reachable,
         property,
         internal,
         &bounded_loops,
@@ -174,14 +187,14 @@ pub fn check_execution_candidate<C: CheckerRequestContext + ?Sized>(
         Err(crate::CheckerQueryError::Upstream(error)) => return CheckerOutcome::UpstreamFailure(error),
     }
 
-    match check_postconditions(&reachable, postconditions, &mut candidate) {
+    match check_postconditions(reachable, postconditions, &mut candidate) {
         Ok(()) => {}
         Err(crate::CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
         Err(crate::CheckerQueryError::Upstream(error)) => return CheckerOutcome::UpstreamFailure(error),
     }
 
     if internal && property == Some(ExecutionProperty::Total) {
-        super::termination::finite_step(&reachable, &mut candidate, &bounded_loops);
+        super::termination::finite_step(reachable, &mut candidate, &bounded_loops);
     }
 
     if internal && property == Some(ExecutionProperty::Total) {
@@ -208,6 +221,7 @@ fn check_operations<C: CheckerRequestContext + ?Sized>(
     internal: bool,
     body: &CheckedBodySemantics,
     memory: &CheckedMemoryOperations,
+    reached_cleanup: &std::collections::BTreeMap<super::super::id::AnalysisOperationId, super::cleanup::ReachedScopeCleanup>,
     candidate: &mut ExecutionCandidate,
     diagnostics: &mut bray_diagnostics::DiagnosticBag,
 ) -> Result<(), crate::CheckerQueryError<C::UpstreamError>> {
@@ -230,20 +244,20 @@ fn check_operations<C: CheckerRequestContext + ?Sized>(
         let mut state = (property == ExecutionProperty::Total
             && (predicate || internal || reachable.domain.has_bounds_checks))
             .then(|| {
-                // Replay operations on a copy without changing the solved block entry.
                 reachable
                     .entry(block.id())
                     .expect("reachable block retains its execution state")
-                    .into_owned()
             });
 
         let mut predicate_ranges = super::integer::IntegerRanges::new();
 
-        for operation in block
+        let mut operations = block
             .operations()
             .iter()
             .filter_map(|id| graph.operation(*id))
-        {
+            .peekable();
+
+        while let Some(operation) = operations.next() {
             let node = operation.kind().node();
 
             if property == ExecutionProperty::Total {
@@ -265,29 +279,19 @@ fn check_operations<C: CheckerRequestContext + ?Sized>(
 
                     true
                 }
-                AnalysisOperationKind::Result { .. } => true,
+                AnalysisOperationKind::Result { .. } | AnalysisOperationKind::ScopedResult(_) => true,
                 AnalysisOperationKind::ScopeExit {
-                    scope, exit, phase, ..
+                    scope, exit, ..
                 } => super::cleanup::check_scope_cleanup(
                     request,
-                    storage,
-                    body.asynchronous(),
+                    body.storage_flow(),
                     scope,
                     exit,
-                    phase,
+                    reached_cleanup.get(&operation.id()),
                     property,
                     |access| {
-                        (property == ExecutionProperty::Pure
-                            && candidate
-                                .inert_cleanup
-                                .get(&(exit, access))
-                                .copied()
-                                .unwrap_or(false))
-                            || (predicate || internal)
-                                && reachable
-                                    .domain
-                                    .generator_observations
-                                    .eliminates(storage, access)
+                        (predicate || internal)
+                            && reachable.domain.generator_observations.eliminates(storage, access)
                     },
                     &mut candidate.dependencies,
                     diagnostics,
@@ -348,7 +352,8 @@ fn check_operations<C: CheckerRequestContext + ?Sized>(
                         )),
                     ..
                 }
-                | AnalysisOperationKind::Bound(AnyBoundNodeId::Expression(expression)) => {
+                | AnalysisOperationKind::Bound(AnyBoundNodeId::Expression(expression))
+                | AnalysisOperationKind::AssignmentInstall(expression) => {
                     let mut valid = true;
 
                     if visited.insert(expression.into()) {
@@ -420,8 +425,10 @@ fn check_operations<C: CheckerRequestContext + ?Sized>(
                 record_failure(request, candidate, node, FailureCause::Unproven);
             }
 
-            if let Some(current) = &mut state {
-                if !reachable.domain.operation(current, operation.kind(), None) {
+            if let Some(current) = &mut state
+                && operations.peek().is_some()
+            {
+                if !reachable.domain.operation(current.to_mut(), operation, block.id(), None) {
                     break;
                 }
 
@@ -463,7 +470,7 @@ fn check_expression_execution<C: CheckerRequestContext + ?Sized>(
         dependencies,
     );
 
-    for replacement in body.asynchronous().replacement(expression).into_iter() {
+    if let Some(replacement) = body.storage_flow().replacement(expression) {
         valid &= super::cleanup::check_cleanup(
             request,
             storage,
@@ -625,19 +632,9 @@ fn classify_mutation<C: CheckerRequestContext + ?Sized>(
         return;
     }
 
-    let effect = body
-        .storage_flow()
-        .observation_invalidations()
-        .get(&occurrence)
-        .or_else(|| body.refinements().invalidations().get(&occurrence));
+    let scope = body.storage_flow().input_observation_scope(occurrence);
 
-    if !matches!(
-        effect,
-        Some(bray_bound_tree::StorageInvalidation::Observed {
-            scope: StorageMutationScope::Invocation,
-            ..
-        })
-    ) {
+    if scope != Some(StorageMutationScope::Invocation) {
         return;
     }
 

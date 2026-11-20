@@ -11,8 +11,7 @@ pub fn merge_storage_contents(
         match incoming.get(key) {
             Some(incoming) => changed |= contents.merge(incoming, key),
             None => {
-                changed |= !contents.initialized.is_empty();
-                contents.initialized.clear();
+                changed |= contents.clear_initialization();
             }
         }
     }
@@ -22,7 +21,7 @@ pub fn merge_storage_contents(
             // Joined contents retain possible obligations, but no one-sided initialization proof.
             let mut contents = contents.clone();
 
-            contents.initialized.clear();
+            contents.clear_initialization();
             target.insert(key.clone(), contents);
             changed = true;
         }
@@ -40,21 +39,28 @@ pub fn merge_storage_bindings<K: Clone + Ord>(
     let mut changed = false;
 
     for (slot, value) in target.iter_mut() {
-        let previous = value.clone();
-
         match incoming.get(slot) {
-            Some(other) if target_absent(slot) => *value = other.clone(),
+            Some(other) if *value == *other => {}
+            Some(other) if target_absent(slot) => {
+                *value = other.clone();
+                changed = true;
+            }
             Some(_) if incoming_absent(slot) => {},
             Some(other) => {
+                let previous = value.clone();
+
                 value.join(other);
+                changed |= *value != previous;
             }
             None if !incoming_absent(slot) => {
+                let previous = value.clone();
+
                 value.lose_information();
+                changed |= *value != previous;
             }
             None => {}
         }
 
-        changed |= *value != previous;
     }
 
     for (slot, value) in incoming {

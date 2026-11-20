@@ -1,32 +1,37 @@
 use super::super::core::StorageFlowCollector;
+use super::outputs::InvocationOutputs;
 use crate::CheckerRequestContext;
+use crate::analysis::storage_flow::memory::{Source, Target};
 use bray_symbols::TypeData;
 
 impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
-    pub(super) fn prepare_returned_values(
+    pub(super) fn stage_returned_values(
         &self,
         state: &mut crate::analysis::storage_flow::model::StorageFlowState,
         occurrence: bray_bound_tree::BoundExecutionSite,
-        contracts: &bray_bound_tree::BoundCallDependencyContracts,
+        invocation: &InvocationOutputs<'_>,
         destination: &bray_bound_tree::StoragePath,
-        ownership: &bray_symbols::DependencyOwnedResult,
+        transfers: impl IntoIterator<Item = bray_symbols::DependencyOwnedTransfer>,
     ) {
-        use crate::analysis::storage_flow::memory::Target;
-
         if matches!(occurrence, bray_bound_tree::BoundExecutionSite::CallInput { .. }) {
             return;
         }
 
-        for transfer in ownership.guaranteed_transfers() {
-            let route = contracts.returned_value(&transfer);
-            let root = route.input_root();
+        let entry = match invocation {
+            InvocationOutputs::Call { entry: Some(entry), .. } | InvocationOutputs::Frame { entry, .. } => *entry,
+            _ => return,
+        };
 
-            let Some(source) = self.invocation_place(occurrence, root) else { continue; };
+        for transfer in transfers {
+            let route = invocation.storage().returned_value(&transfer);
+            let root = route.input_root();
 
             let path = route.input_path();
             let input = path.projections();
             let mut output = crate::storage::owned_storage_projections(self.dependencies, transfer.output());
-            let wrapping = self.invocation_wrapping(occurrence, root);
+            let wrapping = if matches!(invocation, InvocationOutputs::Call { .. }) {
+                self.invocation_wrapping(occurrence, root)
+            } else { Vec::new() };
 
             let adaptation = if input.starts_with(wrapping.as_slice()) {
                 &[][..]
@@ -39,22 +44,45 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 adaptation
             };
 
-            let sources = if route.is_borrowed() {
-                let input = input.strip_prefix(wrapping.as_slice()).unwrap_or_default();
-
-                vec![Target::storage(source).project(input)]
-            } else if adaptation.is_empty() {
-                let Some(sources) = self.invocation_stored_locations(state, occurrence,
-                    &bray_symbols::DependencySubject::root(root), path, false) else { continue; };
-
-                sources
+            let sources = if !route.is_borrowed()
+                && let Some(extracted) = entry.extracted_values.get(&transfer.input())
+                && let Some(captured) = extracted.inline_captured_storage()
+            {
+                vec![Source::Captured(captured.clone())]
             } else {
-                vec![Target::storage(source)]
+                let captured = match invocation {
+                    InvocationOutputs::Call { .. } => self.execution.invocation_capture(entry, occurrence, root),
+                    InvocationOutputs::Frame { has_receiver, .. } => root.input_ordinal(*has_receiver)
+                        .and_then(|ordinal| entry.argument_storage(ordinal)),
+                    InvocationOutputs::Lifecycle { .. } => unreachable!("cleanup has no returned owner"),
+                };
+
+                let Some(captured) = captured else { continue; };
+
+                if route.is_borrowed() {
+                    let input = input.strip_prefix(wrapping.as_slice()).unwrap_or_default();
+                    let captured = input.iter().fold(captured.clone(), |captured, projection| captured.project(*projection));
+
+                    vec![Source::Captured(captured)]
+                } else if adaptation.is_empty() {
+                    let path = if wrapping.is_empty() { std::borrow::Cow::Borrowed(path) }
+                        else {
+                            let Some(path) = self.invocation_reference_path(occurrence, root, path) else { continue; };
+
+                            path
+                        };
+
+                    let Some(sources) = state.memory.captured_reference_sources(self.request.semantic_values(), captured, &path) else { continue; };
+
+                    sources
+                } else {
+                    vec![Source::Captured(captured.clone())]
+                }
             };
 
             let output = Target::storage(destination.clone()).project(&output);
 
-            self.stage_preserved_value(state, occurrence, &transfer, &sources, &output, adaptation);
+            self.stage_preserved_value(state, occurrence, &transfer, sources, &output, adaptation);
         }
     }
 
@@ -63,16 +91,15 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         state: &mut crate::analysis::storage_flow::model::StorageFlowState,
         occurrence: bray_bound_tree::BoundExecutionSite,
         transfer: &bray_symbols::DependencyOwnedTransfer,
-        sources: &[crate::analysis::storage_flow::memory::Target],
-        output: &crate::analysis::storage_flow::memory::Target,
+        sources: Vec<Source>,
+        output: &Target,
         adaptation: &[bray_bound_tree::StorageProjection],
     ) {
         let preservation = crate::storage::owned_storage_preservation(self.dependencies, transfer.preservation());
         let preservation = preservation.subtree(adaptation);
 
         for source in sources {
-            // The output owns its captured bindings while paths remain shared with the plan.
-            state.memory.stage_preserved_value(occurrence, source, output.clone(), &preservation);
+            state.memory.stage_preserved_value(occurrence, &source, output.clone(), &preservation);
         }
     }
 

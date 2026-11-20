@@ -80,8 +80,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             CheckedMemoryOperationKind::RawBufferPush { element } => {
                 return self.buffer_prefix_effects(
                     state,
+                    execution,
                     operation,
-                    0,
                     Some(bray_symbols::DependencyMutationKind::Replace(element)),
                 );
 
@@ -89,21 +89,21 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             CheckedMemoryOperationKind::RawBufferPop { .. } => {
                 return self.buffer_prefix_effects(
                     state,
+                    execution,
                     operation,
-                    0,
                     Some(bray_symbols::DependencyMutationKind::Consume),
                 );
 
             }
             CheckedMemoryOperationKind::RawBufferSetInitializedCount => {
-                return self.buffer_prefix_effects(state, operation, 0, None);
+                return self.buffer_prefix_effects(state, execution, operation, None);
             }
             CheckedMemoryOperationKind::RawBufferRelocate { .. }
             | CheckedMemoryOperationKind::RawBufferReplace { .. } => {
-                return self.buffer_transfer_effects(state, operation);
+                return self.buffer_transfer_effects(state, execution, operation);
             }
             CheckedMemoryOperationKind::RawBufferRelease { .. } => {
-                return self.buffer_release_effects(state, operation);
+                return self.buffer_release_effects(state, execution, operation);
             }
             CheckedMemoryOperationKind::RawDeallocate | CheckedMemoryOperationKind::Deallocate => {
                 let ty = if matches!(operation.kind(), CheckedMemoryOperationKind::Deallocate) {
@@ -114,10 +114,18 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 };
 
                 let kind = bray_symbols::DependencyMutationKind::Retire;
-                let targets = self.deallocation_source(state, operation).and_then(|source| source.mutation_targets(&state.memory));
+
+                let targets = self.captured_deallocation_pointer(execution, operation)
+                    .and_then(|pointer| pointer.mutation_targets());
 
                 return Some(match targets {
-                    Some(targets) => targets.into_iter().map(|target| Effect::through(target, kind, Some(ty))).collect(),
+                    Some(targets) => targets.into_iter().map(|target| {
+                        let address = target.address.clone();
+
+                        Effect::through(target, kind, Some(ty)).with_retirement_discharges(
+                            address.as_ref().into_iter().flat_map(|address| state.memory.retirement_discharges(address)),
+                        )
+                    }).collect(),
                     None => vec![Effect::unbounded(kind, Some(ty), false)],
                 });
             }
@@ -135,9 +143,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 | CheckedMemoryOperationKind::AtomicFetch { .. }
         ) {
             // Atomics update their protected word, never retire its owner or unrelated storage.
-            let targets = self
-                .memory_argument_reference(state, operation, operation.arguments()[0])
-                .and_then(|source| source.targets(&state.memory));
+            let targets = self.captured_memory_operand(execution, operation, operation.arguments()[0])
+                .and_then(bray_bound_tree::StorageCapturedValue::mutation_targets);
 
             let Some(targets) = targets else {
                 return Some(vec![Effect::Atomic]);
@@ -147,7 +154,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 targets
                     .into_iter()
                     .map(|target| {
-                        Effect::at(target, bray_symbols::DependencyMutationKind::Atomic, None)
+                        Effect::through(target, bray_symbols::DependencyMutationKind::Atomic, None)
                     })
                     .collect(),
             );
@@ -172,12 +179,11 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let access_type = (!protected).then(|| self.execution.semantics.types()
             .expression(argument).expect("checked memory access retains its argument type").ty());
 
-        let targets = if operation.kind().moving_read_type().is_some() {
-            self.captured_memory_read(execution, expression).and_then(|read| read.mutation_targets())
-        } else if protected {
-            self.memory_uninit_target(state, operation, argument).map(|target| vec![crate::analysis::storage_flow::memory::MutationTarget::location(target)])
+        let targets = if protected {
+            self.memory_uninit_target(state, execution, operation, argument).map(|target| vec![crate::analysis::storage_flow::memory::MutationTarget::location(target)])
         } else {
-            self.memory_argument_reference(state, operation, argument).and_then(|source| source.mutation_targets(&state.memory))
+            self.captured_memory_operand(execution, operation, argument)
+                .and_then(bray_bound_tree::StorageCapturedValue::mutation_targets)
         };
 
         Some(match targets {

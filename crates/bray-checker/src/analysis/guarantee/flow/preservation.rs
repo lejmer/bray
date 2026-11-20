@@ -4,6 +4,7 @@ use bray_bound_tree::{StorageMutation, StorageProjection};
 use bray_bound_tree::StorageObservationKind as Kind;
 
 use crate::{ExecutionCondition, ExecutionPlace};
+use crate::execution_guarantees::RetainedSnapshots;
 
 /// The checked physical-survival mask for one actual storage value. It holds
 /// no object data or evidence and is applied to the retained source once.
@@ -74,25 +75,21 @@ impl ValuePreservation {
         }
     }
 
-    pub(super) fn frame(
-        &mut self,
+    pub(super) fn frame_prepared(
+        &self,
         state: &mut super::super::state::ExecutionState,
         source: &ExecutionCondition,
         path: &[StorageProjection],
         place: Option<&ExecutionPlace>,
         mutation: StorageMutation,
+        moved: &RetainedSnapshots,
     ) -> ExecutionCondition {
-        self.retain_inline_descriptors(source, &mut { ExecutionCondition::WORK_LIMIT });
-
         let source = path.iter().copied().fold(source.clone(), ExecutionCondition::project);
-        let mask = self.at_mut(path);
-
-        let moved = state.entries.get(&mutation.occurrence()).into_iter()
-            .flat_map(|entry| entry.extracted_values.values().cloned())
-            .collect::<crate::execution_guarantees::RetainedSnapshots>();
+        let empty = Self::default();
+        let mask = self.at(path).unwrap_or(&empty);
 
         let extracted = moved.retains_owner(&source);
-        let next = mask.apply_bounded(&source, place, mutation, true, &moved, &mut { ExecutionCondition::WORK_LIMIT });
+        let next = mask.apply_bounded(&source, place, mutation, true, moved, &mut { ExecutionCondition::WORK_LIMIT });
 
         state.preserve_owned_result(&source, &next, extracted, |path| {
             mask.at(path).map_or_else(bray_symbols::DependencyValuePreservation::none, Self::contents_preservation)
@@ -101,12 +98,30 @@ impl ValuePreservation {
         next
     }
 
+    pub(super) fn prepare_frame(&mut self, source: &ExecutionCondition) {
+        self.retain_inline_descriptors(source, &mut { ExecutionCondition::WORK_LIMIT });
+    }
+
+    #[cfg(test)]
+    pub(super) fn frame(
+        &mut self,
+        state: &mut super::super::state::ExecutionState,
+        source: &ExecutionCondition,
+        path: &[StorageProjection],
+        place: Option<&ExecutionPlace>,
+        mutation: StorageMutation,
+        moved: &RetainedSnapshots,
+    ) -> ExecutionCondition {
+        self.prepare_frame(source);
+        self.frame_prepared(state, source, path, place, mutation, moved)
+    }
+
     fn retain_inline_descriptors(&mut self, source: &ExecutionCondition, budget: &mut usize) {
         let Some(remaining) = budget.checked_sub(1) else { return; };
 
         *budget = remaining;
 
-        if self.value { return; }
+        if self.value || !self.descriptor && self.children.is_empty() { return; }
 
         if self.descriptor && !source.is_reference() && source.deferred_value().is_some() {
             // An opaque computation's saved handle owns the captured frame.
@@ -191,9 +206,11 @@ impl ValuePreservation {
                 )
             } else { framed };
 
-            let storage = if self.preserves_value() || self.descriptor { storage.as_ref().clone() } else { storage.bounded() };
-
-            return framed.captured_value(storage);
+            return if self.preserves_value() || self.descriptor {
+                framed.captured_value(storage.clone())
+            } else {
+                framed.captured_value(storage.bounded())
+            };
         }
 
         let consumed = moved.retains_owner(source);
@@ -292,7 +309,7 @@ mod tests {
 
         mask.record(Kind::Value);
 
-        let framed = mask.frame(&mut state, &source, &[], Some(&place), StorageMutation::Operation(sites[0].into()));
+        let framed = mask.frame(&mut state, &source, &[], Some(&place), StorageMutation::Operation(sites[0].into()), &Default::default());
 
         assert_eq!(framed.ownership_identity(), None,
             "the nullable wrapper has no independent owner after framing its opaque payload");
@@ -487,7 +504,7 @@ mod tests {
         let mut mask = ValuePreservation { descriptor: true, ..Default::default() };
         let mut state = ExecutionState::default();
         let child_place = place.clone().project(&[field]).expect("inline reference field");
-        let selected = mask.frame(&mut state, &source, &[field], Some(&child_place), mutation);
+        let selected = mask.frame(&mut state, &source, &[field], Some(&child_place), mutation, &Default::default());
 
         assert_eq!(selected.ownership_identity(), reference.ownership_identity(),
             "a projected update inherits the same owner's descriptor before selecting its field");
@@ -500,7 +517,7 @@ mod tests {
             if !whole { mask.at_mut(&[field]).descriptor = true; }
 
             let mut state = ExecutionState::default();
-            let updated = mask.frame(&mut state, &source, &[], Some(&place), mutation);
+            let updated = mask.frame(&mut state, &source, &[], Some(&place), mutation, &Default::default());
             let retained = updated.clone().project(field);
 
             assert_eq!(retained.ownership_identity(), reference.ownership_identity(),
@@ -514,7 +531,7 @@ mod tests {
 
             assert_ne!(updated.clone().project(data).computed_value(), &ExecutionCondition::boolean(true));
 
-            assert_eq!(mask.frame(&mut state, &updated, &[], Some(&place), mutation), updated,
+            assert_eq!(mask.frame(&mut state, &updated, &[], Some(&place), mutation, &Default::default()), updated,
                 "repeated framing must stabilize");
         }
     }
@@ -639,7 +656,7 @@ mod tests {
         guard.clone().assume(true, &mut selected.assumptions);
 
         let mut mask = ValuePreservation { descriptor: true, value: true, ..Default::default() };
-        let value = mask.frame(&mut selected, &source, &[], Some(&place), StorageMutation::Operation(sites[0].into()));
+        let value = mask.frame(&mut selected, &source, &[], Some(&place), StorageMutation::Operation(sites[0].into()), &Default::default());
 
         selected.assumptions.clear();
 
@@ -663,7 +680,7 @@ mod tests {
 
             mask.at_mut(&[field]).descriptor = true;
 
-            let value = mask.frame(&mut state, &source, &[], Some(&place), StorageMutation::Operation(sites[index].into()));
+            let value = mask.frame(&mut state, &source, &[], Some(&place), StorageMutation::Operation(sites[index].into()), &Default::default());
 
             state.assumptions.clear();
             assert!(state.owned_result(&source).is_empty(), "the original selected snapshot cannot revive after its selector expires");
@@ -717,7 +734,7 @@ mod tests {
 
         let mutation = StorageMutation::Operation(sites[0].into());
         let place = ExecutionPlace::argument(SymbolOrdinal::new(3));
-        let next = mask.frame(&mut state, &source, &[], Some(&place), mutation);
+        let next = mask.frame(&mut state, &source, &[], Some(&place), mutation, &Default::default());
         let retained = state.owned_result(&next);
 
         assert_eq!(retained.transfers().count(), 2);
@@ -730,12 +747,12 @@ mod tests {
         assert!(retained.transfers().any(|transfer| transfer.input() == input(1) && transfer.preservation().preserves_value()));
         assert_eq!(state.owned_result(&source), ownership, "framing cannot rewrite a prior snapshot");
 
-        let replay = mask.frame(&mut state, &next, &[], Some(&place), mutation);
+        let replay = mask.frame(&mut state, &next, &[], Some(&place), mutation, &Default::default());
 
         assert_eq!(state.owned_result(&replay), retained, "repeated physical framing stabilizes");
 
         let mut overwritten = ValuePreservation { descriptor: true, ..Default::default() };
-        let final_value = overwritten.frame(&mut state, &next, &[], Some(&place), mutation);
+        let final_value = overwritten.frame(&mut state, &next, &[], Some(&place), mutation, &Default::default());
 
         assert_eq!(state.owned_result(&final_value).transfers().count(), 1, "a later overwrite retires the old child authority");
     }
@@ -890,7 +907,8 @@ mod tests {
     fn mutation_retains_an_existing_owned_context_without_retaining_joined_contents() {
         let place = ExecutionPlace::argument(SymbolOrdinal::new(0));
         let owner = ExecutionCondition::new(crate::ExecutionConditionKind::Input(place.clone()));
-        let previous = ExecutionCondition::new(crate::ExecutionConditionKind::Joined(BoundUnitId::new(0), 1, place.clone()));
+        let join = crate::ExecutionJoinSite::Block(BoundUnitId::new(0), 1);
+        let previous = ExecutionCondition::new(crate::ExecutionConditionKind::Joined(join, place.clone()));
 
         let (_, sites) = crate::test_support::integer_expression_unit(BoundUnitId::new(0), 2);
 
@@ -915,13 +933,13 @@ mod tests {
 
             state.owned_results.insert(source.clone(), layout.clone());
 
-            let updated = mask.frame(&mut state, &source, &[], Some(&place), mutation);
+            let updated = mask.frame(&mut state, &source, &[], Some(&place), mutation, &Default::default());
 
             assert_eq!(updated.ownership_identity(), source.ownership_identity());
             assert_eq!(updated.computed_value(), &ExecutionCondition::post_state(mutation, source.owner_identity().clone()));
             assert_ne!(updated.computed_value(), &previous);
             assert_ne!(updated.computed_value(), &owner);
-            assert_eq!(mask.frame(&mut state, &updated, &[], Some(&place), mutation), updated);
+            assert_eq!(mask.frame(&mut state, &updated, &[], Some(&place), mutation, &Default::default()), updated);
             assert_eq!(state.owned_result(&source), layout, "framing leaves the prior snapshot intact");
 
             let child = StorageProjection::TupleElement(SymbolOrdinal::new(0));
@@ -931,7 +949,7 @@ mod tests {
 
             nested_mask.at_mut(&[child]);
 
-            let nested = nested_mask.frame(&mut state, &nested, &[], Some(&place), mutation).project(child);
+            let nested = nested_mask.frame(&mut state, &nested, &[], Some(&place), mutation, &Default::default()).project(child);
 
             assert_eq!(nested.ownership_identity(), source.ownership_identity(), "in-place framing preserves the existing role at every visited component");
             assert_eq!(nested.computed_value(), updated.computed_value());
@@ -942,16 +960,17 @@ mod tests {
                 outputs: Default::default(),
                 extracted_values: [(term, source.clone())].into(),
                 ..Default::default()
-            });
+            }.into());
 
-            let vacated = mask.frame(&mut extraction, &source, &[], Some(&place), mutation);
+            let moved = extraction.extracted_input_snapshots(mutation, None);
+            let vacated = mask.frame(&mut extraction, &source, &[], Some(&place), mutation, &moved);
 
             assert_ne!(vacated.ownership_identity(), source.ownership_identity(),
                 "a vacated slot cannot keep the moved owner's authority");
 
             assert_eq!(vacated.computed_value(), &ExecutionCondition::post_state(mutation, source.owner_identity().clone()));
 
-            assert_eq!(mask.frame(&mut extraction, &vacated, &[], Some(&place), mutation), vacated,
+            assert_eq!(mask.frame(&mut extraction, &vacated, &[], Some(&place), mutation, &moved), vacated,
                 "replaying extraction must stabilize without restoring the prior owner");
 
             assert!(extraction.owned_result(&vacated).is_empty(), "the vacated value cannot inherit the moved formal lineage");
@@ -977,10 +996,11 @@ mod tests {
                     outputs: Default::default(),
                     extracted_values: [(term, source.clone())].into(),
                     ..Default::default()
-                });
+                }.into());
             }
 
-            let next = mask.frame(&mut state, &source, &[], Some(&place), mutation);
+            let moved = state.extracted_input_snapshots(mutation, None);
+            let next = mask.frame(&mut state, &source, &[], Some(&place), mutation, &moved);
             let returned = state.owned_result(&source);
 
             assert_eq!(returned.is_empty(), !extracted || known_empty,

@@ -198,54 +198,32 @@ where
         .implicit_input_plan(occurrence)
         .expect("implicit invocation retains its sole input");
 
-    let (callable, root, result, source_expression, source_site) = match (selection, occurrence) {
-        (SemanticSelection::Iteration(iteration), Site::Iterate(_)) => (
-            iteration.iterate(),
-            DependencySubjectRoot::Receiver,
-            Some(
-                storage
-                    .invocation_result(occurrence)
-                    .expect("iterate owns its cursor result"),
-            ),
-            Some(iteration.source()),
-            iteration.source().into(),
-        ),
-        (SemanticSelection::Iteration(iteration), Site::Next(expression)) => (
-            iteration.next(),
-            DependencySubjectRoot::Receiver,
-            Some(
-                storage
-                    .invocation_result(occurrence)
-                    .expect("next owns its nullable result"),
-            ),
-            None,
-            Site::Iterate(expression),
-        ),
-        (SemanticSelection::ScopedUse(scoped), Site::ScopedEnter(expression)) => {
-            let Some(bray_bound_tree::BoundExpression::Structured(bound)) =
-                request.view().expression(expression)
-            else {
-                panic!("scoped entry retains its structured source");
-            };
+    let (callable, root, result, result_type, source_expression, source_site) = match (selection, occurrence) {
+        (SemanticSelection::Iteration(iteration), Site::Iterate(_)) => {
+            let result = storage.invocation_result(occurrence).expect("iterate owns its cursor result");
 
-            let Some(bray_bound_tree::StorageBinding::Access(capability)) = storage.binding(
-                bray_bound_tree::StorageBindingTarget::PatternSubject(bound.patterns()[0]),
-            ) else {
-                panic!("scoped entry retains its capability binding");
-            };
-
-            (
-                scoped.enter().0,
-                DependencySubjectRoot::Receiver,
-                Some(capability),
-                Some(scoped.initializer()),
-                scoped.initializer().into(),
-            )
+            (iteration.iterate(), DependencySubjectRoot::Receiver, Some(result), iteration.cursor_type(),
+                Some(iteration.source()), iteration.source().into())
         }
+        (SemanticSelection::Iteration(iteration), Site::Next(expression)) => {
+            let result = storage.invocation_result(occurrence).expect("next owns its nullable result");
+            let ty = storage.access(result).expect("next retains its result access").reached_type();
+
+            (iteration.next(), DependencySubjectRoot::Receiver, Some(result), ty, None, Site::Iterate(expression))
+        }
+        (SemanticSelection::ScopedUse(scoped), Site::ScopedEnter(_)) => (
+            scoped.enter().0,
+            DependencySubjectRoot::Receiver,
+            Some(storage.invocation_result(occurrence).expect("scoped entry retains its raw result")),
+            scoped.enter_result().completion_type(),
+            Some(scoped.initializer()),
+            scoped.initializer().into(),
+        ),
         (SemanticSelection::ScopedUse(scoped), Site::ScopedExit(expression)) => (
             scoped.exit().0,
             DependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(0)),
-            None,
+            storage.invocation_result(occurrence),
+            scoped.exit_result().completion_type(),
             None,
             Site::ScopedEnter(expression),
         ),
@@ -293,7 +271,7 @@ where
         request,
         root,
         ty,
-        result.map(|access| storage.access(access).expect("implicit result retains its checked access").reached_type()),
+        result_type,
         source_site,
         occurrence,
         instantiated,
@@ -329,6 +307,20 @@ pub(super) fn instantiate_reports<C: CheckerRequestContext + ?Sized>(
         }).transpose()
     }).collect::<Result<_, DependencyContractInstantiationError<_>>>()?;
 
+    let mut payloads = std::collections::BTreeMap::new();
+    let recursive_value = recursive.map(|template| template.output_requirements(bray_symbols::DependencyCallOutput::Value));
+
+    for (index, row) in template.captured_values().iter().enumerate() {
+        for payload in &*row.report_payloads {
+            // A recursive result equation bounds its explicit payloads without growing
+            // their generic requirements at every recursive instantiation.
+            let portable = recursive_value.as_ref().unwrap_or(&payload.requirements);
+            let report = instantiate(&payload.requirements, std::sync::Arc::clone(portable))?;
+
+            payloads.insert((index, payload.destination.clone()), report);
+        }
+    }
+
     let recursive_abnormal = recursive.and_then(DependencyContractTemplateData::abnormal_reports);
 
     let failures = template.failure_outcomes().map(|rows| rows.iter().map(|row| {
@@ -338,10 +330,11 @@ pub(super) fn instantiate_reports<C: CheckerRequestContext + ?Sized>(
             instantiate(requirements, std::sync::Arc::clone(portable))
         }).transpose()?;
 
-        Ok(bray_symbols::CapturedFailureOutcome { kind: row.kind, guard: row.guard, effects: row.effects.clone(), report })
+        Ok(bray_symbols::CapturedFailureOutcome { kind: row.kind, guard: row.guard, effects: row.effects.clone(),
+            cell_changes: row.cell_changes.clone(), writes: row.writes.clone(), report })
     }).collect::<Result<_, DependencyContractInstantiationError<_>>>()).transpose()?;
 
-    Ok(bray_bound_tree::BoundCallReports::new(completed, failures))
+    Ok(bray_bound_tree::BoundCallReports::new(completed, payloads, failures))
 }
 
 pub(super) fn concrete_requirements(
@@ -373,9 +366,18 @@ pub(crate) fn cleanup_report_contract<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     storage: &StoragePlan,
     access: bray_bound_tree::StorageAccessId,
+    receiver: Option<&bray_bound_tree::StoragePath>,
     requirements: &[DependencyRequirement],
 ) -> Result<BoundDependencyContract, CheckerQueryError<C::UpstreamError>> {
     let template = DependencyContractTemplateData::new(concrete_requirements(requirements));
+
+    let projection = receiver.map(|receiver| {
+        let access = storage.logical_path(access).expect("a selected cleanup part has an owning storage path");
+
+        assert!(access.contains(receiver), "cleanup part belongs to its owning access: {access:?}, {receiver:?}");
+
+        &receiver.projections[access.projections.len()..]
+    });
 
     let mut context = CallInstantiationContext::hidden(
         request,
@@ -383,7 +385,7 @@ pub(crate) fn cleanup_report_contract<C: CheckerRequestContext + ?Sized>(
         (DependencySubjectRoot::Receiver, access),
         None,
         None,
-    );
+    ).with_hidden_projection(projection);
 
     BoundDependencyContract::try_instantiate(&template, &mut context).map_err(|error| match error {
         DependencyContractInstantiationError::Resolution(error) => error,
@@ -438,16 +440,15 @@ where
 
     let invocation = BoundDependencyContract::try_instantiate(&invocation, context)?;
 
-    let deferred = contracts
+    let deferred_template = contracts
         .deferred_execution()
+        .map(|deferred| request.semantic_values().dependency_contract_template_data(deferred));
+
+    let deferred = deferred_template.as_ref()
         .map(|deferred| {
             context.begin_deferred_execution();
 
-            let deferred = request
-                .semantic_values()
-                .dependency_contract_template_data(deferred);
-
-            BoundDependencyContract::try_instantiate(&deferred, context)
+            BoundDependencyContract::try_instantiate(deferred, context)
         })
         .transpose()?;
 
@@ -455,7 +456,7 @@ where
         invocation,
         BoundDependencyContract::new([]),
         deferred,
-    ))
+    ).with_deferred_template(deferred_template))
 }
 
 fn callable_dependency_contracts<C>(

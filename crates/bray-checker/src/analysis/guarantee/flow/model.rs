@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{BoundExpression, BoundExpressionId, CheckedExpressionSemantics};
@@ -25,6 +26,8 @@ pub(in crate::analysis::guarantee) struct ExecutionFlow<
 pub(crate) struct ExecutionFlowDomain<'a, 'view, C: CheckerRequestContext + ?Sized> {
     pub(in crate::analysis::guarantee) proofs: std::sync::Arc<crate::execution_guarantees::ExecutionProofCache>,
     pub(super) values: &'a crate::analysis::liveness::ValueRetention,
+    pub(in crate::analysis::guarantee) liveness: &'a bray_bound_tree::Liveness,
+    pub(in crate::analysis) retained_storage: BTreeSet<bray_bound_tree::StorageAccessId>,
     pub(in crate::analysis::guarantee) dependencies:
         &'a bray_bound_tree::CheckedDependencyContracts,
     pub(in crate::analysis::guarantee) has_bounds_checks: bool,
@@ -41,10 +44,10 @@ pub(crate) struct ExecutionFlowDomain<'a, 'view, C: CheckerRequestContext + ?Siz
     pub(in crate::analysis::guarantee) graph: &'a ControlFlowGraph,
     pub(super) excluded_edges: BTreeSet<AnalysisEdgeId>,
     pub(super) result_edges: BTreeSet<AnalysisEdgeId>,
-    pub(super) failure_sites: BTreeSet<bray_bound_tree::BoundExecutionSite>,
+    pub(super) invocation_failures: &'a BTreeSet<(bray_bound_tree::BoundExecutionSite, bray_symbols::DependencyFailureKind)>,
     pub(in crate::analysis::guarantee) request: CheckerUnitView<'view, C>,
     pub(in crate::analysis) semantics: &'a CheckedExpressionSemantics,
-    pub(super) assumptions: &'a [ExecutionCondition],
+    pub(super) assumptions: Cow<'a, [ExecutionCondition]>,
     pub(super) input_invariants: &'a [ExecutionCondition],
     pub(super) union_variants: &'a BTreeMap<bray_symbols::TypeId, std::sync::Arc<[bray_symbols::UnionVariantSymbolId]>>,
     pub(in crate::analysis::guarantee) literals:
@@ -60,10 +63,6 @@ pub(crate) struct ExecutionFlowDomain<'a, 'view, C: CheckerRequestContext + ?Siz
     pub(in crate::analysis::guarantee) contracts:
         &'a BTreeMap<BoundExpressionId, Vec<crate::ExecutionCompletionContract>>,
     pub(in crate::analysis) disposal: &'a super::super::cleanup::Cleanup<'a>,
-    pub(in crate::analysis::guarantee) refinements: &'a BTreeMap<
-        bray_bound_tree::BoundExecutionSite,
-        bray_bound_tree::StorageInvalidation,
-    >,
     pub(in crate::analysis::guarantee) pointer_predicates:
         BTreeMap<bray_symbols::PredicateDefinitionSymbolId, &'static [usize]>,
     pub(in crate::analysis::guarantee) content_predicates:
@@ -75,40 +74,58 @@ pub(crate) struct ExecutionFlowDomain<'a, 'view, C: CheckerRequestContext + ?Siz
 }
 
 impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
-    pub(super) fn edge_state(&self, state: &ExecutionState, edge: &AnalysisEdge) -> Option<ExecutionState> {
+    pub(super) fn replay_edge(&self, state: &ExecutionState, edge: &AnalysisEdge,
+        mut emit: impl FnMut(Option<usize>, ExecutionState),
+    ) {
         if self.excluded_edges.contains(&edge.id()) {
-            return None;
+            return;
         }
 
-        let mut next = match edge.refinement() {
-            Some(AnalysisRefinement::InvocationFailure(occurrence, kind)) => {
-                let source = state.admitted_failure.as_ref().filter(|(site, _)| *site == occurrence)
-                    .map_or(state, |(_, state)| state.as_ref());
+        let Some(AnalysisRefinement::InvocationFailure(occurrence, kind)) = edge.refinement() else {
+            if let Some(next) = self.finish_edge(state.clone(), edge) { emit(None, next); }
 
-                if !self.invocation_can_fail(source, occurrence, kind) { return None; }
-
-                let mut failure = source.clone();
-                let mutation = bray_bound_tree::StorageMutation::InvocationFailure { occurrence, kind };
-                let flow = self.checked_body.expect("failure replay retains the checked transition").storage_flow();
-
-                let admitted_retirements = flow.capture_retirements(mutation, bray_bound_tree::StorageValuePhase::Input,
-                    bray_bound_tree::StorageValueBoundary::Execution);
-
-                failure.retire_captured_storage(admitted_retirements);
-
-                if let Some(invalidation) = flow.outcome_mutation(mutation) {
-                    self.invalidate_observations(&mut failure, mutation, invalidation);
-                }
-
-                let retirements = flow.capture_retirements(mutation, bray_bound_tree::StorageValuePhase::Attempt,
-                    bray_bound_tree::StorageValueBoundary::Execution);
-
-                failure.retire_captured_storage(retirements);
-
-                failure
-            }
-            _ => state.clone(),
+            return;
         };
+
+        let source = state.admitted_failure.as_ref().filter(|(site, _)| *site == occurrence)
+            .map_or(state, |(_, state)| state.as_ref());
+
+        if self.invocation_failure_rows(source, occurrence, kind).next().is_none() { return; }
+
+        let flow = self.checked_body.expect("failure replay retains the checked transition").storage_flow();
+
+        for (row, invalidation) in flow.invocation_failure_mutations(occurrence, kind, edge.id()) {
+            let mutation = bray_bound_tree::StorageMutation::InvocationFailure { occurrence, kind, edge: edge.id(), row };
+            let mut failure = source.clone();
+
+            if !self.assume_failure_row(&mut failure, occurrence, row) { continue; }
+
+            let completion = flow.completion(mutation);
+
+            let mut writes = completion.and_then(|completion|
+                self.replay_failure_writes(&failure, mutation, completion.failure_writes()));
+
+            if !invalidation.is_unchanged() {
+                self.invalidate_observations(&mut failure, mutation, invalidation);
+            }
+
+            let retirements = flow.capture_retirements(mutation, bray_bound_tree::StorageValueBoundary::Execution);
+
+            failure.retire_captured_storage(retirements);
+
+            if let Some((writes, completion)) = writes.as_mut().zip(completion) {
+                writes.retire_storage(retirements);
+                self.complete_failed_writes(&mut failure, mutation, writes, completion);
+            }
+
+            failure.retire_captured_storage(flow.capture_retirements(mutation, bray_bound_tree::StorageValueBoundary::Retirement));
+
+            if let Some(next) = self.finish_edge(failure, edge) { emit(row, next); }
+        }
+    }
+
+    fn finish_edge(&self, mut next: ExecutionState, edge: &AnalysisEdge) -> Option<ExecutionState> {
+        next.cleanup = super::super::super::outcomes::cleanup_successor(next.cleanup.as_ref(), edge)?;
 
         if edge.kind() != AnalysisEdgeKind::Suspension {
             next.admitted_failure = None;
@@ -117,14 +134,65 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         self.refine_edge(&mut next, edge).then_some(next)
     }
 
-    pub(in crate::analysis) fn invocation_can_fail(
-        &self, state: &ExecutionState, occurrence: bray_bound_tree::BoundExecutionSite, kind: bray_symbols::DependencyFailureKind,
-    ) -> bool {
-        let Some(rows) = self.dependencies.calls().get(&occurrence).and_then(|call| call.reports().failures()) else { return true; };
+    pub(in crate::analysis) fn invocation_failure_rows<'a>(
+        &'a self, state: &'a ExecutionState, occurrence: bray_bound_tree::BoundExecutionSite, kind: bray_symbols::DependencyFailureKind,
+    ) -> impl Iterator<Item = Option<usize>> + 'a {
+        let reachable = self.invocation_failures.contains(&(occurrence, kind));
+
+        let deferred = (reachable && kind == bray_symbols::DependencyFailureKind::Panic)
+            .then(|| self.direct_await_body(state, occurrence))
+            .flatten()
+            .and_then(|(_, _, frame)| frame.entry.failure_rows.as_deref());
+
+        let rows = if deferred.is_some() || !reachable {
+            Some(&[][..])
+        } else {
+            self.dependencies.calls().get(&occurrence).and_then(|call| call.reports().failures())
+        };
 
         let entry = state.admitted_call(occurrence);
 
-        rows.iter().enumerate().any(|(index, row)| row.covers(kind) && entry.is_none_or(|entry| entry.admits_failure(index)))
+        let limit = crate::analysis::outcomes::FlowOutcomes::<ExecutionState>::MAX_ALTERNATIVES;
+
+        let calls = rows.into_iter().flatten().enumerate().filter_map(move |(index, row)|
+            (row.covers(kind) && entry.is_none_or(|entry| entry.admits_failure(index))).then_some(Some(index))
+        );
+
+        let frames = deferred.into_iter().flatten().filter_map(move |row| {
+            (row.covers(kind) && row.guard.as_ref().is_none_or(|guard| state.ordinary_proof().can_assume(guard, true)))
+                .then_some(Some(row.index))
+        });
+
+        let admitted = calls.chain(frames);
+
+        let widen = rows.is_some_and(|rows| rows.iter().filter(|row| row.covers(kind)).nth(limit).is_some())
+            || deferred.is_some() && admitted.clone().nth(limit).is_some();
+
+        let opaque = rows.is_none() || (widen && admitted.clone().next().is_some());
+
+        admitted.take(if widen { 0 } else { limit }).chain(opaque.then_some(None))
+    }
+
+    pub(in crate::analysis) fn assume_failure_row(&self, state: &mut ExecutionState,
+        occurrence: bray_bound_tree::BoundExecutionSite, row: Option<usize>,
+    ) -> bool {
+        let Some(row) = row else { return true; };
+
+        let Some(entry) = self.direct_await_body(state, occurrence).map(|(_, _, frame)| frame.entry.as_ref())
+            .or_else(|| state.admitted_call(occurrence)) else {
+            return true;
+        };
+
+        if !entry.admits_failure(row) { return false; }
+
+        let Some(guard) = entry.failure_guard(row).cloned() else { return true; };
+
+        if !state.ordinary_proof().can_assume(&guard, true) { return false; }
+
+        guard.assume(true, &mut state.assumptions);
+        self.refine_witnesses(state);
+
+        true
     }
 
     pub(in crate::analysis) fn normal_completion(
@@ -132,55 +200,65 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         state: &ExecutionState,
         invocation: bray_bound_tree::BoundExecutionSite,
     ) -> bool {
-        let result = self.invocation_value(state, invocation);
+        let awaited = invocation.expression().filter(|&expression| {
+            invocation == expression.into()
+                && matches!(self.request.view().expression(expression), Some(BoundExpression::Await(_)))
+        });
 
-        if state.entries.get(&invocation).is_some_and(|entry| !entry.outputs.can_complete(&state.ordinary_proof(), entry, &result)) {
+        let result = awaited.map_or_else(
+            || self.invocation_value(state, invocation),
+            |expression| ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expression)),
+        );
+
+        if state.entries.get(&invocation).is_some_and(|entry| !self.outcome_reachable(&state.assumptions, entry, &result)) {
             return false;
         }
 
-        if let Some(BoundExpression::Await(_)) = invocation.expression().and_then(|expression| self.request.view().expression(expression)) {
+        if awaited.is_some() {
             let value = state.admitted_receiver(invocation);
 
-            let Some(frame) = value.deferred_value() else { return true; };
-
-            let proof = state.ordinary_proof();
-
-            return frame.unknown_possible(&proof) || frame.producers.iter().any(|(source, candidate)|
-                super::super::deferred::possible(&candidate.selection, &proof)
-                    && self.frame_normal_completion(&state.assumptions, source, candidate, &result));
+            return value.deferred_value().is_none_or(|frame| {
+                self.deferred_normal_completion(&state.assumptions, frame, &result)
+            });
         }
 
-            self.dependencies
-                .calls()
-                .get(&invocation)
-                .is_none_or(|contract| {
-                    contract.normal_completion()
-                        && (contract.deferred_effects().is_some()
-                            || state.entries.get(&invocation).is_none_or(|entry| {
-                                self.owned_normal_completion(
-                                    &state.assumptions,
-                                    invocation,
-                                    entry,
-                                    &result,
-                                )
-                            }))
-                })
+        self.dependencies.calls().get(&invocation).is_none_or(|contract| contract.normal_completion())
     }
 
-    pub(super) fn frame_normal_completion(&self, assumptions: &crate::execution_guarantees::ExecutionAssumptions,
-        source: &crate::execution_guarantees::DeferredProducer, candidate: &crate::ExecutionDeferredInvocation,
+    pub(super) fn deferred_normal_completion(
+        &self,
+        assumptions: &crate::execution_guarantees::ExecutionAssumptions,
+        frame: &crate::ExecutionDeferredValue,
         result: &ExecutionCondition,
     ) -> bool {
-        if let Some(source) = source.local() {
-            return self.dependencies.calls()[&source].deferred_completion()
-                && self.owned_normal_completion(assumptions, source, &candidate.entry, result);
-        }
+        let proof = self.proofs.ordinary_proof(assumptions);
 
-        candidate.callee.as_deref().and_then(|callee| self.dependencies.frame_callees().get(callee)).is_none_or(|body| {
-            let summary = self.request.semantic_values().dependency_contract_template_data(body.summary);
+        frame.unknown_possible(&proof) || frame.producers.iter().any(|(source, candidate)| {
+            super::super::deferred::possible(&candidate.selection, &proof)
+                && self.frame_normal_completion(assumptions, source, candidate, result)
+        })
+    }
 
-            summary.normal_completion() && self.outcome_reachable(assumptions, &candidate.entry, result,
-                summary.captured_values())
+    pub(super) fn frame_normal_completion(
+        &self,
+        assumptions: &crate::execution_guarantees::ExecutionAssumptions,
+        source: &bray_bound_tree::StorageDeferredProducer,
+        candidate: &crate::ExecutionDeferredInvocation,
+        result: &ExecutionCondition,
+    ) -> bool {
+        let declared = if let Some(source) = source.local() {
+            self.dependencies.calls()[&source].deferred_completion()
+        } else {
+            candidate.callee.as_deref().and_then(|callee| self.dependencies.frame_callees().get(callee))
+                .is_none_or(|body| body.summary.normal_completion())
+        };
+
+        declared && self.outcome_reachable(assumptions, &candidate.entry, result)
+            && self.task_observation_body(source, candidate).is_none_or(|body| {
+            let completed = result.clone().matches_variant(self.task_result_variant(None));
+
+            completed.prove_ordinary(assumptions, Some(&self.proofs)) != Some(true)
+                || self.deferred_normal_completion(assumptions, body, &result.clone().project(self.task_completed_payload()))
         })
     }
 
@@ -241,19 +319,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             return false;
         }
 
-        if let Some(AnalysisRefinement::PreconditionFailure(invocation)) = edge.refinement()
-            && let Some(contract) = self
-                .request
-                .trusted_contracts()
-                .and_then(|contracts| contracts.calls.get(&invocation))
-            && state.entries.get(&invocation).is_some_and(|entry| {
-                entry.prove_requirements(
-                    contract
-                        .preconditions
-                        .iter()
-                        .map(|(condition, _)| condition),
-                ).is_ok()
-            })
+        if let Some(AnalysisRefinement::InvocationEntry { invocation, admitted }) = edge.refinement()
+            && !self.refine_invocation_entry(state, invocation, admitted)
         {
             return false;
         }
@@ -342,18 +409,26 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         if let Some(AnalysisRefinement::PropagationOutcome {
             expression,
-            outcome: crate::analysis::model::AnalysisPropagationOutcome::Failure,
+            outcome,
         }) = edge.refinement()
         {
-            self.propagate_result(state, expression);
+            use crate::analysis::model::AnalysisPropagationOutcome;
+
+            if outcome == AnalysisPropagationOutcome::Failure {
+                self.propagate_result(state, expression);
+            }
+
+            if matches!(outcome, AnalysisPropagationOutcome::Failure | AnalysisPropagationOutcome::RunFailure(_)) {
+                self.consume_value_slots(state, expression.into(), bray_bound_tree::StorageValueConsumptionPhase::Completion);
+            }
         }
 
         if let Some(AnalysisRefinement::CaughtResult {
             expression,
-            succeeded,
+            outcome,
         }) = edge.refinement()
         {
-            self.complete_caught_result(state, expression, !succeeded);
+            self.complete_caught_result(state, expression, outcome);
         }
 
         self.refine_witnesses(state);
@@ -406,8 +481,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 }
 
                 if self.unsigned_value(&input) {
-                    let ty = self.observed_types[place]
-                        .expect("typed unsigned entry retains its scalar type");
+                    let ty = self.request.semantic_values().unborrowed_type(self.observed_types[place]
+                        .expect("typed unsigned entry retains its scalar type"));
 
                     let zero = self
                         .request
@@ -435,15 +510,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }
 
         for (identity, storage) in self.storage.identity_entries() {
-            if matches!(storage,
-                bray_bound_tree::StorageIdentity::LocalOwned(_)
-                    | bray_bound_tree::StorageIdentity::Result(_)
-                    | bray_bound_tree::StorageIdentity::Temporary(_)
-                    | bray_bound_tree::StorageIdentity::Evaluated(_)
-                    | bray_bound_tree::StorageIdentity::InvocationInput { .. }
-                    | bray_bound_tree::StorageIdentity::InvocationResult(_)
-                    | bray_bound_tree::StorageIdentity::ScopedCapability { .. }
-            ) {
+            if crate::ExecutionPlace::tracks_local_storage(&storage) {
                 if let Some(place) = crate::ExecutionPlace::storage_identity(self.storage, identity) {
                     state.current.set_slot(place, super::super::current::CurrentValue {
                         value: ExecutionCondition::unknown(),
@@ -471,7 +538,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             }
         }
 
-        for assumption in self.input_invariants.iter().chain(self.assumptions) {
+        for assumption in self.input_invariants.iter().chain(self.assumptions.iter()) {
             if assumption.prove_ordinary(&state.assumptions, Some(&state.proofs)) == Some(false)
             {
                 return None;

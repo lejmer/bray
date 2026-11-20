@@ -1,79 +1,57 @@
 use bray_bound_tree::{
-    AsyncStorageCleanupRequirement, AsyncStorageExitRecoveryCause, StorageFlow, StoragePlan,
-    StorageReplacementPlan, StorageReplacementState,
+    AsyncStorageCleanupRequirement, AsyncStorageExitRecoveryCause, StoragePlan,
+    StorageReplacementDecision, StorageReplacementState,
 };
 
 use super::cleanup::CleanupShapeResolver;
-use super::parts::CleanupExpansion;
-use crate::{CheckerQueryError, CheckerRequestContext};
+use crate::CheckerRequestContext;
 
-pub(super) fn replacement_plans<C: CheckerRequestContext + ?Sized>(
-    storage: &StoragePlan,
-    flow: &StorageFlow,
-    shapes: &mut CleanupShapeResolver<'_, C>,
-) -> Result<Vec<StorageReplacementPlan>, CheckerQueryError<C::UpstreamError>> {
-    let mut plans = Vec::new();
-
-    for decision in flow.replacements() {
-        let mut cleanup = AsyncStorageCleanupRequirement::Recovered(
-            AsyncStorageExitRecoveryCause::UnavailableCleanupShape,
-        );
-
-        let mut parts = None;
-
-        if !decision.is_recovered()
-            && let Some(access) = storage.access(decision.access())
-        {
-            let ty = access.reached_type();
-
-            cleanup = shapes.requirement(ty)?;
-
-            if decision.state() == StorageReplacementState::Absent {
-                cleanup = AsyncStorageCleanupRequirement::None;
-            } else {
-                let prefix = storage.resolved_projections(decision.access());
-
-                match prefix {
-                    Some(prefix) => {
-                        let moved = decision
-                            .moved()
-                            .iter()
-                            .map(|path| path.projections.as_ref())
-                            .filter_map(|path| path.strip_prefix(prefix))
-                            .filter(|path| !path.is_empty())
-                            .collect::<Vec<_>>();
-
-                        if !moved.is_empty() {
-                            parts = shapes.represented_parts(
-                                ty,
-                                &moved,
-                                CleanupExpansion::MovedPaths,
-                                access.source(),
-                            )?;
-
-                            if parts.is_none() {
-                                cleanup = AsyncStorageCleanupRequirement::Recovered(
-                                    AsyncStorageExitRecoveryCause::UnavailablePartialCleanup,
-                                );
-                            }
-                        }
-                    }
-                    _ => {
-                        cleanup = AsyncStorageCleanupRequirement::Recovered(
-                            AsyncStorageExitRecoveryCause::UnavailablePartialCleanup,
-                        );
-                    }
-                }
-            }
+impl<C: CheckerRequestContext + ?Sized> CleanupShapeResolver<'_, C> {
+    pub(crate) fn select_replacement_cleanup(
+        &self,
+        storage: &StoragePlan,
+        decision: StorageReplacementDecision,
+    ) -> StorageReplacementDecision {
+        if storage.access(decision.access()).is_none() || decision.is_recovered() {
+            return decision.with_cleanup_selection(
+                AsyncStorageCleanupRequirement::Recovered(
+                    AsyncStorageExitRecoveryCause::UnavailableCleanupShape,
+                ),
+                None,
+            );
         }
 
-        plans.push(StorageReplacementPlan::new(
-            decision.expression(),
-            decision.access(),
-            cleanup,
-            parts,
-        ));
-    }
+        let requirements = self.requirements.as_ref().expect("replacement selection uses prepared destination cleanup");
+        let cleanup = requirements.replacement(decision.access());
 
-    Ok(plans)
+        if decision.state() == StorageReplacementState::Absent {
+            return decision.with_cleanup_selection(AsyncStorageCleanupRequirement::None, None);
+        }
+
+        if !matches!(cleanup, AsyncStorageCleanupRequirement::Cleanup(_)) {
+            return decision.with_cleanup_selection(cleanup, None);
+        }
+
+        let partial_cleanup_unavailable = AsyncStorageCleanupRequirement::Recovered(
+            AsyncStorageExitRecoveryCause::UnavailablePartialCleanup,
+        );
+
+        let Some(path) = storage.logical_path(decision.access()) else {
+            return decision.with_cleanup_selection(partial_cleanup_unavailable, None);
+        };
+
+        let moved = decision.moved().iter().any(|moved| {
+            path.contains(moved) && moved.projections.len() > path.projections.len()
+        });
+
+        if !moved {
+            return decision.with_cleanup_selection(cleanup, None);
+        }
+
+        let parts = requirements.get(path.root).and_then(|owner| owner.parts_below(&path.projections));
+
+        let cleanup = if parts.is_some() { cleanup } else { partial_cleanup_unavailable };
+
+        decision.with_cleanup_selection(cleanup, parts)
+    }
 }

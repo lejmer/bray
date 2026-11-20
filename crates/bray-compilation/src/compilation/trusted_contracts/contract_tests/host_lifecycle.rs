@@ -257,8 +257,8 @@ fn catastrophic_abort_skips_lease_cleanup_without_continuing() {
         let key = source_function_body_key(&compilation, &format!("terminal_{name}"));
 
         let checked = compilation
-            .async_analysis(key)
-            .expect("terminal operation must publish cleanup planning");
+            .storage_flow(key)
+            .expect("terminal operation must publish reached cleanup");
 
         assert!(
             !checked.diagnostics().has_errors(),
@@ -268,7 +268,7 @@ fn catastrophic_abort_skips_lease_cleanup_without_continuing() {
         assert_eq!(
             checked
                 .value()
-                .scope_exits()
+                .exits()
                 .iter()
                 .any(|exit| exit.has_cleanup()),
             cleans_up,

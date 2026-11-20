@@ -245,14 +245,42 @@ fn internal_owner_chains_retain_identity_and_declared_visibility() {
 
     let bundle = export(&compilation);
 
-    assert_eq!(bundle.surface().symbols().symbols().len(), 5);
+    let surface = bundle.surface();
+    let package = ExternalSymbolKey::package(surface.symbols().package().clone());
+
+    let module = ExternalSymbolKey::module(
+        package,
+        ModulePathKey::try_new(["app"]).expect("valid app module path"),
+    )
+    .expect("module belongs to the fixture package");
+
+    let hidden = ExternalSymbolKey::named(
+        module.clone(),
+        SymbolKind::Struct,
+        SymbolName::try_new("Hidden").expect("valid struct name"),
+    )
+    .expect("struct has a named interface identity");
+
+    let method = ExternalSymbolKey::named(
+        hidden.clone(),
+        SymbolKind::TypeCallableMember,
+        SymbolName::try_new("method").expect("valid method name"),
+    )
+    .expect("method has a named interface identity");
+
+    let module = surface.symbol_by_external_key(&module).expect("exported module");
+    let hidden = surface.symbol_by_external_key(&hidden).expect("retained internal struct");
+    let method = surface.symbol_by_external_key(&method).expect("retained internal method");
+
+    assert_eq!(surface.symbols().symbol(method).and_then(|symbol| symbol.container()), Some(hidden));
 
     assert!(
-        bundle
-            .surface()
+        surface
             .exports()
             .iter()
-            .any(|edge| edge.name().as_str() == "Hidden"
+            .any(|edge| edge.owner() == module
+                && edge.name().as_str() == "Hidden"
+                && edge.target() == &InterfaceSymbolReference::Local(hidden)
                 && edge.visibility() == bray_symbols::MemberVisibility::Internal)
     );
 }
@@ -274,13 +302,28 @@ fn public_module_re_exports_enter_the_interface_lookup_surface() {
 
     let bundle = export(&compilation);
 
-    let [edge] = bundle.surface().exports() else {
+    let surface = bundle.surface();
+    let package = ExternalSymbolKey::package(surface.symbols().package().clone());
+
+    let [target, owner] = ["a", "b"].map(|name| {
+        let key = ExternalSymbolKey::module(
+            package.clone(),
+            ModulePathKey::try_new([name]).expect("valid fixture module path"),
+        )
+        .expect("module belongs to the fixture package");
+
+        surface.symbol_by_external_key(&key).expect("exported module identity")
+    });
+
+    let [edge] = surface.exports() else {
         panic!(
             "expected one module re-export: {:?}",
-            bundle.surface().exports()
+            surface.exports()
         );
     };
 
+    assert_eq!(edge.owner(), owner);
+    assert_eq!(edge.target(), &InterfaceSymbolReference::Local(target));
     assert_eq!(edge.name().as_str(), "a");
 
     assert_eq!(

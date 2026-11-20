@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use bray_symbols::{DependencyReferenceKind, StructFieldSymbolId, TypeId};
+use bray_symbols::{BorrowKind, DependencyReferenceKind, StructFieldSymbolId, TypeId};
 
 use crate::StorageProjection;
 
@@ -8,8 +8,10 @@ use crate::StorageProjection;
 /// reads, never ownership, initialization or allocation authority.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum StorageReferenceStep {
-    /// Read the selected descriptor, then follow that evaluated pointer value.
-    Read { index: usize, target: TypeId, kind: DependencyReferenceKind },
+    /// Follow a language borrow with its checked access mode.
+    ReadBorrow { index: usize, target: TypeId, mode: BorrowKind },
+    /// Follow an evaluated raw address.
+    ReadAddress { index: usize, target: TypeId },
     /// Select an owning allocation's backing. A represented buffer reads its
     /// prepared pointer field. Other owning indirections have structural backing.
     Backing { index: usize, target: TypeId, pointer: Option<StructFieldSymbolId> },
@@ -18,13 +20,18 @@ pub enum StorageReferenceStep {
 impl StorageReferenceStep {
     /// The structural projection preceding this operation.
     pub fn index(self) -> usize {
-        match self { Self::Read { index, .. } | Self::Backing { index, .. } => index }
+        match self {
+            Self::ReadBorrow { index, .. } | Self::ReadAddress { index, .. } | Self::Backing { index, .. } => index,
+        }
     }
 
     fn shifted(self, prefix: usize) -> Option<Self> {
+        let index = self.index().checked_sub(prefix)?;
+
         Some(match self {
-            Self::Read { index, target, kind } => Self::Read { index: index.checked_sub(prefix)?, target, kind },
-            Self::Backing { index, target, pointer } => Self::Backing { index: index.checked_sub(prefix)?, target, pointer },
+            Self::ReadBorrow { target, mode, .. } => Self::ReadBorrow { index, target, mode },
+            Self::ReadAddress { target, .. } => Self::ReadAddress { index, target },
+            Self::Backing { target, pointer, .. } => Self::Backing { index, target, pointer },
         })
     }
 }
@@ -38,6 +45,14 @@ pub struct StorageReferencePath {
 }
 
 impl StorageReferencePath {
+    /// Returns the mode of the first language borrow read along the path.
+    pub fn first_borrow_kind(&self) -> Option<BorrowKind> {
+        self.steps.iter().find_map(|step| match step {
+            StorageReferenceStep::ReadBorrow { mode, .. } => Some(*mode),
+            _ => None,
+        })
+    }
+
     pub(crate) fn is_valid_for(&self, unit: crate::BoundUnitId) -> bool {
         self.projections.iter().all(|projection| projection.is_valid_for(unit))
     }
@@ -57,8 +72,8 @@ impl StorageReferencePath {
                 "crossing storage requires an explicit typed route step: {projections:?}");
 
             let marker = match step {
-                StorageReferenceStep::Read { kind: DependencyReferenceKind::Borrow, .. } => None,
-                StorageReferenceStep::Read { kind: DependencyReferenceKind::Address, .. } => Some(StorageProjection::AddressTarget),
+                StorageReferenceStep::ReadBorrow { .. } => None,
+                StorageReferenceStep::ReadAddress { .. } => Some(StorageProjection::AddressTarget),
                 StorageReferenceStep::Backing { .. } => Some(StorageProjection::OwnedTarget),
             };
 
@@ -85,7 +100,8 @@ impl StorageReferencePath {
     /// Pointer reads with their operation ordinal, structural index and reached type.
     pub fn reads(&self) -> impl DoubleEndedIterator<Item = (usize, usize, TypeId, DependencyReferenceKind)> + '_ {
         self.steps.iter().enumerate().filter_map(|(step, operation)| match *operation {
-            StorageReferenceStep::Read { index, target, kind } => Some((step, index, target, kind)),
+            StorageReferenceStep::ReadBorrow { index, target, .. } => Some((step, index, target, DependencyReferenceKind::Borrow)),
+            StorageReferenceStep::ReadAddress { index, target } => Some((step, index, target, DependencyReferenceKind::Address)),
             StorageReferenceStep::Backing { .. } => None,
         })
     }
@@ -102,11 +118,11 @@ impl StorageReferencePath {
     }
 
     /// Appends checked terminal language-borrow reads.
-    pub fn with_terminal_borrows(&self, targets: &[TypeId]) -> Self {
+    pub fn with_terminal_borrows(&self, targets: &[(BorrowKind, TypeId)]) -> Self {
         if targets.is_empty() { return self.clone(); }
 
-        Self { projections: Arc::clone(&self.projections), steps: self.steps.iter().copied().chain(targets.iter().map(|target| {
-            StorageReferenceStep::Read { index: self.projections.len(), target: *target, kind: DependencyReferenceKind::Borrow }
+        Self { projections: Arc::clone(&self.projections), steps: self.steps.iter().copied().chain(targets.iter().map(|&(mode, target)| {
+            StorageReferenceStep::ReadBorrow { index: self.projections.len(), target, mode }
         })).collect::<Vec<_>>().into() }
     }
 }

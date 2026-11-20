@@ -692,7 +692,6 @@ pub struct DependencyContractTemplateData {
     requirements: Arc<[DependencyRequirement]>,
     failure_outcomes: Option<Arc<[super::CapturedFailureOutcome]>>,
     captured_values: Arc<[super::CapturedValueOutcome]>,
-    observed_result: Option<ConstantTermId>,
     effects: super::DependencyEffectOutcomes<DependencyStorageEffect>,
     synchronous_cleanup: Arc<[DependencyRequirement]>,
     normal_completion: bool,
@@ -709,36 +708,14 @@ impl DependencyContractTemplateData {
     /// Returns the whole-value expression, with explicit unknown for lost precision.
     pub fn captured_values(&self) -> &[super::CapturedValueOutcome] { &self.captured_values }
 
-    /// Creates the stored dependency shape for an explicitly authored normal outcome.
-    pub fn with_stored_values(mut self, values: impl IntoIterator<Item = DependencyStoredValue>) -> Self {
-        let values = DependencyStoredValue::normalize(values);
-
-        if !values.is_empty() || !self.captured_values.is_empty() {
-            let mut row = self.take_authored_outcome();
-
-            row.stored_values = values;
-            self.captured_values = [row].into();
-        }
-
-        self
+    /// Shares the normalized outcome rows with a bound invocation.
+    pub fn shared_captured_values(&self) -> Arc<[super::CapturedValueOutcome]> {
+        Arc::clone(&self.captured_values)
     }
 
     /// Derives possible stored-value dependencies across normal outcomes.
     pub fn stored_values(&self) -> Arc<[DependencyStoredValue]> {
         super::CapturedValueOutcome::stored_dependencies(self.captured_values.iter(), DependencySubject::contains)
-    }
-
-    /// Records a value observation shared by every mutation-free normal completion.
-    /// This carries no ownership, storage identity or trusted authority.
-    pub fn with_observed_result(mut self, result: Option<ConstantTermId>) -> Self {
-        self.observed_result = result;
-
-        self
-    }
-
-    /// Returns the checked value observation in receiver-first formal argument order.
-    pub const fn observed_result(&self) -> Option<ConstantTermId> {
-        self.observed_result
     }
 
     /// Derives the ownership layout before selecting one normal exit.
@@ -779,6 +756,8 @@ impl DependencyContractTemplateData {
             guard: None,
             report: Some(sorted_unique_shared_slice(requirements)),
             effects: None,
+            cell_changes: None,
+            writes: Arc::new([]),
         }]))
     }
 
@@ -827,13 +806,21 @@ impl DependencyContractTemplateData {
         let mut result =
             self.with_requirements(map(DependencyCallOutput::Value, self.requirements())?);
 
-        if self.captured_values.iter().any(|row| row.report.is_some()) {
+        if self.captured_values.iter().any(|row| row.report.is_some() || !row.report_payloads.is_empty()) {
             let rows = self.captured_values.iter().cloned().map(|row| {
                 let report = row.report.as_deref().map(|requirements|
                     map(DependencyCallOutput::CompletionReport, requirements).map(sorted_unique_shared_slice)
                 ).transpose()?;
 
-                Ok(row.with_report(report))
+                let payloads = row.report_payloads.iter().map(|payload| {
+                    Ok(super::CapturedReportPayload {
+                        destination: payload.destination.clone(),
+                        requirements: sorted_unique_shared_slice(map(DependencyCallOutput::Value, &payload.requirements)?),
+                        complete: payload.complete,
+                    })
+                }).collect::<Result<Vec<_>, E>>()?;
+
+                Ok(row.with_report(report).with_report_payloads(payloads))
             }).collect::<Result<Vec<_>, E>>()?;
 
             result = result.with_captured_values(rows);
@@ -866,6 +853,8 @@ impl DependencyContractTemplateData {
             .chain(
                 self.captured_values.iter().flat_map(|row| row.report.iter().flat_map(|requirements| requirements.iter())),
             )
+            .chain(self.captured_values.iter().flat_map(|row| row.report_payloads.iter())
+                .flat_map(|payload| payload.requirements.iter()))
             .chain(
                 self.failure_outcomes().into_iter().flatten().filter_map(|row| row.report.as_deref()).flatten(),
             )
@@ -882,15 +871,44 @@ impl DependencyContractTemplateData {
                     .into_iter()
                     .chain(std::iter::once(relation.exit()))
             })
-            .chain(self.effects().iter().filter_map(DependencyStorageEffect::subject))
+            .chain(self.effects().iter().chain(self.cell_changes()).filter_map(DependencyStorageEffect::subject))
             .chain(self.captured_values().iter().flat_map(|row| row.stored_values.iter()).flat_map(|stored| {
                 std::iter::once(stored.destination().subject()).chain(stored.sources().iter().map(DependencyStoredValuePath::subject))
             }))
             .chain(self.captured_values().iter().flat_map(|outcome| {
                 outcome.bindings.iter().map(|(subject, _)| subject).chain(outcome.inactive_payloads.iter())
             }))
+            .chain(self.failure_outcomes().into_iter().flatten().flat_map(|row| row.writes.iter().map(|(subject, _)| subject)))
+            .chain(self.captured_values().iter().flat_map(|row| row.report_payloads.iter())
+                .map(|payload| &payload.destination))
             .chain(self.captured_values().iter().flat_map(|row| row.carriers.iter())
                 .filter_map(DependencyWitnessCarrier::support).flat_map(super::DependencyWitnessSupport::owner_subjects))
+    }
+
+    /// Visits the exact cell changes present in a guarded normal or abnormal outcome.
+    pub fn cell_changes(&self) -> impl Iterator<Item = &DependencyStorageEffect> {
+        self.captured_values().iter().flat_map(|row| row.cell_changes.as_deref().into_iter().flatten())
+            .chain(self.failure_outcomes().into_iter().flatten()
+                .flat_map(|row| row.cell_changes.as_deref().into_iter().flatten()))
+    }
+
+    /// Visits the declared subjects of phase requirements, including their guards.
+    pub fn requirement_subjects(&self) -> impl Iterator<Item = &DependencySubject> {
+        let mut pending = self.requirements().iter().rev().collect::<Vec<_>>();
+
+        std::iter::from_fn(move || loop {
+            match pending.pop()? {
+                DependencyRequirement::Direct { subject, .. } => return Some(subject),
+                DependencyRequirement::Guarded(guarded) => {
+                    pending.extend(guarded.requirements().iter().rev());
+
+                    return Some(match guarded.guard() {
+                        DependencyGuard::NullablePresent(subject) | DependencyGuard::ActiveUnionVariant { subject, .. } => subject,
+                    });
+                }
+                _ => {}
+            }
+        })
     }
 
     /// Returns requirements for one selected output.
@@ -910,7 +928,6 @@ impl DependencyContractTemplateData {
             requirements: sorted_unique_shared_slice(requirements),
             failure_outcomes: None,
             captured_values: Arc::new([]),
-            observed_result: None,
             effects: super::DependencyEffectOutcomes::new(DependencyStorageEffect::opaque_call()),
             synchronous_cleanup: Arc::new([]),
             normal_completion: true,
@@ -927,7 +944,6 @@ impl DependencyContractTemplateData {
             failure_outcomes: self.failure_outcomes.as_ref().map(Arc::clone),
             // Transformations own a new contract while retaining the immutable checked summary.
             captured_values: Arc::clone(&self.captured_values),
-            observed_result: self.observed_result,
             effects: self.effects.clone(),
             synchronous_cleanup: Arc::clone(&self.synchronous_cleanup),
             normal_completion: self.normal_completion,
@@ -952,7 +968,7 @@ impl DependencyContractTemplateData {
     }
 
     fn refresh_normal_effects(mut self) -> Self {
-        let mut effects = super::DependencyEffectOutcomes::new(self.effects.possible().iter().cloned());
+        let mut effects = self.effects.with_unselected_outcomes();
 
         if !self.normal_completion {
             effects = effects.with_normal([]);

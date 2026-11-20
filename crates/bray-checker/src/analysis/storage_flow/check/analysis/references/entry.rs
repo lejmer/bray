@@ -32,33 +32,33 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
         dependencies: &bray_bound_tree::CheckedDependencyContracts,
         mut demands: Demands,
     ) -> crate::CheckerQueryResult<(), C::UpstreamError> {
-        for (access, (_, prepared)) in &self.reference_paths {
-            let Some(root) = storage
-                .root_identity(*access)
-                .and_then(|root| storage.identity_type(root))
-            else {
-                continue;
-            };
+        for (access, reached) in storage.access_entries() {
+            if storage.reference_route(access).is_none() { continue; }
+
+            let path = storage.logical_path(access).expect("a typed route has a logical path");
+
+            let Some(root) = storage.identity_type(path.root) else { continue; };
 
             let root = request.semantic_values().unborrowed_type(root);
 
-            let ty = storage
-                .access(*access)
-                .expect("prepared reference has a checked access")
-                .reached_type();
-
-            let projections =
-                Arc::<[bray_bound_tree::StorageProjection]>::from(prepared.projections());
-
-            demands
-                .entry(root)
-                .or_default()
-                .insert((Arc::clone(&projections), ty));
-
+            demands.entry(root).or_default().insert((Arc::clone(&path.projections), reached.reached_type()));
         }
 
         self.prepare_summary_demands(request, storage, selections, dependencies, &mut demands)?;
-        Self::close_entry_demands(request, &mut demands)?;
+
+        let types = storage.identity_entries().filter_map(|(identity, _)| storage.storage_type(identity))
+            .map(|ty| request.semantic_values().unborrowed_type(ty)).collect::<BTreeSet<_>>();
+
+        for owner in types {
+            if matches!(request.semantic_values().type_data(owner).as_ref(), bray_symbols::TypeData::Generator(_) | bray_symbols::TypeData::OwnedIndirection { .. }) {
+                let target = crate::storage::projected_value_type(request, owner, bray_symbols::DependencyProjection::OwnedTarget)?;
+                let ty = target.value().expect("an owning formal has a checked backing type");
+
+                demands.entry(owner).or_default().insert((Arc::from([bray_bound_tree::StorageProjection::OwnedTarget]), ty));
+            }
+        }
+
+        self.close_entry_demands(request, &mut demands)?;
 
         self.install_reference_paths(request, storage, &demands)?;
 
@@ -92,7 +92,7 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
                 let Some((reached, prepared)) = crate::storage::reference_path(request, root,
                     Arc::clone(&projections), Some(*reached))? else { continue; };
 
-                self.prepare_entry_reference_path(request, storage, Place { root: slot.root, projections }, reached, &prepared);
+                self.prepare_value_routes(request, storage, Place { root: slot.root, projections }, reached, &prepared);
             }
         }
 
@@ -100,6 +100,7 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
     }
 
     fn close_entry_demands<C: CheckerRequestContext + ?Sized>(
+        &mut self,
         request: crate::CheckerUnitView<'_, C>,
         demands: &mut Demands,
     ) -> crate::CheckerQueryResult<(), C::UpstreamError> {
@@ -133,6 +134,10 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
                 }
             }
         }
+
+        // A contract can cross a buffer nested in an input without any source
+        // expression naming that buffer. Its demanded pointer still owns backing.
+        self.prepare_buffer_fields(request, parents.keys().copied(), demands)?;
 
         let components = bray_base::strongly_connected_components(parents.keys().copied(), |ty| {
             parents
@@ -196,13 +201,22 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
         initialized: &BTreeSet<bray_bound_tree::StorageIdentityId>,
     ) {
         let mut references = self.entry_references.iter().collect::<Vec<_>>();
+        let mut backings = self.owned_backings.iter().filter(|(owner, _)| initialized.contains(&owner.root)).collect::<Vec<_>>();
 
         references.sort_by_key(|((_, layer), (path, _, _))| (
             path.steps().len(),
             path.projections().len(), *layer,
         ));
 
+        backings.sort_by_key(|(_, (path, _))| (path.steps().len(), path.projections().len()));
+
+        let mut backings = backings.into_iter().peekable();
+
         for ((slot, layer), (path, ty, kind)) in references {
+            while let Some((owner, (route, ty))) = backings.next_if(|(_, (route, _))| route.steps().len() <= path.steps().len()) {
+                Self::initialize_entry_backing(values, memory, owner.root, route, *ty);
+            }
+
             if let Some(fields) = self.entry_buffer_pointer(path, *ty) {
                 let owner_path = path.prefix(path.projections().len() - 1, path.steps().len());
 
@@ -232,6 +246,10 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
             }
         }
 
+        for (owner, (route, ty)) in backings {
+            Self::initialize_entry_backing(values, memory, owner.root, route, *ty);
+        }
+
         for (root, path) in &self.entry_whole_sources {
             if !initialized.contains(root) {
                 continue;
@@ -245,15 +263,27 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
         }
     }
 
+    fn initialize_entry_backing(
+        values: &bray_symbols::SemanticValueStore,
+        memory: &mut crate::analysis::storage_flow::memory::State,
+        root: bray_bound_tree::StorageIdentityId,
+        path: &bray_bound_tree::StorageReferencePath,
+        ty: bray_symbols::TypeId,
+    ) {
+        let owners = memory.reference_locations(values, crate::analysis::storage_flow::memory::Target::storage(Place::root(root)), path, None);
+
+        for owner in owners.into_iter().flatten() {
+            memory.declare_entry_backing(owner, ty);
+        }
+    }
+
     fn install_reference_paths<C: CheckerRequestContext + ?Sized>(
         &mut self,
         request: crate::CheckerUnitView<'_, C>,
         storage: &bray_bound_tree::StoragePlan,
         demands: &Demands,
     ) -> crate::CheckerQueryResult<(), C::UpstreamError> {
-        for (identity, source) in storage.identity_entries() {
-            let entry = source.is_initialized_at_entry();
-
+        for (identity, _) in storage.identity_entries() {
             let Some(ty) = storage.storage_type(identity) else {
                 continue;
             };
@@ -308,11 +338,7 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
                         .insert(path, target);
                 }
 
-                if !entry {
-                    continue;
-                }
-
-                self.prepare_entry_reference_path(
+                self.prepare_value_routes(
                     request,
                     storage,
                     Place {
@@ -404,7 +430,7 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
         Ok(())
     }
 
-    fn prepare_entry_reference_path<C: CheckerRequestContext + ?Sized>(
+    fn prepare_value_routes<C: CheckerRequestContext + ?Sized>(
         &mut self,
         request: crate::CheckerUnitView<'_, C>,
         storage: &bray_bound_tree::StoragePlan,
@@ -412,6 +438,14 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
         ty: bray_symbols::TypeId,
         prepared: &bray_bound_tree::StorageReferencePath,
     ) {
+        for (position, step) in prepared.steps().iter().enumerate() {
+            if let bray_bound_tree::StorageReferenceStep::Backing { index, target, pointer: None } = *step {
+                let owner = Place { root: path.root, projections: path.projections[..index].into() };
+
+                self.owned_backings.entry(owner).or_insert_with(|| (prepared.prefix(index, position), target));
+            }
+        }
+
         if !storage.identity(path.root).is_some_and(|identity| identity.is_initialized_at_entry()) {
             return;
         }
@@ -430,7 +464,10 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
                     prefix.clone(),
                     1 + prepared.steps()[..step]
                         .iter().rev()
-                        .take_while(|operation| matches!(operation, bray_bound_tree::StorageReferenceStep::Read { index: previous, .. } if *previous == index))
+                        .take_while(|operation| matches!(operation,
+                            bray_bound_tree::StorageReferenceStep::ReadBorrow { index: previous, .. }
+                            | bray_bound_tree::StorageReferenceStep::ReadAddress { index: previous, .. }
+                            if *previous == index))
                         .count(),
                 ))
                 .or_insert_with(|| {

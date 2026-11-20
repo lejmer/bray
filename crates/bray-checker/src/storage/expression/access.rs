@@ -338,7 +338,7 @@ where
         )
     }
 
-    fn direct_access(
+    pub(super) fn direct_access(
         &mut self,
         expression: BoundExpressionId,
         storage: bray_bound_tree::StorageIdentityId,
@@ -686,17 +686,24 @@ where
         let is_recovered = node.is_recovered();
 
         let occurrence = match identity {
-            StorageIdentity::InvocationResult(occurrence) => occurrence,
-            StorageIdentity::ScopedCapability { expression, .. } => bray_bound_tree::BoundExecutionSite::ScopedEnter(expression),
+            StorageIdentity::InvocationResult(occurrence) => Some(occurrence),
+            StorageIdentity::ScopedCapability { expression, fallible_entry: false, .. } => Some(bray_bound_tree::BoundExecutionSite::ScopedEnter(expression)),
+            StorageIdentity::ScopedCapability { fallible_entry: true, .. } => None,
             _ => unreachable!("protocol storage belongs to an implicit invocation"),
         };
 
-        let storage = self.bind_identity(
-            StorageBindingTarget::InvocationResult(occurrence), identity, Some(ty),
-        )?.expect("selected invocation result is planned once");
+        let storage = if let Some(occurrence) = occurrence {
+            self.bind_identity(StorageBindingTarget::InvocationResult(occurrence), identity, Some(ty))?
+                .expect("selected invocation result is planned once")
+        } else {
+            let storage = self.builder_mut().push_identity(identity)
+                .expect("scoped capability retains its own storage identity");
 
-        self.builder_mut()
-            .set_identity_type(storage, ty).unwrap_or_else(|error| panic!("The storage-plan builder rejected one exact relationship. in protocol_access: {error:?}"));
+            self.builder_mut().set_identity_type(storage, ty)
+                .expect("scoped capability stores its selected output type");
+
+            storage
+        };
 
         let access = StorageAccess::new(
             StorageAccessRoot::Storage(storage),
@@ -750,10 +757,15 @@ where
         expression: BoundExpressionId,
         value: Option<BoundExpressionId>,
     ) -> Result<StorageAccessId, PlanError<C::UpstreamError>> {
-        let result = match value {
+        let source = match value {
             Some(value) => self.expression_type(value),
             None => self.expression_type(expression),
         };
+
+        let result = bray_bound_tree::ExpressionTypeResult::new(
+            self.types.callable_result_type().unwrap_or_else(|| source.ty()),
+            source.status(),
+        );
 
         self.push_expression_access(
             expression,

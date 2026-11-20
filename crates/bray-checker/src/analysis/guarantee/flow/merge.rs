@@ -1,4 +1,4 @@
-use crate::execution_guarantees::ExecutionSubstitution;
+use crate::execution_guarantees::{ExecutionJoinSite, ExecutionSubstitution};
 use crate::execution_guarantees::ExecutionObservationKind as ObservationKind;
 use std::collections::BTreeMap;
 
@@ -16,8 +16,13 @@ pub(in crate::analysis) enum ExecutionJoin<'a> {
     Boundary,
     Selection(&'a ExecutionCondition),
     Block(AnalysisBlockId),
+    LoopHeader(AnalysisBlockId),
     Production(bray_bound_tree::BoundExpressionId),
-    Result(bray_bound_tree::BoundExpressionId),
+    Result {
+        expression: bray_bound_tree::BoundExpressionId,
+        sources: [&'a ExecutionCondition; 2],
+        root: &'a ExecutionCondition,
+    },
 }
 
 impl From<Option<AnalysisBlockId>> for ExecutionJoin<'_> {
@@ -26,11 +31,15 @@ impl From<Option<AnalysisBlockId>> for ExecutionJoin<'_> {
     }
 }
 
-impl ExecutionJoin<'_> {
+impl<'result> ExecutionJoin<'result> {
+    pub(in crate::analysis) fn incoming_block(graph: &super::super::super::model::ControlFlowGraph, block: AnalysisBlockId) -> Self {
+        if graph.is_loop_header(block) { Self::LoopHeader(block) } else { Self::Block(block) }
+    }
+
     fn block(self) -> Option<AnalysisBlockId> {
         match self {
-            Self::Block(block) => Some(block),
-            Self::Boundary | Self::Selection(_) | Self::Production(_) | Self::Result(_) => None,
+            Self::Block(block) | Self::LoopHeader(block) => Some(block),
+            Self::Boundary | Self::Selection(_) | Self::Production(_) | Self::Result { .. } => None,
         }
     }
 
@@ -38,11 +47,37 @@ impl ExecutionJoin<'_> {
         self.block().is_some() || matches!(self, Self::Production(produced) if produced == expression)
     }
 
-    fn snapshot(self, place: &crate::ExecutionPlace) -> ExecutionCondition {
+    fn explicit_result(self) -> Option<bray_bound_tree::BoundExpressionId> {
         match self {
-            Self::Block(block) => joined_observation(block, place),
-            Self::Result(expression) => ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expression)),
-            Self::Boundary | Self::Selection(_) | Self::Production(_) => ExecutionCondition::boolean(true),
+            Self::Result { expression, .. } => Some(expression),
+            _ => None,
+        }
+    }
+
+    fn result_inputs<'state>(
+        self,
+        expression: bray_bound_tree::BoundExpressionId,
+        states: [&'state ExecutionState; 2],
+    ) -> [Option<&'state ExecutionCondition>; 2]
+    where
+        'result: 'state,
+    {
+        if let Self::Result { expression: produced, sources, .. } = self
+            && expression == produced {
+            return sources.map(Some);
+        }
+
+        states.map(|state| state.pending_results.get(&expression))
+    }
+
+    fn observation_site(self) -> Option<ExecutionJoinSite> {
+        match self {
+            Self::Block(block) | Self::LoopHeader(block) => Some(ExecutionJoinSite::Block(
+                block.unit(),
+                u32::try_from(block.to_index().expect("flow block has an index")).expect("flow block index fits"),
+            )),
+            Self::Result { expression, .. } => Some(ExecutionJoinSite::Publication(expression)),
+            Self::Boundary | Self::Selection(_) | Self::Production(_) => None,
         }
     }
 }
@@ -85,13 +120,18 @@ pub(super) fn join_states(target: &mut ExecutionState, incoming: &ExecutionState
                 changed = true;
             }
             std::collections::btree_map::Entry::Occupied(mut entry) => {
-                changed |= entry.get_mut().intersect(evidence, &target.proofs);
+                if entry.get() != evidence {
+                    changed |= std::sync::Arc::make_mut(entry.get_mut()).intersect(evidence, &target.proofs);
+                }
             }
         }
     }
 
     let before = target.assumptions.clone();
-    let alternatives = super::joins::ordinary_alternatives(&target.assumptions, &incoming.assumptions);
+    // A loop header widens incoming path history. The shared and independently
+    // proved join facts above still describe the current iteration's values.
+    let alternatives = (!matches!(join, ExecutionJoin::LoopHeader(_)))
+        .then(|| super::joins::ordinary_alternatives(&target.assumptions, &incoming.assumptions));
 
     let boundaries_before = target.trust_boundaries.len();
 
@@ -105,7 +145,9 @@ pub(super) fn join_states(target: &mut ExecutionState, incoming: &ExecutionState
         .assumptions
         .retain(|condition| incoming.assumptions.contains(condition));
 
-    if !matches!(alternatives.kind(), crate::ExecutionConditionKind::Boolean(_) | crate::ExecutionConditionKind::Unknown) {
+    if let Some(alternatives) = alternatives
+        && !matches!(alternatives.kind(), crate::ExecutionConditionKind::Boolean(_) | crate::ExecutionConditionKind::Unknown)
+    {
         alternatives.assume(true, &mut target.assumptions);
     }
 
@@ -154,6 +196,14 @@ pub(super) fn join_states(target: &mut ExecutionState, incoming: &ExecutionState
     changed |= merge_values(&mut target.expressions, &incoming.expressions);
     changed |= merge_values(&mut target.pending_results, &incoming.pending_results);
 
+    if target.entry_check != incoming.entry_check
+        && let Some((_, guard)) = &mut target.entry_check
+        && !guard.is_unknown()
+    {
+        *guard = ExecutionCondition::unknown();
+        changed = true;
+    }
+
     if let Some((site, failure)) = &incoming.admitted_failure {
         if let Some((previous_site, previous)) = &mut target.admitted_failure {
             assert_eq!(site, previous_site, "a suspension joins the same admitted attempt");
@@ -182,8 +232,8 @@ fn join_observations<'a>(
     let mut right = BTreeMap::new();
     let mut left_identities = BTreeMap::new();
     let mut right_identities = BTreeMap::new();
-    let mut places = Vec::new();
-    let mut joins = false;
+    let mut joined_values = BTreeMap::new();
+    let mut joins = join.explicit_result().is_some();
     let mut results = Vec::new();
     let mut owned_results = super::super::ownership::OwnedResults::default();
     let mut joined_facts = Vec::new();
@@ -201,22 +251,20 @@ fn join_observations<'a>(
         .chain(incoming.current.keys())
         .collect::<std::collections::BTreeSet<_>>();
 
-    let contents = super::joins::current_content_identities(target, incoming, &observed, join.block());
+    let contents = super::joins::current_content_identities(target, incoming, &observed, join.observation_site());
+    let unknown = ExecutionCondition::unknown();
 
     for place in observed {
-        let value = place
-            .value_in(&target.current)
-            .unwrap_or_else(ExecutionCondition::unknown);
-
-        let other = place
-            .value_in(&incoming.current)
-            .unwrap_or_else(ExecutionCondition::unknown);
+        let left_value = place.value_in(&target.current);
+        let right_value = place.value_in(&incoming.current);
+        let value = left_value.as_ref().unwrap_or(&unknown);
+        let other = right_value.as_ref().unwrap_or(&unknown);
 
         let left_available = resolved_availability(target, place);
         let right_available = resolved_availability(incoming, place);
 
         let slot = join_current_value(
-            (target, &value, &left_available), (incoming, &other, &right_available),
+            (target, value, &left_available), (incoming, other, &right_available),
             place, join, &contents, &mut joined_facts,
         );
 
@@ -239,22 +287,15 @@ fn join_observations<'a>(
         availability.insert(place.clone(), available);
 
         needs_condition_proof |= join_current_truth(
-            (&value, target), (&other, incoming),
+            (value, target), (other, incoming),
             &joined, &mut joined_facts,
         );
 
-        joins |= place.value_in(&target.current).as_ref() != Some(&joined)
-            || place.value_in(&incoming.current).as_ref() != Some(&joined);
+        joins |= left_value.as_ref() != Some(&joined) || right_value.as_ref() != Some(&joined);
 
-        places.push((place.clone(), joined.clone()));
-    }
-
-    // Assemble the same complete snapshots that field assignment will expose before
-    // renaming predicates. A joined field must not change its parent's meaning later.
-    let mut joined_values = places.iter().cloned().collect::<BTreeMap<_, _>>();
-
-    for (place, value) in &places {
-        super::super::state::update_parent_observations(&mut joined_values, place, value, None);
+        // A place sorts after its ancestors. Complete those snapshots before renaming predicates.
+        super::super::state::update_parent_observations(&mut joined_values, place, &joined, None);
+        joined_values.insert(place.clone(), joined);
     }
 
     // Availability is evidence about the predecessor's actual initialized storage,
@@ -321,25 +362,21 @@ fn join_observations<'a>(
         .keys()
         .chain(incoming.pending_results.keys())
         .copied()
+        .filter(|expression| join.joins_private_result(*expression))
+        .chain(join.explicit_result())
         .collect::<std::collections::BTreeSet<_>>()
-        .into_iter().filter(|expression| join.joins_private_result(*expression))
     {
-        let unknown = ExecutionCondition::unknown();
-
-        let value = target
-            .pending_results
-            .get(&expression)
-            .unwrap_or(&unknown);
-
-        let other = incoming
-            .pending_results
-            .get(&expression)
-            .unwrap_or(&unknown);
+        let [value, other] = join.result_inputs(expression, [target, incoming])
+            .map(|source| source.unwrap_or(&unknown));
+        let root = match join {
+            ExecutionJoin::Result { root, .. } => root.clone(),
+            _ => ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expression)),
+        };
 
         let joined = common_components(
             value,
             other,
-            Some(ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expression))),
+            Some(root),
             (&target.proofs.ordinary_proof(&target.assumptions), &incoming.proofs.ordinary_proof(&incoming.assumptions)),
             &mut joined_facts,
             &mut { ExecutionCondition::WORK_LIMIT },
@@ -365,7 +402,8 @@ fn join_observations<'a>(
             &mut right_identities,
         );
 
-        if value != other || target.owned_results.get(value) != incoming.owned_results.get(other) {
+        if join.explicit_result().is_some() || value != other
+            || target.owned_results.get(value) != incoming.owned_results.get(other) {
             owned_results.insert(
                 joined.clone(),
                 super::witnesses::owned_alternatives((target, value), (incoming, other), &joined),
@@ -376,6 +414,19 @@ fn join_observations<'a>(
     }
 
     if joins {
+        if join.explicit_result().is_some() {
+            // Stable current observations keep their identities across result publication.
+            for value in stable_values {
+                left.insert(value.clone(), value.clone());
+                right.insert(value.clone(), value);
+            }
+
+            for value in stable_identities {
+                left_identities.insert(value.clone(), value.clone());
+                right_identities.insert(value.clone(), value);
+            }
+        }
+
         if needs_condition_proof {
             joined_facts.extend(common_join_conditions(target, incoming, &joined_values));
         }
@@ -388,7 +439,7 @@ fn join_observations<'a>(
             (incoming_joined.as_ref(), &right_substitution),
             &joined_values,
             results.iter().map(|(expression, joined)| (
-                [target.pending_results.get(expression), incoming.pending_results.get(expression)],
+                join.result_inputs(*expression, [target, incoming]),
                 joined,
             )),
             &availability_guards,
@@ -456,14 +507,15 @@ fn join_current_value(
     contents: &BTreeMap<ExecutionCondition, ExecutionCondition>,
     facts: &mut Vec<(ExecutionCondition, bool)>,
 ) -> CurrentValue {
-    let result = || join.block().map(|block| {
+    let site = join.observation_site();
+    let result = || site.map(|site| {
         if let Some((_, owner)) = super::joins::common_current_owner(left.1, right.1) {
             let shared = owner.with_snapshots(contents);
 
             if shared != owner { return shared; }
         }
 
-        joined_observation(block, place)
+        joined_observation(site, place)
     });
 
     let value = if *left.2 == ValueAvailability::Absent {
@@ -481,7 +533,7 @@ fn join_current_value(
         ValueAvailability::Unknown
     } else {
         ValueAvailability::Guarded(ExecutionCondition::new(crate::ExecutionConditionKind::InitializedSnapshot(
-            place.clone(), std::sync::Arc::new(join.snapshot(place)),
+            place.clone(), std::sync::Arc::new(site.map_or_else(|| ExecutionCondition::boolean(true), |site| joined_observation(site, place))),
             std::sync::Arc::new(value.owner_identity().clone()),
         )))
     };
@@ -527,13 +579,17 @@ pub(super) fn stable_observations(
 }
 
 pub(super) fn resolved_availability(state: &ExecutionState, place: &crate::ExecutionPlace) -> ValueAvailability {
-    match state.current.availability(place) {
+    resolve_availability(state, &state.current.availability(place))
+}
+
+pub(super) fn resolve_availability(state: &ExecutionState, availability: &ValueAvailability) -> ValueAvailability {
+    match availability {
         ValueAvailability::Guarded(guard) => match guard.prove_ordinary(&state.assumptions, Some(&state.proofs)) {
             Some(true) => ValueAvailability::Present,
             Some(false) => ValueAvailability::Absent,
-            None => ValueAvailability::Guarded(guard),
+            None => availability.clone(),
         },
-        available => available,
+        _ => availability.clone(),
     }
 }
 
@@ -551,13 +607,8 @@ fn assume_availability(state: &mut ExecutionState, guard: &ExecutionCondition, a
     condition.0.assume(condition.1, &mut state.assumptions);
 }
 
-pub(super) fn joined_observation(block: AnalysisBlockId, place: &crate::ExecutionPlace) -> ExecutionCondition {
-    ExecutionCondition::new(crate::ExecutionConditionKind::Joined(
-        block.unit(),
-        u32::try_from(block.to_index().expect("flow block has an index"))
-            .expect("flow block index fits"),
-        place.clone(),
-    ))
+pub(super) fn joined_observation(site: ExecutionJoinSite, place: &crate::ExecutionPlace) -> ExecutionCondition {
+    ExecutionCondition::new(crate::ExecutionConditionKind::Joined(site, place.clone()))
 }
 
 fn join_current_truth(
@@ -595,9 +646,7 @@ fn publish_owned_results(
     let mut changed = false;
 
     for (value, ownership) in owned_results {
-        changed |= target.owned_results.get(&value) != Some(&ownership);
-
-        target
+        changed |= target
             .owned_results
             .insert(value.clone(), ownership.clone());
 
@@ -1120,7 +1169,8 @@ mod tests {
         let nested = StorageProjection::TupleElement(SymbolOrdinal::new(1));
         let child = root.clone().project(field);
         let original = child.clone().project(nested);
-        let version = ExecutionCondition::new(crate::ExecutionConditionKind::Joined(BoundUnitId::new(0), 1, place.clone()));
+        let join = crate::ExecutionJoinSite::Block(BoundUnitId::new(0), 1);
+        let version = ExecutionCondition::new(crate::ExecutionConditionKind::Joined(join, place.clone()));
 
         for unchanged in [true, false] {
             let current = if unchanged { original.clone() } else { version.clone().project(field).project(nested) };

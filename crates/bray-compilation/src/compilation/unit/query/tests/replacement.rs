@@ -55,20 +55,10 @@ fn replacement_plans_capture_old_state_after_rhs_transfers() {
 
         assert_eq!(decision.state(), expected, "{source}");
 
-        let analysis = compilation
-            .async_analysis(key.clone())
-            .expect("fixture callable must complete async analysis");
-
-        let [plan] = analysis.value().replacements() else {
-            panic!("one assignment must publish one cleanup plan: {analysis:?}");
-        };
-
-        assert_eq!(plan.expression(), decision.expression());
-        assert_eq!(plan.access(), decision.access());
-        assert_eq!(plan.parts().is_some(), partial, "{source}");
+        assert_eq!(decision.parts().is_some(), partial, "{source}");
 
         assert_eq!(
-            plan.cleanup() == AsyncStorageCleanupRequirement::None,
+            decision.cleanup() == AsyncStorageCleanupRequirement::None,
             expected == StorageReplacementState::Absent,
             "{source}"
         );

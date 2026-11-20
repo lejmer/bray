@@ -10,7 +10,7 @@ use crate::analysis::fixed_point::{
 };
 use crate::analysis::id::AnalysisEdgeId;
 use crate::analysis::model::{
-    AnalysisBlock, AnalysisCallPhase, AnalysisEdgeKind, AnalysisOperation, AnalysisOperationKind,
+    AnalysisBlock, AnalysisEdgeKind, AnalysisOperation, AnalysisOperationKind,
     AnalysisScopeExitPhase, ControlFlowGraph,
 };
 use crate::analysis::reachability::ReachabilityResult;
@@ -126,14 +126,15 @@ fn transfer_operation(
     }
 
     if let AnalysisOperationKind::ScopeExit {
+        scope,
         exit,
         phase,
         preserves_exit_value,
         ..
     } = operation.kind()
     {
-        if preserves_exit_value && phase == AnalysisScopeExitPhase::LifecycleResolution {
-            state.extend(effects.retained_at_exit(exit).copied());
+        if phase == AnalysisScopeExitPhase::LifecycleResolution {
+            state.extend(effects.retained_at_exit(scope, exit, preserves_exit_value));
         }
 
         return;
@@ -187,10 +188,7 @@ fn collect_liveness(
             } = operation.kind()
             {
                 let retained = state.iter().copied().chain(
-                    effects
-                        .retained_at_exit(exit)
-                        .copied()
-                        .filter(|_| preserves_exit_value),
+                    effects.retained_at_exit(block, exit, preserves_exit_value),
                 );
 
                 for subject in retained {
@@ -316,43 +314,23 @@ fn collect_edge_lifetime_ends(
                 .state(edge.source())
                 .expect("solved predecessor must have a liveness state");
 
-            let source_operation = graph
-                .block(edge.source())
-                .expect("liveness edge retains its source block")
-                .operations()
-                .last()
-                .map(|id| {
-                    graph
-                        .operation(*id)
-                        .expect("liveness block retains its final operation")
-                });
+            use crate::analysis::model::AnalysisRefinement;
 
-            let bypassed_completion =
-                source_operation.filter(|operation| match (operation.kind(), edge.refinement()) {
-                    (
-                        AnalysisOperationKind::Call {
-                            invocation,
-                            phase: AnalysisCallPhase::Attempt,
-                        },
-                        Some(crate::analysis::model::AnalysisRefinement::InvocationFailure(failed, _)),
-                    )
-                    | (
-                        AnalysisOperationKind::Call {
-                            invocation,
-                            phase: AnalysisCallPhase::Input,
-                        },
-                        Some(crate::analysis::model::AnalysisRefinement::PreconditionFailure(
-                            failed,
-                        )),
-                    ) => invocation == failed,
-                    _ => false,
-                });
+            let failed_invocation = match edge.refinement() {
+                Some(AnalysisRefinement::InvocationFailure(invocation, _)) => {
+                    Some((invocation, Some(bray_bound_tree::StorageValueConsumptionPhase::Admission)))
+                }
+                Some(AnalysisRefinement::InvocationEntry { invocation, admitted: false }
+                    | AnalysisRefinement::InvocationBackingFailure(invocation)) => {
+                    Some((invocation, None))
+                }
+                _ => None,
+            };
 
             // Admission and invocation failure bypass normal-completion retirement.
-            let failed_call_uses = bypassed_completion
-                .and_then(|operation| effects.operation_effect(operation))
+            let failed_call_uses = failed_invocation
                 .into_iter()
-                .flat_map(|effect| effect.failed_invocation_subjects());
+                .flat_map(|(invocation, consumption)| effects.failed_invocation_subjects(invocation, consumption));
 
             let mut subjects = source_live_out
                 .iter()
@@ -504,7 +482,7 @@ mod tests {
             );
 
             let operation = AnalysisOperation::new(
-                AnalysisOperationId::from_slot(unit, 0),
+                AnalysisOperationId::new(unit, 0),
                 AnalysisOperationKind::Bound(expression.into()),
                 ProgramPointId::from_slot(unit, 0),
                 ProgramPointId::from_slot(unit, 1),
@@ -698,7 +676,7 @@ mod tests {
         let effects = OperationEffects::from_storage_plan(&bound_unit, &builder.finish(), &memory);
 
         let operation = AnalysisOperation::new(
-            AnalysisOperationId::from_slot(unit, 0),
+            AnalysisOperationId::new(unit, 0),
             AnalysisOperationKind::Bound(expression.into()),
             ProgramPointId::from_slot(unit, 0),
             ProgramPointId::from_slot(unit, 1),
@@ -788,7 +766,7 @@ mod tests {
         for (site, loan) in sites.into_iter().zip(loans) {
             let operation = |phase| {
                 AnalysisOperation::new(
-                    AnalysisOperationId::from_slot(unit, 0),
+                    AnalysisOperationId::new(unit, 0),
                     AnalysisOperationKind::Call {
                         invocation: site,
                         phase,
@@ -989,7 +967,7 @@ mod tests {
 
         let operation = |kind| {
             AnalysisOperation::new(
-                AnalysisOperationId::from_slot(unit, 0),
+                AnalysisOperationId::new(unit, 0),
                 kind,
                 ProgramPointId::from_slot(unit, 0),
                 ProgramPointId::from_slot(unit, 1),

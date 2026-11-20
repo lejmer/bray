@@ -647,92 +647,95 @@ impl Compilation {
                         continue;
                     }
 
-                    let evidence = candidate.dependency_evidence(site, original_callable);
+                    let mut admissions = candidate.dependency_evidence(site, original_callable).peekable();
+                    let absent = admissions.peek().is_none().then_some(None);
 
-                    if matches!(
-                        original_callable,
-                        BoundCallableTarget::Anonymous(_) | BoundCallableTarget::Indirect(_)
-                    ) && let Some(body) =
-                        evidence.and_then(bray_checker::ExecutionCallEvidence::anonymous_target)
-                    {
-                        let declared = self.execution_unit_declaration(body)?;
+                    for evidence in absent.into_iter().chain(admissions.map(Some)) {
+                        if matches!(
+                            original_callable,
+                            BoundCallableTarget::Anonymous(_) | BoundCallableTarget::Indirect(_)
+                        ) && let Some(body) =
+                            evidence.and_then(bray_checker::ExecutionCallEvidence::anonymous_target)
+                        {
+                            let declared = self.execution_unit_declaration(body)?;
 
-                        diagnostics.add_range(declared.diagnostics().iter().cloned());
+                            diagnostics.add_range(declared.diagnostics().iter().cloned());
 
-                        let selected = self.select_source_execution_obligation(
-                            Some(body),
-                            None,
-                            declared.value(),
+                            let selected = self.select_source_execution_obligation(
+                                Some(body),
+                                None,
+                                declared.value(),
+                                requested,
+                                evidence,
+                                diagnostics,
+                                cancellation,
+                            )?;
+
+                            if let Some(selected) = selected {
+                                let target =
+                                    ExecutionProofOwner::Source(body.source().syntax(), instance);
+
+                                dependencies.insert((target, selected));
+
+                                pending.push((
+                                    target,
+                                    Some(body.clone()),
+                                    selected,
+                                    exported_owner,
+                                    false,
+                                    depth + 1,
+                                ));
+                            } else {
+                                valid = false;
+                            }
+
+                            continue;
+                        }
+
+                        let target = self
+                            .execution_dependency_target(
+                                original,
+                                instance.map(|instance| instance.substitution()),
+                                cancellation,
+                            )?
+                            .expect(
+                                "checked named or opaque dependency normalizes to its semantic target",
+                            );
+
+                        if let Some((target, selected, body)) = self.selected_execution_target(
+                            target,
                             requested,
-                            evidence,
+                            ExecutionProofEntry::Invocation(evidence),
+                            permit_premises,
+                            &mut graph,
+                            &mut assertions,
                             diagnostics,
                             cancellation,
-                        )?;
-
-                        if let Some(selected) = selected {
-                            let target =
-                                ExecutionProofOwner::Source(body.source().syntax(), instance);
+                        )? {
+                            if let Some((anchor, obligation)) = exported_owner {
+                                selected_dependencies.insert((anchor, obligation, original, selected));
+                            }
 
                             dependencies.insert((target, selected));
 
-                            pending.push((
-                                target,
-                                Some(body.clone()),
-                                selected,
-                                exported_owner,
-                                false,
-                                depth + 1,
-                            ));
+                            if body.is_some() || matches!(target, ExecutionProofOwner::Imported(_)) {
+                                let exported = match target {
+                                    ExecutionProofOwner::Source(anchor, _) => Some((anchor, selected)),
+                                    _ => exported_owner,
+                                };
+
+                                pending.push((target, body, selected, exported, false, depth + 1));
+                            }
                         } else {
+                            let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
+                            let source = super::failure::execution_site_span(bound.result().value(), &key, site);
+
+                            failure.get_or_insert(ExecutionVerificationFailure {
+                                condition: None, source: Some(source), cause: FailureCause::MissingEvidence,
+                            });
+
                             valid = false;
                         }
-
-                        continue;
-                    }
-
-                    let target = self
-                        .execution_dependency_target(
-                            original,
-                            instance.map(|instance| instance.substitution()),
-                            cancellation,
-                        )?
-                        .expect(
-                            "checked named or opaque dependency normalizes to its semantic target",
-                        );
-
-                    if let Some((target, selected, body)) = self.selected_execution_target(
-                        target,
-                        requested,
-                        ExecutionProofEntry::Invocation(evidence),
-                        permit_premises,
-                        &mut graph,
-                        &mut assertions,
-                        diagnostics,
-                        cancellation,
-                    )? {
-                        if let Some((anchor, obligation)) = exported_owner {
-                            selected_dependencies.insert((anchor, obligation, original, selected));
-                        }
-
-                        dependencies.insert((target, selected));
-
-                        if body.is_some() || matches!(target, ExecutionProofOwner::Imported(_)) {
-                            let exported = match target {
-                                ExecutionProofOwner::Source(anchor, _) => Some((anchor, selected)),
-                                _ => exported_owner,
-                            };
-
-                            pending.push((target, body, selected, exported, false, depth + 1));
-                        }
-                    } else {
-                        let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
-                        let source = super::failure::execution_site_span(bound.result().value(), &key, site);
-
-                        failure.get_or_insert(ExecutionVerificationFailure {
-                            condition: None, source: Some(source), cause: FailureCause::MissingEvidence,
-                        });
-
-                        valid = false;
                     }
                 }
             }

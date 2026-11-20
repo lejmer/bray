@@ -174,6 +174,28 @@ impl StorageTarget {
         }
     }
 
+    /// Identifies the source dependency retained for an exact reached target.
+    pub fn dependency_subject(
+        &self,
+        values: &bray_symbols::SemanticValueStore,
+        storage: &crate::StoragePlan,
+    ) -> Option<crate::BoundDependencySubject> {
+        if !self.is_exact() {
+            return None;
+        }
+
+        if let StorageOrigin::Static { root, .. } = self.origin {
+            return crate::BoundDependencySubject::from_static_root(values, root);
+        }
+
+        let path = self.inline_state_path()?;
+
+        Some(path.access_id(storage).map_or(
+            crate::BoundDependencySubject::Storage(path.root),
+            crate::BoundDependencySubject::StorageAccess,
+        ))
+    }
+
     /// Identifies one current value slot.
     pub fn storage(place: StoragePath) -> Self {
         Self {

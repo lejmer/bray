@@ -100,17 +100,10 @@ where
             && let Some(bray_bound_tree::SelectedPropagationBoundary::YieldRegion(target)) =
                 selection.boundary()
         {
-            let continuation = self.push_control_transfer(
-                expression,
-                failure,
-                bray_bound_tree::BoundControlTransferKind::Yield,
-                Some(target),
-            );
+            let context = self.result_yield_target(target)
+                .expect("checked propagation targets a single-yield result region");
 
-            assert!(
-                continuation.is_none(),
-                "checked propagation targets a single-yield result region"
-            );
+            self.push_result_yield(failure, expression, context);
         } else {
             self.push_exit(
                 failure,

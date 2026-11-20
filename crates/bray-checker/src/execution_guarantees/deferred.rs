@@ -2,38 +2,15 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use super::{ExecutionCallEvidence, ExecutionCondition};
-use bray_bound_tree::BoundExecutionSite;
-
-/// Stable analysis provenance for joining alternatives of one carried frame.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub(crate) enum DeferredProducer {
-    Local(BoundExecutionSite),
-    Summary {
-        instantiation: bray_bound_tree::StorageMutation,
-        callee: Option<Arc<bray_symbols::CapturedCallable>>,
-        alternative: usize,
-    },
-}
-
-impl DeferredProducer {
-    pub(crate) fn local(&self) -> Option<BoundExecutionSite> {
-        match self {
-            Self::Local(site) => Some(*site),
-            Self::Summary { .. } => None,
-        }
-    }
-}
-
-impl From<BoundExecutionSite> for DeferredProducer {
-    fn from(site: BoundExecutionSite) -> Self { Self::Local(site) }
-}
-
-#[cfg(test)]
-impl From<bray_bound_tree::BoundExpressionId> for DeferredProducer {
-    fn from(expression: bray_bound_tree::BoundExpressionId) -> Self { Self::Local(expression.into()) }
-}
+use bray_bound_tree::{BoundExecutionSite, StorageDeferredProducer};
 
 type Selection = BTreeSet<(ExecutionCondition, bool)>;
+
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub(crate) enum FrameReportOwner {
+    Boundary(bray_bound_tree::CallReportOutput),
+    Payload(bray_symbols::DependencySubject),
+}
 
 /// An invocation's captured environment and selection facts, retained by its actual frame value.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -45,7 +22,7 @@ pub struct ExecutionDeferredInvocation<Entry = Arc<ExecutionCallEvidence>> {
     pub(crate) entry: Entry,
     /// Result dependencies bound when this frame captures its evaluated inputs.
     pub(crate) completed: Option<Arc<BTreeSet<bray_symbols::DependencyRequirement>>>,
-    pub(crate) reports: BTreeMap<bray_bound_tree::CallReportOutput, crate::dependency::ReportCandidates>,
+    pub(crate) reports: BTreeMap<FrameReportOwner, crate::dependency::ReportCandidates>,
     pub(crate) selection: BTreeSet<(ExecutionCondition, bool)>,
 }
 
@@ -58,27 +35,32 @@ impl<Entry> ExecutionDeferredInvocation<Entry> {
 /// Feasible latent producers carried directly by one future or task value.
 #[derive(Clone, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ExecutionDeferredValue {
-    pub(crate) producers: BTreeMap<DeferredProducer, ExecutionDeferredInvocation>,
+    pub(crate) producers: BTreeMap<StorageDeferredProducer, ExecutionDeferredInvocation>,
     pub(crate) unknown: Option<ExecutionDeferredInvocation<()>>,
 }
 
 impl ExecutionDeferredValue {
-    pub(crate) fn storage_references(&self, target: &bray_bound_tree::StorageTarget,
-        retirement: bray_bound_tree::StorageValueRetirement,
-    ) -> bool {
-        self.producers.values().filter_map(|producer| producer.transition.as_ref())
-            .chain(self.unknown.iter().filter_map(|producer| producer.transition.as_ref()))
-            .any(|transition| transition.transfer.references(target, retirement))
-    }
+    pub(crate) fn retiring_storage(
+        self: &Arc<Self>,
+        retirements: &[(bray_bound_tree::StorageTarget, bray_bound_tree::StorageValueRetirement)],
+    ) -> Arc<Self> {
+        let mut updated = Arc::clone(self);
 
-    pub(crate) fn retire_storage(&mut self, target: &bray_bound_tree::StorageTarget,
-        retirement: bray_bound_tree::StorageValueRetirement,
-    ) {
-        for transition in self.producers.values_mut().filter_map(|producer| producer.transition.as_mut())
-            .chain(self.unknown.iter_mut().filter_map(|producer| producer.transition.as_mut()))
-        {
-            if transition.transfer.references(target, retirement) { Arc::make_mut(transition).transfer.retire_dependencies(target, retirement); }
+        for (source, producer) in &self.producers {
+            if let Some(transition) = producer.transition.as_ref().and_then(|transition| transition.retired(retirements)) {
+                Arc::make_mut(&mut updated).producers.get_mut(source)
+                    .expect("retirement keeps every frame producer").transition = Some(Arc::new(transition));
+            }
         }
+
+        if let Some(transition) = self.unknown.as_ref().and_then(|producer| producer.transition.as_ref())
+            .and_then(|transition| transition.retired(retirements))
+        {
+            Arc::make_mut(&mut updated).unknown.as_mut()
+                .expect("retirement keeps the opaque producer").transition = Some(Arc::new(transition));
+        }
+
+        updated
     }
 
     pub(crate) fn conditions(&self) -> impl Iterator<Item = &ExecutionCondition> {
@@ -111,31 +93,29 @@ impl ExecutionDeferredValue {
 }
 
 impl ExecutionDeferredValue {
-    /// Latent work of feasible alternatives of this frame. Captured child frames remain latent.
-    pub(crate) fn transitions(&self, proof: &super::ExecutionProof<'_>)
-        -> Option<Vec<Arc<bray_bound_tree::StorageDeferredTransition>>>
-    {
-        if self.unknown_possible(proof) { return None; }
-
-        self.producers.values().filter(|producer| deferred_possible(&producer.selection, proof))
-            .map(|producer| producer.transition.clone()).collect()
-    }
-
     pub(crate) fn effects(&self, proof: &super::ExecutionProof<'_>)
         -> Option<bray_symbols::DependencyEffectOutcomes<bray_bound_tree::StorageEffect>>
     {
+        use bray_bound_tree::StorageEffectRow;
+
         if self.unknown_possible(proof) { return None; }
 
         let mut effects = bray_symbols::DependencyEffectOutcomes::new([]);
 
         for producer in self.producers.values().filter(|producer| deferred_possible(&producer.selection, proof)) {
-            let transfer = &producer.transition.as_ref()?.transfer;
-            let resolved = transfer.deferred_effects.as_ref()?;
+            let transfer = producer.transition.as_ref()?;
+            let resolved = transfer.effects.as_ref()?;
 
-            if let Some(rows) = &transfer.deferred_normal_rows
-                && rows.keys().any(|index| !producer.entry.outputs.is_admitted(*index))
-            {
-                let selected = rows.iter().filter(|(index, _)| producer.entry.outputs.is_admitted(**index))
+            let normal_rows = transfer.effect_rows.iter().flat_map(|rows| {
+                rows.range(StorageEffectRow::Normal(0)..=StorageEffectRow::Normal(usize::MAX))
+            }).map(|(row, effects)| {
+                let StorageEffectRow::Normal(index) = row else { unreachable!("normal effect range retains only normal rows"); };
+
+                (*index, effects)
+            });
+
+            if normal_rows.clone().any(|(index, _)| !producer.entry.outputs.is_admitted(index)) {
+                let selected = normal_rows.filter(|(index, _)| producer.entry.outputs.is_admitted(*index))
                     .flat_map(|(_, effects)| effects.iter().cloned());
 
                 effects.merge(&resolved.clone().with_normal(selected));
@@ -147,15 +127,105 @@ impl ExecutionDeferredValue {
         Some(effects)
     }
 
+    /// Reads the performed prefix from its activated body, preserving an opaque kind envelope.
+    pub(crate) fn failure_effects(
+        &self,
+        proof: &super::ExecutionProof<'_>,
+        kind: bray_symbols::DependencyFailureKind,
+        row: Option<usize>,
+    ) -> Option<Vec<bray_bound_tree::StorageEffect>> {
+        if self.unknown_possible(proof) { return None; }
+
+        let mut effects = BTreeSet::new();
+
+        for producer in self.producers.values().filter(|producer| deferred_possible(&producer.selection, proof)) {
+            let transfer = producer.transition.as_ref()?;
+
+            if let Some(failures) = producer.entry.failure_rows.as_deref() {
+                let feasible = failures.iter().filter(|failure| {
+                    failure.covers(kind) && row.is_none_or(|row| row == failure.index)
+                        && failure.guard.as_ref().is_none_or(|guard| proof.can_assume(guard, true))
+                });
+
+                let resolved = feasible.map(|failure| {
+                    let prefix = transfer.effect_rows.as_ref()?
+                        .get(&bray_bound_tree::StorageEffectRow::Abnormal(kind, failure.index))?;
+
+                    effects.extend(prefix.iter().cloned());
+
+                    Some(())
+                }).collect::<Option<()>>();
+
+                if resolved.is_some() {
+                    continue;
+                }
+            }
+
+            effects.extend(transfer.effects.as_ref()?.failure(kind).iter().cloned());
+        }
+
+        Some(effects.into_iter().collect())
+    }
+
+    pub(crate) fn cell_changes(
+        &self,
+        proof: &super::ExecutionProof<'_>,
+        failure: Option<(bray_symbols::DependencyFailureKind, Option<usize>)>,
+    ) -> Option<Arc<[bray_bound_tree::StorageEffect]>> {
+        use bray_bound_tree::StorageEffectRow;
+
+        if self.unknown_possible(proof) {
+            return None;
+        }
+
+        let mut possible = Vec::new();
+
+        for producer in self.producers.values().filter(|producer| deferred_possible(&producer.selection, proof)) {
+            let rows = producer.transition.as_ref()?.effect_rows.as_ref()?;
+
+            if let Some((kind, selected)) = failure {
+                let failures = producer.entry.failure_rows.as_deref()?;
+
+                possible.extend(failures.iter().filter(|row| {
+                    row.covers(kind) && selected.is_none_or(|selected| row.index == selected)
+                        && row.guard.as_ref().is_none_or(|guard| proof.can_assume(guard, true))
+                }).map(|row| rows.get(&StorageEffectRow::AbnormalCells(kind, row.index))));
+            } else {
+                let start = possible.len();
+
+                possible.extend(rows.range(StorageEffectRow::Normal(0)..=StorageEffectRow::Normal(usize::MAX))
+                    .filter_map(|(row, _)| {
+                        let StorageEffectRow::Normal(index) = *row else {
+                            unreachable!("normal effect range retains only normal rows");
+                        };
+
+                        producer.entry.outputs.is_admitted(index).then(|| rows.get(&StorageEffectRow::NormalCells(index)))
+                    }));
+
+                if possible.len() == start {
+                    return None;
+                }
+            }
+        }
+
+        bray_symbols::common_cell_changes(possible.into_iter())
+    }
+
     pub(crate) fn cleanup_effects(&self, discard_result: bool, proof: &super::ExecutionProof<'_>)
         -> Option<Vec<bray_bound_tree::StorageEffect>>
     {
+        if self.unknown_possible(proof) { return None; }
+
         let mut effects = BTreeSet::new();
 
-        for transition in self.transitions(proof)? {
-            effects.extend(transition.transfer.captured_cleanup.as_ref()?.iter().cloned());
+        for producer in self.producers.values().filter(|producer| deferred_possible(&producer.selection, proof)) {
+            let retained = producer.transition.as_ref()?;
 
-            if discard_result { effects.extend(transition.transfer.result_cleanup.as_ref()?.iter().cloned()); }
+            effects.extend(retained.captured_cleanup.as_ref()?.iter().cloned());
+
+            if discard_result {
+                effects.extend(retained.result_cleanup.as_ref()?.iter().cloned());
+            }
         }
 
         Some(effects.into_iter().collect())
@@ -191,7 +261,7 @@ impl<Entry> ExecutionDeferredInvocation<Entry> {
             if let Some(reports) = self.reports.get_mut(output) {
                 changed |= reports.merge(incoming);
             } else {
-                self.reports.insert(*output, incoming.clone());
+                self.reports.insert(output.clone(), incoming.clone());
                 changed = true;
             }
         }
@@ -208,7 +278,21 @@ impl ExecutionDeferredValue {
             if let Some(previous) = self.producers.get_mut(source) {
                 if previous != candidate {
                     if previous.entry != candidate.entry {
-                        changed |= Arc::make_mut(&mut previous.entry).intersect(&candidate.entry, cache);
+                        if std::env::var_os("BRA_694_TRACE_FRAME").is_some()
+                            && source.local().and_then(BoundExecutionSite::expression).is_some_and(|expression| matches!(expression.ordinal(), 14 | 21))
+                        {
+                            let describe = |entry: &ExecutionCallEvidence| entry.positional_arguments()
+                                .map(|(ordinal, value)| (ordinal, format!("{:?}", value.computed_value().kind()).chars().take(650).collect::<String>()))
+                                .collect::<Vec<_>>();
+
+                            eprintln!("frame join {source:?} left={:?} right={:?} ordinary={:?}/{:?} selected={:?}/{:?}",
+                                describe(&previous.entry), describe(&candidate.entry), previous.entry.assumptions, candidate.entry.assumptions,
+                                previous.selection, candidate.selection);
+                        }
+
+                        changed |= Arc::make_mut(&mut previous.entry).intersect_guarded(
+                            &candidate.entry, cache, Some([&previous.selection, &candidate.selection]),
+                        );
                     }
 
                     changed |= previous.merge_capture(candidate);
@@ -234,9 +318,9 @@ impl ExecutionDeferredValue {
 
 }
 
-pub(crate) fn deferred_selection(facts: &Selection) -> Selection {
+pub(crate) fn deferred_selection<'a>(facts: impl IntoIterator<Item = &'a (ExecutionCondition, bool)>) -> Selection {
     facts
-        .iter()
+        .into_iter()
         .filter(|(condition, _)| {
             !condition.contains_trusted() && !condition.observes_live(None)
         })
@@ -277,30 +361,42 @@ impl ExecutionDeferredValue {
             .is_some_and(|candidate| deferred_possible(&candidate.selection, proof))
     }
 
-    pub(crate) fn known_sources(&self, proof: &crate::execution_guarantees::ExecutionProof<'_>) -> Option<BTreeSet<BoundExecutionSite>> {
-        (!self.unknown_possible(proof)).then(|| {
-            self.producers
-                .iter()
-                .filter(|(_, candidate)| deferred_possible(&candidate.selection, proof))
-                .map(|(source, _)| source.local())
-                .collect()
-        }).flatten()
-    }
+    pub(crate) fn retire_selection(self: &Arc<Self>, stale: impl Fn(&ExecutionCondition) -> bool) -> Arc<Self> {
+        let affected = self.unknown.iter().map(|candidate| &candidate.selection)
+            .chain(self.producers.values().map(|candidate| &candidate.selection))
+            .flatten().any(|(condition, _)| stale(condition));
 
-    pub(crate) fn retire_selection(&mut self, stale: impl Fn(&ExecutionCondition) -> bool) -> bool {
-        let mut changed = false;
+        if !affected { return Arc::clone(self); }
 
-        for guard in self.unknown.iter_mut().map(|candidate| &mut candidate.selection).chain(
-            self.producers
+        let mut updated = self.as_ref().clone();
+
+        for guard in updated.unknown.iter_mut().map(|candidate| &mut candidate.selection).chain(
+            updated.producers
                 .values_mut()
                 .map(|candidate| &mut candidate.selection),
         ) {
-            let before = guard.len();
-
             guard.retain(|(condition, _)| !stale(condition));
-            changed |= guard.len() != before;
         }
 
-        changed
+        Arc::new(updated)
+    }
+
+    /// Expires the reused evaluation in the actual frame's private admissions.
+    pub(crate) fn retire_evaluation(
+        self: &Arc<Self>,
+        mutation: bray_bound_tree::StorageMutation,
+        stale: &impl Fn(&ExecutionCondition) -> bool,
+    ) -> Arc<Self> {
+        let mut updated = self.retire_selection(stale);
+
+        if updated.producers.values().any(|producer| producer.entry.observes_retiring_evaluation(stale)) {
+            let frame = Arc::make_mut(&mut updated);
+
+            for producer in frame.producers.values_mut().filter(|producer| producer.entry.observes_retiring_evaluation(stale)) {
+                Arc::make_mut(&mut producer.entry).retire_evaluation(mutation, stale);
+            }
+        }
+
+        updated
     }
 }

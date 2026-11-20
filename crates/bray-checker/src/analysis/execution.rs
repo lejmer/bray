@@ -79,6 +79,22 @@ where
 
         current = self.begin_invocation(expression.into(), current, checks_preconditions);
 
+        let reserves_factory = matches!(
+            self.selections().and_then(|selections| selections.expression(expression)),
+            Some(SemanticSelection::Call(call))
+                if matches!(call.resolution().result(), bray_bound_tree::BoundCallResult::LazyFuture(_))
+                    && call.implementation_hook()
+                        .and_then(super::model::AnalysisTaskOperationKind::from_implementation_hook)
+                        .is_none()
+        );
+
+        if reserves_factory {
+            current = self.push_storage_admission(
+                current, expression.into(),
+                Some(super::model::AnalysisRefinement::InvocationBackingFailure(expression.into())),
+            );
+        }
+
         let continuation = self.push_block();
 
         self.push_call(current, expression.into(), AnalysisCallPhase::Attempt);
@@ -92,7 +108,7 @@ where
             )),
         );
 
-        if may_fail {
+        if may_fail && !reserves_factory {
             self.push_dependency_failures(current, expression.into());
         }
 
@@ -124,14 +140,17 @@ where
             current,
             failed,
             AnalysisEdgeKind::Sequential,
-            Some(super::model::AnalysisRefinement::PreconditionFailure(
+            Some(super::model::AnalysisRefinement::InvocationEntry {
                 invocation,
-            )),
+                admitted: false,
+            }),
         );
 
         // Predicate evaluation is certified total. A false condition fails entry with a panic.
         self.push_exit(failed, AnalysisExitKind::Panic, invocation.node());
-        self.push_edge(current, admitted, AnalysisEdgeKind::Sequential, None);
+
+        self.push_edge(current, admitted, AnalysisEdgeKind::Sequential,
+            Some(super::model::AnalysisRefinement::InvocationEntry { invocation, admitted: true }));
 
         admitted
     }
@@ -181,61 +200,54 @@ where
 
         let suspended = self.push_block();
         let resume = self.push_block();
-        let cancellation = self.push_block();
 
         self.push_edge(current, suspended, AnalysisEdgeKind::Suspension, None);
+        self.connect_suspended_invocation(suspended, resume, id.into());
+        self.push_call(resume, id.into(), AnalysisCallPhase::Completion);
 
+        Some(Some(self.continue_committed_invocation(resume, id)))
+    }
+
+    pub(super) fn connect_suspended_invocation(
+        &mut self,
+        suspended: AnalysisBlockId,
+        resume: AnalysisBlockId,
+        invocation: bray_bound_tree::BoundExecutionSite,
+    ) {
         self.push_edge(
             suspended,
             resume,
             AnalysisEdgeKind::Resume,
             Some(super::model::AnalysisRefinement::InvocationCompletion(
-                id.into(),
+                invocation,
             )),
         );
 
-        self.push_call(resume, id.into(), AnalysisCallPhase::Completion);
+        for (kind, edge, exit) in [
+            (bray_symbols::DependencyFailureKind::Cancellation, AnalysisEdgeKind::RunCancellation, AnalysisExitKind::Cancellation),
+            (bray_symbols::DependencyFailureKind::Panic, AnalysisEdgeKind::Panic, AnalysisExitKind::Panic),
+        ] {
+            let failure = self.push_block();
 
-        // A new cancellation request can arrive after the child's completed
-        // value has transferred. This path owns that value, unlike invocation
-        // failure, and must resolve it before leaving the current frame.
-        let completed_cancellation = self.push_block();
+            self.push_edge(suspended, failure, edge, Some(super::model::AnalysisRefinement::InvocationFailure(invocation, kind)));
+            self.push_exit(failure, exit, invocation.node());
+        }
+    }
 
-        self.push_edge(resume, completed_cancellation, AnalysisEdgeKind::RunCancellation, None);
-        self.push_exit(completed_cancellation, AnalysisExitKind::Cancellation, id.into());
-
-        self.push_edge(
-            suspended,
-            cancellation,
-            AnalysisEdgeKind::RunCancellation,
-            Some(super::model::AnalysisRefinement::InvocationFailure(
-                id.into(),
-                bray_symbols::DependencyFailureKind::Cancellation,
-            )),
-        );
-
-        self.push_exit(cancellation, AnalysisExitKind::Cancellation, id.into());
-
-        let failure = self.push_block();
-
-        self.push_edge(
-            suspended,
-            failure,
-            AnalysisEdgeKind::Panic,
-            Some(super::model::AnalysisRefinement::InvocationFailure(
-                id.into(),
-                bray_symbols::DependencyFailureKind::Panic,
-            )),
-        );
-
-        self.push_exit(failure, AnalysisExitKind::Panic, id.into());
-
-        // Later source evaluation must not precede the cancellation check.
+    pub(super) fn continue_committed_invocation(
+        &mut self,
+        completed: AnalysisBlockId,
+        expression: BoundExpressionId,
+    ) -> AnalysisBlockId {
+        // A newly cancelled parent owns the value already transferred by the child.
+        let cancelled = self.push_block();
         let continued = self.push_block();
 
-        self.push_edge(resume, continued, AnalysisEdgeKind::Sequential, None);
+        self.push_edge(completed, cancelled, AnalysisEdgeKind::RunCancellation, None);
+        self.push_exit(cancelled, AnalysisExitKind::Cancellation, expression.into());
+        self.push_edge(completed, continued, AnalysisEdgeKind::Sequential, None);
 
-        Some(Some(continued))
+        continued
     }
 
     pub(super) fn build_call(

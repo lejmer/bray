@@ -474,23 +474,19 @@ impl Lowerer<'_> {
             },
         )?;
 
-        if let Some(ty) = accepted_owner {
-            for branch in [panicked, cancelled] {
-                self.discharge_outgoing_owner(branch, source, ty)?;
-            }
-        }
+        let checked_protocol = matches!(outcome_kind, CallOutcome::Selected)
+            && matches!(occurrence, bray_bound_tree::BoundExecutionSite::CallInput { .. }
+                | bray_bound_tree::BoundExecutionSite::Iterate(_)
+                | bray_bound_tree::BoundExecutionSite::Next(_)
+                | bray_bound_tree::BoundExecutionSite::ScopedEnter(_));
 
-        self.finish_panic_to_active_catch(
-            expression,
-            panicked,
-            source,
-            MirOperand::Move(Self::retained_place(&report)),
-            report_type,
-        )?;
+        let reached = |kind| self.input.storage_flow().invocation_can_fail(occurrence, kind);
+        let may_panic = !checked_protocol || reached(bray_symbols::DependencyFailureKind::Panic);
 
         // Protocol helpers have their own outcome, independent of the source invocation.
         let may_cancel = match outcome_kind {
             CallOutcome::Runtime => false,
+            CallOutcome::Selected if checked_protocol => reached(bray_symbols::DependencyFailureKind::Cancellation),
             CallOutcome::Selected
                 if matches!(occurrence, bray_bound_tree::BoundExecutionSite::Node(_))
                     && self.input.call_cannot_cancel(expression) =>
@@ -508,6 +504,22 @@ impl Lowerer<'_> {
                 _ => true,
             },
         };
+
+        if let Some(ty) = accepted_owner {
+            for (branch, reached) in [(panicked, may_panic), (cancelled, may_cancel)] {
+                if reached {
+                    self.discharge_outgoing_owner(branch, source, ty)?;
+                }
+            }
+        }
+
+        if may_panic {
+            self.finish_panic_to_active_catch(
+                expression, panicked, source, MirOperand::Move(Self::retained_place(&report)), report_type,
+            )?;
+        } else {
+            self.set_terminator(panicked, Self::retained_source(source), MirTerminatorKind::Unreachable)?;
+        }
 
         if may_cancel {
             self.finish_cancellation(

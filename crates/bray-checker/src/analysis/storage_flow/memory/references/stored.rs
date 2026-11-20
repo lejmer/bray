@@ -3,6 +3,43 @@ use super::super::model::{AddressValue, Place, Retirement, State, Target, Transf
 use super::slots::take_subtree;
 
 impl State {
+    pub(in crate::analysis::storage_flow) fn stage_report(
+        &mut self,
+        call: bray_bound_tree::BoundExecutionSite,
+        destination: Target,
+        payload: Target,
+        report: std::sync::Arc<bray_bound_tree::ReportDependencies>,
+        complete: bool,
+    ) {
+        let pending = self.pending.entry(call).or_default();
+
+        pending.values.entry(destination).or_default();
+        pending.values.entry(payload).or_default().attach_report_dependencies(report, complete);
+    }
+
+    pub(in crate::analysis::storage_flow) fn report_dependencies(
+        &self,
+        payload: &Target,
+    ) -> Option<(&std::sync::Arc<bray_bound_tree::ReportDependencies>, bool)> {
+        self.values.get(payload)?.report_dependencies()
+    }
+
+    pub(in crate::analysis::storage_flow) fn carried_reports<'a>(
+        &'a self,
+        mut live: impl FnMut(&Target) -> bool + 'a,
+    ) -> impl Iterator<Item = &'a bray_bound_tree::ReportDependencies> + 'a {
+        self.may_have_report_values.then_some(&self.values).into_iter().flatten()
+            .filter_map(move |(target, value)| {
+                if target.previous && matches!(&target.origin, super::super::model::Origin::Storage(path) if path.is_inline()) {
+                    return None;
+                }
+
+                let (report, _) = value.report_dependencies()?;
+
+                live(target).then_some(report.as_ref())
+            })
+    }
+
     pub(in crate::analysis::storage_flow) fn capture_evaluated_value(&self, source: &super::Source,
         coordinate: Target, ty: bray_symbols::TypeId,
     ) -> bray_bound_tree::StorageCapturedValue {
@@ -49,6 +86,35 @@ impl State {
         }
     }
 
+    /// Completes a fresh result whose physical output rows are already installed.
+    pub(in crate::analysis::storage_flow) fn complete_result_capture(
+        &mut self,
+        destination: &Target,
+        value: &bray_bound_tree::StorageCapturedValue,
+    ) {
+        assert!(destination.is_exact(), "a produced result has an exact storage coordinate");
+
+        let mut additional = value.materialize(destination);
+        let reported = &mut self.may_have_report_values;
+
+        additional.values.retain(|slot, value| {
+            let Some(current) = self.values.get_mut(slot) else { return true; };
+
+            if !current.is_no_payload() {
+                current.include_value(value);
+            }
+
+            *reported |= current.report_dependencies().is_some();
+
+            false
+        });
+
+        // The first publication already installed these payload incarnations.
+        additional.payloads.retain(|slot, _| !self.contents.contains_key(slot));
+
+        self.commit_value(additional);
+    }
+
     pub(in crate::analysis::storage_flow) fn include_captured_bounds(&mut self, region: &Target,
         value: &bray_bound_tree::StorageCapturedValue,
     ) {
@@ -57,12 +123,21 @@ impl State {
         for (slot, value) in captured.values {
             let bounds = value.into_dependency_bounds();
 
+            self.may_have_report_values = self.may_have_report_values || bounds.report_dependencies().is_some();
+
             self.values.entry(slot).and_modify(|value| value.include_carried(&bounds)).or_insert(bounds);
         }
 
         for (slot, contents) in captured.payloads {
             self.contents.entry(slot.clone()).or_default().merge(&contents.into_bounds(), &slot);
         }
+    }
+
+    /// Adds a reached element to a prefix with a runtime index.
+    pub(in crate::analysis::storage_flow) fn accumulate_value(&mut self, region: &Target, source: &super::Source) {
+        let captured = self.capture_source(source, region);
+
+        self.commit_weak_value(captured);
     }
 
     pub(in crate::analysis::storage_flow) fn lose_captured_information(&mut self, destination: &Target) {
@@ -85,11 +160,11 @@ impl State {
     pub(in crate::analysis::storage_flow) fn stage_preserved_value(
         &mut self,
         call: bray_bound_tree::BoundExecutionSite,
-        source: &Target,
+        source: &super::Source,
         destination: Target,
         preservation: &bray_symbols::DependencyValuePreservation<bray_bound_tree::StorageProjection>,
     ) {
-        let mut captured = self.capture_value(source, &destination);
+        let mut captured = self.capture_source(source, &destination);
         let mask = |slot: &Target| preservation.subtree(&slot.projections()[destination.projections().len()..]);
 
         captured.values.retain(|slot, value| {
@@ -114,7 +189,7 @@ impl State {
         self.stage_captured_value(call, destination, captured);
     }
 
-    fn stage_captured_value(
+    pub(super) fn stage_captured_value(
         &mut self,
         call: bray_bound_tree::BoundExecutionSite,
         destination: Target,

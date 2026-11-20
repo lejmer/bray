@@ -852,15 +852,11 @@ fn raw_moves_through_stored_borrows_reach_the_original_fields() {
             let key = crate::test_support::source_function_body_key(&compilation, "main");
 
             let storage = compilation
-                .storage_plan(key.clone())
+                .storage_plan(key)
                 .expect("derived target plan");
 
-            let refinements = compilation
-                .refinements(key)
-                .expect("derived target effects");
-
             assert!(
-                refinements.value().invalidations().values().any(|effect| {
+                flow.value().operation_invalidations().any(|(_, effect)| {
                     matches!(effect, bray_bound_tree::StorageInvalidation::Observed { accesses, .. }
                     if accesses.values().flatten().any(|path| path.access_id(storage.value()).is_none()))
                 }),

@@ -71,6 +71,16 @@ pub enum BoundDependencySubject {
 }
 
 impl BoundDependencySubject {
+    /// A static requirement retains the declaration and its storage duration.
+    pub fn from_static_root(values: &bray_symbols::SemanticValueStore, root: bray_symbols::DependencySubjectRoot) -> Option<Self> {
+        let declaration = root.static_declaration(values)?;
+
+        Some(match root.static_duration().expect("a static declaration has a storage duration") {
+            bray_symbols::StaticStorageDuration::Product => Self::ProductStatic(declaration),
+            bray_symbols::StaticStorageDuration::ExactThread => Self::ExactThreadStatic(declaration),
+        })
+    }
+
     /// Whether this subject names ordinary storage or a borrow capability.
     pub fn is_storage_dependency(self) -> bool {
         matches!(self, Self::Storage(_) | Self::StorageAccess(_) | Self::BorrowCapability(_))
@@ -356,6 +366,16 @@ impl BoundDependencyRequirement {
         requirements: impl IntoIterator<Item = BoundDependencyRequirement>,
     ) -> Self {
         Self::Guarded(GuardedBoundDependencyRequirement::new(guard, requirements))
+    }
+
+    /// Returns an access whose reached storage must remain available.
+    pub fn retained_storage_access(&self) -> Option<StorageAccessId> {
+        match self {
+            Self::Direct { subject: BoundDependencySubject::StorageAccess(access), kind }
+                if !matches!(kind, BoundDependencyRequirementKind::ValueDependencies
+                    | BoundDependencyRequirementKind::BorrowCapabilityActive(_)) => Some(*access),
+            _ => None,
+        }
     }
 
     fn is_valid_for(&self, unit: BoundUnitId) -> bool {

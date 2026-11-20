@@ -14,6 +14,8 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
             .collect::<std::collections::BTreeSet<_>>();
 
         for ty in types {
+            if self.raw_buffers.contains_key(&ty) { continue; }
+
             let Some(fields) = crate::representation::raw_buffer_fields(request, ty)? else {
                 continue;
             };
@@ -62,6 +64,7 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
                     kind: bray_symbols::DependencyMutationKind::Dispose(ty), access_type: Some(ty),
                 },
             ])?;
+            let mut subjects = std::collections::BTreeMap::new();
 
             for effect in &effects {
                 let subject = match effect {
@@ -90,16 +93,36 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
                 // finite descriptor demands. Owning elements never become parent edges.
                 demands.entry(owner).or_default().insert((path.projections().into(), reached));
 
+                for step in path.steps() {
+                    let bray_bound_tree::StorageReferenceStep::Backing { index, pointer: Some(pointer), .. } = *step else {
+                        continue;
+                    };
+
+                    let descriptor = path.projections()[..index].iter().copied()
+                        .chain([bray_bound_tree::StorageProjection::ProductField(pointer)])
+                        .collect::<std::sync::Arc<[_]>>();
+
+                    if let Some((ty, _)) = crate::storage::reference_path(request, owner, descriptor.clone(), None)? {
+                        demands.entry(owner).or_default().insert((descriptor, ty));
+                    }
+                }
+
                 for end in 0..=path.projections().len() {
                     if let Some((prefix, _)) = crate::storage::reference_path(request, owner, path.projections()[..end].into(), None)? {
                         nested.insert(prefix);
                     }
                 }
 
-                self.buffer_cleanup_paths.insert((ty, subject.clone()), (reached, path));
+                subjects.insert(subject.clone(), (reached, path));
             }
 
+            let paths = crate::dependency::prepare_effect_paths(request, &effects, |subject| {
+                subjects.get(subject).map(|(ty, _)| *ty)
+            })?;
+            let storage = bray_bound_tree::BoundCallStorage::new(subjects, [], Default::default()).with_effect_paths(paths);
+
             self.buffer_cleanup_effects.insert(ty, effects);
+            self.buffer_cleanup_storage.insert(ty, storage);
         }
 
         self.prepare_buffer_fields(request, nested.into_iter(), demands)
@@ -124,7 +147,7 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
 
             let template = &dependencies.lifecycle_dependencies()[&callable];
 
-            let storage = crate::dependency::prepare_call_storage(request, template, [], [], |subject| {
+            let storage = crate::dependency::prepare_call_storage(request, template, [], [], [], |subject| {
                 // The selected cleanup receiver already denotes its physical storage.
                 let owner = if subject.subject_root() == bray_symbols::DependencySubjectRoot::Receiver {
                     *ty

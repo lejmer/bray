@@ -74,13 +74,18 @@ fn common_data_components(
     conditions: (&ExecutionProof<'_>, &ExecutionProof<'_>),
     facts: &mut Vec<(ExecutionCondition, bool)>, budget: &mut usize,
 ) -> ExecutionCondition {
-    for (candidate, other, assumptions) in [(left, right, conditions.1), (right, left, conditions.0)] {
+    for (candidate, other, proof, other_proof) in [(left, right, conditions.0, conditions.1), (right, left, conditions.1, conditions.0)] {
         if candidate.ownership_identity().is_none()
             && candidate.observation_kind().is_none_or(|kind| kind == ObservationKind::Scalar)
             && let crate::ExecutionConditionKind::Boolean(value) = other.kind()
-            && !assumptions.can_assume(candidate, !*value)
         {
-            return candidate.clone();
+            if proof.prove_mixed(candidate, &mut { ExecutionCondition::WORK_LIMIT }) == Some(*value) {
+                return other.clone();
+            }
+
+            if !other_proof.can_assume(candidate, !*value) {
+                return candidate.clone();
+            }
         }
     }
 
@@ -410,7 +415,7 @@ pub(crate) fn owned_snapshot(
         crate::ExecutionConditionKind::DeferredValue { value, frame } =>
             owned_snapshot(value, identity, budget).with_deferred_value(std::sync::Arc::clone(frame)),
         crate::ExecutionConditionKind::CapturedValue { value, storage } =>
-            owned_snapshot(value, identity, budget).captured_value(storage.as_ref().clone()),
+            owned_snapshot(value, identity, budget).captured_value(storage.clone()),
         crate::ExecutionConditionKind::Observation { contents, kind: ObservationKind::Scalar, .. }
             if contents.ownership_identity().is_none() => {
             ExecutionCondition::scalar_observation(identity, contents.as_ref().clone())

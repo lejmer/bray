@@ -1,5 +1,4 @@
 use super::super::{ExecutionCondition, ExecutionConditionKind as K};
-use crate::execution_guarantees::ExecutionObservationKind;
 use bray_bound_tree::BoundOperator;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -33,21 +32,6 @@ impl ExecutionCondition {
     /// surviving owner, so recursively resolving it as an equality would cycle.
     pub(crate) fn with_snapshots(&self, snapshots: &BTreeMap<Self, Self>) -> Self {
         super::scope::SnapshotSubstitution::new(snapshots).apply(self)
-    }
-
-    /// Copy correlations apply to values. They cannot relocate borrowed observations.
-    pub(crate) fn with_copy_origins(&self, snapshots: &BTreeMap<Self, Self>) -> Self {
-        if !Self::has_value_changes(snapshots) { return self.clone(); }
-
-        self.substitute_values(
-            &|condition| match condition.kind() {
-                K::Borrowed(_) | K::Observation { kind: ExecutionObservationKind::Reference, .. } =>
-                    Some(condition.clone()),
-                _ => snapshot_value(condition, snapshots),
-            },
-            &mut { Self::WORK_LIMIT },
-            None,
-        )
     }
 
     pub(super) fn substitute_values(
@@ -356,7 +340,7 @@ fn rewrite_equalities_inner(
 
     let value = match value.kind() {
         K::CapturedValue { value, storage } => rewrite_equalities(value, replacements, identities, budget, memo)
-            .captured_value(storage.as_ref().clone()),
+            .captured_value(storage.clone()),
         K::StorageValue(operation, operands) => ExecutionCondition::storage_value(*operation,
             operands.iter().map(|value| rewrite_equalities(value, replacements, identities, budget, memo)).collect()),
         K::Discriminant(value) => rewrite_equalities(&value, replacements, identities, budget, memo).discriminant(),

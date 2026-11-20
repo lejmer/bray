@@ -249,30 +249,45 @@ impl<Projection, Input> DependencyOwnedResult<Projection, Input> {
 
                 shared.into_values().collect()
             }
-            Self::Choice(values) => {
-                let mut values = values.iter();
-
-                let Some(first) = values.next() else {
-                    return Default::default();
-                };
-
-                let mut shared = first.guaranteed_transfers_under(conditions);
-
-                for value in values {
-                    let incoming = value.guaranteed_transfers_under(conditions);
-
-                    shared = shared.into_iter().filter_map(|mut transfer| {
-                        let other = incoming.iter().find(|other| transfer.same_identity(other))?;
-
-                        transfer.preservation = transfer.preservation.intersection(&other.preservation);
-
-                        Some(transfer)
-                    }).collect();
-                }
-
-                shared
-            }
+            Self::Choice(values) => Self::common_transfers(values.iter(), conditions),
         }
+    }
+
+    /// Reads the guaranteed transfers shared by every admitted ownership alternative.
+    pub fn common_transfers<'a>(
+        layouts: impl IntoIterator<Item = &'a Self>,
+        conditions: &[Input],
+    ) -> std::collections::BTreeSet<DependencyOwnedTransfer<Projection, Input>>
+    where
+        Self: 'a,
+        Projection: Clone + Ord,
+        Input: Clone + Ord,
+    {
+        let mut layouts = layouts.into_iter();
+
+        let Some(first) = layouts.next() else {
+            return Default::default();
+        };
+
+        let mut shared = first.guaranteed_transfers_under(conditions);
+
+        for layout in layouts {
+            if shared.is_empty() {
+                break;
+            }
+
+            let incoming = layout.guaranteed_transfers_under(conditions);
+
+            shared = shared.into_iter().filter_map(|mut transfer| {
+                let other = incoming.iter().find(|other| transfer.same_identity(other))?;
+
+                transfer.preservation = transfer.preservation.intersection(&other.preservation);
+
+                Some(transfer)
+            }).collect();
+        }
+
+        shared
     }
 
     /// Visits exact moves with the ordinary conditions of their complete alternatives.

@@ -332,6 +332,37 @@ fn renderer_localizes_checker_diagnostics() {
 }
 
 #[test]
+fn task_start_diagnostic_identifies_the_missing_dependency() {
+    let span = bray_source::SourceSpan::new(
+        bray_source::SourceId::new(0),
+        bray_source::TextRange::new(TextSize::new(4), TextSize::new(12)),
+    );
+
+    let subject = DiagnosticArg::dependency_subject_kind(DiagnosticDependencySubjectKind::Storage);
+    let requirement = DiagnosticArg::dependency_requirement_kind(DiagnosticDependencyRequirementKind::StorageAlive);
+
+    let diagnostic = Diagnostic::new(
+        DiagnosticId::new(0),
+        DiagnosticKind::CheckingUnavailableTaskStartDependency,
+        SeverityKind::Error,
+    )
+    .with_primary_span(span)
+    .with_label(DiagnosticLabel::primary(DiagnosticLabelKind::UnavailableTaskStartDependency, span))
+    .with_arg(subject.clone())
+    .with_arg(requirement.clone())
+    .with_note(DiagnosticNote::new(DiagnosticNoteKind::DeferredDependencyUnavailable)
+        .with_arg(subject)
+        .with_arg(requirement));
+
+    let rendered = DiagnosticRenderer::english().render(&diagnostic);
+
+    assert_eq!(rendered.message(), "starting this task requires storage to remain alive");
+    assert_eq!(rendered.primary_span(), Some(span));
+    assert_eq!(rendered.labels()[0].message(), "this task start cannot supply the required state");
+    assert_eq!(rendered.notes()[0].message(), "storage must remain alive");
+}
+
+#[test]
 fn renderer_localizes_type_representation_causes() {
     let invalid_layout = Diagnostic::new(
         DiagnosticId::new(0),

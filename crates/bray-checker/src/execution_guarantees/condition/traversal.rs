@@ -31,7 +31,7 @@ impl ExecutionCondition {
     /// Rebuild one node from its mapped children, retaining the established constructors.
     pub(super) fn map_children(&self, mut map: impl FnMut(&Self) -> Self) -> Self {
         match self.kind() {
-            K::CapturedValue { value, storage } => map(value).captured_value(storage.as_ref().clone()),
+            K::CapturedValue { value, storage } => map(value).captured_value(storage.clone()),
             K::DeferredValue { value, frame } => map(value).with_deferred_value(Arc::clone(frame)),
             K::StorageValue(operation, operands) => Self::storage_value(*operation, operands.iter().map(&mut map).collect()),
             K::ScalarValue(value) => Self::new(K::ScalarValue(Arc::new(map(value)))),
@@ -60,12 +60,18 @@ impl ExecutionCondition {
                 .map(|(field, value)| (*field, map(value))).collect()),
             K::Operation(operator, operands) => Self::operation(*operator, operands.iter().map(&mut map).collect()),
             K::Boolean(_) | K::Variant(_) | K::Literal(_) | K::Input(_) | K::Result | K::Expression(_)
-            | K::ScopedCapability(_) | K::Joined(_, _, _) | K::Unknown => self.clone(),
+            | K::ScopedCapability(_) | K::Joined(..) | K::Unknown => self.clone(),
         }
     }
 
-    pub(super) fn children(&self) -> impl Iterator<Item = &Self> {
-        let (first, second, operands, fields) = match self.kind() {
+    pub(super) fn children(&self) -> impl Iterator<Item = &Self> { self.kind().children() }
+
+    pub(super) fn structural_children(&self) -> impl Iterator<Item = &Self> { self.kind().structural_children() }
+}
+
+impl super::ExecutionConditionKind {
+    fn children(&self) -> impl Iterator<Item = &ExecutionCondition> {
+        let (first, second, operands, fields) = match self {
             K::ValueAlias(left, right) | K::InitializedSnapshot(_, left, right) =>
                 (Some(left.as_ref()), Some(right.as_ref()), &[][..], &[][..]),
             K::Observation { owner, contents, .. } =>
@@ -80,25 +86,29 @@ impl ExecutionCondition {
             | K::Call(_, _, _, operands, _) => (None, None, operands.as_ref(), &[][..]),
             K::Boolean(_) | K::Variant(_) | K::Literal(_) | K::Input(_) | K::Result
             | K::Expression(_) | K::ScopedCapability(_) | K::PostState(_, _)
-            | K::Joined(_, _, _) | K::Unknown => (None, None, &[][..], &[][..]),
+            | K::Joined(..) | K::Unknown => (None, None, &[][..], &[][..]),
         };
 
         first.into_iter().chain(second).chain(operands).chain(fields.iter().map(|(_, value)| value))
     }
 
     /// Metadata belongs to the complete representation, including immutable epoch origins.
-    pub(super) fn structural_children(&self) -> impl Iterator<Item = &Self> {
-        self.children().chain(match self.kind() {
+    pub(super) fn structural_children(&self) -> impl Iterator<Item = &ExecutionCondition> {
+        self.children().chain(match self {
             K::PostState(_, origin) => Some(origin.as_ref()),
             _ => None,
-        }).chain(match self.kind() {
+        }).chain(match self {
             K::DeferredValue { frame, .. } => Some(frame.conditions()),
             _ => None,
         }.into_iter().flatten())
     }
+}
 
+impl ExecutionCondition {
     /// Actual frame records anywhere in this value, including nested captured operands.
     pub(crate) fn deferred_values(&self) -> Vec<&Arc<super::super::ExecutionDeferredValue>> {
+        if !self.contains_deferred() { return Vec::new(); }
+
         let mut pending = vec![self];
         let mut visited = HashSet::new();
         let mut frames = Vec::new();
@@ -108,7 +118,7 @@ impl ExecutionCondition {
 
             if let K::DeferredValue { frame, .. } = value.kind() { frames.push(frame); }
 
-            pending.extend(value.structural_children());
+            pending.extend(value.structural_children().filter(|child| child.contains_deferred()));
         }
 
         frames
@@ -133,8 +143,11 @@ impl ExecutionCondition {
         self.visit(|condition| {
             let depends = match condition.kind() {
                 K::Expression(candidate) | K::ScopedCapability(candidate) => mutation == StorageMutation::Operation((*candidate).into()),
-                K::PostState(site, _) => *site == mutation,
-                K::Input(place) | K::Joined(_, _, place) | K::InitializedSnapshot(place, _, _) => place.depends_on(mutation),
+                K::PostState(site, _) => *site == mutation
+                    || matches!(site, StorageMutation::AssignmentInstall(expression) if mutation == StorageMutation::Operation((*expression).into())),
+                K::Joined(site, place) => matches!(site, super::ExecutionJoinSite::Publication(expression)
+                    if mutation.occurrence().expression() == Some(*expression)) || place.depends_on(mutation),
+                K::Input(place) | K::InitializedSnapshot(place, _, _) => place.depends_on(mutation),
                 _ => false,
             };
 

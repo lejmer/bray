@@ -1,7 +1,7 @@
 use bray_bound_tree::BoundOperator;
 use bray_symbols::ConstantValueData;
 use std::sync::{Arc, OnceLock};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::cmp::Ordering;
 
 use super::traversal::{NodeIdentity, visit_once};
@@ -25,6 +25,15 @@ pub enum ExecutionDescriptorKind {
     Reference,
     /// Read the current value before selecting its descriptor.
     Value,
+}
+
+/// The control-flow boundary that joins observations of current storage.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum ExecutionJoinSite {
+    /// A CFG block with converging predecessors.
+    Block(bray_bound_tree::BoundUnitId, u32),
+    /// A publication that joins possible outcomes of the same expression.
+    Publication(bray_bound_tree::BoundExpressionId),
 }
 
 /// A bounded, source-independent value used to compare entry and completion conditions.
@@ -90,8 +99,7 @@ pub enum ExecutionConditionKind {
     ),
     /// The current value of storage where control-flow predecessors meet.
     Joined(
-        bray_bound_tree::BoundUnitId,
-        u32,
+        ExecutionJoinSite,
         crate::execution_guarantees::ExecutionPlace,
     ),
     /// A produced opaque scalar datum with an immutable execution identity and no owner authority.
@@ -150,6 +158,9 @@ type ComparisonForms = [[OnceLock<Box<PreparedCondition>>; 2]; 6];
 pub(in crate::execution_guarantees) struct ConditionNode {
     kind: ExecutionConditionKind,
     hash: u64,
+    contains_deferred: bool,
+    contains_storage: bool,
+    prefix_starts_empty: bool,
     comparisons: OnceLock<Box<ComparisonForms>>,
 }
 
@@ -163,7 +174,32 @@ impl ConditionNode {
     fn new(kind: ExecutionConditionKind) -> Self {
         let hash = super::hashing::structural_hash(&kind);
 
-        Self { kind, hash, comparisons: OnceLock::new() }
+        let mut contains_deferred = matches!(kind, ExecutionConditionKind::DeferredValue { .. });
+        let mut contains_storage = contains_deferred || matches!(kind, ExecutionConditionKind::CapturedValue { .. });
+
+        if !(contains_deferred && contains_storage) {
+            for child in kind.structural_children() {
+                contains_deferred |= child.contains_deferred();
+                contains_storage |= child.contains_storage();
+
+                if contains_deferred && contains_storage { break; }
+            }
+        }
+
+        let prefix_starts_empty = match &kind {
+            ExecutionConditionKind::StorageValue(bray_symbols::CapturedValueOperation::EmptyPrefix, _) => true,
+            ExecutionConditionKind::StorageValue(bray_symbols::CapturedValueOperation::Append, operands) => {
+                operands[0].prefix_starts_empty()
+            }
+            _ => false,
+        };
+
+        Self { kind, hash, contains_deferred, contains_storage, prefix_starts_empty, comparisons: OnceLock::new() }
+    }
+
+    #[cfg(test)]
+    fn with_test_hash(kind: ExecutionConditionKind, hash: u64) -> Self {
+        Self { hash, ..Self::new(kind) }
     }
 }
 
@@ -196,7 +232,7 @@ impl PreparedCondition {
 
     #[cfg(test)]
     pub(super) fn with_test_hash(kind: ExecutionConditionKind, hash: u64) -> Self {
-        Self::Unpublished(ConditionNode { kind, hash, comparisons: OnceLock::new() })
+        Self::Unpublished(ConditionNode::with_test_hash(kind, hash))
     }
 }
 
@@ -218,6 +254,13 @@ impl ExecutionCondition {
 
     /// Returns the condition's structural kind.
     pub fn kind(&self) -> &ExecutionConditionKind { &self.0.kind }
+
+    pub(super) fn contains_deferred(&self) -> bool { self.0.contains_deferred }
+
+    pub(super) fn contains_storage(&self) -> bool { self.0.contains_storage }
+
+    /// The prefix was built from an empty buffer, so it covers all initialized elements.
+    pub(crate) fn prefix_starts_empty(&self) -> bool { self.computed_value().0.prefix_starts_empty }
 
     /// Returns a shared Boolean condition.
     pub fn boolean(value: bool) -> Self {
@@ -275,7 +318,7 @@ impl ExecutionCondition {
 
     #[cfg(test)]
     pub(super) fn with_test_hash(kind: ExecutionConditionKind, hash: u64) -> Self {
-        Self(Arc::new(ConditionNode { kind, hash, comparisons: OnceLock::new() }))
+        Self(Arc::new(ConditionNode::with_test_hash(kind, hash)))
     }
 }
 
@@ -316,8 +359,8 @@ impl ConditionNode {
                 child(value, other_value).then_with(|| frame.cmp(other_frame)),
             (C::PostState(mutation, owner), C::PostState(other_mutation, other_owner)) =>
                 mutation.cmp(other_mutation).then_with(|| child(owner, other_owner)),
-            (C::Joined(unit, block, place), C::Joined(other_unit, other_block, other_place)) =>
-                (unit, block, place).cmp(&(other_unit, other_block, other_place)),
+            (C::Joined(site, place), C::Joined(other_site, other_place)) =>
+                (site, place).cmp(&(other_site, other_place)),
             (C::ValueAlias(left, right), C::ValueAlias(other_left, other_right)) =>
                 child(left, other_left).then_with(|| child(right, other_right)),
             (C::InitializedSnapshot(place, join, value), C::InitializedSnapshot(other_place, other_join, other_value)) =>
@@ -344,7 +387,7 @@ impl ConditionNode {
 }
 
 // Input nodes and their children remain alive throughout one comparison.
-type ComparedPairs = HashMap<(*const ConditionNode, *const ConditionNode), Ordering>;
+type ComparedPairs = HashSet<(*const ConditionNode, *const ConditionNode)>;
 
 fn compare_nodes(left: &ConditionNode, right: &ConditionNode, equality_only: bool, pairs: &mut ComparedPairs) -> Ordering {
     if std::ptr::eq(left, right) {
@@ -357,8 +400,8 @@ fn compare_nodes(left: &ConditionNode, right: &ConditionNode, equality_only: boo
 
     let pair = (left as *const ConditionNode, right as *const ConditionNode);
 
-    if let Some(result) = pairs.get(&pair) {
-        return *result;
+    if pairs.contains(&pair) {
+        return Ordering::Equal;
     }
 
     let mut descended = false;
@@ -369,9 +412,9 @@ fn compare_nodes(left: &ConditionNode, right: &ConditionNode, equality_only: boo
         compare_nodes(&left.0, &right.0, equality_only, pairs)
     });
 
-    // Leaf comparisons do no recursive work, so retain only recursive results.
-    if descended {
-        pairs.insert(pair, result);
+    // Only equal pairs can be visited again. A difference ends the comparison.
+    if descended && result.is_eq() {
+        pairs.insert(pair);
     }
 
     result
@@ -472,7 +515,7 @@ impl ExecutionCondition {
             | ExecutionConditionKind::Expression(_)
             | ExecutionConditionKind::ScopedCapability(_)
             | ExecutionConditionKind::PostState(_, _)
-            | ExecutionConditionKind::Joined(_, _, _)
+            | ExecutionConditionKind::Joined(..)
             | ExecutionConditionKind::ScalarValue(_)
             | ExecutionConditionKind::InitializedSnapshot(_, _, _)
             | ExecutionConditionKind::Unknown => false,
