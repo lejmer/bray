@@ -212,6 +212,14 @@ impl ExecutionCondition {
 
                 Self::constructed(base, fields)
             }
+            K::Observation { owner, contents, kind: super::ExecutionObservationKind::Scalar }
+                if owner == contents
+                    && matches!(contents.kind(), K::Literal(tag) if matches!(tag.kind(), bray_symbols::ConstantValueKind::NullableAbsent))
+                    && matches!(producer.ownership_identity(), Some((super::ExecutionObservationKind::Owned, _))) =>
+            {
+                // A bound tag describes a fresh nullable value with no initialized payload.
+                Self::owned_value(producer, contents.as_ref().clone())
+            }
             K::Observation { owner, contents, kind } => Self::observation(
                 if owner.is_unknown() { producer.clone() } else { owner.as_ref().clone() },
                 contents.as_ref().clone().with_producer(producer), *kind),

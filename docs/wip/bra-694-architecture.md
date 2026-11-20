@@ -120,6 +120,8 @@ Return publication uses one mapping from the actual result's logical observation
 to portable result paths for guards, formal transfers, and witness clauses.
 Physical snapshots still supply ownership and reachable support. Their capture
 coordinates do not form part of a portable predicate subject.
+When a normal result binds an absent tag, its produced identity names the
+complete nullable. The selected outcome still leaves its payload inactive.
 Direct calls and deferred bodies share the prepared input route and output type
 for each owning transfer. A deferred body reads its current typed input
 referent at activation through its retained descriptor. The operation and
