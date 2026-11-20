@@ -390,8 +390,9 @@ impl ExecutionCondition {
             crate::ExecutionConditionKind::Present(value)
             | crate::ExecutionConditionKind::CapturedValue { value, .. } | crate::ExecutionConditionKind::DeferredValue { value, .. }
             | crate::ExecutionConditionKind::Tagged(_, value) => Some(value.as_ref()),
-            crate::ExecutionConditionKind::Projection(bray_symbols::ConstantProjectionKind::NullableValue, value)
-                if self.ownership_identity().is_some_and(|(role, _)| role == ObservationKind::Owned) => Some(value.as_ref()),
+            crate::ExecutionConditionKind::Projection(bray_symbols::ConstantProjectionKind::NullableValue, _)
+                if self.ownership_identity().is_some_and(|(role, _)| role == ObservationKind::Owned) =>
+                    self.nullable_payload_snapshot(),
             _ => None,
         };
 

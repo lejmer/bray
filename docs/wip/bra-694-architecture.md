@@ -226,6 +226,8 @@ cyclic inputs after convergence. Each final transfer publishes its condition fac
 An inline field retains the data and physical capture of the selected payload. Its nullable extraction view
 can still name the containing snapshot for checks at the read site. Storing that view in the field would
 retain an obsolete parent on every loop pass.
+Ownership and retirement traversals follow the payload in that view. The containing snapshot supplies
+read-site provenance.
 An enabled edge can take a settled predecessor output when it is the only enabled successor and the source
 has no terminal publication. Branches with multiple enabled successors, cyclic consumers, and terminal
 publication retain the outputs they read.

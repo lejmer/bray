@@ -1038,6 +1038,7 @@ fn nullable_extraction_keeps_the_payload_owner_across_snapshots() {
 
     assert_eq!(snapshot.owner_identity(), &identity);
     assert_eq!(extraction.owner_identity(), payload.owner_identity());
+    assert_eq!(extraction.owned_components().collect::<Vec<_>>(), [&payload]);
 }
 
 #[test]
