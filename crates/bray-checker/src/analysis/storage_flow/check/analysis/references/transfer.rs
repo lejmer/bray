@@ -4,7 +4,6 @@ use crate::CheckerRequestContext;
 use crate::analysis::storage_flow::memory::{Place, Source, Target};
 use crate::analysis::storage_flow::model::StorageFlowState;
 use bray_bound_tree::BoundExecutionSite;
-use bray_symbols::DependencyReferenceKind;
 
 impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     fn generator_storage(&self, expression: bray_bound_tree::BoundExpressionId) -> Option<(Place, bool)> {
@@ -490,112 +489,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         self.observe_transferred_value(state, value, &destination, target);
     }
 
-    pub(in crate::analysis::storage_flow::check::analysis) fn prepare_assignment_reference(
-        &self,
-        state: &mut StorageFlowState,
-        operation: crate::analysis::model::AnalysisOperationKind,
-        address: Option<&bray_bound_tree::StorageAddressValue>,
-    ) {
-        use crate::analysis::model::AnalysisOperationKind;
-
-        let expression = match operation {
-            AnalysisOperationKind::Bound(bray_bound_tree::AnyBoundNodeId::Expression(expression))
-            | AnalysisOperationKind::AssignmentInstall(expression) => expression,
-            _ => return,
-        };
-
-        let Some(bray_bound_tree::BoundExpression::Assignment(assignment)) =
-            self.request.view().expression(expression)
-        else {
-            return;
-        };
-
-        state.memory.begin_transition(operation.occurrence());
-
-        let Some(destinations) = address.and_then(bray_bound_tree::StorageAddressValue::regions) else {
-            // The assignment transition applies its write after input capture.
-            // An unresolved destination provides no reference output to stage.
-            return;
-        };
-
-        if !address.is_some_and(bray_bound_tree::StorageAddressValue::is_exact) {
-            state.memory.weaken_transition(operation.occurrence());
-        }
-
-        let [_, source] = assignment.operands() else {
-            return;
-        };
-
-        let access = self.assignment_access(expression.into()).expect("resolved assignment retains its destination access");
-        let ty = self.storage.access(access).expect("assignment destination is planned").reached_type();
-
-        if matches!(operation, AnalysisOperationKind::AssignmentInstall(_)) {
-            let result = self.storage.invocation_result(operation.occurrence()).expect("operator has its checked output slot");
-            let source_type = self.storage.access(result).expect("operator result retains its type").reached_type();
-            let result = self.storage.logical_path(result).expect("operator result has a complete storage path");
-
-            if let Some(projections) = crate::storage::nullable_wrapping(self.request.semantic_values(), source_type, ty) {
-                for destination in &destinations {
-                    state.memory.stage_value(operation.occurrence(), &Target::storage(result.clone()), destination.project(&projections));
-                }
-
-                return;
-            }
-        } else if assignment.operator() == bray_bound_tree::BoundAssignmentOperator::Assign {
-            // Pending output owns this path until the assignment completes.
-            if let Some(projections) = self.reference_wrapping(*source, ty)
-                && let Some(source) = self.expression_reference(state, *source)
-            {
-                for destination in &destinations {
-                    source.clone().stage(&mut state.memory, operation.occurrence(), destination.project(&projections));
-                }
-
-                return;
-            }
-        }
-
-        let (complete, references) = self.input.footprint.reference_shape(ty);
-
-        for destination in destinations {
-            state.memory.stage_unresolved_value(operation.occurrence(), destination, complete, references.iter().copied());
-        }
-    }
-
-    pub(in crate::analysis::storage_flow::check::analysis) fn call_reference_locations(
-        &self,
-        state: &StorageFlowState,
-        argument: bray_bound_tree::BoundExpressionId,
-        path: &bray_bound_tree::StorageReferencePath,
-    ) -> Option<Vec<Target>> {
-        let start = self.expression_target(state, argument)?;
-
-        let root_borrow = if matches!(path.reads().next(), Some((0, 0, _, DependencyReferenceKind::Borrow))) {
-            let borrowed = self.expression_is_borrowed(argument);
-
-            Some(if borrowed {
-                self.expression_reference(state, argument)?
-                    .targets(&state.memory)?
-            } else {
-                // An implicit argument borrow starts at the already resolved value location.
-                vec![start.clone()]
-            })
-        } else {
-            None
-        };
-
-        match root_borrow {
-            Some(targets) => targets
-                .into_iter()
-                .map(|target| {
-                    // Candidate roots share the prepared starting path's immutable projections.
-                    state
-                        .memory
-                        .reference_locations(self.request.semantic_values(), start.clone(), path, Some(target))
-                })
-                .collect::<Option<Vec<_>>>().map(|locations| locations.into_iter().flatten().collect()),
-            None => state.memory.reference_locations(self.request.semantic_values(), start, path, None),
-        }
-    }
     pub(in crate::analysis::storage_flow::check::analysis) fn prepare_intrinsic_result_references(
         &self,
         state: &mut StorageFlowState,
@@ -614,7 +507,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                         .and_then(bray_bound_tree::StorageCapturedValue::address_regions)
                         .unwrap_or_default()
                 }
-                _ => self.invocation_roots(state, occurrence,
+                _ => Self::invocation_roots(state,
                     state.execution.as_ref().and_then(|execution| execution.admitted_call(occurrence))),
             }
         });

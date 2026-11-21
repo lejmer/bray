@@ -33,7 +33,7 @@ pub use implication::{
     remap_execution_condition_inputs, substitute_execution_condition,
 };
 pub use evidence::{ExecutionCallEvidence, UnprovenExecutionCondition};
-pub(crate) use evidence::ExecutionFailureRow;
+pub(crate) use evidence::{ExecutionFailureRow, MemoryAccessProof};
 pub use deferred::{ExecutionDeferredInvocation, ExecutionDeferredValue};
 pub(crate) use deferred::{FrameReportOwner, deferred_selection, deferred_possible};
 pub use model::{

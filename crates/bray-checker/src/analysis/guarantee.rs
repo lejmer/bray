@@ -22,7 +22,7 @@ pub use check::with_execution_candidate_checker;
 pub(in crate::analysis) use flow::{ExecutionJoin, TaskSelection, merge_execution};
 pub(crate) use flow::{ExecutionFlowDomain, prepare_execution_flow};
 pub(in crate::analysis) use state::ExecutionState;
-pub(in crate::analysis) use trusted::{MemoryCallEvidence, NormalReturn, OwnedReturnCondition, TrustedChecks};
+pub(in crate::analysis) use trusted::{CallAdmissionChecks, NormalReturn, OwnedReturnCondition, TrustedChecks};
 pub(in crate::analysis) use trusted::portable_carrier_path;
 mod flow;
 

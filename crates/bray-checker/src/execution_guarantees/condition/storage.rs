@@ -223,7 +223,7 @@ impl ExecutionCondition {
                 let fields = fields.iter().map(|(field, value)|
                     (*field, value.clone().with_producer(producer.clone().project(*field)))).collect();
 
-                let base = if base.is_unknown() { producer } else { base.as_ref().clone() };
+                let base = base.as_ref().clone().with_producer(producer);
 
                 Self::constructed(base, fields)
             }

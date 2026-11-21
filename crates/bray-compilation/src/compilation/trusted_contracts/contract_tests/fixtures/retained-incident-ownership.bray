@@ -16,16 +16,16 @@ trusted func probe_retained_incident(pos pointer: DataPointer<bray.runtime.boots
 
 trusted func probe_forged_incident(
     pos pointer: DataPointer<bray.runtime.bootstrap.report.incident.Record>,
-    pos forged: bray.runtime.bootstrap.report.incident.Record,
+    pos forged: bray.runtime.bootstrap.report.incident.Incident,
 ) -> u32
     requires(
         trusted bray.runtime.bootstrap.pool.protocol_access(),
         trusted bray.runtime.bootstrap.report.incident.owned(pointer = pointer),
     )
 {
-    let value = bray.runtime.bootstrap.ReportValue.Error(forged);
+    let forged_value = bray.runtime.bootstrap.ReportValue.Error(forged);
 
-    return bray.runtime.bootstrap.consume_values(value, bray.runtime.bootstrap.empty_records(), 0);
+    return bray.runtime.bootstrap.consume_values(forged_value, bray.runtime.bootstrap.empty_records(), 0);
 }
 
 trusted func probe_repacked_incident(pos pointer: DataPointer<bray.runtime.bootstrap.report.incident.Record>) -> u32
@@ -35,11 +35,11 @@ trusted func probe_repacked_incident(pos pointer: DataPointer<bray.runtime.boots
     )
 {
     let original = trusted bray.runtime.bootstrap.report.incident.read_record(pointer);
-    let value = match consume original
+    let repacked_value = match consume original
     {
         case Panic(primary) { yield bray.runtime.bootstrap.ReportValue.Panic(primary); }
         case Error(record) { yield bray.runtime.bootstrap.ReportValue.Error(record); }
     };
 
-    return bray.runtime.bootstrap.consume_values(value, bray.runtime.bootstrap.empty_records(), 0);
+    return bray.runtime.bootstrap.consume_values(repacked_value, bray.runtime.bootstrap.empty_records(), 0);
 }

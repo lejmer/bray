@@ -58,6 +58,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             let root = selection.invocation_input_root(invocation, ordinal)?;
             let site = selection.invocation_input_site(invocation, root)?;
 
+            let incoming = entry.argument_storage(ordinal).and_then(|argument| argument.known_address())
+                .filter(|target| matches!(target.origin,
+                    bray_bound_tree::StorageOrigin::Entry { kind: bray_symbols::DependencyReferenceKind::Borrow, .. }))
+                .and_then(|target| target.value_observation_path())
+                .and_then(|path| ExecutionPlace::storage_owner(self.storage, &path));
+
             let owners = self.liveness.retained_by(site).filter_map(|subject| {
                 let access = match subject {
                     BoundDependencySubject::BorrowCapability(borrow) => {
@@ -76,7 +82,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 ExecutionPlace::storage_owner(self.storage, self.storage.logical_path(access)?)
             });
 
-            Some((ordinal, bray_base::sorted_unique_shared_slice(owners)))
+            // Caller-owned entry loans can support a returned address without
+            // introducing a new invocation-local capability.
+            Some((ordinal, bray_base::sorted_unique_shared_slice(owners.chain(incoming))))
         }).collect()
     }
 

@@ -121,20 +121,11 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             // references contained in the stored value can escape through this write.
             let value = operation.arguments()[1];
             let mut stored = Vec::new();
-            let place = self.memory_operand_place(operation, value);
             let capture = self.captured_memory_operand(execution, operation, value);
 
             if let Some(capture) = capture {
                 stored.extend(capture.carried_regions());
                 stored.extend(capture.carried_sources().cloned());
-            }
-
-            if capture.is_none_or(|value| value.binding().is_none_or(|binding| !binding.whole_complete()))
-                && place.as_ref().is_none_or(|place| self.input.reference_free(self.storage, place).is_none())
-            {
-                // The remaining precision is a dependency on the evaluated
-                // generic input. Its slot supplies no reached address.
-                stored.extend(place.map(Target::storage));
             }
 
             self.escape_effects(&state.memory, Some(&[]), &stored, may_store, Some(prefix))
@@ -204,284 +195,43 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     }
 
     pub(in crate::analysis::storage_flow::check::analysis) fn invocation_roots(
-        &self,
         state: &StorageFlowState,
-        occurrence: BoundExecutionSite,
         entry: Option<&crate::ExecutionCallEvidence>,
     ) -> Vec<Target> {
         let mut roots = Vec::new();
 
-        let captured = |root, roots: &mut Vec<Target>| {
-            let Some(value) = entry.and_then(|entry| self.execution.invocation_capture(entry, occurrence, root)) else {
-                return false;
-            };
+        let mut capture = |argument: &crate::ExecutionCondition| {
+            let Some(value) = argument.inline_captured_storage() else { return; };
 
-            // A captured descriptor already names the reached storage. Looking up
-            // the input slot again can see a moved value or a replacement descriptor.
             if let Some(regions) = value.address_regions() {
                 roots.extend(regions);
-            } else if value.binding().is_some_and(|binding| binding.whole_complete()) {
-                roots.extend(value.carried_regions());
-                roots.extend(value.carried_sources().cloned());
-            } else {
-                return false;
+                return;
             }
 
-            true
-        };
+            roots.extend(value.carried_regions());
+            roots.extend(value.carried_sources().cloned());
 
-        if matches!(
-            occurrence,
-            BoundExecutionSite::Iterate(_)
-                | BoundExecutionSite::Next(_)
-                | BoundExecutionSite::ScopedEnter(_)
-                | BoundExecutionSite::ScopedExit(_)
-        ) {
-            let selection = self
-                .execution
-                .semantics
-                .selections()
-                .expression(
-                    occurrence
-                        .expression()
-                        .expect("implicit invocation has its owner"),
-                )
-                .expect("implicit invocation retains its selected protocol");
-
-            let root = selection
-                .invocation_input_root(occurrence, bray_symbols::SymbolOrdinal::new(0))
-                .expect("implicit invocation retains its sole formal input");
-
-            if captured(root, &mut roots) {
-                return roots;
-            }
-
-            let input = selection
-                .invocation_input_site(occurrence, root)
-                .expect("implicit invocation retains its sole actual input");
-
-            self.append_reference_roots(
-                state,
-                input,
-                self.invocation_place(occurrence, root),
-                self.invocation_reference(state, occurrence, root),
-                &mut roots,
-            );
-
-            return roots;
-        }
-
-        if let Some(expression) = occurrence.expression()
-            && let Some(selection) = self.execution.semantics.selections().expression(expression)
-            && selection.stages_inputs()
-        {
-            if let BoundExecutionSite::CallInput { ordinal, .. } = occurrence {
-                let input = selection
-                    .input(ordinal)
-                    .expect("input roots retain their selected input");
-
-                if let Some(argument) = input.expression() {
-                    if captured(DependencySubjectRoot::Receiver, &mut roots) {
-                        return roots;
+            // A value with an opaque layout can still carry actual loan support.
+            for support in value.dependency_support() {
+                for subject in &support.subjects {
+                    if let bray_bound_tree::BoundDependencySubject::BorrowCapability(loan) = *subject {
+                        roots.extend(state.memory.borrow_regions(loan).into_iter().flatten());
                     }
-
-                    self.append_reference_roots(
-                        state,
-                        argument.into(),
-                        self.argument_storage(argument),
-                        self.invocation_reference(
-                            state,
-                            occurrence,
-                            DependencySubjectRoot::Receiver,
-                        ),
-                        &mut roots,
-                    );
-
-                    return roots;
-                }
-
-                if !matches!(
-                    input.default_provider(),
-                    Some(bray_symbols::DefaultValueProvider::CallableParameter(_))
-                ) {
-                    return roots;
                 }
             }
+        };
 
-            for input in selection.inputs() {
-                let root = input.root();
+        for (_, argument) in entry.into_iter().flat_map(crate::ExecutionCallEvidence::positional_arguments) {
+            capture(argument);
 
-                let ordinal = selection
-                    .input_ordinal(root)
-                    .expect("selected input has an ordinal");
-
-                if matches!(occurrence, BoundExecutionSite::CallInput { ordinal: current, .. } if ordinal >= current)
-                {
-                    continue;
+            for frame in argument.deferred_values() {
+                for (_, input) in frame.producers.values().flat_map(|producer| producer.entry.positional_arguments()) {
+                    capture(input);
                 }
-
-                if captured(root, &mut roots) {
-                    continue;
-                }
-
-                self.append_reference_roots(
-                    state,
-                    BoundExecutionSite::CallInput {
-                        expression,
-                        ordinal,
-                    },
-                    self.invocation_place(occurrence, root),
-                    self.invocation_reference(state, occurrence, root),
-                    &mut roots,
-                );
-            }
-
-            return roots;
-        }
-
-        if let Some(expression) = occurrence
-            .expression()
-            .and_then(|id| self.request.view().expression(id))
-        {
-            // An awaited task retains inputs even though its invocation is deferred.
-            let receiver = invocation_argument(
-                self.request.view(),
-                self.execution.semantics.selections(),
-                occurrence,
-                DependencySubjectRoot::Receiver,
-            );
-
-            let callee = match expression {
-                bray_bound_tree::BoundExpression::Call(call) => Some(call.callee()),
-                bray_bound_tree::BoundExpression::ErrorCall(call) => Some(call.callee()),
-                _ => None,
-            };
-
-            // Callable values are capture-free. Their code address is not a data
-            // input. An explicit receiver still contributes its own storage.
-            for argument in expression
-                .child_expressions()
-                .filter(|argument| Some(*argument) != callee)
-                .chain(receiver)
-            {
-                // An implicit receiver borrow already names its physical target. Its
-                // retained lifetime anchor can be a different object, such as a guard.
-                let source = if receiver == Some(argument) {
-                    self.invocation_reference(state, occurrence, DependencySubjectRoot::Receiver)
-                } else {
-                    self.expression_reference(state, argument)
-                };
-
-                self.append_reference_roots(
-                    state,
-                    argument.into(),
-                    self.argument_storage(argument),
-                    source,
-                    &mut roots,
-                );
             }
         }
 
         roots
-    }
-
-    pub(in crate::analysis::storage_flow::check::analysis) fn assignment_roots(
-        &self,
-        state: &StorageFlowState,
-        operation: crate::analysis::model::AnalysisOperationKind,
-    ) -> Vec<Target> {
-        if matches!(operation, crate::analysis::model::AnalysisOperationKind::AssignmentInstall(_)) {
-            let invocation = operation.occurrence();
-            let place = self.invocation_result(invocation).expect("installation retains the prepared operator result");
-            let source = Source::Value(Target::storage(place.clone()));
-            let mut roots = Vec::new();
-
-            self.append_reference_roots(state, invocation, Some(place), Some(source), &mut roots);
-
-            return roots;
-        }
-
-        let Some(bray_bound_tree::BoundExpression::Assignment(assignment)) = operation
-            .occurrence()
-            .expression()
-            .and_then(|expression| self.request.view().expression(expression))
-        else {
-            return Vec::new();
-        };
-
-        let [_, value] = assignment.operands() else {
-            unreachable!("checked assignment has a destination and stored value");
-        };
-
-        let mut roots = Vec::new();
-
-        self.append_reference_roots(
-            state,
-            (*value).into(),
-            self.argument_storage(*value),
-            self.expression_reference(state, *value),
-            &mut roots,
-        );
-
-        roots
-    }
-
-    fn append_reference_roots(
-        &self,
-        state: &StorageFlowState,
-        argument: BoundExecutionSite,
-        place: Option<Place>,
-        source: Option<Source>,
-        roots: &mut Vec<Target>,
-    ) {
-        let regions = source.and_then(|source| source.regions(&state.memory));
-
-        if regions.is_none()
-            && let Some(regions) = place.as_ref().and_then(|place| {
-                self.input
-                    .inline_regions(&state.memory, self.storage, place)
-            })
-        {
-            roots.extend(regions);
-            return;
-        }
-
-        if let Some(place) = &place {
-            roots.extend(
-                state
-                    .memory
-                    .contained_regions(&Target::storage(place.clone()))
-                    .cloned(),
-            );
-
-            if regions.is_none() && self.input.reference_free(self.storage, place).is_none() {
-                // Unknown value contents remain symbolic entry values until instantiation.
-                roots.push(Target::storage(place.clone()));
-            }
-        }
-
-        if let Some(regions) = regions {
-            // The physical target is authoritative. Its lifetime anchor need
-            // not be reachable through the reference, as with a lock guard.
-            roots.extend(regions);
-        } else {
-            // Opaque task representations can retain a loan without
-            // publishing a physical field. Its possible targets bound effects,
-            // but never establish exact reference equality.
-            for dependency in self.liveness.retained_by(argument) {
-                if let bray_bound_tree::BoundDependencySubject::BorrowCapability(capability) =
-                    dependency
-                {
-                    roots.extend(
-                        state
-                            .memory
-                            .borrow_regions(capability)
-                            .into_iter()
-                            .flatten(),
-                    );
-                }
-            }
-        }
     }
 
     pub(in crate::analysis::storage_flow::check::analysis) fn invocation_place(
@@ -800,7 +550,12 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let root = subject.subject_root();
 
         if root.is_static() || root == DependencySubjectRoot::Result {
-            return self.invocation_sources(state, occurrence, subject);
+            let locations = match self.dependencies.calls().get(&occurrence)?.storage().subject(subject) {
+                Some((_, path)) => self.invocation_stored_locations(state, occurrence, subject, path, false),
+                None => self.static_location(subject).map(|target| vec![target]),
+            }?;
+
+            return Some(locations.into_iter().map(Source::Value).collect());
         }
 
         let captured = self.execution.invocation_capture(entry?, occurrence, root)?;
@@ -811,93 +566,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let path = self.invocation_reference_path(occurrence, root, path)?;
 
         state.memory.captured_reference_sources(self.request.semantic_values(), captured, &path)
-    }
-
-    pub(in crate::analysis::storage_flow::check::analysis) fn invocation_sources(
-        &self,
-        state: &StorageFlowState,
-        occurrence: BoundExecutionSite,
-        subject: &bray_symbols::DependencySubject,
-    ) -> Option<Vec<Source>> {
-        let contracts = self.dependencies.calls().get(&occurrence)?;
-
-        if subject.subject_root().is_static() {
-            return self.invocation_locations(state, occurrence, subject)
-                .map(|locations| locations.into_iter().map(Source::Value).collect());
-        }
-
-        if let Some((ty, path)) = contracts.storage().subject(subject)
-            && crate::representation::reference_kind(self.request, ty).is_some()
-            && let Some(path) = self.invocation_reference_path(occurrence, subject.subject_root(), path)
-            && path.projections().is_empty()
-            && path.steps().is_empty()
-        {
-            // Keep the actual reference source after removing formal wrapping.
-            // In particular, a borrow denotes its referent rather than a slot
-            // containing another reference value.
-            return self
-                .invocation_reference(state, occurrence, subject.subject_root())
-                .map(|source| vec![source]);
-        }
-
-        self.invocation_locations(state, occurrence, subject)
-            .map(|locations| locations.into_iter().map(Source::Value).collect())
-    }
-
-    pub(in crate::analysis::storage_flow::check::analysis) fn invocation_locations(
-        &self,
-        state: &StorageFlowState,
-        occurrence: BoundExecutionSite,
-        subject: &bray_symbols::DependencySubject,
-    ) -> Option<Vec<Target>> {
-        let Some((_, path)) = self.dependencies.calls().get(&occurrence)?.storage().subject(subject) else {
-            return self.static_location(subject).map(|target| vec![target]);
-        };
-
-        self.invocation_stored_locations(state, occurrence, subject, path, false)
-    }
-
-    pub(in crate::analysis::storage_flow::check::analysis) fn invocation_path_locations(
-        &self,
-        state: &StorageFlowState,
-        occurrence: BoundExecutionSite,
-        subject: &bray_symbols::DependencySubject,
-        path: &bray_bound_tree::StorageReferencePath,
-    ) -> Option<Vec<Target>> {
-        if let Some(start) = self.static_location(&bray_symbols::DependencySubject::root(subject.subject_root())) {
-            return state.memory.reference_locations(self.request.semantic_values(), start, path, None);
-        }
-
-        let path = self.invocation_reference_path(occurrence, subject.subject_root(), path)?;
-
-        let start = self.invocation_place(occurrence, subject.subject_root());
-
-        if let Some(place) = &start
-            && matches!(
-                self.storage.identity(place.root),
-                Some(bray_bound_tree::StorageIdentity::InvocationInput { .. })
-            )
-        {
-            return state.memory.reference_locations(
-                self.request.semantic_values(),
-                Target::storage(place.clone()),
-                &path,
-                None,
-            );
-        }
-
-        if let Some(argument) = invocation_argument(
-            self.request.view(),
-            self.execution.semantics.selections(),
-            occurrence,
-            subject.subject_root(),
-        ) {
-            return self.call_reference_locations(state, argument, &path);
-        }
-
-        let start = Target::storage(start?);
-
-        state.memory.reference_locations(self.request.semantic_values(), start, &path, None)
     }
 
     pub(in crate::analysis::storage_flow::check::analysis) fn static_location(

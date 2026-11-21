@@ -93,9 +93,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 }
             }
             InvocationOutputs::Frame { result, entry, .. } => {
-                self.stage_result_reference_bounds(state, occurrence, result, &inactive, |_| {
-                    entry.positional_arguments().filter_map(|(_, value)| value.inline_captured_storage())
-                        .flat_map(|value| value.carried_regions()).collect()
+                self.stage_result_reference_bounds(state, occurrence, result, &inactive, |state| {
+                    Self::invocation_roots(state, Some(entry))
                 });
             }
             InvocationOutputs::Lifecycle { .. } => {}

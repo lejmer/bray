@@ -10,11 +10,10 @@ use bray_diagnostics::{
     DiagnosticLabel, DiagnosticLabelKind, DiagnosticNote, DiagnosticNoteKind, SeverityKind,
 };
 
-/// Call requirements and initialized storage are independent proof results.
-pub(in crate::analysis) struct MemoryCallEvidence {
+/// Requirements checked on reached operands before the invocation changes storage.
+pub(in crate::analysis) struct CallAdmissionChecks {
     pub(in crate::analysis) requirements: Result<(), crate::UnprovenExecutionCondition>,
-    pub(in crate::analysis) initialized: bool,
-    pub(in crate::analysis) empty_copy: bool,
+    execution_requirements: Result<(), crate::UnprovenExecutionCondition>,
 }
 
 type Failures<Key, Cause> = BTreeMap<Key, (Option<AnalysisBlockId>, Cause)>;
@@ -154,7 +153,7 @@ impl TrustedChecks {
         domain: &ExecutionFlowDomain<'_, '_, C>,
         state: &ExecutionState,
         operation: crate::analysis::model::AnalysisOperationKind,
-        evidence: Option<&Result<(), crate::UnprovenExecutionCondition>>,
+        admission: Option<&CallAdmissionChecks>,
         current_access: &impl Fn(bray_bound_tree::StorageAccessPlan) -> Option<bray_bound_tree::StoragePath>,
     ) {
         super::transfers::check_witness_transfers(
@@ -222,15 +221,11 @@ impl TrustedChecks {
 
         let invocation = operation.occurrence();
 
-        if let Some(contract) = domain.request.trusted_contracts()
-            .and_then(|contracts| contracts.calls.get(&invocation))
-            && let Some(entry) = state.entries.get(&invocation)
-            && let Err(failure) = entry.prove_requirements(&contract.execution_requirements)
-        {
-            record_failure(&mut self.failed_execution, self.block, invocation, || failure);
+        if let Some(Err(failure)) = admission.map(|admission| &admission.execution_requirements) {
+            record_failure(&mut self.failed_execution, self.block, invocation, || failure.clone());
         }
 
-        if let Some(Err(failure)) = evidence {
+        if let Some(Err(failure)) = admission.map(|admission| &admission.requirements) {
             // Acknowledgement is local to execution. Certification still checks
             // that the enclosing callable establishes or exposes the obligation.
             if matches!(invocation, bray_bound_tree::BoundExecutionSite::ScopedExit(_))
@@ -451,14 +446,21 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         true
     }
 
-    pub(in crate::analysis) fn trusted_memory_evidence(
+    pub(in crate::analysis) fn call_admission_checks(
         &self,
-        state: &ExecutionState,
+        state: &mut ExecutionState,
         invocation: bray_bound_tree::BoundExecutionSite,
-    ) -> Option<MemoryCallEvidence> {
+    ) -> Option<CallAdmissionChecks> {
         let contract = self.request.trusted_contracts()?.calls.get(&invocation)?;
         let evidence = state.entries.get(&invocation)?;
+        let execution_requirements = evidence.prove_requirements(&contract.execution_requirements);
         let requirements = self.prove_trusted_requirements(evidence, &contract.requirements);
+
+        if !matches!(invocation, bray_bound_tree::BoundExecutionSite::Node(AnyBoundNodeId::Expression(expression))
+            if self.memory.operation(expression).is_some()) {
+            return Some(CallAdmissionChecks { requirements, execution_requirements });
+        }
+
         let empty_copy = self.empty_memory_copy(state, invocation);
 
         let initialized = requirements.is_ok() || empty_copy || {
@@ -474,7 +476,17 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             !initialization.is_empty() && self.prove_trusted_requirements(evidence, &initialization).is_ok()
         };
 
-        Some(MemoryCallEvidence { requirements, initialized, empty_copy })
+        let memory_access = initialized.then_some(if empty_copy {
+            crate::execution_guarantees::MemoryAccessProof::EmptyCopy
+        } else {
+            crate::execution_guarantees::MemoryAccessProof::Initialized
+        });
+
+        if evidence.memory_access != memory_access {
+            state.admitted_call_mut(invocation).expect("memory completion retains its checked admission").memory_access = memory_access;
+        }
+
+        Some(CallAdmissionChecks { requirements, execution_requirements })
     }
 
     fn initialization_requirement(&self) -> impl Fn(&ExecutionCondition) -> bool {

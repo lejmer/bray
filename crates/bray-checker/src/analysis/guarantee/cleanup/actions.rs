@@ -584,6 +584,7 @@ impl Lifecycle {
             anonymous_target: None,
             trusted_boundary: !state.trust_boundaries.is_empty(),
             pending_execution: false,
+            memory_access: None,
             arguments,
             assumptions,
             trusted_assumptions: state.trusted_assumptions.clone(),

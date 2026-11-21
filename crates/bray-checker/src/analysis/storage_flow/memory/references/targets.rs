@@ -3,6 +3,38 @@ use bray_bound_tree::{BorrowCapabilityId, BoundExpressionId};
 use bray_symbols::TypeId;
 use std::collections::BTreeSet;
 
+pub(in crate::analysis::storage_flow) fn borrow_chain_from(
+    storage: &bray_bound_tree::StoragePlan,
+    memory: Option<&State>,
+    mut capability: Option<BorrowCapabilityId>,
+) -> Option<Vec<BorrowCapabilityId>> {
+    let mut chain = Vec::new();
+
+    while let Some(current) = capability {
+        if chain.contains(&current) {
+            return None;
+        }
+
+        let borrow = storage.borrow_capability(current)?;
+
+        chain.push(current);
+
+        if let Some(ancestors) = memory.and_then(|memory| memory.borrow_ancestors(current)) {
+            for &ancestor in ancestors {
+                if !chain.contains(&ancestor) {
+                    chain.push(ancestor);
+                }
+            }
+
+            break;
+        }
+
+        capability = borrow.parent();
+    }
+
+    Some(chain)
+}
+
 impl State {
     pub(in crate::analysis::storage_flow) fn reached_dependency_storage(
         &self,

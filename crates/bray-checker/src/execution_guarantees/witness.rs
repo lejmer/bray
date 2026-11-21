@@ -427,6 +427,7 @@ impl super::ExecutionCallEvidence {
             anonymous_target: self.anonymous_target.clone(),
             trusted_boundary: self.trusted_boundary,
             pending_execution: self.pending_execution,
+            memory_access: self.memory_access,
         })
     }
 }

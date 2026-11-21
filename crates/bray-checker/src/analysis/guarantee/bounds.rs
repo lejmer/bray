@@ -201,7 +201,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             let index = bounds.lower().map_or(index.clone(), |lower| {
                 let lower = self.evaluated_index_input(state, lower);
 
-                if matches!((&index).kind(), crate::ExecutionConditionKind::Literal(value)
+                if matches!(index.computed_value().kind(), crate::ExecutionConditionKind::Literal(value)
                     if value.kind() == &bray_symbols::ConstantValueKind::Integer(bray_symbols::IntegerConstant::from_u64(0))) {
                     lower
                 } else {

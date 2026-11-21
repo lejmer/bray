@@ -219,8 +219,6 @@ where
             .unwrap_or_default();
 
         if !ends.is_empty() && !recovered && !self.liveness.is_recovered() {
-            let retained = incoming.retained_borrow_lookup(self.input);
-
             let ended_borrows = ends
                 .iter()
                 .filter_map(|end| {
@@ -231,23 +229,18 @@ where
                     (self
                         .storage
                         .borrow_capability(id)
-                        .is_some_and(|borrow| borrow.entry_binding().is_none())
-                        && !retained(id))
+                        .is_some_and(|borrow| borrow.entry_binding().is_none()))
                     .then_some(id)
                 })
                 .collect::<BTreeSet<_>>();
 
-            drop(retained);
-
-            if !ended_borrows.is_empty() {
-                incoming.end_borrows(&ended_borrows, self.storage);
-            }
+            incoming.end_borrows(ended_borrows, self.storage, self.input);
 
             for end in ends {
                 if let bray_bound_tree::BoundDependencySubject::Storage(id) = *end
                     && self.input.cleanup_requirements.ends_at_last_use(id)
                 {
-                    incoming.end_storage_lifetime(id, self.storage);
+                    incoming.end_storage_lifetime(id, self.storage, self.input);
                 }
             }
         }

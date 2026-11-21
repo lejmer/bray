@@ -103,8 +103,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         let operation = memory.operation(expression)?;
 
-        let proven = self.memory_evidence.as_ref().filter(|evidence| evidence.initialized)
-            .map(|evidence| evidence.empty_copy);
+        let proven = state.execution.as_ref().and_then(|execution| execution.admitted_call(expression.into()))
+            .and_then(|entry| entry.memory_access)
+            .map(|proof| proof == crate::execution_guarantees::MemoryAccessProof::EmptyCopy);
 
         let pointer = match operation.kind() {
             CheckedMemoryOperationKind::Read { .. } | CheckedMemoryOperationKind::VolatileRead { .. } => {

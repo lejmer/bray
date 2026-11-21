@@ -11,7 +11,7 @@ mod proof;
 mod transfers;
 
 pub(in crate::analysis) use carriers::portable_path as portable_carrier_path;
-pub(in crate::analysis) use check::{MemoryCallEvidence, TrustedChecks};
+pub(in crate::analysis) use check::{CallAdmissionChecks, TrustedChecks};
 pub(in crate::analysis) use owned::{NormalReturn, OwnedReturnCondition};
 
 pub(super) use borrows::project_place;

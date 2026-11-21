@@ -8,45 +8,13 @@ use bray_symbols::BorrowKind;
 use super::super::availability::projection_is_available;
 use super::core::StorageFlowCollector;
 use crate::CheckerRequestContext;
-use crate::analysis::storage_flow::memory::{ReachedAccess, State};
+use crate::analysis::storage_flow::memory::{ReachedAccess, borrow_chain_from};
 use crate::analysis::storage_flow::model::StorageFlowState;
 
 #[derive(Clone)]
 pub(super) enum BorrowConflict {
     Unlocated,
     Borrows(Vec<BorrowCapabilityId>),
-}
-
-pub(super) fn borrow_chain_from(
-    storage: &bray_bound_tree::StoragePlan,
-    memory: Option<&State>,
-    mut capability: Option<BorrowCapabilityId>,
-) -> Option<Vec<BorrowCapabilityId>> {
-    let mut chain = Vec::new();
-
-    while let Some(current) = capability {
-        if chain.contains(&current) {
-            return None;
-        }
-
-        let borrow = storage.borrow_capability(current)?;
-
-        chain.push(current);
-
-        if let Some(ancestors) = memory.and_then(|memory| memory.borrow_ancestors(current)) {
-            for &ancestor in ancestors {
-                if !chain.contains(&ancestor) {
-                    chain.push(ancestor);
-                }
-            }
-
-            break;
-        }
-
-        capability = borrow.parent();
-    }
-
-    Some(chain)
 }
 
 pub(super) fn overlapping_borrow_conflict<'target>(

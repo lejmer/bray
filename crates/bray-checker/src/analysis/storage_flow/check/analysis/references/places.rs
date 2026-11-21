@@ -4,7 +4,7 @@ use super::super::core::StorageFlowCollector;
 use crate::CheckerRequestContext;
 use crate::analysis::storage_flow::memory::{Place, ReachedAccess, Source, Target};
 use crate::analysis::storage_flow::model::StorageFlowState;
-use bray_bound_tree::{AnyBoundNodeId, BoundExpressionId, StorageAccessPurpose};
+use bray_bound_tree::BoundExpressionId;
 
 impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     pub(in crate::analysis::storage_flow::check::analysis) fn captured_memory_operand<'entry>(
@@ -19,17 +19,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let ordinal = selection.invocation_input_ordinal(invocation, input.root())?;
 
         execution.admitted_call(invocation)?.argument_storage(ordinal)
-    }
-
-    pub(super) fn memory_operand_place(
-        &self,
-        operation: &bray_bound_tree::CheckedMemoryOperation,
-        argument: BoundExpressionId,
-    ) -> Option<Place> {
-        let selection = self.execution.semantics.selections().expression(operation.expression())?;
-        let input = selection.inputs().find(|input| input.expression() == Some(argument))?;
-
-        self.invocation_place(operation.expression().into(), input.root())
     }
 
     pub(in crate::analysis::storage_flow::check::analysis) fn memory_uninit_target(
@@ -67,13 +56,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             bray_symbols::TypeData::Nullable(_)
         ) && matches!((self.execution.operand_value(execution, expression)).kind(), crate::ExecutionConditionKind::Literal(value)
                 if matches!(value.kind(), bray_symbols::ConstantValueKind::NullableAbsent))
-    }
-
-    pub(super) fn assignment_access(&self, node: AnyBoundNodeId) -> Option<bray_bound_tree::StorageAccessId> {
-        self.storage
-            .node_plans(node)
-            .find(|plan| plan.purpose() == StorageAccessPurpose::Assignment)
-            .map(|plan| plan.access())
     }
 
     pub(in crate::analysis::storage_flow::check::analysis) fn assignment_destination<'memory>(

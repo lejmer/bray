@@ -34,11 +34,11 @@ where
                 || bray_bound_tree::storage_identity_transfers_at_unit_exit(self.storage, owner),
         };
 
-        let mut report_borrows = std::collections::BTreeSet::new();
+        let mut carried_borrows = self.returned_loans(state);
         let mut report_storage = std::collections::BTreeSet::new();
 
         for report in state.reachable_reports(survives) {
-            report_borrows.extend(report.subjects.iter().filter_map(|subject| {
+            carried_borrows.extend(report.subjects.iter().filter_map(|subject| {
                 let BoundDependencySubject::BorrowCapability(borrow) = subject else { return None; };
 
                 Some(*borrow)
@@ -47,10 +47,10 @@ where
             report_storage.extend(report.storage.iter().copied());
         }
 
-        for &borrow in state.active_borrows.union(&report_borrows) {
+        for &borrow in state.active_borrows.union(&carried_borrows) {
             let subject = BoundDependencySubject::BorrowCapability(borrow);
 
-            if !report_borrows.contains(&borrow)
+            if !carried_borrows.contains(&borrow)
                 && (!self.liveness.is_owner_retained(subject)
                     || !self.liveness.is_live_across_scope(block, exit, subject))
             {
@@ -102,6 +102,16 @@ where
         for access in expired {
             self.report_escaping_access(exit, access);
         }
+    }
+
+    fn returned_loans(&self, state: &StorageFlowState) -> std::collections::BTreeSet<bray_bound_tree::BorrowCapabilityId> {
+        let Some(bray_bound_tree::StorageBinding::Identity(result)) = self.storage.binding(bray_bound_tree::StorageBindingTarget::Result) else {
+            return Default::default();
+        };
+
+        let target = bray_bound_tree::StorageTarget::storage(bray_bound_tree::StoragePath::root(result));
+
+        state.memory.value_loans(&target).collect()
     }
 
     fn report_escaping_return_references(
@@ -235,8 +245,10 @@ where
 
         self.report_escaping_return_references(state, None, expression.into());
 
-        for borrow in state.active_borrows.iter().copied() {
-            if !self
+        let carried_borrows = self.returned_loans(state);
+
+        for borrow in state.active_borrows.union(&carried_borrows).copied() {
+            if !carried_borrows.contains(&borrow) && !self
                 .liveness
                 .is_owner_retained_by(expression, BoundDependencySubject::BorrowCapability(borrow))
             {

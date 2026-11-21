@@ -35,6 +35,13 @@ pub(crate) struct ExecutionFailureRow {
     pub(crate) guard: Option<Condition>,
 }
 
+/// The memory input obligation established before the operation commits its effects.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub(crate) enum MemoryAccessProof {
+    Initialized,
+    EmptyCopy,
+}
+
 impl ExecutionFailureRow {
     pub(crate) fn covers(&self, kind: DependencyFailureKind) -> bool {
         self.kind.is_none_or(|selected| selected == kind)
@@ -58,8 +65,7 @@ pub struct ExecutionCallEvidence {
     pub(crate) extracted_values: std::collections::BTreeMap<bray_symbols::ConstantTermId, Condition>,
     /// Noncopying owned inputs, in receiver-first checked signature order.
     pub(crate) owned_inputs: std::sync::Arc<[bray_symbols::SymbolOrdinal]>,
-    /// Local lifetimes retained by the evaluated borrowed input at each ordinal.
-    /// A present empty set needs no invocation-local storage.
+    /// Reached storage lifetimes retained by the evaluated loan at each ordinal.
     pub(crate) borrow_owners: std::collections::BTreeMap<bray_symbols::SymbolOrdinal, Arc<[super::ExecutionPlace]>>,
     /// Access dependencies captured before consuming inputs, without owning authority.
     pub(crate) addresses:
@@ -67,6 +73,7 @@ pub struct ExecutionCallEvidence {
     pub(crate) anonymous_target: Option<bray_bound_tree::BoundUnitKey>,
     pub(crate) trusted_boundary: bool,
     pub(crate) pending_execution: bool,
+    pub(crate) memory_access: Option<MemoryAccessProof>,
     pub(crate) arguments:
         std::collections::BTreeMap<super::ExecutionPlace, super::ExecutionCondition>,
     pub(crate) assumptions: super::ExecutionAssumptions,
@@ -334,6 +341,7 @@ impl ExecutionCallEvidence {
             anonymous_target: self.anonymous_target.clone(),
             trusted_boundary: self.trusted_boundary,
             pending_execution: self.pending_execution,
+            memory_access: self.memory_access,
             ..Self::default()
         };
 
@@ -414,6 +422,7 @@ impl ExecutionCallEvidence {
             self.anonymous_target.is_some(),
             self.trusted_boundary,
             self.pending_execution,
+            self.memory_access,
             self.assumptions.len(),
             self.trusted_assumptions.len(),
             self.arguments.len(),
@@ -424,6 +433,10 @@ impl ExecutionCallEvidence {
 
         let mut addresses_changed = false;
         let mut borrow_support_changed = false;
+
+        self.memory_access = self.memory_access.zip(other.memory_access).map(|(left, right)| {
+            if left == right { left } else { MemoryAccessProof::Initialized }
+        });
 
         self.borrow_owners.retain(|ordinal, owners| {
             let Some(incoming) = other.borrow_owners.get(ordinal) else {
@@ -444,19 +457,30 @@ impl ExecutionCallEvidence {
             true
         });
 
-        for (input, addresses) in &other.addresses {
-            let retained = self.addresses.entry(input.clone()).or_default();
+        self.addresses.retain(|input, addresses| {
+            let Some(incoming) = other.addresses.get(input) else {
+                addresses_changed = true;
 
-            for (address, owners) in addresses {
-                addresses_changed |= !retained.contains_key(address);
+                return false;
+            };
 
-                let retained = retained.entry(address.clone()).or_default();
-                let before = retained.len();
+            addresses.retain(|address, owners| {
+                let Some(incoming) = incoming.get(address) else {
+                    addresses_changed = true;
 
-                retained.extend(owners.iter().cloned());
-                addresses_changed |= retained.len() != before;
-            }
-        }
+                    return false;
+                };
+
+                let count = owners.len();
+
+                owners.extend(incoming.iter().cloned());
+                addresses_changed |= owners.len() != count;
+
+                true
+            });
+
+            !addresses.is_empty()
+        });
 
         if self.anonymous_target != other.anonymous_target {
             self.anonymous_target = None;
@@ -558,6 +582,7 @@ impl ExecutionCallEvidence {
                     self.anonymous_target.is_some(),
                     self.trusted_boundary,
                     self.pending_execution,
+                    self.memory_access,
                     self.assumptions.len(),
                     self.trusted_assumptions.len(),
                     self.arguments.len(),
@@ -668,6 +693,30 @@ impl ExecutionCallEvidence {
 mod tests {
     use super::ExecutionCallEvidence;
     use crate::{ExecutionCondition, ExecutionPlace};
+
+    #[test]
+    fn joined_admission_requires_live_address_support_on_both_predecessors() {
+        let argument = ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(0));
+        let address = ExecutionCondition::new(crate::ExecutionConditionKind::Input(argument.clone()));
+        let left = ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(1));
+        let right = ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(2));
+        let entry = |owner| ExecutionCallEvidence {
+            arguments: [(argument.clone(), address.clone())].into(),
+            addresses: [(argument.clone(), [(address.clone(), [owner].into())].into())].into(),
+            ..Default::default()
+        };
+        let cache = crate::execution_guarantees::ExecutionProofCache::default();
+        let mut joined = entry(left.clone());
+
+        assert!(joined.intersect(&entry(right.clone()), &cache));
+        assert_eq!(joined.addresses[&argument][&address], [left, right].into());
+
+        let mut expired = joined.clone();
+
+        expired.addresses.clear();
+        assert!(joined.intersect(&expired, &cache));
+        assert!(joined.addresses.is_empty());
+    }
 
     #[test]
     fn borrowed_boolean_requirements_read_current_contents_without_creating_authority() {

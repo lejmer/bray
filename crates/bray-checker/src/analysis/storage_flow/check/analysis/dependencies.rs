@@ -6,7 +6,8 @@ use bray_bound_tree::{
 };
 use bray_symbols::{BorrowKind, SemanticValueStore, TypeData};
 
-use super::access::{borrow_chain_from, overlapping_borrow_conflict};
+use super::access::overlapping_borrow_conflict;
+use crate::analysis::storage_flow::memory::borrow_chain_from;
 use crate::analysis::storage_flow::model::StorageFlowState;
 
 pub(super) fn collect_unsatisfied_dependencies<'refinement>(

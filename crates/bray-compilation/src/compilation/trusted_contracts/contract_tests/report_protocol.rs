@@ -49,8 +49,8 @@ fn retained_incident_values_require_the_exact_ownership_witness() {
         ("probe_forged_incident", missing),
         ("probe_repacked_incident", missing),
     ], &[
-        ("probe_forged_incident", "bray.runtime.bootstrap.consume_values"),
-        ("probe_repacked_incident", "bray.runtime.bootstrap.consume_values"),
+        ("probe_forged_incident", "bray.runtime.bootstrap.consume_values(forged_value,"),
+        ("probe_repacked_incident", "bray.runtime.bootstrap.consume_values(repacked_value,"),
     ], super::fixtures::check_probe_storage);
 }
 

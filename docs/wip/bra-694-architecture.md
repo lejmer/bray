@@ -142,8 +142,14 @@ body entry.
 The physical state owns the input-region bounds of returned addresses by producer and incarnation. A first publication has no prior incarnation to retire. Retiring one projection keeps the current bounds for sibling views and retains the original bounds for historical aliases. A later full publication can supply different current bounds at the same producer.
 
 At a call attempt, escape analysis, observation invalidation, and returned-reference bounds share the reached input
-regions. Complete argument captures supply those regions directly. A typed descriptor can identify the storage it
-reaches even after its source slot changes.
+regions. The admitted operands supply possible reach through their captured descriptors and carried dependencies.
+Await also reads the arguments in the retained frame. A finite bound requires complete inputs. A typed descriptor
+can identify the storage it reaches after its source slot changes. Raw address formation publishes the descriptor's
+address and bounds. It retains the ordinary loan only on the input.
+
+The physical memory intrinsics check initialization on the admitted operands before applying effects.
+A staged read or copy uses that admission at completion. An assignment stages and computes reachability
+from the same evaluated right-hand side. A compound assignment uses the completed operator's private result.
 
 A static effect can name an owned backing region without supplying its address. Bind the checked route to the
 current backing when the descriptor is available. Otherwise keep the static identity and its owning path as

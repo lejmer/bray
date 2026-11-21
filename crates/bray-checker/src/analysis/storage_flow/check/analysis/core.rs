@@ -496,7 +496,7 @@ where
     pub(super) patterns: &'analysis bray_bound_tree::CheckedPatterns,
     pub(super) results: crate::dependency::ResultState,
     pub(super) trusted: crate::analysis::guarantee::TrustedChecks,
-    pub(super) memory_evidence: Option<crate::analysis::guarantee::MemoryCallEvidence>,
+    call_admission: Option<crate::analysis::guarantee::CallAdmissionChecks>,
     preconditions: BTreeMap<bray_bound_tree::BoundExecutionSite, bool>,
     pub(super) statuses: BTreeMap<StorageAccessPlan, StorageOperationStatus>,
     pub(super) suspensions: BTreeMap<bray_bound_tree::BoundExecutionSite, StorageSuspensionState>,
@@ -726,7 +726,7 @@ where
             patterns,
             results: Default::default(),
             trusted: Default::default(),
-            memory_evidence: None,
+            call_admission: None,
             preconditions: BTreeMap::new(),
             statuses: BTreeMap::new(),
             suspensions: BTreeMap::new(),
@@ -950,7 +950,7 @@ where
         }
 
         self.apply_operation_effects(state, operation, execution, refinements, task.as_ref(), accesses);
-        state.release_displaced_loans(displaced, self.storage);
+        state.release_displaced_loans(displaced, self.storage, self.input);
     }
 
     pub(in crate::analysis::storage_flow) fn resume_cleanup(
@@ -968,7 +968,7 @@ where
             let refinements = std::mem::take(&mut state.refinements);
 
             self.apply_operation_effects(state, operation, execution, refinements, None, accesses);
-            state.release_displaced_loans(displaced, self.storage);
+            state.release_displaced_loans(displaced, self.storage, self.input);
         }
 
         // A sibling captures the refinements already known when its action ran.
@@ -1040,24 +1040,27 @@ where
             self.execution.admit_inline_invocation(&mut execution, expression, captures);
         }
 
+        let attempt = (!completing).then(|| self.call_attempt(kind)).flatten();
+        let memory_operation = kind.explicit_attempt_expression().and_then(|expression| self.memory.operation(expression));
+        let intrinsic = memory_operation.is_some();
+
+        self.call_admission = if (attempt.is_some() || single_phase.is_some()) && (self.publish || intrinsic) {
+            self.execution.call_admission_checks(&mut execution, occurrence)
+        } else {
+            None
+        };
+
         let assignment_mutation = assignment_plan.map(|plan| self.assignment_mutation(kind, plan, &execution));
 
-        let assignment_roots = assignment_mutation.map(|_| self.assignment_roots(state, kind));
-
-        let invocation_roots = (!completing)
-            .then(|| self.call_attempt(kind))
-            .flatten()
-            .map(|_| self.invocation_roots(state, occurrence, execution.admitted_call(occurrence)));
+        let invocation_roots = attempt.map(|_| Self::invocation_roots(state, execution.admitted_call(occurrence)));
 
         if kind.awaited_expression().is_none() {
-            self.prepare_frame_execution(&state.memory, &mut execution, operation);
+            self.prepare_frame_execution(&state.memory, &mut execution, operation, &[]);
         }
 
         self.start_frame_effects(state, &mut execution, kind);
 
         let bind_values = single_phase.is_some() || matches!(kind, AnalysisOperationKind::Call { phase: AnalysisCallPhase::Attempt, .. });
-        let memory_operation = kind.explicit_attempt_expression().and_then(|expression| self.memory.operation(expression));
-        let intrinsic = memory_operation.is_some();
         let commits_cleanup = memory_operation.is_some_and(|operation| crate::memory::execution::commits_buffer_cleanup(operation.kind()));
 
         let local_effects = if let Some(mutation) = assignment_mutation {
@@ -1083,8 +1086,12 @@ where
         let mut failure_prefixes = super::effect_rows::EffectRows::new();
         let mut returned_referents = BTreeMap::new();
 
+        let assignment_roots = assignment_plan.map(|plan| {
+            self.prepare_assignment(state, kind, plan.access(), assignment)
+        });
+
         let outcomes = self.begin_transition(
-            state, kind, assignment, &execution, invocation_roots.as_deref(), started.as_ref(),
+            state, kind, &execution, invocation_roots.as_deref(), started.as_ref(),
             (&mut failure_prefixes, &mut returned_referents),
         );
 
@@ -1139,7 +1146,7 @@ where
         let mut admitted = false;
 
         if !completing {
-            let can_fail = self.call_attempt(kind).is_some() && self.capture_failure_effects(
+            let can_fail = attempt.is_some() && self.capture_failure_effects(
                 state, kind, &execution, outcomes.as_ref(), &failure_prefixes,
                 invocation_roots.as_deref().unwrap_or(&[]),
             );
@@ -1212,7 +1219,7 @@ where
                 .transfer_operation(&mut execution, kind, None, None, captures);
         }
 
-        self.record_call_evidence(&mut execution, kind);
+        self.record_entry_check(&mut execution, kind);
 
         state.execution = Some(execution);
         state.memory.escape_regions(escaped);
@@ -1422,7 +1429,7 @@ where
             let slot = self.storage.invocation_result(expression.into()).and_then(|access| self.storage.root_identity(access))
                 .expect("assignment takes its private operator result");
 
-            state.forget_storage(slot);
+            state.forget_storage(slot, self.storage, self.input);
         }
 
         if !matches!(
@@ -1574,7 +1581,7 @@ where
         captures
     }
 
-    fn record_call_evidence(
+    fn record_entry_check(
         &mut self,
         execution: &mut crate::analysis::guarantee::ExecutionState,
         kind: AnalysisOperationKind,
@@ -1590,10 +1597,6 @@ where
                 .and_modify(|previous| *previous &= proven)
                 .or_insert(proven);
         }
-
-        self.memory_evidence = self
-            .execution
-            .trusted_memory_evidence(execution, kind.occurrence());
     }
 
     fn enter_block(&mut self, block: &AnalysisBlock) {
@@ -1734,7 +1737,7 @@ where
         {
             self.trusted.after_operation(
                 self.execution, execution, kind,
-                self.memory_evidence.as_ref().map(|evidence| &evidence.requirements),
+                self.call_admission.as_ref(),
                 &|plan| produced.get(&plan)?.value_observation_path(),
             );
         }
@@ -2320,7 +2323,7 @@ where
                     state.definitely_active_borrows.insert(borrow);
 
                     if let (Some(ty), Some(reached)) = (formed, targets) {
-                        let mut ancestors = super::access::borrow_chain_from(self.storage, Some(&state.memory), reached.loan)
+                        let mut ancestors = crate::analysis::storage_flow::memory::borrow_chain_from(self.storage, Some(&state.memory), reached.loan)
                             .expect("a successfully checked loan retains its authorizing ancestry");
 
                         ancestors.retain(|ancestor| *ancestor != borrow);
@@ -2516,7 +2519,7 @@ where
         }
 
         for identity in self.input.storage_last_uses(operation) {
-            state.end_storage_lifetime(*identity, self.storage);
+            state.end_storage_lifetime(*identity, self.storage, self.input);
         }
     }
 
@@ -2539,8 +2542,6 @@ where
                     .borrow_capability()
             })
             .collect::<BTreeSet<_>>();
-
-        let retained = state.retained_borrow_lookup(self.input);
 
         let ended = state
             .active_borrows
@@ -2565,12 +2566,10 @@ where
                         && !self.liveness.is_owner_retained(subject)
                         && (!retained_for_suspension || completed_retaining_suspension))
                         || reaches_last_use)
-                    && !retained(*borrow)
             })
             .collect::<BTreeSet<_>>();
 
-        drop(retained);
-        state.end_borrows(&ended, self.storage);
+        state.end_borrows(ended, self.storage, self.input);
     }
 
     fn end_scope(
@@ -2596,36 +2595,19 @@ where
 
         state.retain_live_storage();
 
-        let retains_borrow = state.retained_borrow_lookup(self.input);
-
-        let retained = state
+        let ended = state
             .active_borrows
             .iter()
             .copied()
-            .filter(|borrow| retains_borrow(*borrow))
-            .collect::<BTreeSet<_>>();
-
-        drop(retains_borrow);
-
-        state.active_borrows.retain(|borrow| {
-            retained.contains(borrow)
-                || self.borrow_is_entry(*borrow)
-                || self.liveness.is_live_across_scope(
+            .filter(|borrow| {
+                !self.borrow_is_entry(*borrow) && !self.liveness.is_live_across_scope(
                     block,
                     exit,
                     BoundDependencySubject::BorrowCapability(*borrow),
                 )
-        });
+            }).collect();
 
-        state.definitely_active_borrows.retain(|borrow| {
-            retained.contains(borrow)
-                || self.borrow_is_entry(*borrow)
-                || self.liveness.is_live_across_scope(
-                    block,
-                    exit,
-                    BoundDependencySubject::BorrowCapability(*borrow),
-                )
-        });
+        state.end_borrows(ended, self.storage, self.input);
     }
 
     fn borrow_is_entry(&self, borrow: BorrowCapabilityId) -> bool {

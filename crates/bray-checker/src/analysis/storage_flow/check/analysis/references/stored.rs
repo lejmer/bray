@@ -14,15 +14,23 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         path: &bray_bound_tree::StorageReferencePath,
         output: bool,
     ) -> Option<Vec<Target>> {
-        let staged_root = (output && subject.subject_root() == DependencySubjectRoot::Result)
-            .then(|| self.invocation_result(occurrence).map(Target::storage)).flatten();
+        let root = subject.subject_root();
+        let values = self.request.semantic_values();
 
-        if let Some(root) = &staged_root {
-            state.memory.staged_reference_locations(
-                occurrence, self.request.semantic_values(), root, root, path,
-            )
+        if root.is_static() {
+            let target = self.static_location(&bray_symbols::DependencySubject::root(root))?;
+
+            return state.memory.reference_locations(values, target, path, None);
+        }
+
+        assert_eq!(root, DependencySubjectRoot::Result, "an operand's route starts at its admitted capture");
+
+        let result = Target::storage(self.invocation_result(occurrence)?);
+
+        if output {
+            state.memory.staged_reference_locations(occurrence, values, &result, &result, path)
         } else {
-            self.invocation_path_locations(state, occurrence, subject, path)
+            state.memory.reference_locations(values, result, path, None)
         }
     }
 

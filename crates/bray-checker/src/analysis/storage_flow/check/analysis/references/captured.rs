@@ -222,7 +222,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     }
 
     pub(in crate::analysis::storage_flow::check::analysis) fn publish_capture_retirements(&mut self,
-        state: &mut StorageFlowState, (operation, rows): (AnalysisOperationId, Option<&StorageOutcomeRows>), boundary: StorageValueBoundary,
+        state: &mut StorageFlowState, (operation, rows): (AnalysisOperationId, Option<&StorageOutcomeRows>),
+        boundary: StorageValueBoundary,
     ) {
         let retirements = state.memory.take_retirements();
 
@@ -231,6 +232,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let execution = state.execution.as_mut().expect("storage retirement retains its paired execution state");
 
         execution.retire_captured_storage(&retirements);
+
         self.publish_operation_retirements((operation, rows), boundary, retirements);
     }
 
@@ -343,16 +345,12 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 value.with_observations(self.value_observations(&coordinate))
             };
 
-            let value = if carries_frame
-                && let Some(site) = selection.invocation_input_site(invocation, root)
+            let value = if let Some(site) = selection.invocation_input_site(invocation, root)
+                && (carries_frame || value.binding().is_none_or(|binding| {
+                    !binding.whole_complete() && binding.address.is_none()
+                }))
             {
-                let support = bray_bound_tree::ReportDependencies {
-                    subjects: self.liveness.retained_by(site).collect(),
-                    requirements: state.result_dependencies.value_requirements(site).cloned().collect(),
-                    ..Default::default()
-                };
-
-                value.with_dependency_support(Arc::new(support))
+                self.capture_operand_support(state, site, value)
             } else {
                 value
             };
@@ -380,15 +378,58 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 value: std::sync::Arc::new(value), referent });
         }
 
+        Some(self.publish_input_captures(operation.id(), captures))
+    }
+
+    fn capture_operand_support(
+        &self,
+        state: &StorageFlowState,
+        site: BoundExecutionSite,
+        value: bray_bound_tree::StorageCapturedValue,
+    ) -> bray_bound_tree::StorageCapturedValue {
+        let subjects = self.liveness.retained_by(site).collect::<std::collections::BTreeSet<_>>();
+        let requirements = state.result_dependencies.value_requirements(site).cloned().collect::<std::collections::BTreeSet<_>>();
+
+        if subjects.is_empty() && requirements.is_empty() { return value; }
+
+        value.with_dependency_support(Arc::new(bray_bound_tree::ReportDependencies {
+            subjects, requirements, ..Default::default()
+        }))
+    }
+
+    fn publish_input_captures(&mut self, operation: AnalysisOperationId,
+        captures: Vec<StorageValueCapture>,
+    ) -> Arc<[StorageValueCapture]> {
         let captures: Arc<[StorageValueCapture]> = captures.into();
 
         if self.publish {
-            self.value_captures.entry((operation.id(), None)).and_modify(|known| {
+            self.value_captures.entry((operation, None)).and_modify(|known| {
                 bray_bound_tree::merge_storage_value_captures(known, &captures);
             }).or_insert_with(|| Arc::clone(&captures));
         }
 
-        Some(captures)
+        captures
+    }
+
+    fn capture_await_input(&mut self, state: &StorageFlowState, operation: AnalysisOperationId,
+        expression: bray_bound_tree::BoundExpressionId,
+    ) -> Arc<[StorageValueCapture]> {
+        let Some(bray_bound_tree::BoundExpression::Await(awaited)) = self.request.view().expression(expression) else {
+            unreachable!("a direct await operation retains its evaluated operand");
+        };
+
+        let operand = awaited.operand();
+        let Some(coordinate) = self.argument_storage(operand) else { return Arc::from([]); };
+        let ty = self.execution.semantics.types().expression(operand).expect("checked await retains its operand type").ty();
+        let coordinate = bray_bound_tree::StorageTarget::storage(coordinate);
+        let source = self.expression_reference(state, operand).unwrap_or_else(|| Source::Value(coordinate.clone()));
+        let value = state.memory.capture_evaluated_value(&source, coordinate, ty)
+            .with_observations(self.input.footprint.typed_observations(ty));
+        let value = self.capture_operand_support(state, operand.into(), value);
+
+        self.publish_input_captures(operation, vec![StorageValueCapture {
+            input: bray_symbols::SymbolOrdinal::new(0), value: Arc::new(value), referent: None, element_bounds: None,
+        }])
     }
 
     pub(in crate::analysis::storage_flow::check::analysis) fn begin_value_transition(
@@ -428,6 +469,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         memory: &crate::analysis::storage_flow::memory::State,
         execution: &mut crate::analysis::guarantee::ExecutionState,
         operation: &crate::analysis::model::AnalysisOperation,
+        await_input: &[StorageValueCapture],
     ) {
         let publish = self.publish;
         let footprint = &self.input.footprint;
@@ -449,7 +491,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             })
         }).collect();
 
-        self.execution.prepare_frame_execution(execution, operation, Some((&resolve, &capture)), |producer, inputs, values| {
+        self.execution.prepare_frame_execution(execution, operation, Some((&resolve, &capture, await_input)), |producer, inputs, values| {
             if publish {
                 let values = values.into();
 
@@ -472,10 +514,11 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         let kind = operation.kind();
 
-        if kind.awaited_expression().is_some() {
+        if let Some(expression) = kind.awaited_expression() {
+            let capture = self.capture_await_input(state, operation.id(), expression);
             let execution = state.execution.as_mut().expect("reachable await retains execution facts");
 
-            self.prepare_frame_execution(&state.memory, execution, operation);
+            self.prepare_frame_execution(&state.memory, execution, operation, &capture);
 
             return Vec::new();
         }

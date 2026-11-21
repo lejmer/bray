@@ -338,6 +338,21 @@ impl ExecutionState {
             Some((ordinal, owners))
         }).collect();
 
+        if !parent.addresses.is_empty() {
+            child.addresses = child.positional_arguments().filter_map(|(ordinal, argument)| {
+                let observed = self.reached_address_data(argument);
+                let mut bounds = crate::execution_guarantees::AddressDependencies::new();
+
+                for (address, places) in parent.addresses.values().flatten() {
+                    if observes_address_data(&observed, address) {
+                        bounds.entry(address.clone()).or_default().extend(places.iter().cloned());
+                    }
+                }
+
+                (!bounds.is_empty()).then(|| (crate::ExecutionPlace::argument(ordinal), bounds))
+            }).collect();
+        }
+
         let owners = self.witness_snapshots(child.owned_arguments());
 
         child.witness_inputs = parent.witness_inputs.iter().filter(|(owner, _)| owners.retains_owner(owner))
@@ -543,36 +558,9 @@ impl ExecutionState {
                 let mut established = None;
 
                 for (address, owners) in &guarantee.addresses {
-                    let Some((root, path)) = address.observation_path() else { continue; };
+                    let observed = observed.get_or_init(|| self.reached_address_data(value));
 
-                    let observed = observed.get_or_init(|| {
-                        let mut pending = self.owned_values(value).collect::<Vec<_>>();
-                        let mut observed = BTreeSet::new();
-
-                        while let Some(value) = pending.pop() {
-                            // A loan observes its current data without owning its contents.
-                            let data = value.computed_value();
-
-                            if observed.insert(data.clone()) {
-                                pending.extend(data.owned_components().cloned());
-                            }
-                        }
-
-                        observed
-                    });
-
-                    let current = observed.iter().any(|data| {
-                        let Some((source, prefix)) = data.observation_path() else { return false; };
-
-                        if source != root || !path.starts_with(&prefix) { return false; }
-
-                        let actual = path[prefix.len()..].iter().fold(data.clone(), |value, field| value.component(*field))
-                            .into_referent();
-
-                        actual.descriptor_identity().observation_path() == Some((root.clone(), path.clone()))
-                    });
-
-                    if !current { continue; }
+                    if !observes_address_data(observed, address) { continue; }
 
                     // Certify the actual observed clause once, after finding an address it supports.
                     if !*established.get_or_insert_with(|| proof.prove_trusted(condition) == Some(true)) {
@@ -585,6 +573,22 @@ impl ExecutionState {
         }
 
         addresses
+    }
+
+    fn reached_address_data(&self, value: &ExecutionCondition) -> BTreeSet<ExecutionCondition> {
+        let mut pending = self.owned_values(value).collect::<Vec<_>>();
+        let mut observed = BTreeSet::new();
+
+        while let Some(value) = pending.pop() {
+            // A loan observes its current data without owning its contents.
+            let data = value.computed_value();
+
+            if observed.insert(data.clone()) {
+                pending.extend(data.owned_components().cloned());
+            }
+        }
+
+        observed
     }
 
     pub(super) fn directly_carries_witness(&self, value: &ExecutionCondition) -> bool {
@@ -973,6 +977,21 @@ fn stable_private_frame_witnesses(
     retained
 }
 
+fn observes_address_data(observed: &BTreeSet<ExecutionCondition>, address: &ExecutionCondition) -> bool {
+    let Some((root, path)) = address.observation_path() else { return false; };
+
+    observed.iter().any(|data| {
+        let Some((source, prefix)) = data.observation_path() else { return false; };
+
+        if source != root || !path.starts_with(&prefix) { return false; }
+
+        let actual = path[prefix.len()..].iter().fold(data.clone(), |value, field| value.component(*field))
+            .into_referent();
+
+        actual.descriptor_identity().observation_path() == Some((root.clone(), path.clone()))
+    })
+}
+
 fn private_admission_facts<'a>(
     entry: &crate::ExecutionCallEvidence,
     private: impl IntoIterator<Item = &'a std::sync::Arc<crate::execution_guarantees::ExecutionWitness>>,
@@ -1064,14 +1083,19 @@ mod tests {
             let mut entry = crate::ExecutionCallEvidence::default();
 
             entry.witness_inputs.insert(owner.clone(), witness);
+            let slot = ExecutionPlace::argument(SymbolOrdinal::new(0));
+            let bounds = [ExecutionPlace::argument(SymbolOrdinal::new(4))].into();
+
+            entry.addresses.insert(slot.clone(), [(owner.clone(), bounds)].into());
             if proved { condition.clone().assume(true, &mut entry.trusted_assumptions); }
             if let Some(selected) = selected { guard.clone().assume(selected, &mut entry.assumptions); }
 
             let state = ExecutionState::default();
 
             for (argument, forwarded) in [(owner.clone(), true), (owner.clone().borrowed(), false), (input(1), false)] {
+                let observes_address = argument.computed_value() == &owner;
                 let mut child = crate::ExecutionCallEvidence {
-                    arguments: [(ExecutionPlace::argument(SymbolOrdinal::new(0)), argument)].into(),
+                    arguments: [(slot.clone(), argument)].into(),
                     owned_inputs: [SymbolOrdinal::new(0)].into(),
                     ..Default::default()
                 };
@@ -1079,6 +1103,7 @@ mod tests {
                 state.transfer_frame_admission(&entry, &mut child);
 
                 assert_eq!(child.witness_inputs.contains_key(&owner), forwarded);
+                assert_eq!(child.addresses.get(&slot), observes_address.then(|| &entry.addresses[&slot]));
 
                 assert_eq!(child.trusted_assumptions.contains(&(condition.clone(), true)),
                     forwarded && owning && proved && selected != Some(false));
@@ -2008,6 +2033,7 @@ mod tests {
                 anonymous_target: None,
                 trusted_boundary: true,
                 pending_execution: true,
+                memory_access: None,
                 arguments: [(place.clone(), old.clone())].into(),
                 assumptions: [(old.clone(), true)].into(),
                 trusted_assumptions: [(old.clone(), true)].into(),

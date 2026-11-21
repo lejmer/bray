@@ -162,37 +162,46 @@ impl StorageFlowState {
         &mut self,
         identity: StorageIdentityId,
         storage: &StoragePlan,
+        input: &StorageFlowInput,
     ) {
+        let slot = bray_bound_tree::StorageTarget::storage(bray_bound_tree::StoragePath::root(identity));
+
         if bray_bound_tree::storage_identity_transfers_at_unit_exit(storage, identity)
             || self.retained_report_value_requires(bray_bound_tree::BoundDependencySubject::Storage(identity))
             || self.recovered
             || self.active_borrows.iter().any(|borrow| {
-                storage
-                    .borrow_capability(*borrow)
-                    .is_some_and(|borrow| storage.root_identity(borrow.access()) == Some(identity))
+                if self.memory.borrow_address(*borrow).is_some_and(|address| {
+                    !address.is_unknown() && !address.is_displaced() && !address.targets.is_empty()
+                }) {
+                    self.memory.borrow_relationship(*borrow, std::iter::once(&slot), true)
+                        != bray_bound_tree::StorageRelationship::Disjoint
+                } else {
+                    storage.borrow_capability(*borrow)
+                        .is_some_and(|borrow| storage.root_identity(borrow.access()) == Some(identity))
+                }
             })
         {
             return;
         }
 
-        self.forget_storage(identity);
+        self.forget_storage(identity, storage, input);
     }
 
     pub(in crate::analysis::storage_flow) fn retained_borrow_lookup<'state>(
-        &'state self,
-        input: &'state StorageFlowInput,
+        &'state self, input: &'state StorageFlowInput,
     ) -> impl Fn(BorrowCapabilityId) -> bool + 'state {
         use bray_bound_tree::BoundDependencySubject::BorrowCapability;
 
         let retained = std::cell::OnceCell::<BTreeSet<BorrowCapabilityId>>::new();
 
         move |borrow| {
-            retained.get_or_init(|| self.carried_cleanup_subjects(input)
-                .chain(self.reachable_reports(|_| true).flat_map(|report| report.subjects.iter().copied()))
-                .filter_map(|subject| match subject {
+            retained.get_or_init(|| self.memory.surviving_value_loans(
+                |path| self.value_is_live(path), |path| Self::owns_cleanup(input, path.root),
+            )
+                .chain(self.reachable_reports(|_| true).flat_map(|report| report.subjects.iter().copied()).filter_map(|subject| match subject {
                     BorrowCapability(borrow) => Some(borrow),
                     _ => None,
-                }).collect()).contains(&borrow)
+                })).collect()).contains(&borrow)
         }
     }
 
@@ -235,7 +244,7 @@ impl StorageFlowState {
 
     /// A committed replacement ends displaced loans whose support has no surviving owner.
     pub(in crate::analysis::storage_flow) fn release_displaced_loans(
-        &mut self, mut displaced: BTreeSet<BorrowCapabilityId>, storage: &StoragePlan,
+        &mut self, mut displaced: BTreeSet<BorrowCapabilityId>, storage: &StoragePlan, input: &StorageFlowInput,
     ) {
         if displaced.is_empty() || !self.reachable || self.recovered { return; }
 
@@ -244,15 +253,7 @@ impl StorageFlowState {
 
         if displaced.is_empty() { return; }
 
-        for loan in self.memory.surviving_value_loans(|path| self.value_is_live(path)) {
-            displaced.remove(&loan);
-
-            if displaced.is_empty() { return; }
-        }
-
-        displaced.retain(|loan| !self.retained_report_value_requires(bray_bound_tree::BoundDependencySubject::BorrowCapability(*loan)));
-
-        self.end_borrows(&displaced, storage);
+        self.end_borrows(displaced, storage, input);
     }
 
     pub(in crate::analysis::storage_flow) fn transfer_report_boundary(
@@ -284,20 +285,33 @@ impl StorageFlowState {
 
     pub(in crate::analysis::storage_flow) fn end_borrows(
         &mut self,
-        ended: &BTreeSet<BorrowCapabilityId>,
+        mut ended: BTreeSet<BorrowCapabilityId>,
         storage: &StoragePlan,
+        input: &StorageFlowInput,
     ) {
-        if !ended.is_empty() && std::env::var_os("BRA_694_TRACE_BORROWS").is_some() {
-            for borrow in ended {
-                eprintln!(
-                    "ending borrow {borrow:?} plan={:?} reached={:?}",
-                    storage.borrow_capability(*borrow),
-                    self.memory.borrow_address(*borrow)
-                );
+        if ended.is_empty() { return; }
+
+        let retained = self.retained_borrow_lookup(input);
+        ended.retain(|borrow| !retained(*borrow));
+        drop(retained);
+
+        if ended.is_empty() { return; }
+
+        let mut supported = BTreeSet::new();
+
+        for &borrow in self.active_borrows.difference(&ended) {
+            if let Some(reached) = self.memory.borrow_ancestors(borrow) {
+                supported.extend(reached.iter().copied().filter(|ancestor| ended.contains(ancestor)));
+            } else if let Some(chain) = super::super::memory::borrow_chain_from(storage, Some(&self.memory), Some(borrow)) {
+                supported.extend(chain.into_iter().filter(|ancestor| ended.contains(ancestor)));
             }
         }
 
-        self.memory.end_borrows(ended);
+        ended.retain(|borrow| !supported.contains(borrow));
+
+        if ended.is_empty() { return; }
+
+        self.memory.end_borrows(&ended);
         self.active_borrows.retain(|borrow| !ended.contains(borrow));
 
         self.definitely_active_borrows
@@ -612,7 +626,17 @@ impl StorageFlowState {
     pub(in crate::analysis::storage_flow) fn forget_storage(
         &mut self,
         identity: StorageIdentityId,
+        storage: &StoragePlan,
+        input: &StorageFlowInput,
     ) {
+        let displaced = if self.active_borrows.is_empty() {
+            BTreeSet::new()
+        } else {
+            let slot = bray_bound_tree::StorageTarget::storage(bray_bound_tree::StoragePath::root(identity));
+
+            self.memory.value_loans(&slot).collect()
+        };
+
         self.live.remove(&identity);
         self.initialized.remove(&identity);
         self.fully_moved.remove(&identity);
@@ -622,6 +646,7 @@ impl StorageFlowState {
         self.moved.retain(|access, _| access.root != identity);
 
         self.retain_absent_storage();
+        self.release_displaced_loans(displaced, storage, input);
     }
 
     pub(in crate::analysis::storage_flow) fn retain_live_storage(&mut self) {

@@ -86,14 +86,20 @@ impl State {
     }
 
     pub(in crate::analysis::storage_flow) fn surviving_value_loans<'a>(
-        &'a self, mut live: impl FnMut(&Place) -> bool + 'a,
+        &'a self, mut live: impl FnMut(&Place) -> bool + 'a, mut owns_cleanup: impl FnMut(&Place) -> bool + 'a,
     ) -> impl Iterator<Item = bray_bound_tree::BorrowCapabilityId> + 'a {
-        let current = self.values.iter().filter_map(move |(target, value)| {
-            (!target.previous && !value.is_no_payload() && target.storage_path().is_none_or(&mut live)).then_some(value)
-        });
-        let pending = self.pending.values().flat_map(|transfer| transfer.values.values());
+        let current = self.values.iter().filter(move |(target, value)| {
+            !target.previous && !value.is_no_payload() && target.storage_path().is_none_or(&mut live)
+        }).flat_map(move |(target, value)| {
+            let cleanup_support = value.dependency_support().filter(|_| target.storage_path().is_some_and(&mut owns_cleanup));
 
-        current.chain(pending).flat_map(value_subjects).filter_map(loan_subject)
+            value.borrow_capability().into_iter().chain(cleanup_support.into_iter()
+                .flat_map(|support| support.subjects.iter().copied()).filter_map(loan_subject))
+        });
+        let pending = self.pending.values().flat_map(|transfer| transfer.values.values())
+            .filter_map(ValueBinding::borrow_capability);
+
+        current.chain(pending)
     }
 
     pub(in crate::analysis::storage_flow) fn capture_evaluated_value(&self, source: &super::Source,
@@ -101,7 +107,9 @@ impl State {
     ) -> bray_bound_tree::StorageCapturedValue {
         let mut captured = self.capture_source(source, &coordinate);
 
-        if self.complete_reference_types.get(&ty) == Some(&true) {
+        let shape = self.complete_reference_types.get(&ty);
+
+        if shape == Some(&true) {
             // A typed scalar or reference-free owner carries no source-address bounds.
             // Its initialization, deferred duties and logical value remain captured.
             for value in captured.values.values_mut() {
@@ -111,6 +119,15 @@ impl State {
             }
 
             captured.values.entry(coordinate.clone()).or_default().completeness = DependencyCompleteness::Complete;
+        } else if shape.is_none() {
+            let value = captured.values.entry(coordinate.clone()).or_default();
+
+            if !value.whole_complete() && value.address.is_none() {
+                // An erased value can carry dependencies outside its observed fields.
+                // The evaluated input is a symbolic origin, with no address authority.
+                value.sources.insert(coordinate.clone());
+                value.completeness = DependencyCompleteness::Partial;
+            }
         }
 
         bray_bound_tree::StorageCapturedValue::new(coordinate, captured)

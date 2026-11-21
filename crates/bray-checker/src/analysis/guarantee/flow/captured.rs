@@ -520,12 +520,17 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     pub(super) fn bind_captured_input(
         &self, state: &ExecutionState, value: ExecutionCondition, capture: &bray_bound_tree::StorageValueCapture,
     ) -> ExecutionCondition {
-        let value = if let Some((ty, snapshot)) = &capture.referent && value.is_reference() {
+        let value = if let Some((ty, snapshot)) = &capture.referent {
             let reached = capture.value.known_address().and_then(|target| self.current_target_value(state, target, Some(*ty)))
                 .or_else(|| value.current_referent().cloned())
                 .unwrap_or_else(|| value.clone().into_referent());
+            let reached = reached.captured_value(snapshot.clone());
 
-            value.with_referent(reached.captured_value(snapshot.clone()))
+            if value.is_reference() {
+                value.with_referent(reached)
+            } else {
+                ExecutionCondition::reference_value(value.borrowed(), reached)
+            }
         } else {
             value
         };
@@ -785,18 +790,19 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         });
 
         let first = feasible.next()?;
+        let computation = result.owner_identity();
 
         let mut complete = |branch: &mut ExecutionState, (row, guard): (&crate::execution_guarantees::ExecutionOutput, ExecutionCondition)| {
             let value = self.complete_output_row(branch, source.map(|site| (site, entry)), publication, result.clone(), row, guard);
 
-            if matches!(result.kind(), crate::ExecutionConditionKind::Call(_, _, _, _, None)) {
+            if matches!(computation.kind(), crate::ExecutionConditionKind::Call(_, _, _, _, None)) {
                 let observed = value.computed_value();
 
-                if observed != result && !observed.is_unknown() && !observed.is_reference()
-                    && !result.observes_live(None) && !observed.observes_live(None)
+                if observed != computation && !observed.is_unknown() && !observed.is_reference()
+                    && !computation.observes_live(None) && !observed.observes_live(None)
                 {
                     // Both observations describe the scalar on this completed row.
-                    ExecutionCondition::value_alias(result.clone(), observed.clone()).assume(true, &mut branch.assumptions);
+                    ExecutionCondition::value_alias(computation.clone(), observed.clone()).assume(true, &mut branch.assumptions);
                 }
             }
 

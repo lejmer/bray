@@ -1,3 +1,4 @@
+mod assignment;
 mod cleanup;
 mod captured;
 mod entry;

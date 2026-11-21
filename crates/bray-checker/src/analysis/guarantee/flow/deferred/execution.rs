@@ -303,13 +303,19 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         &self,
         state: &mut ExecutionState,
         point: &crate::analysis::model::AnalysisOperation,
-        resolve: Option<(&super::super::captured::ResolveWrite<'_>, &super::super::captured::CaptureFrameInputs<'_>)>,
+        resolve: Option<(&super::super::captured::ResolveWrite<'_>, &super::super::captured::CaptureFrameInputs<'_>, &[bray_bound_tree::StorageValueCapture])>,
         mut record: impl FnMut(&StorageDeferredProducer, Vec<bray_bound_tree::StorageValueCapture>, Vec<bray_bound_tree::StorageValueTransition>),
     ) {
         let operation = point.kind();
 
         if let Some(expression) = operation.awaited_expression() {
-            self.admit_inline_invocation(state, expression, &[]);
+            let inputs = if let Some(body) = self.checked_body {
+                body.storage_flow().input_captures(point.id(), None).unwrap_or_default()
+            } else {
+                resolve.expect("physical await supplies its evaluated input").2
+            };
+
+            self.admit_inline_invocation(state, expression, inputs);
 
             if frame_value_trace(expression.unit()) {
                 let receiver = state.admitted_receiver(expression.into());
@@ -323,7 +329,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let Some(frame) = value.deferred_value() else { return; };
 
-        let mut reached = self.bind_frame_entry(state, frame, point, resolve, &mut record);
+        let mut reached = self.bind_frame_entry(state, frame, point, resolve.map(|(writes, inputs, _)| (writes, inputs)), &mut record);
 
         if operation.awaited_expression().is_some()
             && reached.producers.values().any(|candidate| candidate.entry.pending_execution)
@@ -568,7 +574,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let feasible = |(_, producer): &(&StorageDeferredProducer, &ExecutionDeferredInvocation)| {
             deferred::possible(&producer.selection, &proof)
         };
-
         let mut producers = deferred.producers.iter();
 
         // Reserve the last viable candidate so it can reuse the incoming state.
@@ -735,7 +740,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 }
 
 pub(in crate::analysis::guarantee::flow) fn frame_value_trace(unit: bray_bound_tree::BoundUnitId) -> bool {
-    std::env::var("BRA_694_TRACE_FRAME_UNIT").is_ok_and(|selected| selected.parse().ok() == Some(unit.raw()))
+    static UNIT: std::sync::OnceLock<Option<u32>> = std::sync::OnceLock::new();
+
+    *UNIT.get_or_init(|| std::env::var("BRA_694_TRACE_FRAME_UNIT").ok()?.parse().ok()) == Some(unit.raw())
 }
 
 fn trace_frame_entry(phase: &str, site: BoundExecutionSite, entry: &crate::ExecutionCallEvidence, outputs: usize) {

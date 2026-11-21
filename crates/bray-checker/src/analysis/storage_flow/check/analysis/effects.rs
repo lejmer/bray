@@ -15,19 +15,15 @@ use crate::analysis::storage_flow::model::{EffectPrefix, StorageFlowState};
 use crate::storage::storage_projections;
 
 impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
-    #[expect(clippy::too_many_arguments, reason = "the transition stages outputs and effects against the same reached operands")]
     pub(super) fn begin_transition(
         &mut self,
         state: &mut StorageFlowState,
         operation: AnalysisOperationKind,
-        assignment: Option<&bray_bound_tree::StorageAddressValue>,
         execution: &crate::analysis::guarantee::ExecutionState,
         roots: Option<&[Target]>,
         started: Option<&crate::ExecutionCondition>,
         (failure_prefixes, returned_referents): (&mut EffectRows, &mut BTreeMap<StoragePath, StorageObservedTarget>),
     ) -> Option<EffectOutcomes> {
-        self.prepare_assignment_reference(state, operation, assignment);
-
         if let bray_bound_tree::BoundExecutionSite::Node(
             bray_bound_tree::AnyBoundNodeId::Expression(expression),
         ) = operation.occurrence()
@@ -275,7 +271,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         resolved.push(Effect::Ambient);
 
-        let roots = self.invocation_roots(state, occurrence, execution.admitted_call(occurrence));
+        let roots = Self::invocation_roots(state, execution.admitted_call(occurrence));
 
         let cells = if let StorageTaskOutcome::Abnormal { depth, kind, row } = outcome {
             self.execution.observed_task_at(execution, expression, depth)
@@ -545,7 +541,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let contract = &self.dependencies.calls()[&occurrence];
         let storage = contract.storage();
         let entry = execution.admitted_call(occurrence);
-        let read = |slot| crate::analysis::storage_flow::memory::Source::Value(slot).mutation_targets(&state.memory);
 
         let resolved = self.resolve_effects(&state.memory, storage, effects,
             || entry?.argument_regions(contract.input_count()), |subject, indirect| {
@@ -569,8 +564,11 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 return state.memory.captured_effect_targets(values, captured, path, indirect);
             }
 
-            bray_bound_tree::StorageMutationTarget::resolve_locations(
-                self.invocation_locations(state, occurrence, subject)?, indirect, read)
+            let slot = self.invocation_place(occurrence, root)?;
+            let path = self.invocation_reference_path(occurrence, root, path)?;
+            let target = Target::storage(slot).project(path.projections());
+
+            Some(vec![bray_bound_tree::StorageMutationTarget::location(target)])
         });
 
         if !resolved.is_empty() && self.execution.trace_authority_site(bray_bound_tree::StorageMutation::Operation(occurrence)) {
