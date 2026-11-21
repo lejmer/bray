@@ -150,6 +150,10 @@ address and bounds. It retains the ordinary loan only on the input.
 The physical memory intrinsics check initialization on the admitted operands before applying effects.
 A staged read or copy uses that admission at completion. An assignment stages and computes reachability
 from the same evaluated right-hand side. A compound assignment uses the completed operator's private result.
+Normal slice publication records the extent of the evaluated descriptor. Later indexing reads that extent through the
+descriptor, including after the original bound variables change. An address returned from the slice retains the
+containing storage lifetime through its portable reference relationship. The fixed element selector and its backing
+lifetime remain distinct from an exact cell address in the caller.
 
 A static effect can name an owned backing region without supplying its address. Bind the checked route to the
 current backing when the descriptor is available. Otherwise keep the static identity and its owning path as
@@ -436,6 +440,6 @@ into the remaining cleanup. A region supplies possible effects and dependencies.
 | Deferred task observation | `start` holds the selected body's evaluated inputs. The completed `join` or `cancel` outcome produces the body's value and resumes its witnesses. The abnormal outcome has its own prefix and cannot use that value. `try` selects `Completed` before transferring the payload. [Deferred frame and logical completion](../../crates/bray-checker/src/analysis/guarantee/flow/deferred/execution.rs) · [Composite outcome propagation](../../crates/bray-checker/src/analysis/storage_flow/model/outcomes.rs) · [Source and imported controls](../../crates/bray-compilation/src/compilation/export/build/tests/deferred_completion.rs) |
 
 The bootstrap proof entry points request both `execution_properties` and `lowered_unit` for each listed body.
-The [verification record](bra-694-native-bootstrap.md#verification-and-completion) tracks the comparison and native targets.
+The [verification record](bra-694-native-bootstrap.md#acceptance) tracks the comparison and native targets.
 [Bootstrap proof entry points](../../crates/bray-compilation/src/compilation/trusted_contracts/contract_tests/bootstrap.rs)
 · [Native target definitions](../../crates/bray-target/src/native.rs)

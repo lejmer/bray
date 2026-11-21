@@ -268,51 +268,46 @@ impl ExecutionState {
     }
 
     /// Update admitted snapshots only when the transition invalidates their captured context.
-    #[track_caller]
     pub(super) fn update_entry_snapshots(&mut self,
         changed: &impl Fn(&crate::ExecutionCallEvidence) -> bool,
         change: &mut impl FnMut(&mut crate::ExecutionCallEvidence),
     ) {
-        for entry in self.entries.values_mut().filter(|entry| changed(entry)) { change(std::sync::Arc::make_mut(entry)); }
+        use std::sync::Arc;
 
-        let caller = std::panic::Location::caller();
-        let trace = std::env::var_os("BRA_694_TRACE_FRAME").is_some();
+        let mut entries = hashbrown::HashMap::new();
+        let mut update = |entry: &Arc<crate::ExecutionCallEvidence>| {
+            entries.entry(Arc::as_ptr(entry)).or_insert_with(|| {
+                let replacement = changed(entry).then(|| {
+                    let mut replacement = entry.as_ref().clone();
+
+                    change(&mut replacement);
+
+                    Arc::new(replacement)
+                });
+
+                // Keep the original alive while its address identifies this entry.
+                (Arc::clone(entry), replacement)
+            }).1.clone()
+        };
+
+        for entry in self.entries.values_mut() {
+            if let Some(replacement) = update(entry) {
+                *entry = replacement;
+            }
+        }
 
         self.update_stored_values(ExecutionCondition::mapping_frames(|_| true, |_, frame| {
-            if !frame.producers.values().any(|producer| changed(&producer.entry)) { return Some(std::sync::Arc::clone(frame)); }
+            let mut updated = None;
 
-            // Only affected immutable frame records detach from their predecessor's shared snapshot.
-            let mut updated = frame.as_ref().clone();
+            for (source, producer) in &frame.producers {
+                let Some(entry) = update(&producer.entry) else { continue; };
 
-            for (source, producer) in updated.producers.iter_mut().filter(|(_, producer)| changed(&producer.entry)) {
-                let entry = std::sync::Arc::make_mut(&mut producer.entry);
-                let before = entry.trusted_assumptions.len();
+                let updated = updated.get_or_insert_with(|| frame.as_ref().clone());
 
-                let trace = trace && source.local().and_then(bray_bound_tree::BoundExecutionSite::expression)
-                    .is_some_and(|expression| expression.unit().raw() == 18981 && expression.ordinal() == 21);
-
-                let facts = trace.then(|| entry.trusted_assumptions.clone());
-
-                change(entry);
-
-                if before != entry.trusted_assumptions.len() && let Some(facts) = facts
-                {
-                    let lost = facts.difference(&entry.trusted_assumptions).map(|(value, holds)| (*holds,
-                        format!("{:?}", value.kind()).chars().take(270).collect::<String>())).collect::<Vec<_>>();
-
-                    let carriers = entry.witness_inputs.iter().map(|(carrier, witness)| {
-                        let record = witness.conditions.keys().map(|condition| {
-                            format!("{:?}", condition.kind()).chars().take(260).collect::<String>()
-                        }).collect::<Vec<_>>();
-
-                        (format!("{:?}", carrier.kind()).chars().take(130).collect::<String>(), record)
-                    }).collect::<Vec<_>>();
-
-                    eprintln!("frame entry changed {source:?} by {caller}: lost={lost:?} carriers={carriers:?}");
-                }
+                updated.producers.get_mut(source).expect("a copied frame retains its selected producer").entry = entry;
             }
 
-            Some(std::sync::Arc::new(updated))
+            Some(updated.map_or_else(|| Arc::clone(frame), Arc::new))
         }));
     }
 

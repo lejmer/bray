@@ -923,7 +923,11 @@ mod tests {
 
         let identities = relations.into_iter().map(|relation| {
             let contract = values.intern_dependency_contract_template(
-                bray_symbols::DependencyContractTemplateData::new([]).with_borrows([relation]),
+                bray_symbols::DependencyContractTemplateData::new([]).with_captured_values([
+                    bray_symbols::CapturedValueOutcome::new(None, [])
+                        .with_effects(bray_symbols::DependencyStorageEffect::opaque_call())
+                        .with_storage([relation], []),
+                ]),
             ).expect("fixture dependency contract");
 
             let mut encoder = super::StructuralValueEncoder {

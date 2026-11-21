@@ -118,18 +118,15 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             self.call_effect_outcomes(state, execution, invocation, contracts, &admitted, failure_prefixes)
         };
 
-        if started.is_none() && effects.normal().iter().any(|effect| matches!(effect, Effect::Unknown | Effect::Ambient | Effect::Escape(_)))
+        if started.is_none() && contracts.captured_values().is_empty()
+            && effects.normal().iter().any(|effect| matches!(effect, Effect::Unknown | Effect::Ambient | Effect::Escape(_)))
             && entry.is_some_and(|entry| self.execution.admitted_pure(invocation, entry))
         {
-            // A pure admission supplies the missing bound for an opaque normal
-            // row. Concrete writes and the outcome-specific abnormal prefixes remain.
-            let opaque = contracts.captured_values().is_empty();
-
-            let normal = effects.normal().iter().filter(|effect| match effect {
-                Effect::Unknown => false,
-                Effect::Ambient | Effect::Escape(_) => !opaque,
-                _ => true,
-            }).cloned().collect::<Vec<_>>();
+            // An opaque callable can supply a declared effect bound. Checked
+            // rows retain all their resolved effects, including unresolved writes.
+            let normal = effects.normal().iter()
+                .filter(|effect| !matches!(effect, Effect::Unknown | Effect::Ambient | Effect::Escape(_)))
+                .cloned().collect::<Vec<_>>();
 
             return Some(effects.with_normal(normal));
         }

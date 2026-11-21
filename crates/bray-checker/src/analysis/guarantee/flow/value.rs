@@ -340,7 +340,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 .and_then(|place| self.observed_types.get(&place).copied().flatten())
                 .map(|ty| self.request.semantic_values().unborrowed_type(ty)),
             crate::ExecutionConditionKind::Call(instance, _, _, _, _)
-                if Some(instance.definition().symbol()) == self.sequence_length =>
+                if self.sequence_length.is_some_and(|length| length.definition() == instance.definition()) =>
             {
                 Some(crate::representation::representation_type(
                     self.request,

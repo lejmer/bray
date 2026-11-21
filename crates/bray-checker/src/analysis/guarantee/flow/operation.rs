@@ -731,6 +731,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             state.expressions.insert(expression, value);
         }
 
+        if let Some(expression) = completed_expression {
+            self.publish_slice_extent(state, expression);
+        }
+
         if input {
             if materialized_inline {
                 return;

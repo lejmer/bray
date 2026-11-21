@@ -175,7 +175,18 @@ pub(crate) fn prepare_execution_flow<'a, 'view, C: CheckerRequestContext + ?Size
                 &bray_compiler_known::CompilerKnownDeclarationKey::try_new("SequenceLength")
                     .expect("closed sequence length key must be valid"),
             )
-            .copied(),
+            .map(|symbol| {
+                let definition = bray_symbols::CallableDefinitionId::try_new(*symbol)
+                    .expect("the sequence length declaration is callable");
+                let owner = bray_symbols::GenericOwnerId::try_new(*symbol)
+                    .expect("the sequence length declaration owns an empty substitution");
+                let substitution = bray_symbols::GenericSubstitutionData::try_new(owner, [], [])
+                    .expect("sequence length has no generic parameters");
+                let substitution = request.semantic_values().intern_generic_substitution(substitution)
+                    .expect("the sequence length substitution belongs to this semantic store");
+
+                bray_symbols::CallableInstanceData::new(definition, substitution)
+            }),
         has_bounds_checks: prepared.has_bounds_checks,
         certify_predicate: false,
         observed_types: &prepared.observed_types,

@@ -50,6 +50,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .operands()
             .first()
             .expect("checked indexing has a receiver");
+        let extent = || self.sequence_extent(state, receiver);
 
         let equalities = state.proofs.equalities(&state.assumptions, None);
 
@@ -75,14 +76,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     panic!("checked element indexing has one selector");
                 };
 
-                self.index_value_in_bounds(
-                    state,
-                    receiver,
-                    self.value(state, *selector).with_equalities(&equalities),
-                    true,
-                    &mut proves,
-                    &mut { ExecutionCondition::WORK_LIMIT },
-                )
+                extent().is_some_and(|extent| {
+                    proves(BoundOperator::Less, self.operand_value(state, *selector), extent)
+                })
             }
             BoundStructuredExpressionKind::SliceIndex => {
                 let bounds = index
@@ -92,71 +88,61 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 let ordered = match (bounds.lower(), bounds.upper()) {
                     (Some(lower), Some(upper)) => proves(
                         BoundOperator::LessEqual,
-                        self.value(state, lower),
-                        self.value(state, upper),
+                        self.operand_value(state, lower),
+                        self.operand_value(state, upper),
                     ),
-                    (Some(lower), None) => self.index_value_in_bounds(
-                        state,
-                        receiver,
-                        self.value(state, lower),
-                        false,
-                        &mut proves,
-                        &mut { ExecutionCondition::WORK_LIMIT },
-                    ),
+                    (Some(lower), None) => extent().is_some_and(|extent| {
+                        proves(BoundOperator::LessEqual, self.operand_value(state, lower), extent)
+                    }),
                     // A missing lower bound is zero, and checked slice bounds have type usize.
                     (None, _) => true,
                 };
 
                 ordered
                     && bounds.upper().is_none_or(|upper| {
-                        self.index_value_in_bounds(
-                            state,
-                            receiver,
-                            self.value(state, upper),
-                            false,
-                            &mut proves,
-                            &mut { ExecutionCondition::WORK_LIMIT },
-                        )
+                        extent().is_some_and(|extent| {
+                            proves(BoundOperator::LessEqual, self.operand_value(state, upper), extent)
+                        })
                     })
             }
             _ => unreachable!("selected built-in indexing retains its checked source form"),
         }
     }
 
-    fn evaluated_index_input(
+    /// Publishes immutable extent while the normal slice still owns its evaluated operands.
+    pub(super) fn publish_slice_extent(
         &self,
-        state: &ExecutionState,
+        state: &mut ExecutionState,
         expression: BoundExpressionId,
-    ) -> ExecutionCondition {
-        state
-            .expressions
-            .get(&expression)
-            .or_else(|| self.literals.get(&expression))
-            .cloned()
-            .unwrap_or_else(ExecutionCondition::unknown)
+    ) {
+        if !matches!(self.semantics.selections().expression(expression),
+            Some(SemanticSelection::Operation(SelectedOperation::Index {
+                target: IndexTarget::ArraySlice | IndexTarget::Slice, ..
+            }))) {
+            return;
+        }
+
+        let Some(BoundExpression::Structured(slice)) = self.request.view().expression(expression) else {
+            unreachable!("checked built-in slicing retains its operands");
+        };
+        let bounds = slice.slice_bounds().expect("checked slicing retains its bounds");
+        let receiver = slice.operands()[0];
+        let upper = match bounds.upper() {
+            Some(upper) => self.operand_value(state, upper),
+            None => self.sequence_extent(state, receiver).unwrap_or_else(ExecutionCondition::unknown),
+        };
+        let extent = if let Some(lower) = bounds.lower() {
+            ExecutionCondition::operation(BoundOperator::Subtract, vec![upper, self.operand_value(state, lower)])
+        } else {
+            upper
+        };
+
+        if let Some(length) = self.slice_length(&self.operand_value(state, expression)) {
+            ExecutionCondition::value_alias(length, extent).assume(true, &mut state.assumptions);
+        }
     }
 
-    fn index_value_in_bounds(
-        &self,
-        state: &ExecutionState,
-        receiver: BoundExpressionId,
-        index: ExecutionCondition,
-        strict: bool,
-        proves: &mut impl FnMut(BoundOperator, ExecutionCondition, ExecutionCondition) -> bool,
-        budget: &mut usize,
-    ) -> bool {
-        let Some(remaining) = budget.checked_sub(1) else {
-            return false;
-        };
-
-        *budget = remaining;
-
-        let operator = if strict {
-            BoundOperator::Less
-        } else {
-            BoundOperator::LessEqual
-        };
-
+    fn sequence_extent(&self, state: &ExecutionState, receiver: BoundExpressionId) -> Option<ExecutionCondition> {
         let ty = self
             .semantics
             .types()
@@ -169,7 +155,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         if let bray_symbols::TypeData::Array { length, .. } =
             values.type_data(values.unborrowed_type(ty)).as_ref()
         {
-            let length = if let Some(length) = values.constant_term_integer(*length) {
+            return Some(if let Some(length) = values.constant_term_integer(*length) {
                 let ty = crate::representation::representation_type(
                     self.request,
                     bray_compiler_known::RepresentationRole::ScalarUsize,
@@ -184,71 +170,16 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             } else {
                 crate::execution_guarantees::execution_condition_from_term(values, *length, &[])
                     .expect("checked array extent belongs to this semantic store")
-            };
-
-            if proves(operator, index.clone(), length) {
-                return true;
-            }
-        }
-
-        if let Some(BoundExpression::Structured(slice)) = self.request.view().expression(receiver)
-            && slice.kind() == BoundStructuredExpressionKind::SliceIndex
-        {
-            let bounds = slice
-                .slice_bounds()
-                .expect("checked slice value retains its bounds");
-
-            let index = bounds.lower().map_or(index.clone(), |lower| {
-                let lower = self.evaluated_index_input(state, lower);
-
-                if matches!(index.computed_value().kind(), crate::ExecutionConditionKind::Literal(value)
-                    if value.kind() == &bray_symbols::ConstantValueKind::Integer(bray_symbols::IntegerConstant::from_u64(0))) {
-                    lower
-                } else {
-                    ExecutionCondition::operation(BoundOperator::Add, vec![lower, index.clone()])
-                }
             });
-
-            // On normal continuation the inner slice exists with exactly these bounds.
-            return if let Some(upper) = bounds.upper() {
-                proves(operator, index, self.evaluated_index_input(state, upper))
-            } else {
-                self.index_value_in_bounds(
-                    state,
-                    slice.operands()[0],
-                    index,
-                    strict,
-                    proves,
-                    budget,
-                )
-            };
         }
 
-        let receiver = self.evaluated_index_input(state, receiver).descriptor(crate::execution_guarantees::ExecutionDescriptorKind::Reference);
+        self.slice_length(&self.operand_value(state, receiver))
+    }
 
-        if receiver == ExecutionCondition::unknown() {
-            return false;
-        }
+    fn slice_length(&self, value: &ExecutionCondition) -> Option<ExecutionCondition> {
+        let length = ExecutionCondition::call(self.sequence_length?, None, [],
+            vec![value.descriptor(crate::execution_guarantees::ExecutionDescriptorKind::Reference)], None);
 
-        state
-            .assumptions
-            .iter()
-            .flat_map(|(condition, _)| condition.observations())
-            .any(|length| {
-                let crate::ExecutionConditionKind::Call(instance, _, _, arguments, _) = length.kind() else {
-                    return false;
-                };
-
-                if Some(instance.definition().symbol()) != self.sequence_length {
-                    return false;
-                }
-
-                let [observed] = arguments.as_ref() else {
-                    return false;
-                };
-
-                receiver == *observed
-                    && proves(operator, index.clone(), length.clone())
-            })
+        (!length.is_unknown()).then_some(length)
     }
 }

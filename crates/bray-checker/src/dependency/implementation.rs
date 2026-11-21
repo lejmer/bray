@@ -118,22 +118,26 @@ pub fn generator_result_dependencies(
 
     let source = DependencySubject::new(DependencySubjectRoot::Receiver, projections);
 
-    let mut template = DependencyContractTemplateData::new([DependencyRequirement::direct(
+    let effects = DependencyStorageEffect::capture_free_call();
+    let template = DependencyContractTemplateData::new([DependencyRequirement::direct(
         source,
         DependencyRequirementKind::ValueDependencies,
     )])
-    .with_effects(DependencyStorageEffect::capture_free_call());
+    .with_possible_effects(effects.clone());
 
-    if implementation == ImplementationHook::GeneratorSharedIterate {
-        template = template.with_borrows([DependencyBorrowRelation::new(
+    let rows = (implementation == ImplementationHook::GeneratorSharedIterate).then(|| {
+        let relation = DependencyBorrowRelation::new(
             Some(DependencySubject::root(DependencySubjectRoot::Receiver)),
             DependencySubject::new(
                 DependencySubjectRoot::Result,
                 [field("GeneratorSharedCursorValues")],
             ),
             DependencyReferenceKind::Borrow,
-        )]);
-    }
+        );
 
-    Some(template)
+        bray_symbols::CapturedValueOutcome::new(None, [])
+            .with_storage([relation], []).with_effects(effects)
+    });
+
+    Some(template.with_captured_values(rows))
 }

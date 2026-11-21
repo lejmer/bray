@@ -761,7 +761,10 @@ mod tests {
                             .with_completion_reports([guarded])
                             .with_abnormal_reports([equations])
                     }
-                    "borrows" => DependencyContractTemplateData::new([]).with_borrows(borrows),
+                    "borrows" => DependencyContractTemplateData::new([]).with_captured_values([
+                        bray_symbols::CapturedValueOutcome::new(None, [])
+                            .with_effects(DependencyStorageEffect::opaque_call()).with_storage(borrows, []),
+                    ]),
                     "carriers" => DependencyContractTemplateData::new([]).with_captured_values([bray_symbols::CapturedValueOutcome::new(None, []).with_carriers(carriers)]),
                     "effects" => DependencyContractTemplateData::new([]).with_effects(effects),
                     _ => unreachable!(),

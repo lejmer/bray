@@ -100,18 +100,16 @@ generic iterator escape, and protected sibling fields.
 
 | Area | Current evidence and next boundary |
 | --- | --- |
-| Storage and proof publication | Candidate `admitted-addresses-and-publication` at `98dc77a7a` with source fingerprint `340ce7df9d48bd3f` built the Windows x86-64 standard library through emission. Grouped compilation checks passed 1,097 of 1,109, including the iterator escape and captured slice controls. All 574 checker and 139 bound-tree tests passed. |
-| Guarded authority | The host exit trace shows the correct physical loan into the selected attachment slot and lease. The guarded fact is still present before the consuming call applies its effects. Compare the exact predicate subjects from completion and admission before changing survival. The retained incident producer now passes. The forged fixture passed a `Record` into an `Incident` payload, and two negative probes used an ambiguous shared call prefix. The corrected negative probes still need verification. Keep scoped callback cleanup in the same witness and retirement contract. |
-| Bounds and cells | The captured slice control passes. Index proof still uses source slice bounds to look up prior evaluations. Trace the actual reached selector and immutable extent, and the data mappings on each predecessor of a joined selector. Return pointer extent, protected indexed writes, nested buffers, and checked slice prefix expiry remain unverified. |
+| Storage and proof publication | Candidate `reached-observations-and-extents` at `d89cadff4` with source fingerprint `d6516754bbde3de5` built the Windows x86-64 standard library through emission. Grouped compilation checks passed 1,097 of 1,109. The joined index, expired returned slice, and retained incident controls now pass. Two slice-bound controls and the bounded scan regressed. All 574 checker and 139 bound-tree tests passed. |
+| Guarded authority | The host exit trace shows the correct physical loan into the selected attachment slot and lease. The guarded fact is still present before the consuming call applies its effects. Compare the exact predicate subjects from completion and admission before changing survival. The retained incident producer and corrected negative controls pass. Keep scoped callback cleanup in the same witness and retirement contract. |
+| Bounds and cells | Slice publication records the evaluated extent. Compare the normalized arithmetic at the later index, including constant and relational differences. Preserve the exact starting observation and changed counter at loop back edges. The returned raw range, protected indexed write, and nested buffer controls remain open. |
 | Unknown cleanup | The absent-buffer test loses unrelated read authority after an unknown returned buffer. Trace the absent branch and cleanup against the reached owner. Disjointness requires established evidence about the actual allocation or effects. |
 | Native owner composition | The previous four-target comparison passed `prepare_start`. Once the refactor paths are replaced, trace `dispatch_ready`, `start_frame`, and `acquire_worker_ready` through the actual acquisition, resident task slot, callback cleanup, and backing. A retirement follows its captured allocation even if its former descriptor changes. |
-| Planning and emission | The Windows standard-library run took 31.1 s planning, 30.6 s emission, and 69.9 s wall time with summary profiling. Compared with the planning reference, result dependency solving went from 60.0 to 156.4 worker seconds for 1,698 components, execution candidates went from 10.2 to 23.0, and cleanup completion went from 0.9 to 22.0. A scoped process profile attributed 2.5 s to proof invalidation and 0.06 s to both state copies across 3,354 cleanup actions. Look for repeated proof traversal and retain actual invalidation subjects. |
+| Planning and emission | The Windows standard-library run took 32.3 s planning, 32.4 s emission, and 75.0 s wall time with summary profiling. Result dependency solving took 153.5 worker seconds for 1,698 components, compared with 156.4 in the previous run and 60.0 in the planning reference. Cleanup completion took 20.8 worker seconds. A scoped previous profile attributed 2.5 s to proof invalidation and 0.06 s to both state copies across 3,354 cleanup actions. Compare remaining proof preparation and copies of resolved terminal storage. |
 
 The optimized compilation test binary is
-`target/audit/comparison-admitted-addresses-and-publication-compilation.exe`
-with SHA-256 `0E47BE9B1D4234AAB2D6B0058A6CE21FA228978CC3F020534D9F06A0F01396B6`.
-The checkpoint also removes temporary probes and dead lookups and updates
-the forged and repacked fixture cases.
+`target/audit/comparison-reached-observations-and-extents-compilation.exe`
+with SHA-256 `6EE44C7B501DFB3F34D12E6F421EA2F55E1A4BD834D5C67F30ED8682BA8F134E`.
 
 ### Cleanup proof work
 
@@ -129,6 +127,24 @@ protected cells, conflicting loans, and private frame witness retirement.
 Reuse the paired native profile and exact control group. Reconsider the
 change if repeated walks shrink too little to affect planning or the cache
 requires copying current state.
+
+One cleanup transition can reach the same admitted evidence through current
+values, private outputs, and several deferred producers. Evaluate revocation
+once for each shared immutable entry within that transition. Reuse the
+updated entry wherever the original was shared. Entries whose support
+survives keep their existing allocation. Different captured entries and
+different transitions still apply their own cleanup rules. Check deferred
+witness survival and revocation, nested producers, and the native cleanup
+profile alongside the observation traversal changes.
+
+Terminal states already own the reached physical bindings and execution
+values. Read them while encoding each normal outcome. The cross-outcome
+absence check needs only the set of observed result slots. Borrow unchanged
+bindings and stored payloads, and materialize only returned-origin
+expansions. Remove the copied exit storage and its deferred publication
+record. Confirm source and imported relations, complete and absent payloads,
+reports, and allocation anchors retain the same meaning. Measure the change
+with the same result-dependency and native profile.
 
 ### Joined scalar data
 
@@ -192,6 +208,27 @@ declared effect bound. Check source and imported calls, delayed captures,
 deferred receiver refresh, and failure-prefix cleanup. Reconsider the
 handoff if a completion cannot identify its actual attempt without a source
 lookup or a second effect resolution.
+
+Compiler-known leaf producers author the same normal rows as checked source
+bodies. The allocator and generator publish reference relationships together
+with the effects of that row. Keep opaque leaves without an established
+result relationship opaque. Remove the separate reference setter so a caller
+cannot replace the relationships independently of their outcome. Use the
+existing generated interface, specialization identity, and recovery controls.
+
+### Slice extent
+
+The normal slice producer has the evaluated receiver and bounds. Publish the
+immutable extent on the resulting descriptor using the compiler-known
+sequence length term and the existing copied-data correspondence. Use the
+receiver's declared array extent or reached descriptor length when the upper
+bound is omitted. An index reads the evaluated receiver and selector. It
+must not query the syntax or retained operand slots of an earlier slice.
+The length fact belongs to that descriptor incarnation and conveys no
+initialized cells, access authority, or ownership. Loop reuse and storage
+replacement must retire the corresponding old observation. Check captured
+bounds after argument evaluation, joined index controls, nested slices with
+omitted bounds, guarded access, and an out-of-bounds sibling.
 
 ## Acceptance
 

@@ -1328,8 +1328,9 @@ mod tests {
         .expect("empty recovered flow is valid")
         .with_dependencies(
             DependencyContractTemplateData::new([requirement.clone()])
-                .with_borrows([relation])
-                .with_effects([]),
+                .with_possible_effects([])
+                .with_captured_values([bray_symbols::CapturedValueOutcome::new(None, [])
+                    .with_storage([relation], [])]),
         );
 
         assert_eq!(flow.dependencies().requirements(), &[requirement]);

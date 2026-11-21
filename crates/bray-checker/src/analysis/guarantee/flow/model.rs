@@ -71,7 +71,7 @@ pub(crate) struct ExecutionFlowDomain<'a, 'view, C: CheckerRequestContext + ?Siz
         &'a bray_bound_tree::CheckedDependencyContracts,
     pub(in crate::analysis::guarantee) has_bounds_checks: bool,
     pub(in crate::analysis::guarantee) certify_predicate: bool,
-    pub(in crate::analysis::guarantee) sequence_length: Option<bray_symbols::AnySymbolId>,
+    pub(in crate::analysis::guarantee) sequence_length: Option<bray_symbols::CallableInstanceData>,
     pub(super) observed_types: &'a std::sync::Arc<BTreeMap<crate::ExecutionPlace, Option<bray_symbols::TypeId>>>,
     pub(in crate::analysis::guarantee) borrowed_inputs: &'a BTreeSet<crate::ExecutionPlace>,
     pub(in crate::analysis::guarantee) scope_places: &'a BTreeMap<

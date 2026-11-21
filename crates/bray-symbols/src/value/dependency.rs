@@ -732,7 +732,8 @@ impl DependencyContractTemplateData {
         let report = sorted_unique_shared_slice(requirements);
 
         if self.captured_values.is_empty() {
-            self.captured_values = [self.take_authored_outcome().with_report(Some(report))].into();
+            self.captured_values = [super::CapturedValueOutcome::new(None, [])
+                .with_effects(self.normal_effects().iter().cloned()).with_report(Some(report))].into();
         } else {
             self.captured_values = sorted_unique_shared_slice(self.captured_values.iter().cloned()
                 .map(|row| row.with_report(Some(Arc::clone(&report)))));
@@ -992,28 +993,6 @@ impl DependencyContractTemplateData {
         self.effects.preserves_storage_on_normal_return()
     }
 
-    /// Creates the reference shape for an explicitly authored normal outcome.
-    pub fn with_borrows(mut self, borrows: impl IntoIterator<Item = DependencyBorrowRelation>) -> Self {
-        let borrows = sorted_unique_shared_slice(borrows);
-
-        if !borrows.is_empty() || !self.captured_values.is_empty() {
-            let mut row = self.take_authored_outcome();
-
-            row.references = borrows;
-            self.captured_values = [row].into();
-        }
-
-        self
-    }
-
-    fn take_authored_outcome(&self) -> super::CapturedValueOutcome {
-        match self.captured_values.as_ref() {
-            [] => super::CapturedValueOutcome::new(None, []).with_effects(self.normal_effects().iter().cloned()),
-            [row] if row.guard.is_none() => row.clone(),
-            _ => panic!("explicit physical observations require one unguarded outcome"),
-        }
-    }
-
     /// Derives established origins before selecting a normal outcome.
     pub fn borrows(&self) -> Arc<[DependencyBorrowRelation]> {
         super::CapturedValueOutcome::reference_origins(self.captured_values.iter(), DependencySubject::contains)
@@ -1140,13 +1119,15 @@ mod tests {
             crate::DependencyReferenceKind::Borrow,
         );
 
+        let write = crate::DependencyStorageEffect::Direct { addressed: true,
+            subject: subject.clone(),
+            kind: crate::DependencyMutationKind::Write,
+            access_type: None,
+        };
         let template = DependencyContractTemplateData::new([])
-            .with_borrows([relation])
-            .with_effects([crate::DependencyStorageEffect::Direct { addressed: true,
-                subject: subject.clone(),
-                kind: crate::DependencyMutationKind::Write,
-                access_type: None,
-            }])
+            .with_possible_effects([write.clone()])
+            .with_captured_values([crate::CapturedValueOutcome::new(None, [])
+                .with_effects([write]).with_storage([relation], [])])
             .with_completion_reports([])
             .with_abnormal_reports([DependencyRequirement::direct(
                 subject.clone(),
