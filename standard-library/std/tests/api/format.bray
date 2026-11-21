@@ -1,4 +1,4 @@
-module bray.standard_library_tests.format;
+trusted module bray.standard_library_tests.format;
 
 using std.format;
 using std.format.BooleanFormat;
@@ -253,7 +253,7 @@ trusted func counting_formatting_sizes_output_without_collecting_bytes()
     let value: u32 = 42;
 
     std.testing.assert_ok<unit, std.format.CountingSinkError>(
-        trusted std.format.write_to<u32, std.format.CountingSink, std.format.CountingSinkError>(
+        std.format.write_to<u32, std.format.CountingSink, std.format.CountingSinkError>(
             &mut sink,
             std.format.Argument<u32>(&value, options = options),
         )
@@ -281,7 +281,7 @@ trusted func fixed_formatting_uses_borrowed_storage()
     let value: u32 = 255;
 
     std.testing.assert_ok<unit, std.format.FixedSinkError>(
-        trusted std.format.write_to<u32, std.format.FixedSink, std.format.FixedSinkError>(
+        std.format.write_to<u32, std.format.FixedSink, std.format.FixedSinkError>(
             &mut sink,
             std.format.Argument<u32>(&value, options = options),
         )
@@ -301,7 +301,7 @@ trusted func fixed_formatting_accepts_zero_length_output()
     let mut sink: std.format.FixedSink = std.format.FixedSink(&mut storage[..]);
 
     std.testing.assert_ok<unit, std.format.FixedSinkError>(
-        trusted std.format.write_to<string, std.format.FixedSink, std.format.FixedSinkError>(
+        std.format.write_to<string, std.format.FixedSink, std.format.FixedSinkError>(
             &mut sink,
             std.format.Argument<string>(&""),
         )
@@ -319,7 +319,7 @@ trusted func fixed_formatting_reports_capacity_without_partial_digit_output()
     let mut sink: std.format.FixedSink = std.format.FixedSink(&mut storage[..]);
     let value: u32 = 1024;
 
-    let result: Result<unit, std.format.FixedSinkError> = trusted std.format.write_to<
+    let result: Result<unit, std.format.FixedSinkError> = std.format.write_to<
         u32,
         std.format.FixedSink,
         std.format.FixedSinkError
@@ -355,7 +355,7 @@ trusted func fixed_formatting_handles_maximum_width_without_arithmetic_overflow(
     let mut sink: std.format.FixedSink = std.format.FixedSink(&mut storage[..]);
     let value: u32 = 0;
 
-    let result: Result<unit, std.format.FixedSinkError> = trusted std.format.write_to<
+    let result: Result<unit, std.format.FixedSinkError> = std.format.write_to<
         u32,
         std.format.FixedSink,
         std.format.FixedSinkError
@@ -462,7 +462,7 @@ trusted func fixed_formatting_handles_maximum_precision_and_sign_without_arithme
     let mut sink: std.format.FixedSink = std.format.FixedSink(&mut storage[..]);
     let value: u32 = 0;
 
-    let result: Result<unit, std.format.FixedSinkError> = trusted std.format.write_to<
+    let result: Result<unit, std.format.FixedSinkError> = std.format.write_to<
         u32,
         std.format.FixedSink,
         std.format.FixedSinkError
@@ -545,7 +545,7 @@ trusted func streaming_formatting_writes_without_collecting_an_intermediate_buff
     let value: u32 = 42;
 
     std.testing.assert_ok<unit, std.io.IoError>(
-        trusted std.format.write_to<u32, std.io.FormattingSink<RecordingWriter>, std.io.IoError>(
+        std.format.write_to<u32, std.io.FormattingSink<RecordingWriter>, std.io.IoError>(
             &mut sink,
             std.format.Argument<u32>(&value, options = options)
         )

@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use bray_symbols::{
     DependencyContractTemplateId, DependencyRequirement, DependencyRequirementKind,
-    DependencySubjectRoot, GenericArgument, GenericSubstitutionId, SemanticValueStore,
+    GenericArgument, GenericSubstitutionId, SemanticValueStore,
     TraitApplicationId, TraitTypeMemberSymbolId, TypeData, TypeExpressionTemplate, TypeId,
 };
 
@@ -335,10 +335,7 @@ fn is_static_access(requirement: &DependencyRequirement) -> bool {
     matches!(
         requirement,
         DependencyRequirement::Direct { subject, kind: DependencyRequirementKind::StorageAlive }
-            if matches!(
-                subject.subject_root(),
-                DependencySubjectRoot::ProductStatic(_) | DependencySubjectRoot::ExactThreadStatic(_)
-            )
+            if subject.subject_root().is_static()
     )
 }
 

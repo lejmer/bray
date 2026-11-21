@@ -1,0 +1,48 @@
+trusted internal module bray.runtime.bootstrap.report.chain;
+
+using internal bray.runtime.bootstrap;
+
+func probe_report_chain_admitted()
+{
+    let owner = admit(2);
+}
+
+func probe_report_chain_fabricated()
+{
+    let owner: Owner =
+    {
+        records = bray.runtime.bootstrap.ReportRecords
+        {
+            head = 1,
+            tail = 1,
+            count = 1,
+        },
+        status = 0,
+    };
+}
+
+func probe_report_chain_copied()
+{
+    let owner = admit(2);
+
+    let copied: Owner =
+    {
+        records = owner.records,
+        status = owner.status,
+    };
+}
+
+func probe_report_chain_mutated()
+{
+    let mut owner = admit(2);
+
+    owner.records.head = 1;
+}
+
+func probe_report_chain_replaced()
+{
+    let mut owner = admit(2);
+    let other = admit(2);
+
+    owner.records = other.records;
+}

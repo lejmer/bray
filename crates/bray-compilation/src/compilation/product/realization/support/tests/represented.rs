@@ -233,7 +233,7 @@ fn generator_cleanup_admits_and_expands_suspending_prefix_traversal() {
 #[test]
 fn buffer_traversal_admits_local_work_and_retains_it_after_borrowed_release() {
     let source = r#"
-        module app;
+        trusted module app;
         using std.memory;
         using core.atomic;
 
@@ -294,7 +294,7 @@ fn buffer_traversal_admits_local_work_and_retains_it_after_borrowed_release() {
 
         trusted async func allocate_owner() uses(manual_alloc)
         {
-            let buffer: std.memory.RawBuffer<Owner> = trusted internal std.memory.allocate_buffer<Owner>(
+            let buffer: std.memory.RawBuffer<Owner> = internal std.memory.allocate_buffer<Owner>(
                 capacity = 0, bytes = 0, align = std.memory.align_of<Owner>());
         }
     "#;

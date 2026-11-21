@@ -128,7 +128,7 @@ impl Lowerer<'_> {
             self.terminal_state_block(source, super::control::TerminalState::Cancelled)?;
 
         self.finish_abnormal_cleanup(
-            MirCleanupPhase::LifecycleResolution,
+            super::CleanupStart::Lifecycle,
             entry,
             source,
             crate::cleanup_outcome::CleanupFailure::Cancellation(None),
@@ -238,7 +238,7 @@ impl Lowerer<'_> {
         // This callback has its own incident destinations. A suspended lifecycle
         // operation retains its original pending outcome and continuation.
         let previous = self.cleanup_outcome.replace(outcome);
-        let failures = self.cleanup_failure_targets.take();
+        let failures = self.ordinary_cleanup_failure.take();
         let mut block = entry;
 
         if let Some(place) = completion {
@@ -301,7 +301,7 @@ impl Lowerer<'_> {
         )?;
 
         self.cleanup_outcome = previous;
-        self.cleanup_failure_targets = failures;
+        self.ordinary_cleanup_failure = failures;
 
         Ok(entry)
     }

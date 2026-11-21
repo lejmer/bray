@@ -328,37 +328,36 @@ fn output_authority_copy_checks_follow_current_completion_guards() {
         );
     }
 
-    let compilation = compilation(
-        r#"
-        trusted module app;
-        @copy struct Owner
-        {
-            epoch: u64;
-        }
-        trusted predicate live(value: &mut Owner);
-        trusted func initialize(pos value: &mut Owner) -> u32
-            ensures(result != 0 || trusted live(value))
-        {
-            return 0;
-        }
-        func caller()
-        {
-            let mut value: Owner = {
-                epoch = 0
-            };
-            let status = initialize(&mut value);
-            if status != 0 {
-                let copy = value;
-            }
-        }
-    "#,
-    );
+    for (comparison, expected) in [
+        ("!=", None),
+        ("==", Some(DiagnosticKind::CheckingTrustedWitnessTransferNotProven)),
+    ] {
+        let source = format!(r#"
+            trusted module app;
+            @copy struct Owner
+            {{
+                epoch: u64;
+            }}
+            trusted predicate live(value: &mut Owner);
+            trusted func initialize(pos value: &mut Owner, pos status: u32) -> u32
+                ensures(result != 0 || trusted live(value))
+            {{
+                return status;
+            }}
+            func caller(pos input: u32)
+            {{
+                let mut value: Owner = {{ epoch = 0 }};
+                let status = initialize(&mut value, input);
+                if status {comparison} 0 {{
+                    let copy = value;
+                }}
+            }}
+        "#);
 
-    assert!(
-        !compilation.check_diagnostics().has_errors(),
-        "{:?}",
-        compilation.check_diagnostics()
-    );
+        let compilation = compilation(&source);
+
+        bray_testing::assert_goal_state_diagnostic_outcome(compilation.check_diagnostics(), expected, &source);
+    }
 }
 
 #[test]
@@ -426,7 +425,8 @@ fn aggregate_copy_checks_apply_to_the_transferred_component() {
             false,
         ),
         ("let values: [Owner; 2] = [owner(); 2];", false),
-        ("let values: [Owner; 1] = [owner(); 1];", true),
+        ("let values: [Owner; 1] = [owner(); 1];", false),
+        ("let values: [Owner; 1] = [owner()]; observe(&values[0]);", true),
     ] {
         let compilation = compilation(&format!(
             r#"
@@ -436,6 +436,7 @@ fn aggregate_copy_checks_apply_to_the_transferred_component() {
                 epoch: u64;
             }}
             trusted predicate live(value: &Owner);
+            func observe(pos value: &Owner) requires(trusted live(value)) {{}}
             trusted func owner() -> Owner
                 ensures(trusted live(&result))
             {{
@@ -681,8 +682,10 @@ fn enclosing_owner_authority_cannot_be_duplicated_by_copying() {
 #[test]
 fn repeated_array_witness_copies_use_the_checked_extent() {
     for (count, extent, valid) in [
-        ("ONE", 1, true),
-        ("one()", 1, true),
+        ("ZERO", 0, true),
+        ("zero()", 0, true),
+        ("ONE", 1, false),
+        ("one()", 1, false),
         ("TWO", 2, false),
         ("two()", 2, false),
     ] {
@@ -707,9 +710,16 @@ fn repeated_array_witness_copies_use_the_checked_extent() {
                 }};
             }}
 
+            const ZERO: usize = 0;
+
             const ONE: usize = 1;
 
             const TWO: usize = 2;
+
+            const func zero() -> usize
+            {{
+                return ZERO;
+            }}
 
             const func one() -> usize
             {{

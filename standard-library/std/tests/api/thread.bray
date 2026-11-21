@@ -34,9 +34,9 @@ internal func return_value(pos state: i32) -> i32
     return state;
 }
 
-internal func retain_borrow(pos state: &i32) -> unit
+internal func retain_borrow(pos state: &i32) -> i32
 {
-    _ = state;
+    return state;
 }
 
 internal func observe_identity(pos state: unit) -> std.thread.Id
@@ -80,6 +80,24 @@ internal func wait_for_cancellation(pos state: unit) -> unit
     }
 
     std.thread.checkpoint();
+}
+
+internal struct CancellationThreadState
+{
+    started: &core.atomic.Atomic<u32>;
+    cleanups: &core.atomic.Atomic<u32>;
+
+    destruct()
+    {
+        _ = core.atomic.fetch_add<u32, 3>(self.cleanups, 1);
+    }
+}
+
+internal func wait_for_run_cancellation(pos state: CancellationThreadState)
+{
+    core.atomic.store<u32, 2>(state.started, 1);
+    core.atomic.notify_all<u32>(state.started);
+    wait_for_cancellation(unit);
 }
 
 internal func park_until_woken(pos state: i32) -> i32
@@ -152,12 +170,13 @@ func native_thread_owner_scopes_a_transferred_borrow()
 {
     let value: i32 = 41;
 
-    let mut thread: std.thread.Thread<unit> = std.testing.assert_ok<std.thread.Thread<unit>, std.thread.ThreadError>(
-        std.thread.start< &i32, unit>(retain_borrow, &value)
+    let mut thread: std.thread.Thread<i32> = std.testing.assert_ok<std.thread.Thread<i32>, std.thread.ThreadError>(
+        std.thread.start< &i32, i32>(retain_borrow, &value)
     );
 
-    std.testing.assert_completed<unit>(thread.join());
+    let observed: i32 = std.testing.assert_completed<i32>(thread.join());
 
+    assert(observed == 41);
     assert(value == 41);
 }
 
@@ -204,30 +223,78 @@ func native_thread_panic_is_reported_to_the_owner()
 @test
 func concurrency_stress_native_thread_cancellation_reaches_a_checkpoint()
 {
+    let started: core.atomic.Atomic<u32> = core.atomic.initialize<u32>(0);
+    let cleanups: core.atomic.Atomic<u32> = core.atomic.initialize<u32>(0);
+
     let mut thread: std.thread.Thread<unit> = std.testing.assert_ok<std.thread.Thread<unit>, std.thread.ThreadError>(
-        std.thread.start<unit, unit>(wait_for_cancellation, unit)
+        std.thread.start<CancellationThreadState, unit>(
+            wait_for_run_cancellation,
+            CancellationThreadState
+            {
+                started = &started,
+                cleanups = &cleanups
+            }
+        )
     );
 
+    while core.atomic.load<u32, 1>(&started) == 0
+    {
+        core.atomic.wait<u32, 1>(&started, 0);
+    }
+
     std.testing.assert_cancelled<unit>(thread.cancel());
+    assert(core.atomic.load<u32, 1>(&cleanups) == 1);
 }
 
 @test
 func native_thread_finalization_accepts_cooperative_cancellation()
 {
-    _ = std.testing.assert_ok<std.thread.Thread<unit>, std.thread.ThreadError>(
-        std.thread.start<unit, unit>(wait_for_cancellation, unit)
-    );
+    let started: core.atomic.Atomic<u32> = core.atomic.initialize<u32>(0);
+    let cleanups: core.atomic.Atomic<u32> = core.atomic.initialize<u32>(0);
+
+    {
+        let thread = std.testing.assert_ok<std.thread.Thread<unit>, std.thread.ThreadError>(
+            std.thread.start<CancellationThreadState, unit>(
+                wait_for_run_cancellation,
+                CancellationThreadState
+                {
+                    started = &started,
+                    cleanups = &cleanups
+                }
+            )
+        );
+
+        while core.atomic.load<u32, 1>(&started) == 0
+        {
+            core.atomic.wait<u32, 1>(&started, 0);
+        }
+    }
+
+    assert(core.atomic.load<u32, 1>(&cleanups) == 1);
 }
 
 @test
 async func cancelling_native_thread_run_cancels_the_owned_thread()
 {
-    let running: Task<Result<unit, std.thread.ThreadError>> = std.thread.run<unit, unit>(
-        wait_for_cancellation,
-        unit,
+    let started: core.atomic.Atomic<u32> = core.atomic.initialize<u32>(0);
+    let cleanups: core.atomic.Atomic<u32> = core.atomic.initialize<u32>(0);
+
+    let running: Task<Result<unit, std.thread.ThreadError>> = std.thread.run<CancellationThreadState, unit>(
+        wait_for_run_cancellation,
+        CancellationThreadState
+        {
+            started = &started,
+            cleanups = &cleanups
+        },
     ).start();
 
+    while core.atomic.load<u32, 1>(&started) == 0
+    {
+        await std.task.yield_now();
+    }
+
     std.testing.assert_cancelled<Result<unit, std.thread.ThreadError>>(await running.cancel());
+    assert(core.atomic.load<u32, 1>(&cleanups) == 1);
 }
 
 @test

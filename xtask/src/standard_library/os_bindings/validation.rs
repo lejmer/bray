@@ -5,6 +5,7 @@ use bray_target::NativeTarget;
 use super::model::{
     Description, FORMAT, OverrideAuthority, ParameterDescription, SdkRevision, SymbolBinding,
     SymbolDescription, SymbolPresence, TargetDescription, TypeDescription, is_primitive_abi_type,
+    is_windows_handle,
 };
 
 pub(super) fn validate(description: &Description) -> Result<(), String> {
@@ -443,7 +444,7 @@ fn validate_callable_types(
 }
 
 fn validate_abi_type(target: &TargetDescription, ty: &str) -> Result<(), String> {
-    if is_primitive_abi_type(ty) {
+    if is_primitive_abi_type(ty) || is_windows_handle(target, ty) {
         return Ok(());
     }
 

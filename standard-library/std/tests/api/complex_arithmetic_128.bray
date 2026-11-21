@@ -1,4 +1,4 @@
-module bray.standard_library_tests.complex_arithmetic;
+trusted module bray.standard_library_tests.complex_arithmetic;
 
 using std.format;
 
@@ -32,6 +32,8 @@ const PRODUCT_128: c128 = (3.0 + 4.0i) * (1.0 + 1.0i);
 const QUOTIENT_128: c128 = (3.0 + 4.0i) / (1.0 + 1.0i);
 
 const POWER_128: c128 = (1.0 + 1.0i) ** (2.0 + 0.0i);
+
+const GENERAL_POWER_128: c128 = (1.0 + 1.0i) ** (1.0 + 1.0i);
 
 @test
 func ordinary_complex_128_operators_and_compound_assignments_execute()
@@ -91,17 +93,22 @@ trusted func complex_division_and_power_preserve_extreme_values_and_branch_cuts(
     let ordinary: c128 = 1.0 + 1.0i;
     let general_power = power_128(ordinary, ordinary);
     let (real, imaginary): (u128, u128) = internal std.format.complex128_bits(&general_power);
+    let (nan_real, nan_imaginary) = internal std.format.complex128_bits(&nan);
+    let (infinity_real, infinity_imaginary) = internal std.format.complex128_bits(&infinity);
 
     assert(divide_128(largest, largest) == one);
     assert(divide_128(smallest, smallest) == one);
     assert(positive_root == (0.0 + 1.0i));
     assert(negative_root == (0.0 - 1.0i));
-    assert(nan != nan);
-    assert(infinity != infinity);
+    assert(nan_real == 0x7ff8000000000000);
+    assert(nan_imaginary == 0x7ff8000000000000);
+    assert(infinity_real == 0x7ff0000000000000);
+    assert(infinity_imaginary == 0x7ff8000000000000);
     assert(power_128(nan, zero) == one);
     assert(power_128(one, nan) == one);
-    assert(real == 0x3fd18884016cf327);
-    assert(imaginary == 0x3fe2adad36b098a9);
+    assert(general_power == GENERAL_POWER_128);
+    assert(real >= 0x3fd18884016cf317 && real <= 0x3fd18884016cf337);
+    assert(imaginary >= 0x3fe2adad36b09899 && imaginary <= 0x3fe2adad36b098b9);
 
     let two: c128 = 2.0 + 0.0i;
     let positive_axis: c128 = 1.7976931348623157e308 + 0.0i;

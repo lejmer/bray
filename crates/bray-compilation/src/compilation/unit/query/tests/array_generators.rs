@@ -1,27 +1,33 @@
-use crate::Compilation;
 use crate::test_support::compilation;
-use bray_diagnostics::DiagnosticKind;
+use bray_diagnostics::{DiagnosticArgValue, DiagnosticArrayGeneratorCardinalityProblem, DiagnosticKind};
 use bray_testing::assert_goal_state_diagnostic_kind;
 
 #[test]
 fn fixed_array_generators_report_divergent_yield_cardinality() {
-    let compilation =
-        array_generator_compilation(concat!("        yield item;\n", "        yield item;\n",));
+    assert_generator_problem(r#"
+        module app;
 
-    assert_goal_state_diagnostic_kind(
-        compilation.check_diagnostics(),
-        DiagnosticKind::CheckingArrayGeneratorCardinalityNotProvable,
-    );
+        func main()
+        {
+            let generated: [i32; 2] = [each item in 0..2
+            {
+                yield item;
+                yield item;
+            }];
+        }
+    "#, |problem| matches!(problem, DiagnosticArrayGeneratorCardinalityProblem::YieldCountNotExact { .. }));
 }
 
 #[test]
 fn fixed_array_generators_require_a_statically_known_source_count() {
-    let compilation = array_generator_compilation("        yield item;\n");
+    assert_generator_problem(r#"
+        module app;
 
-    assert_goal_state_diagnostic_kind(
-        compilation.check_diagnostics(),
-        DiagnosticKind::CheckingArrayGeneratorCardinalityNotProvable,
-    );
+        func build(pos count: i32)
+        {
+            let generated: [i32; 2] = [each item in 0..count { yield item; }];
+        }
+    "#, |problem| matches!(problem, DiagnosticArrayGeneratorCardinalityProblem::SourceCountUnavailable { .. }));
 }
 
 #[test]
@@ -60,40 +66,20 @@ fn fixed_array_generators_use_literal_range_cardinality() {
     );
 }
 
-fn array_generator_compilation(body: &str) -> Compilation {
-    let mut source = String::from(concat!(
-        "module app;\n",
-        "struct Items\n",
-        "{\n",
-        "}\n",
-        "struct ItemsCursor\n",
-        "{\n",
-        "}\n",
-        "impl &Items(Iterable)\n",
-        "{\n",
-        "    type Element = bool;\n",
-        "    type Cursor = ItemsCursor;\n",
-        "    consume func iterate() -> ItemsCursor\n",
-        "    {\n",
-        "    }\n",
-        "}\n",
-        "impl ItemsCursor(Iterator)\n",
-        "{\n",
-        "    type Element = bool;\n",
-        "    mut func next() -> bool?\n",
-        "    {\n",
-        "    }\n",
-        "}\n",
-        "func main()\n",
-        "{\n",
-        "    let items: Items = Items {};\n",
-        "    let generated: [bool; 2] = [each item in items\n",
-        "    {\n",
-    ));
+#[track_caller]
+fn assert_generator_problem(source: &str, expected: impl Fn(&DiagnosticArrayGeneratorCardinalityProblem) -> bool) {
+    let compilation = compilation(source);
+    let diagnostics = compilation.check_diagnostics();
+    let errors = diagnostics.errors().collect::<Vec<_>>();
 
-    source.push_str(body);
+    let [error] = errors.as_slice() else { panic!("expected one generator error: {diagnostics:#?}"); };
 
-    source.push_str(concat!("    }];\n", "}\n",));
+    assert_goal_state_diagnostic_kind(diagnostics, DiagnosticKind::CheckingArrayGeneratorCardinalityNotProvable);
 
-    compilation(&source)
+    assert!(error.args().iter().any(|argument| matches!(argument.value(),
+        DiagnosticArgValue::ArrayGeneratorCardinalityProblem(problem) if expected(problem))), "{error:#?}");
+
+    let range = error.primary_span().expect("generator diagnostic attributes the expression").range();
+
+    assert!(range.slice_str(source).is_some_and(|text| text.starts_with("[each")));
 }

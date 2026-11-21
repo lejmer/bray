@@ -30,7 +30,7 @@ func main()
         let mut sink: std.format.FixedSink = std.format.FixedSink(&mut storage[..]);
         let value: r64 = index as r64 + 0.125;
 
-        match consume trusted std.format.write_to<r64, std.format.FixedSink, std.format.FixedSinkError>(
+        match consume std.format.write_to<r64, std.format.FixedSink, std.format.FixedSinkError>(
             &mut sink, std.format.Argument<r64>(&value, options = std.format.Options()))
         {
             case Ok(_) {}
@@ -81,7 +81,7 @@ func main()
         let value: r64 = 0.1;
         let precision: usize = if index % 2 == 0 { yield 40; } else { yield 80; };
 
-        match consume trusted std.format.write_to<r64, std.format.FixedSink, std.format.FixedSinkError>(
+        match consume std.format.write_to<r64, std.format.FixedSink, std.format.FixedSinkError>(
             &mut sink, std.format.Argument<r64>(&value, options = std.format.Options(precision = precision)))
         {
             case Ok(_) {}
@@ -129,7 +129,7 @@ func main()
 
     while index < 1024
     {
-        match consume trusted std.format.write_to<r64, std.format.CountingSink, std.format.CountingSinkError>(
+        match consume std.format.write_to<r64, std.format.CountingSink, std.format.CountingSinkError>(
             &mut sink, std.format.Argument<r64>(&value, options = std.format.Options(precision = 3, width = 1000000)))
         {
             case Ok(_) {}
@@ -177,7 +177,7 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
     {
         let value: r64 = index as r64 + 0.125;
 
-        try trusted std.format.write<r64>(&mut sink, std.format.Argument<r64>(&value));
+        try std.format.write<r64>(&mut sink, std.format.Argument<r64>(&value));
         index += 1;
     }
 
@@ -261,7 +261,7 @@ func main()
 
         while index < 1024
         {
-            match consume trusted std.format.write_to<c128, std.io.FormattingSink<ValidatingWriter>, std.io.IoError>(
+            match consume std.format.write_to<c128, std.io.FormattingSink<ValidatingWriter>, std.io.IoError>(
                 &mut sink, std.format.Argument<c128>(&value, options = std.format.Options(precision = 2)))
             {
                 case Ok(_) {}

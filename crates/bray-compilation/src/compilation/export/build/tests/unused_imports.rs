@@ -259,13 +259,15 @@ func run() -> i32
 
 #[test]
 fn independent_modules_do_not_share_import_usage() {
-    let consumer = compilation_from_sources([
-        API,
-        r#"
+    let unused = r#"
 module app;
 
 using api;
-"#,
+"#;
+
+    let consumer = compilation_from_sources([
+        API,
+        unused,
         r#"
 module other;
 
@@ -282,6 +284,13 @@ func run() -> i32
         unused_imports(&consumer),
         ["using declaration for 'api' is unused"]
     );
+
+    let source = consumer.sources().iter().find(|source| source.text() == unused)
+        .expect("the independent app contribution remains available");
+
+    assert!(consumer.check_diagnostics().by_kind(DiagnosticKind::BindingUnusedUsing).any(|diagnostic|
+        crate::test_support::diagnostic_at_call(diagnostic, source.source_id(), unused, "using api")
+    ));
 }
 
 #[test]
@@ -483,17 +492,22 @@ func run(pos example: &Local) -> i32
 
 #[test]
 fn unresolved_imports_keep_their_original_error_without_unused_warnings() {
-    let consumer = compilation(
-        r#"
+    let source = r#"
 module app;
 
 using missing;
-"#,
-    );
+"#;
 
+    let consumer = compilation(source);
     let diagnostics = consumer.check_diagnostics();
 
-    assert!(diagnostics.has_errors());
+    let source_id = consumer.sources().iter().next()
+        .expect("the unresolved using source remains available")
+        .source_id();
+
+    assert!(diagnostics.by_kind(DiagnosticKind::BindingUnresolvedName).any(|diagnostic|
+        crate::test_support::diagnostic_at_call(diagnostic, source_id, source, "missing")
+    ), "{diagnostics:?}");
 
     assert!(
         !diagnostics
@@ -538,34 +552,48 @@ func run(pos value: &api.Value) {}
 
     for sources in [[API, first, second], [second, first, API]] {
         for workers in [1, 2] {
-            let consumer = crate::test_support::compilation_with_sources_and_worker_budget(
+            for demand_references in [false, true] {
+                let consumer = crate::test_support::compilation_with_sources_and_worker_budget(
                 &sources,
                 crate::WorkerBudget::new(workers).expect("positive worker budget"),
             );
 
-            let cancellation = CancellationToken::new();
+                if demand_references {
+                    let declaration = consumer.sources().iter().find(|source| source.text() == API)
+                        .expect("the referenced type's source is available");
 
-            for source in consumer.sources().into_iter().rev() {
-                if let Some(offset) = source.text().find("func ") {
+                    let offset = API.find("struct Value").expect("the fixture declares Value") + "struct ".len();
+
                     let position = bray_source::TextSize::new(
-                        u32::try_from(offset + 5).expect("fixture offset fits source"),
+                        u32::try_from(offset).expect("fixture offset fits source"),
                     );
 
-                    consumer
+                    let use_source = consumer.sources().iter().find(|source| source.text() == second)
+                        .expect("the referencing source is available");
+
+                    let references = consumer
                         .references_at(
-                            source.source_id(),
+                            declaration.source_id(),
                             position,
-                            &cancellation,
+                            &CancellationToken::new(),
                             QueryPriority::Interactive,
                         )
                         .expect("public references query succeeds");
-                }
-            }
 
-            assert_eq!(
-                unused_imports(&consumer),
-                ["using declaration for 'api2' is unused"]
-            );
+                    let crate::SemanticAvailability::Available(references) = references else {
+                        panic!("the fixture must resolve references to Value");
+                    };
+
+                    assert!(references.iter().any(|reference|
+                        reference.syntax().source_id() == use_source.source_id()
+                    ));
+                }
+
+                assert_eq!(
+                    unused_imports(&consumer),
+                    ["using declaration for 'api2' is unused"]
+                );
+            }
         }
     }
 }

@@ -593,7 +593,7 @@ fn with_initializer_carriers(
             dependency
                 .as_ref()
                 .clone()
-                .with_carriers(result.carriers().iter().cloned()),
+                .with_captured_values(result.captured_values().iter().cloned()),
         )
         .expect("checked static initializer summaries belong to the same semantic store")
 }
@@ -761,21 +761,29 @@ mod tests {
             r#"
             module app;
             static Root: i32 = 1;
-            const func read_root() -> i32
+            const func forward(pos value: &i32) -> &i32
             {
-                return Root;
+                return value;
             }
-            static Copy: i32 = read_root();
+            static Alias: &i32 = forward(&Root);
             "#,
         );
 
         let symbols = symbol_graph(&compilation);
-        let root = symbols.statics()[0].id();
-        let copy = symbols.statics()[1].id();
+
+        let declaration = |name| {
+            symbols.statics().iter().find(|symbol| {
+                symbol.origin() == bray_symbols::SymbolOrigin::Source
+                    && symbols.member_name(symbol.id().into()).is_some_and(|member| member.as_str() == name)
+            }).expect("the fixture declares the selected static").id()
+        };
+
+        let root = declaration("Root");
+        let alias = declaration("Alias");
 
         let template = compilation
-            .static_instance_template(copy)
-            .unwrap_or_else(|error| panic!("copy static template must publish: {error:?}"));
+            .static_instance_template(alias)
+            .unwrap_or_else(|error| panic!("borrowed static template must publish: {error:?}"));
 
         assert!(
             template.diagnostics().is_empty(),

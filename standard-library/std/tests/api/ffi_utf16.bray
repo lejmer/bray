@@ -1,5 +1,5 @@
 @target(target.c.WCHAR == "u16")
-module bray.standard_library_tests.ffi;
+trusted module bray.standard_library_tests.ffi;
 
 using std.ffi.c;
 using std.testing;
@@ -7,10 +7,10 @@ using std.testing;
 @test
 trusted func c_wide_strings_encode_and_validate_target_text() -> Result<unit, std.ffi.c.StringError>
 {
-    let encoded: std.ffi.c.OwnedWideString = try trusted std.ffi.c.OwnedWideString.from_string(&"A😀");
+    let encoded: std.ffi.c.OwnedWideString = try std.ffi.c.OwnedWideString.from_string(&"A😀");
     let borrowed: std.ffi.c.BorrowedWideString = encoded.as_borrowed();
     let units: &[std.ffi.c.WideChar] = borrowed.as_units_with_nul();
-    let decoded: string = try trusted borrowed.to_string();
+    let decoded: string = try borrowed.to_string();
 
     assert(units.length() == 4);
     assert(units[0].value() == 65);
@@ -26,7 +26,9 @@ trusted func c_wide_strings_encode_and_validate_target_text() -> Result<unit, st
 
     let invalid: std.ffi.c.BorrowedWideString = try std.ffi.c.borrow_string(&invalid_units[..]);
 
-    _ = std.testing.assert_error<string, std.ffi.c.StringError>(trusted invalid.to_string());
+    let error = std.testing.assert_error<string, std.ffi.c.StringError>(invalid.to_string());
+
+    assert(error matches std.ffi.c.StringError.InvalidEncoding);
 
     return Ok(unit);
 }

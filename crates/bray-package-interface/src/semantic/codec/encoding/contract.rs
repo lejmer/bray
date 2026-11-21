@@ -4,7 +4,7 @@ use super::bundle::section;
 use super::model::EncodedSemanticSection;
 use super::value::write_tagged_id;
 use crate::semantic::codec::common::{
-    REFERENCE_ALLOCATION, REFERENCE_EMPTY, REFERENCE_EXACT, REFERENCE_INPUT_ABSENT, REFERENCE_INPUT_REGIONS, REFERENCE_KIND_SHIFT,
+    REFERENCE_ALLOCATION, REFERENCE_EMPTY, REFERENCE_EXACT, REFERENCE_INPUT_ABSENT, REFERENCE_INPUT_REGIONS, REFERENCE_KIND_SHIFT, REFERENCE_NO_PAYLOAD,
     write_count, write_optional_u32, write_symbol_reference, write_symbol_references,
 };
 use crate::semantic::codec::record::encode_record_table;
@@ -20,6 +20,61 @@ use crate::wire::WireEncoder;
 use crate::{InterfaceSectionTag, InterfaceSemantics};
 use bray_symbols::BorrowKind;
 
+pub(in crate::semantic::codec) fn encode_dependency_effects(
+    encoder: &mut WireEncoder,
+    effects: &[crate::InterfaceStorageEffect],
+) {
+    write_count(encoder, effects.len());
+
+    for effect in effects {
+        encode_dependency_effect(encoder, effect);
+    }
+}
+
+fn encode_dependency_effect(encoder: &mut WireEncoder, effect: &crate::InterfaceStorageEffect) {
+    match effect {
+        DependencyStorageEffect::OrderedRetirement { retirement, discharged } => {
+            encoder.write_u32(10);
+            encode_dependency_effect(encoder, retirement);
+            write_count(encoder, discharged.len());
+
+            for duty in discharged.iter() {
+                encode_dependency_projections(encoder, &duty.projections);
+                encoder.write_u32(duty.ty.raw());
+            }
+        }
+        DependencyStorageEffect::UnboundedMutation { kind, access_type, ambient } => {
+            encoder.write_u32(7);
+            encode_mutation(encoder, *kind);
+            write_optional_u32(encoder, access_type.map(|ty| ty.raw()));
+            encoder.write_u32(u32::from(*ambient));
+        }
+        DependencyStorageEffect::Unknown => encoder.write_u32(0),
+        DependencyStorageEffect::Ambient => encoder.write_u32(6),
+        DependencyStorageEffect::Escape => encoder.write_u32(5),
+        DependencyStorageEffect::Atomic => encoder.write_u32(4),
+        DependencyStorageEffect::Direct { addressed, subject, kind, access_type } => {
+            encoder.write_u32(if *addressed { 1 } else { 8 });
+            encode_dependency_subject(encoder, subject);
+            encode_mutation(encoder, *kind);
+            write_optional_u32(encoder, access_type.map(|ty| ty.raw()));
+        }
+        DependencyStorageEffect::Indirect { addressed, reads, reference, projections, kind, access_type } => {
+            encoder.write_u32(if *addressed { 2 } else { 9 });
+            encode_dependency_subject(encoder, reference);
+            write_count(encoder, reads.len());
+
+            for index in reads.iter() {
+                encoder.write_u32(*index);
+            }
+
+            encode_dependency_projections(encoder, projections);
+            encode_mutation(encoder, *kind);
+            write_optional_u32(encoder, access_type.map(|ty| ty.raw()));
+        }
+    }
+}
+
 pub(super) fn encode_contracts(semantics: &InterfaceSemantics) -> EncodedSemanticSection {
     let mut encoder = WireEncoder::new();
 
@@ -34,123 +89,13 @@ pub(super) fn encode_contracts(semantics: &InterfaceSemantics) -> EncodedSemanti
             }
 
             encoder.write_u32(u32::from(contract.normal_completion));
-            encoder.write_u32(u32::from(contract.normal_storage_preserved));
-            write_count(encoder, contract.requirements.len());
+            encode_dependency_requirements(encoder, &contract.requirements);
 
-            for requirement in &*contract.requirements {
-                encode_dependency_requirement(encoder, requirement);
-            }
+            encode_failure_outcomes(encoder, contract.failure_outcomes.as_deref());
 
-            for reports in [&contract.completion_reports, &contract.abnormal_reports] {
-                encoder.write_u32(u32::from(reports.is_some()));
+            super::super::captured::encode_values(encoder, &contract.captured_values);
 
-                if let Some(requirements) = reports {
-                    write_count(encoder, requirements.len());
-
-                    for requirement in requirements.iter() {
-                        encode_dependency_requirement(encoder, requirement);
-                    }
-                }
-            }
-
-            write_count(encoder, contract.borrows.len());
-
-            for relation in &*contract.borrows {
-                let mut attributes = relation.kind().to_wire() << REFERENCE_KIND_SHIFT;
-
-                if relation.is_exact() {
-                    attributes |= REFERENCE_EXACT;
-                }
-
-                if relation.provenance()
-                    == bray_symbols::DependencyReferenceProvenance::InputRegions
-                {
-                    attributes |= REFERENCE_INPUT_REGIONS;
-                }
-
-                if relation.source_subject().is_none() {
-                    attributes |= REFERENCE_INPUT_ABSENT;
-                }
-
-                if relation.allocation().is_some() { attributes |= REFERENCE_ALLOCATION; }
-                if relation.is_empty_reference() { attributes |= REFERENCE_EMPTY; }
-
-                encoder.write_u32(attributes);
-
-                if let Some(entry) = relation.source_subject() {
-                    encode_dependency_subject(encoder, entry);
-                }
-
-                encode_dependency_subject(encoder, relation.exit());
-
-                if relation.source_subject().is_some() {
-                    encoder.write_u32(relation.dereferences());
-                    encode_dependency_projections(encoder, relation.target_projections());
-                }
-            }
-
-            write_count(encoder, contract.stored_values.len());
-
-            for value in &*contract.stored_values {
-                encode_dependency_subject(encoder, value.destination().subject());
-
-                encoder.write_u32(value.destination().dereferences());
-                encoder.write_u32(u32::from(value.is_complete()));
-
-                write_count(encoder, value.sources().len());
-
-                for source in value.sources() {
-                    encode_dependency_subject(encoder, source.subject());
-
-                    encoder.write_u32(source.dereferences());
-                }
-            }
-
-            super::super::ownership::encode_owned_result(encoder, &contract.owned_result);
-
-            write_optional_u32(encoder, contract.observed_result.map(|term| term.raw()));
-            write_count(encoder, contract.carriers.len());
-
-            for carrier in &*contract.carriers {
-                encoder.write_u32(carrier.guarantee().raw());
-                encode_dependency_projections(encoder, carrier.path());
-            }
-
-            write_count(encoder, contract.effects.len());
-
-            for effect in &*contract.effects {
-
-                match effect {
-                    DependencyStorageEffect::UnboundedMutation { kind, access_type, ambient } => {
-                        encoder.write_u32(7);
-                        encode_mutation(encoder, *kind);
-                        write_optional_u32(encoder, access_type.map(|ty| ty.raw()));
-                        encoder.write_u32(u32::from(*ambient));
-                    }
-                    DependencyStorageEffect::Unknown => encoder.write_u32(0),
-                    DependencyStorageEffect::Ambient => encoder.write_u32(6),
-                    DependencyStorageEffect::Escape => encoder.write_u32(5),
-                    DependencyStorageEffect::Atomic => encoder.write_u32(4),
-                    DependencyStorageEffect::Direct { subject, kind, access_type } => {
-                        encoder.write_u32(1);
-                        encode_dependency_subject(encoder, subject);
-                        encode_mutation(encoder, *kind);
-                        write_optional_u32(encoder, access_type.map(|ty| ty.raw()));
-                    }
-                    DependencyStorageEffect::Indirect {
-                        reference,
-                        projections,
-                        kind,
-                        access_type,
-                    } => {
-                        encoder.write_u32(2);
-                        encode_dependency_subject(encoder, reference);
-                        encode_dependency_projections(encoder, projections);
-                        encode_mutation(encoder, *kind);
-                        write_optional_u32(encoder, access_type.map(|ty| ty.raw()));
-                    }
-                }
-            }
+            encode_dependency_effects(encoder, &contract.effects);
         },
     );
 
@@ -211,6 +156,32 @@ pub(super) fn encode_contracts(semantics: &InterfaceSemantics) -> EncodedSemanti
             + semantics.callable_contracts.len(),
         encoder,
     )
+}
+
+fn encode_failure_outcomes(encoder: &mut WireEncoder, outcomes: Option<&[crate::InterfaceFailureOutcome]>) {
+    encoder.write_u32(u32::from(outcomes.is_some()));
+
+    if let Some(outcomes) = outcomes {
+        write_count(encoder, outcomes.len());
+
+        for row in outcomes {
+            encoder.write_u32(row.kind.map_or(0, |kind| kind as u32));
+            write_optional_u32(encoder, row.guard.map(|term| term.raw()));
+            encode_optional_requirements(encoder, row.report.as_deref());
+
+            encode_optional_effects(encoder, row.effects.as_deref());
+            encode_optional_effects(encoder, row.cell_changes.as_deref());
+            super::super::captured::encode_bindings(encoder, &row.writes);
+        }
+    }
+}
+
+pub(in crate::semantic::codec) fn encode_optional_effects(encoder: &mut WireEncoder, effects: Option<&[crate::InterfaceStorageEffect]>) {
+    encoder.write_u32(u32::from(effects.is_some()));
+
+    if let Some(effects) = effects {
+        encode_dependency_effects(encoder, effects);
+    }
 }
 
 fn encode_callable_clauses(encoder: &mut WireEncoder, clauses: &[InterfaceCallableContractClause]) {
@@ -293,6 +264,28 @@ pub(super) fn encode_callable_behavior(
         &behavior.execution_domains,
         |encoder, predicate| encode_predicate_summary(encoder, *predicate),
     );
+}
+
+pub(in crate::semantic::codec) fn encode_optional_requirements(
+    encoder: &mut WireEncoder,
+    requirements: Option<&[InterfaceDependencyRequirement]>,
+) {
+    encoder.write_u32(u32::from(requirements.is_some()));
+
+    if let Some(requirements) = requirements {
+        encode_dependency_requirements(encoder, requirements);
+    }
+}
+
+pub(in crate::semantic::codec) fn encode_dependency_requirements(
+    encoder: &mut WireEncoder,
+    requirements: &[InterfaceDependencyRequirement],
+) {
+    write_count(encoder, requirements.len());
+
+    for requirement in requirements {
+        encode_dependency_requirement(encoder, requirement);
+    }
 }
 
 pub(super) fn encode_dependency_requirement(
@@ -416,7 +409,67 @@ fn encode_dependency_call_inputs(
     }
 }
 
-pub(super) fn encode_dependency_subject(
+pub(in crate::semantic::codec) fn encode_dependency_storage(
+    encoder: &mut WireEncoder,
+    references: &[bray_symbols::DependencyBorrowRelation<crate::InterfaceDependencySubject, crate::InterfaceDependencyProjection>],
+    stored_values: &[bray_symbols::DependencyStoredValue<crate::InterfaceDependencySubject>],
+) {
+    write_count(encoder, references.len());
+
+    for relation in references {
+        let mut attributes = relation.kind().to_wire() << REFERENCE_KIND_SHIFT;
+
+        if relation.is_exact() {
+            attributes |= REFERENCE_EXACT;
+        }
+
+        if relation.provenance()
+            == bray_symbols::DependencyReferenceProvenance::InputRegions
+        {
+            attributes |= REFERENCE_INPUT_REGIONS;
+        }
+
+        if relation.source_subject().is_none() {
+            attributes |= REFERENCE_INPUT_ABSENT;
+        }
+
+        if relation.allocation().is_some() { attributes |= REFERENCE_ALLOCATION; }
+        if relation.is_empty_reference() { attributes |= REFERENCE_EMPTY; }
+        if relation.is_no_payload() { attributes |= REFERENCE_NO_PAYLOAD; }
+
+        encoder.write_u32(attributes);
+
+        if let Some(entry) = relation.source_subject() {
+            encode_dependency_subject(encoder, entry);
+        }
+
+        encode_dependency_subject(encoder, relation.exit());
+
+        if relation.source_subject().is_some() {
+            encoder.write_u32(relation.dereferences());
+            encode_dependency_projections(encoder, relation.target_projections());
+        }
+    }
+
+    write_count(encoder, stored_values.len());
+
+    for value in stored_values {
+        encode_dependency_subject(encoder, value.destination().subject());
+
+        encoder.write_u32(value.destination().dereferences());
+        encoder.write_u32(u32::from(value.is_complete()));
+
+        write_count(encoder, value.sources().len());
+
+        for source in value.sources() {
+            encode_dependency_subject(encoder, source.subject());
+
+            encoder.write_u32(source.dereferences());
+        }
+    }
+}
+
+pub(in crate::semantic::codec) fn encode_dependency_subject(
     encoder: &mut WireEncoder,
     subject: &InterfaceDependencySubject,
 ) {
@@ -446,12 +499,20 @@ pub(super) fn encode_dependency_subject(
             encoder.write_u32(7);
             write_symbol_reference(encoder, reference);
         }
+        InterfaceDependencySubjectRoot::StaticInstance(reference, duration) => {
+            encoder.write_u32(match duration {
+                bray_symbols::StaticStorageDuration::Product => 10,
+                bray_symbols::StaticStorageDuration::ExactThread => 11,
+            });
+
+            super::super::captured::encode_static_reference(encoder, reference);
+        }
     }
 
     encode_dependency_projections(encoder, &subject.projections);
 }
 
-fn encode_dependency_projections(
+pub(in crate::semantic::codec) fn encode_dependency_projections(
     encoder: &mut WireEncoder,
     projections: &[InterfaceDependencyProjection],
 ) {
@@ -536,9 +597,10 @@ fn encode_mutation(
         DependencyMutationKind::Escape => 7,
         DependencyMutationKind::Cleanup(_) => 8,
         DependencyMutationKind::Dispose(_) => 9,
+        DependencyMutationKind::Discharge(_) => 10,
     });
 
-    if let DependencyMutationKind::Replace(ty) | DependencyMutationKind::Dispose(ty) | DependencyMutationKind::Cleanup(ty) = kind {
+    if let DependencyMutationKind::Replace(ty) | DependencyMutationKind::Dispose(ty) | DependencyMutationKind::Cleanup(ty) | DependencyMutationKind::Discharge(ty) = kind {
         encoder.write_u32(ty.raw());
     }
 }

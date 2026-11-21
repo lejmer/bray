@@ -1,5 +1,5 @@
 @target(target.scalar.R16)
-module bray.standard_library_tests.real_power;
+trusted module bray.standard_library_tests.real_power;
 
 func power_16(pos base: r16, pos exponent: r16) -> r16
 {

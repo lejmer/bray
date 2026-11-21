@@ -366,8 +366,9 @@ impl ImportedSemantics {
         &self,
         template: &crate::InterfaceCheckedTemplate,
         symbols: &impl InterfaceSymbolResolver,
+        store: &SemanticValueStore,
     ) -> Result<CheckedTemplate, InterfaceSemanticInternError> {
-        InternState::from_imported(self).convert_template(
+        InternState::from_imported(self, store).convert_template(
             template,
             &self.interface_semantics,
             symbols,
@@ -737,7 +738,7 @@ impl InterfaceSemantics {
         store: &SemanticValueStore,
         symbols: &impl InterfaceSymbolResolver,
     ) -> Result<ImportedSemantics, InterfaceSemanticInternError> {
-        let mut state = InternState::new(self);
+        let mut state = InternState::new(self, store);
 
         while state.has_pending() {
             let before = state.resolved_count();

@@ -864,7 +864,11 @@ mod tests {
 
         assert!(summary_line.starts_with("   × Failed"));
         assert!(summary_line.contains("1 passed, 1 failed"));
-        assert_eq!(result_line.find("6 ms"), summary_line.find("9 ms"));
+
+        let result_duration = result_line.find("6 ms").expect("the failed result renders its duration");
+        let summary_duration = summary_line.find("9 ms").expect("the summary renders its duration");
+
+        assert_eq!(result_duration, summary_duration);
     }
 
     #[test]

@@ -1,4 +1,4 @@
-module bray.standard_library_tests.complex_arithmetic;
+trusted module bray.standard_library_tests.complex_arithmetic;
 
 func generic_complex_product<Value>(pos left: Value, pos right: Value) -> Value(Multiply<Value>).Output
     with(Value: Multiply<Value>)

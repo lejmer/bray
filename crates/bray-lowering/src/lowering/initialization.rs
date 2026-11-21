@@ -15,12 +15,14 @@ use super::LoweringError;
 use super::lowerer::Lowerer;
 use super::projection::static_cleanup_projection_kind;
 
-pub(super) struct InitializationState<'unit> {
+pub(super) struct InitializationState {
     pub(super) guard: MirPlace,
-    pub(super) parts: Vec<InitializedPart<'unit>>,
+    pub(super) parts: Arc<[InitializedPart]>,
 }
-pub(super) struct InitializedPart<'unit> {
-    pub(super) plan: &'unit StorageCleanupPart,
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub(super) struct InitializedPart {
+    pub(super) plan: StorageCleanupPart,
     pub(super) guard: MirPlace,
     pub(super) array_types: Arc<[TypeId]>,
 }
@@ -107,7 +109,7 @@ impl Lowerer<'_> {
                     )?;
 
                     parts.push(InitializedPart {
-                        plan: part,
+                        plan: part.clone(),
                         guard: flag,
                         array_types: array_types.into(),
                     });
@@ -115,7 +117,7 @@ impl Lowerer<'_> {
             }
 
             self.initialization_guards
-                .insert(place.storage(), InitializationState { guard, parts });
+                .insert(place.storage(), InitializationState { guard, parts: parts.into() });
         }
 
         Ok(())
@@ -268,7 +270,7 @@ impl Lowerer<'_> {
             return Ok(());
         };
 
-        for part in &state.parts {
+        for part in state.parts.iter() {
             if let Some((guard, dimensions)) = part_guard_for_place(part, state.guard.ty(), place) {
                 let value = initialization_value(
                     &mut self.builder,
@@ -525,7 +527,7 @@ fn initialization_value(
 }
 
 pub(super) fn part_guard_for_place(
-    part: &InitializedPart<'_>,
+    part: &InitializedPart,
     boolean: TypeId,
     place: &MirPlace,
 ) -> Option<(MirPlace, usize)> {

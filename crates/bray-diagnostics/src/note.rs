@@ -147,8 +147,8 @@ pub enum DiagnosticNoteKind {
     RuntimeArtifactMustBeUsable,
     /// Recovery guidance for an absent required standard-library dependency.
     StandardLibraryDependencyRequired,
-    /// One exact unavailable state required across an await.
-    AwaitDependencyUnavailable,
+    /// One storage or capability requirement that deferred execution cannot satisfy.
+    DeferredDependencyUnavailable,
     /// Recovery guidance for a value whose dependency cannot leave its storage scope.
     EscapingStorageDependencyResolution,
     /// Recovery guidance for operations that require an asynchronous callable body.
@@ -252,7 +252,7 @@ impl DiagnosticNoteKind {
             Self::ExternalToolExitRequiresCorrection => "external_tool_exit_requires_correction",
             Self::RuntimeArtifactMustBeUsable => "runtime_artifact_must_be_usable",
             Self::StandardLibraryDependencyRequired => "standard_library_dependency_required",
-            Self::AwaitDependencyUnavailable => "await_dependency_unavailable",
+            Self::DeferredDependencyUnavailable => "deferred_dependency_unavailable",
             Self::EscapingStorageDependencyResolution => "escaping_storage_dependency_resolution",
             Self::AsynchronousCallableRequired => "asynchronous_callable_required",
             Self::ExecutableEntrypointRequired => "executable_entrypoint_required",

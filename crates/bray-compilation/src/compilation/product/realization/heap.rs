@@ -229,7 +229,7 @@ mod tests {
         ] {
             let source = format!(
                 r#"
-                module app;
+                trusted module app;
                 struct Policy {{ mut value: i32; }}
 
                 impl Policy(Storage<i32>)

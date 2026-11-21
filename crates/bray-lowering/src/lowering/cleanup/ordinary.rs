@@ -1,17 +1,40 @@
-use std::collections::BTreeMap;
-
-use bray_bound_tree::{AnyBoundNodeId, AsyncScopeExitPlan, StorageScope};
+use bray_bound_tree::{AnyBoundNodeId, StorageExitDecision, StorageExitPoint};
 use bray_compiler_known::RepresentationRole;
 use bray_ir::{
-    MirBlockId, MirBlockKind, MirCleanupEdge, MirCleanupPhase, MirEdge, MirOperand,
+    MirBlockId, MirBlockKind, MirEdge, MirOperand,
     MirOperationKind, MirPlace, MirSourceAnchor, MirStorageKind, MirStoreKind, MirTerminatorKind,
 };
-use bray_symbols::TypeId;
+use bray_symbols::{DependencyFailureKind, TypeId};
 
 use super::control::{CleanupDestination, TerminalState};
+use super::steps::{CleanupStep, ScheduledCleanup};
+use crate::cleanup_outcome::CleanupFailure;
 use crate::lowering::LoweringError;
 use crate::lowering::inputs::InputExit;
 use crate::lowering::lowerer::Lowerer;
+
+pub(super) struct OrdinaryCleanup<'a> {
+    exit: AnyBoundNodeId,
+    broadcast_depth: usize,
+    pending: Option<&'a MirPlace>,
+    report: Option<MirPlace>,
+}
+
+pub(in crate::lowering) struct OrdinaryCleanupFailure {
+    report: MirPlace,
+    remaining: Vec<CleanupStep>,
+}
+
+pub(in crate::lowering) struct CleanupFailureTargets {
+    pub(in crate::lowering) panicked: MirBlockId,
+    pub(in crate::lowering) cancelled: MirBlockId,
+    pub(in crate::lowering) report: MirPlace,
+}
+
+pub(in crate::lowering) struct CleanupContinuation {
+    failures: [MirBlockId; 2],
+    prefix: Vec<CleanupStep>,
+}
 
 impl Lowerer<'_> {
     #[expect(
@@ -25,7 +48,7 @@ impl Lowerer<'_> {
         destination: CleanupDestination,
         value: Option<(MirOperand, TypeId)>,
         exit: AnyBoundNodeId,
-        plans: &[AsyncScopeExitPlan],
+        plans: &[&StorageExitDecision],
         input_exit: InputExit,
     ) -> Result<(), LoweringError> {
         let pending = match value {
@@ -54,35 +77,27 @@ impl Lowerer<'_> {
             None => None,
         };
 
-        let failures = self.ordinary_cleanup_failures(source, exit, plans, pending.as_ref())?;
+        let InputExit::Scope(scope_depth) = input_exit else {
+            unreachable!("ordinary scope cleanup has its lexical destination depth");
+        };
 
-        let broadcast = self.builder.push_block(
-            Self::retained_source(source),
-            MirBlockKind::CleanupBroadcast,
-        )?;
+        let mut ordinary = OrdinaryCleanup {
+            exit,
+            broadcast_depth: scope_depth,
+            pending: pending.as_ref(),
+            report: None,
+        };
 
-        self.set_terminator(
-            current,
-            Self::retained_source(source),
-            MirTerminatorKind::BeginCleanup(MirCleanupEdge::new(
-                MirCleanupPhase::TaskCancellation,
-                MirEdge::new(broadcast, []),
-            )),
-        )?;
+        let broadcast = self.begin_cleanup_broadcast(current, source)?;
 
         let lifecycle = self.resolve_cleanup(
             broadcast,
             source,
             plans,
-            None,
             pending.as_ref(),
-            &failures,
+            Some(&mut ordinary),
             input_exit,
         )?;
-
-        let InputExit::Scope(scope_depth) = input_exit else {
-            unreachable!("ordinary scope cleanup has its lexical destination depth");
-        };
 
         self.set_ordinary_destination(
             lifecycle,
@@ -120,114 +135,179 @@ impl Lowerer<'_> {
         Ok(place)
     }
 
-    fn ordinary_cleanup_failures(
+    pub(super) fn prepare_cleanup_failure(
         &mut self,
         source: &MirSourceAnchor,
-        exit: AnyBoundNodeId,
-        plans: &[AsyncScopeExitPlan],
-        pending: Option<&MirPlace>,
-    ) -> Result<BTreeMap<StorageScope, (MirBlockId, MirBlockId, MirPlace)>, LoweringError> {
-        let report_type = self.representation_type(RepresentationRole::PanicReport)?;
+        ordinary: &mut OrdinaryCleanup<'_>,
+        reached: &ScheduledCleanup<'_>,
+    ) -> Result<Option<OrdinaryCleanupFailure>, LoweringError> {
+        let Some(scope) = reached.scope else { return Ok(None); };
 
-        let report_storage = self.builder.push_storage(
-            Self::retained_source(source),
-            MirStorageKind::Temporary,
-            report_type,
-        )?;
+        let point = StorageExitPoint::new(scope, ordinary.exit);
 
-        let report = MirPlace::new(report_storage, [], report_type);
+        let [can_panic, can_cancel] = DependencyFailureKind::ALL.map(|kind| reached.can_fail(self, point, kind));
 
-        let cancelled = self.builder.push_block(
-            Self::retained_source(source),
-            MirBlockKind::LifecycleResolution,
-        )?;
+        if !can_panic && !can_cancel {
+            return Ok(None);
+        }
 
-        let destination = if self.input.unit_kind().protected_frame().is_some() {
+        let report = match &ordinary.report {
+            Some(report) => Self::retained_place(report),
+            None => {
+                let ty = self.representation_type(RepresentationRole::PanicReport)?;
+                let storage = self.builder.push_storage(Self::retained_source(source), MirStorageKind::Temporary, ty)?;
+                let report = MirPlace::new(storage, [], ty);
+
+                ordinary.report = Some(Self::retained_place(&report));
+
+                report
+            }
+        };
+
+        Ok(Some(OrdinaryCleanupFailure { report, remaining: reached.after_fault().into_iter().collect() }))
+    }
+
+    pub(in crate::lowering) fn with_cleanup_remainder<R>(
+        &mut self,
+        remaining: impl FnOnce() -> Option<CleanupStep>,
+        body: impl FnOnce(&mut Self) -> R,
+    ) -> R {
+        let retained = self.ordinary_cleanup_failure.as_mut().is_some_and(|failure| {
+            let Some(remaining) = remaining() else { return false; };
+
+            failure.remaining.push(remaining);
+
+            true
+        });
+
+        let result = body(self);
+
+        if retained {
+            self.ordinary_cleanup_failure.as_mut().expect("nested cleanup restores the enclosing failure context").remaining.pop();
+        }
+
+        result
+    }
+
+    pub(in crate::lowering) fn register_cleanup_continuation(
+        &mut self,
+        source: &MirSourceAnchor,
+        failed_finalizer: Option<&MirPlace>,
+    ) -> Result<Option<CleanupFailureTargets>, LoweringError> {
+        let Some(failure) = &self.ordinary_cleanup_failure else {
+            return Ok(None);
+        };
+
+        let continuations = self.cleanup_continuations.as_mut()
+            .expect("ordinary cleanup retains its continuations");
+
+        let destroy = failed_finalizer.map(|place| CleanupStep::destroy_after_finalizer(place, self.cleanup_occurrence, source));
+
+        let panicked = self.builder.push_block(Self::retained_source(source), MirBlockKind::LifecycleResolution)?;
+        let cancelled = self.builder.push_block(Self::retained_source(source), MirBlockKind::LifecycleResolution)?;
+
+        continuations.push(CleanupContinuation {
+            failures: [panicked, cancelled],
+            prefix: destroy.into_iter().chain(failure.remaining.iter().rev().cloned()).collect(),
+        });
+
+        Ok(Some(CleanupFailureTargets {
+            panicked, cancelled, report: Self::retained_place(&failure.report),
+        }))
+    }
+
+    pub(super) fn complete_cleanup_continuation(
+        &mut self,
+        source: &MirSourceAnchor,
+        ordinary: &OrdinaryCleanup<'_>,
+        reached: &ScheduledCleanup<'_>,
+        following: &[ScheduledCleanup<'_>],
+        continuation: CleanupContinuation,
+    ) -> Result<(), LoweringError> {
+        let report = ordinary.report.as_ref().expect("finalizer continuation retains the failed scope's report");
+
+        self.connect_cleanup_failure(
+            source, ordinary, reached, following, continuation.failures, report, &continuation.prefix,
+        )
+    }
+
+    #[expect(clippy::too_many_arguments, reason = "failure connects one reached cleanup action to the enclosing exit")]
+    fn connect_cleanup_failure(
+        &mut self,
+        source: &MirSourceAnchor,
+        ordinary: &OrdinaryCleanup<'_>,
+        reached: &ScheduledCleanup<'_>,
+        following: &[ScheduledCleanup<'_>],
+        [panicked, cancelled]: [MirBlockId; 2],
+        report: &MirPlace,
+        prefix: &[CleanupStep],
+    ) -> Result<(), LoweringError> {
+        let scope = reached.scope.expect("a failed cleanup step retains the current scope");
+        let point = StorageExitPoint::new(scope, ordinary.exit);
+
+        let [can_panic, can_cancel] = DependencyFailureKind::ALL.map(|kind| reached.can_fail(self, point, kind));
+
+        let catch = self.catch_targets.iter().rev().find(|target| target.scope_depth < reached.depth)
+            .map(|target| (target.block, target.scope_depth));
+
+        let (panic, panic_depth) = match catch {
+            Some((block, depth)) => (CleanupDestination::Goto(block), depth),
+            None if self.input.unit_kind().protected_frame().is_some() => (
+                CleanupDestination::Goto(self.terminal_state_block(source, TerminalState::Panicked(report.ty()))?),
+                0,
+            ),
+            None => (CleanupDestination::PropagatePanic, 0),
+        };
+
+        let cancellation = if self.input.unit_kind().protected_frame().is_some() {
             CleanupDestination::Goto(self.terminal_state_block(source, TerminalState::Cancelled)?)
         } else {
             CleanupDestination::PropagateCancellation
         };
 
-        let remaining = self.cleanup_plans(0, exit);
+        let move_report = || MirOperand::Move(Self::retained_place(report));
 
-        self.finish_abnormal_cleanup(
-            bray_ir::MirCleanupPhase::TaskCancellation,
-            cancelled,
-            source,
-            crate::cleanup_outcome::CleanupFailure::Cancellation(Some(MirOperand::Move(
-                Self::retained_place(&report),
-            ))),
-            destination,
-            &remaining,
-            pending,
-        )?;
+        for (possible, block, failure, destination, depth) in [
+            (can_panic, panicked, CleanupFailure::Panic(move_report()), panic, panic_depth),
+            (can_cancel, cancelled, CleanupFailure::Cancellation(Some(move_report())), cancellation, 0),
+        ] {
+            if !possible {
+                self.set_terminator(block, Self::retained_source(source), MirTerminatorKind::Unreachable)?;
+                continue;
+            }
 
-        let mut handlers = BTreeMap::new();
-        let mut failures = BTreeMap::new();
-
-        for plan in plans {
-            let index = self
-                .active_scopes
-                .iter()
-                .position(|scope| *scope == plan.scope())
-                .unwrap_or_else(|| {
-                    panic!(
-                        "lowering contract violation: MissingBoundNode {value:?}",
-                        value = plan.scope()
-                    )
-                });
-
-            let catch = self
-                .catch_targets
-                .iter()
-                .rev()
-                .find(|target| target.scope_depth <= index)
-                .map(|target| (target.block, target.scope_depth));
-
-            let (panicked, report) = if let Some((block, report)) = handlers.get(&catch) {
-                (*block, Self::retained_place(report))
+            let crossing = if matches!(failure, CleanupFailure::Panic(_)) {
+                self.abnormal_input_exit(destination)
             } else {
-                let panicked = self.builder.push_block(
-                    Self::retained_source(source),
-                    MirBlockKind::LifecycleResolution,
-                )?;
-
-                let (destination, depth) =
-                    match catch {
-                        Some((block, depth)) => (CleanupDestination::Goto(block), depth),
-                        None if self.input.unit_kind().protected_frame().is_some() => (
-                            CleanupDestination::Goto(self.terminal_state_block(
-                                source,
-                                TerminalState::Panicked(report_type),
-                            )?),
-                            0,
-                        ),
-                        None => (CleanupDestination::PropagatePanic, 0),
-                    };
-
-                let remaining = self.cleanup_plans(depth, exit);
-
-                self.finish_abnormal_cleanup(
-                    bray_ir::MirCleanupPhase::TaskCancellation,
-                    panicked,
-                    source,
-                    crate::cleanup_outcome::CleanupFailure::Panic(MirOperand::Move(
-                        Self::retained_place(&report),
-                    )),
-                    destination,
-                    &remaining,
-                    pending,
-                )?;
-
-                handlers.insert(catch, (panicked, Self::retained_place(&report)));
-
-                (panicked, Self::retained_place(&report))
+                InputExit::All
             };
 
-            failures.insert(plan.scope(), (panicked, cancelled, report));
+            let remaining = prefix.iter().cloned()
+                .chain(following.iter().filter(|step| step.crosses(depth, crossing)).map(|step| step.step.clone().into_owned()))
+                .collect();
+
+            let newly_exited = if depth < ordinary.broadcast_depth {
+                self.input.cleanup_plans(&self.active_scopes[..ordinary.broadcast_depth], depth, ordinary.exit)
+            } else {
+                Vec::new()
+            };
+
+            self.finish_abnormal_cleanup(
+                super::CleanupStart::Resume {
+                    broadcast_depth: ordinary.broadcast_depth,
+                    occurrence: reached.occurrence(),
+                    remaining,
+                },
+                block,
+                source,
+                failure,
+                destination,
+                &newly_exited,
+                ordinary.pending,
+            )?;
         }
 
-        Ok(failures)
+        Ok(())
     }
 
     pub(in crate::lowering) fn check_ordinary_cleanup(
@@ -244,7 +324,7 @@ impl Lowerer<'_> {
             .and_then(|site| self.completion_report_outcome(site))
             .cloned();
 
-        let Some((mut panicked, mut cancelled, report)) = self.cleanup_failure_targets.clone()
+        let Some(CleanupFailureTargets { mut panicked, mut cancelled, report }) = self.register_cleanup_continuation(source, None)?
         else {
             let completed = match outcome {
                 Some(outcome) => {

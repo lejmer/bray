@@ -287,20 +287,20 @@ pub fn map_execution_condition_references<E>(
 
             call(callable, implementation, witnesses, operands, *reference_type)?
         }
-        crate::ExecutionConditionKind::CapturedInput {
-            owner,
-            invocation,
-            ordinal,
-        } => ExecutionCondition::new(crate::ExecutionConditionKind::CapturedInput {
-            owner: std::sync::Arc::new(map_execution_condition_references(
-                owner, map, input, literal, call,
-            )?),
-            invocation: *invocation,
-            ordinal: *ordinal,
-        }),
         crate::ExecutionConditionKind::Projection(field, value) => {
             map_execution_condition_references(value, map, input, literal, call)?.component(*field)
         }
+        crate::ExecutionConditionKind::CapturedValue { value, storage } =>
+            map_execution_condition_references(value, map, input, literal, call)?.captured_value(storage.clone()),
+        crate::ExecutionConditionKind::DeferredValue { value, frame } => {
+            let value = map_execution_condition_references(value, map, input, literal, call)?;
+            let frame = frame.try_map_conditions(|value| map_execution_condition_references(value, map, input, literal, call))?;
+
+            value.with_deferred_value(std::sync::Arc::new(frame))
+        }
+        crate::ExecutionConditionKind::StorageValue(operation, operands) => ExecutionCondition::storage_value(*operation,
+            operands.iter().map(|value| map_execution_condition_references(value, map, input, literal, call))
+                .collect::<Result<_, _>>()?),
         crate::ExecutionConditionKind::Observation { owner, contents, kind } => ExecutionCondition::observation(
             map_execution_condition_references(owner, map, input, literal, call)?,
             map_execution_condition_references(contents, map, input, literal, call)?,

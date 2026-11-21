@@ -1,5 +1,4 @@
 use super::super::{ExecutionCondition, ExecutionConditionKind as K};
-use crate::execution_guarantees::ExecutionObservationKind;
 use bray_bound_tree::BoundOperator;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -35,21 +34,6 @@ impl ExecutionCondition {
         super::scope::SnapshotSubstitution::new(snapshots).apply(self)
     }
 
-    /// Copy correlations apply to values. They cannot relocate borrowed observations.
-    pub(crate) fn with_copy_origins(&self, snapshots: &BTreeMap<Self, Self>) -> Self {
-        if !Self::has_value_changes(snapshots) { return self.clone(); }
-
-        self.substitute_values(
-            &|condition| match condition.kind() {
-                K::Borrowed(_) | K::Observation { kind: ExecutionObservationKind::Reference, .. } =>
-                    Some(condition.clone()),
-                _ => snapshot_value(condition, snapshots),
-            },
-            &mut { Self::WORK_LIMIT },
-            None,
-        )
-    }
-
     pub(super) fn substitute_values(
         &self,
         replace: &impl Fn(&Self) -> Option<Self>,
@@ -76,79 +60,16 @@ impl ExecutionCondition {
         }
 
         let rewritten = match self.kind() {
-            K::Discriminant(value) => value.substitute_values(replace, budget, memo).discriminant(),
-            K::Descriptor(kind, value) => value.substitute_values(replace, budget, memo).descriptor(*kind),
-            K::ValueAlias(left, right) => Self::value_alias(
-                left.substitute_values(replace, budget, memo), right.substitute_values(replace, budget, memo),
-            ),
-            K::Call(callable, implementation, witnesses, operands, reference_type) => Self::call(
-                *callable,
-                *implementation,
-                witnesses.iter().copied(),
-                operands
-                    .iter()
-                    .map(|operand| operand.substitute_values(replace, budget, memo))
-                    .collect(),
-                *reference_type,
-            ),
+            // Immutable epoch origins and admitted entry facts are substitution boundaries.
+            K::ScalarValue(_) | K::PostState(_, _) | K::InitializedSnapshot(_, _, _)
+            | K::Entry { captured: true, .. } => self.clone(),
             K::Predicate(predicate, substitution, operands) => Self::predicate(
                 *predicate,
                 *substitution,
-                operands
-                    .iter()
-                    .map(|operand| operand.substitute_values(replace, budget, memo).argument_value(operand.is_reference()))
-                    .collect(),
+                operands.iter().map(|operand| operand.substitute_values(replace, budget, memo)
+                    .argument_value(operand.is_reference())).collect(),
             ),
-            K::Trusted(value) => {
-                Self::new(K::Trusted(Arc::new(value.substitute_values(replace, budget, memo))))
-            }
-            K::Borrowed(value) => value.substitute_values(replace, budget, memo).borrowed(),
-            K::Present(value) => Self::new(K::Present(Arc::new(value.substitute_values(replace, budget, memo)))),
-            K::Tagged(variant, value) => {
-                Self::new(K::Tagged(*variant, Arc::new(value.substitute_values(replace, budget, memo))))
-            }
-            K::VariantTest(variant, value) => value
-                .substitute_values(replace, budget, memo)
-                .matches_variant(*variant),
-            K::Entry {
-                condition,
-                captured: false,
-            } => Self::new(K::Entry {
-                condition: Arc::new(condition.substitute_values(replace, budget, memo)),
-                captured: false,
-            }),
-            K::Projection(field, value) => {
-                value.substitute_values(replace, budget, memo).component(*field)
-            }
-            K::CapturedInput {
-                owner,
-                invocation,
-                ordinal,
-            } => Self::new(K::CapturedInput {
-                owner: Arc::new(owner.substitute_values(replace, budget, memo)),
-                invocation: *invocation,
-                ordinal: *ordinal,
-            }),
-            K::Observation { owner, contents, kind } => Self::observation(
-                owner.substitute_values(replace, budget, memo),
-                contents.substitute_values(replace, budget, memo),
-                *kind,
-            ),
-            K::Constructed(base, fields) => Self::constructed(base.substitute_values(replace, budget, memo),
-                fields
-                    .iter()
-                    .map(|(field, value)| (*field, value.substitute_values(replace, budget, memo)))
-                    .collect::<Vec<_>>()
-                    .into(),
-            ),
-            K::Operation(operator, operands) => Self::operation(
-                *operator,
-                operands
-                    .iter()
-                    .map(|operand| operand.substitute_values(replace, budget, memo))
-                    .collect(),
-            ),
-            _ => self.clone(),
+            _ => self.map_children(|child| child.substitute_values(replace, budget, memo)),
         };
 
         self.reuse_unchanged(rewritten)
@@ -418,6 +339,26 @@ fn rewrite_equalities_inner(
     let value = resolve_equality(value, replacements, budget);
 
     let value = match value.kind() {
+        K::CapturedValue { value, storage } => rewrite_equalities(value, replacements, identities, budget, memo)
+            .captured_value(storage.clone()),
+        K::DeferredValue { value, frame } if identities.is_some() => {
+            let value = rewrite_equalities(value, replacements, identities, budget, memo);
+
+            let frame = if memo.is_some_and(|(memo, _)| memo.rebind_frames) {
+                let budget = std::cell::RefCell::new(&mut *budget);
+
+                frame.rebind_input_conditions(
+                    &|value| rewrite_equalities(value, replacements, identities, &mut budget.borrow_mut(), memo),
+                    &|owner| rewrite_identity(owner, identities, &mut budget.borrow_mut(), memo),
+                )
+            } else {
+                Arc::clone(frame)
+            };
+
+            value.with_deferred_value(frame)
+        }
+        K::StorageValue(operation, operands) => ExecutionCondition::storage_value(*operation,
+            operands.iter().map(|value| rewrite_equalities(value, replacements, identities, budget, memo)).collect()),
         K::Discriminant(value) => rewrite_equalities(&value, replacements, identities, budget, memo).discriminant(),
         K::Descriptor(kind, value) => rewrite_identity(&value, identities, budget, memo).descriptor(*kind),
         K::ValueAlias(left, right) => ExecutionCondition::value_alias(
@@ -506,15 +447,6 @@ fn rewrite_equalities_inner(
         K::Projection(field, base) => {
             rewrite_equalities(&base, replacements, identities, budget, memo).component(*field)
         }
-        K::CapturedInput {
-            owner,
-            invocation,
-            ordinal,
-        } if let Some(identities) = identities => ExecutionCondition::new(crate::ExecutionConditionKind::CapturedInput {
-            owner: Arc::new(rewrite_identity(&owner, Some(identities), budget, memo)),
-            invocation: *invocation,
-            ordinal: *ordinal,
-        }),
         K::Observation { owner, contents, kind } => ExecutionCondition::observation(
             rewrite_identity(&owner, identities, budget, memo),
             rewrite_equalities(&contents, replacements, identities, budget, memo),

@@ -196,6 +196,9 @@ const DEPENDENCY_SELECTION: &[MessageTemplatePart] = &[MessageTemplatePart::Text
 const UNAVAILABLE_AWAIT_DEPENDENCY: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
     "the required state is unavailable at this await",
 )];
+const UNAVAILABLE_TASK_START_DEPENDENCY: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "this task start cannot supply the required state",
+)];
 const INVALID_ASYNC_OPERATION: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
     "this operation requires an asynchronous callable",
 )];
@@ -395,6 +398,9 @@ pub(crate) const fn template(kind: DiagnosticLabelKind) -> MessageTemplate {
         DiagnosticLabelKind::DependencySelection => MessageTemplate::new(DEPENDENCY_SELECTION),
         DiagnosticLabelKind::UnavailableAwaitDependency => {
             MessageTemplate::new(UNAVAILABLE_AWAIT_DEPENDENCY)
+        }
+        DiagnosticLabelKind::UnavailableTaskStartDependency => {
+            MessageTemplate::new(UNAVAILABLE_TASK_START_DEPENDENCY)
         }
         DiagnosticLabelKind::InvalidAsyncOperation => MessageTemplate::new(INVALID_ASYNC_OPERATION),
         DiagnosticLabelKind::InvalidTrustedCapabilityRequirement => {

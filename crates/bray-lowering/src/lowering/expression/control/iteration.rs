@@ -8,7 +8,7 @@ use bray_compiler_known::{ImplementationHook, RepresentationRole};
 use bray_ir::{
     MirBlockId, MirBlockKind, MirCall, MirCallTarget, MirCallableReference, MirEdge,
     MirImmediateValue, MirMemoryOperation, MirOperand, MirOperationKind, MirPatternPredicate,
-    MirPlace, MirProjection, MirProjectionKind, MirStorageKind, MirStoreKind, MirTerminatorKind,
+    MirPlace, MirProjection, MirProjectionKind, MirStoreKind, MirTerminatorKind,
 };
 use bray_symbols::{BorrowKind, CallableAbi, ReceiverMode};
 
@@ -279,15 +279,12 @@ impl Lowerer<'_> {
         };
 
         let retained = self.input_temporaries.len();
+        let storage = self.input.storage_plan();
+        let owner = storage.value_slot(result_id).expect("generator retains its planned accumulation slot");
+        let access = storage.root_access(owner).expect("generator accumulation retains its planned access");
+        let destination = self.place_for_access(access, false)?;
 
-        let (destination, array_count) = if kind == GeneratorKind::Array {
-            let destination_storage = self.builder.push_storage(
-                Self::retained_source(&source),
-                MirStorageKind::Temporary,
-                result_type,
-            )?;
-
-            let destination = MirPlace::new(destination_storage, [], result_type);
+        let (array_count, range) = if kind == GeneratorKind::Array {
             let integer = self.representation_type(RepresentationRole::ScalarUsize)?;
             let zero = crate::operand::integer_constant(self.input.semantic_values(), integer, 0)?;
 
@@ -298,15 +295,9 @@ impl Lowerer<'_> {
                 integer,
             )?;
 
-            self.track_array_input(
-                current,
-                &source,
-                Self::retained_place(&destination),
-                element_type,
-                [zero, MirOperand::Copy(Self::retained_place(&count))],
-            )?;
+            let range = [zero, MirOperand::Copy(Self::retained_place(&count))];
 
-            (destination, Some(count))
+            (Some(count), Some((element_type, range)))
         } else {
             current = self.admit_outgoing_owner(result_id, current, &source, result_type)?;
 
@@ -354,13 +345,18 @@ impl Lowerer<'_> {
 
             current = completed;
 
-            let MirOperand::Move(destination) =
-                self.materialize_owned_input(current, &source, empty, result_type)?
-            else {
-                panic!("generator accumulation owns its initialized buffer");
-            };
+            self.push_operation(
+                current,
+                Self::retained_source(&source),
+                MirOperationKind::Store {
+                    kind: MirStoreKind::Initialize,
+                    destination: Self::retained_place(&destination),
+                    value: empty,
+                },
+                None,
+            )?;
 
-            (destination, None)
+            (None, None)
         };
 
         let result_syntax = self
@@ -378,28 +374,37 @@ impl Lowerer<'_> {
             .source_anchor()
             .syntax();
 
-        self.yield_targets.push(YieldTarget::Generator {
-            syntax: result_syntax,
-            destination: Self::retained_place(&destination),
-            element_type,
-            array_count,
+        let depth = self.active_scopes.len();
+
+        self.active_scopes.push(bray_bound_tree::StorageScope::AbandonedTransfer { transfer: result_id.into(), value: owner });
+
+        let iteration = self.track_generator_input(current, &source, access, Self::retained_place(&destination), range).and_then(|()| {
+            self.yield_targets.push(YieldTarget::Generator {
+                syntax: result_syntax,
+                destination: Self::retained_place(&destination),
+                element_type,
+                array_count,
+            });
+
+            let iteration = self.lower_expression(iteration_id, current);
+
+            self.yield_targets.pop();
+
+            iteration
         });
 
-        let iteration = self.lower_expression(iteration_id, current)?;
-
-        self.yield_targets.pop();
-
-        let value = MirOperand::Move(destination);
-
+        self.active_scopes.truncate(depth);
         self.input_temporaries.truncate(retained);
 
-        let Some(completed) = iteration.block else {
+        let Some(completed) = iteration?.block else {
             return Ok(LoweredExpression::terminated(source));
         };
 
+        self.set_storage_initialized(completed, &source, &destination, true)?;
+
         Ok(LoweredExpression::continuing(
             completed,
-            Some(value),
+            Some(MirOperand::Move(destination)),
             source,
         ))
     }
@@ -586,6 +591,10 @@ impl Lowerer<'_> {
             cursor_value
         };
 
+        if self.terminate_noncompleting_invocation(BoundExecutionSite::Iterate(id), current, &source)? {
+            return Ok(None);
+        }
+
         let cursor = self.iteration_place(
             id,
             StorageIdentity::InvocationResult(bray_bound_tree::BoundExecutionSite::Iterate(id)),
@@ -631,14 +640,6 @@ impl Lowerer<'_> {
             .builder
             .push_block(Self::retained_source(&source), MirBlockKind::Ordinary)?;
 
-        let item = self
-            .builder
-            .push_block(Self::retained_source(&source), MirBlockKind::Ordinary)?;
-
-        let exhausted = self
-            .builder
-            .push_block(Self::retained_source(&source), MirBlockKind::Ordinary)?;
-
         self.set_terminator(
             current,
             Self::retained_source(&source),
@@ -647,6 +648,18 @@ impl Lowerer<'_> {
 
         let (completed, next_value) =
             self.next_iteration_value(id, header, &cursor, &selection, step_type)?;
+
+        if self.terminate_noncompleting_invocation(BoundExecutionSite::Next(id), completed, &source)? {
+            return Ok(None);
+        }
+
+        let item = self
+            .builder
+            .push_block(Self::retained_source(&source), MirBlockKind::Ordinary)?;
+
+        let exhausted = self
+            .builder
+            .push_block(Self::retained_source(&source), MirBlockKind::Ordinary)?;
 
         self.push_operation(
             completed,

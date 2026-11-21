@@ -22,20 +22,20 @@ trusted func fresh() -> DataPointer<u8>
     ensures(trusted core.memory.owned_allocation(pointer = result, bytes = 8, align = 8))
     uses(manual_alloc)
 {
-    return trusted core.memory.allocate(bytes = 8, align = 8);
+    return core.memory.allocate(bytes = 8, align = 8);
 }
 
 trusted func forward() -> DataPointer<u8>
     ensures(trusted core.memory.owned_allocation(pointer = result, bytes = 8, align = 8))
 {
-    return trusted fresh();
+    return fresh();
 }
 
 trusted func caller(pos owner: &Owner)
     requires(trusted live(owner = &owner.marker))
     uses(manual_alloc)
 {
-    let pointer = trusted forward();
+    let pointer = forward();
 
     trusted core.memory.deallocate(pointer, bytes = 8, align = 8);
     observe(owner);

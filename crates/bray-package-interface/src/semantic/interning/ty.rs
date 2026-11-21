@@ -10,7 +10,7 @@ use crate::{InterfaceSemantics, InterfaceType};
 use super::common::{collect_ids, resolve_exact, resolve_family};
 use super::{InterfaceSemanticInternError, InterfaceSymbolResolver, InternState};
 
-impl InternState {
+impl InternState<'_> {
     pub(super) fn intern_types(
         &mut self,
         semantics: &InterfaceSemantics,

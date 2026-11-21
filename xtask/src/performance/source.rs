@@ -20,6 +20,12 @@ using std.io;
 
 async func main() -> Result<unit, std.io.IoError>
 {
+    return try await write_output().start().join();
+}
+
+async func write_output() -> Result<unit, std.io.IoError>
+    requires(blocking_execution())
+{
     let mut index: usize = 0;
 
     while index < 128
@@ -37,6 +43,7 @@ pub(super) const CONTENDED_OUTPUT: &str = r#"module contended_output;
 using std.io;
 
 async func write_output() -> Result<unit, std.io.IoError>
+    requires(blocking_execution())
 {
     let mut index: usize = 0;
 
@@ -124,7 +131,7 @@ func output_path() -> std.path.Path
 }
 "#;
 
-pub(super) const CAPTURED_OUTPUT: &str = r#"module captured_output;
+pub(super) const CAPTURED_OUTPUT: &str = r#"trusted module captured_output;
 
 using core.target;
 using core.memory;
@@ -142,7 +149,7 @@ impl CapturedOutputWriter = CapturedOutput(std.io.Writer)
     mut func write(pos source: &[u8]) -> Result<usize, std.io.IoError>
         requires(blocking_execution())
     {
-        match trusted std.bytes.append(buffer = &mut self.bytes, bytes = source)
+        match std.bytes.append(buffer = &mut self.bytes, bytes = source)
         {
             case Ok(_) { return Ok(source.length()); }
             case Error(_) { panic("captured output storage must remain available"); }
@@ -159,7 +166,7 @@ impl CapturedOutputWriter = CapturedOutput(std.io.Writer)
 func main() -> Result<unit, std.io.IoError>
     requires(blocking_execution())
 {
-    let storage: std.bytes.Buffer = match trusted std.bytes.Buffer(capacity = 4096)
+    let storage: std.bytes.Buffer = match std.bytes.Buffer(capacity = 4096)
     {
         case Ok(buffer) { yield buffer; }
         case Error(_) { panic("captured output storage must be created"); }
@@ -172,10 +179,14 @@ func main() -> Result<unit, std.io.IoError>
 
     let bytes: [u8; 4096] = [120; 4096];
 
-    let source: &[u8; 4096] = trusted opaque_array(&bytes);
+    let source: &[u8; 4096] = opaque_array(&bytes);
 
     try output.write_all(&source[..]);
-    assert(trusted retain_bytes(output.bytes.as_slice()) == 4096);
+
+    let written = output.bytes.as_slice();
+
+    assert(written.length() == 4096);
+    assert(retain_bytes(written) == 4096);
 
     return Ok(unit);
 }
@@ -184,10 +195,10 @@ trusted func retain_bytes(pos bytes: &[u8]) -> usize
     requires(bytes.length() == 4096)
     uses(device_memory, intrinsic, layout_reinterpret, raw_memory, unchecked_alias, unchecked_init)
 {
-    let pointer: DataPointer<u8> = trusted internal std.memory.slice_pointer<u8>(bytes, count = 4096);
-    let region: DataPointer<[u8; 4096]> = trusted std.memory.reinterpret<[u8; 4096], u8>(pointer);
+    let pointer: DataPointer<u8> = internal std.memory.slice_pointer<u8>(bytes, count = 4096);
+    let region: DataPointer<[u8; 4096]> = std.memory.reinterpret<[u8; 4096], u8>(pointer);
 
-    let observed: (usize,) = trusted core.target.assembly<(usize, DataPointer<[u8; 4096]>), (usize,)>(
+    let observed: (usize,) = core.target.assembly<(usize, DataPointer<[u8; 4096]>), (usize,)>(
         template = "",
         constraints = "+reg,m",
         clobbers = "",
@@ -232,7 +243,7 @@ trusted func opaque_array_pointer(pos pointer: DataPointer<[u8; 4096]>) -> DataP
     )
     uses(device_memory, intrinsic, raw_memory, unchecked_alias, unchecked_init)
 {
-    let observed: (DataPointer<[u8; 4096]>,) = trusted core.target.assembly<
+    let observed: (DataPointer<[u8; 4096]>,) = core.target.assembly<
         (DataPointer<[u8; 4096]>,),
         (DataPointer<[u8; 4096]>,),
     >(template = "", constraints = "+reg", clobbers = "", features = "", options = 1, inputs = (pointer,));
@@ -394,7 +405,7 @@ func create_file(pos name: &std.path.Path) -> Result<unit, std.io.IoError>
     return Ok(unit);
 }
 
-trusted func main() -> Result<unit, std.io.IoError>
+func main() -> Result<unit, std.io.IoError>
     requires(blocking_execution())
 {
     let directory: std.path.Path = path("bray-performance-listing");
@@ -419,11 +430,11 @@ trusted func main() -> Result<unit, std.io.IoError>
     let mut count: usize = 0;
     while rounds < 128
     {
-        let mut listing: std.fs.Directory = try trusted std.fs.Directory.open(&directory);
+        let mut listing: std.fs.Directory = try std.fs.Directory.open(&directory);
         loop
         {
             let next: std.fs.DirectoryEntry? = std.testing.assert_ok<std.fs.DirectoryEntry?, std.io.IoError>(
-                trusted listing.next()
+                listing.next()
             );
             match consume next
             {

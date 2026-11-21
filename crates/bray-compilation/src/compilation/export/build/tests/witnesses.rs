@@ -1,4 +1,4 @@
-use super::fixtures::{compilation, execution_consumer};
+use super::fixtures::{compilation, execution_dependency};
 
 const NESTED_ORDERS: [[usize; 3]; 6] = [
     [0, 1, 2],
@@ -9,7 +9,7 @@ const NESTED_ORDERS: [[usize; 3]; 6] = [
     [2, 1, 0],
 ];
 
-const API: &str = r"
+const API: &str = r#"
     trusted module api;
 
     using core.memory;
@@ -49,6 +49,33 @@ const API: &str = r"
 
     func observe(pos value: &Receipt)
         requires(trusted held(owner = &value.marker)) {}
+
+    const func successful_receipt(pos outcome: &Result<Receipt, usize>) -> &Receipt
+        requires(outcome matches Ok(_))
+        executes(pure, total)
+    {
+        return match outcome
+        {
+            case Ok(value) { yield &value; }
+            case Error(_) { panic("missing receipt"); }
+        };
+    }
+
+    trusted func guarded_receipt(pos existing: bool, pos repeat: bool) -> Result<Receipt, usize>
+        ensures(!(result matches Ok(_)) || trusted held(owner = &successful_receipt(&result).marker))
+    {
+        if existing
+        {
+            return Ok(Receipt { marker = Marker {} });
+        }
+
+        if repeat
+        {
+            return Ok(Receipt { marker = Marker {} });
+        }
+
+        return Error(1);
+    }
 
     func choose(pos existing: bool) -> Choice
     {
@@ -283,7 +310,7 @@ const API: &str = r"
             yield Choice.Backing;
         };
     }
-    ";
+    "#;
 
 const NESTED_SHAPES: &[(&str, &str, [&str; 3], &str)] = &[
     (
@@ -1337,7 +1364,7 @@ const CASES: &[(&str, &str, bool)] = &[
         }
         else
         {
-            yield api.choose_nullable(existing);
+            yield api.choose_nullable(!repeat);
         };
 
         match consume selected
@@ -1544,20 +1571,24 @@ fn witness_ownership_survives_imported_control_flow() {
 
     let values = provider.semantic_value_store().unwrap();
 
-    assert!(contract.carriers().iter().any(|carrier|
+    assert!(contract.common_carriers().iter().any(|carrier|
         matches!(carrier.path(), [bray_symbols::DependencyProjection::TupleElement(index)] if index.raw() == 1)
             && matches!(bray_checker::execution_condition_from_type_term(values, carrier.guarantee(), 1).unwrap().kind(),
                 bray_checker::ExecutionConditionKind::Trusted(_))),
         "a whole nullable guarantee is independent of payload presence: {contract:#?}");
 
+    let consumer = crate::test_support::compilation_with_dependencies("module app;", [execution_dependency(&provider)]);
+
+    assert!(!consumer.imported_diagnostics().has_errors(), "{:?}", consumer.imported_diagnostics());
+
     for (name, body, valid) in cases() {
         let body = body.replace("api.", "example.package.api.");
 
-        let consumer = execution_consumer(
-            &provider,
+        let caller = crate::test_support::with_fixture_caller(
+            &consumer,
             &format!(
                 r"
-                trusted module app;
+                module app;
 
                 using core.memory;
                 using example.package.api;
@@ -1570,7 +1601,7 @@ fn witness_ownership_survives_imported_control_flow() {
             ),
         );
 
-        collect_witness_failure(&name, &consumer, valid, &mut failures);
+        collect_witness_failure(&name, &caller, valid, &mut failures);
     }
 
     assert!(failures.is_empty(), "{}", failures.join("\n"));
@@ -1650,6 +1681,20 @@ fn cases() -> impl Iterator<Item = (String, String, bool)> {
         (name.to_owned(), format!("{body}{}", NESTED_SHAPES[shape].3), valid)
     });
 
+    let declared = [
+        ("authored_active_payload", "api.observe(&value);", true),
+        ("authored_replaced_payload", "let mut replacement = value; replacement.marker = api.Marker {}; api.observe(&replacement);", false),
+    ].into_iter().map(|(name, body, valid)| {
+        (name.to_owned(), format!("
+            let completed = api.guarded_receipt(existing, repeat);
+            match consume completed
+            {{
+                case Ok(value) {{ {body} }}
+                case Error(_) {{}}
+            }}
+        "), valid)
+    });
+
     CASES
         .iter()
         .map(|&(name, body, valid)| (name.to_owned(), body.to_owned(), valid))
@@ -1657,6 +1702,7 @@ fn cases() -> impl Iterator<Item = (String, String, bool)> {
         .chain(nested)
         .chain(provider)
         .chain(guarded)
+        .chain(declared)
 }
 
 fn collect_witness_failure(name: &str, compilation: &crate::Compilation, valid: bool, failures: &mut Vec<String>) {

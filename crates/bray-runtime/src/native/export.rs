@@ -1702,15 +1702,29 @@ mod tests {
 
     #[test]
     fn foreign_callback_boundary_reuses_an_attached_runtime_thread() {
+        extern "C-unwind" fn observe_attachment(expected: usize, outcome: &mut NativeRunOutcome) {
+            let identity = crate::bootstrap::current_runtime_thread()
+                .expect("the callback has an attachment")
+                .id();
+
+            assert_eq!(usize::try_from(identity.raw()), Ok(expected));
+            *outcome = NativeRunOutcome::new(NativeRunState::COMPLETED, expected);
+        }
+
         let _isolation = super::super::state::test_runtime_isolation();
 
-        let _thread = crate::bootstrap::RuntimeThreadScope::enter()
+        let thread = crate::bootstrap::RuntimeThreadScope::enter()
             .unwrap_or_else(|error| panic!("runtime thread must attach: {error:?}"));
 
-        let outcome = bray_runtime_foreign_callback_execution(assert_callback_runtime_thread, 41);
+        let identity = thread.runtime().id();
+        let payload = usize::try_from(identity.raw()).expect("test attachment identity fits pointer width");
+
+        let outcome = bray_runtime_foreign_callback_execution(observe_attachment, payload);
 
         assert_eq!(outcome.state(), NativeRunState::COMPLETED);
-        assert_eq!(outcome.payload(), 41);
+        assert_eq!(outcome.payload(), payload);
+        assert_eq!(crate::bootstrap::current_runtime_thread().map(|thread| thread.id()), Some(identity));
+        assert_eq!(thread.finish(), 0);
     }
 
     #[test]

@@ -5,7 +5,7 @@ use bray_base::{StableDigestHasher, lowercase_hex};
 use bray_symbols::ProductIdentity;
 
 pub(super) const METADATA_DIRECTORY: &str = ".bray";
-pub(super) const PRIVATE_GENERATION_PREFIX: &str = ".bray-generation-";
+pub(in crate::publication) const PRIVATE_GENERATION_PREFIX: &str = ".bray-generation-";
 pub(super) const STAGING_DIRECTORY: &str = "staging";
 
 pub(super) fn is_product_intermediate(name: &str) -> bool {

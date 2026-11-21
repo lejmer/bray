@@ -10,13 +10,17 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
     let bytes: bytes<3> = [first, second, third];
     let mut buffer: Buffer = try Buffer.from_slice(&bytes[..]);
 
-    pop(&mut buffer);
+    assert(pop(&mut buffer) matches ?3);
 
     let values: &[u8] = buffer.as_slice();
 
     assert(length(&buffer) == 2);
     assert(values[0] == 1);
     assert(values[1] == 2);
+
+    assert(pop(&mut buffer) matches ?2);
+    assert(pop(&mut buffer) matches ?1);
+    assert(pop(&mut buffer) matches none);
 
     return Ok(unit);
 }

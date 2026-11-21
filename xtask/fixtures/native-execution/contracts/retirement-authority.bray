@@ -1,0 +1,55 @@
+trusted internal module bray.runtime.bootstrap.host;
+
+func probe_retirement_move(pos mut completed: AttachmentRetirement)
+    requires(
+        completed.lease.active,
+        trusted host_access_live(owner = &completed.lease.acquisition),
+        trusted attachment_cleanup_completed(owner = &completed),
+    )
+{
+    let moved = completed;
+}
+
+func probe_retirement_frozen_host(pos mut completed: AttachmentRetirement)
+    requires(
+        completed.lease.active,
+        trusted host_access_live(owner = &completed.lease.acquisition),
+        trusted attachment_cleanup_completed(owner = &completed),
+    )
+{
+    let mut anchor = trusted host_anchor(&completed.lease);
+    let host = trusted host_value(&completed.lease, &mut anchor);
+}
+
+func probe_retirement_storage_loss(pos mut completed: AttachmentRetirement)
+    requires(
+        completed.lease.active,
+        trusted host_access_live(owner = &completed.lease.acquisition),
+        trusted attachment_cleanup_completed(owner = &completed),
+    )
+{
+    let mut anchor = trusted host_anchor(&completed.lease);
+    let host = trusted host_value(&completed.lease, &mut anchor);
+
+    host.storage = none;
+}
+
+func probe_retirement_identity_write(pos mut completed: AttachmentRetirement)
+    requires(
+        completed.lease.active,
+        trusted host_access_live(owner = &completed.lease.acquisition),
+        trusted attachment_cleanup_completed(owner = &completed),
+    )
+{
+    completed.identity = completed.identity;
+}
+
+func probe_retirement_lease_write(pos mut completed: AttachmentRetirement)
+    requires(
+        completed.lease.active,
+        trusted host_access_live(owner = &completed.lease.acquisition),
+        trusted attachment_cleanup_completed(owner = &completed),
+    )
+{
+    completed.lease = completed.lease;
+}

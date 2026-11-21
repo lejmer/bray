@@ -103,7 +103,7 @@ pub(super) fn cache_identity(
     super::reuse::content_identity(input, &paths)
 }
 
-pub(super) fn standard_library_directory(root: &Path, target: NativeTarget) -> PathBuf {
+pub(crate) fn standard_library_directory(root: &Path, target: NativeTarget) -> PathBuf {
     crate::workspace::cargo_target(root)
         .join("runtime-bootstrap-standard-library")
         .join(target.as_str())

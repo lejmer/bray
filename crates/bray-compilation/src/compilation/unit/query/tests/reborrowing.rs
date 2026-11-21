@@ -21,13 +21,13 @@ fn successive_returned_views_retain_their_own_borrow_capabilities() {
             mut value: u8;
         }
         func holder_value(pos holder: &Holder) -> &u8 { return &holder.value; }
-        func equal(pos value: &u8) -> bool { return value == 1; }
+        func equal(pos value: &u8, pos expected: u8) -> bool { return value == expected; }
         func probe()
         {
             let mut holder: Holder = { pointer = core.memory.null<u8>(), value = 1 };
-            assert(equal(holder_value(&holder)));
+            assert(equal(holder_value(&holder), 1));
             holder.value = 2;
-            assert(equal(holder_value(&holder)));
+            assert(equal(holder_value(&holder), 2));
         }
         "#,
     );

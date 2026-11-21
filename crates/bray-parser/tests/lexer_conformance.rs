@@ -10,17 +10,6 @@ use bray_testing::{
 };
 
 #[test]
-fn lexer_conformance_cases_consume_all_text_and_end_with_eof() {
-    for text in conformance_sources() {
-        let snapshot = test_source_snapshot(&text);
-        let result = lex_source_unit(&snapshot);
-
-        assert_single_final_eof(result.tokens(), snapshot.text());
-        assert_tokens_cover_source_text(&snapshot, result.tokens());
-    }
-}
-
-#[test]
 fn source_unit_parser_preserves_lexer_output_and_reconstructs_sources() {
     let sources = test_source_store(conformance_sources());
     let expected_text = sources.iter().map(SourceSnapshot::text).collect::<String>();
@@ -51,6 +40,7 @@ fn source_unit_parser_preserves_lexer_output_and_reconstructs_sources() {
         assert_eq!(source_unit_tokens, lex_result.tokens());
 
         assert_single_final_eof(&source_unit_tokens, snapshot.text());
+        assert_tokens_cover_source_text(snapshot, lex_result.tokens());
 
         assert_eq!(source_unit.full_text(), snapshot.text());
 
@@ -62,7 +52,7 @@ fn source_unit_parser_preserves_lexer_output_and_reconstructs_sources() {
 }
 
 #[test]
-fn byte_string_literals_preserve_bytes_and_report_invalid_escapes() {
+fn lexer_recognizes_byte_strings_and_reports_invalid_escapes() {
     for spelling in [r#"b"""#, r#"b"a\0\x00\xFFé\u{1F600}""#] {
         let snapshot = test_source_snapshot(spelling);
         let result = lex_source_unit(&snapshot);
@@ -136,8 +126,7 @@ fn conformance_sources() -> Vec<String> {
 
     let fragments = generated_case_fragments();
 
-    for index in 0..64 {
-        let first = fragments[index % fragments.len()];
+    for (index, first) in fragments.iter().enumerate() {
         let second = fragments[(index * 5 + 3) % fragments.len()];
         let third = fragments[(index * 11 + 7) % fragments.len()];
 

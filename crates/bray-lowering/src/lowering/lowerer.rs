@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
-    BoundCallableBodyKind, BoundNodeOrigin, BoundUnitRoot, StorageAccessId, StorageIdentity,
+    BoundCallableBodyKind, BoundNodeOrigin, BoundUnitRoot, StorageIdentity,
     StorageIdentityId,
 };
 use bray_declarations::SyntaxAnchor;
@@ -11,7 +11,6 @@ use bray_ir::{
     MirTaskTerminalState, MirTerminatorKind, MirUnit, MirUnitBuilder,
 };
 use bray_runtime_interface::{ProtectedFrameAbiVersions, RuntimeAbiRole};
-use bray_symbols::StaticReferenceSelection;
 
 use super::LoweringError;
 use super::initialization::InitializationState;
@@ -71,9 +70,7 @@ pub(super) struct Lowerer<'unit> {
     pub(super) initialized_temporaries: BTreeSet<StorageIdentityId>,
     pub(super) guard_bindings: Vec<BTreeMap<StorageIdentityId, MirPlace>>,
     pub(super) owned_targets: BTreeMap<MirStorageId, MirPlace>,
-    pub(super) initialization_guards: BTreeMap<MirStorageId, InitializationState<'unit>>,
-    pub(super) static_storages: BTreeMap<StaticReferenceSelection, MirStorageId>,
-    pub(super) static_accesses: BTreeMap<StorageAccessId, StaticReferenceSelection>,
+    pub(super) initialization_guards: BTreeMap<MirStorageId, InitializationState>,
     pub(super) parameter_positions: BTreeMap<StorageIdentityId, u32>,
     pub(super) active_scopes: Vec<bray_bound_tree::StorageScope>,
     pub(super) scoped_guards:
@@ -92,7 +89,8 @@ pub(super) struct Lowerer<'unit> {
     pub(super) pending_reports: Option<crate::cleanup_outcome::CleanupOutcome>,
     pub(super) receiver_cleanup: Option<super::receiver::ReceiverCleanup>,
     pub(super) cleanup_occurrence: Option<bray_bound_tree::BoundExecutionSite>,
-    pub(super) cleanup_failure_targets: Option<(MirBlockId, MirBlockId, bray_ir::MirPlace)>,
+    pub(super) ordinary_cleanup_failure: Option<super::cleanup::OrdinaryCleanupFailure>,
+    pub(super) cleanup_continuations: Option<Vec<super::cleanup::CleanupContinuation>>,
     pub(super) abnormal_cleanup_machine: Option<super::cleanup::AbnormalCleanupMachine>,
     pub(super) terminal_state_blocks:
         std::collections::HashMap<super::cleanup::TerminalState, MirBlockId>,
@@ -120,8 +118,6 @@ impl<'unit> Lowerer<'unit> {
             guard_bindings: Vec::new(),
             owned_targets: BTreeMap::new(),
             initialization_guards: BTreeMap::new(),
-            static_storages: BTreeMap::new(),
-            static_accesses: BTreeMap::new(),
             parameter_positions,
             active_scopes: Vec::new(),
             scoped_guards: BTreeMap::new(),
@@ -139,7 +135,8 @@ impl<'unit> Lowerer<'unit> {
             pending_reports: None,
             receiver_cleanup: None,
             cleanup_occurrence: None,
-            cleanup_failure_targets: None,
+            ordinary_cleanup_failure: None,
+            cleanup_continuations: None,
             abnormal_cleanup_machine: None,
             terminal_state_blocks: std::collections::HashMap::new(),
             cleanup_transfer_places: std::collections::HashMap::new(),
@@ -362,25 +359,23 @@ impl<'unit> Lowerer<'unit> {
 fn parameter_positions(plan: &bray_bound_tree::StoragePlan) -> BTreeMap<StorageIdentityId, u32> {
     let entries = plan
         .identity_entries()
-        .filter(|(_, identity)| is_parameter_identity(*identity))
+        .filter(|(_, identity)| is_parameter_identity(identity))
         .collect::<Vec<_>>();
 
     entries
         .iter()
-        .copied()
         .filter(|(_, identity)| matches!(identity, StorageIdentity::Receiver(_)))
         .chain(
             entries
                 .iter()
-                .copied()
                 .filter(|(_, identity)| !matches!(identity, StorageIdentity::Receiver(_))),
         )
         .enumerate()
-        .map(|(position, (identity, _))| (identity, u32::try_from(position).unwrap_or(u32::MAX)))
+        .map(|(position, (identity, _))| (*identity, u32::try_from(position).unwrap_or(u32::MAX)))
         .collect()
 }
 
-const fn is_parameter_identity(identity: StorageIdentity) -> bool {
+const fn is_parameter_identity(identity: &StorageIdentity) -> bool {
     matches!(
         identity,
         StorageIdentity::Parameter(_)
@@ -393,7 +388,7 @@ const fn is_parameter_identity(identity: StorageIdentity) -> bool {
 #[cfg(test)]
 mod tests {
     use bray_bound_tree::{
-        AnyBoundNodeId, AsyncScopeExitPlan, BoundArgument, BoundBinaryExpression, BoundBlock,
+        AnyBoundNodeId, BoundArgument, BoundBinaryExpression, BoundBlock,
         BoundBlockItem, BoundCallExpression, BoundCallResult, BoundCallableBody,
         BoundCallableTarget, BoundControlTransferExpression, BoundControlTransferKind,
         BoundDependencyContract, BoundErrorExpression, BoundExpression, BoundExpressionId,
@@ -409,7 +404,7 @@ mod tests {
         MemoryOffsetUnit, MemoryOperationDecision, MemoryOperationStatus, MemoryOrder,
         MemoryReadKind, OperatorTarget, SelectedArgument, SelectedCall, SelectedConversion,
         SelectedOperation, SelectedPropagation, SelectedPropagationBoundary, SemanticSelection,
-        SemanticSelectionEntry, StorageExitDecision, StorageExitPoint, StorageFlow,
+        SemanticSelectionEntry, StorageExitDecision, StorageFlow,
         StoragePlanBuilder, VolatileAddressSpace,
     };
     use bray_ir::{
@@ -558,7 +553,7 @@ mod tests {
             storage,
             super::super::initialization::InitializationState {
                 guard: MirPlace::new(flag, [], ty),
-                parts: Vec::new(),
+                parts: Default::default(),
             },
         );
 
@@ -727,7 +722,7 @@ mod tests {
 
         lowerer
             .finish_abnormal_cleanup(
-                bray_ir::MirCleanupPhase::TaskCancellation,
+                crate::lowering::cleanup::CleanupStart::Broadcast,
                 first,
                 &source,
                 crate::cleanup_outcome::CleanupFailure::Cancellation(None),
@@ -739,7 +734,7 @@ mod tests {
 
         lowerer
             .finish_abnormal_cleanup(
-                bray_ir::MirCleanupPhase::TaskCancellation,
+                crate::lowering::cleanup::CleanupStart::Broadcast,
                 different,
                 &source,
                 crate::cleanup_outcome::CleanupFailure::Cancellation(None),
@@ -751,7 +746,7 @@ mod tests {
 
         lowerer
             .finish_abnormal_cleanup(
-                bray_ir::MirCleanupPhase::TaskCancellation,
+                crate::lowering::cleanup::CleanupStart::Broadcast,
                 second,
                 &source,
                 crate::cleanup_outcome::CleanupFailure::Cancellation(None),
@@ -763,7 +758,7 @@ mod tests {
 
         lowerer
             .finish_abnormal_cleanup(
-                bray_ir::MirCleanupPhase::TaskCancellation,
+                crate::lowering::cleanup::CleanupStart::Broadcast,
                 different_occurrence,
                 &different_source,
                 crate::cleanup_outcome::CleanupFailure::Cancellation(None),
@@ -775,7 +770,7 @@ mod tests {
 
         lowerer
             .finish_abnormal_cleanup(
-                bray_ir::MirCleanupPhase::TaskCancellation,
+                crate::lowering::cleanup::CleanupStart::Broadcast,
                 panicking,
                 &source,
                 crate::cleanup_outcome::CleanupFailure::Panic(bray_ir::MirOperand::Move(report)),
@@ -1042,23 +1037,36 @@ mod tests {
     }
 
     #[test]
-    fn lowering_makes_nullable_propagation_and_early_cleanup_explicit() {
+    fn lowering_branches_before_projecting_nullable_propagation() {
         let fixture = nullable_propagation_fixture(82);
         let input = fixture.input();
 
         let mir = lower_unit(input)
             .unwrap_or_else(|error| panic!("checked nullable propagation must lower: {error:?}"));
 
-        assert!(mir.blocks().iter().any(|block| matches!(
-            block.terminator().kind(),
+        let (present, absent) = mir.blocks().iter().find_map(|block| match block.terminator().kind() {
             MirTerminatorKind::PatternBranch {
                 predicate: bray_ir::MirPatternPredicate::NullablePresent,
+                matched,
+                unmatched,
+                ..
+            } => Some((matched.target(), unmatched.target())),
+            _ => None,
+        }).expect("nullable propagation branches on presence");
+
+        let present = mir.block(present).expect("present branch is a MIR block");
+        let absent = mir.block(absent).expect("absent branch is a MIR block");
+
+        assert!(present.operations().iter().any(|id| matches!(
+            mir.operation(*id).expect("present branch retains its operation").kind(),
+            MirOperationKind::PatternProjection {
+                projection: bray_bound_tree::PatternProjection::NullableValue,
                 ..
             }
         )));
 
-        assert!(mir.blocks().iter().any(|block| matches!(
-            block.terminator().kind(),
+        assert!(matches!(
+            absent.terminator().kind(),
             MirTerminatorKind::Return {
                 value: Some(bray_ir::MirOperand::Immediate {
                     value: bray_ir::MirImmediateValue::NullableAbsent,
@@ -1066,7 +1074,7 @@ mod tests {
                 }),
                 ..
             }
-        )));
+        ));
     }
 
     #[test]
@@ -1663,23 +1671,27 @@ mod tests {
             });
         }
 
-        let selected = SelectedCall::new(
+        let selected = SemanticSelection::Call(SelectedCall::new(
             resolution,
+            ty,
             bray_symbols::CallableConstness::Runtime,
             CallableAbi::C,
             CallablePhaseBehaviors::empty(CallableDependencyContracts::synchronous(dependency)),
             None,
             selected_arguments,
             [],
-        );
+        ));
+
+        let completion_sites = selected.inputs().filter(|input| input.default_provider().is_some()).map(|input| {
+            let ordinal = selected.input_ordinal(input.root()).expect("the checked default has an input ordinal");
+
+            bray_bound_tree::BoundExecutionSite::CallInput { expression: call, ordinal }
+        }).collect::<Vec<_>>();
 
         let selections = CheckedSemanticSelections::try_new(
             &unit,
             &types,
-            [SemanticSelectionEntry::new(
-                call,
-                SemanticSelection::Call(selected),
-            )],
+            [SemanticSelectionEntry::new(call, selected)],
         )
         .unwrap_or_else(|error| panic!("test call selection must validate: {error:?}"));
 
@@ -1706,18 +1718,27 @@ mod tests {
         )
         .unwrap_or_else(|error| panic!("test literal values must validate: {error:?}"));
 
-        (
-            lowering_fixture_from_parts(
-                unit,
-                types,
-                selections,
-                literals,
-                values,
-                &expressions,
-                [ControlCompletionKind::Return],
-            ),
-            ty,
-        )
+        let mut fixture = lowering_fixture_from_parts(
+            unit,
+            types,
+            selections,
+            literals,
+            values,
+            &expressions,
+            [ControlCompletionKind::Return],
+        );
+
+        let completions = completion_sites.iter().enumerate().map(|(index, _)| {
+            let operation = bray_bound_tree::AnalysisOperationId::new(call.unit(), u32::try_from(index).unwrap());
+
+            ((operation, bray_bound_tree::StorageOutcomeRows::default()), bray_bound_tree::StorageCompletion::default())
+        }).collect();
+
+        fixture.storage_flow = fixture.storage_flow.with_operation_completions(completions, |operation| {
+            completion_sites[operation.to_index().expect("fixture operation has an index")]
+        });
+
+        (fixture, ty)
     }
 
     fn lowering_fixture(unit_id: u32, operator: BoundOperator) -> LoweringFixture {
@@ -2016,9 +2037,6 @@ mod tests {
                 None, bray_bound_tree::StorageOperationStatus::Valid)),
             [],
             unit.tree().blocks().map(|(block, _)| block),
-            scope_exits
-                .iter()
-                .map(|(scope, exit)| StorageExitPoint::new((*scope).into(), *exit)),
             scope_exits.iter().map(|(scope, exit)| {
                 StorageExitDecision::new((*scope).into(), *exit, [], [], [], [], [], [], false)
             }),
@@ -2033,7 +2051,6 @@ mod tests {
             unit.unit(),
             unit.key().kind(),
             [],
-            Default::default(),
             false,
         )
         .unwrap_or_else(|error| panic!("empty refinements must validate: {error:?}"));
@@ -2071,9 +2088,6 @@ mod tests {
                         bray_bound_tree::AsyncStorageCleanupRequirement::None,
                     )
                 }),
-            scope_exits.iter().map(|(scope, exit)| {
-                AsyncScopeExitPlan::new((*scope).into(), *exit, [], [], [], [], false)
-            }),
             false,
         )
         .unwrap_or_else(|error| panic!("empty async analysis must validate: {error:?}"));

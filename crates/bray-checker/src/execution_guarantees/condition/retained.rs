@@ -45,12 +45,42 @@ impl RetainedSnapshots {
     pub(crate) fn retains_owner(&self, value: &ExecutionCondition) -> bool {
         if self.roots.is_empty() { return false; }
 
-        let Some((role, owner)) = value.ownership_identity() else { return false; };
+        let Some(identity) = value.ownership_identity() else { return false; };
 
         cached_condition(&self.index().owned, value, || {
             self.matching(value, false, |selected| {
-                !selected.is_unknown() && selected.ownership_identity() == Some((role, owner))
+                !selected.is_unknown() && selected.ownership_identity() == Some(identity)
             })
+        })
+    }
+
+    /// Actual frames held in the retained owning tree.
+    pub(crate) fn owned_deferred_frames(&self) -> impl Iterator<Item = &std::sync::Arc<super::super::ExecutionDeferredValue>> {
+        self.roots.iter().any(ExecutionCondition::contains_deferred).then(|| self.index()).into_iter()
+            .flat_map(|index| index.nodes.iter())
+            .filter_map(|(value, reached)| match value.kind() {
+                crate::ExecutionConditionKind::DeferredValue { frame, .. } if !reached => Some(frame),
+                _ => None,
+            })
+    }
+
+    /// A live reference can keep a carrier observable when checked effects preserve its data.
+    pub(crate) fn retains_witness_carrier(&self, carrier: &ExecutionCondition, observes: impl Fn(&ExecutionCondition) -> bool) -> bool {
+        self.matching(carrier, true, |selected| {
+            !selected.is_unknown() && selected.has_same_owner(carrier) && observes(&selected.clone().into_referent())
+        })
+    }
+
+    /// Checks the actual retained tree for an unchanged snapshot without following loans.
+    pub(crate) fn retains_owned_snapshot(&self, value: &ExecutionCondition) -> bool {
+        let (borrowed, owner) = value.owner_match_key();
+
+        let index = self.index();
+
+        index.owners.get(&(borrowed, owner.clone())).into_iter().flatten().any(|id| {
+            let (snapshot, reached) = &index.nodes[*id];
+
+            !reached && snapshot == value
         })
     }
 
@@ -80,7 +110,7 @@ impl RetainedSnapshots {
         })
     }
 
-    pub(super) fn retains_inline_contents(&self, value: &ExecutionCondition) -> bool {
+    pub(crate) fn retains_inline_contents(&self, value: &ExecutionCondition) -> bool {
         self.matching(value, false, |selected| Self::same_contents(selected, value))
     }
 
@@ -92,19 +122,22 @@ impl RetainedSnapshots {
         })
     }
 
-    pub(super) fn same_contents(left: &ExecutionCondition, right: &ExecutionCondition) -> bool {
-        let left = Self::contents(left);
-        let right = Self::contents(right);
+    fn same_contents(left: &ExecutionCondition, right: &ExecutionCondition) -> bool {
+        let left = Self::contents(left).without_captured_storage();
+        let right = Self::contents(right).without_captured_storage();
 
         !left.contains_unknown() && !right.contains_unknown() && left == right
     }
 
     fn contents(mut value: &ExecutionCondition) -> &ExecutionCondition {
-        while let crate::ExecutionConditionKind::Observation { contents, kind: ObservationKind::Owned | ObservationKind::Scalar, .. } = value.kind() {
-            value = contents;
-        }
+        loop {
+            let inline = value.inline_contents();
 
-        value
+            match inline.kind() {
+                crate::ExecutionConditionKind::CapturedValue { value: contents, .. } | crate::ExecutionConditionKind::DeferredValue { value: contents, .. } => value = contents,
+                _ => return inline,
+            }
+        }
     }
 
     fn index(&self) -> &SnapshotIndex {

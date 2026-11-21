@@ -123,10 +123,4 @@ impl ValueInputs {
             .flat_map(|(expression, sources)| sources.iter().map(|source| (*expression, *source)))
     }
 
-    pub(super) fn completion_sources(
-        &self,
-        expression: BoundExpressionId,
-    ) -> Option<&BTreeSet<BoundExpressionId>> {
-        self.deferred_sources.get(&expression)
-    }
 }

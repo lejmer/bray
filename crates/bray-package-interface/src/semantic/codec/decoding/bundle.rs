@@ -896,18 +896,18 @@ mod tests {
                 access_type: Some(access),
                 ambient: true,
             },
-            DependencyStorageEffect::Direct {
+            DependencyStorageEffect::Direct { addressed: true,
                 subject: subject.clone(),
                 kind: DependencyMutationKind::Replace(replacement),
                 access_type: Some(access),
             },
-            DependencyStorageEffect::Indirect {
+            DependencyStorageEffect::Indirect { addressed: true, reads: [].into(),
                 reference: subject,
                 projections: [].into(),
                 kind: DependencyMutationKind::Replace(replacement),
                 access_type: Some(access),
             },
-        ]).with_stored_values(stored);
+        ]).with_captured_values([crate::InterfaceNormalOutcome::new(None, []).with_storage([], stored)]);
 
         let semantics = base.clone().with_values(
             [contract],
@@ -936,7 +936,7 @@ mod tests {
         )
         .expect("fixture `decode_semantic_graph` call must succeed");
 
-        let stored = &decoded.dependency_contracts[0].stored_values;
+        let stored = &decoded.dependency_contracts[0].captured_values[0].stored_values;
 
         assert_eq!(stored.len(), 3);
         assert!(stored.iter().any(|value| value.destination() == &path(empty.clone(), 0) && value.is_complete() && value.sources().is_empty()));

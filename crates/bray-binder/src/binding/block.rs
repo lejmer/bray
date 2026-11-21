@@ -466,7 +466,7 @@ mod tests {
             "const size: i32 = 1;\n",
             "func main()\n",
             "{\n",
-            "    let (left, right) = 1;\n",
+            "    let (left, right) = (1, 2);\n",
             "    let left = 2;\n",
             "    const size: i32 = 3;\n",
             "}",

@@ -79,6 +79,14 @@ impl AsyncCountingReaderIo = AsyncCountingReader(std.io.AsyncReader)
         let available: usize = internal std.io.smaller(self.remaining, self.limit);
         let transferred: usize = internal std.io.smaller(requested, available);
 
+        let mut index: usize = 0;
+
+        while index < transferred
+        {
+            destination[index] = (self.remaining - index) as u8;
+            index += 1;
+        }
+
         self.calls += 1;
         self.remaining -= transferred;
         self.last_request = requested;
@@ -157,13 +165,9 @@ impl AsyncRecoveringWriterIo = AsyncRecoveringWriter(std.io.AsyncWriter)
 }
 
 @test
-async func asynchronous_standard_output_is_captured()
+async func asynchronous_standard_output_is_captured() -> Result<unit, std.io.IoError>
 {
-    let message: string = "captured-async-output";
-
-    await std.io.print_async(message);
-
-    let retained: string = message;
+    return await std.io.print_async("captured-async-output");
 }
 
 @test
@@ -209,6 +213,7 @@ async func asynchronous_bulk_transfers_and_buffering_share_the_cost_model() -> R
 
     assert(completed_source.calls == 1);
     assert(completed_source.last_request == 8);
+    assert(std.bytes.equals(&destination[..], &b"\x08\x07\x06\x05\x04\x03\x02\x01"[..]));
 
     let recovering_sink: AsyncRecoveringWriter =
     {

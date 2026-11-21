@@ -128,7 +128,7 @@ impl ResultParameters {
             let local = self.local_requirements(
                 request,
                 key,
-                template.output_requirements(key.output),
+                &template.output_requirements(key.output),
                 &mut pending,
                 &mut edges,
             )?;

@@ -11,46 +11,21 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         state: &ExecutionState,
         invocation: bray_bound_tree::BoundExecutionSite,
     ) -> bool {
-        use bray_bound_tree::{
-            AnyBoundNodeId, BoundExecutionSite, SelectedArgument, SemanticSelection,
-        };
-
-        use bray_compiler_known::ImplementationHook;
-
-        let BoundExecutionSite::Node(AnyBoundNodeId::Expression(expression)) = invocation else {
-            return false;
-        };
-
-        let Some(SemanticSelection::Call(call)) =
-            self.semantics.selections().expression(expression)
-        else {
-            return false;
-        };
-
-        if !matches!(
-            call.implementation_hook(),
-            Some(ImplementationHook::MemoryCopy | ImplementationHook::MemoryCopyOverlapping)
-        ) {
+        if !invocation.expression().and_then(|expression| self.memory.operation(expression))
+            .is_some_and(|operation| matches!(operation.kind(), bray_bound_tree::CheckedMemoryOperationKind::Copy { .. })) {
             return false;
         }
-
-        let Some(count) = call.arguments().iter().find_map(|argument| match argument {
-            SelectedArgument::Explicit {
-                expression,
-                ordinal: 2,
-                ..
-            } => Some(*expression),
-            _ => None,
-        }) else {
-            return false;
-        };
 
         let Some(entry) = state.entries.get(&invocation) else {
             return false;
         };
 
+        let Some(count) = crate::ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(2)).value_in(&entry.arguments) else {
+            return false;
+        };
+
         let equalities = self.proofs.equalities(&entry.assumptions, None);
-        let count = self.value(state, count).with_equalities(&equalities);
+        let count = count.computed_value().with_equalities(&equalities);
 
         matches!(count.kind(), crate::ExecutionConditionKind::Literal(value)
             if matches!(value.kind(), bray_symbols::ConstantValueKind::Integer(integer) if integer.to_u64() == Some(0)))
@@ -125,8 +100,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let equalities = self.proofs.equalities(&entry.assumptions, None);
 
         let normalize = |conditions: &BTreeSet<(ExecutionCondition, bool)>| {
-            entry
-                .proof_facts(conditions)
+            crate::ExecutionCallEvidence::proof_facts(conditions)
                 .map(|(condition, value)| {
                     (
                         condition.with_equalities(&equalities).with_reference_origins(
@@ -147,8 +121,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let mut ranges = None;
 
+        let storage_initialized = (entry.memory_access == Some(crate::execution_guarantees::MemoryAccessProof::ProtectedCellInitialized))
+            .then(|| self.initialization_requirement(["UninitInitialized"]));
+
         let instantiated = requirements
             .iter()
+            .filter(|required| !storage_initialized.as_ref().is_some_and(|initialized| initialized(required)))
             .map(|requirement| {
                 let condition = requirement
                     .substitute(
@@ -162,10 +140,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     )
                     .with_equalities(&equalities);
 
-                condition.with_reference_origins(self.request.semantic_values(), self.dependencies, &entry.assumptions)
-                    .pointer_observations(&self.pointer_predicates)
-            })
-            .collect::<Vec<_>>();
+                (requirement, condition.with_reference_origins(self.request.semantic_values(), self.dependencies, &entry.assumptions)
+                    .pointer_observations(&self.pointer_predicates))
+            });
 
         let proof = crate::execution_guarantees::ExecutionProof::new(&known, &ordinary);
 
@@ -248,10 +225,30 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 })
         };
 
-        for (required, actual) in requirements.iter().zip(instantiated) {
+        for (required, actual) in instantiated {
             if let Err(failed) = prove_requirement(&actual, &known, &mut prove_condition, &mut {
                 ExecutionCondition::WORK_LIMIT
             }) {
+                static TRACE_UNIT: std::sync::OnceLock<Option<u32>> = std::sync::OnceLock::new();
+
+                let selected = TRACE_UNIT.get_or_init(|| std::env::var("BRA_694_TRACE_PROOF_UNIT").ok()?.parse().ok());
+
+                if (*selected == Some(self.storage.unit().raw()) || self.trace_authority_body())
+                    && let Some(predicate) = traced_predicate(failed)
+                {
+                    let known = known.iter().filter(|(condition, _)| traced_predicate(condition) == Some(predicate))
+                        .map(|(condition, holds)| (*holds, format!("{:?}", condition.kind()).chars().take(1800).collect::<String>()))
+                        .collect::<Vec<_>>();
+
+                    let arguments = entry.positional_arguments().map(|(ordinal, value)| {
+                        (ordinal, format!("{:?}", value.without_captured_storage().kind()).chars().take(1500).collect::<String>())
+                    }).collect::<Vec<_>>();
+                    let text = format!("{:?}", failed.kind());
+
+                    eprintln!("authority requirement {:?}: {} available {known:?} arguments={arguments:?}",
+                        self.storage.unit(), text.chars().take(2600).collect::<String>());
+                }
+
                 return Err(crate::UnprovenExecutionCondition::new(required.clone(), failed.clone()));
             }
         }
@@ -259,6 +256,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         Ok(())
     }
 
+}
+
+fn traced_predicate(condition: &ExecutionCondition) -> Option<bray_symbols::PredicateDefinitionSymbolId> {
+    match condition.kind() {
+        crate::ExecutionConditionKind::Trusted(condition) => traced_predicate(condition),
+        crate::ExecutionConditionKind::Predicate(predicate, _, _) => Some(*predicate),
+        _ => None,
+    }
 }
 
 // Share one lazy range index across every Boolean clause in the caller's contract.

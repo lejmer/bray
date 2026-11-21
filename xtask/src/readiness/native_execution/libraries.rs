@@ -5,7 +5,7 @@ use std::process::Command;
 
 use bray_target::{NativeTarget, TargetOutputKind, TargetOutputName};
 
-use super::core::{native_output, product_output, standard_library_root};
+use super::core::{native_output, product_output};
 
 pub(super) fn audit_native_libraries(
     root: &Path,
@@ -19,7 +19,7 @@ pub(super) fn audit_native_libraries(
     crate::native_toolchain::assemble_from_bundles(
         target,
         runtime,
-        &standard_library_root(root),
+        &crate::runtime_artifact::standard_library_directory(root, target),
         &toolchain,
     )?;
 

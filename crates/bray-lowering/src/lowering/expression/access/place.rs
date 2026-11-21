@@ -6,7 +6,7 @@ use bray_bound_tree::{
     BoundExpressionId, StorageAccessId, StorageAccessPurpose, StorageIdentity, StorageIdentityId,
     StorageOperationStatus, StorageProjection,
 };
-use bray_ir::{MirBlockId, MirPlace, MirProjection};
+use bray_ir::{MirBlockId, MirOperand, MirOperationKind, MirPlace, MirProjection, MirStoreKind};
 use bray_symbols::{BorrowKind, TypeId};
 pub(in crate::lowering) enum LoweredPlace {
     Continuing { block: MirBlockId, place: MirPlace },
@@ -128,7 +128,7 @@ impl Lowerer<'_> {
             .to_vec();
 
         let (mut current, root) =
-            match self.initialize_access_root(id, identity, expression, current)? {
+            match self.initialize_access_root(identity, expression, current)? {
                 RootInitialization::Continuing { block, place } => (block, place),
                 RootInitialization::Terminated(completion) => {
                     return Ok(LoweredPlace::Terminated(completion));
@@ -268,7 +268,6 @@ impl Lowerer<'_> {
 
     fn initialize_access_root(
         &mut self,
-        access: StorageAccessId,
         identity: StorageIdentityId,
         expression: BoundExpressionId,
         current: MirBlockId,
@@ -291,29 +290,10 @@ impl Lowerer<'_> {
                 )
             });
 
-        let static_reference = if let StorageIdentity::Static(declaration) = model {
-            let selection = crate::lowering::expression::static_access::static_reference(
-                &self.input,
-                expression,
-                declaration,
-            );
-
-            self.static_accesses.insert(access, selection.clone());
-
-            Some(selection)
-        } else {
-            None
-        };
-
-        let existing = static_reference.as_ref().map_or_else(
-            || {
-                self.storages.get(&identity).copied().filter(|_| {
-                    !matches!(model, StorageIdentity::Temporary(_) | StorageIdentity::Evaluated(_))
-                        || self.initialized_temporaries.contains(&identity)
-                })
-            },
-            |reference| self.static_storages.get(reference).copied(),
-        );
+        let existing = self.storages.get(&identity).copied().filter(|_| {
+            !matches!(model, StorageIdentity::Temporary(_) | StorageIdentity::Evaluated(_))
+                || self.initialized_temporaries.contains(&identity)
+        });
 
         if let Some(storage) = existing {
             return Ok(RootInitialization::Continuing {
@@ -357,7 +337,54 @@ impl Lowerer<'_> {
             initial_value = Some((owner, value));
         }
 
-        self.initialize_access_storage(identity, current, initial_value, static_reference.as_ref())
+        self.initialize_access_storage(identity, current, initial_value)
+    }
+
+    fn initialize_access_storage(
+        &mut self,
+        identity: StorageIdentityId,
+        current: MirBlockId,
+        initial_value: Option<(BoundExpressionId, MirOperand)>,
+    ) -> Result<RootInitialization, LoweringError> {
+        let root_type = self.storage_identity_type(identity);
+
+        let origin = initial_value.as_ref().map_or_else(
+            || bray_bound_tree::BoundNodeOrigin::source(self.input.unit().key().source()),
+            |(owner, _)| {
+                self.input
+                    .unit()
+                    .view()
+                    .expression(*owner)
+                    .map(|expression| expression.origin())
+                    .unwrap_or_else(|| {
+                        bray_bound_tree::BoundNodeOrigin::source(self.input.unit().key().source())
+                    })
+            },
+        );
+
+        let place = self.place_for_identity(identity, root_type, origin)?;
+
+        if let Some((owner, value)) = initial_value {
+            if !value.reads_from(&place) {
+                self.push_operation(
+                    current,
+                    self.expression_source(owner),
+                    MirOperationKind::Store {
+                        kind: MirStoreKind::Initialize,
+                        destination: place.clone(),
+                        value,
+                    },
+                    None,
+                )?;
+            }
+
+            self.initialized_temporaries.insert(identity);
+        }
+
+        Ok(RootInitialization::Continuing {
+            block: current,
+            place,
+        })
     }
 
     pub(in crate::lowering) fn place_for_access(
@@ -405,13 +432,11 @@ impl Lowerer<'_> {
             });
 
         let root_type = self.storage_identity_type(identity);
-        let static_reference = self.static_accesses.get(&id).cloned();
 
-        let root = self.place_for_identity_with_static(
+        let root = self.place_for_identity(
             identity,
             root_type,
             bray_bound_tree::BoundNodeOrigin::source(source),
-            static_reference.as_ref(),
         )?;
 
         let mut lowered = Vec::with_capacity(

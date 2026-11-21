@@ -5,9 +5,10 @@ use bray_bound_tree::{
 };
 use bray_symbols::{BorrowKind, CallableSignatureQuery};
 use std::collections::{BTreeMap, BTreeSet};
+use crate::analysis::liveness::OperationEffects;
 
 #[derive(Debug, Default)]
-pub(in crate::analysis::storage_flow) struct StorageFlowInput {
+pub(crate) struct StorageFlowInput {
     pub(in crate::analysis::storage_flow) footprint: crate::storage::observation::Footprint,
     pub(in crate::analysis::storage_flow) variant_payloads:
         BTreeMap<bray_bound_tree::StoragePath, BTreeSet<bray_bound_tree::StoragePath>>,
@@ -25,33 +26,25 @@ pub(in crate::analysis::storage_flow) struct StorageFlowInput {
     pub(in crate::analysis::storage_flow) opaque_descriptors: BTreeSet<bray_bound_tree::StoragePath>,
     pub(in crate::analysis::storage_flow) opaque_candidates: Vec<bray_bound_tree::StoragePath>,
     pub(super) unused_entry_storage: BTreeSet<StorageIdentityId>,
-    pub(super) cleanup_free_storage: BTreeSet<StorageIdentityId>,
+    pub(super) cleanup_requirements: std::sync::Arc<crate::asynchronous::StorageCleanupRequirements>,
     pub(in crate::analysis::storage_flow) terminal_dependencies: bool,
     pub(in crate::analysis::storage_flow) terminal_receiver: Option<bray_bound_tree::StoragePath>,
     pub(in crate::analysis::storage_flow) graceful_types: BTreeSet<bray_symbols::TypeId>,
     pub(in crate::analysis::storage_flow) value_dependencies:
         BTreeMap<StorageIdentityId, BTreeSet<BoundDependencySubject>>,
-    pub(super) cleanup_dependency_owners:
-        BTreeMap<BoundDependencySubject, BTreeSet<StorageIdentityId>>,
-    pub(in crate::analysis::storage_flow) lifecycle_paths: BTreeMap<
-        (
-            bray_symbols::CallableInstanceData,
-            bray_symbols::DependencySubject,
-        ),
-        (bray_symbols::TypeId, bray_bound_tree::StorageReferencePath),
-    >,
-    pub(in crate::analysis::storage_flow) lifecycle_references:
-        BTreeMap<bray_symbols::CallableInstanceData, Vec<bray_bound_tree::BoundCallReference>>,
-    pub(in crate::analysis::storage_flow) lifecycle_stored_paths: BTreeMap<
-        bray_symbols::CallableInstanceData,
-        BTreeMap<bray_symbols::DependencyStoredValuePath, (bray_symbols::TypeId, bray_bound_tree::StorageReferencePath)>,
-    >,
+    pub(in crate::analysis::storage_flow) lifecycle_storage:
+        BTreeMap<bray_symbols::CallableInstanceData, bray_bound_tree::BoundCallStorage>,
     pub(in crate::analysis::storage_flow) allocation_pointer:
         Option<(bray_symbols::StructFieldSymbolId, bray_symbols::TypeId)>,
     pub(in crate::analysis::storage_flow) raw_buffers:
-        BTreeMap<bray_symbols::TypeId, (crate::representation::RawBufferFields, bool)>,
-    pub(in crate::analysis::storage_flow) reference_paths:
-        BTreeMap<StorageAccessId, (bray_symbols::TypeId, bray_bound_tree::StorageReferencePath)>,
+        BTreeMap<bray_symbols::TypeId, crate::representation::RawBufferFields>,
+    pub(in crate::analysis::storage_flow) buffer_cleanup_effects:
+        BTreeMap<bray_symbols::TypeId, Vec<bray_symbols::DependencyStorageEffect>>,
+    pub(in crate::analysis::storage_flow) buffer_cleanup_storage:
+        BTreeMap<bray_symbols::TypeId, bray_bound_tree::BoundCallStorage>,
+    pub(in crate::analysis::storage_flow) direct_observation_accesses:
+        BTreeMap<StorageIdentityId, Vec<StorageAccessId>>,
+    pub(in crate::analysis::storage_flow) indirect_observation_accesses: Vec<StorageAccessId>,
     pub(in crate::analysis::storage_flow) value_references: BTreeMap<
         StorageIdentityId,
         BTreeMap<crate::analysis::storage_flow::memory::Place, bray_symbols::TypeId>,
@@ -64,7 +57,11 @@ pub(in crate::analysis::storage_flow) struct StorageFlowInput {
             bray_symbols::DependencyReferenceKind,
         ),
     >,
-    pub(super) entry_whole_sources: Vec<(StorageIdentityId, bray_bound_tree::StorageReferencePath)>,
+    pub(in crate::analysis::storage_flow) owned_backings: BTreeMap<
+        crate::analysis::storage_flow::memory::Place,
+        (bray_bound_tree::StorageReferencePath, bray_symbols::TypeId),
+    >,
+    pub(in crate::analysis::storage_flow) entry_whole_sources: Vec<(StorageIdentityId, bray_bound_tree::StorageReferencePath)>,
     pub(in crate::analysis::storage_flow) reference_constructions: BTreeMap<
         BoundExpressionId,
         Vec<(
@@ -74,7 +71,6 @@ pub(in crate::analysis::storage_flow) struct StorageFlowInput {
             bray_symbols::TypeId,
         )>,
     >,
-    pub(in crate::analysis::storage_flow) retained_storage: BTreeSet<StorageAccessId>,
     pub(in crate::analysis::storage_flow) suspension_borrows: BTreeSet<BorrowCapabilityId>,
 }
 
@@ -84,10 +80,21 @@ impl StorageFlowInput {
         path: &bray_bound_tree::StorageReferencePath,
         pointee: Option<bray_symbols::TypeId>,
     ) -> Option<crate::representation::RawBufferFields> {
-        self.raw_buffers.values().find_map(|(fields, _)| {
+        if path.reads().any(|(_, index, _, _)| index >= path.projections().len()) {
+            return None;
+        }
+
+        self.buffer_pointer_fields(pointee, path.projections().last())
+    }
+
+    pub(in crate::analysis::storage_flow) fn buffer_pointer_fields(
+        &self,
+        pointee: Option<bray_symbols::TypeId>,
+        projection: Option<&bray_bound_tree::StorageProjection>,
+    ) -> Option<crate::representation::RawBufferFields> {
+        self.raw_buffers.values().find_map(|fields| {
             (pointee == Some(fields.element)
-                && path.borrows().iter().all(|(index, _)| *index < path.projections().len())
-                && path.projections().last() == Some(&bray_bound_tree::StorageProjection::ProductField(fields.pointer)))
+                && projection == Some(&bray_bound_tree::StorageProjection::ProductField(fields.pointer)))
                 .then_some(*fields)
         })
     }
@@ -96,13 +103,12 @@ impl StorageFlowInput {
         clippy::too_many_arguments,
         reason = "storage-flow preparation consumes independently checked type, dependency, cleanup and memory inputs"
     )]
-    pub(in crate::analysis::storage_flow) fn new<C>(
+    pub(crate) fn prepare<C>(
         cleanup_shapes: &mut crate::asynchronous::CleanupShapeResolver<'_, C>,
         request: CheckerUnitView<'_, C>,
         storage: &StoragePlan,
-        liveness: &Liveness,
         dependencies: &bray_bound_tree::CheckedDependencyContracts,
-        values: &crate::dependency::ValueInputs,
+        effects: &OperationEffects,
         selections: &bray_bound_tree::CheckedSemanticSelections,
         types: &bray_bound_tree::CheckedExpressionTypes,
         cleanup: &crate::analysis::guarantee::CleanupPlan,
@@ -111,18 +117,8 @@ impl StorageFlowInput {
     where
         C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
     {
-        let (mutable_storage, mut diagnostics) =
+        let (mutable_storage, diagnostics) =
             crate::analysis::storage_flow::authority::mutable_storage(request, storage)?;
-
-        let mut retained_storage = BTreeSet::new();
-
-        for call in dependencies.calls().values() {
-            collect_retained_storage(call.result().requirements(), &mut retained_storage);
-
-            for (_, report) in call.report_outputs() {
-                collect_retained_storage(report.requirements(), &mut retained_storage);
-            }
-        }
 
         // Returned reference origins are needed even when a body has no memory effects.
         // Share the same type-shape preparation with mutation observations.
@@ -181,40 +177,19 @@ impl StorageFlowInput {
             opaque_descriptors,
             opaque_values,
             opaque_candidates,
-            retained_storage,
             mutable_storage,
-            suspension_borrows: liveness
-                .live_across_suspensions()
-                .iter()
-                .filter_map(|entry| match entry.subject() {
-                    bray_bound_tree::BoundDependencySubject::BorrowCapability(borrow) => {
-                        Some(borrow)
-                    }
-                    _ => None,
-                })
-                .collect(),
             ..Self::default()
         };
 
         input.prepare_locations(storage, cleanup);
-        input.prepare_report_dependencies(request, storage, liveness, dependencies, cleanup, values, selections);
+        input.prepare_report_dependencies(request, storage, effects, dependencies, cleanup, selections);
 
-        input.prepare_reference_paths(request, storage)?;
+        input.index_observation_accesses(request, storage);
 
         let lifecycle_demands =
             input.prepare_lifecycle_references(request, cleanup, dependencies)?;
 
-        input.footprint.prepare_stores(request, storage, memory, dependencies, &input.lifecycle_paths)?;
-
-        input.tag_preserving_assignments = Self::prepare_assignment_observations(
-            cleanup_shapes,
-            request,
-            storage,
-            selections,
-            &input.footprint,
-        )?;
-
-        input.prepare_reference_constructions(request, storage, values, selections, types)?;
+        input.prepare_reference_constructions(request, storage, effects.value_inputs(), selections, types)?;
 
         for (ty, paths) in lifecycle_demands {
             demands.entry(ty).or_default().extend(paths);
@@ -243,8 +218,21 @@ impl StorageFlowInput {
                     .filter_map(|expression| types.expression(expression).map(|ty| ty.ty())),
             );
 
-        input.prepare_buffer_fields(request, cleanup_shapes, buffer_types, &mut demands)?;
+        input.prepare_buffer_fields(request, buffer_types, &mut demands)?;
+
+        let released_buffers = memory.operations().iter()
+            .filter(|operation| crate::memory::execution::commits_buffer_cleanup(operation.kind()))
+            .filter_map(|operation| types.expression(operation.arguments()[0]))
+            .map(|ty| request.semantic_values().unborrowed_type(ty.ty()));
+
+        input.prepare_buffer_cleanup(request, cleanup.opaque_types().chain(released_buffers), &mut demands)?;
         input.prepare_allocation_pointer(request, memory, types)?;
+
+        input.prepare_effect_observations(request, storage, memory, dependencies)?;
+
+        input.tag_preserving_assignments = Self::prepare_assignment_observations(
+            &cleanup.requirements, request, storage, selections, &input.footprint,
+        );
 
         input.prepare_entry_references(request, storage, selections, dependencies, demands)?;
 
@@ -263,30 +251,53 @@ impl StorageFlowInput {
                 request, storage, &input,
             )?;
 
-        let (cleanup_free, cleanup_diagnostics) =
-            crate::asynchronous::cleanup_free_storage(cleanup_shapes, request, storage)?;
-
-        input.prepare_cleanup_retention(request, storage, liveness, cleanup);
-        input.prepare_storage_retirement(storage, liveness, &cleanup_free);
-        input.cleanup_free_storage = cleanup_free;
-        diagnostics.add_range(cleanup_diagnostics);
+        input.cleanup_requirements = std::sync::Arc::clone(&cleanup.requirements);
 
         Ok((input, diagnostics))
     }
 
-    fn prepare_assignment_observations<C>(
-        cleanup_shapes: &mut crate::asynchronous::CleanupShapeResolver<'_, C>,
+    fn prepare_effect_observations<C: CheckerRequestContext + ?Sized>(
+        &mut self,
+        request: CheckerUnitView<'_, C>,
+        storage: &StoragePlan,
+        memory: &bray_bound_tree::CheckedMemoryOperations,
+        dependencies: &bray_bound_tree::CheckedDependencyContracts,
+    ) -> crate::CheckerQueryResult<(), C::UpstreamError> {
+        let mut atomic = self.footprint.prepare_stores(request, storage, memory)?;
+
+        for call in dependencies.calls().values() {
+            let effects = call.effects().iter()
+                .chain(call.deferred_effects().into_iter().flatten())
+                .chain(call.deferred_capture_cleanup().into_iter().flatten())
+                .chain(call.deferred_result_cleanup().into_iter().flatten());
+
+            atomic |= self.footprint.prepare_effects(request, effects, |subject| call.storage().subject(subject).map(|(ty, _)| ty))?;
+        }
+
+        for (callable, contract) in dependencies.lifecycle_dependencies() {
+            atomic |= self.footprint.prepare_effects(request, contract.effects(),
+                |subject| self.lifecycle_storage.get(callable)?.subject(subject).map(|(ty, _)| ty))?;
+        }
+
+        for (ty, effects) in &self.buffer_cleanup_effects {
+            atomic |= self.footprint.prepare_effects(request, effects,
+                |subject| self.buffer_cleanup_storage[ty].subject(subject).map(|(ty, _)| ty))?;
+        }
+
+        if !atomic {
+            self.footprint.atomic = None;
+        }
+
+        Ok(())
+    }
+
+    fn prepare_assignment_observations<C: CheckerRequestContext + ?Sized>(
+        cleanup: &crate::asynchronous::StorageCleanupRequirements,
         request: CheckerUnitView<'_, C>,
         storage: &StoragePlan,
         selections: &bray_bound_tree::CheckedSemanticSelections,
         footprint: &crate::storage::observation::Footprint,
-    ) -> crate::CheckerQueryResult<
-        BTreeMap<bray_bound_tree::BoundExecutionSite, bool>,
-        C::UpstreamError,
-    >
-    where
-        C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
-    {
+    ) -> BTreeMap<bray_bound_tree::BoundExecutionSite, bool> {
         let mut assignments = BTreeMap::<_, (bool, bool)>::new();
 
         for plan in storage
@@ -306,7 +317,7 @@ impl StorageFlowInput {
 
             let preserves = builtin
                 && content_only.is_some()
-                && cleanup_shapes.requirement(ty)?
+                && cleanup.replacement(plan.access())
                     == bray_bound_tree::AsyncStorageCleanupRequirement::None;
 
             assignments
@@ -318,10 +329,10 @@ impl StorageFlowInput {
                 .or_insert((preserves, content_only == Some(true)));
         }
 
-        Ok(assignments
+        assignments
             .into_iter()
             .filter_map(|(site, (tags, contents))| tags.then_some((site, contents)))
-            .collect())
+            .collect()
     }
 
     pub(super) fn prepare_locations(
@@ -387,77 +398,28 @@ impl StorageFlowInput {
         }
     }
 
-    fn prepare_cleanup_retention<C: CheckerRequestContext + ?Sized>(
-        &mut self,
-        request: CheckerUnitView<'_, C>,
-        storage: &StoragePlan,
-        liveness: &Liveness,
-        cleanup: &crate::analysis::guarantee::CleanupPlan,
-    ) {
-        // Cleanup still uses retained loans after the last ordinary read of its owner.
-        // Index established value retention, never physical referents or invocation inputs.
-        let owners = cleanup
-            .requirements
-            .iter()
-            .filter(|requirement| {
-                !requirement.transfers()
-                    && matches!(
-                        requirement.cleanup(),
-                        bray_bound_tree::AsyncStorageCleanupRequirement::Cleanup(_)
-                    )
-            })
-            .map(|requirement| requirement.identity())
-            .collect::<BTreeSet<_>>();
-
-        for owner in &owners {
-            self.cleanup_dependency_owners
-                .entry(BoundDependencySubject::Storage(*owner))
-                .or_default()
-                .insert(*owner);
-        }
-
-        let bindings = crate::storage::value_transfer_destinations(request, storage);
-
-        let occurrences = bindings
-            .iter()
-            .flat_map(|(initializer, bindings)| {
-                bindings.iter().map(|identity| (*identity, *initializer))
-            })
-            .chain(
-                storage
-                    .identity_entries()
-                    .filter_map(|(identity, definition)| {
-                        Some((identity, definition.definition_occurrence()?))
-                    }),
-            );
-
-        for (owner, occurrence) in occurrences {
-            if !owners.contains(&owner) {
-                continue;
-            }
-
-            for subject in liveness.retained_by(occurrence) {
-                self.cleanup_dependency_owners
-                    .entry(subject)
-                    .or_default()
-                    .insert(owner);
-            }
-        }
-    }
-
-    fn prepare_storage_retirement(
+    pub(in crate::analysis::storage_flow) fn update_liveness(
         &mut self,
         storage: &StoragePlan,
         liveness: &Liveness,
-        cleanup_free: &BTreeSet<StorageIdentityId>,
     ) {
+        self.suspension_borrows = liveness.live_across_suspensions().iter().filter_map(|entry| {
+            match entry.subject() {
+                BoundDependencySubject::BorrowCapability(borrow) => Some(borrow),
+                _ => None,
+            }
+        }).collect();
+
+        self.storage_last_uses.clear();
+        self.unused_entry_storage.clear();
+
         if liveness.is_recovered() {
             return;
         }
 
         for last_use in liveness.last_uses() {
             if let bray_bound_tree::BoundDependencySubject::Storage(identity) = last_use.subject()
-                && cleanup_free.contains(&identity)
+                && self.cleanup_requirements.ends_at_last_use(identity)
             {
                 self.storage_last_uses
                     .entry(last_use.occurrence())
@@ -473,7 +435,7 @@ impl StorageFlowInput {
             .collect::<BTreeSet<_>>();
 
         self.unused_entry_storage
-            .extend(cleanup_free.iter().copied().filter(|identity| {
+            .extend(self.cleanup_requirements.early_retirement_slots().filter(|identity| {
                 storage
                     .identity(*identity)
                     .is_some_and(|identity| identity.is_initialized_at_entry())
@@ -578,27 +540,5 @@ fn identity_definition_occurrence(
     match identity {
         StorageIdentity::Result(_) => None,
         _ => identity.definition_occurrence(),
-    }
-}
-
-fn collect_retained_storage(
-    requirements: &[bray_bound_tree::BoundDependencyRequirement],
-    output: &mut BTreeSet<StorageAccessId>,
-) {
-    for requirement in requirements {
-        match requirement {
-            bray_bound_tree::BoundDependencyRequirement::Direct {
-                subject: BoundDependencySubject::StorageAccess(access),
-                kind,
-            } if !matches!(kind,
-                bray_bound_tree::BoundDependencyRequirementKind::ValueDependencies
-                    | bray_bound_tree::BoundDependencyRequirementKind::BorrowCapabilityActive(_)) => {
-                output.insert(*access);
-            }
-            bray_bound_tree::BoundDependencyRequirement::Guarded(guard) => {
-                collect_retained_storage(guard.requirements(), output)
-            }
-            _ => {}
-        }
     }
 }

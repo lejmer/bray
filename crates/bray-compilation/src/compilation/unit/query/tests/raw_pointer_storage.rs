@@ -72,16 +72,24 @@ trusted func main(pos value: &usize) -> usize uses(raw_memory)
 
 #[test]
 fn borrow_of_recovered_storage_preserves_the_original_diagnostic() {
-    assert_standard_memory_body_has_no_conflicting_borrow(
-        r#"trusted module std.test;
+    let source = r#"trusted module std.test;
 
 using std.memory;
 trusted func main() -> DataPointer<u8> uses(layout_reinterpret) {
     let mut report: Missing = {};
     return trusted std.memory.reinterpret<u8, Missing>(std.memory.address_of_mut(&mut report));
 }
-"#,
-    );
+"#;
+
+    let compilation = assert_standard_memory_body_has_no_diagnostic(source, DiagnosticKind::CheckingConflictingBorrow);
+    let diagnostics = compilation.check_diagnostics();
+
+    assert!(diagnostics.by_kind(DiagnosticKind::BindingUnresolvedName).any(|diagnostic| {
+        diagnostic.primary_span().is_some_and(|span| {
+            ["Missing = {}", "Missing>(std.memory"].into_iter().any(|site|
+                crate::test_support::diagnostic_at_call(diagnostic, span.source_id(), source, site))
+        })
+    }), "{diagnostics:?}");
 }
 
 #[test]
@@ -128,7 +136,7 @@ fn assert_standard_memory_body_has_no_conflicting_borrow(source: &str) {
     );
 }
 
-fn assert_standard_memory_body_has_no_diagnostic(source: &str, diagnostic: DiagnosticKind) {
+fn assert_standard_memory_body_has_no_diagnostic(source: &str, diagnostic: DiagnosticKind) -> Compilation {
     let compilation = standard_memory_compilation(source);
 
     let key = source_function_body_key(&compilation, "main");
@@ -141,6 +149,8 @@ fn assert_standard_memory_body_has_no_diagnostic(source: &str, diagnostic: Diagn
         analysis.diagnostics().by_kind(diagnostic).next().is_none(),
         "{analysis:#?}"
     );
+
+    compilation
 }
 
 fn standard_memory_compilation(source: &str) -> Compilation {
@@ -247,8 +257,9 @@ fn terminal_destructor_rejects_unknown_foreign_writes_through_receiver() {
             finalize() {}
 
             trusted destruct()
+                uses(foreign_call)
             {
-                trusted change(std.memory.address_of_mut<i32>(&mut self.value));
+                change(std.memory.address_of_mut<i32>(&mut self.value));
             }
         }
         "#,
@@ -263,9 +274,9 @@ fn terminal_destructor_rejects_unknown_foreign_writes_through_receiver() {
 #[test]
 fn terminal_destructor_distinguishes_local_address_formation_from_escape() {
     for (operation, accepted) in [
-        ("trusted opaque();", true),
-        ("increment(&mut self.value); trusted opaque();", true),
-        ("trusted publish(pointer); trusted opaque();", false),
+        ("opaque();", true),
+        ("increment(&mut self.value); opaque();", true),
+        ("publish(pointer); opaque();", false),
     ] {
         let compilation = standard_memory_compilation(&format!(
             r#"
@@ -341,8 +352,9 @@ fn terminal_destructor_checks_unnamed_retained_dependency() {
             finalize() {}
 
             trusted destruct()
+                uses(foreign_call)
             {
-                trusted opaque();
+                opaque();
             }
         }
         "#,

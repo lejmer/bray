@@ -167,7 +167,7 @@ impl Lowerer<'_> {
         let completed = outcome.check(&mut self.builder, block, source, reports)?;
 
         if local {
-            self.finish_finalizer_outcome(completed, source, &outcome)
+            self.finish_finalizer_outcome(completed, source, &outcome, None, &mut None)
         } else {
             Ok(completed)
         }
@@ -206,7 +206,7 @@ impl Lowerer<'_> {
         let block = outcome.check_abandonment(&mut self.builder, block, source)?;
 
         if local {
-            self.finish_finalizer_outcome(block, source, &outcome)
+            self.finish_finalizer_outcome(block, source, &outcome, None, &mut None)
         } else {
             Ok(block)
         }
@@ -280,9 +280,8 @@ impl Lowerer<'_> {
 
         let outcome = outcome.with_retention(retention);
 
-        let payloads = crate::operand::result_payloads(
+        let payloads = self.input.available_compiler_known_symbols().result_payloads(
             self.input.semantic_values(),
-            self.input.available_compiler_known_symbols(),
             callable.result.completion_type(),
         );
 
@@ -302,6 +301,13 @@ impl Lowerer<'_> {
                 .is_some(),
         )?;
 
+        if local && self.ordinary_cleanup_failure.is_some() {
+            let mut abandoned = Some(abandoned);
+            let completed = self.finish_finalizer_outcome(block, source, &outcome, Some(&place), &mut abandoned)?;
+
+            return self.destroy_finalized_owner(completed, source, place, abandoned);
+        }
+
         // Keep the owner broadcastable throughout finalizer mutation. Destruction
         // retires its guard only after every finalizer outcome has reached this point.
         self.push_operation(
@@ -318,10 +324,36 @@ impl Lowerer<'_> {
         let block = outcome.check(&mut self.builder, block, source, false)?;
 
         if local {
-            self.finish_finalizer_outcome(block, source, &outcome)
+            self.finish_finalizer_outcome(block, source, &outcome, None, &mut None)
         } else {
             Ok(block)
         }
+    }
+
+    pub(super) fn destroy_finalized_owner(
+        &mut self,
+        block: MirBlockId,
+        source: &MirSourceAnchor,
+        place: MirPlace,
+        abandoned: Option<MirOperand>,
+    ) -> Result<MirBlockId, LoweringError> {
+        let abandoned = match abandoned {
+            Some(abandoned) => abandoned,
+            None => MirOperand::Immediate {
+                value: bray_ir::MirImmediateValue::Boolean(true),
+                ty: self.representation_type(bray_compiler_known::RepresentationRole::ScalarBool)?,
+            },
+        };
+
+        self.resolve_structural_cleanup(
+            block,
+            source,
+            MirOperationKind::Destroy {
+                collection: None,
+                place,
+                abandoned: Some(abandoned),
+            },
+        )
     }
 
     pub(in crate::lowering) fn finish_finalizer_outcome(
@@ -329,12 +361,28 @@ impl Lowerer<'_> {
         block: MirBlockId,
         source: &MirSourceAnchor,
         outcome: &CleanupOutcome,
+        failed_finalizer: Option<&MirPlace>,
+        value: &mut Option<MirOperand>,
     ) -> Result<MirBlockId, LoweringError> {
         // Failure handlers own their report storage independently of this local outcome.
-        let (panicked, cancelled, report) = self
-            .cleanup_failure_targets
-            .clone()
-            .expect("ordinary finalization retains the surrounding cleanup failure targets");
+        let Some(super::CleanupFailureTargets { panicked, cancelled, report }) = self.register_cleanup_continuation(source, failed_finalizer)? else {
+            let impossible = self.builder.push_block(
+                Self::retained_source(source),
+                self.builder.block_kind(block),
+            )?;
+
+            self.set_terminator(
+                impossible,
+                Self::retained_source(source),
+                bray_ir::MirTerminatorKind::Unreachable,
+            )?;
+
+            let completed = outcome.dispatch(
+                &mut self.builder, block, source, impossible, impossible, value,
+            )?;
+
+            return self.forward_cleanup_incidents(completed, source, outcome, value);
+        };
 
         let mut transfers = [panicked, cancelled];
 
@@ -373,9 +421,9 @@ impl Lowerer<'_> {
             source,
             panicked,
             cancelled,
-            &mut None,
+            value,
         )?;
 
-        self.forward_cleanup_incidents(completed, source, outcome, &mut None)
+        self.forward_cleanup_incidents(completed, source, outcome, value)
     }
 }

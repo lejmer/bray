@@ -1205,7 +1205,7 @@ mod tests {
     use std::sync::Mutex;
     use std::sync::atomic::{AtomicBool, Ordering};
 
-    use bray_diagnostics::DiagnosticKind;
+    use bray_diagnostics::{DiagnosticKind, DiagnosticNoteKind};
     use bray_testing::assert_goal_state_diagnostic_kind;
 
     use super::{load_test_batch_request, run_tack_result_with_input};
@@ -1462,7 +1462,7 @@ mod tests {
     }
 
     #[test]
-    fn initialized_project_is_accepted_by_check() {
+    fn initialized_project_routes_check_to_its_package() {
         let parent = unique_temporary_directory();
         let workspace = parent.join("sample-project");
         let executor = RecordingExecutor::default();
@@ -1513,6 +1513,9 @@ mod tests {
         let workspace = ProjectWorkspace::basic();
         let executor = RecordingExecutor::default();
 
+        std::fs::create_dir(workspace.path().join("build"))
+            .expect("fixture has a build directory without a retained product");
+
         workspace.write(
             "app/bray-package.json",
             r#"{
@@ -1545,6 +1548,15 @@ mod tests {
         );
 
         assert_eq!(result.exit_code(), ExitCode::FAILURE);
+
+        let diagnostic = result
+            .diagnostics()
+            .by_kind(DiagnosticKind::RetainedBuildStateUnavailable)
+            .next()
+            .unwrap_or_else(|| panic!("the request must diagnose the missing retained build: {:?}", result.diagnostics()));
+
+        assert!(diagnostic.notes().iter().any(|note| note.kind() == DiagnosticNoteKind::RebuildRetainedProduct));
+
         assert!(executor.requests().is_empty());
     }
 
@@ -2414,7 +2426,7 @@ mod tests {
 
     #[test]
     fn formatter_default_input_is_the_root_package_source_graph() {
-        let workspace = ProjectWorkspace::basic();
+        let workspace = ProjectWorkspace::with_vendor();
         let executor = RecordingExecutor::default();
 
         let result = run_tack_result_with_input(
@@ -2436,13 +2448,14 @@ mod tests {
             panic!("format should invoke exactly one formatter: {requests:#?}");
         };
 
-        assert!(
-            request
-                .arguments
-                .iter()
-                .map(PathBuf::from)
-                .any(|path| path.ends_with("app/src/main.bray"))
-        );
+        let files = request
+            .arguments
+            .iter()
+            .map(PathBuf::from)
+            .filter(|path| path.extension() == Some(OsStr::new("bray")))
+            .collect::<Vec<_>>();
+
+        assert_eq!(files, [workspace.path().join("app/src/main.bray")]);
     }
 
     #[test]

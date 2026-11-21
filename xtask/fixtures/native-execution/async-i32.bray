@@ -16,7 +16,7 @@ async func main() -> i32
 
     let recursive = await recurse(128);
 
-    if borrowed.value != first || recursive != 42
+    if first != 21 || second != 21 || borrowed.value != 21 || recursive != 42
     {
         return 1;
     }

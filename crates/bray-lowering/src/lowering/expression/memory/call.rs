@@ -307,23 +307,11 @@ impl Lowerer<'_> {
         let retention = self.cleanup_retention(source)?;
         let outcome = outcome.with_retention(retention);
 
-        let broadcast = self.builder.push_block(
-            Self::retained_source(source),
-            bray_ir::MirBlockKind::CleanupBroadcast,
-        )?;
+        let broadcast = self.begin_cleanup_broadcast(block, source)?;
 
         let lifecycle = self.builder.push_block(
             Self::retained_source(source),
             bray_ir::MirBlockKind::LifecycleResolution,
-        )?;
-
-        self.set_terminator(
-            block,
-            Self::retained_source(source),
-            MirTerminatorKind::BeginCleanup(bray_ir::MirCleanupEdge::new(
-                bray_ir::MirCleanupPhase::TaskCancellation,
-                bray_ir::MirEdge::new(broadcast, []),
-            )),
         )?;
 
         let mut current = broadcast;

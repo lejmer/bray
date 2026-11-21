@@ -56,9 +56,9 @@ trusted async func main()
             }
         );
 
-        let before = trusted deny_allocation();
+        let before = deny_allocation();
         let acquired = catch pending.start();
-        _ = trusted restore_allocation(before);
+        _ = restore_allocation(before);
 
         match consume acquired
         {
@@ -70,6 +70,7 @@ trusted async func main()
     }
 
     assert(rejected > 0, "start admission did not encounter denied backing");
+    assert(rejected < 32, "no start acquired existing backing");
     assert(core.atomic.load<usize, 1>(&BODIES) == 0, "rejection entered an inactive body");
     assert(core.atomic.load<usize, 1>(&CAPTURES) == rejected, "rejected start did not dispose its capture once");
 

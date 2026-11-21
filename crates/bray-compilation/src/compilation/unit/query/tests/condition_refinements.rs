@@ -182,8 +182,8 @@ fn boolean_condition_refinements_respect_later_operand_mutation() {
             None,
         ),
         (
-            "match true { case true when !(value matches none || { value = none; yield false; }) { _ = 11; } case _ {} }",
-            None,
+            "match true { case true when !(value matches none || false) { _ = 11; } case _ {} }",
+            Some(PatternPredicate::NullablePresent),
         ),
         (
             "while !(value matches none || { value = none; yield false; }) { _ = 11; break; }",

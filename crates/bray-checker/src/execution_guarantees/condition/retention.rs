@@ -67,11 +67,19 @@ impl Set {
 
     /// A surviving scalar snapshot retains data without keeping its source slot alive.
     pub(crate) fn preserve_scalar_data(&mut self, value: &ExecutionCondition) {
-        if let Some((_, contents)) = value.storage_contents() {
-            let copied = contents.clone().argument_value(false);
-
-            if !copied.is_unknown() && self.copies.insert(copied) { self.clear_preserved(); }
+        if let Some(copied) = value.retained_scalar_data() {
+            self.preserve_copied_data([copied]);
         }
+    }
+
+    pub(crate) fn preserve_copied_data(&mut self, copies: impl IntoIterator<Item = ExecutionCondition>) {
+        let mut changed = false;
+
+        for copy in copies {
+            changed |= self.copies.insert(copy);
+        }
+
+        if changed { self.clear_preserved(); }
     }
 
     pub(crate) fn contains(&self, value: &ExecutionCondition) -> bool {

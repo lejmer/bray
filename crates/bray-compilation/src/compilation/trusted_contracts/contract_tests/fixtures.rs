@@ -1,7 +1,15 @@
-use bray_symbols::{PackageIdentity};
+use std::collections::BTreeMap;
+use std::sync::OnceLock;
+
+use bray_bound_tree::{BoundUnitKey, BoundUnitKind};
+use bray_diagnostics::{DiagnosticBag, DiagnosticKind};
+use bray_symbols::PackageIdentity;
+
+use crate::test_support::{
+    ProductionFixtureCache, production_fixture, production_native_link_inputs,
+    production_source_inputs, source_function_body_key,
+};
 use crate::{Compilation, CompilationRequest, WorkerBudget};
-use crate::test_support::{ProductionFixtureCache, production_fixture, production_native_link_inputs, production_source_inputs};
-use std::sync::{OnceLock};
 
 /// Shared declarations for pointer-bound receipt fixtures.
 pub(super) const RECEIPT_DECLARATIONS: &str = r#"
@@ -128,35 +136,14 @@ pub(super) fn body_belongs_to(
 #[track_caller]
 pub(super) fn assert_production_probe(caller: &str, valid: bool) {
     let compilation = production_host_compilation(caller);
+    let key = source_function_body_key(&compilation, "production_probe");
+    let expected = (!valid).then_some(DiagnosticKind::CheckingTrustedObligationNotProven);
+    let diagnostics = production_probe_diagnostics(&compilation, key, expected, check_probe_storage);
 
-    let checked = compilation
-        .lowered_unit(crate::test_support::source_function_body_key(
-            &compilation,
-            "production_probe",
-        ))
-        .expect("fixture callable must lower successfully");
-
-    bray_testing::assert_goal_state_diagnostic_outcome(
-        checked.diagnostics(),
-        (!valid).then_some(bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven),
-        caller,
-    );
+    bray_testing::assert_goal_state_diagnostic_outcome(&diagnostics, expected, caller);
 }
 
-pub(super) fn diagnostic_at_call(
-    diagnostic: &bray_diagnostics::Diagnostic,
-    source: bray_source::SourceId,
-    caller: &str,
-    call: &str,
-) -> bool {
-    let start = caller.rfind(call).expect("fixture contains the checked call");
-    let end = start + caller[start..].find(';').expect("checked call ends in a semicolon");
-
-    diagnostic.primary_span().is_some_and(|span| {
-        span.source_id() == source && (span.start().bytes() as usize) < end
-            && (span.end().bytes() as usize) > start
-    })
-}
+pub(super) use crate::test_support::diagnostic_at_call;
 
 fn condition_contains_predicate(condition: &bray_diagnostics::DiagnosticCondition, predicate: &str) -> bool {
     use bray_diagnostics::DiagnosticCondition;
@@ -176,21 +163,20 @@ fn condition_contains_predicate(condition: &bray_diagnostics::DiagnosticConditio
 #[track_caller]
 pub(super) fn assert_production_contract(
     caller: &str,
-    expected: Option<bray_diagnostics::DiagnosticKind>,
+    expected: Option<DiagnosticKind>,
     site: &str,
     predicate: &str,
 ) {
     use bray_diagnostics::{
-        DiagnosticArgValue, DiagnosticContractObligationKind, DiagnosticKind, DiagnosticWitnessTransferKind,
+        DiagnosticArgValue, DiagnosticContractObligationKind, DiagnosticWitnessTransferKind,
     };
 
     let compilation = production_host_compilation(caller);
-    let key = crate::test_support::source_function_body_key(&compilation, "production_probe");
+    let key = source_function_body_key(&compilation, "production_probe");
     let source = key.source().syntax().source_id();
-    let checked = compilation.lowered_unit(key).expect("fixture callable must lower successfully");
-    let diagnostics = checked.diagnostics();
+    let diagnostics = production_probe_diagnostics(&compilation, key, expected, check_probe_storage);
 
-    bray_testing::assert_goal_state_diagnostic_outcome(diagnostics, expected, caller);
+    bray_testing::assert_goal_state_diagnostic_outcome(&diagnostics, expected, caller);
 
     let Some(expected) = expected else { return; };
 
@@ -217,6 +203,74 @@ pub(in crate::compilation) fn production_host_compilation(caller: &str) -> Compi
     production_host_compilation_for_target(caller, crate::SelectedTarget::baseline())
 }
 
+pub(super) fn assert_production_probes(
+    expected: &[(&str, Option<DiagnosticKind>)],
+    expected_sites: &[(&str, &str)],
+    check_rejection: fn(&Compilation, BoundUnitKey) -> DiagnosticBag,
+) {
+    let compilation = production_probe_compilation();
+
+    let (first, _) = expected.first().expect("production probe test includes a callable");
+    let caller = source_function_body_key(compilation, first).source().syntax().source_id();
+    let source = compilation.sources().text(caller).expect("probe body retains its source");
+
+    let symbols = compilation.symbol_graph().expect("production probe declarations");
+
+    let probes = compilation.declared_unit_keys_for_test().expect("production probe units").into_iter()
+        .filter(|key| key.kind() == BoundUnitKind::CallableBody
+            && key.source().syntax().source_id() == caller)
+        .collect::<Vec<_>>();
+
+    let mut expected = expected.iter().copied().collect::<BTreeMap<_, _>>();
+
+    assert_eq!(probes.len(), expected.len(), "every probe retains its expected outcome");
+
+    for key in probes {
+        let name = symbols.symbol_for_key(key.declared_owner())
+            .and_then(|symbol| symbols.member_name(symbol)).expect("probe function name").as_str();
+
+        let expected = expected.remove(name)
+            .expect("each declared probe has an expected outcome");
+
+        let diagnostics = production_probe_diagnostics(compilation, key, expected, check_rejection);
+        bray_testing::assert_goal_state_diagnostic_outcome(&diagnostics, expected, name);
+
+        if let Some((_, site)) = expected_sites.iter().find(|(probe, _)| *probe == name) {
+            assert!(diagnostics.iter().any(|diagnostic| {
+                Some(diagnostic.kind()) == expected && diagnostic_at_call(diagnostic, caller, source, site)
+            }), "{name}, {site}: {diagnostics:?}");
+        }
+
+    }
+}
+
+pub(super) fn check_probe_storage(compilation: &Compilation, key: BoundUnitKey) -> DiagnosticBag {
+    let checked = compilation.storage_flow(key).expect("production probe reaches the storage checker");
+
+    checked.diagnostics().clone()
+}
+
+fn production_probe_diagnostics(
+    compilation: &Compilation,
+    key: BoundUnitKey,
+    expected: Option<DiagnosticKind>,
+    check_rejection: fn(&Compilation, BoundUnitKey) -> DiagnosticBag,
+) -> DiagnosticBag {
+    if expected.is_some() {
+        return check_rejection(compilation, key);
+    }
+
+    let lowered = compilation
+        .lowered_unit(key)
+        .expect("accepted production probe reaches lowering");
+    assert!(
+        lowered.value().is_some() || lowered.diagnostics().has_errors(),
+        "accepted production probe must produce a lowered body"
+    );
+
+    lowered.diagnostics().clone()
+}
+
 pub(in crate::compilation) fn production_host_compilation_for_target(
     caller: &str,
     target: crate::SelectedTarget,
@@ -224,42 +278,33 @@ pub(in crate::compilation) fn production_host_compilation_for_target(
     static FIXTURES: ProductionFixtureCache = OnceLock::new();
 
     production_fixture(&FIXTURES, caller, target, |caller, target| {
-        build_production_host(caller, target, WorkerBudget::serial())
+        build_production_host(production_source_inputs(
+            &["standard-library/std/src", "runtime/bootstrap/src"], caller,
+        ), target, WorkerBudget::serial())
     })
 }
 
-/// Whole-provider checks share one compiler pool instead of blocking serial caller probes.
-pub(super) fn production_host_provider() -> Compilation {
-    static PROVIDER: OnceLock<Compilation> = OnceLock::new();
+fn production_probe_compilation() -> &'static Compilation {
+    static PROBES: OnceLock<Compilation> = OnceLock::new();
 
-    PROVIDER.get_or_init(|| build_production_host(
-        "module app;", crate::SelectedTarget::baseline(), WorkerBudget::available_parallelism(),
-    )).clone()
+    PROBES.get_or_init(|| {
+        let sources = production_source_inputs(&[
+            "standard-library/std/src",
+            "runtime/bootstrap/src",
+            "xtask/fixtures/native-execution/contracts",
+            "crates/bray-compilation/src/compilation/trusted_contracts/contract_tests/fixtures",
+        ], "module app;");
+
+        build_production_host(sources, crate::SelectedTarget::baseline(), WorkerBudget::available_parallelism())
+    })
 }
 
-fn build_production_host(caller: &str, target: crate::SelectedTarget, workers: WorkerBudget) -> Compilation {
-    let compilation = Compilation::load(production_host_request(caller, target, workers))
-        .expect("actual production host declarations must load");
-
-    assert!(
-        !compilation.syntax_tree_result().diagnostics().has_errors(),
-        "actual bootstrap module declarations must parse: {:?}",
-        compilation.syntax_tree_result().diagnostics()
-    );
-
-    compilation
-}
-
-fn production_host_request(
-    caller: &str,
+fn build_production_host(
+    sources: Vec<bray_source::SourceInput>,
     target: crate::SelectedTarget,
     workers: WorkerBudget,
-) -> CompilationRequest {
-    let sources = production_source_inputs(
-        &["standard-library/std/src", "runtime/bootstrap/src"], caller,
-    );
-
-    CompilationRequest::with_options(
+) -> Compilation {
+    let request = CompilationRequest::with_options(
         PackageIdentity::try_new("std").expect("standard library identity must be valid"),
         sources,
         crate::CompilationOptions::new(
@@ -269,18 +314,22 @@ fn production_host_request(
         )
         .with_native_link_inputs(production_native_link_inputs(["bray_runtime_host"])),
     )
-    .with_standard_library_source_authority()
+    .with_standard_library_source_authority();
+
+    let compilation = Compilation::load(request).expect("actual production host declarations must load");
+
+    assert!(!compilation.syntax_tree_result().diagnostics().has_errors(),
+        "actual bootstrap module declarations must parse: {:?}", compilation.syntax_tree_result().diagnostics());
+
+    compilation
 }
 
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
 
-    use super::{production_host_compilation, production_host_request};
+    use super::production_host_compilation;
     use crate::test_support::source_function_body_key;
-    use crate::{
-        Compilation, CompilationProfileConfiguration, CompilationProfileMode, SelectedTarget, WorkerBudget,
-    };
 
     #[test]
     #[ignore = "tier:proof"]
@@ -301,75 +350,4 @@ mod tests {
         assert!(Arc::ptr_eq(&first_proof, &second_proof));
     }
 
-    #[test]
-    #[ignore = "tier:proof"]
-    fn production_fixture_phase_timings() {
-        let request = production_host_request("module app;", SelectedTarget::baseline(), WorkerBudget::available_parallelism())
-            .with_profile(CompilationProfileConfiguration::new(
-                CompilationProfileMode::Summary,
-            ));
-
-        let compilation = Compilation::load(request).expect("profiled production fixture");
-
-        assert!(!compilation.syntax_tree_result().diagnostics().has_errors());
-        checkpoint(&compilation, "parse");
-        compilation.symbol_graph().expect("production symbols");
-        checkpoint(&compilation, "bind");
-        compilation.check_diagnostics();
-        checkpoint(&compilation, "check");
-
-        compilation
-            .lowered_unit(source_function_body_key(&compilation, "host_access"))
-            .expect("production lowering");
-
-        checkpoint(&compilation, "lower");
-
-        let before = query_evaluations(&compilation);
-
-        compilation.check_diagnostics();
-
-        compilation
-            .symbol_graph()
-            .expect("cached production symbols");
-
-        compilation
-            .lowered_unit(source_function_body_key(&compilation, "host_access"))
-            .expect("cached production lowering");
-
-        assert_eq!(
-            query_evaluations(&compilation),
-            before,
-            "repeated production demands must perform no additional query evaluations"
-        );
-
-        checkpoint(&compilation, "reuse");
-    }
-
-    fn query_evaluations(compilation: &Compilation) -> u64 {
-        compilation
-            .profile_report()
-            .expect("fixture profiling enabled")
-            .queries
-            .iter()
-            .map(|query| query.evaluations)
-            .sum()
-    }
-
-    fn checkpoint(compilation: &Compilation, phase: &str) {
-        let report = compilation
-            .profile_report()
-            .expect("fixture profiling enabled");
-
-        if let Some(directory) = std::env::var_os("BRAY_TEST_PROFILE_OUTPUT") {
-            let directory = std::path::PathBuf::from(directory);
-
-            std::fs::create_dir_all(&directory).expect("profile report directory");
-
-            std::fs::write(
-                directory.join(format!("production-{phase}.json")),
-                serde_json::to_vec_pretty(&report).expect("profile encodes"),
-            )
-            .expect("profile report writes");
-        }
-    }
 }

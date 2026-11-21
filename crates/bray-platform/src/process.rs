@@ -380,7 +380,7 @@ mod tests {
             let mut command = NativeProcessCommand::new("cmd")
                 .unwrap_or_else(|error| panic!("test command must be valid: {error:?}"));
 
-            command.arg("/C").arg("echo bray");
+            command.arg("/D").arg("/C").arg("echo bray");
 
             command
         } else {
@@ -413,7 +413,10 @@ mod tests {
             .unwrap_or_else(|error| panic!("test child must be reaped: {error:?}"));
 
         assert!(status.success());
-        assert!(String::from_utf8_lossy(&bytes).contains("bray"));
+
+        let expected: &[u8] = if cfg!(target_os = "windows") { b"bray\r\n" } else { b"bray" };
+
+        assert_eq!(bytes, expected);
     }
 
     #[test]
@@ -423,6 +426,7 @@ mod tests {
                 .unwrap_or_else(|error| panic!("test command must be valid: {error:?}"));
 
             command
+                .arg("/D")
                 .arg("/V:ON")
                 .arg("/C")
                 .arg("set /p input=& echo !input!");
@@ -438,7 +442,10 @@ mod tests {
             .unwrap_or_else(|error| panic!("test child must complete: {error:?}"));
 
         assert!(output.status().success());
-        assert!(String::from_utf8_lossy(output.stdout()).contains("bray"));
+
+        let expected: &[u8] = if cfg!(target_os = "windows") { b"bray\r\n" } else { b"bray\n" };
+
+        assert_eq!(output.stdout(), expected);
         assert!(output.stderr().is_empty());
     }
 }

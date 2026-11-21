@@ -38,6 +38,7 @@ fn encode(
     *budget = remaining;
 
     let data = match condition.kind() {
+        K::CapturedValue { value, .. } | K::DeferredValue { value, .. } => return encode(values, value, inputs, boolean_type, budget),
         K::Boolean(value) => {
             ConstantTermData::Value(values.intern_constant_value(ConstantValueData::new(
                 boolean_type,
@@ -211,17 +212,17 @@ fn encode(
                 .map(Some);
         }
         K::Unknown
+        | K::StorageValue(_, _)
         | K::ValueAlias(_, _)
         | K::Tagged(_, _)
         | K::Variant(_)
         | K::Constructed(_, _)
         | K::Observation { .. }
         | K::Expression(_)
-        | K::CapturedInput { .. }
         | K::ScopedCapability(_)
         | K::PostState(_, _)
         | K::InitializedSnapshot(_, _, _)
-        | K::Joined(_, _, _)
+        | K::Joined(..)
         | K::Discriminant(_)
         | K::ScalarValue(_) => return Ok(None),
     };

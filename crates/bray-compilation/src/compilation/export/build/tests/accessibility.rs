@@ -499,8 +499,13 @@ fn acknowledgement_does_not_flow_through_call_or_field_results() {
                 assert!(
                     diagnostics
                         .iter()
-                        .any(|diagnostic| diagnostic.kind()
-                            == DiagnosticKind::BindingInaccessibleName),
+                        .any(|diagnostic| diagnostic.kind() == DiagnosticKind::BindingInaccessibleName
+                            && diagnostic.primary_span().is_some_and(|span|
+                                crate::test_support::diagnostic_at_call(
+                                    diagnostic, span.source_id(), &source, "secret",
+                                )
+                            )
+                        ),
                     "{source}\n{diagnostics:?}"
                 );
             }
@@ -562,7 +567,13 @@ fn inherent_members_use_the_same_type_and_member_acknowledgement() {
 
         assert!(provider.check_diagnostics().is_empty(), "{declaration}");
 
-        for (path, valid) in [("Other", false), ("Value", true), (member, true)] {
+        let mut acknowledgements = vec![("Other", false), ("Value", true)];
+
+        if member != "Value" {
+            acknowledgements.push((member, true));
+        }
+
+        for (path, valid) in acknowledgements {
             let source = format!(
                 r#"
                 module app;
@@ -712,25 +723,28 @@ fn public_defaults_and_generic_bodies_keep_definition_site_internal_references()
             return 7;
         }
 
-        func read<T>(pos value: T, pos count: i32 = hidden()) -> i32
+        const func read<T>(pos count: i32 = hidden()) -> i32
         {
-            return hidden() + count;
+            if count == hidden()
+            {
+                return 14;
+            }
+
+            return count;
         }
         "#,
     );
 
-    let consumer = execution_consumer(
-        &provider,
+    let consumer = crate::test_support::compilation_with_dependencies(
         r#"
         module app;
 
         using example.package.api;
 
-        func check() -> i32
-        {
-            return example.package.api.read<bool>(true);
-        }
+        const DEFAULTED: i32 = example.package.api.read<bool>();
+        const EXPLICIT: i32 = example.package.api.read<bool>(4);
         "#,
+        [super::fixtures::implementation_dependency(super::fixtures::export(&provider))],
     );
 
     assert!(
@@ -738,6 +752,13 @@ fn public_defaults_and_generic_bodies_keep_definition_site_internal_references()
         "{:?}",
         consumer.check_diagnostics()
     );
+
+    for (name, expected) in [("DEFAULTED", 14), ("EXPLICIT", 4)] {
+        let value = super::fixtures::source_constant_value(&consumer, name);
+
+        assert!(matches!(value.kind(), bray_symbols::ConstantValueKind::Integer(integer)
+            if integer.to_u64() == Some(expected)), "{name}: {value:?}");
+    }
 }
 
 #[test]
@@ -920,10 +941,25 @@ fn dependency_reexports_keep_the_defining_visibility_and_identity() {
 
     assert_eq!(edge.visibility(), bray_symbols::MemberVisibility::Internal);
 
-    assert!(matches!(
-        edge.target(),
-        bray_package_interface::InterfaceSymbolReference::Dependency { .. }
-    ));
+    let bray_package_interface::InterfaceSymbolReference::Dependency { dependency, key } = edge.target() else {
+        panic!("the re-export must retain the provider's symbol identity");
+    };
+
+    let provider_bundle = super::fixtures::export(&provider);
+    let provider_surface = provider_bundle.surface();
+
+    let origin = provider_surface.symbols().symbols().iter().find(|record|
+        matches!(record.key().data(), bray_symbols::ExternalSymbolKeyData::Declaration {
+            kind: bray_symbols::SymbolKind::Function,
+            identity: bray_symbols::ExternalDeclarationIdentity::Name(name),
+            ..
+        } if name.as_str() == "hidden")
+    ).expect("the provider exports its internal hidden function's identity");
+
+    let slot = dependency.to_index().expect("the dependency slot is representable");
+
+    assert_eq!(key, origin.key());
+    assert_eq!(proxy_bundle.surface().dependencies()[slot].package(), provider_surface.symbols().package());
 
     for (acknowledgement, valid) in [("", false), ("internal ", true)] {
         let source = format!(
@@ -950,6 +986,16 @@ fn dependency_reexports_keep_the_defining_visibility_and_identity() {
         let diagnostics = consumer.check_diagnostics();
 
         assert_eq!(diagnostics.is_empty(), valid, "{source}\n{diagnostics:?}");
+
+        if !valid {
+            let caller = crate::test_support::source_function_body_key(&consumer, "check");
+            let source_id = caller.source().syntax().source_id();
+
+            assert!(diagnostics.iter().any(|diagnostic| {
+                diagnostic.kind() == DiagnosticKind::BindingInaccessibleName
+                    && crate::test_support::diagnostic_at_call(diagnostic, source_id, &source, "proxy.package.api.hidden()")
+            }), "{diagnostics:?}");
+        }
     }
 }
 
@@ -970,7 +1016,7 @@ fn inaccessible_trait_candidates_do_not_make_public_member_selection_ambiguous()
 
         internal trait Hidden
         {
-            func read() -> i32;
+            func read() -> bool;
         }
 
         impl VisibleImpl = Value(Visible)
@@ -983,9 +1029,9 @@ fn inaccessible_trait_candidates_do_not_make_public_member_selection_ambiguous()
 
         internal impl HiddenImpl = Value(Hidden)
         {
-            func read() -> i32
+            func read() -> bool
             {
-                return 2;
+                return true;
             }
         }
         "#,
@@ -997,9 +1043,9 @@ fn inaccessible_trait_candidates_do_not_make_public_member_selection_ambiguous()
         provider.check_diagnostics()
     );
 
-    for expression in [
-        "value.read()",
-        "value(internal example.package.api.Hidden).read()",
+    for (expression, result) in [
+        ("value.read()", "i32"),
+        ("value(internal example.package.api.Hidden).read()", "bool"),
     ] {
         let source = format!(
             r#"
@@ -1009,7 +1055,7 @@ fn inaccessible_trait_candidates_do_not_make_public_member_selection_ambiguous()
             using example.package.api.VisibleImpl;
             using internal example.package.api.HiddenImpl;
 
-            func check(pos value: &example.package.api.Value) -> i32
+            func check(pos value: &example.package.api.Value) -> {result}
             {{
                 return {expression};
             }}

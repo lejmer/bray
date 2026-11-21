@@ -1,4 +1,5 @@
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use super::fixtures::{
     always_cancelled, assert_complete_artifact, contribution, contribution_for, file_bytes,
@@ -18,13 +19,23 @@ fn cancellation_observed_after_reference_commit_cannot_retract_success() {
     };
 
     let reference = test_generation_store(output.path()).join("published-generation.json");
-    let cancellation = || reference.exists();
+    let observed = AtomicBool::new(false);
+
+    let cancellation = || {
+        let committed = reference.is_file();
+
+        observed.fetch_or(committed, Ordering::Relaxed);
+
+        committed
+    };
+
     let plan = filesystem_plan(output.path(), ReplacementPolicy::ReplaceExisting);
 
     let outcome = ArtifactPublisher::new(&cancellation)
         .publish(&plan, [contribution(&plan, b"complete", None)]);
 
     assert_complete_artifact(&outcome, b"complete");
+    assert!(observed.into_inner(), "cancellation must be observed after reference commit");
     assert!(reference.is_file());
 }
 
@@ -83,17 +94,35 @@ fn cancellation_discards_private_generation_without_partial_records() {
         None,
     );
 
-    let observations = AtomicUsize::new(0);
-    let cancellation = || observations.fetch_add(1, Ordering::AcqRel) >= 4;
+    let store = test_generation_store(directory.path());
+    let staged = Mutex::new(None);
+
+    let cancellation = || {
+        let path = std::fs::read_dir(&store).into_iter().flatten().find_map(|entry| {
+            let entry = entry.expect("private product storage must be readable");
+            let prefix = crate::publication::generation::layout::PRIVATE_GENERATION_PREFIX;
+
+            entry.file_name().to_string_lossy().starts_with(prefix).then(|| entry.path())
+        });
+
+        if let Some(path) = path {
+            *staged.lock().expect("private generation observation must be available") = Some(path);
+
+            return true;
+        }
+
+        false
+    };
+
     let outcome = ArtifactPublisher::new(&cancellation).publish(&plan, [metadata]);
 
     assert!(matches!(outcome.status(), EmissionStatus::Cancelled));
     assert!(outcome.artifacts().artifacts().is_empty());
     assert!(outcome.generation().is_none());
 
-    assert!(
-        !test_generation_store(directory.path())
-            .join("published-generation.json")
-            .exists()
-    );
+    let private = staged.into_inner().expect("private generation observation must be available")
+        .expect("cancellation must occur after the private generation is created");
+
+    assert!(!private.exists());
+    assert!(!store.join("published-generation.json").exists());
 }

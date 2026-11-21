@@ -23,6 +23,7 @@ const fn diagnostic_semantic_value_kind(kind: bray_symbols::SemanticValueKind) -
         Kind::TraitApplication => "trait_application",
         Kind::CallableInstance => "callable_instance",
         Kind::ImplementationInstance => "implementation_instance",
+        Kind::StaticReference => "static_reference",
         Kind::DependencyContractTemplate => "dependency_contract_template",
     }
 }

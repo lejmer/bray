@@ -790,7 +790,7 @@ fn initialize_result() -> Value {
 #[cfg(test)]
 mod tests {
     use std::collections::{BTreeMap, VecDeque};
-    use std::io::{self, Cursor, Read};
+    use std::io::{self, Cursor, Read, Write};
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{Arc, Condvar, Mutex};
     use std::time::Duration;
@@ -800,7 +800,7 @@ mod tests {
     use serde_json::{Value, json};
 
     use super::{InFlightDiagnostics, LanguageServer, PendingTask, queue_diagnostics};
-    use crate::protocol::read_messages;
+    use crate::protocol::read_message;
     use crate::test_support::ProjectFixture;
     use crate::workspace::Workspace;
 
@@ -822,7 +822,6 @@ mod tests {
             .unwrap_or_else(|error| panic!("test source URI should form: {error:?}"));
 
         let requests = [
-            request(1, "initialize", json!({})),
             notification("initialized", json!({})),
             notification(
                 "textDocument/didOpen",
@@ -867,35 +866,82 @@ mod tests {
                 "textDocument/diagnostic",
                 json!({ "textDocument": { "uri": uri } }),
             ),
-            request(10, "shutdown", Value::Null),
-            notification("exit", Value::Null),
         ];
 
-        let input = framed(requests);
-        let mut output = Vec::new();
-
-        LanguageServer::new(
+        let server = LanguageServer::new(
             fixture.path(),
             Arc::new(graph),
             target,
             WorkerBudget::new(2)
                 .unwrap_or_else(|error| panic!("test worker budget should form: {error:?}")),
-        )
-        .run(Box::new(Cursor::new(input)), &mut output)
-        .unwrap_or_else(|error| panic!("test server should run: {error:?}"));
+        );
 
-        let mut responses = Vec::new();
+        let responses = std::thread::scope(|scope| {
+            let (input, mut client) = std::io::pipe().expect("fixture opens its request pipe");
 
-        read_messages(&mut Cursor::new(output), |message| {
-            if let crate::protocol::IncomingMessage::Response = message {
-                responses.push(message);
-            }
+            let (output, mut server_output) = std::io::pipe().expect("fixture opens its response pipe");
 
-            true
-        })
-        .unwrap_or_else(|error| panic!("server output should parse: {error}"));
+            let running = scope.spawn(move || server.run(Box::new(input), &mut server_output));
 
-        assert_eq!(responses.len(), 10);
+            let mut output = std::io::BufReader::new(output);
+            let mut responses = BTreeMap::new();
+
+            let mut receive = |count| {
+                while responses.len() < count {
+                    let message = read_message(&mut output).expect("server response must parse")
+                        .expect("server must reply before the transport closes");
+
+                    if let Some(id) = message["id"].as_u64() {
+                        assert!(message.get("error").is_none(), "request {id}: {message}");
+
+                        let result = message.get("result").unwrap_or_else(|| panic!("request {id}: {message}"));
+
+                        assert!(responses.insert(id, result.clone()).is_none(), "duplicate response {id}");
+                    }
+                }
+            };
+
+            client.write_all(&framed([request(1, "initialize", json!({"capabilities": {}}))]))
+                .expect("client sends initialization");
+
+            receive(1);
+
+            client.write_all(&framed(requests)).expect("client sends editor requests");
+            receive(9);
+
+            client.write_all(&framed([request(10, "shutdown", Value::Null)]))
+                .expect("client requests shutdown");
+
+            receive(10);
+
+            client.write_all(&framed([notification("exit", Value::Null)])).expect("client exits");
+            drop(client);
+            running.join().expect("server thread returns").expect("server completes the protocol");
+
+            responses
+        });
+
+        assert_eq!(responses.keys().copied().collect::<Vec<_>>(), (1..=10).collect::<Vec<_>>());
+
+        let capabilities = &responses[&1]["capabilities"];
+
+        for provider in ["hoverProvider", "definitionProvider", "referencesProvider", "documentSymbolProvider"] {
+            assert_eq!(capabilities[provider], true, "{provider}");
+        }
+
+        for provider in ["completionProvider", "signatureHelpProvider", "semanticTokensProvider", "diagnosticProvider"] {
+            assert!(capabilities[provider].is_object(), "{provider}");
+        }
+
+        assert!(responses[&2]["contents"].is_object());
+        assert!(responses[&3]["uri"].is_string());
+        assert!(responses[&4].as_array().is_some_and(|locations| locations.len() == 2));
+        assert!(responses[&5].is_array() || responses[&5]["items"].is_array());
+        assert!(responses[&6]["signatures"].as_array().is_some_and(|signatures| !signatures.is_empty()));
+        assert!(responses[&7].as_array().is_some_and(|symbols| !symbols.is_empty()));
+        assert!(responses[&8]["data"].as_array().is_some_and(|tokens| !tokens.is_empty()));
+        assert_eq!(responses[&9]["items"], json!([]));
+        assert!(responses[&10].is_null());
     }
 
     #[test]
@@ -913,7 +959,7 @@ mod tests {
             .clone();
 
         let input = framed([
-            request(1, "initialize", json!({})),
+            request(1, "initialize", json!({"capabilities": {}})),
             request(2, "shutdown", Value::Null),
             notification("exit", Value::Null),
         ]);

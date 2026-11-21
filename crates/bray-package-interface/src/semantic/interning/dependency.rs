@@ -13,7 +13,25 @@ use crate::{
 use super::common::{convert_requirement_kind, resolve_exact, resolve_family};
 use super::{InterfaceSemanticInternError, InterfaceSymbolResolver, InternState};
 
-impl InternState {
+impl InternState<'_> {
+    fn convert_captured_static(&self, root: &crate::InterfaceStaticReference, symbols: &impl InterfaceSymbolResolver)
+        -> Result<bray_symbols::StaticReferenceSelection, Option<InterfaceSemanticInternError>>
+    {
+        let declaration = resolve_exact::<bray_symbols::StaticSymbolId>(symbols, &root.declaration).map_err(Some)?;
+        let substitution = self.substitution_id(root.substitution).ok_or(None)?;
+
+        let witnesses = root.selected_witnesses.iter().map(|witness| self.implementation_instance_id(*witness).ok_or(None))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let template = bray_symbols::StaticInstanceTemplateId::new(declaration);
+
+        Ok(if root.closed {
+            bray_symbols::StaticReferenceSelection::Closed(bray_symbols::StaticInstanceKey::new(template, substitution, witnesses, root.target.clone()))
+        } else {
+            bray_symbols::StaticReferenceSelection::open(template, substitution, witnesses, root.target.clone())
+        })
+    }
+
     pub(super) fn intern_dependency_contracts(
         &mut self,
         semantics: &InterfaceSemantics,
@@ -31,107 +49,11 @@ impl InternState {
                 continue;
             };
 
-            let mut contract = DependencyContractTemplateData::new(requirements);
-
-            if let Some(requirements) = &input.completion_reports {
-                let Some(requirements) =
-                    self.convert_dependency_requirements(requirements, symbols)?
-                else {
-                    continue;
-                };
-
-                contract = contract.with_completion_reports(requirements);
-            }
-
-            if let Some(requirements) = &input.abnormal_reports {
-                let Some(requirements) =
-                    self.convert_dependency_requirements(requirements, symbols)?
-                else {
-                    continue;
-                };
-
-                contract = contract.with_abnormal_reports(requirements);
-            }
-
-            let mut borrows = Vec::with_capacity(input.borrows.len());
-
-            for relation in input.borrows.iter() {
-                let entry = match relation.source_subject() {
-                    Some(entry) => {
-                        let Some(entry) = self.convert_dependency_subject(entry, symbols)? else {
-                            break;
-                        };
-
-                        Some(entry)
-                    }
-                    None => None,
-                };
-
-                let Some(exit) = self.convert_dependency_subject(relation.exit(), symbols)? else {
-                    break;
-                };
-
-                let Some(projections) =
-                    self.convert_dependency_projections(relation.target_projections(), symbols)?
-                else {
-                    break;
-                };
-
-                borrows.push(
-                    relation.remap(entry, exit, projections),
-                );
-            }
-
-            if borrows.len() != input.borrows.len() {
-                continue;
-            }
-
-            let mut stored_values = Vec::with_capacity(input.stored_values.len());
-
-            for stored in input.stored_values.iter() {
-                let Some(destination) = self.convert_dependency_subject(stored.destination().subject(), symbols)? else { break; };
-
-                let destination = bray_symbols::DependencyStoredValuePath::new(destination, stored.destination().dereferences());
-                let mut sources = Vec::with_capacity(stored.sources().len());
-
-                for source in stored.sources() {
-                    let Some(subject) = self.convert_dependency_subject(source.subject(), symbols)?
-                    else {
-                        break;
-                    };
-
-                    sources.push(bray_symbols::DependencyStoredValuePath::new(subject, source.dereferences()));
-                }
-
-                if sources.len() != stored.sources().len() {
-                    break;
-                }
-
-                stored_values.push(bray_symbols::DependencyStoredValue::new(destination, sources, stored.is_complete()));
-            }
-
-            if stored_values.len() != input.stored_values.len() {
-                continue;
-            }
-
-            let mut carriers = Vec::with_capacity(input.carriers.len());
-
-            for carrier in &*input.carriers {
-                let Some(path) = self.convert_dependency_projections(carrier.path(), symbols)?
-                else {
-                    break;
-                };
-
-                let Some(condition) = self.constant_term_id(carrier.guarantee()) else {
-                    break;
-                };
-
-                carriers.push(bray_symbols::DependencyWitnessCarrier::new(condition, path));
-            }
-
-            if carriers.len() != input.carriers.len() {
-                continue;
-            }
+            let failures = match input.failure_outcomes.as_deref().map(|rows| self.convert_failure_outcomes(rows, symbols)).transpose() {
+                Ok(failures) => failures,
+                Err(None) => continue,
+                Err(Some(error)) => return Err(error),
+            };
 
             let Some(effects) = self.convert_dependency_effects(&input.effects, symbols)? else {
                 continue;
@@ -143,7 +65,23 @@ impl InternState {
                 continue;
             };
 
-            let owned_result = input.owned_result.try_map(
+            let captured_values = input.captured_values.iter().map(|outcome| {
+                let guard = outcome.guard.map(|term| self.constant_term_id(term).ok_or(None)).transpose()?;
+
+                let report = outcome.report.as_ref().map(|requirements|
+                    self.convert_dependency_requirements(requirements, symbols).map_err(Some)?.map(bray_base::sorted_unique_shared_slice).ok_or(None))
+                    .transpose()?;
+
+                let report_payloads = outcome.report_payloads.iter().map(|payload| payload.try_map(
+                    &mut (),
+                    |_, destination| self.convert_dependency_subject(destination, symbols).map_err(Some)?.ok_or(None),
+                    |_, requirements| self.convert_dependency_requirements(requirements, symbols).map_err(Some)?
+                        .map(bray_base::sorted_unique_shared_slice).ok_or(None),
+                )).collect::<Result<Vec<_>, _>>()?;
+
+                let bindings = self.convert_captured_bindings(&outcome.bindings, symbols)?;
+
+                let owned_result = outcome.ownership.try_map(
                 &mut |transfer| {
                     let term = self.constant_term_id(transfer.input()).ok_or(None)?;
 
@@ -171,41 +109,147 @@ impl InternState {
                     ))
                 },
                 &mut |condition| self.constant_term_id(*condition).map(Some).ok_or(None),
-            );
+            )?;
 
-            let owned_result = match owned_result {
-                Ok(result) => result,
+                let carriers = outcome.carriers.iter().map(|carrier| {
+                    let path = self.convert_dependency_projections(carrier.path(), symbols).map_err(Some)?.ok_or(None)?;
+
+                    let support = carrier.support().map(|support| support.try_map(
+                        &mut (),
+                        |_, owner| self.convert_dependency_subject(owner, symbols).map_err(Some)?.ok_or(None),
+                        |_, address| self.constant_term_id(*address).ok_or(None),
+                    )).transpose()?;
+
+                    Ok(bray_symbols::DependencyWitnessCarrier::new(
+                        self.constant_term_id(carrier.guarantee()).ok_or(None)?, path).with_support(support))
+                }).collect::<Result<Vec<_>, Option<crate::InterfaceSemanticInternError>>>()?;
+
+                let (references, stored_values) = self.convert_dependency_storage(&outcome.references, &outcome.stored_values, symbols)
+                    .map_err(Some)?.ok_or(None)?;
+
+                let inactive_payloads = outcome.inactive_payloads.iter().map(|payload|
+                    self.convert_dependency_subject(payload, symbols).map_err(Some)?.ok_or(None))
+                    .collect::<Result<Vec<_>, _>>()?;
+
+                let effects = self.convert_dependency_effects(&outcome.effects, symbols).map_err(Some)?.ok_or(None)?;
+
+                let cell_changes = outcome.cell_changes.as_deref().map(|cells| {
+                    self.convert_dependency_effects(cells, symbols).map_err(Some)?
+                        .map(bray_base::sorted_unique_shared_slice).ok_or(None)
+                }).transpose()?;
+
+                Ok(bray_symbols::CapturedValueOutcome::new(guard, bindings).with_effects(effects).with_cell_changes(cell_changes).with_carriers(carriers).with_report(report)
+                    .with_report_payloads(report_payloads)
+                    .with_ownership(owned_result).with_storage(references, stored_values)
+                    .with_inactive_payloads(inactive_payloads))
+            }).collect::<Result<Vec<_>, Option<InterfaceSemanticInternError>>>();
+
+            let captured_values = match captured_values {
+                Ok(values) => values,
                 Err(None) => continue,
                 Err(Some(error)) => return Err(error),
             };
 
-            let observed_result = if let Some(term) = input.observed_result {
-                let Some(term) = self.constant_term_id(term) else {
-                    continue;
-                };
-
-                Some(term)
-            } else {
-                None
-            };
-
             self.dependency_contracts[index] = Some(
                 store.intern_dependency_contract_template(
-                    contract
-                        .with_borrows(borrows)
-                        .with_stored_values(stored_values)
-                        .with_carriers(carriers)
-                        .with_owned_result(owned_result)
-                        .with_observed_result(observed_result)
-                        .with_effects(effects)
+                    DependencyContractTemplateData::new(requirements)
+                        .with_failure_outcomes(failures)
+                        .with_captured_values(captured_values)
+                        .with_possible_effects(effects)
                         .with_synchronous_cleanup(synchronous_cleanup)
-                        .with_normal_completion(input.normal_completion)
-                        .with_normal_storage_preservation(input.normal_storage_preserved),
+                        .with_normal_completion(input.normal_completion),
                 )?,
             );
         }
 
         Ok(())
+    }
+
+    fn convert_failure_outcomes(
+        &self,
+        rows: &[crate::InterfaceFailureOutcome],
+        symbols: &impl InterfaceSymbolResolver,
+    ) -> Result<Vec<bray_symbols::CapturedFailureOutcome>, Option<InterfaceSemanticInternError>> {
+        rows.iter().map(|row| Ok(bray_symbols::CapturedFailureOutcome {
+            kind: row.kind,
+            guard: row.guard.map(|term| self.constant_term_id(term).ok_or(None)).transpose()?,
+            report: row.report.as_deref().map(|report|
+                self.convert_dependency_requirements(report, symbols).map_err(Some)?.map(bray_base::sorted_unique_shared_slice).ok_or(None)).transpose()?,
+            effects: row.effects.as_deref().map(|effects|
+                self.convert_dependency_effects(effects, symbols).map_err(Some)?.map(bray_base::sorted_unique_shared_slice).ok_or(None)).transpose()?,
+            cell_changes: row.cell_changes.as_deref().map(|cells|
+                self.convert_dependency_effects(cells, symbols).map_err(Some)?.map(bray_base::sorted_unique_shared_slice).ok_or(None)).transpose()?,
+            writes: bray_base::sorted_unique_shared_slice(self.convert_captured_bindings(&row.writes, symbols)?),
+        })).collect()
+    }
+
+    fn convert_captured_bindings(
+        &self,
+        bindings: &[crate::InterfaceCapturedBinding],
+        symbols: &impl InterfaceSymbolResolver,
+    ) -> Result<Vec<(DependencySubject, bray_symbols::CapturedValueTemplate)>, Option<InterfaceSemanticInternError>> {
+        bindings.iter().map(|(destination, value)| {
+                let destination = self.convert_dependency_subject(destination, symbols).map_err(Some)?.ok_or(None)?;
+
+                let value = value.try_map(&mut |input| self.constant_term_id(*input).ok_or(None), &mut |projection| {
+                    self.convert_dependency_projections(std::slice::from_ref(projection), symbols).map_err(Some)?
+                        .and_then(|projections| projections.into_iter().next()).ok_or(None)
+                }, &mut |root| self.convert_captured_static(root, symbols), &mut |call| Ok(bray_symbols::CapturedCallable {
+                    instance: self.callable_instance_id(call.instance).ok_or(None)?, signature: self.type_id(call.signature).ok_or(None)?,
+                    receiver: call.receiver.map(|ty| self.type_id(ty).ok_or(None)).transpose()?,
+                    requirement: call.requirement.map(|(ty, app)| Ok::<_, Option<InterfaceSemanticInternError>>(bray_symbols::ImplementationRequirementKey::new(
+                        self.type_id(ty).ok_or(None)?, self.trait_application_id(app).ok_or(None)?))).transpose()?,
+                    dispatch: call.dispatch.map(|w| self.implementation_instance_id(w).ok_or(None)).transpose()?,
+                    witnesses: call.witnesses.iter().map(|w| self.implementation_instance_id(*w).ok_or(None)).collect::<Result<_, _>>()?,
+                }), &mut |variant| resolve_exact(symbols, variant).map_err(Some))?;
+
+                Ok((destination, value))
+                }).collect()
+    }
+
+    fn convert_dependency_storage(
+        &self,
+        references: &[bray_symbols::DependencyBorrowRelation<InterfaceDependencySubject, InterfaceDependencyProjection>],
+        stored_values: &[bray_symbols::DependencyStoredValue<InterfaceDependencySubject>],
+        symbols: &impl InterfaceSymbolResolver,
+    ) -> Result<Option<(Vec<bray_symbols::DependencyBorrowRelation>, Vec<bray_symbols::DependencyStoredValue>)>, InterfaceSemanticInternError> {
+        let mut origins = Vec::with_capacity(references.len());
+
+        for relation in references {
+            let entry = match relation.source_subject() {
+                Some(entry) => {
+                    let Some(entry) = self.convert_dependency_subject(entry, symbols)? else { return Ok(None); };
+
+                    Some(entry)
+                }
+                None => None,
+            };
+
+            let Some(exit) = self.convert_dependency_subject(relation.exit(), symbols)? else { return Ok(None); };
+
+            let Some(projections) = self.convert_dependency_projections(relation.target_projections(), symbols)? else { return Ok(None); };
+
+            origins.push(relation.remap(entry, exit, projections));
+        }
+
+        let mut values = Vec::with_capacity(stored_values.len());
+
+        for stored in stored_values {
+            let Some(destination) = self.convert_dependency_subject(stored.destination().subject(), symbols)? else { return Ok(None); };
+
+            let destination = bray_symbols::DependencyStoredValuePath::new(destination, stored.destination().dereferences());
+            let mut sources = Vec::with_capacity(stored.sources().len());
+
+            for source in stored.sources() {
+                let Some(subject) = self.convert_dependency_subject(source.subject(), symbols)? else { return Ok(None); };
+
+                sources.push(bray_symbols::DependencyStoredValuePath::new(subject, source.dereferences()));
+            }
+
+            values.push(bray_symbols::DependencyStoredValue::new(destination, sources, stored.is_complete()));
+        }
+
+        Ok(Some((origins, values)))
     }
 
     pub(super) fn convert_dependency_requirements(
@@ -439,6 +483,15 @@ impl InternState {
             InterfaceDependencySubjectRoot::ExactThreadStatic(reference) => {
                 DependencySubjectRoot::ExactThreadStatic(resolve_exact(symbols, reference)?)
             }
+            InterfaceDependencySubjectRoot::StaticInstance(reference, duration) => {
+                let reference = match self.convert_captured_static(reference, symbols) {
+                    Ok(reference) => reference,
+                    Err(None) => return Ok(None),
+                    Err(Some(error)) => return Err(error),
+                };
+
+                DependencySubjectRoot::StaticInstance(self.store.intern_static_reference(reference)?, *duration)
+            }
         };
 
         let Some(projections) = self.convert_dependency_projections(&input.projections, symbols)?
@@ -489,75 +542,19 @@ impl InternState {
 
     fn convert_dependency_effects(
         &self,
-        input: &[bray_symbols::DependencyStorageEffect<
-            InterfaceDependencySubject,
-            InterfaceDependencyProjection,
-            crate::InterfaceTypeId,
-        >],
+        input: &[crate::InterfaceStorageEffect],
         symbols: &impl InterfaceSymbolResolver,
-    ) -> Result<Option<Vec<bray_symbols::DependencyStorageEffect>>, InterfaceSemanticInternError>
-    {
-
-        let mut effects = Vec::with_capacity(input.len());
-
-        for effect in input {
-            effects.push(match effect {
-                DependencyStorageEffect::UnboundedMutation { kind, access_type, ambient } => DependencyStorageEffect::UnboundedMutation {
-                    kind: match kind.try_map_type(|ty| self.type_id(ty).ok_or(())) { Ok(kind) => kind, Err(()) => return Ok(None) },
-                    access_type: match access_type.map(|ty| self.type_id(ty).ok_or(())).transpose() { Ok(ty) => ty, Err(()) => return Ok(None) },
-                    ambient: *ambient,
-                },
-                DependencyStorageEffect::Atomic => DependencyStorageEffect::Atomic,
-                DependencyStorageEffect::Ambient => DependencyStorageEffect::Ambient,
-                DependencyStorageEffect::Unknown => DependencyStorageEffect::Unknown,
-                DependencyStorageEffect::Escape => DependencyStorageEffect::Escape,
-                DependencyStorageEffect::Direct { subject, kind, access_type } => {
-                    let Some(subject) = self.convert_dependency_subject(subject, symbols)? else {
-                        return Ok(None);
-                    };
-
-                    DependencyStorageEffect::Direct {
-                        subject,
-                        kind: match kind.try_map_type(|ty| self.type_id(ty).ok_or(())) {
-                            Ok(kind) => kind,
-                            Err(()) => return Ok(None),
-                        },
-                        access_type: match access_type.map(|ty| self.type_id(ty).ok_or(())).transpose() {
-                            Ok(ty) => ty,
-                            Err(()) => return Ok(None),
-                        },
-                    }
-                }
-                DependencyStorageEffect::Indirect {
-                    reference,
-                    projections,
-                    kind,
-                    access_type,
-                } => {
-                    let (Some(reference), Some(projections)) = (
-                        self.convert_dependency_subject(reference, symbols)?,
-                        self.convert_dependency_projections(projections, symbols)?,
-                    ) else {
-                        return Ok(None);
-                    };
-
-                    DependencyStorageEffect::Indirect {
-                        reference,
-                        projections: projections.into(),
-                        kind: match kind.try_map_type(|ty| self.type_id(ty).ok_or(())) {
-                            Ok(kind) => kind,
-                            Err(()) => return Ok(None),
-                        },
-                        access_type: match access_type.map(|ty| self.type_id(ty).ok_or(())).transpose() {
-                            Ok(ty) => ty,
-                            Err(()) => return Ok(None),
-                        },
-                    }
-                }
-            });
-        }
-
-        Ok(Some(effects))
+    ) -> Result<Option<Vec<DependencyStorageEffect>>, InterfaceSemanticInternError> {
+        input.iter().map(|effect| effect.try_map(
+            &mut (),
+            |_, subject| self.convert_dependency_subject(subject, symbols).map_err(Some)?.ok_or(None),
+            |_, projections| self.convert_dependency_projections(projections, symbols)
+                .map_err(Some)?.map(std::sync::Arc::from).ok_or(None),
+            |_, ty| self.type_id(ty).ok_or(None),
+        )).collect::<Result<Vec<_>, _>>().map(Some).or_else(|error| match error {
+            Some(error) => Err(error),
+            None => Ok(None),
+        })
     }
 
     pub(super) fn convert_dependency_guard(

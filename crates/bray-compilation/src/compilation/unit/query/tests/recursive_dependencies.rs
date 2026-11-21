@@ -3,6 +3,40 @@ use bray_diagnostics::DiagnosticKind;
 use bray_testing::assert_goal_state_diagnostic_kind;
 
 #[test]
+fn lazy_result_cleanup_participates_in_recursive_summary_discovery() {
+    let compilation = compilation(r#"
+        module app;
+
+        struct Resource
+        {
+            destruct()
+            {
+                let pending = create();
+            }
+        }
+
+        async func create() -> Resource
+        {
+            return Resource {};
+        }
+
+        func caller()
+        {
+            let pending = create();
+        }
+    "#);
+
+    let diagnostics = compilation.check_diagnostics();
+
+    assert!(!diagnostics.has_errors(), "{diagnostics:#?}");
+
+    let lowered = compilation.lowered_unit(source_function_body_key(&compilation, "caller"))
+        .expect("lazy result cleanup has a closed source-summary component");
+
+    assert!(!lowered.diagnostics().has_errors(), "{:#?}", lowered.diagnostics());
+}
+
+#[test]
 fn abstract_trait_results_converge_through_recursive_defaults() {
     let compilation = compilation(
         r#"
@@ -436,10 +470,10 @@ fn recursive_dependencies_retain_transitive_witness_arguments() {
                 }
             }
 
-            func first<T, U>(pos left: &T, pos right: &U, pos input: &bool) -> &bool
+            func first<T, U>(pos left: &T, pos right: &U, pos input: &bool, pos stop: bool) -> &bool
                 with(T: Project, U: Project)
             {
-                return second<U, T>(right, left, input, false);
+                return second<U, T>(right, left, input, stop);
             }
 
             func second<V, W>(pos left: &V, pos right: &W, pos input: &bool, pos stop: bool) -> &bool
@@ -450,19 +484,19 @@ fn recursive_dependencies_retain_transitive_witness_arguments() {
                     return left.project(input);
                 }
 
-                return first<V, W>(left, right, input);
+                return first<V, W>(left, right, input, true);
             }
 
             func bad(pos forwarder: &Forwarder, pos holder: &Holder) -> &bool
             {
                 let local: bool = true;
 
-                return first<Forwarder, Holder>(forwarder, holder, &local);
+                return first<Forwarder, Holder>(forwarder, holder, &local, false);
             }
 
             func good(pos forwarder: &Forwarder, pos holder: &Holder, pos input: &bool) -> &bool
             {
-                return first<Forwarder, Holder>(forwarder, holder, input);
+                return first<Forwarder, Holder>(forwarder, holder, input, false);
             }
         "#,
     );
@@ -618,8 +652,10 @@ fn recursive_reference_summaries_require_a_normal_base_and_agreeing_targets() {
             "{name}: {dependencies:#?}"
         );
 
-        let origins = dependencies
-            .borrows()
+        let borrows = dependencies
+            .borrows();
+
+        let origins = borrows
             .iter()
             .filter(|relation| relation.is_exact())
             .filter(|relation| {
@@ -671,8 +707,10 @@ fn deferred_results_keep_exact_borrow_origins_and_defaults_execute_at_creation()
             name,
         );
 
-        let origins = result
-            .borrows()
+        let borrows = result
+            .borrows();
+
+        let origins = borrows
             .iter()
             .filter(|relation| {
                 relation.exit().subject_root() == bray_symbols::DependencySubjectRoot::Result
@@ -733,14 +771,14 @@ fn awaiting_a_future_consumes_it_and_unawaited_frames_remain_owned() {
 
     let key = crate::test_support::source_function_body_key(&valid, "caller");
 
-    let analysis = valid
-        .async_analysis(key)
-        .expect("fixture callable must complete async analysis");
+    let flow = valid
+        .storage_flow(key)
+        .expect("fixture callable must publish reached cleanup");
 
     assert!(
-        analysis
+        flow
             .value()
-            .scope_exits()
+            .exits()
             .iter()
             .any(|exit| !exit.lifecycle_resolution().is_empty())
     );

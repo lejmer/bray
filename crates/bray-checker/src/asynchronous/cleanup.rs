@@ -2,6 +2,6 @@ mod execution;
 mod scope;
 mod shape;
 
-pub(in crate::asynchronous) use scope::scope_exit_plans;
-pub(crate) use scope::{cleanup_free_storage, cleanup_scopes};
+pub(in crate::asynchronous) use scope::prepare_cleanup;
+pub(crate) use scope::{StorageCleanupRequirements, graph_cleanup_requirements};
 pub(crate) use shape::{CleanupShape, CleanupShapeResolver, ResolvedCleanupPart};

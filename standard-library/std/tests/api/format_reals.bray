@@ -1,4 +1,4 @@
-module bray.standard_library_tests.format_reals;
+trusted module bray.standard_library_tests.format_reals;
 
 using core.memory;
 using std.bytes;
@@ -39,7 +39,7 @@ trusted func assert_real_format_parts<Value>(
     let mut sink: std.format.FixedSink = std.format.FixedSink(&mut storage[..]);
 
     std.testing.assert_ok<unit, std.format.FixedSinkError>(
-        trusted std.format.write_to<Value, std.format.FixedSink, std.format.FixedSinkError>(
+        std.format.write_to<Value, std.format.FixedSink, std.format.FixedSinkError>(
             &mut sink,
             std.format.Argument<Value>(value, options = options)
         )
@@ -257,7 +257,7 @@ trusted func huge_real_precision_and_width_use_bulk_sink_operations()
     let mut sink: std.format.CountingSink = std.format.CountingSink();
 
     std.testing.assert_ok<unit, std.format.CountingSinkError>(
-        trusted std.format.write_to<r64, std.format.CountingSink, std.format.CountingSinkError>(
+        std.format.write_to<r64, std.format.CountingSink, std.format.CountingSinkError>(
             &mut sink,
             std.format.Argument<r64>(&value, options = std.format.Options(precision = 1000000))
         )
@@ -270,7 +270,7 @@ trusted func huge_real_precision_and_width_use_bulk_sink_operations()
     let maximum: usize = ~0;
 
     std.testing.assert_ok<unit, std.format.CountingSinkError>(
-        trusted std.format.write_to<c128, std.format.CountingSink, std.format.CountingSinkError>(
+        std.format.write_to<c128, std.format.CountingSink, std.format.CountingSinkError>(
             &mut wide,
             std.format.Argument<c128>(&complex, options = std.format.Options(width = maximum))
         )
@@ -285,7 +285,7 @@ trusted func unrepresentable_real_output_preserves_typed_counting_failure()
     let value: r64 = 1.5;
     let mut sink: std.format.CountingSink = std.format.CountingSink();
 
-    let result: Result<unit, std.format.CountingSinkError> = trusted std.format.write_to<
+    let result: Result<unit, std.format.CountingSinkError> = std.format.write_to<
         r64,
         std.format.CountingSink,
         std.format.CountingSinkError
@@ -306,7 +306,7 @@ trusted func fixed_real_capacity_failure_preserves_existing_output()
     let mut storage: bytes<3> = [170; 3];
     let mut sink: std.format.FixedSink = std.format.FixedSink(&mut storage[..]);
 
-    let result: Result<unit, std.format.FixedSinkError> = trusted std.format.write_to<
+    let result: Result<unit, std.format.FixedSinkError> = std.format.write_to<
         r64,
         std.format.FixedSink,
         std.format.FixedSinkError
@@ -368,7 +368,7 @@ trusted func real_and_complex_partial_output_keeps_the_original_failure()
         limit = 6
     };
 
-    let result: Result<unit, RealFormatFailure> = trusted std.format.write_to<c128, PartialRealSink, RealFormatFailure>(
+    let result: Result<unit, RealFormatFailure> = std.format.write_to<c128, PartialRealSink, RealFormatFailure>(
         &mut sink,
         std.format.Argument<c128>(&complex)
     );
@@ -389,7 +389,7 @@ trusted func real_and_complex_partial_output_keeps_the_original_failure()
         limit = 6
     };
 
-    let second: Result<unit, RealFormatFailure> = trusted std.format.write_to<r64, PartialRealSink, RealFormatFailure>(
+    let second: Result<unit, RealFormatFailure> = std.format.write_to<r64, PartialRealSink, RealFormatFailure>(
         &mut repeated,
         std.format.Argument<r64>(&real, options = std.format.Options(precision = 1000))
     );

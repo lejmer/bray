@@ -21,7 +21,7 @@ fn production_mutex_requires_acquisition_authority() {
     ] {
         let caller = format!(
             r#"
-            trusted module app;
+            module app;
             using internal std.sync;
             func production_probe()
                 requires(blocking_execution())
@@ -64,6 +64,8 @@ using core.target;
 "#,
     );
 
+    let mut selected = 0;
+
     for key in compilation
         .declared_unit_keys_for_test()
         .expect("fixture declarations must resolve their units")
@@ -95,6 +97,8 @@ using core.target;
             continue;
         }
 
+        selected += 1;
+
         let certified = compilation
             .execution_properties(key.clone())
             .expect("fixture callable must resolve its execution properties");
@@ -115,6 +119,8 @@ using core.target;
             checked.diagnostics()
         );
     }
+
+    assert!(selected > 0, "production synchronization must supply callable bodies");
 }
 
 #[test]
@@ -152,22 +158,21 @@ fn barrier_preserves_its_nested_mutex_authority() {
         checked.diagnostics()
     );
 
-    {
-        let name = "result_marker";
+    let symbols = compilation.symbol_graph().expect("production synchronization has a symbol graph");
 
-        let checked = compilation
-            .execution_properties(crate::test_support::source_type_callable_member_body_key(
-                &compilation,
-                name,
-            ))
-            .expect("fixture callable must resolve its execution properties");
+    let member = symbols.type_callable_members().iter().find(|member| {
+        let symbol = member.id().into();
 
-        assert!(
-            !checked.diagnostics().has_errors(),
-            "{:?}",
-            checked.diagnostics()
-        );
-    }
+        symbols.member_name(symbol).is_some_and(|name| name.as_str() == "result_marker")
+            && symbols.containing_symbol(symbol).and_then(|owner| symbols.member_name(owner))
+                .is_some_and(|name| name.as_str() == "Barrier")
+            && symbols.containing_module(symbol).is_some_and(|module| module.path().segments().eq(["std", "sync"]))
+    }).expect("production Barrier declares its result marker constructor");
+
+    let key = crate::test_support::source_symbol_body_key(&compilation, symbols, member.id().into());
+    let checked = compilation.execution_properties(key).expect("Barrier result marker must resolve its execution properties");
+
+    assert!(!checked.diagnostics().has_errors(), "{:?}", checked.diagnostics());
 }
 
 #[test]

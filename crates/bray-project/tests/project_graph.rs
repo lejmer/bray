@@ -3,7 +3,8 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use bray_diagnostics::{
-    DiagnosticArgName, DiagnosticBag, DiagnosticId, DiagnosticKind, DiagnosticNoteKind,
+    DiagnosticArgName, DiagnosticArgValue, DiagnosticBag, DiagnosticId, DiagnosticKind,
+    DiagnosticNoteKind, DiagnosticProjectDependencyCycleMember, DiagnosticProjectManifestField,
 };
 use bray_project::{
     PackageRole, ProjectGraph, ProjectLoadError, ProjectManifestProblemKind, TargetPredicate,
@@ -998,7 +999,7 @@ fn dependencies_are_isolated_to_the_declaring_product() {
 }
 
 #[test]
-fn dependency_cycles_are_reported_deterministically() {
+fn product_dependency_cycles_identify_the_affected_product() {
     let workspace = TestWorkspace::new();
 
     write_valid_workspace(workspace.path(), false);
@@ -1021,10 +1022,22 @@ fn dependency_cycles_are_reported_deterministically() {
 
     let diagnostics = manifest_diagnostic(load_project_graph(workspace.path()));
 
-    bray_testing::assert_goal_state_diagnostic_kind(
-        &diagnostics,
-        DiagnosticKind::ProjectDependencyCycle,
-    );
+    let diagnostic = diagnostics
+        .by_kind(DiagnosticKind::ProjectDependencyCycle)
+        .next()
+        .expect("the two libraries form a product dependency cycle");
+
+    assert!(diagnostic.args().iter().any(|argument| matches!(
+        argument.value(),
+        DiagnosticArgValue::ProjectManifestField(DiagnosticProjectManifestField::ProductDependencies)
+    )));
+
+    assert!(diagnostic.args().iter().any(|argument| matches!(
+        argument.value(),
+        DiagnosticArgValue::ProjectDependencyCycleMember(
+            DiagnosticProjectDependencyCycleMember::Product { package, product }
+        ) if package == "example.application" && product == "application"
+    )));
 }
 
 #[test]

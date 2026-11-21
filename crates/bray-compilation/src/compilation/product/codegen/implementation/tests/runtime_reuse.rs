@@ -306,7 +306,7 @@ fn direct_native_imports_close_runtime_and_lifecycle_before_host_mapping() {
                 extern trusted func native_value() -> i32 uses(foreign_call);
 
                 trusted func main() -> i32 uses(foreign_call) {
-                    return trusted native_value();
+                    return native_value();
                 }
             "#,
             true,

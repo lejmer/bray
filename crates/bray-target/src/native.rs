@@ -290,12 +290,14 @@ mod tests {
             for name in ["entry", "_entry", "bray_instance_42"] {
                 let object = target.object_symbol_name(name);
 
-                assert_eq!(target.codegen_symbol_name(&object), Some(name));
+                let expected = if target.object_format() == ObjectFormat::MachO {
+                    format!("_{name}")
+                } else {
+                    name.to_owned()
+                };
 
-                assert_eq!(
-                    object.starts_with("__"),
-                    target.object_format() == ObjectFormat::MachO && name.starts_with('_')
-                );
+                assert_eq!(object, expected);
+                assert_eq!(target.codegen_symbol_name(&object), Some(name));
             }
         }
 
@@ -438,6 +440,15 @@ mod tests {
 
             assert_eq!(NativeTarget::for_identity(profile.identity()), Some(target));
             assert_eq!(NativeTarget::for_profile(&profile), Some(target));
+
+            let altered = crate::TargetProfile::try_new(
+                profile.identity().clone(),
+                profile.machine().clone(),
+                profile.properties().clone().with_operations(crate::TargetOperationSupport::new(false, false, false)),
+            ).expect("a native identity can carry a different operation contract");
+
+            assert_eq!(NativeTarget::for_identity(altered.identity()), Some(target));
+            assert_eq!(NativeTarget::for_profile(&altered), None);
         }
     }
 }

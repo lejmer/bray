@@ -21,7 +21,7 @@ use bray_standard_library::{
 use bray_symbols::{
     NativeLinkKind, NativeLinkRequirement, NativeSymbolContract, PackageIdentity, ProductKind,
 };
-use bray_target::NativeTarget;
+use bray_target::{NativeTarget, ObjectFormat};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::sync::Arc;
@@ -29,11 +29,11 @@ use std::sync::Arc;
 #[test]
 #[ignore = "tier:exhaustive"]
 fn native_products_allow_platform_runtime_dependencies() {
-    for target in NativeTarget::ALL {
+    for format in [ObjectFormat::Coff, ObjectFormat::Elf, ObjectFormat::MachO] {
         assert_eq!(
-            crate::compilation::product::codegen::link::product_link_model(target.object_format()),
+            crate::compilation::product::codegen::link::product_link_model(format),
             LinkModel::Dynamic,
-            "{target:?}"
+            "{format:?}"
         );
     }
 }
@@ -372,18 +372,18 @@ fn source_authority_selects_native_provider_units_and_flags() {
             .all(|unit| unit.digest != unit_digests["process"])
     );
 
-    let (_, filesystem) = select(PlatformServiceRole::FileRead);
+    let (filesystem_links, filesystem) = select(PlatformServiceRole::FileRead);
 
-    assert!(
-        filesystem
-            .iter()
-            .any(|unit| unit.digest == unit_digests["filesystem"])
+    assert_eq!(
+        filesystem.iter().map(|unit| unit.digest).collect::<BTreeSet<_>>(),
+        BTreeSet::from([unit_digests["fallback"], unit_digests["filesystem"]]),
     );
 
-    assert!(
-        filesystem
-            .iter()
-            .all(|unit| unit.digest != unit_digests["streams"])
+    assert_eq!(filesystem.len(), 2);
+
+    assert_eq!(
+        filesystem_links.iter().map(|input| input.source()).collect::<Vec<_>>(),
+        [&LinkInputSource::try_native_library("filesystem").expect("fixture native library name must be valid")],
     );
 
     let overridden = compilation

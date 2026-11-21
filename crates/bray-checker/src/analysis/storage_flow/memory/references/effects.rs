@@ -1,5 +1,6 @@
-use super::super::model::{Effect, Origin, Place, References, State, Target};
-use bray_bound_tree::StorageInvalidation;
+use super::super::model::{Origin, Place, AddressValue, State, Target};
+use super::super::Effect;
+use bray_bound_tree::{BoundExecutionSite, StorageInvalidation};
 use bray_symbols::DependencyMutationKind;
 
 impl State {
@@ -16,7 +17,7 @@ impl State {
             | StorageInvalidation::Observed {
                 stable_descriptors, stable_values, ..
             } => (stable_descriptors, stable_values),
-            StorageInvalidation::Paths(_) => return false,
+            StorageInvalidation::Unchanged => return false,
         };
 
         // A retained whole descriptor protects its inline reference values. It does
@@ -43,18 +44,15 @@ impl State {
 
         // The target is the disposed value, not each differently typed referent.
         // Consumers follow its stored references while the value is still live.
-        vec![Effect::Mutation(receiver.clone(), kind, Some(ty))]
+        vec![Effect::at(receiver.clone(), kind, Some(ty))]
     }
 
     /// Normal ambient effects share external roots and this call's escaped inputs.
     /// A whole invocation escape has no finite reachability bound.
     pub(in crate::analysis::storage_flow) fn ambient_regions(&self, effects: &[Effect]) -> Option<(std::collections::BTreeSet<Target>, bool)> {
-        if effects.contains(&Effect::Escape) { return None; }
+        if effects.contains(&Effect::Escape(None)) { return None; }
 
-        let escaped = effects.iter().filter_map(|effect| match effect {
-            Effect::Mutation(target, DependencyMutationKind::Escape, _) => Some(target.clone()),
-            _ => None,
-        });
+        let escaped = effects.iter().flat_map(Effect::escape_regions).cloned();
 
         Some(self.reachable_regions(self.escaped_regions(escaped)))
     }
@@ -63,36 +61,90 @@ impl State {
         &mut self,
         effects: Option<&[Effect]>,
         invalidation: &StorageInvalidation,
-        storage: &bray_bound_tree::StoragePlan,
+        origin: BoundExecutionSite,
     ) {
-        let Some(effects) = effects.filter(|effects| {
-            !effects
-                .iter()
-                .any(|effect| matches!(effect, Effect::Unknown))
-        }) else {
-            self.invalidate(invalidation, storage, DependencyMutationKind::Retire);
+        let Some(effects) = effects else {
+            self.invalidate(invalidation, DependencyMutationKind::Retire);
             return;
         };
 
+        if effects.contains(&Effect::Unknown) {
+            self.invalidate(invalidation, DependencyMutationKind::Retire);
+        }
+
+        let unbounded_ambient = effects.contains(&Effect::Escape(None));
+        let mut previous_unbounded = None;
+        let mut previous_bound = None;
+
         for effect in effects {
+            let unbounded = match effect {
+                Effect::UnboundedMutation { kind, ambient, .. } if !*ambient || unbounded_ambient => Some(*kind),
+                Effect::Ambient if unbounded_ambient => Some(DependencyMutationKind::Retire),
+                _ => None,
+            };
+
+            if let Some(kind) = unbounded {
+                previous_bound = None;
+
+                // Without an address, the access type still informs proof framing.
+                // Physical weakening only distinguishes atomic and allocation scope.
+                let deallocation = effect.is_unlocated_deallocation();
+                let scope = (kind == DependencyMutationKind::Atomic, deallocation);
+
+                if previous_unbounded != Some(scope) {
+                    self.invalidate_unknown_targets(invalidation, kind, deallocation);
+                    previous_unbounded = Some(scope);
+                }
+
+                continue;
+            }
+
+            previous_unbounded = None;
+
+            let bound = match effect {
+                Effect::Mutation { address: None, footprint, kind, .. }
+                    if !matches!(kind, DependencyMutationKind::Atomic | DependencyMutationKind::Dispose(_)
+                        | DependencyMutationKind::Cleanup(_) | DependencyMutationKind::Escape) => Some(footprint),
+                _ => None,
+            };
+
+            // These effects only forget overlapping values and initialization.
+            // Their checked types still remain on the transition for proof.
+            if bound.is_some() && previous_bound == bound {
+                continue;
+            }
+
+            previous_bound = bound;
+
             match effect {
-                Effect::Escape | Effect::Mutation(_, DependencyMutationKind::Escape, _) => {}
-                Effect::Mutation(target, DependencyMutationKind::Dispose(_) | DependencyMutationKind::Cleanup(_), _) => {
+                Effect::Escape(_) | Effect::Mutation { kind: DependencyMutationKind::Escape, .. } => {}
+                Effect::Mutation { address, footprint: target, kind: kind @ (DependencyMutationKind::Dispose(_) | DependencyMutationKind::Cleanup(_)), .. } => {
+                    let backing = if matches!(kind, DependencyMutationKind::Dispose(_)) {
+                        address.as_ref().and_then(|owner| self.owned_backing(owner)).cloned()
+                    } else { None };
+
                     let (mut targets, unknown) = self.transitive_regions([target.clone()], |_, _| true);
 
                     self.include_unknown_targets(&mut targets, unknown);
 
-                    self.invalidate(invalidation, storage, DependencyMutationKind::Retire);
+                    self.invalidate(invalidation, DependencyMutationKind::Retire);
 
-                    for target in targets {
-                        self.invalidate_target(&target, DependencyMutationKind::Retire, invalidation, false);
+                    self.invalidate_cleanup_regions(&targets, invalidation);
+
+                    if let Some(backing) = backing {
+                        self.invalidate_target(&backing, DependencyMutationKind::Retire, invalidation, true, Some(origin), false);
                     }
                 }
-                Effect::Mutation(target, kind, access_type) => {
-                    self.invalidate_target(target, *kind, invalidation, access_type.is_none())
-                }
-                Effect::UnboundedMutation { kind, ambient: false, .. } => {
-                    self.invalidate(invalidation, storage, *kind);
+                Effect::Mutation { address, footprint: target, kind, access_type, .. } => {
+                    let retiring = (*kind == DependencyMutationKind::Retire).then_some(address.as_ref()).flatten();
+
+                    if let Some(address) = retiring.filter(|address| *address != target) {
+                        self.invalidate_target(address, *kind, invalidation, true, Some(origin), false);
+                    }
+
+                    self.invalidate_target(target, *kind, invalidation,
+                        access_type.is_none() && address.as_ref() == Some(target),
+                        retiring.filter(|address| *address == target).map(|_| origin), false)
                 }
                 effect if effect.is_ambient() => {
                     let kind = match effect {
@@ -104,25 +156,28 @@ impl State {
                         self.include_unknown_targets(&mut targets, unknown);
 
                         for target in targets {
+                            if effect.is_unlocated_deallocation() && !self.unlocated_deallocation_may_reach(&target) {
+                                continue;
+                            }
+
                             self.invalidate_target(
                                 &target,
                                 kind,
                                 invalidation,
                                 false,
+                                None,
+                                effect.is_unlocated_deallocation(),
                             );
                         }
                     } else {
-                        self.invalidate(invalidation, storage, kind);
+                        self.invalidate_unknown_targets(invalidation, kind, effect.is_unlocated_deallocation());
                     }
                 }
                 effect if effect.is_atomic() => self.invalidate(
                     &StorageInvalidation::unknown(),
-                    storage,
                     DependencyMutationKind::Atomic,
                 ),
-                Effect::Unknown => {
-                    unreachable!("opaque effects handled above")
-                }
+                Effect::Unknown => {}
                 Effect::Ambient | Effect::Atomic | Effect::UnboundedMutation { .. } => {
                     unreachable!("classified effects handled above")
                 }
@@ -136,10 +191,16 @@ impl State {
         kind: DependencyMutationKind,
         invalidation: &StorageInvalidation,
         complete_cell: bool,
+        retirement: Option<BoundExecutionSite>,
+        deallocation: bool,
     ) {
-        let references = References::one(target.clone());
+        let references = AddressValue::one(target.clone());
 
         for affected in self.affected_targets(&references) {
+            if deallocation && !self.unlocated_deallocation_may_reach(&affected) {
+                continue;
+            }
+
             // Atomic effects change protected payload observations, not ordinary
             // reference slots that merely may alias the atomic's address.
             if kind != DependencyMutationKind::Atomic
@@ -148,21 +209,24 @@ impl State {
                 if complete_cell && target.is_exact() && *target == affected {
                     self.values.remove(&affected);
                 } else if let Some(value) = self.values.get_mut(&affected) {
-                    value.references = None;
-                    value.complete = false;
+                    invalidate_value(value, affected == *target || !affected.contains_storage(target));
                 }
             }
 
-            if let Some(contents) = self.contents.get_mut(&affected) {
+            if let Some(origin) = retirement {
+                self.retire_backing(affected, origin);
+            } else if let Some(contents) = self.contents.get_mut(&affected) {
                 // An alias bound does not prove a complete typed update. Preserve
                 // only the ordinary selected cell, never a merely overlapping view.
-                contents.initialized.retain(|ty| {
-                    contents.storage_type == Some(*ty)
+                let storage_type = contents.storage_type;
+
+                contents.retain_initialization(kind == DependencyMutationKind::Atomic, |ty| {
+                    storage_type == Some(ty)
                         && (kind == DependencyMutationKind::Atomic
                             || complete_cell && target.is_exact() && *target == affected
                                 && match kind {
                                     DependencyMutationKind::Write | DependencyMutationKind::Clear => true,
-                                    DependencyMutationKind::Replace(written) => written == *ty,
+                                    DependencyMutationKind::Replace(written) => written == ty,
                                     _ => false,
                                 })
                 });
@@ -170,16 +234,61 @@ impl State {
         }
     }
 
+    fn invalidate_cleanup_regions(
+        &mut self,
+        regions: &std::collections::BTreeSet<Target>,
+        invalidation: &StorageInvalidation,
+    ) {
+        let slots = self.values.keys().chain(self.contents.keys()).collect::<std::collections::BTreeSet<_>>();
+
+        let affected = slots.into_iter().filter_map(|slot| {
+            if regions.contains(slot) {
+                return Some((slot.clone(), true));
+            }
+
+            let mut overlapping = regions.iter().filter(|region| {
+                self.target_relationship(region, slot) != bray_bound_tree::StorageRelationship::Disjoint
+            });
+
+            let first = overlapping.next()?;
+            let replaces_backing = !slot.contains_storage(first) || overlapping.any(|region| !slot.contains_storage(region));
+
+            Some((slot.clone(), replaces_backing))
+        }).collect::<Vec<_>>();
+
+        for (slot, replaces_backing) in affected {
+            if !Self::stable_reference_slot(&slot, invalidation)
+                && let Some(value) = self.values.get_mut(&slot)
+            {
+                invalidate_value(value, replaces_backing);
+            }
+
+            if let Some(contents) = self.contents.get_mut(&slot) {
+                contents.clear_initialization();
+            }
+        }
+    }
+
     pub(in crate::analysis::storage_flow) fn invalidate(
         &mut self,
         invalidation: &StorageInvalidation,
-        storage: &bray_bound_tree::StoragePlan,
         kind: DependencyMutationKind,
+    ) {
+        self.invalidate_unknown_targets(invalidation, kind, false);
+    }
+
+    fn invalidate_unknown_targets(
+        &mut self,
+        invalidation: &StorageInvalidation,
+        kind: DependencyMutationKind,
+        deallocation: bool,
     ) {
         // An opaque operation can change the referent without replacing a reference
         // stored in an unexposed owner or reached through a protected shared entry borrow.
         // The established observation identifies the slot independently of its referent.
         let unaddressed = &self.unaddressed_storage;
+        let owned = &self.owned_storage;
+        let unaffected = |target: &Target| deallocation && !Self::deallocation_may_reach(owned, target);
 
         let unknown = matches!(
             invalidation,
@@ -188,19 +297,21 @@ impl State {
 
         self.values.retain(|target, value| {
             let retained = kind == DependencyMutationKind::Atomic
+                || unaffected(target)
                 || unknown && Self::unaddressed_inline_slot(unaddressed, target)
                 || Self::stable_reference_slot(target, invalidation)
                 || match target.observation_path() {
-                    Some(slot) => !invalidation.invalidates_path(&slot, storage),
+                    Some(slot) => !invalidation.invalidates_path(&slot),
                     None => !matches!(
                         invalidation,
                         StorageInvalidation::All { .. }
                     ),
                 };
 
-            if !retained && value.tracked {
-                value.references = None;
-                value.complete = false;
+            if !retained && (value.completeness.tracked() || value.owned_backing().is_some()) {
+                value.clear_address();
+                value.completeness.lose_completeness();
+                value.forget_owned_backing();
 
                 true
             } else {
@@ -209,12 +320,12 @@ impl State {
         });
 
         for (target, contents) in &mut self.contents {
-            if unknown && Self::unaddressed_inline_slot(unaddressed, target) {
+            if unaffected(target) || unknown && Self::unaddressed_inline_slot(unaddressed, target) {
                 continue;
             }
 
             let affected = match &target.origin {
-                Origin::Storage(path) => invalidation.invalidates_path(path, storage),
+                Origin::Storage(path) => invalidation.invalidates_path(path),
                 Origin::Entry { .. }
                 | Origin::Returned { .. }
                 | Origin::Allocation { .. }
@@ -229,11 +340,22 @@ impl State {
             if affected {
                 // Unbounded mutations establish no complete type-correct cell update.
                 // Semantic ownership framing retains the precise transition separately.
-                contents.initialized.retain(|ty| {
-                    kind == DependencyMutationKind::Atomic && contents.storage_type == Some(*ty)
+                let storage_type = contents.storage_type;
+
+                contents.retain_initialization(kind == DependencyMutationKind::Atomic, |ty| {
+                    kind == DependencyMutationKind::Atomic && storage_type == Some(ty)
                 });
             }
         }
     }
 
+}
+
+fn invalidate_value(value: &mut super::super::model::ValueBinding, replaces_backing: bool) {
+    value.clear_address();
+    value.completeness.lose_completeness();
+
+    if replaces_backing {
+        value.forget_owned_backing();
+    }
 }

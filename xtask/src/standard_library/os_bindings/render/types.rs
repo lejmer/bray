@@ -2,6 +2,7 @@ use std::fmt::Write;
 
 use super::super::model::{
     ParameterDescription, TargetDescription, TypeDescription, abi_integer_representation,
+    is_windows_handle,
 };
 
 // Formatting through String's fmt::Write implementation has no failure path.
@@ -130,6 +131,14 @@ fn render_abi_type_contract(
     bray: &str,
     native: &str,
 ) {
+    if is_windows_handle(target, bray) {
+        writeln!(source,
+            "_Static_assert(__builtin_types_compatible_p({native}, HANDLE) && sizeof({native}) == sizeof(uintptr_t) && _Alignof({native}) == _Alignof(uintptr_t), \"{context} Bray handle representation\");")
+            .expect("writing to a string must succeed");
+
+        return;
+    }
+
     if bray.starts_with("DataPointer<") {
         writeln!(
             source,

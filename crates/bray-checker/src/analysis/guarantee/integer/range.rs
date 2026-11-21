@@ -376,15 +376,15 @@ pub(in crate::analysis::guarantee) fn refined_arithmetic_range(
     let nonnegative = left_range.0 >= BigInt::from(0) && right_range.0 >= BigInt::from(0);
     let mut range = arithmetic_range(operator, left_range, right_range)?;
 
-    if operator == BoundOperator::Subtract
-        && ExecutionCondition::operation(
-            BoundOperator::LessEqual,
-            vec![right.clone(), left.clone()],
-        )
-        .prove(assumptions, &mut { ExecutionCondition::WORK_LIMIT })
-            == Some(true)
-    {
-        range.0 = range.0.max(BigInt::from(0));
+    if operator == BoundOperator::Subtract && range.0 <= BigInt::from(0) {
+        let proves = |comparison| ExecutionCondition::operation(comparison, vec![right.clone(), left.clone()])
+            .prove(assumptions, &mut { ExecutionCondition::WORK_LIMIT }) == Some(true);
+
+        if proves(BoundOperator::Less) {
+            range.0 = BigInt::from(1);
+        } else if range.0 < BigInt::from(0) && proves(BoundOperator::LessEqual) {
+            range.0 = BigInt::from(0);
+        }
     }
 
     if operator == BoundOperator::Add && nonnegative {

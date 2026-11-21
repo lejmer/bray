@@ -279,6 +279,22 @@ impl<C: CheckerRequestContext + ?Sized> CleanupShapeResolver<'_, C> {
         Ok(true)
     }
 
+    pub(crate) fn has_source_lifecycle(
+        &self,
+        ty: TypeId,
+        part: Option<&bray_bound_tree::StorageCleanupPart>,
+    ) -> Result<bool, CheckerQueryError<C::UpstreamError>> {
+        if part.is_some_and(|part| part.release().is_some() || !part.phases().includes_lifecycle()) {
+            return Ok(false);
+        }
+
+        match self.request.semantic_values().type_data(ty).as_ref() {
+            TypeData::Named { definition, substitution } => self.owns_hidden_cleanup(ty, *definition, *substitution)
+                .map(|hidden| !hidden),
+            _ => Ok(false),
+        }
+    }
+
     pub(crate) fn owns_hidden_cleanup(
         &self,
         ty: TypeId,

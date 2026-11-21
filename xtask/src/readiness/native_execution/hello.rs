@@ -4,7 +4,7 @@ use std::process::Command;
 
 use bray_target::NativeTarget;
 
-use super::core::{native_output, product_output, standard_library_root};
+use super::core::{native_output, product_output};
 use super::fixtures::PRODUCT_NAME;
 
 const HELLO_WORLD_FIXTURE: &str = "xtask/fixtures/native-execution/standard-hello-world.bray";
@@ -22,7 +22,7 @@ pub(super) fn audit_standard_hello_world(
     crate::native_toolchain::assemble_from_bundles(
         target,
         runtime,
-        &standard_library_root(root),
+        &crate::runtime_artifact::standard_library_directory(root, target),
         &toolchain,
     )?;
 

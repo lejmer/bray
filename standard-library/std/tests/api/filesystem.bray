@@ -1,4 +1,4 @@
-module bray.standard_library_tests.filesystem;
+trusted module bray.standard_library_tests.filesystem;
 
 using std.bytes;
 using std.fs;
@@ -7,6 +7,7 @@ using internal std.fs.PreparedPath;
 using internal std.fs.prepare_native_path;
 using internal std.fs.FileReader;
 using internal std.fs.FileWriter;
+using internal std.fs.FileAsyncWriter;
 using std.io;
 using std.memory;
 using internal std.memory.slice_pointer;
@@ -40,18 +41,27 @@ func file_transfers_preserve_empty_requests_partial_reads_and_eof() -> Result<un
     let mut destination: bytes<5> = [0; 5];
     let empty_read: usize = std.testing.assert_ok<usize, std.io.IoError>(file.read(&mut destination[0..0]));
     let empty_write: usize = std.testing.assert_ok<usize, std.io.IoError>(file.write(&source[0..0]));
-    let written: usize = std.testing.assert_ok<usize, std.io.IoError>(file.write(&source[..]));
+
+    try file.write_all(&source[..]);
 
     let position: u64 = std.testing.assert_ok<u64, std.io.IoError>(
         file.seek(offset = 0, origin = std.io.SeekOrigin.Start),
     );
 
-    let read: usize = std.testing.assert_ok<usize, std.io.IoError>(file.read(&mut destination[..]));
-    let eof: usize = std.testing.assert_ok<usize, std.io.IoError>(file.read(&mut destination[..]));
+    let mut read: usize = 0;
+
+    while read < source.length()
+    {
+        let count = try file.read(&mut destination[read..]);
+
+        assert(count > 0 && count <= source.length() - read);
+        read += count;
+    }
+
+    let eof = try file.read(&mut destination[read..]);
 
     assert(empty_read == 0);
     assert(empty_write == 0);
-    assert(written == 3);
     assert(position == 0);
     assert(read == 3);
     assert(eof == 0);
@@ -219,9 +229,8 @@ async func asynchronous_file_operations_preserve_data_and_metadata() -> Result<u
     );
 
     let bytes: bytes = b"XY";
-    let written: usize = std.testing.assert_ok<usize, std.io.IoError>(await file.write_async(&bytes[..]));
 
-    assert(written == 2);
+    try await file.write_all_async(&bytes[..]);
 
     std.testing.assert_ok<unit, std.io.IoError>(await file.flush_async());
 
@@ -232,9 +241,20 @@ async func asynchronous_file_operations_preserve_data_and_metadata() -> Result<u
     assert(position == 0);
 
     let mut read: bytes<2> = [0; 2];
-    let read_count: usize = std.testing.assert_ok<usize, std.io.IoError>(await file.read_async(&mut read[..]));
+    let mut read_count: usize = 0;
 
-    assert(read_count == 2);
+    while read_count < bytes.length()
+    {
+        let count = try await file.read_async(&mut read[read_count..]);
+
+        assert(count > 0 && count <= bytes.length() - read_count);
+        read_count += count;
+    }
+
+    let mut extra: bytes<1> = [0];
+    let eof = try await file.read_async(&mut extra[..]);
+
+    assert(eof == 0);
     assert(read[0] == 88);
     assert(read[1] == 89);
 
@@ -444,6 +464,7 @@ trusted func rename_accepts_mixed_owned_and_length_delimited_paths() -> Result<u
     );
 
     assert(first.category == 0);
+    try assert_renamed_byte(&source, &destination, value = 7);
 
     let source_again: std.fs.PlatformPath = internal std.fs.platform_path(&source);
     let destination_again: std.fs.PlatformPath = internal std.fs.platform_path(&destination);
@@ -461,7 +482,34 @@ trusted func rename_accepts_mixed_owned_and_length_delimited_paths() -> Result<u
     );
 
     assert(second.category == 0);
+    try assert_renamed_byte(&destination, &source, value = 7);
     try std.fs.remove_file(&source);
+    return Ok(unit);
+}
+
+func assert_renamed_byte(
+    pos original: &std.path.Path,
+    pos current: &std.path.Path,
+    value: u8
+) -> Result<unit, std.io.IoError>
+    requires(blocking_execution())
+{
+    let absent = std.testing.assert_error<std.fs.FileMetadata, std.io.IoError>(std.fs.metadata(original));
+
+    assert(absent.kind == std.io.IoErrorKind.NotFound);
+
+    let options = std.fs.OpenOptions(access = std.fs.FileAccess.Read, creation = std.fs.FileCreation.OpenExisting);
+    let mut moved = try std.fs.File.open(current, options = options);
+    let mut contents: bytes<1> = [0];
+    let count = try moved.read(&mut contents[..]);
+
+    assert(count == 1 && contents[0] == value);
+
+    let eof = try moved.read(&mut contents[..]);
+
+    assert(eof == 0);
+    try moved.close();
+
     return Ok(unit);
 }
 
@@ -523,7 +571,7 @@ trusted func length_delimited_native_paths_remain_supported()
 
     let actual: &[u8] = trusted std.memory.initialized_slice<u8>(&storage);
 
-    assert(actual[offset] == 65);
+    assert(std.bytes.equals(&actual[offset..(offset + length)], &bytes[0..length]));
     assert(actual[offset + length] == 0);
 
     if width == 2
@@ -550,7 +598,7 @@ trusted func length_delimited_native_paths_remain_supported()
 }
 
 @target(target.identity.SYSTEM == "windows")
-module bray.standard_library_tests.filesystem
+trusted module bray.standard_library_tests.filesystem
 {
     using std.fs;
     using std.io;

@@ -4,13 +4,14 @@ use bray_bound_tree::{
     CheckedMemoryOperationKind, StorageAccessPurpose, StoragePath, StorageRelationship,
 };
 use bray_diagnostics::{
-    Diagnostic, DiagnosticArg, DiagnosticKind, DiagnosticLabel, DiagnosticLabelKind, SeverityKind,
+    Diagnostic, DiagnosticKind, DiagnosticLabel, DiagnosticLabelKind, SeverityKind,
 };
 use bray_symbols::{DependencyMutationKind, DependencyStorageEffect, TypeId};
 
 use super::core::StorageFlowCollector;
+use super::diagnostics::{DiagnosticArgument, DiagnosticSubject};
 use crate::analysis::model::AnalysisOperationKind;
-use crate::analysis::storage_flow::memory::{Effect, State, Target};
+use crate::analysis::storage_flow::memory::{Effect, Target};
 use crate::analysis::storage_flow::model::{StorageFlowInput, StorageFlowState};
 use crate::{CheckerRequestContext, CheckerUnitView};
 
@@ -76,6 +77,10 @@ impl StorageFlowInput {
             | DependencyStorageEffect::Indirect {
                 kind: DependencyMutationKind::Replace(ty),
                 ..
+            }
+            | DependencyStorageEffect::UnboundedMutation {
+                kind: DependencyMutationKind::Replace(ty),
+                ..
             } = effect
             {
                 types.insert(*ty);
@@ -107,28 +112,29 @@ impl StorageFlowInput {
 }
 
 impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
+    #[expect(clippy::too_many_arguments, reason = "terminal checking uses resolved destinations, effects and reachability")]
     pub(super) fn check_terminal_operation(
         &mut self,
         state: &StorageFlowState,
         operation: AnalysisOperationKind,
-        assignment: Option<&Target>,
+        assignment: Option<&[Effect]>,
         mutation: Option<DependencyMutationKind>,
         effects: Option<&[Effect]>,
         roots: &[Target],
+        escaped: &std::collections::BTreeSet<Target>,
     ) {
         if !self.publish || state.recovered || self.input.terminal_receiver.is_none() {
             return;
         }
 
         if let Some(mutation) = mutation {
-            if let Some(target) = assignment {
-                // The effect owns its path while the assignment retains the same shared projections.
+            if let Some(effects) = assignment {
                 self.check_terminal_effects(
                     state,
-                    &state.memory,
                     operation,
-                    Some(&[Effect::Mutation(target.clone(), mutation, None)]),
+                    Some(effects),
                     [],
+                    escaped,
                 );
             } else if matches!(mutation, DependencyMutationKind::Replace(ty) if self.input.graceful_types.contains(&ty))
             {
@@ -141,10 +147,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         if effects.is_some() || self.call_attempt(operation).is_some() {
             self.check_terminal_effects(
                 state,
-                &state.memory,
                 operation,
                 effects,
                 roots.iter().cloned(),
+                escaped,
             );
         }
     }
@@ -152,10 +158,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     pub(super) fn check_terminal_effects(
         &mut self,
         state: &StorageFlowState,
-        memory: &State,
         operation: AnalysisOperationKind,
         effects: Option<&[Effect]>,
         roots: impl IntoIterator<Item = Target>,
+        escaped: &std::collections::BTreeSet<Target>,
     ) {
         let Some(receiver) = self
             .input
@@ -170,12 +176,12 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         // Unknown writes and opaque cleanup still need a reachability proof.
         let relevant = effects.is_none_or(|effects| {
             effects.iter().any(|effect| match effect {
-                Effect::Mutation(_, DependencyMutationKind::Replace(ty), _) | Effect::UnboundedMutation { kind: DependencyMutationKind::Replace(ty), .. } => {
+                Effect::Mutation { kind: DependencyMutationKind::Replace(ty), .. } | Effect::UnboundedMutation { kind: DependencyMutationKind::Replace(ty), .. } => {
                     self.input.graceful_types.contains(ty)
                 }
-                Effect::Mutation(_, DependencyMutationKind::Write | DependencyMutationKind::Escape | DependencyMutationKind::Dispose(_) | DependencyMutationKind::Cleanup(_), _)
+                Effect::Mutation { kind: DependencyMutationKind::Write | DependencyMutationKind::Escape | DependencyMutationKind::Dispose(_) | DependencyMutationKind::Cleanup(_), .. }
                 | Effect::UnboundedMutation { kind: DependencyMutationKind::Write | DependencyMutationKind::Escape | DependencyMutationKind::Dispose(_) | DependencyMutationKind::Cleanup(_), .. }
-                | Effect::Escape
+                | Effect::Escape(_)
                 | Effect::Unknown
                 | Effect::Ambient
                 => true,
@@ -186,6 +192,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         if !relevant {
             return;
         }
+
+        let memory = &state.memory;
 
         let (protected, unknown) =
             memory.transitive_regions([Target::storage(receiver.clone())], |_, slot| {
@@ -213,7 +221,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             .into_iter()
             .flatten()
             .find_map(|effect| match effect {
-                Effect::Mutation(target, DependencyMutationKind::Replace(ty), _)
+                Effect::Mutation { footprint: target, kind: DependencyMutationKind::Replace(ty), .. }
                     if self.input.graceful_types.contains(ty) && overlaps(target) =>
                 {
                     Some(*ty)
@@ -227,7 +235,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             effects.iter().any(|effect| {
                 matches!(
                     effect,
-                    Effect::Unknown | Effect::Ambient | Effect::Escape | Effect::UnboundedMutation { .. }
+                    Effect::Unknown | Effect::Ambient | Effect::Escape(None) | Effect::UnboundedMutation { .. }
                 )
             })
         });
@@ -236,15 +244,20 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             effects.iter().any(|effect| {
                 matches!(
                     effect,
-                    Effect::Unknown | Effect::Escape | Effect::UnboundedMutation { ambient: false, .. }
+                    Effect::Unknown | Effect::Escape(None) | Effect::UnboundedMutation { ambient: false, .. }
                 )
             })
         });
 
-        let (reached, unknown_inputs) = memory.reachable_regions(roots.into_iter().filter(|_| inputs));
+        let (reached, unknown_inputs) = memory.reachable_regions(
+            roots.into_iter().filter(|_| inputs).chain(escaped.iter().cloned()),
+        );
 
         let unproved = effects.into_iter().flatten().any(|effect| {
-            matches!(effect, Effect::Mutation(target, DependencyMutationKind::Write | DependencyMutationKind::Escape | DependencyMutationKind::Dispose(_) | DependencyMutationKind::Cleanup(_), _) if overlaps(target))
+            let roots = effect.escape_regions();
+
+            (!roots.is_empty() && roots.iter().chain(escaped).any(overlaps))
+                || matches!(effect, Effect::Mutation { footprint: target, kind: DependencyMutationKind::Write | DependencyMutationKind::Dispose(_) | DependencyMutationKind::Cleanup(_), .. } if overlaps(target))
         }) || opaque && (unknown || reached.iter().any(overlaps)
             || unknown_inputs && protected.iter().any(|part| memory.unknown_reference_may_reach(part))
             || unbounded_overlap && effects.into_iter().flatten().any(|effect| matches!(effect, Effect::UnboundedMutation { .. })));
@@ -259,10 +272,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         operation: AnalysisOperationKind,
         introduced: Option<TypeId>,
     ) {
-        if !self.terminal_diagnostics.insert(operation.occurrence()) {
-            return;
-        }
-
         let origin = crate::diagnostic::bound_node_origin(self.request, operation.node())
             .expect("checked destructor operation retains its source");
 
@@ -274,8 +283,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         let span = self.request.source(origin.source_anchor()).span();
 
-        let mut diagnostic = Diagnostic::new(
-            crate::diagnostic::diagnostic_id(self.diagnostics.len()),
+        let diagnostic = Diagnostic::new(
+            bray_diagnostics::DiagnosticId::new(0),
             kind,
             SeverityKind::Error,
         )
@@ -285,16 +294,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             span,
         ));
 
-        if let Some(ty) = introduced {
-            match crate::diagnostic::diagnostic_type(self.request.context(), ty) {
-                Ok(ty) => diagnostic = diagnostic.with_arg(DiagnosticArg::actual_type(ty)),
-                Err(error) => {
-                    self.query_failure = Some(error);
-                    return;
-                }
-            }
-        }
-
-        self.diagnostics.add(diagnostic);
+        self.diagnostics.record_with_argument(
+            DiagnosticSubject::Terminal(operation.occurrence()),
+            diagnostic,
+            introduced.map(DiagnosticArgument::ActualType),
+        );
     }
 }

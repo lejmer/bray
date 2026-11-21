@@ -744,59 +744,59 @@ mod tests {
             DependencyStorageEffect::Unknown,
             DependencyStorageEffect::UnboundedMutation { kind: bray_symbols::DependencyMutationKind::Dispose(crate::InterfaceTypeId::new(0)), access_type: None, ambient: false },
             DependencyStorageEffect::Escape,
-            DependencyStorageEffect::Direct {
+            DependencyStorageEffect::Direct { addressed: false,
                 subject: subject.clone(),
                 kind: DependencyMutationKind::Cleanup(crate::InterfaceTypeId::new(0)),
                 access_type: None,
             },
-            DependencyStorageEffect::Direct {
+            DependencyStorageEffect::Direct { addressed: true,
                 subject: subject.clone(),
                 kind: DependencyMutationKind::Dispose(crate::InterfaceTypeId::new(0)),
                 access_type: Some(crate::InterfaceTypeId::new(0)),
             },
-            DependencyStorageEffect::Indirect {
+            DependencyStorageEffect::Indirect { addressed: true, reads: [].into(),
                 reference: subject.clone(),
                 projections: [InterfaceDependencyProjection::OwnedTarget].into(),
                 kind: DependencyMutationKind::Dispose(crate::InterfaceTypeId::new(0)),
                 access_type: None,
             },
-            DependencyStorageEffect::Direct {
+            DependencyStorageEffect::Direct { addressed: true,
                 subject: subject.clone(),
                 kind: DependencyMutationKind::Escape,
                 access_type: None,
             },
-            DependencyStorageEffect::Indirect {
+            DependencyStorageEffect::Indirect { addressed: true, reads: [].into(),
                 reference: subject.clone(),
                 projections: [].into(),
                 kind: DependencyMutationKind::Escape,
                 access_type: None,
             },
-            DependencyStorageEffect::Direct {
+            DependencyStorageEffect::Direct { addressed: true,
                 subject: subject.clone(),
                 kind: DependencyMutationKind::Write,
                 access_type: None,
             },
-            DependencyStorageEffect::Direct {
+            DependencyStorageEffect::Direct { addressed: true,
                 subject: subject.clone(),
                 kind: DependencyMutationKind::Clear,
                 access_type: None,
             },
-            DependencyStorageEffect::Direct {
+            DependencyStorageEffect::Direct { addressed: true,
                 subject: subject.clone(),
                 kind: DependencyMutationKind::Consume,
                 access_type: Some(crate::InterfaceTypeId::new(0)),
             },
-            DependencyStorageEffect::Direct {
+            DependencyStorageEffect::Direct { addressed: true,
                 subject: subject.clone(),
                 kind: DependencyMutationKind::Atomic,
                 access_type: None,
             },
-            DependencyStorageEffect::Direct {
+            DependencyStorageEffect::Direct { addressed: true,
                 subject: subject.clone(),
                 kind: DependencyMutationKind::Replace(crate::InterfaceTypeId::new(0)),
                 access_type: Some(crate::InterfaceTypeId::new(0)),
             },
-            DependencyStorageEffect::Indirect {
+            DependencyStorageEffect::Indirect { addressed: true, reads: [0, 1, 1].into(),
                 reference: subject.clone(),
                 projections: [InterfaceDependencyProjection::Element(
                     crate::InterfaceConstantTermId::new(0),
@@ -804,13 +804,16 @@ mod tests {
                 .into(),
                 kind: DependencyMutationKind::Retire,
                 access_type: None,
-            },
+            }.with_retirement_discharges([bray_symbols::StorageDischarge {
+                projections: [].into(),
+                ty: crate::InterfaceTypeId::new(0),
+            }].into()),
         ];
 
         semantics.dependency_contracts = vec![
             InterfaceDependencyContract::new([])
                 .with_effects(effects)
-                .with_completion_reports([
+                .with_abnormal_reports([
                     crate::InterfaceDependencyRequirement::cleanup_dependencies(
                         crate::InterfaceTypeId::new(0),
                         [crate::InterfaceDependencyRequirement::new(
@@ -827,8 +830,7 @@ mod tests {
                         crate::InterfaceTypeId::new(0),
                     ),
                 ])
-                .with_normal_completion(false)
-                .with_normal_storage_preservation(true),
+                .with_normal_completion(false),
             InterfaceDependencyContract::new([]).with_effects([DependencyStorageEffect::Atomic]),
         ]
         .into();
@@ -903,7 +905,7 @@ mod tests {
         ));
 
         assert!(template.effects().iter().any(|effect| matches!(effect,
-            DependencyStorageEffect::Direct { kind: DependencyMutationKind::Cleanup(ty), access_type: None, .. }
+            DependencyStorageEffect::Direct { addressed: false, kind: DependencyMutationKind::Cleanup(ty), access_type: None, .. }
                 if *ty == imported.types()[0])));
 
         assert!(template.effects().iter().any(|effect| matches!(effect,
@@ -918,10 +920,18 @@ mod tests {
             DependencyStorageEffect::Direct { kind: DependencyMutationKind::Replace(ty), .. }
                 if *ty == imported.types()[0])));
 
-        assert!(
-            template.effects().iter().any(|effect| matches!(effect, DependencyStorageEffect::Indirect { projections, kind: DependencyMutationKind::Retire, .. }
-            if projections.as_ref() == [bray_symbols::DependencyProjection::Element(imported.constant_terms()[0])]))
-        );
+        let (retirement, discharged) = template.effects().iter()
+            .find(|effect| matches!(effect, DependencyStorageEffect::OrderedRetirement { .. }))
+            .expect("the retirement must keep its preceding duty transfer")
+            .retirement_parts();
+
+        assert!(matches!(retirement, DependencyStorageEffect::Indirect { reads, projections, kind: DependencyMutationKind::Retire, .. }
+            if reads.as_ref() == [0, 1, 1] && projections.as_ref() == [bray_symbols::DependencyProjection::Element(imported.constant_terms()[0])]));
+
+        assert_eq!(discharged, &[bray_symbols::StorageDischarge {
+            projections: [].into(),
+            ty: imported.types()[0],
+        }]);
     }
 
     #[test]
@@ -1487,7 +1497,7 @@ mod tests {
             [],
         );
 
-        let contract = crate::InterfaceDependencyContract::new([]).with_borrows([
+        let outcome = crate::InterfaceNormalOutcome::new(None, []).with_storage([
             bray_symbols::DependencyBorrowRelation::new(
                 None,
                 result.clone(),
@@ -1506,6 +1516,8 @@ mod tests {
             .with_exactness(false),
             bray_symbols::DependencyBorrowRelation::new_empty(
                 result.clone(), bray_symbols::DependencyReferenceKind::Address),
+            bray_symbols::DependencyBorrowRelation::new_no_payload(
+                result.clone(), bray_symbols::DependencyReferenceKind::Address),
             bray_symbols::DependencyBorrowRelation::new_allocation(
                 result.clone(), result.clone(), bray_symbols::DependencyReferenceKind::Address),
             bray_symbols::DependencyBorrowRelation::new(
@@ -1523,7 +1535,7 @@ mod tests {
                     crate::InterfaceDependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(0)),
                     [crate::InterfaceDependencyProjection::AddressTarget])),
                 result.clone(), bray_symbols::DependencyReferenceKind::Borrow),
-        ]).with_stored_values([bray_symbols::DependencyStoredValue::new(
+        ], [bray_symbols::DependencyStoredValue::new(
             bray_symbols::DependencyStoredValuePath::new(result, 1),
             [0, 1].map(|depth| bray_symbols::DependencyStoredValuePath::new(crate::InterfaceDependencySubject::new(
                 crate::InterfaceDependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(0)), [],
@@ -1531,7 +1543,23 @@ mod tests {
             true,
         )]);
 
-        let semantics = InterfaceSemantics::new().with_values([contract], [], [], []);
+        let owner = crate::InterfaceDependencySubject::new(
+            crate::InterfaceDependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(0)), [],
+        );
+
+        let support = bray_symbols::DependencyWitnessSupport::new(
+            [owner.clone()], [(crate::InterfaceConstantTermId::new(1), [owner].into())],
+        );
+
+        let carrier = bray_symbols::DependencyWitnessCarrier::new(crate::InterfaceConstantTermId::new(0), [])
+            .with_support(Some(support));
+
+        let contract = crate::InterfaceDependencyContract::new([])
+            .with_effects([crate::InterfaceStorageEffect::Ambient, crate::InterfaceStorageEffect::Escape])
+            .with_captured_values([outcome.with_effects([crate::InterfaceStorageEffect::Ambient]).with_carriers([carrier])]);
+
+        let terms = [0, 1].map(|ordinal| crate::InterfaceConstantTerm::CallableArgument(bray_symbols::SymbolOrdinal::new(ordinal)));
+        let semantics = InterfaceSemantics::new().with_values([contract], [], [], terms);
         let limits = InterfaceValidationLimits::default();
 
         let sections = encode_semantics(&semantics, &surface, limits)
@@ -1546,7 +1574,20 @@ mod tests {
         let imported = semantics.intern(&store, &resolver(&surface)).expect("closed regions intern");
         let contract = store.dependency_contract_template_data(imported.dependency_contracts()[0]);
 
-        assert_eq!(contract.stored_values(), &[bray_symbols::DependencyStoredValue::new(
+        assert_eq!(contract.normal_effects(), &[bray_symbols::DependencyStorageEffect::Ambient]);
+        assert!(contract.effects().contains(&bray_symbols::DependencyStorageEffect::Escape));
+
+        let carrier = &contract.captured_values()[0].carriers[0];
+        let support = carrier.support().expect("imported witness retains its external support");
+
+        let owner = bray_symbols::DependencySubject::root(
+            bray_symbols::DependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(0)),
+        );
+
+        assert_eq!(support.owners(), &[owner.clone()].into());
+        assert_eq!(support.addresses().values().next(), Some(&[owner].into()));
+
+        assert_eq!(contract.stored_values().as_ref(), &[bray_symbols::DependencyStoredValue::new(
             bray_symbols::DependencyStoredValuePath::new(bray_symbols::DependencySubject::root(bray_symbols::DependencySubjectRoot::Result), 1),
             [0, 1].map(|depth| bray_symbols::DependencyStoredValuePath::new(bray_symbols::DependencySubject::root(
                 bray_symbols::DependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(0)),

@@ -1260,6 +1260,13 @@ const CHECKING_UNAVAILABLE_AWAIT_DEPENDENCY: &[MessageTemplatePart] = &[
     MessageTemplatePart::Arg(DiagnosticArgName::DependencyRequirementKind),
 ];
 
+const CHECKING_UNAVAILABLE_TASK_START_DEPENDENCY: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("starting this task requires "),
+    MessageTemplatePart::Arg(DiagnosticArgName::DependencySubjectKind),
+    MessageTemplatePart::Text(" to "),
+    MessageTemplatePart::Arg(DiagnosticArgName::DependencyRequirementKind),
+];
+
 const CHECKING_ENTRYPOINT_NOT_ALLOWED: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("the entrypoint directive is not allowed on a "),
     MessageTemplatePart::Arg(DiagnosticArgName::ActualProductKind),
@@ -1918,7 +1925,7 @@ const NOTE_STANDARD_LIBRARY_DEPENDENCY_REQUIRED: &[MessageTemplatePart] = &[
         "configure a standard-library bundle for the selected target, or supply its compiled 'std' dependency",
     ),
 ];
-const NOTE_AWAIT_DEPENDENCY_UNAVAILABLE: &[MessageTemplatePart] = &[
+const NOTE_DEFERRED_DEPENDENCY_UNAVAILABLE: &[MessageTemplatePart] = &[
     MessageTemplatePart::Arg(DiagnosticArgName::DependencySubjectKind),
     MessageTemplatePart::Text(" must "),
     MessageTemplatePart::Arg(DiagnosticArgName::DependencyRequirementKind),
@@ -2039,7 +2046,7 @@ pub(crate) const fn note_kind(kind: DiagnosticNoteKind) -> RenderedDiagnosticNot
         | DiagnosticNoteKind::UnicodeEscapeMustBeScalar
         | DiagnosticNoteKind::InterfaceDependencyContext
         | DiagnosticNoteKind::LinkPlanContext
-        | DiagnosticNoteKind::AwaitDependencyUnavailable => RenderedDiagnosticNoteKind::Note,
+        | DiagnosticNoteKind::DeferredDependencyUnavailable => RenderedDiagnosticNoteKind::Note,
         DiagnosticNoteKind::ReturnRequiredResult => RenderedDiagnosticNoteKind::Help,
         DiagnosticNoteKind::ResolveFinalization => RenderedDiagnosticNoteKind::Help,
         DiagnosticNoteKind::RebuildRetainedProduct => RenderedDiagnosticNoteKind::Help,
@@ -2649,6 +2656,9 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         }
         DiagnosticKind::CheckingUnavailableAwaitDependency => {
             MessageTemplate::new(CHECKING_UNAVAILABLE_AWAIT_DEPENDENCY)
+        }
+        DiagnosticKind::CheckingUnavailableTaskStartDependency => {
+            MessageTemplate::new(CHECKING_UNAVAILABLE_TASK_START_DEPENDENCY)
         }
         DiagnosticKind::CheckingEntrypointNotAllowed => {
             MessageTemplate::new(CHECKING_ENTRYPOINT_NOT_ALLOWED)
@@ -3265,8 +3275,8 @@ pub(crate) const fn note_template(kind: DiagnosticNoteKind) -> MessageTemplate {
         DiagnosticNoteKind::StandardLibraryDependencyRequired => {
             MessageTemplate::new(NOTE_STANDARD_LIBRARY_DEPENDENCY_REQUIRED)
         }
-        DiagnosticNoteKind::AwaitDependencyUnavailable => {
-            MessageTemplate::new(NOTE_AWAIT_DEPENDENCY_UNAVAILABLE)
+        DiagnosticNoteKind::DeferredDependencyUnavailable => {
+            MessageTemplate::new(NOTE_DEFERRED_DEPENDENCY_UNAVAILABLE)
         }
         DiagnosticNoteKind::EscapingStorageDependencyResolution => {
             MessageTemplate::new(NOTE_ESCAPING_STORAGE_DEPENDENCY_RESOLUTION)

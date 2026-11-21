@@ -13,13 +13,9 @@ pub(super) fn unproven_postcondition<C: CheckerRequestContext + ?Sized>(
     let mut failed = vec![None; postconditions.len()];
 
     for exit in flow.domain.graph.completion_exits() {
-        let output = flow.output(exit.block());
-
-        let Some(state) = output else {
-            continue;
-        };
-
-        check_postconditions(&flow.domain, state, postconditions, &mut failed);
+        for state in flow.output_states(exit.block()) {
+            check_postconditions(&flow.domain, state, postconditions, &mut failed);
+        }
     }
 
     postconditions
@@ -41,7 +37,7 @@ pub(in crate::analysis::guarantee) fn check_postconditions<C: CheckerRequestCont
     let proof = state.proof();
     let mut integer_ranges = super::integer::IntegerRanges::new();
 
-    for ((required, _), failed) in postconditions.iter().zip(failed) {
+    for ((required, span), failed) in postconditions.iter().zip(failed) {
         if failed.is_some() {
             continue;
         }
@@ -80,6 +76,11 @@ pub(in crate::analysis::guarantee) fn check_postconditions<C: CheckerRequestCont
 
             (equalities, known)
         });
+        let normalized_condition = condition.with_equalities(equalities);
+
+        if normalized_condition != condition && reflexive_comparison(domain, state, &normalized_condition) {
+            continue;
+        }
 
         let trusted = trusted.get_or_init(|| {
             crate::execution_guarantees::trusted_condition_closure(
@@ -92,8 +93,7 @@ pub(in crate::analysis::guarantee) fn check_postconditions<C: CheckerRequestCont
         });
 
         let proof = normalized_proof.get_or_init(|| crate::execution_guarantees::ExecutionProof::new(trusted, known));
-
-        if proof.prove_mixed(&condition.with_equalities(equalities), &mut {
+        if proof.prove_mixed(&normalized_condition, &mut {
             ExecutionCondition::WORK_LIMIT
         }) == Some(true)
         {
@@ -101,8 +101,23 @@ pub(in crate::analysis::guarantee) fn check_postconditions<C: CheckerRequestCont
         }
 
         if !super::integer::unsigned_arithmetic_is_bounded(
-            &condition.with_equalities(equalities), known, &|value| domain.unsigned_value(value),
+            &normalized_condition, known, &|value| domain.unsigned_value(value),
         ) {
+            static TRACE_SOURCE: std::sync::OnceLock<Option<u32>> = std::sync::OnceLock::new();
+
+            if *TRACE_SOURCE.get_or_init(|| std::env::var("BRA_694_TRACE_POSTCONDITION").ok()?.parse().ok())
+                == Some(span.source_id().raw())
+            {
+                let known = known.iter().rev().take(20).map(|(condition, holds)| {
+                    (*holds, format!("{condition:?}").chars().take(720).collect::<String>())
+                }).collect::<Vec<_>>();
+
+                eprintln!(
+                    "unproven postcondition {:?} {span:?} required={:?} result={:?} condition={:?} known={known:?}",
+                    domain.storage.unit(), required.kind(), domain.returned_value(state).kind(), condition.kind()
+                );
+            }
+
             *failed = Some(crate::UnprovenExecutionCondition::new(required.clone(), condition));
         }
     }

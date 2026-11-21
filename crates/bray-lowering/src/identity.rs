@@ -72,9 +72,19 @@ mod tests {
             ),
         );
 
+        let alternate_target = bray_ir::MirTargetContract::new(
+            bray_target::NativeTarget::X86_64WindowsMsvc.profile(),
+            target.runtime_abi(),
+        );
+
         assert_ne!(
             protected_frame_identity(unit.key(), &target),
             protected_frame_identity(unit.key(), &alternate_abi)
+        );
+
+        assert_ne!(
+            protected_frame_identity(unit.key(), &target),
+            protected_frame_identity(unit.key(), &alternate_target)
         );
     }
 

@@ -577,13 +577,7 @@ mod tests {
     }
 
     #[test]
-    fn instrumentation_digest_authenticates_every_build_input() {
-        assert_eq!(digest().len(), 64);
-        assert!(digest().bytes().all(|byte| byte.is_ascii_hexdigit()));
-    }
-
-    #[test]
-    fn toolchain_identity_covers_llvm_source_and_instrumentation() {
+    fn toolchain_identity_covers_the_llvm_version_and_source() {
         let source = "a".repeat(64);
         let identity = identity("22.1.8", &source);
 

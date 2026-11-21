@@ -258,7 +258,7 @@ mod tests {
     }
 
     #[test]
-    fn compatibility_failures_are_typed_and_deterministic() {
+    fn compatibility_failures_preserve_the_exact_typed_cause() {
         let Ok(runtime) = runtime([
             runtime_binding(RuntimeAbiRole::TaskStart),
             runtime_binding(RuntimeAbiRole::TaskAllocation),
@@ -354,7 +354,6 @@ mod tests {
         ];
 
         for (requirements, expected) in cases {
-            assert_eq!(runtime.validate(&requirements), Err(expected));
             assert_eq!(runtime.validate(&requirements), Err(expected));
         }
 

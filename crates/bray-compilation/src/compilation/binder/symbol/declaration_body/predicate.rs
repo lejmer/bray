@@ -218,7 +218,7 @@ mod tests {
     #[test]
     fn predicate_definitions_preserve_defined_required_and_opaque_states() {
         let compilation = compilation(concat!(
-            "module app;\n",
+            "trusted module app;\n",
             "predicate valid(value: bool) = value;\n",
             "trusted predicate opaque();\n",
             "trait Contract\n",
@@ -310,7 +310,7 @@ mod tests {
     #[test]
     fn predicate_definition_states_do_not_duplicate_declaration_diagnostics() {
         let compilation = compilation(concat!(
-            "module app;\n",
+            "trusted module app;\n",
             "predicate missing();\n",
             "trusted predicate defined() = true;\n",
         ));

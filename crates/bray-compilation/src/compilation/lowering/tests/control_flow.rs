@@ -78,10 +78,13 @@ const CONTROL_LOWERING_SOURCE: &str = concat!(
     "\n",
     "struct Items\n",
     "{\n",
+    "    fail: bool;\n",
     "}\n",
     "\n",
     "struct ItemsCursor\n",
     "{\n",
+    "    fail: bool;\n",
+    "    mut pending: bool;\n",
     "}\n",
     "\n",
     "impl &Items(Iterable)\n",
@@ -91,7 +94,7 @@ const CONTROL_LOWERING_SOURCE: &str = concat!(
     "\n",
     "    consume func iterate() -> ItemsCursor\n",
     "    {\n",
-    "        return ItemsCursor {};\n",
+    "        return ItemsCursor { fail = self.fail, pending = true };\n",
     "    }\n",
     "}\n",
     "\n",
@@ -101,11 +104,14 @@ const CONTROL_LOWERING_SOURCE: &str = concat!(
     "\n",
     "    mut func next() -> bool?\n",
     "    {\n",
-    "        panic(\"unreachable\");\n",
+    "        if self.fail { panic(\"iteration failed\"); }\n",
+    "        if !self.pending { return none; }\n",
+    "        self.pending = false;\n",
+    "        return true;\n",
     "    }\n",
     "}\n",
     "\n",
-    "func main()\n",
+    "func main(pos fail_all: bool, pos fail_any: bool, pos fail_for: bool)\n",
     "{\n",
     "    let point: Point = Point { x = 1, y = 2 };\n",
     "    let { x, y }: Point = point;\n",
@@ -135,11 +141,13 @@ const CONTROL_LOWERING_SOURCE: &str = concat!(
     "        }\n",
     "    }\n",
     "\n",
-    "    let items: Items = Items {};\n",
-    "    let every: bool = all(items);\n",
-    "    let some: bool = any(items);\n",
+    "    let all_items: Items = Items { fail = fail_all };\n",
+    "    let any_items: Items = Items { fail = fail_any };\n",
+    "    let for_items: Items = Items { fail = fail_for };\n",
+    "    let every: bool = all(all_items);\n",
+    "    let some: bool = any(any_items);\n",
     "\n",
-    "    for item in items\n",
+    "    for item in for_items\n",
     "    {\n",
     "        item;\n",
     "    }\n",
@@ -235,9 +243,10 @@ const FAILURE_LOWERING_SOURCE: &str = concat!(
 const DIVERGING_ASSERTION_MESSAGE_SOURCE: &str = concat!(
     "module app;\n",
     "\n",
-    "func main()\n",
+    "func main(pos condition: bool) -> i32\n",
     "{\n",
-    "    assert(false, panic(\"message\"));\n",
+    "    assert(condition, panic(\"message\"));\n",
+    "    return 7;\n",
     "}\n",
 );
 
@@ -398,6 +407,8 @@ fn checked_control_patterns_and_iteration_lower_to_explicit_mir() {
     let compilation = compilation(CONTROL_LOWERING_SOURCE);
     let key = source_callable_body_key(&compilation);
 
+    assert!(!compilation.check_diagnostics().has_errors(), "{:?}", compilation.check_diagnostics());
+
     let result = compilation
         .lowered_unit(key.clone())
         .unwrap_or_else(|error| panic!("control MIR must be available: {error:?}"));
@@ -461,29 +472,21 @@ fn checked_control_patterns_and_iteration_lower_to_explicit_mir() {
         });
 
         if calls_next {
-            // This iterator panics. Its call must pass through ordinary failure cleanup,
+            // This iterator can panic. Its call must pass through ordinary failure cleanup,
             // before any result is inspected or yielded as an element.
-            assert!(matches!(
-                block.terminator().kind(),
-                MirTerminatorKind::CheckCallOutcome { .. }
-            ));
+            let MirTerminatorKind::CheckCallOutcome { panicked, .. } = block.terminator().kind() else {
+                panic!("next must handle failure before inspecting its element result");
+            };
+
+            let failure = mir.block(panicked.target()).expect("next retains its panic continuation");
+
+            assert!(!matches!(failure.terminator().kind(), MirTerminatorKind::Unreachable));
 
             checked_next_calls += 1;
         }
     }
 
-    assert!(
-        checked_next_calls >= 3,
-        "both folds and the for loop must use checked next calls"
-    );
-
-    assert!(mir.blocks().iter().any(|block| matches!(
-        block.terminator().kind(),
-        MirTerminatorKind::PatternBranch { .. }
-    )));
-
-    assert!(mir.operations().iter().any(|operation|
-        matches!(operation.kind(), MirOperationKind::Call(call) if !call.witnesses().is_empty())));
+    assert_eq!(checked_next_calls, 3, "both folds and the for loop must use checked next calls");
 
     assert!(mir.blocks().iter().any(|block| matches!(
         block.terminator().kind(),
@@ -704,6 +707,12 @@ fn general_generator_retains_its_partial_owner_on_panic() {
         r#"
         module app;
 
+        struct Item
+        {
+            value: i32;
+            destruct() executes(total) {}
+        }
+
         func main()
         {
             let generated =
@@ -715,17 +724,41 @@ fn general_generator_retains_its_partial_owner_on_panic() {
                         panic("failed element production");
                     }
 
-                    yield item;
+                    yield Item { value = item };
                 }
             };
         }
         "#,
     );
 
-    let lowered = compilation
-        .lowered_unit(source_callable_body_key(&compilation))
-        .expect("generator must lower");
+    let key = source_function_body_key(&compilation, "main");
+    let unit = compilation.bound_unit(key.clone()).expect("generator has one checked body");
+    let storage = compilation.storage_plan(key.clone()).expect("staged element has planned storage");
+    let flow = compilation.storage_flow(key.clone()).expect("generator growth has a checked failure exit");
 
+    let mut growth_failures = flow.value().exits().iter().filter_map(|exit| {
+        let bray_bound_tree::AnyBoundNodeId::Expression(expression) = exit.exit() else { return None; };
+
+        let Some(bray_bound_tree::BoundExpression::ControlTransfer(transfer)) = unit.value().view().expression(expression)
+        else { return None; };
+
+        if transfer.kind() != bray_bound_tree::BoundControlTransferKind::Yield {
+            return None;
+        }
+
+        let element = storage.value().value_slot(transfer.operand()?)
+            .expect("yield has an evaluated element");
+
+        Some((exit, element))
+    }).peekable();
+
+    assert!(growth_failures.peek().is_some(), "rejected growth exits the yield's scope");
+
+    assert!(growth_failures.any(|(exit, staged)| exit.lifecycle_resolution().iter().any(|access| {
+        storage.value().root_identity(*access) == Some(staged)
+    })), "rejected growth disposes the evaluated element");
+
+    let lowered = compilation.lowered_unit(key).expect("generator must lower");
     let mir = lowered_mir(&lowered);
 
     let values = compilation
@@ -857,11 +890,16 @@ fn diverging_assertion_messages_leave_the_success_path_available() {
         .lowered_unit(key)
         .unwrap_or_else(|error| panic!("assertion MIR must be available: {error:?}"));
 
-    assert!(
-        result.value().is_some(),
-        "a diverging failure message must not terminate the assertion success path: {:?}",
-        result.diagnostics()
-    );
+    let mir = lowered_mir(&result);
+    let reached = bray_ir::reachable_blocks(mir, [mir.entry()], &Default::default());
+    let blocks = || reached.iter().map(|id| mir.block(*id).expect("reached MIR block exists"));
+
+    assert!(blocks().any(|block| matches!(block.terminator().kind(), MirTerminatorKind::Return { value: Some(_), .. })), "{mir:?}");
+
+    assert!(blocks().flat_map(|block| block.operations()).any(|id| {
+        matches!(mir.operation(*id).expect("MIR block retains its operations").kind(),
+            MirOperationKind::PanicReport(MirPanicCause::Message(_)))
+    }), "{mir:?}");
 }
 
 #[test]
@@ -875,13 +913,12 @@ fn constant_false_assertions_terminate_non_unit_callables() {
 
     let mir = lowered_mir(&result);
 
-    assert!(mir.blocks().iter().all(|block| !matches!(
-        block.terminator().kind(),
-        MirTerminatorKind::Return {
-            value: None,
-            report: None
-        }
-    )));
+    let reached = bray_ir::reachable_blocks(mir, [mir.entry()], &Default::default());
+
+    assert!(reached.iter().all(|id| !matches!(
+        mir.block(*id).expect("reached MIR block exists").terminator().kind(),
+        MirTerminatorKind::Return { .. }
+    )), "{mir:?}");
 }
 
 #[test]
@@ -969,7 +1006,7 @@ fn iteration_sources_preserve_termination_and_normal_completion() {
         ("Range<i32>", "return 0..2;", &consumers[..4]),
     ] {
         for statement in statements {
-            for production in [ready, "panic(\"source failure\");"] {
+            for (production, completes) in [(ready, true), ("panic(\"source failure\");", false)] {
                 for execution in ["", "async "] {
                     let source = format!(
                         r#"
@@ -1002,6 +1039,10 @@ fn iteration_sources_preserve_termination_and_normal_completion() {
                         "{source}: {:?}",
                         compilation.check_diagnostics()
                     );
+
+                    let summary = crate::compilation::result_dependencies::source_function_dependencies(&compilation, "main");
+
+                    assert_eq!(summary.normal_completion(), completes, "{source}: {summary:?}");
 
                     let lowered = compilation
                         .lowered_unit(source_function_body_key(&compilation, "main"))

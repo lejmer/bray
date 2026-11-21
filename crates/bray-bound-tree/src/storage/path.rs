@@ -27,6 +27,26 @@ impl StoragePath {
         self.root == other.root && other.projections.starts_with(&self.projections)
     }
 
+    /// Whether this path contains the other slot without crossing an owned allocation boundary.
+    pub fn contains_storage(&self, other: &Self) -> bool {
+        self.contains(other)
+            && StorageProjection::remains_in_allocation(&other.projections[self.projections.len()..])
+    }
+
+    /// Expresses a known subpath relative to another base with the same value shape.
+    pub fn rebase(&self, source: &Self, destination: &Self) -> Option<Self> {
+        if self.root != source.root {
+            return None;
+        }
+
+        let suffix = self.projections.strip_prefix(source.projections.as_ref())?;
+
+        Some(Self {
+            root: destination.root,
+            projections: destination.projections.iter().chain(suffix).copied().collect(),
+        })
+    }
+
     /// Compares value slots without following references held in those slots.
     pub fn relationship(&self, other: &Self) -> StorageRelationship {
         if self.root != other.root {
@@ -65,6 +85,7 @@ impl StoragePath {
                     | StorageProjection::AnyElement
                     | StorageProjection::ElementFromStart(_)
                     | StorageProjection::ElementFromEnd(_)
+                    | StorageProjection::ElementFromInput(_)
                     | StorageProjection::ActiveUnionPayloadField { .. }
                     | StorageProjection::NullableValue
             )
@@ -76,64 +97,5 @@ impl StoragePath {
         self.projections
             .iter()
             .all(|projection| projection.is_exact())
-    }
-}
-
-/// A checked reference access, retaining projections and the typed dereferences between them.
-/// It identifies an access route, not a physical storage identity or an authority grant.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct StorageReferencePath {
-    projections: Arc<[StorageProjection]>,
-    borrows: Arc<[(usize, bray_symbols::TypeId)]>,
-}
-
-impl StorageReferencePath {
-    pub(crate) fn is_valid_for(&self, unit: crate::BoundUnitId) -> bool {
-        self.projections
-            .iter()
-            .all(|projection| projection.is_valid_for(unit))
-    }
-
-    /// Retains a path prepared by type analysis. Each dereference index precedes that
-    /// projection, or follows the final projection when equal to the projection count.
-    /// Indices are ordered and may repeat for nested borrow layers.
-    pub fn new(
-        projections: Arc<[StorageProjection]>,
-        borrows: Arc<[(usize, bray_symbols::TypeId)]>,
-    ) -> Self {
-        Self {
-            projections,
-            borrows,
-        }
-    }
-
-    /// The checked component selections between reference dereferences.
-    pub fn projections(&self) -> &[StorageProjection] {
-        &self.projections
-    }
-
-    /// Ordered reference-load positions and the type reached by each load.
-    pub fn borrows(&self) -> &[(usize, bray_symbols::TypeId)] {
-        &self.borrows
-    }
-
-    /// Appends checked terminal borrow loads while retaining the component route.
-    pub fn with_terminal_borrows(&self, targets: &[bray_symbols::TypeId]) -> Self {
-        if targets.is_empty() { return self.clone(); }
-
-        Self {
-            projections: Arc::clone(&self.projections),
-            borrows: self.borrows.iter().copied()
-                .chain(targets.iter().map(|ty| (self.projections.len(), *ty)))
-                .collect::<Vec<_>>().into(),
-        }
-    }
-
-    /// Whether this load follows an explicit raw address rather than a language borrow.
-    pub fn is_address_load(&self, step: usize) -> bool {
-        let (index, _) = self.borrows.get(step).expect("reference load belongs to its prepared route");
-
-        self.projections.get(*index) == Some(&StorageProjection::AddressTarget)
-            && self.borrows.get(step + 1).is_none_or(|(next, _)| next != index)
     }
 }

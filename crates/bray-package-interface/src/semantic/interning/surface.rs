@@ -27,7 +27,7 @@ use super::{
     ImportedTargetProperty, InterfaceSemanticInternError, InterfaceSymbolResolver, InternState,
 };
 
-impl InternState {
+impl InternState<'_> {
     pub(super) fn finish(
         self,
         semantics: &InterfaceSemantics,

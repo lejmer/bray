@@ -1,3 +1,6 @@
+use std::ops::Range;
+use std::sync::Arc;
+
 use bray_bound_tree::{CheckedMemoryOperationKind, StorageAccessId, StorageCleanupProjectionKind};
 use bray_compiler_known::RepresentationRole;
 use bray_ir::{
@@ -7,27 +10,56 @@ use bray_ir::{
 use bray_symbols::{BorrowKind, TypeData, TypeId};
 
 use super::LoweringError;
+use super::cleanup::CleanupStep;
 use super::initialization::{InitializedPart, part_guard_for_place};
 use super::lowerer::Lowerer;
 use super::projection::static_cleanup_projection_kind;
 
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub(super) struct CleanupPartCursor {
+    access: StorageAccessId,
+    place: MirPlace,
+    parts: Arc<[InitializedPart]>,
+    range: Range<usize>,
+    depth: usize,
+    end: Option<MirPlace>,
+}
+
+impl CleanupPartCursor {
+    pub(super) fn new(access: StorageAccessId, place: MirPlace, parts: Arc<[InitializedPart]>, depth: usize) -> Self {
+        let range = 0..parts.len();
+
+        Self { access, place, parts, range, depth, end: None }
+    }
+
+    pub(super) fn with_range(mut self, range: Range<usize>) -> Self {
+        self.range = range;
+
+        self
+    }
+
+    fn select(&self, place: MirPlace, range: Range<usize>, depth: usize) -> Self {
+        Self { access: self.access, place, parts: Arc::clone(&self.parts), range, depth, end: None }
+    }
+}
+
 impl Lowerer<'_> {
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "recursive cleanup retains its checked access, path depth, phase and pending exit value"
-    )]
     pub(super) fn push_part_cleanup(
         &mut self,
         mut block: MirBlockId,
         source: &MirSourceAnchor,
         phase: MirCleanupPhase,
-        access: StorageAccessId,
-        place: MirPlace,
-        mut parts: &[InitializedPart<'_>],
-        depth: usize,
+        mut cursor: CleanupPartCursor,
         mut value: Option<(MirValueId, TypeId)>,
+        present: Option<&MirPlace>,
     ) -> Result<(MirBlockId, Option<(MirValueId, TypeId)>), LoweringError> {
-        while let Some(part) = parts.first() {
+        let access = cursor.access;
+        let depth = cursor.depth;
+        let occurrence = self.cleanup_occurrence;
+
+        while let Some(part) = cursor.parts[cursor.range.clone()].first() {
+            let place = &cursor.place;
+
             let Some(projection) = part.plan.projections().get(depth).copied() else {
                 let active = match phase {
                     MirCleanupPhase::TaskCancellation => part.plan.phases().includes_cancellation(),
@@ -40,7 +72,7 @@ impl Lowerer<'_> {
                     let (guard, _) = part_guard_for_place(
                         part,
                         boolean,
-                        &self.ownership_place(&place),
+                        &self.ownership_place(place),
                     )
                     .unwrap_or_else(|| {
                         panic!(
@@ -49,32 +81,84 @@ impl Lowerer<'_> {
                         )
                     });
 
-                    (block, value) = self.push_guarded_cleanup(
-                        block,
-                        source,
-                        phase,
-                        Self::retained_place(&place),
-                        Some(guard),
-                        part.plan.release(),
-                        false,
-                        value,
-                    )?;
+                    (block, value) = if let Some(present) = present {
+                        self.guarded_cleanup_region(block, source, Self::retained_place(place), Some(guard), value,
+                            |lowerer, reached, _, value| {
+                                lowerer.set_boolean_guard(reached, source, present, true)?;
+
+                                Ok((reached, value))
+                            })?
+                    } else {
+                        let tail = cursor.range.start + 1..cursor.range.end;
+
+                        self.with_cleanup_remainder(
+                            || (!tail.is_empty()).then(|| CleanupStep::parts(occurrence,
+                                cursor.select(Self::retained_place(place), tail, depth), source)),
+                            |lowerer| lowerer.push_guarded_cleanup(
+                                block, source, phase, Self::retained_place(place), Some(guard),
+                                part.plan.release(), false, value,
+                            ),
+                        )?
+                    };
                 }
 
-                parts = &parts[1..];
+                cursor.range.start += 1;
                 continue;
             };
 
-            let count = parts
+            let count = cursor.parts[cursor.range.clone()]
                 .iter()
                 .take_while(|part| part.plan.projections().get(depth) == Some(&projection))
                 .count();
 
-            let (group, remaining) = parts.split_at(count);
+            let group = cursor.range.start..cursor.range.start + count;
+            let tail = group.end..cursor.range.end;
 
-            (block, value) = match projection.projection() {
+            if present.is_some() && matches!(projection.projection(), StorageCleanupProjectionKind::OwnedTarget(_)) {
+                // The following release guard already records an owner duty.
+                // Selecting cleanup must not acquire a backing-storage loan.
+                cursor.range.start = group.end;
+                continue;
+            }
+
+            let end = cursor.end.take();
+            let place = &cursor.place;
+            let next = group.end;
+
+            (block, value) = self.with_cleanup_remainder(
+                || (!tail.is_empty() && present.is_none()).then(|| CleanupStep::parts(occurrence,
+                    cursor.select(Self::retained_place(place), tail, depth), source)),
+                |lowerer| lowerer.push_part_cleanup_group(
+                    block, source, phase, &cursor, group, projection, value, present, end,
+                ),
+            )?;
+
+            cursor.range.start = next;
+        }
+
+        Ok((block, value))
+    }
+
+    #[expect(clippy::too_many_arguments, reason = "the current group retains its actual place and resumed range")]
+    fn push_part_cleanup_group(
+        &mut self,
+        block: MirBlockId,
+        source: &MirSourceAnchor,
+        phase: MirCleanupPhase,
+        cursor: &CleanupPartCursor,
+        group: Range<usize>,
+        projection: bray_bound_tree::StorageCleanupProjection,
+        value: Option<(MirValueId, TypeId)>,
+        present: Option<&MirPlace>,
+        end: Option<MirPlace>,
+    ) -> Result<(MirBlockId, Option<(MirValueId, TypeId)>), LoweringError> {
+        let place = &cursor.place;
+        let access = cursor.access;
+        let depth = cursor.depth;
+
+        match projection.projection() {
                 StorageCleanupProjectionKind::OwnedTarget(call) => {
-                    let release = remaining
+                    let release = cursor.parts[group.end..cursor.range.end]
                         .first()
                         .filter(|part| {
                             part.plan.release().is_some() && part.plan.projections().len() == depth
@@ -91,7 +175,7 @@ impl Lowerer<'_> {
                     let (guard, _) = part_guard_for_place(
                         release,
                         boolean,
-                        &self.ownership_place(&place),
+                        &self.ownership_place(place),
                     )
                     .unwrap_or_else(|| {
                         panic!(
@@ -103,7 +187,7 @@ impl Lowerer<'_> {
                     self.guarded_cleanup_region(
                         block,
                         source,
-                        Self::retained_place(&place),
+                        Self::retained_place(place),
                         Some(guard),
                         value,
                         |lowerer, block, place, value| {
@@ -119,14 +203,12 @@ impl Lowerer<'_> {
                                 block,
                                 source,
                                 phase,
-                                access,
-                                target,
-                                group,
-                                depth + 1,
+                                cursor.select(target, group, depth + 1),
                                 value,
+                                present,
                             )
                         },
-                    )?
+                    )
                 }
                 StorageCleanupProjectionKind::Component(_)
                 | StorageCleanupProjectionKind::UnionPayloadElement { .. } => {
@@ -156,30 +238,22 @@ impl Lowerer<'_> {
                         block,
                         source,
                         phase,
-                        access,
-                        projected,
-                        group,
-                        depth + 1,
+                        cursor.select(projected, group, depth + 1),
                         value,
-                    )?
+                        present,
+                    )
                 }
                 StorageCleanupProjectionKind::ArrayElements(_) => self.push_array_part_cleanup(
                     block,
                     source,
                     phase,
-                    access,
-                    &place,
-                    group,
-                    depth,
+                    cursor.select(Self::retained_place(place), group, depth),
                     projection.result_type(),
                     value,
-                )?,
-            };
-
-            parts = remaining;
+                    present,
+                    end,
+                ),
         }
-
-        Ok((block, value))
     }
 
     #[expect(
@@ -191,17 +265,21 @@ impl Lowerer<'_> {
         block: MirBlockId,
         source: &MirSourceAnchor,
         phase: MirCleanupPhase,
-        access: StorageAccessId,
-        place: &MirPlace,
-        parts: &[InitializedPart<'_>],
-        depth: usize,
+        cursor: CleanupPartCursor,
         element: TypeId,
         value: Option<(MirValueId, TypeId)>,
+        present: Option<&MirPlace>,
+        end: Option<MirPlace>,
     ) -> Result<(MirBlockId, Option<(MirValueId, TypeId)>), LoweringError> {
         let usize_type = self.representation_type(RepresentationRole::ScalarUsize)?;
         let boolean = self.representation_type(RepresentationRole::ScalarBool)?;
 
-        let length = self.sequence_length(block, source, place)?;
+        let place = &cursor.place;
+
+        let length = match end {
+            Some(end) => MirOperand::Copy(end),
+            None => self.sequence_length(block, source, place)?,
+        };
 
         let zero = crate::operand::integer_constant(self.input.semantic_values(), usize_type, 0)?;
         let one = crate::operand::integer_constant(self.input.semantic_values(), usize_type, 1)?;
@@ -231,15 +309,23 @@ impl Lowerer<'_> {
             element,
         );
 
-        let (completed, completed_value) = self.push_part_cleanup(
-            cleanup.body,
-            source,
-            phase,
-            access,
-            element_place,
-            parts,
-            depth + 1,
-            cleanup.body_value.zip(value.map(|(_, ty)| ty)),
+        let occurrence = self.cleanup_occurrence;
+
+        let (completed, completed_value) = self.with_cleanup_remainder(
+            || {
+                if present.is_some() { return None; }
+
+                let mut remaining = cursor.clone();
+
+                remaining.end = Some(Self::retained_place(&cleanup.counter));
+
+                Some(CleanupStep::parts(occurrence, remaining, source))
+            },
+            |lowerer| lowerer.push_part_cleanup(
+                cleanup.body, source, phase,
+                cursor.select(element_place, cursor.range.clone(), cursor.depth + 1),
+                cleanup.body_value.zip(value.map(|(_, ty)| ty)), present,
+            ),
         )?;
 
         cleanup.close(

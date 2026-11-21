@@ -1,23 +1,25 @@
-use super::fixtures::assert_production_probe;
+use bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven;
+
+use super::fixtures::assert_production_contract;
 
 #[test]
 #[ignore = "tier:proof"]
 fn activation_cursor_fields_do_not_create_or_repair_selection_authority() {
     for (body, valid) in [
         (
-            "_ = trusted bray.runtime.bootstrap.activation.execution.read(original);",
+            "_ = bray.runtime.bootstrap.activation.execution.read(original);",
             true,
         ),
         (
-            "let mut cursor: bray.runtime.bootstrap.activation.run.Cursor = { root = original.root, pointer = other }; _ = trusted bray.runtime.bootstrap.activation.execution.read(&mut cursor);",
+            "let mut cursor: bray.runtime.bootstrap.activation.run.Cursor = { root = original.root, pointer = other }; _ = bray.runtime.bootstrap.activation.execution.read(&mut cursor);",
             false,
         ),
         (
-            "let mut cursor: bray.runtime.bootstrap.activation.run.Cursor = { root = original.root, pointer = original.pointer }; _ = trusted bray.runtime.bootstrap.activation.execution.read(&mut cursor);",
+            "let mut cursor: bray.runtime.bootstrap.activation.run.Cursor = { root = original.root, pointer = original.pointer }; _ = bray.runtime.bootstrap.activation.execution.read(&mut cursor);",
             false,
         ),
         (
-            "let mut cursor: bray.runtime.bootstrap.activation.run.Cursor = { root = other, pointer = original.pointer }; _ = trusted bray.runtime.bootstrap.activation.execution.read(&mut cursor);",
+            "let mut cursor: bray.runtime.bootstrap.activation.run.Cursor = { root = other, pointer = original.pointer }; _ = bray.runtime.bootstrap.activation.execution.read(&mut cursor);",
             false,
         ),
     ] {
@@ -38,22 +40,31 @@ fn activation_cursor_fields_do_not_create_or_repair_selection_authority() {
             "#
         );
 
-        assert_production_probe(&caller, valid);
+        assert_production_contract(
+            &caller,
+            (!valid).then_some(CheckingTrustedObligationNotProven),
+            "bray.runtime.bootstrap.activation.execution.read(&mut cursor)",
+            "selected",
+        );
     }
 }
 
 #[test]
 #[ignore = "tier:proof"]
 fn activation_tokens_require_both_producer_and_entry_authority() {
-    for (requirements, valid) in [
-        ("", false),
+    for (requirements, missing) in [
+        ("", Some("producer_owned")),
         (
             "requires(trusted bray.runtime.bootstrap.activation.producer_owned(owner = &token.acquisition))",
-            false,
+            Some("entry_authorized"),
+        ),
+        (
+            "requires(trusted bray.runtime.bootstrap.activation.entry_authorized(owner = &token.acquisition, origin = origin))",
+            Some("producer_owned"),
         ),
         (
             "requires(trusted bray.runtime.bootstrap.activation.producer_owned(owner = &token.acquisition), trusted bray.runtime.bootstrap.activation.entry_authorized(owner = &token.acquisition, origin = origin))",
-            true,
+            None,
         ),
     ] {
         let caller = format!(
@@ -69,28 +80,31 @@ fn activation_tokens_require_both_producer_and_entry_authority() {
                 requires(trusted bray.runtime.bootstrap.pool.protocol_access())
                 {requirements}
             {{
-                return trusted bray.runtime.bootstrap.activation.begin(token, origin);
+                return bray.runtime.bootstrap.activation.begin(token, origin);
             }}
         "#
         );
 
-        assert_production_probe(&caller, valid);
+        super::fixtures::assert_production_contract(
+            &caller,
+            missing.map(|_| bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven),
+            "bray.runtime.bootstrap.activation.begin(token, origin)",
+            missing.unwrap_or_default(),
+        );
     }
 }
 
 #[test]
 #[ignore = "tier:proof"]
 fn activation_publication_requires_the_exact_producer_witness() {
-    for (requirements, expression, valid) in [
-        ("", "token", false),
+    for (requirements, valid) in [
+        ("", false),
         (
             "requires(trusted bray.runtime.bootstrap.activation.producer(token = token))",
-            "token",
             true,
         ),
         (
             "requires(trusted bray.runtime.bootstrap.activation.producer(token = other))",
-            "token",
             false,
         ),
     ] {
@@ -107,38 +121,43 @@ fn activation_publication_requires_the_exact_producer_witness() {
                 requires(trusted bray.runtime.bootstrap.pool.protocol_access())
                 {requirements}
             {{
-                return trusted bray.runtime.bootstrap.activation.publish({expression});
+                return bray.runtime.bootstrap.activation.publish(token);
             }}
             "#,
         );
 
-        assert_production_probe(&caller, valid);
+        assert_production_contract(
+            &caller,
+            (!valid).then_some(CheckingTrustedObligationNotProven),
+            "bray.runtime.bootstrap.activation.publish(token)",
+            "producer",
+        );
     }
 }
 
 #[test]
 #[ignore = "tier:proof"]
 fn native_activation_requires_producer_and_exact_entry_authority() {
-    for (requirements, valid) in [
+    for (requirements, missing) in [
         (
             "requires(trusted bray.runtime.bootstrap.activation.producer_slot(pointer = pointer))",
-            false,
+            Some("entry_slot_authorized"),
         ),
         (
             "requires(trusted bray.runtime.bootstrap.activation.entry_slot_authorized(pointer = pointer, origin = origin))",
-            false,
+            Some("producer_slot"),
         ),
         (
             "requires(trusted bray.runtime.bootstrap.activation.producer_slot(pointer = pointer), trusted bray.runtime.bootstrap.activation.entry_slot_authorized(pointer = pointer, origin = origin))",
-            true,
+            None,
         ),
         (
             "requires(trusted bray.runtime.bootstrap.activation.producer_slot(pointer = pointer), trusted bray.runtime.bootstrap.activation.entry_slot_authorized(pointer = other, origin = origin))",
-            false,
+            Some("entry_slot_authorized"),
         ),
         (
             "requires(trusted bray.runtime.bootstrap.activation.producer_slot(pointer = pointer), trusted bray.runtime.bootstrap.activation.entry_slot_authorized(pointer = pointer, origin = 0))",
-            false,
+            Some("entry_slot_authorized"),
         ),
     ] {
         let caller = format!(
@@ -161,23 +180,28 @@ fn native_activation_requires_producer_and_exact_entry_authority() {
                 )
                 {requirements}
             {{
-                return trusted bray.runtime.bootstrap.activation.activate(pointer, origin);
+                return bray.runtime.bootstrap.activation.activate(pointer, origin);
             }}
         "#
         );
 
-        assert_production_probe(&caller, valid);
+        assert_production_contract(
+            &caller,
+            missing.map(|_| CheckingTrustedObligationNotProven),
+            "bray.runtime.bootstrap.activation.activate(pointer, origin)",
+            missing.unwrap_or_default(),
+        );
     }
 }
 
 #[test]
 #[ignore = "tier:proof"]
 fn inactive_inspection_requires_retained_exact_owner_and_output() {
-    for (producer, owner, output, valid) in [
-        (false, "pointer", "output", false),
-        (true, "other", "output", false),
-        (true, "pointer", "other_output", false),
-        (true, "pointer", "output", true),
+    for (producer, owner, output, missing) in [
+        (false, "pointer", "output", Some("producer_slot")),
+        (true, "other", "output", Some("retained")),
+        (true, "pointer", "other_output", Some("retained")),
+        (true, "pointer", "output", None),
     ] {
         let producer = if producer {
             "requires(trusted bray.runtime.bootstrap.activation.producer_slot(pointer = pointer))"
@@ -207,12 +231,17 @@ fn inactive_inspection_requires_retained_exact_owner_and_output() {
                     trusted core.memory.aligned_for<bray.runtime.bootstrap.activation.Inactive>(pointer = pointer),
                 )
             {{
-                return trusted bray.runtime.bootstrap.activation.requirements.inspect(pointer, 0, 0, 0, output);
+                return bray.runtime.bootstrap.activation.requirements.inspect(pointer, 0, 0, 0, output);
             }}
             "#
         );
 
-        assert_production_probe(&caller, valid);
+        assert_production_contract(
+            &caller,
+            missing.map(|_| CheckingTrustedObligationNotProven),
+            "bray.runtime.bootstrap.activation.requirements.inspect(pointer, 0, 0, 0, output)",
+            missing.unwrap_or_default(),
+        );
     }
 }
 
@@ -244,14 +273,14 @@ fn metadata_inspection_cannot_infer_exclusive_ownership_from_a_producer() {
                 )
                 {ownership}
             {{
-                let producer = trusted token.into_producer();
+                let producer = token.into_producer();
 
                 return trusted bray.runtime.bootstrap.activation.requirements.read(&producer, 0, 0, 0, 0);
             }}
             "#
         );
 
-        super::fixtures::assert_production_contract(&caller, (!valid).then_some(bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven), "trusted token.into_producer()", "inactive_owner");
+        super::fixtures::assert_production_contract(&caller, (!valid).then_some(bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven), "token.into_producer()", "inactive_owner");
     }
 }
 
@@ -290,12 +319,17 @@ fn inactive_cursor_requires_the_exact_native_token_and_outcome_pair() {
                     trusted core.memory.initialized_as<bray.runtime.bootstrap.activation.Inactive>(pointer = pointer),
                 )
             {{
-                let cursor = trusted acquire(pointer, outcome);
+                let cursor = acquire(pointer, outcome);
             }}
             "#,
         );
 
-        assert_production_probe(&source, valid);
+        assert_production_contract(
+            &source,
+            (!valid).then_some(CheckingTrustedObligationNotProven),
+            "acquire(pointer, outcome)",
+            "entry",
+        );
     }
 }
 
@@ -303,23 +337,23 @@ fn inactive_cursor_requires_the_exact_native_token_and_outcome_pair() {
 #[ignore = "tier:proof"]
 fn native_frame_acquisition_consumes_the_claim_even_if_address_bits_are_restored() {
     for (body, valid) in [
-        ("return trusted root_frame(frame);", true),
+        ("return root_frame(frame);", true),
         (
             r#"
-                let first = trusted root_frame(frame);
+                let first = root_frame(frame);
 
-                return trusted root_frame(frame);
+                return root_frame(frame);
             "#,
             false,
         ),
         (
             r#"
                 let address = trusted std.memory.read<usize>(std.memory.address_of_mut<usize>(frame));
-                let first = trusted root_frame(frame);
+                let first = root_frame(frame);
 
                 _ = trusted std.memory.replace_value<usize>(frame, address);
 
-                return trusted root_frame(frame);
+                return root_frame(frame);
             "#,
             false,
         ),
@@ -343,7 +377,7 @@ fn native_frame_acquisition_consumes_the_claim_even_if_address_bits_are_restored
         super::fixtures::assert_production_contract(
             &source,
             (!valid).then_some(bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven),
-            "return trusted root_frame(frame)",
+            "return root_frame(frame)",
             "frame_input",
         );
     }

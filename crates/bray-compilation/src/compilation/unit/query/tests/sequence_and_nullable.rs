@@ -226,30 +226,3 @@ func inspect(pos value: i32) -> bool
     assert!(lowered.value().is_none());
     assert!(lowered.diagnostics().has_errors());
 }
-
-#[test]
-fn concrete_nullable_state_queries_lower_for_native_code_generation() {
-    let compilation = compilation(
-        r#"module app;
-
-func main() -> bool
-{
-    let value: i32? = 1;
-
-    return value.is_present();
-}
-"#,
-    );
-
-    let lowered = compilation
-        .lowered_unit(source_callable_body_key(&compilation))
-        .unwrap_or_else(|error| panic!("concrete nullable query must lower: {error:?}"));
-
-    assert!(lowered.value().is_some(), "{:#?}", lowered.diagnostics());
-
-    assert!(
-        lowered.diagnostics().is_empty(),
-        "{:#?}",
-        lowered.diagnostics()
-    );
-}

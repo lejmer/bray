@@ -3,7 +3,7 @@ use std::sync::Arc;
 use bray_binder::semantic_unit_context;
 use bray_bound_tree::BoundUnitKey;
 use bray_checker::{
-    ExecutionCertification, ExecutionDeclaration, ExecutionProperty, check_execution_candidate,
+    ExecutionCertification, ExecutionDeclaration, ExecutionProperty, with_execution_candidate_checker,
     declared_execution_properties,
 };
 use bray_declarations::SyntaxAnchor;
@@ -232,155 +232,151 @@ impl Compilation {
 
         diagnostics.add_range(contracts.diagnostics().iter().cloned());
 
-        let check =
-            |property,
-             assumptions: &[bray_checker::ExecutionCondition],
-             postconditions: &[(bray_checker::ExecutionCondition, bray_source::SourceSpan)],
-             diagnostics: &mut DiagnosticBag| {
-                let candidate = checker_result(check_execution_candidate(
-                    unit,
-                    prepared.result().value(),
-                    property,
-                    predicate,
-                    assumptions,
-                    postconditions,
-                    contracts.value(),
-                    expressions.result().value(),
-                    storage.result().value(),
-                    body.result().value(),
-                    memory.result().value(),
-                ))?;
+        with_execution_candidate_checker(
+            unit,
+            prepared.result().value(),
+            predicate,
+            contracts.value(),
+            expressions.result().value(),
+            storage.result().value(),
+            body.result().value(),
+            memory.result().value(),
+            |check| {
+                let mut evaluate =
+                    |property,
+                     assumptions: &[bray_checker::ExecutionCondition],
+                     postconditions: &[(bray_checker::ExecutionCondition, bray_source::SourceSpan)],
+                     diagnostics: &mut DiagnosticBag| {
+                        let candidate = checker_result(check(property, assumptions, postconditions))?;
 
-                diagnostics.add_range(candidate.diagnostics().iter().cloned());
+                        diagnostics.add_range(candidate.diagnostics().iter().cloned());
 
-                Ok::<_, FactQueryError>(Arc::new(candidate.into_parts().0))
-            };
+                        Ok::<_, FactQueryError>(Arc::new(candidate.into_parts().0))
+                    };
 
-        let mut candidates = bray_checker::ExecutionCandidates::new();
+                let mut candidates = bray_checker::ExecutionCandidates::new();
 
-        for property in [ExecutionProperty::Pure, ExecutionProperty::Total] {
-            let candidate = check(
-                Some(bray_checker::ExecutionObligation::Property(property, None)),
-                &requirements,
-                &[],
-                &mut diagnostics,
-            )?;
-
-            candidates.insert(
-                bray_checker::ExecutionObligation::Property(property, None),
-                candidate,
-            );
-        }
-
-        {
-            let total = &candidates
-                [&bray_checker::ExecutionObligation::Property(ExecutionProperty::Total, None)];
-
-            let candidate = if total_covers_termination(
-                predicate,
-                total,
-                trusted.value(),
-                expressions.result().value().types(),
-                storage.result().value(),
-                self.semantic_value_store()?,
-            ) {
-                Arc::clone(total)
-            } else {
-                check(
-                    Some(bray_checker::ExecutionObligation::Termination),
-                    &requirements,
-                    &[],
-                    &mut diagnostics,
-                )?
-            };
-
-            candidates.insert(bray_checker::ExecutionObligation::Termination, candidate);
-        }
-
-        for domain in declaration.value().domains() {
-            let guards = self.execution_condition_inputs(key, &domain.guards, cancellation)?;
-
-            let posts =
-                self.predicate_condition_inputs(key, &domain.postconditions, cancellation)?;
-
-            diagnostics.add_range(guards.diagnostics().iter().cloned());
-            diagnostics.add_range(posts.diagnostics().iter().cloned());
-
-            let trusted_producer = self.trusted_predicate_producer(key)?;
-
-            // Trusted predicate guarantees are declared sources of authority. Execution
-            // properties and ordinary postconditions still require their independent proofs.
-            let posts = posts
-                .into_parts()
-                .0
-                .into_iter()
-                .map(|(condition, domain, span)| {
-                    (
-                        if domain == bray_symbols::PredicateDomain::Trusted && trusted_producer {
-                            bray_checker::ExecutionCondition::boolean(true)
-                        } else {
-                            condition
-                        },
-                        span,
-                    )
-                })
-                .collect::<Vec<_>>();
-
-            // Each domain owns its entry assumptions while sharing immutable condition operands.
-            let mut assumptions = requirements.clone();
-
-            assumptions.extend(
-                guards
-                    .into_parts()
-                    .0
-                    .into_iter()
-                    .map(|(condition, _)| condition),
-            );
-
-            if !domain.guards.is_empty() {
-                for property in &domain.properties {
-                    let candidate = check(
-                        Some(bray_checker::ExecutionObligation::Property(
-                            property.property,
-                            None,
-                        )),
-                        &assumptions,
+                for property in [ExecutionProperty::Pure, ExecutionProperty::Total] {
+                    let candidate = evaluate(
+                        Some(bray_checker::ExecutionObligation::Property(property, None)),
+                        &requirements,
                         &[],
                         &mut diagnostics,
                     )?;
 
                     candidates.insert(
-                        bray_checker::ExecutionObligation::Property(
-                            property.property,
-                            Some(property.source.into()),
-                        ),
+                        bray_checker::ExecutionObligation::Property(property, None),
                         candidate,
                     );
                 }
-            }
 
-            for source in posts
-                .iter()
-                .map(|(_, source)| *source)
-                .collect::<std::collections::BTreeSet<_>>()
-            {
-                // Each clause proof owns shared immutable condition terms from this normalized domain.
-                let conditions = posts
-                    .iter()
-                    .filter(|(_, span)| *span == source)
-                    .cloned()
-                    .collect::<Vec<_>>();
+                {
+                    let total = &candidates
+                        [&bray_checker::ExecutionObligation::Property(ExecutionProperty::Total, None)];
 
-                let candidate = check(None, &assumptions, &conditions, &mut diagnostics)?;
+                    let candidate = if total_covers_termination(
+                        predicate,
+                        total,
+                        trusted.value(),
+                        expressions.result().value().types(),
+                        storage.result().value(),
+                        self.semantic_value_store()?,
+                    ) {
+                        Arc::clone(total)
+                    } else {
+                        evaluate(
+                            Some(bray_checker::ExecutionObligation::Termination),
+                            &requirements,
+                            &[],
+                            &mut diagnostics,
+                        )?
+                    };
 
-                candidates.insert(
-                    bray_checker::ExecutionObligation::Postcondition(source.into()),
-                    candidate,
-                );
-            }
-        }
+                    candidates.insert(bray_checker::ExecutionObligation::Termination, candidate);
+                }
 
-        Ok(DiagnosticResult::new(candidates, diagnostics))
+                for domain in declaration.value().domains() {
+                    let guards = self.execution_condition_inputs(key, &domain.guards, cancellation)?;
+
+                    let posts =
+                        self.predicate_condition_inputs(key, &domain.postconditions, cancellation)?;
+
+                    diagnostics.add_range(guards.diagnostics().iter().cloned());
+                    diagnostics.add_range(posts.diagnostics().iter().cloned());
+
+                    let trusted_producer = self.trusted_predicate_producer(key)?;
+
+                    // Trusted predicate guarantees are declared sources of authority. Execution
+                    // properties and ordinary postconditions still require their independent proofs.
+                    let posts = posts
+                        .into_parts()
+                        .0
+                        .into_iter()
+                        .map(|(condition, domain, span)| {
+                            (
+                                if domain == bray_symbols::PredicateDomain::Trusted && trusted_producer {
+                                    bray_checker::ExecutionCondition::boolean(true)
+                                } else {
+                                    condition
+                                },
+                                span,
+                            )
+                        })
+                        .collect::<Vec<_>>();
+
+                    let guards = guards.into_parts().0;
+                    let mut assumptions = std::borrow::Cow::Borrowed(requirements.as_slice());
+
+                    if !guards.is_empty() {
+                        assumptions.to_mut().extend(guards.into_iter().map(|(condition, _)| condition));
+                    }
+
+                    if !domain.guards.is_empty() {
+                        for property in &domain.properties {
+                            let candidate = evaluate(
+                                Some(bray_checker::ExecutionObligation::Property(
+                                    property.property,
+                                    None,
+                                )),
+                                &assumptions,
+                                &[],
+                                &mut diagnostics,
+                            )?;
+
+                            candidates.insert(
+                                bray_checker::ExecutionObligation::Property(
+                                    property.property,
+                                    Some(property.source.into()),
+                                ),
+                                candidate,
+                            );
+                        }
+                    }
+
+                    for source in posts
+                        .iter()
+                        .map(|(_, source)| *source)
+                        .collect::<std::collections::BTreeSet<_>>()
+                    {
+                        // Each clause proof owns shared immutable condition terms from this normalized domain.
+                        let conditions = posts
+                            .iter()
+                            .filter(|(_, span)| *span == source)
+                            .cloned()
+                            .collect::<Vec<_>>();
+
+                        let candidate = evaluate(None, &assumptions, &conditions, &mut diagnostics)?;
+
+                        candidates.insert(
+                            bray_checker::ExecutionObligation::Postcondition(source.into()),
+                            candidate,
+                        );
+                    }
+                }
+
+                Ok(DiagnosticResult::new(candidates, diagnostics))
+            },
+        )
     }
 }
 

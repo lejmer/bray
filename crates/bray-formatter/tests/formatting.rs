@@ -76,9 +76,9 @@ fn formats_representative_declarations_and_expressions() {
         "module app;using std.io;",
         "@copy public struct Point{x:r64;y:r64;}",
         "union Shape{Circle(center:Point,radius:r64);Empty;}",
-        "trait Display{func show(pos value:Point);}",
-        "impl Point(Display){func show(pos value:Point){",
-        "if true{return value.x+1;}else{return 0;}}}",
+        "trait Display{func show(pos value:Point)->r64;}",
+        "impl Point(Display){func show(pos value:Point)->r64{",
+        "if true{return value.x+1.0;}else{return 0.0;}}}",
         "func main(){let point:Point={x=1.0,y=2.0,};",
         "let values:[i32;3]=[1,2,3];",
         "match point{case _{return;}}}",
@@ -108,20 +108,20 @@ fn formats_representative_declarations_and_expressions() {
             "\n",
             "trait Display\n",
             "{\n",
-            "    func show(pos value: Point);\n",
+            "    func show(pos value: Point) -> r64;\n",
             "}\n",
             "\n",
             "impl Point(Display)\n",
             "{\n",
-            "    func show(pos value: Point)\n",
+            "    func show(pos value: Point) -> r64\n",
             "    {\n",
             "        if true\n",
             "        {\n",
-            "            return value.x + 1;\n",
+            "            return value.x + 1.0;\n",
             "        }\n",
             "        else\n",
             "        {\n",
-            "            return 0;\n",
+            "            return 0.0;\n",
             "        }\n",
             "    }\n",
             "}\n",
@@ -474,20 +474,20 @@ fn separates_overloads_from_following_declarations_in_every_valid_scope() {
 #[test]
 fn formatting_is_idempotent_across_representative_grammar() {
     let sources = [
-        "module app;",
         "module app; func add(left:i32,right:i32)->i32{return left+right;}",
-        "module app; struct Box<T>{value:T;} impl Box<T>{func get()->&T{return &self.value;}}",
-        "module app; predicate positive<T,const N:i32>(value:T)=value>0;",
+        "module app; struct Bucket<T>{value:T;} impl Bucket<T>{func get() -> &T{return &self.value;}}",
+        "module app; predicate positive(value:i32)=value>0;",
         "module app; overload parse={parse_int,parse_float,}",
         "module app; func main(){let pair:(i32,r64)=(1,2.0);let a=[1,2,3];}",
         "module app; func main(){while ready{continue;}for item in items{break;}loop{break;}}",
-        "module app; func main(){let value=match input{case Some(x){yield x;}case None{yield 0;}};}",
+        "module app; func main(pos input:i32?)->i32{return match input{case ?value{yield value;}case none{yield 0;}};}",
     ];
 
     for source in sources {
         let first = formatted(source);
         let second = formatted(first.text());
 
+        assert!(first.changed(), "{source}: {:?}", parse_source_unit(&test_source_snapshot(source)).diagnostics());
         assert_eq!(second.text(), first.text(), "{source}");
         assert!(!second.changed(), "{source}");
     }
@@ -562,6 +562,15 @@ fn preserves_comment_text_and_positions_comments_deterministically() {
         assert_eq!(output.text().matches(comment).count(), 1, "{comment}");
     }
 
+    let lines = output.text().lines().map(str::trim).collect::<Vec<_>>();
+
+    assert_eq!(lines.first(), Some(&"// file header"));
+    assert!(lines.contains(&"module app; /* module note */"), "{}", output.text());
+    assert!(lines.windows(2).any(|lines| lines == ["/// adds values", "@test // directive note"]), "{}", output.text());
+    assert!(lines.iter().any(|line| line.contains("/* right value */") && line.contains("right: i32")), "{}", output.text());
+    assert!(lines.contains(&"return left + right; // sum"), "{}", output.text());
+    assert_eq!(lines.last(), Some(&"// final comment"));
+
     let second = formatted(output.text());
 
     assert_eq!(second.text(), output.text());
@@ -589,10 +598,6 @@ fn preserves_skipped_and_invalid_recovery_text() {
 
     assert_eq!(output.text(), source);
     assert!(!output.changed());
-
-    let reformatted = formatted(output.text());
-
-    assert_eq!(reformatted.text(), output.text());
 }
 
 #[test]

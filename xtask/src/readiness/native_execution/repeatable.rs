@@ -4,8 +4,8 @@ use std::path::Path;
 use bray_target::NativeTarget;
 
 use super::core::{
-    build_fixtures, execute_product, inspect_objects, require_equal_artifacts, require_equal_files,
-    require_evidence,
+    build_fixtures, execute_product, inspect_objects, product_output, require_equal_artifacts,
+    require_equal_files, require_evidence,
 };
 
 #[expect(
@@ -27,12 +27,7 @@ pub(super) fn audit_repeatable_fixture(
         target,
         runtime,
         prefix,
-        RepeatableFixtureAudit {
-            fixtures: &[fixture],
-            expected,
-            name,
-            required_object_evidence,
-        },
+        RepeatableFixtureAudit::new(&[fixture], expected, name, required_object_evidence),
     )
 }
 
@@ -42,6 +37,7 @@ pub(super) struct RepeatableFixtureAudit<'fixture> {
     expected: i32,
     name: &'fixture str,
     required_object_evidence: &'fixture [&'fixture str],
+    stdout: Option<&'fixture str>,
 }
 
 impl<'fixture> RepeatableFixtureAudit<'fixture> {
@@ -57,7 +53,15 @@ impl<'fixture> RepeatableFixtureAudit<'fixture> {
             expected,
             name,
             required_object_evidence,
+            stdout: None,
         }
+    }
+
+    /// Requires this exact output from the executable, including cleanup.
+    pub(super) const fn with_stdout(mut self, stdout: &'fixture str) -> Self {
+        self.stdout = Some(stdout);
+
+        self
     }
 }
 
@@ -90,9 +94,19 @@ pub(super) fn audit_repeatable_fixtures(
         require_evidence(&report, audit.required_object_evidence)?;
     }
 
-    execute_product(
-        first.executable(),
-        audit.expected,
-        &format!("executing {}", audit.name),
-    )
+    let operation = format!("executing {}", audit.name);
+    let executable = first.executable();
+
+    if let Some(expected) = audit.stdout {
+        let output = product_output(executable, &operation)?;
+        let stdout = String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n");
+
+        if output.status.code() == Some(audit.expected) && stdout == expected && output.stderr.is_empty() {
+            return Ok(());
+        }
+
+        return Err(crate::command::failure(&operation, &output));
+    }
+
+    execute_product(executable, audit.expected, &operation)
 }

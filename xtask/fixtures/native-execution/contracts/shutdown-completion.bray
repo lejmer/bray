@@ -1,0 +1,31 @@
+trusted internal module bray.runtime.bootstrap.host.product;
+
+trusted func probe_shutdown_pending(pos mut owner: ShutdownOwner)
+    requires(trusted native_host(), trusted bray.runtime.bootstrap.pool.protocol_access()) {}
+
+trusted func probe_shutdown_completed(pos mut owner: ShutdownOwner)
+    requires(trusted native_host(), trusted bray.runtime.bootstrap.pool.protocol_access(), !owner.pending) {}
+
+trusted func probe_shutdown_attempt(pos mut owner: ShutdownOwner)
+    requires(trusted native_host(), trusted bray.runtime.bootstrap.pool.protocol_access())
+{
+    _ = trusted owner.attempt();
+}
+
+trusted func probe_shutdown_fallback(pos mut owner: ShutdownOwner)
+    requires(trusted native_host(), trusted bray.runtime.bootstrap.pool.protocol_access())
+{
+    _ = trusted owner.adopt_fallback();
+}
+
+trusted func probe_shutdown_panic(pos mut owner: ShutdownOwner)
+    requires(trusted native_host(), trusted bray.runtime.bootstrap.pool.protocol_access())
+{
+    panic("caller failed");
+}
+
+trusted func probe_shutdown_optional(pos mut owner: ShutdownOwner?)
+    requires(trusted native_host(), trusted bray.runtime.bootstrap.pool.protocol_access()) {}
+
+trusted func probe_shutdown_result(pos mut owner: Result<ShutdownOwner, u32>)
+    requires(trusted native_host(), trusted bray.runtime.bootstrap.pool.protocol_access()) {}

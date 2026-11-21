@@ -235,7 +235,8 @@ fn associated_constants_keep_instantiations_distinct_in_conditions() {
             const VALUE: usize = N;
         }
 
-        total func distinct()
+        func distinct()
+            executes(total)
         {
             assert(Buffer<3>.VALUE != Buffer<5>.VALUE);
         }

@@ -21,10 +21,12 @@ pub enum StorageOrigin {
         /// Components reached within the returned referent.
         projections: std::sync::Arc<[crate::StorageProjection]>,
     },
-    /// A static absent from this unit's storage plan. Planned statics use `Storage`.
+    /// An external selected static or declaration-wide footprint.
     Static {
-        /// The product or exact-thread static instance.
+        /// The exact selection or declaration region and its ownership domain.
         root: bray_symbols::DependencySubjectRoot,
+        /// The checked specialization, available for selected storage.
+        selection: Option<std::sync::Arc<bray_symbols::StaticReferenceSelection>>,
         /// Components reached within the static.
         projections: std::sync::Arc<[crate::StorageProjection]>,
     },
@@ -64,13 +66,10 @@ impl StorageOrigin {
 impl StorageTarget {
     pub(crate) fn is_valid_for(&self, unit: crate::BoundUnitId) -> bool {
         match &self.origin {
-            StorageOrigin::Static { root, projections } => {
+            StorageOrigin::Static { root, projections, selection } => {
                 !self.previous
-                    && matches!(
-                        root,
-                        bray_symbols::DependencySubjectRoot::ProductStatic(_)
-                            | bray_symbols::DependencySubjectRoot::ExactThreadStatic(_)
-                    )
+                    && root.is_static()
+                    && (selection.is_some() == matches!(root, bray_symbols::DependencySubjectRoot::StaticInstance(..)))
                     && projections
                         .iter()
                         .all(|projection| projection.is_valid_for(unit))
@@ -175,6 +174,28 @@ impl StorageTarget {
         }
     }
 
+    /// Identifies the source dependency retained for an exact reached target.
+    pub fn dependency_subject(
+        &self,
+        values: &bray_symbols::SemanticValueStore,
+        storage: &crate::StoragePlan,
+    ) -> Option<crate::BoundDependencySubject> {
+        if !self.is_exact() {
+            return None;
+        }
+
+        if let StorageOrigin::Static { root, .. } = self.origin {
+            return crate::BoundDependencySubject::from_static_root(values, root);
+        }
+
+        let path = self.inline_state_path()?;
+
+        Some(path.access_id(storage).map_or(
+            crate::BoundDependencySubject::Storage(path.root),
+            crate::BoundDependencySubject::StorageAccess,
+        ))
+    }
+
     /// Identifies one current value slot.
     pub fn storage(place: StoragePath) -> Self {
         Self {
@@ -214,9 +235,8 @@ impl StorageTarget {
                 }
                 StorageOrigin::Allocation { allocation, projections } => allocation.is_exact()
                     && projections.iter().all(|projection| projection.is_exact()),
-                StorageOrigin::Static { projections, .. } => {
-                    projections.iter().all(|projection| projection.is_exact())
-                }
+                StorageOrigin::Static { root, projections, .. } => matches!(root, bray_symbols::DependencySubjectRoot::StaticInstance(..))
+                    && projections.iter().all(|projection| projection.is_exact()),
             }
     }
 
@@ -302,6 +322,10 @@ impl StorageTarget {
 
     /// Compares referents without equating independent entry or returned references.
     pub fn relationship(&self, other: &Self) -> crate::StorageRelationship {
+        self.relationship_in_slots(other, &[])
+    }
+
+    fn structural_relationship(&self, other: &Self) -> crate::StorageRelationship {
         use crate::StorageRelationship;
 
         if self.previous || other.previous {
@@ -361,10 +385,12 @@ impl StorageTarget {
                 StorageOrigin::Static {
                     root: left,
                     projections: left_path,
+                    ..
                 },
                 StorageOrigin::Static {
                     root: right,
                     projections: right_path,
+                    ..
                 },
             ) if left == right => region_relationship(left_path, right_path),
             (StorageOrigin::Allocation { allocation: left, projections: left_path },
@@ -380,6 +406,54 @@ impl StorageTarget {
                 }
             }
             _ => StorageRelationship::Disjoint,
+        }
+    }
+
+    /// Compares targets with the unit's selected static slots in scope.
+    pub fn relationship_in_slots(&self, other: &Self, slots: &[crate::StorageIdentity]) -> crate::StorageRelationship {
+        use crate::StorageRelationship;
+
+        let ordinary = self.structural_relationship(other);
+
+        if ordinary != StorageRelationship::Disjoint || self.previous || other.previous {
+            return ordinary;
+        }
+
+        let left = self.static_selection(slots);
+        let right = other.static_selection(slots);
+
+        let overlapping = match (left, right) {
+            (Some(left), Some(right)) => left.may_share_instance(right),
+            (Some(left), None) => other.bounds_static(left),
+            (None, Some(right)) => self.bounds_static(right),
+            (None, None) => false,
+        };
+
+        if overlapping && region_relationship(self.projections(), other.projections()) != StorageRelationship::Disjoint {
+            StorageRelationship::PotentiallyOverlapping
+        } else {
+            StorageRelationship::Disjoint
+        }
+    }
+
+    fn static_selection<'a>(&'a self, slots: &'a [crate::StorageIdentity]) -> Option<&'a bray_symbols::StaticReferenceSelection> {
+        match &self.origin {
+            StorageOrigin::Static { selection, .. } => selection.as_deref(),
+            StorageOrigin::Storage(path) => {
+                let crate::StorageIdentity::Static(selection) = slots.get(usize::try_from(path.root.ordinal()).ok()?)? else { return None; };
+
+                Some(selection.as_ref())
+            }
+            _ => None,
+        }
+    }
+
+    fn bounds_static(&self, selection: &bray_symbols::StaticReferenceSelection) -> bool {
+        match &self.origin {
+            StorageOrigin::Static { root: bray_symbols::DependencySubjectRoot::ProductStatic(declaration)
+                | bray_symbols::DependencySubjectRoot::ExactThreadStatic(declaration), .. } =>
+                selection.template().declaration() == *declaration,
+            _ => false,
         }
     }
 
@@ -423,14 +497,37 @@ impl StorageTarget {
                 StorageOrigin::Static {
                     root: left,
                     projections: prefix,
+                    ..
                 },
                 StorageOrigin::Static {
                     root: right,
                     projections,
+                    ..
                 },
             ) => left == right && projections.starts_with(prefix),
             _ => false,
         }
+    }
+
+    /// Whether this target contains physical storage in the same allocation and epoch.
+    pub fn contains_storage(&self, other: &Self) -> bool {
+        self.contains(other)
+            && StorageProjection::remains_in_allocation(&other.projections()[self.projections().len()..])
+    }
+
+    /// The same origin and epoch at an enclosing projection prefix.
+    pub fn prefix(&self, length: usize) -> Self {
+        let mut prefix = self.clone();
+
+        match &mut prefix.origin {
+            StorageOrigin::Storage(path) => path.projections = path.projections[..length].into(),
+            StorageOrigin::Entry { projections, .. } | StorageOrigin::Returned { projections, .. }
+            | StorageOrigin::Allocation { projections, .. } | StorageOrigin::Static { projections, .. } => {
+                *projections = projections[..length].into();
+            }
+        }
+
+        prefix
     }
 
     /// Derives components while preserving the original reference identity and epoch.
@@ -470,9 +567,11 @@ impl StorageTarget {
             StorageOrigin::Static {
                 root,
                 projections: prefix,
+                selection,
             } => StorageOrigin::Static {
                 root: *root,
                 projections: append(prefix),
+                selection: selection.clone(),
             },
         };
 
@@ -636,7 +735,7 @@ mod tests {
     }
 
     #[test]
-    fn unplanned_statics_preserve_identity_without_claiming_aliases_to_known_storage() {
+    fn static_declaration_footprints_do_not_supply_selected_addresses() {
         use bray_symbols::{DependencySubjectRoot, StaticSymbolId, SymbolId};
 
         let declaration = StaticSymbolId::from_symbol_id(SymbolId::new(1));
@@ -645,6 +744,7 @@ mod tests {
             previous: false,
             origin: StorageOrigin::Static {
                 root: DependencySubjectRoot::ProductStatic(declaration),
+                selection: None,
                 projections: [].into(),
             },
         };
@@ -652,6 +752,7 @@ mod tests {
         let thread = StorageTarget {
             origin: StorageOrigin::Static {
                 root: DependencySubjectRoot::ExactThreadStatic(declaration),
+                selection: None,
                 projections: [].into(),
             },
             ..root.clone()
@@ -661,7 +762,8 @@ mod tests {
         let payload = root.project(&[StorageProjection::OwnedTarget]);
 
         assert!(root.is_valid_for(BoundUnitId::new(1)));
-        assert!(root.is_exact());
+        assert!(!root.is_exact());
+        assert!(crate::StorageMutationTarget::location(root.clone()).address.is_none());
         assert!(root.observation_path().is_none());
         assert!(root.contains(&field));
         assert_eq!(payload.allocation_region(), Some(payload.clone()));
@@ -717,6 +819,11 @@ mod tests {
 
                 assert_eq!(region, header.project(&[StorageProjection::OwnedTarget]));
                 assert_eq!(region.previous, previous);
+                assert!(header.contains(&payload));
+                assert!(!header.contains_storage(&payload));
+                assert!(region.contains_storage(&payload));
+                assert!(header.contains_storage(&header.project(&[StorageProjection::UninitPayload])));
+                assert!(!header.contains_storage(&StorageTarget { previous: !previous, ..header.clone() }));
 
                 assert_eq!(
                     region.relationship(&header),

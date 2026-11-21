@@ -82,7 +82,7 @@ fn equal_const_results_retain_independent_owner_authority() {
             {{
                 let first = create();
                 let second = create();
-                trusted activate(&first);
+                activate(&first);
                 observe(&{observed});
             }}
         "#));

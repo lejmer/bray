@@ -1,9 +1,9 @@
-use bray_bound_tree::{CheckedExpressionTypes, CheckedMemoryOperation, CheckedMemoryOperationKind, CheckedMemoryOperations, StorageProjection};
+use bray_bound_tree::{CheckedExpressionTypes, CheckedMemoryOperation, CheckedMemoryOperationKind, CheckedMemoryOperations, StorageCapturedValue, StorageProjection};
 use bray_symbols::{DependencyProjection, NamedTypeSymbolId, TypeData};
 
 use crate::{CheckerRequestContext, CheckerUnitView};
-use crate::analysis::storage_flow::memory::{Source, Target};
-use crate::analysis::storage_flow::model::{StorageFlowInput, StorageFlowState};
+use crate::analysis::guarantee::ExecutionState;
+use crate::analysis::storage_flow::model::StorageFlowInput;
 use super::super::core::StorageFlowCollector;
 
 impl StorageFlowInput {
@@ -45,31 +45,20 @@ impl StorageFlowInput {
 }
 
 impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
-    pub(super) fn deallocation_pointer(
+    pub(super) fn captured_deallocation_pointer(
         &self,
-        state: &StorageFlowState,
+        execution: &ExecutionState,
         operation: &CheckedMemoryOperation,
-    ) -> Option<Target> {
-        let pointer = self.memory_argument_target(state, operation, operation.arguments()[0])?;
+    ) -> Option<StorageCapturedValue> {
+        let pointer = self.captured_memory_operand(execution, operation, operation.arguments()[0])?;
 
-        Some(if matches!(operation.kind(), CheckedMemoryOperationKind::Deallocate) {
+        if matches!(operation.kind(), CheckedMemoryOperationKind::Deallocate) {
             let (field, _) = self.input.allocation_pointer.expect("allocation field is prepared");
 
-            pointer.project(&[StorageProjection::ProductField(field)])
+            Some(pointer.project(StorageProjection::ProductField(field)))
         } else {
-            pointer
-        })
-    }
-
-    pub(super) fn deallocation_source(
-        &self,
-        state: &StorageFlowState,
-        operation: &CheckedMemoryOperation,
-    ) -> Option<Source> {
-        if matches!(operation.kind(), CheckedMemoryOperationKind::Deallocate) {
-            self.deallocation_pointer(state, operation).map(Source::Value)
-        } else {
-            self.memory_argument_reference(state, operation, operation.arguments()[0])
+            // The operation shares its admitted descriptor instead of reading its source slot.
+            Some(pointer.clone())
         }
     }
 }

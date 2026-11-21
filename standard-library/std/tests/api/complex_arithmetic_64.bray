@@ -1,4 +1,4 @@
-module bray.standard_library_tests.complex_arithmetic;
+trusted module bray.standard_library_tests.complex_arithmetic;
 
 func add_64(pos left: c64, pos right: c64) -> c64
 {

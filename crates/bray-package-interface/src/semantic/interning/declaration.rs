@@ -16,7 +16,7 @@ use super::{
 };
 use crate::InterfaceSemantics;
 
-impl InternState {
+impl InternState<'_> {
     pub(super) fn convert_declared_types(
         &self,
         semantics: &InterfaceSemantics,

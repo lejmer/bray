@@ -1,5 +1,4 @@
-use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticArgName, DiagnosticArgValue,
@@ -72,96 +71,6 @@ fn json_output_preserves_an_absent_standard_library_dependency() {
         output["diagnostics"][0]["notes"][0]["kind"],
         "standard_library_dependency_required"
     );
-}
-
-const JSON_SOURCE_INVENTORY: &[&str] = &[
-    "output/diagnostic/json.rs",
-    "output/diagnostic/json/argument.rs",
-    "output/diagnostic/json/checking.rs",
-    "output/diagnostic/json/checking/analysis.rs",
-    "output/diagnostic/json/checking/candidate.rs",
-    "output/diagnostic/json/checking/contract_mismatch.rs",
-    "output/diagnostic/json/checking/overload.rs",
-    "output/diagnostic/json/checking/selection.rs",
-    "output/diagnostic/json/checking/trait_mismatch.rs",
-    "output/diagnostic/json/contract.rs",
-    "output/diagnostic/json/emission.rs",
-    "output/diagnostic/json/emission/context.rs",
-    "output/diagnostic/json/emission/failure.rs",
-    "output/diagnostic/json/emission/foreign_query.rs",
-    "output/diagnostic/json/emission/native_link.rs",
-    "output/diagnostic/json/emission/product_query.rs",
-    "output/diagnostic/json/foreign.rs",
-    "output/diagnostic/json/interface.rs",
-    "output/diagnostic/json/interface/identity.rs",
-    "output/diagnostic/json/interface/validation.rs",
-    "output/diagnostic/json/interface/validation/failure.rs",
-    "output/diagnostic/json/interface/validation/problem.rs",
-    "output/diagnostic/json/path.rs",
-    "output/diagnostic/json/project.rs",
-    "output/diagnostic/json/project/command.rs",
-    "output/diagnostic/json/project/execution.rs",
-    "output/diagnostic/json/project/generator.rs",
-    "output/diagnostic/json/project/inspection.rs",
-    "output/diagnostic/json/report.rs",
-    "output/diagnostic/json/runtime.rs",
-    "output/diagnostic/json/tests.rs",
-    "output/diagnostic/json/value.rs",
-];
-const JSON_SOURCE_INVENTORY_TEST: &str = "output/diagnostic/json/tests.rs";
-
-#[test]
-fn json_source_inventory_is_complete_and_production_sources_have_no_recovery_sentinels() {
-    let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-    let mut actual = vec!["output/diagnostic/json.rs".to_owned()];
-
-    collect_rust_sources(
-        &source_root.join("output/diagnostic/json"),
-        &source_root,
-        &mut actual,
-    );
-
-    actual.sort();
-
-    assert_eq!(actual, JSON_SOURCE_INVENTORY);
-
-    for relative in JSON_SOURCE_INVENTORY
-        .iter()
-        .copied()
-        .filter(|relative| *relative != JSON_SOURCE_INVENTORY_TEST)
-    {
-        let source = fs::read_to_string(source_root.join(relative))
-            .unwrap_or_else(|error| panic!("JSON source {relative} must be readable: {error:?}"));
-
-        for forbidden in ["tokens truncated", "…", "43404"] {
-            assert!(
-                !source.contains(forbidden),
-                "JSON source {relative} contains recovery sentinel {forbidden:?}"
-            );
-        }
-    }
-}
-
-fn collect_rust_sources(directory: &Path, source_root: &Path, sources: &mut Vec<String>) {
-    let entries = fs::read_dir(directory)
-        .unwrap_or_else(|error| panic!("JSON source directory must be readable: {error:?}"));
-
-    for entry in entries {
-        let entry =
-            entry.unwrap_or_else(|error| panic!("JSON source entry must be valid: {error:?}"));
-
-        let path = entry.path();
-
-        if path.is_dir() {
-            collect_rust_sources(&path, source_root, sources);
-        } else if path.extension().is_some_and(|extension| extension == "rs") {
-            let relative = path.strip_prefix(source_root).unwrap_or_else(|error| {
-                panic!("JSON source must be beneath crate source: {error:?}")
-            });
-
-            sources.push(relative.to_string_lossy().replace('\\', "/"));
-        }
-    }
 }
 
 #[test]

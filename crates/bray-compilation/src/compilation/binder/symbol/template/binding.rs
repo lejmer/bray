@@ -892,7 +892,7 @@ overload choose_any = {fast}
     #[test]
     fn predicate_trust_comes_only_from_the_declaration_modifier() {
         let compilation = compilation(concat!(
-            "module app;\n",
+            "trusted module app;\n",
             "\n",
             "predicate plain() = trusted true;\n",
             "trusted predicate opaque();\n",

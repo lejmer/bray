@@ -335,7 +335,7 @@ mod tests {
         document(concat!(
             "module app;\n",
             "\n",
-            "func add(left: i32, right: i32) -> i32\n",
+            "func add(pos left: i32, pos right: i32) -> i32\n",
             "{\n",
             "    return left + right;\n",
             "}\n",

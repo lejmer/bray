@@ -9,59 +9,6 @@ use bray_symbols::AnySymbolId;
 use crate::execution_guarantees::{ExecutionDependency, ExecutionProperty};
 use crate::{CheckerRequestContext, CheckerUnitView};
 
-pub(super) fn collect_preservation_dependencies(
-    occurrences: impl Iterator<Item = bray_bound_tree::BoundExecutionSite>,
-    selections: &CheckedSemanticSelections,
-    memory: &CheckedMemoryOperations,
-    contracts: Option<&crate::TrustedContractInputs>,
-    dependencies: &mut Vec<ExecutionDependency>,
-) {
-    // Retaining entry facts across a pure call depends on that call's proof, even when
-    // the enclosing obligation is only a completion predicate or termination promise.
-    for occurrence in occurrences {
-        let bray_bound_tree::BoundExecutionSite::Node(node) = occurrence else {
-            if contracts
-                .and_then(|inputs| inputs.calls.get(&occurrence))
-                .is_some_and(|contract| contract.preserves_inputs)
-                && selections.invoked_callable(occurrence).is_some()
-            {
-                collect_invocation_dependency(
-                    selections,
-                    occurrence,
-                    ExecutionProperty::Pure,
-                    dependencies,
-                );
-            }
-
-            continue;
-        };
-
-        let bray_bound_tree::AnyBoundNodeId::Expression(expression) = node else {
-            continue;
-        };
-
-        let Some(SemanticSelection::Call(call)) = selections.expression(expression) else {
-            continue;
-        };
-
-        if call
-            .phase_behaviors()
-            .invocation()
-            .execution_properties()
-            .contains(&ExecutionProperty::Pure)
-            && !memory.operation(expression).is_some_and(|operation| {
-                crate::memory::execution::guarantees(operation.kind(), ExecutionProperty::Pure)
-            })
-        {
-            dependencies.push(ExecutionDependency {
-                target: crate::ExecutionDependencyTarget::selected(call),
-                obligation: crate::ExecutionObligation::Property(ExecutionProperty::Pure, None),
-                occurrence: node.into(),
-            });
-        }
-    }
-}
-
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub(super) enum ExecutionGoal {
     Property(ExecutionProperty),
@@ -230,8 +177,8 @@ pub(super) fn check_storage_accesses<C: CheckerRequestContext + ?Sized>(
 
         if storage.identity(identity).is_none_or(|identity| {
             matches!(identity, StorageIdentity::Error(_))
-                || matches!(identity, StorageIdentity::Static(declaration)
-                    if !static_access_preserves_execution(request, declaration, property))
+                || matches!(identity, StorageIdentity::Static(selection)
+                    if !static_access_preserves_execution(request, selection.template().declaration(), property))
         }) {
             return false;
         }
@@ -373,12 +320,11 @@ fn collect_conversion_dependencies(
     resolved
 }
 
-pub(super) fn collect_invocation_dependency(
+pub(super) fn invocation_dependency(
     selections: &CheckedSemanticSelections,
     invocation: bray_bound_tree::BoundExecutionSite,
     property: ExecutionProperty,
-    dependencies: &mut Vec<ExecutionDependency>,
-) {
+) -> ExecutionDependency {
     let selection = invocation
         .expression()
         .and_then(|expression| selections.expression(expression));
@@ -427,7 +373,7 @@ pub(super) fn collect_invocation_dependency(
         }
     };
 
-    dependencies.push(ExecutionDependency {
+    ExecutionDependency {
         target,
         obligation: if property == ExecutionProperty::Total
             && matches!(
@@ -440,7 +386,7 @@ pub(super) fn collect_invocation_dependency(
             crate::ExecutionObligation::Property(property, None)
         },
         occurrence: invocation,
-    });
+    }
 }
 
 pub(super) fn check_construction_admission<C: CheckerRequestContext + ?Sized>(

@@ -116,10 +116,7 @@ Regression checks use deterministic work: concurrent and repeated probe requests
 fixture per target, and repeated production symbol, checking, and lowering demands perform zero additional query
 evaluations. These checks are independent of CPU speed and system load.
 
-The proof tier's `production_fixture_phase_timings` case records ordinary compiler summary profiles after parsing,
-symbol binding, checking, and lowering. The tier runner retains these under `phases/`. These checkpoints are cumulative
-and include query evaluation and reuse counters. A final `reuse` checkpoint records the no-additional-work assertion.
-Use [Compiler profiling](profiling.md) to interpret the reports.
+For compiler phase timings and query reuse counters, see [Compiler profiling](profiling.md).
 
 A reference run on 2026-10-29 with a four-CPU Linux quota completed 1,911 fast tests in 57.89 seconds. All 277 slow
 tests passed in the four-shard CI arrangement in a further 8 minutes 44 seconds, covering all 2,188 compiled tests

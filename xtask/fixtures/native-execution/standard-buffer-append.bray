@@ -8,7 +8,7 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
     let second: u8 = 2;
     let third: u8 = 3;
     let initial: bytes<3> = [first, second, third];
-    let extra: bytes<3> = [first, second, third];
+    let extra: bytes<3> = [4, 5, 6];
     let mut buffer: Buffer = try Buffer.from_slice(&initial[..]);
 
     try append(bytes = &extra[..], buffer = &mut buffer);
@@ -17,9 +17,11 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
 
     assert(length(&buffer) == 6);
     assert(values[0] == 1);
+    assert(values[1] == 2);
     assert(values[2] == 3);
-    assert(values[3] == 1);
-    assert(values[5] == 3);
+    assert(values[3] == 4);
+    assert(values[4] == 5);
+    assert(values[5] == 6);
 
     return Ok(unit);
 }

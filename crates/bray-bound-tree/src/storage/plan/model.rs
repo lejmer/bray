@@ -7,9 +7,9 @@ use crate::storage::builder::StoragePlanBuilder;
 use crate::{
     AnyBoundNodeId, BorrowCapabilityId, BoundUnitId, BoundUnitKind, StorageAccess, StorageAccessId,
     StorageAccessPurpose, StorageAlternativeId, StorageIdentity, StorageIdentityId, StoragePath,
-    StorageProjection, StorageRelationship,
+    StorageProjection, StorageReferencePath, StorageRelationship,
 };
-use bray_symbols::{BorrowKind, TypeId};
+use bray_symbols::{BorrowKind, StaticReferenceSelection, TypeId};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
@@ -19,6 +19,7 @@ pub struct StoragePlan {
     unit: BoundUnitId,
     kind: BoundUnitKind,
     identities: Arc<[StorageIdentity]>,
+    static_slots: BTreeMap<Arc<StaticReferenceSelection>, StorageIdentityId>,
     temporaries: BTreeMap<crate::BoundExpressionId, StorageIdentityId>,
     value_slots: BTreeMap<crate::BoundExpressionId, StorageIdentityId>,
     value_consumptions: BTreeMap<(crate::BoundExecutionSite, crate::StorageValueConsumptionPhase), BTreeSet<StoragePath>>,
@@ -36,15 +37,37 @@ pub struct StoragePlan {
     bindings_by_storage: Arc<[usize]>,
     plans: Arc<[StorageAccessPlan]>,
     plans_by_occurrence: Arc<[usize]>,
+    assignment_destinations: BTreeMap<crate::BoundExpressionId, StorageAccessPlan>,
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub(super) struct ResolvedStorageAccess {
     pub(super) logical: StoragePath,
     pub(super) paths: Arc<[StoragePath]>,
+    pub(super) reference: Option<(TypeId, StorageReferencePath)>,
 }
 
 impl StoragePlan {
+    /// Supplies the typed reference and backing steps resolved by storage planning.
+    pub fn with_reference_routes(
+        mut self,
+        routes: impl IntoIterator<Item = (StorageAccessId, (TypeId, StorageReferencePath))>,
+    ) -> Self {
+        let accesses = Arc::make_mut(&mut self.resolved_accesses);
+
+        for (access, route) in routes {
+            assert_eq!(access.unit(), self.unit, "a planned reference route belongs to its access unit");
+
+            let slot = access.storage_index().and_then(|index| accesses.get_mut(index))
+                .and_then(Option::as_mut).expect("a planned reference route belongs to a resolved access");
+
+            assert_eq!(route.1.projections(), slot.logical.projections.as_ref());
+            assert!(slot.reference.replace(route).is_none(), "one access owns one typed route");
+        }
+
+        self
+    }
+
     /// Attaches the checked copy contracts for types transferred by this unit.
     pub fn with_copyable_types(mut self, types: BTreeSet<TypeId>) -> Self {
         self.copyable_types = types;
@@ -62,6 +85,7 @@ impl StoragePlan {
             unit,
             kind,
             identities,
+            static_slots,
             temporaries,
             value_slots,
             value_consumptions,
@@ -109,6 +133,11 @@ impl StoragePlan {
 
         plans_by_occurrence.sort_unstable_by_key(|index| (plans[*index].occurrence(), *index));
 
+        let assignment_destinations = plans.iter().copied()
+            .filter(|plan| plan.purpose() == StorageAccessPurpose::Write)
+            .map(|plan| (plan.expression(), plan))
+            .collect();
+
         let bindings = bindings.into_iter().collect::<Vec<_>>();
         let mut bindings_by_storage = (0..bindings.len()).collect::<Vec<_>>();
 
@@ -136,6 +165,7 @@ impl StoragePlan {
             kind,
             copyable_types: BTreeSet::new(),
             identities: identities.into(),
+            static_slots,
             temporaries,
             value_slots,
             value_consumptions,
@@ -150,6 +180,7 @@ impl StoragePlan {
             bindings_by_storage: bindings_by_storage.into(),
             plans: plans.into(),
             plans_by_occurrence: plans_by_occurrence.into(),
+            assignment_destinations,
         }
     }
 
@@ -180,13 +211,18 @@ impl StoragePlan {
         &self.identities
     }
 
+    /// Shares the storage identities with forward memory without rebuilding their selection table.
+    pub fn shared_identities(&self) -> Arc<[StorageIdentity]> {
+        Arc::clone(&self.identities)
+    }
+
     /// Returns storage origins with their unit-local identities.
     pub fn identity_entries(
         &self,
     ) -> impl Iterator<Item = (StorageIdentityId, StorageIdentity)> + '_ {
         self.identities
             .iter()
-            .copied()
+            .cloned()
             .enumerate()
             .filter_map(|(index, identity)| {
                 let slot = u32::try_from(index).ok()?;
@@ -414,6 +450,14 @@ impl StoragePlan {
             }
         }
 
+        if plan.purpose() == StorageAccessPurpose::Move
+            && let Some(path) = self.logical_path(plan.access())
+            && self.value_retirements(plan.occurrence(), crate::StorageValueConsumptionPhase::Admission)
+                .any(|consumed| consumed == path)
+        {
+            return Role::PrivateInputAdmission;
+        }
+
         if matches!(plan.purpose(), StorageAccessPurpose::Read | StorageAccessPurpose::Copy | StorageAccessPurpose::Move | StorageAccessPurpose::ValueTransfer) {
             let complete_root = self.resolved_projections(plan.access()).is_some_and(<[_]>::is_empty);
 
@@ -487,7 +531,20 @@ impl StoragePlan {
     /// Returns one persistent storage identity.
     pub fn identity(&self, id: StorageIdentityId) -> Option<StorageIdentity> {
         self.entry(id.unit(), id.storage_index(), &self.identities)
-            .copied()
+            .cloned()
+    }
+
+    /// Returns the slot of an exact selection already present in this unit.
+    pub fn static_slot(&self, selection: &StaticReferenceSelection) -> Option<StorageIdentityId> {
+        self.static_slots.get(selection).copied()
+    }
+
+    /// Visits the selected slots that may belong to a declaration-level footprint.
+    pub fn static_slots(&self, declaration: bray_symbols::StaticSymbolId)
+        -> impl Iterator<Item = StorageIdentityId> + '_
+    {
+        self.static_slots.iter().filter_map(move |(selection, id)|
+            (selection.template().declaration() == declaration).then_some(*id))
     }
 
     /// Returns one evaluated storage access.
@@ -534,6 +591,11 @@ impl StoragePlan {
     /// Lookup examines only the matching plans after a binary search of the immutable index.
     pub fn node_plans(&self, node: AnyBoundNodeId) -> impl Iterator<Item = StorageAccessPlan> + '_ {
         self.occurrence_plans(node.into())
+    }
+
+    /// Finds the write whose evaluated destination is this expression.
+    pub fn assignment_destination(&self, expression: crate::BoundExpressionId) -> Option<StorageAccessPlan> {
+        self.assignment_destinations.get(&expression).copied()
     }
 
     /// Returns access plans for an exact execution occurrence in their original evaluation order.
@@ -604,12 +666,51 @@ impl StoragePlan {
             return StorageRelationship::Error;
         };
 
-        left.logical.relationship(&right.logical)
+        if matches!(self.identity(left.logical.root), Some(StorageIdentity::Static(_)))
+            && matches!(self.identity(right.logical.root), Some(StorageIdentity::Static(_))) {
+            self.path_relationship(&left.logical, &right.logical)
+        } else {
+            left.logical.relationship(&right.logical)
+        }
     }
 
     /// Returns the prepared logical path without copying its projection storage.
     pub fn logical_path(&self, access: StorageAccessId) -> Option<&StoragePath> {
         self.resolved_access(access).map(|access| &access.logical)
+    }
+
+    /// Returns the reached type and the typed route of the planned access.
+    pub fn reference_route(&self, access: StorageAccessId) -> Option<&(TypeId, StorageReferencePath)> {
+        self.resolved_access(access)?.reference.as_ref()
+    }
+
+    /// Returns the first language-borrow mode crossed from an inline storage root.
+    pub fn projected_borrow_kind(&self, access: StorageAccessId) -> Option<BorrowKind> {
+        if !matches!(self.access(access)?.root(), crate::StorageAccessRoot::Storage(_)) {
+            return None;
+        }
+
+        self.reference_route(access)?.1.first_borrow_kind()
+    }
+
+    /// Whether the checked origin of this borrow belongs to a caller or static storage.
+    pub fn borrow_reaches_external_storage(&self, mut access: StorageAccessId) -> bool {
+        loop {
+            if self.projected_borrow_kind(access).is_some() { return true; }
+
+            let record = self.access(access).expect("a lifetime anchor names a planned storage access");
+
+            let Some(borrow) = record.root().borrow_capability() else {
+                return matches!(self.root_identity(access).and_then(|root| self.identity(root)),
+                    Some(StorageIdentity::Static(_)));
+            };
+
+            let capability = self.borrow_capability(borrow).expect("a borrowed access has a checked capability");
+
+            if capability.entry_binding().is_some() { return true; }
+
+            access = capability.access();
+        }
     }
 
     /// Returns the persistent storage root reached by one access.
@@ -690,6 +791,10 @@ impl StoragePlan {
         let (Some(left), Some(right)) = (self.identity(left), self.identity(right)) else {
             return false;
         };
+
+        if let (StorageIdentity::Static(left), StorageIdentity::Static(right)) = (&left, &right) {
+            return !left.may_share_instance(right);
+        }
 
         left.owns_slot() || right.owns_slot()
     }

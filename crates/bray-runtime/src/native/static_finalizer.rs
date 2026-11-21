@@ -148,6 +148,10 @@ mod tests {
 
     use super::run_static_finalizer;
 
+    thread_local! {
+        static RESOLUTIONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    }
+
     static FRAME_DESTRUCTIONS: std::sync::atomic::AtomicUsize =
         std::sync::atomic::AtomicUsize::new(0);
 
@@ -313,6 +317,8 @@ mod tests {
     fn admitted_finalizer_runs_after_further_outgoing_admission_is_rejected() {
         let _isolation = super::super::state::test_runtime_isolation();
 
+        RESOLUTIONS.set(0);
+
         let (incidents, runtime_incident) = with_static_cleanup_runtime(|| {
             let admission = super::super::export::bray_runtime_task_allocation()
                 .task()
@@ -328,11 +334,14 @@ mod tests {
 
         assert!(incidents.iter().all(Option::is_none));
         assert!(runtime_incident.is_none());
+        assert_eq!(RESOLUTIONS.get(), 1);
     }
 
     #[test]
     fn cleanup_runtime_reuses_an_active_foreign_thread_attachment() {
         let _isolation = super::super::state::test_runtime_isolation();
+
+        RESOLUTIONS.set(0);
 
         let _attachment = crate::bootstrap::RuntimeThreadScope::enter()
             .unwrap_or_else(|error| panic!("test thread must attach: {error:?}"));
@@ -352,6 +361,7 @@ mod tests {
 
         assert!(incidents.iter().all(Option::is_none));
         assert!(runtime_incidents.is_none());
+        assert_eq!(RESOLUTIONS.get(), 1);
     }
 
     #[test]
@@ -370,22 +380,23 @@ mod tests {
             ),
         ];
 
-        let (incidents, runtime_incidents) = with_static_cleanup_runtime(|| {
-            cases
-                .into_iter()
-                .flat_map(|(affinity, requirements)| {
-                    run_static_finalizer(
+        let ((), runtime_incidents) = with_static_cleanup_runtime(|| {
+            for (affinity, requirements) in cases {
+                RESOLUTIONS.set(0);
+
+                let incidents = run_static_finalizer(
                         super::super::export::bray_runtime_task_allocation()
                             .task()
                             .expect("the finalizer reserves its Source claim"),
                         inactive_frame(affinity, requirements),
                         resolve,
-                    )
-                })
-                .collect::<Vec<_>>()
+                );
+
+                assert!(incidents.iter().all(Option::is_none), "{requirements:?}");
+                assert_eq!(RESOLUTIONS.get(), 1, "{requirements:?}");
+            }
         });
 
-        assert!(incidents.iter().all(Option::is_none));
         assert!(runtime_incidents.is_none());
     }
 
@@ -501,7 +512,27 @@ mod tests {
         )
     }
 
-    extern "C-unwind" fn resume(destination: &mut NativeFrameProgress, _: usize) {
+    extern "C-unwind" fn resume(destination: &mut NativeFrameProgress, context: usize) {
+        use crate::lane::{ExecutionLanePlacement, ExecutionWorkload};
+
+        let required = state(context, 0, 0, 0);
+        let lane = crate::context::current_task_execution_lane().expect("the finalizer has a lane");
+
+        let workload = match required.lane_requirements() {
+            NativeLaneRequirements::BLOCKING => ExecutionWorkload::Blocking,
+            NativeLaneRequirements::COMPUTE => ExecutionWorkload::Compute,
+            NativeLaneRequirements::NONE | NativeLaneRequirements::MAIN_THREAD => ExecutionWorkload::Cooperative,
+            requirements => panic!("unexpected test frame lane requirements {requirements:?}"),
+        };
+
+        assert_eq!(lane.workload(), workload);
+
+        if required.affinity() == NativeFrameAffinity::ORIGIN_THREAD {
+            let attachment = crate::bootstrap::current_runtime_thread().expect("the origin thread is attached");
+
+            assert_eq!(lane.placement(), ExecutionLanePlacement::OriginThread(attachment.id()));
+        }
+
         *destination = NativeFrameProgress::new(NativeFrameProgressKind::COMPLETED, 0, 0);
     }
 
@@ -529,6 +560,8 @@ mod tests {
         _: usize,
         _: &mut bray_runtime_abi::NativeRunOutcome,
     ) -> NativeStaticFinalizerStatus {
+        RESOLUTIONS.set(RESOLUTIONS.get() + 1);
+
         NativeStaticFinalizerStatus::SUCCESS
     }
 }

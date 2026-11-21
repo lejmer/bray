@@ -5,6 +5,23 @@ use bray_symbols::{TypeData, TypeId};
 
 use crate::{CheckerQueryError, CheckerRequestContext, CheckerUnitView};
 
+pub(crate) fn implicit_input_type(
+    values: &bray_symbols::SemanticValueStore,
+    storage: &bray_bound_tree::StoragePlan,
+    plan: bray_bound_tree::StorageAccessPlan,
+) -> TypeId {
+    let reached = storage.access(plan.access())
+        .expect("implicit input retains its checked access")
+        .reached_type();
+
+    match plan.purpose() {
+        bray_bound_tree::StorageAccessPurpose::Borrow(kind) => values
+            .intern_type(TypeData::Borrow { kind, target: values.unborrowed_type(reached) })
+            .expect("implicit receiver input retains its passed borrow type"),
+        _ => reached,
+    }
+}
+
 pub(crate) fn selected_storage_protocol_call<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     storage: TypeId,

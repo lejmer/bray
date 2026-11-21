@@ -342,7 +342,9 @@ trusted internal func finish_entry_scope(pos owner: EntryScope) -> u32
     let (selected, displaced, operation) = trusted take(owner);
 
     // No view of the nested context can remain when its actual owner retires.
-    _ = operation;
+    {
+        _ = operation;
+    }
 
     let mut saved = displaced;
 

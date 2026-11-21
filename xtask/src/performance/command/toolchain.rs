@@ -28,54 +28,12 @@ pub(super) fn prepare(root: &Path, options: &Options) -> Result<PreparedToolchai
         });
     }
 
-    let target = options.target;
-    let cargo_target = crate::workspace::cargo_target(root);
+    progress::phase("Preparing shared native dependencies");
 
-    let cache = cargo_target
-        .join(".bray")
-        .join("performance")
-        .join(target.as_str());
-
-    let installed = cargo_target.join("release").join("lib").join("bray");
-
-    progress::phase("Checking installed performance runtime");
-
-    let runtime = crate::runtime_artifact::build_for_readiness(
-        target,
-        &installed.join("runtime").join(target.as_str()),
-    )?;
-
-    let source = root.join("standard-library");
-    let installed_standard_library = installed.join("standard-library");
-
-    let standard_library = match crate::standard_library::current_target_bundle(
-        &source,
-        &installed_standard_library,
-        target,
-    )? {
-        Some(_) => {
-            progress::phase("Reusing installed performance standard library");
-
-            installed_standard_library
-        }
-        None => {
-            progress::phase("Checking performance standard library cache");
-
-            let manifest = crate::standard_library::build_target_bundle(
-                &source,
-                &cache.join("standard-library"),
-                target,
-            )?;
-
-            manifest
-                .parent()
-                .map(Path::to_path_buf)
-                .ok_or_else(|| "performance standard library has no bundle root".to_owned())?
-        }
-    };
+    let (runtime, standard_library) = crate::native_toolchain::prepare_bundles(root, options.target)?;
 
     Ok(PreparedToolchain {
-        runtime,
+        runtime: runtime.metadata,
         standard_library,
     })
 }

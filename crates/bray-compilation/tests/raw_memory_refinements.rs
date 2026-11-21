@@ -22,7 +22,7 @@ fn raw_move_from_distinct_input_preserves_nullable_heap_refinement() {
                 let pointer = std.memory.address_of_mut<Callback>(callback);
                 let moved = trusted std.memory.read<Callback>(pointer);
                 trusted std.memory.write<Callback>(pointer, { context = moved.context, call = moved.call });
-                trusted internal std.memory.initialize_spare<Entry>(
+                internal std.memory.initialize_spare<Entry>(
                     &mut entries,
                     { deadline = 1, callback = moved }
                 );

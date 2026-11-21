@@ -694,6 +694,26 @@ pub(crate) fn source_function_body_key(compilation: &Compilation, name: &str) ->
     source_symbol_body_key(compilation, symbols, function.into())
 }
 
+pub(crate) fn source_module_function_body_key(
+    compilation: &Compilation,
+    module: &[&str],
+    name: &str,
+) -> BoundUnitKey {
+    let symbols = compilation.symbol_graph().expect("source function declarations are available");
+
+    let function = symbols.functions().iter().find(|function| {
+        let symbol = function.id().into();
+
+        function.origin() == SymbolOrigin::Source
+            && symbols.member_name(symbol).is_some_and(|member| member.as_str() == name)
+            && symbols.containing_module(symbol).is_some_and(|owner| {
+                owner.path().segments().eq(module.iter().copied())
+            })
+    }).unwrap_or_else(|| panic!("source module {module:?} has no function {name}"));
+
+    source_symbol_body_key(compilation, symbols, function.id().into())
+}
+
 pub(crate) fn source_trait_callable_fulfillment_body_key(
     compilation: &Compilation,
     name: &str,
@@ -1056,6 +1076,21 @@ pub(crate) fn finite_iterator_source(step: &str) -> String {
                 }}
                 "#
     )
+}
+
+pub(crate) fn diagnostic_at_call(
+    diagnostic: &bray_diagnostics::Diagnostic,
+    source: bray_source::SourceId,
+    caller: &str,
+    call: &str,
+) -> bool {
+    let start = caller.rfind(call).expect("fixture contains the checked call");
+    let end = start + caller[start..].find(';').expect("checked call ends in a semicolon");
+
+    diagnostic.primary_span().is_some_and(|span| {
+        span.source_id() == source && (span.start().bytes() as usize) < end
+            && (span.end().bytes() as usize) > start
+    })
 }
 
 pub(crate) fn diagnostic_source_fragments(

@@ -61,11 +61,10 @@ pub(in super::super) fn assert_source_emits_valid_native_units(
         .native_product_plan(test_product_identity(), configuration, None, [], None)
         .unwrap_or_else(|error| panic!("target-control source must realize: {error:?}"));
 
-    assert!(
-        generated_artifacts(&backend, &plan)
-            .iter()
-            .all(|artifact| !artifact.is_empty())
-    );
+    let artifacts = generated_artifacts(&backend, &plan);
+
+    assert!(!artifacts.is_empty());
+    assert!(artifacts.iter().all(|artifact| !artifact.is_empty()));
 }
 
 pub(in super::super) fn generated_artifacts(
@@ -89,6 +88,8 @@ pub(in super::super) fn generated_artifacts_of_kind_with_options(
     kind: BackendArtifactKind,
     options: &CodegenOptions,
 ) -> Vec<Vec<u8>> {
+    assert_eq!(plan.units().len(), plan.mappings().len());
+
     plan.units()
         .iter()
         .zip(plan.mappings())
@@ -117,7 +118,7 @@ pub(in super::super) fn generated_artifacts_of_kind_with_options(
                 unit,
                 backend.identity(),
                 backend.capabilities().revision(),
-                ProductKind::Executable,
+                plan.kind,
                 plan.target(),
                 mappings,
                 options,

@@ -283,8 +283,8 @@ pub trait CheckerRequestContext: Sync {
         Ok(self.symbols().union_payload_field(id))
     }
 
-    /// Returns the canonical type query for a structure or union payload field.
-    fn storage_member_type(
+    /// Returns the canonical declared type of a field or static.
+    fn storage_declaration_type(
         &self,
         member: AnySymbolId,
     ) -> CheckerQueryResult<

@@ -24,13 +24,13 @@ fn activation_retirement_does_not_preserve_dispatch_ownership() {
                 )
             {{
                 _ = trusted bray.runtime.bootstrap.activation.execution.invoke(cursor, callback, ready, {operation}, 0);
-                let (progress, _, _, _, _) = trusted bray.runtime.bootstrap.activation.execution.invoke(cursor, callback, ready, 0, 0);
+                let (progress, _, _, _, _) = bray.runtime.bootstrap.activation.execution.invoke(cursor, callback, ready, 0, 0);
                 return progress;
             }}
             "#
         );
 
-        super::fixtures::assert_production_contract(&caller, (!valid).then_some(bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven), "let (progress, _, _, _, _) = trusted bray.runtime.bootstrap.activation.execution.invoke", "selected");
+        super::fixtures::assert_production_contract(&caller, (!valid).then_some(bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven), "let (progress, _, _, _, _) = bray.runtime.bootstrap.activation.execution.invoke", "selected");
     }
 }
 
@@ -98,6 +98,10 @@ fn activation_retirement_requires_retained_native_destinations() {
             false,
         ),
         (
+            "requires(trusted bray.runtime.bootstrap.activation.execution.destinations(pointer = pointer, output = output, records = records, incidents = other_records))",
+            false,
+        ),
+        (
             "requires(trusted bray.runtime.bootstrap.activation.execution.destinations(pointer = pointer, output = output, records = records, incidents = incidents))",
             true,
         ),
@@ -135,12 +139,12 @@ fn activation_retirement_requires_retained_native_destinations() {
                 )
                 {requirement}
             {{
-                return trusted bray.runtime.bootstrap.activation.execution.execute(pointer, callback, ready, 5, 0, output, records, incidents);
+                return bray.runtime.bootstrap.activation.execution.execute(pointer, callback, ready, 5, 0, output, records, incidents);
             }}
             "#
         );
 
-        super::fixtures::assert_production_contract(&caller, (!valid).then_some(bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven), "return trusted bray.runtime.bootstrap.activation.execution.execute", "destinations");
+        super::fixtures::assert_production_contract(&caller, (!valid).then_some(bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven), "return bray.runtime.bootstrap.activation.execution.execute", "destinations");
     }
 }
 
@@ -183,12 +187,12 @@ fn activation_completion_requires_the_exact_admitted_destination() {
                 )
                 {requirement}
             {{
-                _ = trusted bray.runtime.bootstrap.activation.execution.invoke(cursor, callback, ready, 4, destination);
+                _ = bray.runtime.bootstrap.activation.execution.invoke(cursor, callback, ready, 4, destination);
             }}
         "#
         );
 
-        super::fixtures::assert_production_contract(&caller, (!valid).then_some(bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven), "_ = trusted bray.runtime.bootstrap.activation.execution.invoke", "completion_destination");
+        super::fixtures::assert_production_contract(&caller, (!valid).then_some(bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven), "_ = bray.runtime.bootstrap.activation.execution.invoke", "completion_destination");
     }
 }
 

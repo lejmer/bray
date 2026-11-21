@@ -290,16 +290,16 @@ pub(super) fn recognized_declaration(
     key: &str,
 ) -> Result<bool, FactQueryError> {
     let key = bray_compiler_known::RecognizedStandardLibraryDeclarationKey::try_new(key)
-        .expect("closed storage descriptor key is valid");
+        .expect("recognized declaration key is valid");
 
     let descriptor = COMPILER_KNOWN_CATALOG
         .recognized_standard_library_declaration_by_key(&key)
-        .expect("closed storage descriptor is present");
+        .expect("recognized declaration is present");
 
     let bray_compiler_known::RecognizedStandardLibraryDeclarationOwner::Scope(scope) =
         descriptor.owner()
     else {
-        unreachable!("raw storage owner belongs directly to its standard memory scope");
+        unreachable!("recognized declaration belongs directly to its standard-library scope");
     };
 
     let path = COMPILER_KNOWN_CATALOG

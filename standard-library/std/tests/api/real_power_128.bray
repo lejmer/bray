@@ -1,5 +1,5 @@
 @target(target.scalar.R128)
-module bray.standard_library_tests.real_power;
+trusted module bray.standard_library_tests.real_power;
 
 func power_128(pos base: r128, pos exponent: r128) -> r128
 {

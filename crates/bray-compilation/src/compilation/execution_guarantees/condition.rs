@@ -553,8 +553,8 @@ impl Compilation {
 
         let mut diagnostics = DiagnosticBag::new();
 
-        let evidence = self.instantiate_execution_evidence(
-            evidence.unwrap_or(&bray_checker::ExecutionCallEvidence::default()),
+        let evidence = self.instantiate_execution_proof(
+            evidence,
             cancellation,
             &mut diagnostics,
         )?;
@@ -578,7 +578,22 @@ impl Compilation {
         let inputs = self.execution_unit_inputs(body, cancellation)?;
 
         let proves = |conditions: &[ExecutionCondition]| {
-            evidence.prove_trusted_with_inputs(conditions, &inputs).is_ok()
+            let proof = evidence.prove_trusted_with_inputs(conditions, &inputs);
+
+            if let Err(failure) = &proof
+                && std::env::var_os("BRA_694_TRACE_AUTHORITY").is_some()
+            {
+                let required = format!("{:?}", failure.required().kind());
+
+                if required.contains("SymbolId(2074)") || required.contains("SymbolId(2077)") {
+                    eprintln!("authority property {property:?} body {:?} required={} actual={}",
+                        body.source().syntax().source_id(),
+                        required.chars().take(450).collect::<String>(),
+                        format!("{:?}", failure.actual().kind()).chars().take(600).collect::<String>());
+                }
+            }
+
+            proof.is_ok()
         };
 
         let requirements = requirements
@@ -1022,20 +1037,22 @@ mod tests {
 
     #[test]
     fn completion_after_opaque_execution_requires_a_terminal_state() {
-        for (completion, valid) in [
-            ("value.open = false;", false),
-            ("value = { open = false, pending = false };", true),
+        for (call, completion, valid) in [
+            ("opaque(&mut value);", "value.open = false;", false),
+            ("opaque(&mut value);", "value = { open = false, pending = false };", true),
+            ("opaque_unrelated();", "value.open = false;", true),
         ] {
             let source = format!(
                 r#"
                 trusted module app;
                 struct Resource {{ mut open: bool; mut pending: bool; }}
-                extern trusted func opaque();
+                extern trusted func opaque(pos value: &mut Resource);
+                extern trusted func opaque_unrelated();
                 trusted func close(pos value: &mut Resource)
                     ensures(!value.open && !value.pending)
                 {{
                     value.pending = false;
-                    opaque();
+                    {call}
                     {completion}
                 }}
             "#

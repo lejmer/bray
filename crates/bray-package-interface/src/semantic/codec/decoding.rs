@@ -1,6 +1,6 @@
 mod bundle;
-mod common;
-mod contract;
+pub(super) mod common;
+pub(super) mod contract;
 mod declaration;
 mod directory;
 mod execution;

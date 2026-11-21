@@ -5,6 +5,8 @@ using core.atomic;
 
 static COUNT: core.atomic.Atomic<usize> = core.atomic.initialize<usize>(0);
 
+static BODY_STARTS: core.atomic.Atomic<usize> = core.atomic.initialize<usize>(0);
+
 struct SynchronousCapture
 {
     finalize()
@@ -75,6 +77,8 @@ struct FailingCapture
 
 async func hold_inactive<T>(pos value: T)
 {
+    _ = core.atomic.fetch_add<usize, 3>(&BODY_STARTS, 1);
+
     panic("inactive computation body");
 }
 
@@ -129,6 +133,9 @@ func run()
     check_inactive_incident(false, true);
     check_inactive_incident(true, false);
     check_inactive_incident(true, true);
+
+    assert(core.atomic.load<usize, 1>(&BODY_STARTS) == 0);
+    assert(composition.api.inactive_body_starts() == 0);
 }
 
 func check_inactive_requirements(pos imported: bool, pos allowed: bool)

@@ -237,29 +237,31 @@ mod tests {
             BinarySymbolName::try_new(name).unwrap_or_else(|| panic!("test symbol must be valid"))
         };
 
-        let mapping = CodegenProductHostMapping::try_new(
-            owner,
-            NativeProductIdentity::new([3; 32]),
-            symbol("descriptor"),
-            symbol("control"),
-            [
-                CodegenProductHostStatic::new(
-                    symbol("first"),
-                    first,
-                    bray_symbols::StaticStorageDuration::Product,
-                    0,
-                    [second],
-                ),
-                CodegenProductHostStatic::new(
-                    symbol("second"),
-                    second,
-                    bray_symbols::StaticStorageDuration::Product,
-                    1,
-                    [],
-                ),
-            ],
-        );
+        for (first_order, second_order, valid) in [(0, 1, true), (1, 0, false)] {
+            let mapping = CodegenProductHostMapping::try_new(
+                owner.clone(),
+                NativeProductIdentity::new([3; 32]),
+                symbol("descriptor"),
+                symbol("control"),
+                [
+                    CodegenProductHostStatic::new(
+                        symbol("first"),
+                        first,
+                        bray_symbols::StaticStorageDuration::Product,
+                        first_order,
+                        [second],
+                    ),
+                    CodegenProductHostStatic::new(
+                        symbol("second"),
+                        second,
+                        bray_symbols::StaticStorageDuration::Product,
+                        second_order,
+                        [],
+                    ),
+                ],
+            );
 
-        assert!(mapping.is_some());
+            assert_eq!(mapping.is_some(), valid);
+        }
     }
 }

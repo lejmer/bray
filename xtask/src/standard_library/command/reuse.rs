@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use bray_standard_library::{
     STANDARD_LIBRARY_MANIFEST_FILE_NAME, StandardLibraryArtifactDigest,
@@ -8,21 +8,6 @@ use bray_standard_library::{
 use bray_target::{NativeTarget, TargetIdentity};
 
 use super::error::BuildError;
-
-pub(crate) fn current_target_bundle(
-    source: &Path,
-    output: &Path,
-    target: NativeTarget,
-) -> Result<Option<PathBuf>, String> {
-    let target = TargetIdentity::try_new(target.as_str())
-        .ok_or_else(|| "standard library target identity is invalid".to_owned())?;
-
-    current(output, std::slice::from_ref(&target), |targets| {
-        input_identity(source, targets)
-    })
-    .map(|current| current.then(|| output.join(STANDARD_LIBRARY_MANIFEST_FILE_NAME)))
-    .map_err(|error| error.to_string())
-}
 
 pub(super) fn input_identity(
     source: &Path,

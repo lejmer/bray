@@ -63,6 +63,9 @@ func incremental_hashing_preserves_write_order()
     reversed(std.hash.HashSink).write(20);
     reversed(std.hash.HashSink).write(10);
 
-    assert(std.hash.finish(&first) == std.hash.finish(&repeated));
+    let expected: u128 = 38418965358210241778837735452676065640;
+
+    assert(std.hash.finish(&first) == expected);
+    assert(std.hash.finish(&repeated) == expected);
     assert(std.hash.finish(&first) != std.hash.finish(&reversed));
 }

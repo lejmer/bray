@@ -7,7 +7,7 @@ use crate::CheckerRequestContext;
 
 use super::build::{CatchContext, ControlFlowGraphBuilder, LoopContext};
 use super::id::AnalysisBlockId;
-use super::model::{AnalysisEdgeKind, AnalysisExitKind, AnalysisRefinement};
+use super::model::{AnalysisCallPhase, AnalysisEdgeKind, AnalysisExitKind, AnalysisRefinement};
 
 impl<C> ControlFlowGraphBuilder<'_, C>
 where
@@ -38,10 +38,11 @@ where
                     completion,
                     (*scope).into(),
                     id.into(),
+                    None,
                 )))
             }
             BoundStructuredExpressionKind::Conditional => {
-                self.build_branches(expression.blocks(), expression.operands(), current)
+                self.build_branches(id, expression.blocks(), expression.operands(), current)
             }
             BoundStructuredExpressionKind::While => {
                 let Some(body) = expression.blocks().first().copied() else {
@@ -146,108 +147,136 @@ where
 
         if self.scoped_uses.contains_key(&(*body).into()) {
             let completed = self.push_block();
+            let invocation = bray_bound_tree::BoundExecutionSite::ScopedEnter(id);
 
-            current = self.begin_invocation(
-                bray_bound_tree::BoundExecutionSite::ScopedEnter(id),
-                current,
-                self.request().trusted_contracts().is_some_and(|contracts| {
-                    contracts
-                        .calls
-                        .get(&bray_bound_tree::BoundExecutionSite::ScopedEnter(id))
-                        .is_some_and(|contract| contract.checks_preconditions)
-                }),
-            );
-
-            self.push_call(
-                current,
-                bray_bound_tree::BoundExecutionSite::ScopedEnter(id),
-                super::model::AnalysisCallPhase::Attempt,
-            );
-
-            let selected = self
+            let Some(bray_bound_tree::SemanticSelection::ScopedUse(scoped)) = self
                 .selections()
-                .and_then(|selections| selections.expression(id));
-
-            let Some(bray_bound_tree::SemanticSelection::ScopedUse(scoped)) = selected else {
+                .and_then(|selections| selections.expression(id)) else {
                 panic!("checked scope entry retains its lifecycle selection");
             };
 
-            let fallible = scoped.enter().1.result() != scoped.capability_type();
+            let entry_type = scoped.enter_result().completion_type();
+            let suspends = matches!(scoped.enter_result(), bray_bound_tree::BoundCallResult::LazyFuture(_));
+            let exit = scoped.exit_result();
 
-            if matches!(
-                scoped.enter_result(),
-                bray_bound_tree::BoundCallResult::LazyFuture(_)
-            ) {
+            let reserves_backing = suspends
+                || matches!(exit, bray_bound_tree::BoundCallResult::LazyFuture(_))
+                || self.request().available_compiler_known_symbols()
+                    .result_payloads(self.request().semantic_values(), exit.completion_type()).is_some();
+
+            let entry_callable = self.request().semantic_values().type_data(scoped.enter().1.callable_type());
+
+            let bray_symbols::TypeData::Callable(entry_callable) = entry_callable.as_ref() else {
+                unreachable!("the selected scope entry retains its callable signature");
+            };
+
+            let checks_requirements = entry_callable.phase_behaviors().invocation().has_runtime_requirements();
+
+            current = self.begin_invocation(invocation, current, checks_requirements);
+
+            if reserves_backing {
+                // Admission follows the requirements and leaves the receiver with the caller on failure.
+                current = self.push_storage_admission(
+                    current, id.into(),
+                    Some(super::model::AnalysisRefinement::InvocationBackingFailure(invocation)),
+                );
+            }
+
+            self.push_call(
+                current,
+                invocation,
+                super::model::AnalysisCallPhase::Attempt,
+            );
+
+            if suspends {
                 self.push_suspension(
                     current,
-                    bray_bound_tree::BoundExecutionSite::ScopedEnter(id),
+                    invocation,
                     super::model::AnalysisSuspensionKind::ScopedCall,
                 );
 
                 let suspended = self.push_block();
-                let cancellation = self.push_block();
 
                 self.push_edge(current, suspended, AnalysisEdgeKind::Suspension, None);
-
-                self.push_edge(
-                    suspended,
-                    completed,
-                    AnalysisEdgeKind::Resume,
-                    Some(super::model::AnalysisRefinement::InvocationCompletion(
-                        bray_bound_tree::BoundExecutionSite::ScopedEnter(id),
-                    )),
-                );
-
-                self.push_edge(
-                    suspended,
-                    cancellation,
-                    AnalysisEdgeKind::RunCancellation,
-                    Some(super::model::AnalysisRefinement::InvocationFailure(
-                        bray_bound_tree::BoundExecutionSite::ScopedEnter(id),
-                    )),
-                );
-
-                self.push_exit(cancellation, AnalysisExitKind::Cancellation, id.into());
+                self.connect_suspended_invocation(suspended, completed, invocation);
             } else {
                 self.push_edge(
                     current,
                     completed,
                     AnalysisEdgeKind::Sequential,
                     Some(super::model::AnalysisRefinement::InvocationCompletion(
-                        bray_bound_tree::BoundExecutionSite::ScopedEnter(id),
+                        invocation,
                     )),
                 );
+
+                self.push_dependency_failures(current, invocation);
             }
 
-            self.push_dependency_failures(
-                current,
-                bray_bound_tree::BoundExecutionSite::ScopedEnter(id),
-            );
+            self.push_call(completed, invocation, AnalysisCallPhase::Completion);
 
-            let entered = if fallible {
+            let entered = if entry_type != scoped.capability_type() {
+                use super::model::{AnalysisOperationKind, ScopedResultDestination, ScopedResultTransfer};
+                use bray_bound_tree::StorageProjection;
+
+                let (_, representation) = self.request().available_compiler_known_symbols()
+                    .result_payloads(self.request().semantic_values(), entry_type)
+                    .expect("fallible entry retains its checked Result representation");
+
+                let storage = self.checked_storage().expect("fallible entry retains its storage plan");
+
+                let source = storage.invocation_result(invocation).and_then(|access| storage.root_identity(access))
+                    .expect("fallible entry retains its raw result slot");
+
+                let capability = storage.implicit_input_plan(bray_bound_tree::BoundExecutionSite::ScopedExit(id))
+                    .and_then(|input| storage.root_identity(input.access()))
+                    .expect("selected exit consumes the exact entered capability");
+
+                let result = storage.value_slot(id).expect("fallible scope has a private result slot");
+                let success = StorageProjection::ActiveUnionPayloadField { variant: representation.success_variant(), field: representation.success_field() };
+                let error = StorageProjection::ActiveUnionPayloadField { variant: representation.error_variant(), field: representation.error_field() };
+
                 let entered = self.push_block();
+                let failed = self.push_block();
 
-                self.push_edge(completed, entered, AnalysisEdgeKind::ResultSuccess, None);
+                self.push_edge(completed, entered, AnalysisEdgeKind::ResultSuccess,
+                    Some(AnalysisRefinement::InvocationVariant(invocation, representation.success_variant())));
 
                 self.push_edge(
                     completed,
-                    completion,
+                    failed,
                     AnalysisEdgeKind::ResultErrorPropagation,
-                    None,
+                    Some(AnalysisRefinement::InvocationVariant(invocation, representation.error_variant())),
                 );
+
+                self.storage.push_operation(entered, AnalysisOperationKind::ScopedResult(ScopedResultTransfer {
+                    invocation, source: Some(source), projection: success, destination: ScopedResultDestination::Capability(capability),
+                }));
+
+                self.storage.push_operation(failed, AnalysisOperationKind::ScopedResult(ScopedResultTransfer {
+                    invocation, source: Some(source), projection: error, destination: ScopedResultDestination::Region { slot: result, displaced: None },
+                }));
+
+                let failed = if suspends { self.continue_committed_invocation(failed, id) } else { failed };
+
+                self.push_edge(failed, completion, AnalysisEdgeKind::Sequential, None);
 
                 entered
             } else {
                 completed
             };
 
-            self.push_call(
-                entered,
-                bray_bound_tree::BoundExecutionSite::ScopedEnter(id),
-                super::model::AnalysisCallPhase::Completion,
-            );
+            current = if suspends {
+                // The acquired capability owns its checked body scope before the pattern runs.
+                self.scopes.push((*body).into());
 
-            current = entered;
+                let continued = self.continue_committed_invocation(entered, id);
+
+                self.scopes.pop();
+
+                continued
+            } else {
+                entered
+            };
         }
 
         let current = self.build_pattern(*pattern, current)?;
@@ -263,6 +292,7 @@ where
                 .syntax(),
             completion,
             scope_depth: self.scope_depth(),
+            destination: self.checked_storage().and_then(|storage| storage.value_slot(id)),
         });
 
         let body_completion = self.build_block(*body, current);
@@ -281,6 +311,37 @@ where
         Some(Some(completion))
     }
 
+    pub(super) fn push_scoped_fallthrough(&mut self, current: AnalysisBlockId, scope: bray_bound_tree::StorageScope) {
+        use super::model::{AnalysisOperationKind, ScopedResultDestination, ScopedResultTransfer};
+
+        let Some(&expression) = self.scoped_uses.get(&scope) else { return; };
+
+        let Some(bray_bound_tree::SemanticSelection::ScopedUse(scoped)) = self.selections().and_then(|selections| selections.expression(expression)) else {
+            unreachable!("scoped fallthrough retains its checked selection");
+        };
+
+        if scoped.failure_type().is_none() { return; }
+
+        let storage = self.checked_storage().expect("scoped fallthrough retains its storage plan");
+
+        let Some(slot) = storage.value_slot(expression) else { return; };
+
+        let ty = storage.storage_type(slot).expect("scoped fallthrough has its checked region type");
+
+        let Some(([body, _], representation)) = self.request().available_compiler_known_symbols()
+            .result_payloads(self.request().semantic_values(), ty) else { return; };
+
+        if crate::representation::type_representation(self.request(), body) != Some(bray_compiler_known::RepresentationRole::Unit) { return; }
+
+        self.storage.push_operation(current, AnalysisOperationKind::ScopedResult(ScopedResultTransfer {
+            invocation: expression.into(), source: None,
+            projection: bray_bound_tree::StorageProjection::ActiveUnionPayloadField {
+                variant: representation.success_variant(), field: representation.success_field(),
+            },
+            destination: ScopedResultDestination::Region { slot, displaced: None },
+        }));
+    }
+
     fn build_generator_region(
         &mut self,
         id: BoundExpressionId,
@@ -288,27 +349,41 @@ where
         current: AnalysisBlockId,
     ) -> Option<Option<AnalysisBlockId>> {
         let current = if expression.kind() == BoundStructuredExpressionKind::GeneralGenerator {
-            self.push_generator_storage_failure(current, id.into(), id)
+            self.push_storage_admission(current, id.into(), Some(super::model::AnalysisRefinement::GeneratorStorageFailure(id)))
         } else {
             current
         };
 
+        let owner = self.checked_storage().and_then(|storage| storage.value_slot(id));
+
+        let abandoned = owner.map(|value| bray_bound_tree::StorageScope::AbandonedTransfer {
+            transfer: id.into(), value,
+        });
+
+        let depth = self.scopes.len();
+
+        self.push_result(current, id, super::model::AnalysisResultPhase::Begin);
+        self.scopes.extend(abandoned);
+
         self.yield_regions
             .push((expression.origin().source_anchor().syntax(), id));
 
-        let completion = self.build_operands(expression.operands(), current);
+        let completion = (|| {
+            let mut current = self.build_operands(expression.operands(), current)?;
+
+            for block in expression.blocks() {
+                current = self.build_block(*block, current)?.unwrap_or_else(|| self.push_block());
+            }
+
+            Some(current)
+        })();
 
         self.yield_regions.pop();
+        self.scopes.truncate(depth);
 
         let current = completion?;
 
-        let mut current = self.push_source_operation(id, current);
-
-        for block in expression.blocks() {
-            current = self
-                .build_block(*block, current)?
-                .unwrap_or_else(|| self.push_block());
-        }
+        self.push_result(current, id, super::model::AnalysisResultPhase::Completion);
 
         Some(Some(current))
     }
@@ -553,7 +628,7 @@ where
             AnalysisEdgeKind::Sequential,
             Some(AnalysisRefinement::CaughtResult {
                 expression: id,
-                succeeded: true,
+                outcome: super::model::AnalysisCaughtResult::Completed(operands.last().copied()),
             }),
         );
 
@@ -642,7 +717,7 @@ where
                 .unwrap_or_else(|| self.push_block());
 
             if let Some(completion) =
-                self.build_result_branch(arm.body(), body_entry, join, self.scope_depth())?
+                self.build_result_branch(id, arm.body(), body_entry, join, self.scope_depth())?
             {
                 self.push_edge(completion, join, AnalysisEdgeKind::Sequential, None);
             }
@@ -701,7 +776,7 @@ where
 
         if let Some(body_exit) = self.build_block(body, body_entry)? {
             let body_exit = scope.map_or(body_exit, |scope| {
-                self.push_scope_exit(body_exit, scope.into(), body.into())
+                self.push_scope_exit(body_exit, scope.into(), body.into(), None)
             });
 
             self.push_edge(body_exit, header, AnalysisEdgeKind::LoopBack, None);
@@ -710,7 +785,7 @@ where
         let exhausted = if let Some(scope) = scope {
             self.scopes.pop();
 
-            self.push_scope_exit(exhausted, scope.into(), condition.into())
+            self.push_scope_exit(exhausted, scope.into(), condition.into(), None)
         } else {
             exhausted
         };

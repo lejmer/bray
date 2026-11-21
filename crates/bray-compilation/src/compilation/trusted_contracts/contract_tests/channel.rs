@@ -10,6 +10,7 @@ fn production_channel_declarations_check_their_own_bodies() {
     );
 
     let mut failures = Vec::new();
+    let mut selected = 0;
 
     for key in application
         .declared_unit_keys_for_test()
@@ -19,13 +20,11 @@ fn production_channel_declarations_check_their_own_bodies() {
             continue;
         }
 
-        let source = application
-            .source(key.source().syntax().source_id())
-            .expect("fixture `source` call must succeed");
-
-        if !source.text().starts_with("trusted module std.channel") {
+        if !super::fixtures::body_belongs_to(&application, &key, &[&["std", "channel"], &["std", "channel", "owner"]], &[]) {
             continue;
         }
+
+        selected += 1;
 
         let checked = application
             .lowered_unit(key.clone())
@@ -36,6 +35,7 @@ fn production_channel_declarations_check_their_own_bodies() {
         }
     }
 
+    assert!(selected > 0, "production channel must supply callable bodies");
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
@@ -81,26 +81,30 @@ fn production_channel_rejects_fabrication_and_protocol_access() {
         "#,
     );
 
-    for (name, valid) in [
-        ("genuine", true),
-        ("fabricated", false),
-        ("expose_protocol", false),
-        ("change_kind", false),
+    for (name, site) in [
+        ("genuine", None),
+        ("fabricated", Some("sender.try_send(1)")),
+        ("expose_protocol", Some("std.channel.channel_core<u32>(&sender.owner)")),
+        ("change_kind", Some("_ = receiver.try_receive()")),
     ] {
+        let key = source_function_body_key(&application, name);
+        let source_id = key.source().syntax().source_id();
+
         let checked = application
-            .lowered_unit(source_function_body_key(&application, name))
+            .lowered_unit(key)
             .expect("fixture callable must lower successfully");
 
-        if valid {
+        if let Some(site) = site {
+            let source = application.source(source_id).expect("the fixture source is retained");
+
+            assert!(checked.diagnostics().by_kind(DiagnosticKind::CheckingTrustedObligationNotProven).any(|diagnostic|
+                crate::test_support::diagnostic_at_call(diagnostic, source_id, source.text(), site)
+            ), "{name}: {:?}", checked.diagnostics());
+        } else {
             assert!(
                 !checked.diagnostics().has_errors(),
                 "{name}: {:?}",
                 checked.diagnostics()
-            );
-        } else {
-            bray_testing::assert_goal_state_diagnostic_kind(
-                checked.diagnostics(),
-                DiagnosticKind::CheckingTrustedObligationNotProven,
             );
         }
     }

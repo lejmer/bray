@@ -1,26 +1,30 @@
 use bray_diagnostics::{DiagnosticKind};
 use crate::test_support::{source_function_body_key};
-use super::fixtures::{production_host_compilation};
+use super::fixtures::{assert_production_probes, production_host_compilation};
 
 #[test]
 #[ignore = "tier:proof"]
 fn execution_domains_use_live_witnesses_without_accepting_fabricated_or_stale_ones() {
-    for (body, valid) in [
+    for (body, valid, missing_witness) in [
         (
-            "let owner = trusted produce(1); return trusted observe(&owner);",
+            "let owner = produce(1); return observe(&owner);",
+            true,
+            false,
+        ),
+        (
+            "let owner = produce(2); return observe(&owner);",
+            false,
+            false,
+        ),
+        (
+            "let owner: Owner = { value = 1 }; return observe(&owner);",
+            false,
             true,
         ),
         (
-            "let owner = trusted produce(2); return trusted observe(&owner);",
+            "let mut owner = produce(1); change(&mut owner); return observe(&owner);",
             false,
-        ),
-        (
-            "let owner: Owner = { value = 1 }; return trusted observe(&owner);",
-            false,
-        ),
-        (
-            "let mut owner = trusted produce(1); change(&mut owner); return trusted observe(&owner);",
-            false,
+            true,
         ),
     ] {
         let source = format!(
@@ -28,7 +32,8 @@ fn execution_domains_use_live_witnesses_without_accepting_fabricated_or_stale_on
             trusted module app;
             struct Owner
             {{
-                mut value: u64;
+                value: u64;
+                mut epoch: u64 = 0;
             }}
             trusted predicate live(owner: &Owner);
             trusted func produce(pos value: u64) -> Owner
@@ -47,7 +52,7 @@ fn execution_domains_use_live_witnesses_without_accepting_fabricated_or_stale_on
             func change(pos owner: &mut Owner)
                 executes(total)
             {{
-                owner.value = 2;
+                owner.epoch = 2;
             }}
             func production_probe() -> u64
                 executes(total)
@@ -59,14 +64,28 @@ fn execution_domains_use_live_witnesses_without_accepting_fabricated_or_stale_on
 
         let compilation = crate::test_support::compilation(&source);
 
+        let key = source_function_body_key(&compilation, "production_probe");
+        let source_id = key.source().syntax().source_id();
+
         let checked = compilation
-            .execution_properties(source_function_body_key(&compilation, "production_probe"))
+            .execution_properties(key)
             .expect("live execution domain evidence must be checked");
 
         assert_eq!(
             !checked.diagnostics().has_errors(),
             valid,
             "{body}: {checked:#?}"
+        );
+
+        assert_eq!(
+            checked.diagnostics().iter().any(|diagnostic| {
+                diagnostic.kind() == DiagnosticKind::CheckingTrustedObligationNotProven
+                    && super::fixtures::diagnostic_at_call(
+                        diagnostic, source_id, &source, "observe(&owner)",
+                    )
+            }),
+            missing_witness,
+            "{body}: {checked:#?}",
         );
     }
 }
@@ -128,10 +147,10 @@ fn completion_witnesses_require_proven_preservation_across_calls() {
             requires(trusted done(owner = &completed));
         func caller()
         {
-            let selected = trusted owner();
+            let selected = owner();
             let mut completed = trusted complete(selected);
             BODY
-            trusted consume_completion(completed);
+            consume_completion(completed);
         }
     "#.replace("BODY", body);
 
@@ -156,68 +175,18 @@ fn completion_witnesses_require_proven_preservation_across_calls() {
 #[test]
 #[ignore = "tier:proof"]
 fn closing_epoch_authority_cannot_be_copied_from_internal_fields() {
-    for (body, valid) in [
-        ("_ = trusted complete_attachment_exit(selected);", true),
-        ("let moved = selected; _ = trusted complete_attachment_exit(moved);", true),
-        ("selected.cleanup = none; _ = trusted complete_attachment_exit(selected);", false),
-        (
-            r"let fake: AttachmentExit =
-                {
-                    identity = selected.identity,
-                    native_thread = selected.native_thread,
-                    cleanup = none
-                };
-                _ = trusted complete_attachment_exit(fake);",
-            false,
-        ),
-        (
-            r"let own_lease = trusted host_access();
-                let fake: AttachmentRetirement =
-                {
-                    lease = own_lease,
-                    identity = selected.identity,
-                    native_thread = selected.native_thread,
-                    record = std.memory.null<Attachment>(),
-                    active = std.memory.null<usize>(),
-                    remaining_active = 0
-                };
-                let pointer = trusted completed_attachment_pointer(&fake);",
-            false,
-        ),
-    ] {
-        let caller = format!(
-            r#"
-            trusted internal module bray.runtime.bootstrap.host;
+    let missing = Some(DiagnosticKind::CheckingTrustedObligationNotProven);
 
-            using std.memory;
-
-            func production_probe(pos mut selected: AttachmentExit)
-                requires(trusted attachment_exit_selected(owner = &selected))
-            {{
-                {body}
-            }}
-            "#
-        );
-
-        let compilation = production_host_compilation(&caller);
-
-        let checked = compilation
-            .lowered_unit(source_function_body_key(&compilation, "production_probe"))
-            .expect("closing epoch probe must retain its checked result");
-
-        assert_eq!(
-            !checked.diagnostics().has_errors(),
-            valid,
-            "{body}: {checked:#?}"
-        );
-
-        if !valid {
-            bray_testing::assert_goal_state_diagnostic_kind(
-                checked.diagnostics(),
-                DiagnosticKind::CheckingTrustedObligationNotProven,
-            );
-        }
-    }
+    assert_production_probes(
+        &[
+            ("probe_closing_epoch_selected", None),
+            ("probe_closing_epoch_moved", None),
+            ("probe_closing_epoch_mutated", missing),
+            ("probe_closing_epoch_fabricated_exit", missing),
+            ("probe_closing_epoch_fabricated_retirement", missing),
+        ],
+        &[],super::fixtures::check_probe_storage,
+    );
 }
 
 #[test]
@@ -274,26 +243,26 @@ fn driver_view_keeps_its_source_acquisition_with_the_complete_owner() {
 #[ignore = "tier:proof"]
 fn production_storage_lease_requires_admission_evidence() {
     for (admission, body, valid) in [
-        (true, "let status = trusted retire(pointer);", true),
-        (false, "let status = trusted retire(pointer);", false),
+        (true, "let status = retire(pointer);", true),
+        (false, "let status = retire(pointer);", false),
         (
             false,
-            "let address = trusted activate(pointer, description);",
+            "let address = activate(pointer, description);",
             false,
         ),
         (
             false,
-            "trusted claim(description, pointer); let status = trusted retire(pointer);",
-            false,
-        ),
-        (
-            true,
-            "lease = empty_lease(); let status = trusted retire(pointer);",
+            "trusted claim(description, pointer); let status = retire(pointer);",
             false,
         ),
         (
             true,
-            "let address = trusted activate(pointer, description); trusted std.memory.write<u8>(address, 1);",
+            "lease = empty_lease(); let status = retire(pointer);",
+            false,
+        ),
+        (
+            true,
+            "let address = activate(pointer, description); std.memory.write<u8>(address, 1);",
             false,
         ),
     ] {
@@ -385,13 +354,13 @@ fn production_host_lease_retains_authority_across_fallible_preparation() {
 #[ignore = "tier:proof"]
 fn production_host_authority_cannot_be_constructed_from_fields() {
     let cases = [
-        ("let host = trusted host_value(&lease, &mut anchor);", None),
+        ("let host = host_value(&lease, &mut anchor);", None),
         (
-            "let moved = lease; let host = trusted host_value(&moved, &mut anchor);",
+            "let moved = lease; let host = host_value(&moved, &mut anchor);",
             None,
         ),
         (
-            "let fake: HostLease = { acquisition = lease.acquisition, synchronization = lease.synchronization, owner = lease.owner, active = true }; let host = trusted host_value(&fake, &mut anchor);",
+            "let fake: HostLease = { acquisition = lease.acquisition, synchronization = lease.synchronization, owner = lease.owner, active = true }; let host = host_value(&fake, &mut anchor);",
             Some(DiagnosticKind::CheckingTrustedWitnessTransferNotProven),
         ),
         (
@@ -399,27 +368,27 @@ fn production_host_authority_cannot_be_constructed_from_fields() {
             Some(DiagnosticKind::CheckingTrustedWitnessTransferNotProven),
         ),
         (
-            "let mut fake: HostAnchor = { owner = anchor.owner }; let value = trusted host_value(&lease, &mut fake);",
+            "let mut fake: HostAnchor = { owner = anchor.owner }; let value = host_value(&lease, &mut fake);",
             Some(DiagnosticKind::CheckingTrustedObligationNotProven),
         ),
         (
-            "let other_lease = trusted host_access(); let mut other = trusted host_anchor(&other_lease); let value = trusted host_value(&lease, &mut other);",
+            "let other_lease = trusted host_access(); let mut other = trusted host_anchor(&other_lease); let value = host_value(&lease, &mut other);",
             Some(DiagnosticKind::CheckingTrustedObligationNotProven),
         ),
         (
-            "let host = trusted host_value(&lease, &mut anchor); host.next_identity = 0;",
+            "let host = host_value(&lease, &mut anchor); host.next_identity = 0;",
             None,
         ),
         (
-            "let host = trusted host_value(&lease, &mut anchor); host.transitioning = true;",
+            "let host = host_value(&lease, &mut anchor); host.transitioning = true;",
             None,
         ),
         (
-            "let host = trusted host_value(&lease, &mut anchor); host.storage = none;",
+            "let host = host_value(&lease, &mut anchor); host.storage = none;",
             None,
         ),
         (
-            "let host = trusted host_value(&lease, &mut anchor); if let ?storage = host.storage { storage.released = true; }",
+            "let host = host_value(&lease, &mut anchor); if let ?storage = host.storage { storage.released = true; }",
             None,
         ),
     ];

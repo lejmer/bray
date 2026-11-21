@@ -196,12 +196,11 @@ pub fn check_unwind_candidate<C: CheckerRequestContext + ?Sized>(
                             .invoked_callable(expression.into())
                             .is_some() =>
                     {
-                        super::operation::collect_invocation_dependency(
+                        dependencies.push(super::operation::invocation_dependency(
                             expressions.selections(),
                             expression.into(),
                             ExecutionProperty::Total,
-                            &mut dependencies,
-                        );
+                        ));
                     }
                     _ => {}
                 }
@@ -258,12 +257,11 @@ pub fn check_unwind_candidate<C: CheckerRequestContext + ?Sized>(
                     | bray_bound_tree::BoundExecutionSite::ScopedExit(_)
             )
         {
-            super::operation::collect_invocation_dependency(
+            dependencies.push(super::operation::invocation_dependency(
                 expressions.selections(),
                 invocation,
                 ExecutionProperty::Total,
-                &mut dependencies,
-            );
+            ));
         }
     }
 

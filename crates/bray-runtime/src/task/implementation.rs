@@ -972,6 +972,14 @@ mod tests {
 
     #[test]
     fn panics_are_captured_and_later_cleanup_panics_are_suppressed() {
+        fn message(primary: &bray_runtime_abi::NativePanicPrimary) -> Vec<u8> {
+            let mut bytes = vec![0; primary.message().len()];
+
+            assert!(primary.message().copy_to(0, &mut bytes).is_success());
+
+            bytes
+        }
+
         let _isolation = crate::native::test_runtime_isolation();
 
         let task = TaskControlBlock::start(
@@ -993,6 +1001,20 @@ mod tests {
         };
 
         assert_eq!(panic.suppressed_count(), 1);
+
+        let (primary, head, tail, count, reserved) = panic.into_native().take_parts();
+
+        let _reservation = crate::outgoing::OutgoingRecords::from_parts(
+            reserved, reserved, usize::from(reserved != 0),
+        );
+
+        let mut suppressed_record = crate::outgoing::OutgoingRecords::from_parts(head, tail, count);
+        let mut suppressed = bray_runtime_abi::NativePanicPrimary::empty();
+
+        suppressed_record.exchange(&mut suppressed);
+
+        assert_eq!(message(&primary.expect("the body supplied the inline primary")), b"primary test panic");
+        assert_eq!(message(&suppressed), b"cleanup test panic");
     }
 
     #[test]

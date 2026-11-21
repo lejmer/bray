@@ -53,65 +53,68 @@ pub(super) fn collect_returned_witness_transfers<C: CheckerRequestContext + ?Siz
         return;
     };
 
-    let mut deferred = domain
-        .awaited_invocations(state, expression)
-        .collect::<Vec<_>>();
+    let mut frame = match domain.request.view().expression(expression) {
+        Some(bray_bound_tree::BoundExpression::Await(_)) =>
+            state.admitted_receiver(occurrence).deferred_value().cloned(),
+        _ => None,
+    };
 
     if matches!(domain.semantics.selections().expression(expression), Some(bray_bound_tree::SemanticSelection::Call(call)) if call.implementation_hook() == Some(bray_compiler_known::ImplementationHook::FutureStart))
     {
         // Starting a task activates its body even when the task is later cancelled or disposed.
-        let frame = match operation {
-            AnalysisOperationKind::Bound(_) => {
-                let Some(bray_bound_tree::SemanticSelection::Call(call)) =
-                    domain.semantics.selections().expression(expression) else {
-                    unreachable!("selected FutureStart retains its call");
-                };
-
-                // Before production the existing receiver owns this frame. At
-                // Completion the actual Task result owns the rebound frame.
-                domain.receiver_value(state, expression, call)
-            }
+        let value = match operation {
+            AnalysisOperationKind::Bound(_) => domain.started_future(state, expression)
+                .unwrap_or_else(crate::ExecutionCondition::unknown),
             _ => domain.value(state, expression),
         };
 
-        deferred.extend(
-            state
-                .deferred_entries(&frame)
-                .into_iter()
-                .flat_map(|value| value.producers.iter())
-                .filter(|(_, candidate)| {
-                    super::super::deferred::possible(&candidate.selection, &state.proofs.ordinary_proof(&state.assumptions))
-                })
-                .map(|(source, candidate)| (*source, &candidate.entry)),
-        );
+        frame = value.deferred_value().cloned();
     }
 
-    let entries = if deferred.is_empty() {
-        state
-            .entries
-            .get(&occurrence)
-            .map(|entry| (occurrence, entry))
-            .into_iter()
-            .collect::<Vec<_>>()
-    } else {
-        deferred
-            .into_iter()
-            .map(|(source, entry)| (source, entry.as_ref()))
-            .collect()
-    };
+    if let Some(frame) = frame {
+        for (source, candidate) in &frame.producers {
+            if !super::super::deferred::possible(&candidate.selection, &state.ordinary_proof()) { continue; }
 
-    for (invocation, entry) in entries {
-        let Some(contract) = domain.dependencies.calls().get(&invocation) else {
-            continue;
-        };
-
-        if invocation == occurrence && contract.deferred_effects().is_some() {
-            continue;
+            collect_entry_transfers(domain, state, occurrence, source.local(), &candidate.entry, transfers);
         }
+    } else if let Some(contract) = domain.dependencies.calls().get(&occurrence)
+        && contract.deferred_effects().is_none()
+        && let Some(entry) = state.entries.get(&occurrence)
+    {
+        collect_entry_transfers(domain, state, occurrence, Some(occurrence), entry, transfers);
+    }
+}
+
+fn collect_entry_transfers<C: CheckerRequestContext + ?Sized>(
+    domain: &ExecutionFlowDomain<'_, '_, C>, state: &ExecutionState,
+    occurrence: bray_bound_tree::BoundExecutionSite, source: Option<bray_bound_tree::BoundExecutionSite>,
+    entry: &crate::ExecutionCallEvidence,
+    transfers: &mut Vec<(bray_bound_tree::BoundExecutionSite, Option<crate::ExecutionCondition>, WitnessTransferFailure)>,
+) {
+    if entry.witness_inputs.is_empty() { return; }
+
+    let input_count = entry.positional_arguments().count();
+    let admission = || domain.proofs.proof(&entry.trusted_assumptions, &entry.assumptions);
+
+    let bind = |term| crate::execution_condition_from_type_term(domain.request.semantic_values(), term, input_count)
+        .expect("checked ownership condition belongs to its selected input scope")
+        .substitute(&|place| place.value_in(&entry.arguments).unwrap_or_else(crate::ExecutionCondition::unknown),
+            &crate::ExecutionCondition::result(), &mut { crate::ExecutionCondition::WORK_LIMIT });
+
+    let assumptions = state.assumptions.joined_with(&entry.assumptions);
+    let proof = state.proofs.ordinary_proof(&assumptions);
+
+    for row in entry.outputs.reachable_rows() {
+        let row_guard = row.guard.bind(entry, &crate::ExecutionCondition::result());
+
+        if !proof.can_assume(&row_guard, true) { continue; }
+
+        let ownership = &row.ownership;
+        let result = row.writes.get(&bray_bound_tree::StorageValueDestination::Result);
 
         let decode_input = |term| {
             let decoded = crate::execution_condition_from_type_term(
-                domain.request.semantic_values(), term, contract.input_count(),
+                domain.request.semantic_values(), term, input_count,
             ).expect("checked owned input decodes in the same semantic store");
 
             let crate::ExecutionConditionKind::Input(input) = decoded.kind() else {
@@ -124,7 +127,7 @@ pub(super) fn collect_returned_witness_transfers<C: CheckerRequestContext + ?Siz
 
         let mut enclosing = std::collections::BTreeMap::new();
 
-        for (transfer, cases) in contract.owned_result().guarded_transfers() {
+        for (transfer, cases) in ownership.guarded_transfers() {
             let input = decode_input(transfer.input());
 
             let root = crate::ExecutionPlace {
@@ -138,12 +141,10 @@ pub(super) fn collect_returned_witness_transfers<C: CheckerRequestContext + ?Siz
 
             for (index, projection) in input.projections.iter().enumerate() {
                 let container = reached_container(&value);
-                let witness = state.witnesses.get(container.owner_identity());
+                let witness = entry.witness_inputs.get(container.owner_identity());
 
-                if witness.is_some_and(|witness| {
-                        state.directly_carries_witness(&container)
-                            || witness.owning_conditions(domain.proofs.proof(&entry.trusted_assumptions, &entry.assumptions)).next().is_some()
-                    })
+                if let Some(witness) = witness
+                    && let Some(guarantee) = witness.owning_conditions(admission()).next()
                     && input.projections[index..].iter().any(|projection| {
                         *projection != bray_symbols::ConstantProjectionKind::NullableValue
                     })
@@ -154,7 +155,7 @@ pub(super) fn collect_returned_witness_transfers<C: CheckerRequestContext + ?Siz
                         conditions.dedup();
 
                         let complete = enclosing.entry(conditions).or_insert_with_key(|conditions| {
-                            contract.owned_result().guaranteed_transfers_under(conditions).into_iter()
+                            ownership.guaranteed_transfers_under(conditions).into_iter()
                                 .map(|transfer| (decode_input(transfer.input()), transfer)).collect::<Vec<_>>()
                         });
 
@@ -165,31 +166,16 @@ pub(super) fn collect_returned_witness_transfers<C: CheckerRequestContext + ?Siz
                                     == Some(&input.projections[owner.projections.len()..])
                         })
                     }
-                    && !independent_result_owner(domain, invocation, entry, transfer,
-                        &input, witness.expect("a partial witness retains its owning contract"))
+                    && !independent_result_owner(domain, source, entry, &row.carriers, transfer,
+                        result, witness)
                 {
                     let condition =
                         cases
                             .into_iter()
                             .copied()
                             .chain(transfer.condition())
-                            .map(|condition| {
-                                crate::execution_condition_from_type_term(
-                            domain.request.semantic_values(),
-                            condition,
-                            contract.input_count(),
-                        )
-                        .expect("checked ownership condition decodes in the same semantic store")
-                        .substitute(
-                            &|place| {
-                                place
-                                    .value_in(&entry.arguments)
-                                    .unwrap_or(crate::ExecutionCondition::unknown())
-                            },
-                            &crate::ExecutionCondition::result(),
-                            &mut { crate::ExecutionCondition::WORK_LIMIT },
-                        )
-                            })
+                            .map(&bind)
+                            .chain(std::iter::once(row_guard.clone()))
                             .reduce(|left, right| {
                                 crate::ExecutionCondition::operation(
                                     bray_bound_tree::BoundOperator::LogicalAnd,
@@ -197,16 +183,14 @@ pub(super) fn collect_returned_witness_transfers<C: CheckerRequestContext + ?Siz
                                 )
                             });
 
-                    let witness = witness.expect("a rejected extraction retains its carrier contract");
-
-                    let guarantee = witness.owning_conditions(domain.proofs.proof(&entry.trusted_assumptions, &entry.assumptions)).next()
-                        .or_else(|| witness.owning_conditions(state.proof()).next())
-                        .expect("a rejected extraction retains its live owning condition").clone();
+                    if condition.as_ref().is_some_and(|condition| !proof.can_assume(condition, true)) {
+                        break;
+                    }
 
                     transfers.push((occurrence, condition, WitnessTransferFailure {
                         kind: bray_diagnostics::DiagnosticWitnessTransferKind::Separation,
                         carrier: container,
-                        guarantee,
+                        guarantee: guarantee.clone(),
                     }));
 
                     break;
@@ -220,27 +204,19 @@ pub(super) fn collect_returned_witness_transfers<C: CheckerRequestContext + ?Siz
 
 pub(super) fn independent_result_owner<C: CheckerRequestContext + ?Sized>(
     domain: &ExecutionFlowDomain<'_, '_, C>,
-    invocation: bray_bound_tree::BoundExecutionSite,
-    entry: &crate::ExecutionCallEvidence,
+    invocation: Option<bray_bound_tree::BoundExecutionSite>,
+    entry: &crate::ExecutionCallEvidence, carriers: &[bray_symbols::DependencyWitnessCarrier<bray_bound_tree::StorageProjection>],
     transfer: &bray_symbols::DependencyOwnedTransfer,
-    input: &crate::ExecutionPlace,
+    result: Option<&crate::ExecutionCondition>,
     parent: &crate::execution_guarantees::ExecutionWitness,
 ) -> bool {
-    let capture = |condition: &crate::ExecutionCondition| condition.capture_entry(
-        &|place| place.value_in(&entry.arguments).unwrap_or(crate::ExecutionCondition::unknown()),
-        &entry.trusted_assumptions, &entry.assumptions,
-        &mut { crate::ExecutionCondition::WORK_LIMIT },
-    );
-
     let ordinary = crate::TrustedCallContract::default();
 
     let declared = domain.request.trusted_contracts()
-        .and_then(|contracts| contracts.calls.get(&invocation)).unwrap_or(&ordinary);
+        .and_then(|contracts| contracts.calls.get(&invocation?)).unwrap_or(&ordinary);
 
-    // Use the same checked carrier selection as completion. An independently
-    // introduced result owner may receive a component, but cannot transport the
-    // parent's authority through that component.
-    let (_, subjects) = domain.completion_guarantees(invocation, declared, &capture);
+    // A possible new carrier cannot justify moving a component of a complete owner.
+    let subjects = domain.possible_completion_carriers(entry, carriers, declared);
 
     let path = crate::storage::owned_storage_projections(domain.dependencies, transfer.output());
     let output = path.iter().copied().fold(crate::ExecutionCondition::result(), |value, projection| value.project(projection));
@@ -250,9 +226,8 @@ pub(super) fn independent_result_owner<C: CheckerRequestContext + ?Sized>(
         return false;
     }
 
-    let Some(source) = input.value_in(&entry.arguments) else { return false; };
+    let Some(result) = result else { return false; };
 
-    let result = crate::ExecutionCondition::result().with_component(transfer.output(), source, Some(&path));
     let mut potential = ExecutionAssumptions::default();
 
     for (guarantee, subject) in &subjects {
@@ -260,7 +235,7 @@ pub(super) fn independent_result_owner<C: CheckerRequestContext + ?Sized>(
 
         let guarantee = guarantee.substitute(
             &|place| place.value_in(&entry.arguments).unwrap_or(crate::ExecutionCondition::unknown()),
-            &result, &mut { crate::ExecutionCondition::WORK_LIMIT },
+            result, &mut { crate::ExecutionCondition::WORK_LIMIT },
         );
 
         // Ignore ordinary guards when checking which trusted authority could
@@ -286,16 +261,9 @@ pub(super) fn check_witness_transfers<C: CheckerRequestContext + ?Sized>(
     state: &ExecutionState,
     plans: impl Iterator<Item = bray_bound_tree::StorageAccessPlan>,
     current_access: &impl Fn(bray_bound_tree::StorageAccessPlan) -> Option<bray_bound_tree::StoragePath>,
-    transfers: &mut std::collections::BTreeMap<BoundExpressionId, WitnessTransferFailure>,
+    mut record: impl FnMut(BoundExpressionId, WitnessTransferFailure),
 ) {
-    for plan in plans.filter(|plan| {
-        matches!(
-            plan.purpose(),
-            bray_bound_tree::StorageAccessPurpose::Copy
-                | bray_bound_tree::StorageAccessPurpose::ValueTransfer
-                | bray_bound_tree::StorageAccessPurpose::Move
-        )
-    }) {
+    for plan in plans.filter(|plan| plan.purpose().transfers_value()) {
         let path = current_access(plan);
 
         let materializes = storage.access_plan_role(plan) == bray_bound_tree::StorageAccessPlanRole::SourceMaterialization;
@@ -341,7 +309,7 @@ pub(super) fn check_witness_transfers<C: CheckerRequestContext + ?Sized>(
             continue;
         };
 
-        transfers.entry(plan.expression()).or_insert(failure);
+        record(plan.expression(), failure);
     }
 }
 

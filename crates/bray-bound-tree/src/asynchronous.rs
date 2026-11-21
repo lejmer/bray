@@ -3,7 +3,7 @@ use std::sync::Arc;
 use bray_base::{shared_slice, sorted_unique_shared_slice};
 
 use crate::{
-    AnyBoundNodeId, BodyBehaviorCall, BoundDependencyContractId, BoundDependencySubject,
+    BodyBehaviorCall, BoundDependencySubject,
     BoundExpressionId, BoundUnitId, BoundUnitKind, StorageAccessId, StorageIdentityId,
     StorageScope,
 };
@@ -61,7 +61,6 @@ pub enum AsyncSuspensionKind {
 pub struct AsyncSuspensionPoint {
     occurrence: crate::BoundExecutionSite,
     kind: AsyncSuspensionKind,
-    dependency_contract: Option<BoundDependencyContractId>,
     deferred_calls: Arc<[BodyBehaviorCall]>,
     retained_subjects: Arc<[BoundDependencySubject]>,
     cancellation_broadcast: Arc<[StorageAccessId]>,
@@ -81,15 +80,9 @@ impl AsyncSuspensionPoint {
             "merged suspension paths retain the same execution kind"
         );
 
-        assert_eq!(
-            self.dependency_contract, other.dependency_contract,
-            "merged suspension paths retain the same selected contract"
-        );
-
         *self = Self::new(
             self.occurrence,
             self.kind,
-            self.dependency_contract,
             self.deferred_calls
                 .iter()
                 .chain(other.deferred_calls.iter())
@@ -110,7 +103,6 @@ impl AsyncSuspensionPoint {
     pub fn new(
         occurrence: impl Into<crate::BoundExecutionSite>,
         kind: AsyncSuspensionKind,
-        dependency_contract: Option<BoundDependencyContractId>,
         deferred_calls: impl IntoIterator<Item = BodyBehaviorCall>,
         retained_subjects: impl IntoIterator<Item = BoundDependencySubject>,
         cancellation_broadcast: impl IntoIterator<Item = StorageAccessId>,
@@ -119,7 +111,6 @@ impl AsyncSuspensionPoint {
         Self {
             occurrence: occurrence.into(),
             kind,
-            dependency_contract,
             deferred_calls: sorted_unique_shared_slice(deferred_calls),
             retained_subjects: sorted_unique_shared_slice(retained_subjects),
             cancellation_broadcast: sorted_unique_shared_slice(cancellation_broadcast),
@@ -135,11 +126,6 @@ impl AsyncSuspensionPoint {
     /// Returns the language operation that causes suspension.
     pub const fn kind(&self) -> AsyncSuspensionKind {
         self.kind
-    }
-
-    /// Returns the dependency contract carried by the future operand.
-    pub const fn dependency_contract(&self) -> Option<BoundDependencyContractId> {
-        self.dependency_contract
     }
 
     /// Returns deferred callable bodies that can execute at this await.
@@ -186,24 +172,9 @@ impl AsyncCleanupPhases {
     }
 }
 
-/// The runtime condition required before executing a checked cleanup operation.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum AsyncCleanupGuard {
-    /// Every incoming path leaves the complete value initialized.
-    Always,
-    /// Cleanup runs only while the reached storage is initialized on the executed path.
-    Initialized,
-}
-
-/// The exact outcome assigned to one live storage identity at a scope exit.
+/// Cleanup selected for one storage identity at a scope exit.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum AsyncStorageExitDisposition {
-    /// The identity remains owned by an enclosing lexical scope.
-    Retained,
-    /// The identity transfers through the enclosing result or destructor boundary.
-    Transferred,
-    /// The identity was moved in full before the exit.
-    Moved,
     /// The identity requires no cancellation or lifecycle operation.
     NoCleanup,
     /// The identity requires ordered cleanup through its root access.
@@ -212,8 +183,6 @@ pub enum AsyncStorageExitDisposition {
         access: StorageAccessId,
         /// The ordered phases required by the checked type representation.
         phases: AsyncCleanupPhases,
-        /// The checked initialization condition for this exit.
-        guard: AsyncCleanupGuard,
     },
     /// Earlier recovery prevented a complete disposition.
     Recovered(AsyncStorageExitRecoveryCause),
@@ -285,6 +254,24 @@ impl AsyncStorageRequirement {
         self.parts.as_deref()
     }
 
+    /// Selects the contiguous part range below a checked destination path.
+    pub fn parts_below(&self, prefix: &[crate::StorageProjection])
+        -> Option<(Arc<[crate::StorageCleanupPart]>, std::ops::Range<usize>)>
+    {
+        let parts = self.parts.as_ref()?;
+
+        let contains = |part: &crate::StorageCleanupPart| {
+            part.projections().get(..prefix.len()).is_some_and(|projections| {
+                projections.iter().zip(prefix).all(|(part, projection)| part.projection().contains(*projection))
+            })
+        };
+
+        let start = parts.iter().position(contains)?;
+        let end = start + parts[start..].iter().take_while(|part| contains(part)).count();
+
+        Some((Arc::clone(parts), start..end))
+    }
+
     /// Returns the storage identity described by this requirement.
     pub const fn identity(&self) -> StorageIdentityId {
         self.identity
@@ -336,112 +323,17 @@ impl AsyncStorageExitDecision {
     }
 }
 
-/// The ordered semantic work required when one lexical task scope exits.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub struct AsyncScopeExitPlan {
-    scope: StorageScope,
-    exit: AnyBoundNodeId,
-    scoped_exit: Option<BoundExpressionId>,
-    storage: Arc<[AsyncStorageExitDecision]>,
-    cancellation_broadcast: Arc<[StorageAccessId]>,
-    lifecycle_resolution: Arc<[StorageAccessId]>,
-    moved: Arc<[crate::StoragePath]>,
-    is_recovered: bool,
-}
-
-impl AsyncScopeExitPlan {
-    /// Creates a two-phase scope-exit plan.
-    pub fn new(
-        scope: StorageScope,
-        exit: AnyBoundNodeId,
-        storage: impl IntoIterator<Item = AsyncStorageExitDecision>,
-        cancellation_broadcast: impl IntoIterator<Item = StorageAccessId>,
-        lifecycle_resolution: impl IntoIterator<Item = StorageAccessId>,
-        moved: impl IntoIterator<Item = crate::StoragePath>,
-        is_recovered: bool,
-    ) -> Self {
-        Self {
-            scope,
-            exit,
-            scoped_exit: None,
-            storage: shared_slice(storage),
-            cancellation_broadcast: shared_slice(cancellation_broadcast),
-            lifecycle_resolution: shared_slice(lifecycle_resolution),
-            moved: sorted_unique_shared_slice(moved),
-            is_recovered,
-        }
-    }
-
-    /// Returns the lexical scope being exited.
-    pub const fn scope(&self) -> StorageScope {
-        self.scope
-    }
-
-    /// Returns the bound node whose completion or transfer exits the scope.
-    pub const fn exit(&self) -> AnyBoundNodeId {
-        self.exit
-    }
-
-    /// Schedules the matched scoped exit before ordinary lifecycle resolution.
-    pub fn with_scoped_exit(mut self, expression: BoundExpressionId) -> Self {
-        assert_eq!(
-            self.scope.unit(),
-            expression.unit(),
-            "scoped exit belongs to its lexical scope unit"
-        );
-
-        self.scoped_exit = Some(expression);
-
-        self
-    }
-
-    /// Returns the with expression whose successful entry owns this exit.
-    pub const fn scoped_exit(&self) -> Option<BoundExpressionId> {
-        self.scoped_exit
-    }
-
-    /// Returns one disposition for every live identity at this exit.
-    pub fn storage(&self) -> &[AsyncStorageExitDecision] {
-        &self.storage
-    }
-
-    /// Returns owned storage visited during cancellation broadcast.
-    pub fn cancellation_broadcast(&self) -> &[StorageAccessId] {
-        &self.cancellation_broadcast
-    }
-
-    /// Returns owned storage resolved after cancellation broadcast completes.
-    pub fn lifecycle_resolution(&self) -> &[StorageAccessId] {
-        &self.lifecycle_resolution
-    }
-
-    /// Returns whether this exit schedules cancellation or lifecycle cleanup.
-    pub fn has_cleanup(&self) -> bool {
-        self.scoped_exit.is_some()
-            || !self.cancellation_broadcast.is_empty()
-            || !self.lifecycle_resolution.is_empty()
-    }
-
-    /// Returns paths already moved at this scope exit.
-    pub fn moved(&self) -> &[crate::StoragePath] {
-        &self.moved
-    }
-
-    /// Returns whether recovery prevented a complete cleanup plan.
-    pub const fn is_recovered(&self) -> bool {
-        self.is_recovered
-    }
-}
-
 /// A malformed async analysis table.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum AsyncAnalysisBuildError {
     /// One analysis references semantic state owned by another bound unit.
     ForeignUnit,
-    /// One assignment has more than one replacement cleanup plan.
-    DuplicateReplacement,
-    /// One scope-exit occurrence has more than one cleanup plan.
-    DuplicateScopeExit,
+    /// One occurrence has more than one suspension record.
+    DuplicateSuspension,
+    /// One expression has more than one selected task operation.
+    DuplicateTaskOperation,
+    /// Storage requirement identities are duplicated or out of order.
+    UnorderedStorageRequirements,
 }
 
 /// Durable async frame, suspension, task, and cleanup analysis for one bound unit.
@@ -453,16 +345,13 @@ pub struct CheckedAsync {
     suspensions: Arc<[AsyncSuspensionPoint]>,
     task_operations: Arc<[AsyncTaskOperation]>,
     storage_requirements: Arc<[AsyncStorageRequirement]>,
-    storage_requirements_by_identity: Arc<[usize]>,
     cleanup_types: Arc<[crate::StorageCleanupType]>,
-    scope_exits: Arc<[AsyncScopeExitPlan]>,
-    scope_exits_by_node: Arc<[usize]>,
-    replacements: Arc<[crate::StorageReplacementPlan]>,
     is_recovered: bool,
 }
 
 impl CheckedAsync {
     /// Validates and creates one immutable async analysis table.
+    /// Storage requirements must be in identity order.
     #[expect(
         clippy::too_many_arguments,
         reason = "async analysis validates independent tables against one source unit identity"
@@ -473,17 +362,15 @@ impl CheckedAsync {
         frame_dependencies: impl IntoIterator<Item = BoundDependencySubject>,
         suspensions: impl IntoIterator<Item = AsyncSuspensionPoint>,
         task_operations: impl IntoIterator<Item = AsyncTaskOperation>,
-        storage_requirements: impl IntoIterator<Item = AsyncStorageRequirement>,
+        storage_requirements: impl Into<Arc<[AsyncStorageRequirement]>>,
         cleanup_types: impl IntoIterator<Item = crate::StorageCleanupType>,
-        scope_exits: impl IntoIterator<Item = AsyncScopeExitPlan>,
         is_recovered: bool,
     ) -> Result<Self, AsyncAnalysisBuildError> {
         let frame_dependencies = sorted_unique_shared_slice(frame_dependencies);
-        let suspensions = shared_slice(suspensions);
-        let task_operations = shared_slice(task_operations);
-        let storage_requirements = shared_slice(storage_requirements);
+        let mut suspensions = suspensions.into_iter().collect::<Vec<_>>();
+        let mut task_operations = task_operations.into_iter().collect::<Vec<_>>();
+        let storage_requirements = storage_requirements.into();
         let cleanup_types = shared_slice(cleanup_types);
-        let scope_exits = shared_slice(scope_exits);
 
         if frame_dependencies
             .iter()
@@ -500,9 +387,6 @@ impl CheckedAsync {
                         | AsyncSuspensionKind::ScopedCall
                         | AsyncSuspensionKind::Cleanup => false,
                     }
-                    || suspension
-                        .dependency_contract()
-                        .is_some_and(|contract| contract.unit() != unit)
                     || suspension
                         .retained_subjects()
                         .iter()
@@ -527,114 +411,35 @@ impl CheckedAsync {
                     .flatten()
                     .any(|projection| !projection.is_valid_for(unit))
             })
-            || scope_exits.iter().any(|exit| {
-                exit.scope().unit() != unit
-                    || exit.exit().unit() != unit
-                    || exit.storage().iter().any(|decision| {
-                        decision.identity().unit() != unit
-                            || matches!(
-                                decision.disposition(),
-                                AsyncStorageExitDisposition::Cleanup { access, .. }
-                                    if access.unit() != unit
-                            )
-                    })
-                    || exit
-                        .cancellation_broadcast()
-                        .iter()
-                        .chain(exit.lifecycle_resolution())
-                        .any(|access| access.unit() != unit)
-                    || exit.moved().iter().any(|path| !path.is_valid_for(unit))
-            })
         {
             return Err(AsyncAnalysisBuildError::ForeignUnit);
         }
 
-        let mut storage_requirements_by_identity =
-            (0..storage_requirements.len()).collect::<Vec<_>>();
+        suspensions.sort_unstable_by_key(AsyncSuspensionPoint::occurrence);
+        task_operations.sort_unstable_by_key(|operation| operation.expression());
 
-        storage_requirements_by_identity
-            .sort_unstable_by_key(|index| (storage_requirements[*index].identity(), *index));
+        if suspensions.windows(2).any(|pair| pair[0].occurrence() == pair[1].occurrence()) {
+            return Err(AsyncAnalysisBuildError::DuplicateSuspension);
+        }
 
-        let mut scope_exits_by_node = (0..scope_exits.len()).collect::<Vec<_>>();
+        if task_operations.windows(2).any(|pair| pair[0].expression() == pair[1].expression()) {
+            return Err(AsyncAnalysisBuildError::DuplicateTaskOperation);
+        }
 
-        scope_exits_by_node.sort_unstable_by_key(|index| {
-            (
-                scope_exits[*index].scope(),
-                scope_exits[*index].exit(),
-                *index,
-            )
-        });
-
-        if scope_exits_by_node.windows(2).any(|pair| {
-            let left = &scope_exits[pair[0]];
-            let right = &scope_exits[pair[1]];
-
-            left.scope() == right.scope() && left.exit() == right.exit()
-        }) {
-            return Err(AsyncAnalysisBuildError::DuplicateScopeExit);
+        if !storage_requirements.is_sorted_by(|left, right| left.identity() < right.identity()) {
+            return Err(AsyncAnalysisBuildError::UnorderedStorageRequirements);
         }
 
         Ok(Self {
             unit,
             kind,
             frame_dependencies,
-            suspensions,
-            task_operations,
+            suspensions: suspensions.into(),
+            task_operations: task_operations.into(),
             storage_requirements,
-            storage_requirements_by_identity: storage_requirements_by_identity.into(),
             cleanup_types,
-            scope_exits,
-            scope_exits_by_node: scope_exits_by_node.into(),
-            replacements: Arc::from([]),
             is_recovered,
         })
-    }
-
-    /// Adds complete replacement cleanup selections in source-identity order.
-    pub fn with_replacements(
-        mut self,
-        replacements: impl IntoIterator<Item = crate::StorageReplacementPlan>,
-    ) -> Result<Self, AsyncAnalysisBuildError> {
-        let mut replacements = replacements.into_iter().collect::<Vec<_>>();
-
-        if replacements.iter().any(|plan| {
-            plan.expression().unit() != self.unit
-                || plan.access().unit() != self.unit
-                || plan
-                    .parts()
-                    .is_some_and(|parts| parts.iter().any(|part| !part.is_valid_for(self.unit)))
-        }) {
-            return Err(AsyncAnalysisBuildError::ForeignUnit);
-        }
-
-        replacements.sort_unstable_by_key(crate::StorageReplacementPlan::expression);
-
-        if replacements
-            .windows(2)
-            .any(|pair| pair[0].expression() == pair[1].expression())
-        {
-            return Err(AsyncAnalysisBuildError::DuplicateReplacement);
-        }
-
-        self.replacements = shared_slice(replacements);
-
-        Ok(self)
-    }
-
-    /// Returns complete cleanup plans for evaluated replacements.
-    pub fn replacements(&self) -> &[crate::StorageReplacementPlan] {
-        &self.replacements
-    }
-
-    /// Returns the cleanup selection for one replacement occurrence.
-    pub fn replacement(
-        &self,
-        expression: BoundExpressionId,
-    ) -> Option<&crate::StorageReplacementPlan> {
-        self.replacements
-            .binary_search_by_key(&expression, crate::StorageReplacementPlan::expression)
-            .ok()
-            .map(|index| &self.replacements[index])
     }
 
     /// Returns the checked bound unit.
@@ -652,14 +457,26 @@ impl CheckedAsync {
         &self.frame_dependencies
     }
 
-    /// Returns suspension points in evaluation order.
+    /// Returns suspension points in occurrence order.
     pub fn suspensions(&self) -> &[AsyncSuspensionPoint] {
         &self.suspensions
     }
 
-    /// Returns task operations in evaluation order.
+    /// Returns the checked suspension at the given occurrence.
+    pub fn suspension(&self, occurrence: crate::BoundExecutionSite) -> Option<&AsyncSuspensionPoint> {
+        self.suspensions.binary_search_by_key(&occurrence, AsyncSuspensionPoint::occurrence)
+            .ok().map(|index| &self.suspensions[index])
+    }
+
+    /// Returns task operations in expression order.
     pub fn task_operations(&self) -> &[AsyncTaskOperation] {
         &self.task_operations
+    }
+
+    /// Returns the task operation selected for one expression.
+    pub fn task_operation(&self, expression: BoundExpressionId) -> Option<AsyncTaskOperationKind> {
+        self.task_operations.binary_search_by_key(&expression, |operation| operation.expression())
+            .ok().map(|index| self.task_operations[index].kind())
     }
 
     /// Returns independently checked storage requirements in identity order.
@@ -667,47 +484,19 @@ impl CheckedAsync {
         &self.storage_requirements
     }
 
-    /// Returns the first checked cleanup requirement for one storage identity.
+    /// Returns the checked cleanup requirement for one storage identity.
     pub fn storage_requirement(
         &self,
         identity: StorageIdentityId,
     ) -> Option<&AsyncStorageRequirement> {
-        let first = self
-            .storage_requirements_by_identity
-            .partition_point(|index| self.storage_requirements[*index].identity() < identity);
-
-        self.storage_requirements_by_identity
-            .get(first)
-            .map(|index| &self.storage_requirements[*index])
-            .filter(|requirement| requirement.identity() == identity)
+        self.storage_requirements.binary_search_by_key(&identity, AsyncStorageRequirement::identity)
+            .ok()
+            .map(|index| &self.storage_requirements[index])
     }
 
     /// Returns independently checked cleanup types, including hidden represented members.
     pub fn cleanup_types(&self) -> &[crate::StorageCleanupType] {
         &self.cleanup_types
-    }
-
-    /// Returns two-phase cleanup plans in control-flow order.
-    pub fn scope_exits(&self) -> &[AsyncScopeExitPlan] {
-        &self.scope_exits
-    }
-
-    /// Returns the cleanup plan for one scope-exit occurrence.
-    pub fn scope_exit_plan(
-        &self,
-        scope: StorageScope,
-        exit: AnyBoundNodeId,
-    ) -> Option<&AsyncScopeExitPlan> {
-        let first = self.scope_exits_by_node.partition_point(|index| {
-            let plan = &self.scope_exits[*index];
-
-            (plan.scope(), plan.exit()) < (scope, exit)
-        });
-
-        self.scope_exits_by_node
-            .get(first)
-            .map(|index| &self.scope_exits[*index])
-            .filter(|plan| plan.scope() == scope && plan.exit() == exit)
     }
 
     /// Returns whether recovery prevented complete async checking.
@@ -719,80 +508,71 @@ impl CheckedAsync {
 #[cfg(test)]
 mod tests {
     use super::{
-        AsyncAnalysisBuildError, AsyncCleanupPhases, AsyncScopeExitPlan, AsyncStorageExitDecision,
-        AsyncStorageExitDisposition, AsyncStorageRequirement, AsyncSuspensionKind,
+        AsyncStorageRequirement, AsyncSuspensionKind,
         AsyncSuspensionPoint, AsyncTaskOperation, AsyncTaskOperationKind, CheckedAsync,
     };
     use crate::{
-        AsyncStorageCleanupRequirement, BoundBlockId, BoundDependencySubject, BoundExpressionId,
-        BoundUnitId, BoundUnitKind, StorageAccessId, StorageIdentityId, StorageReplacementPlan,
+        AsyncStorageCleanupRequirement, BoundDependencySubject, BoundExpressionId,
+        BoundUnitId, BoundUnitKind, StorageAccessId, StorageIdentityId,
     };
 
     #[test]
-    fn async_analysis_normalizes_frame_dependencies_and_preserves_operation_order() {
+    fn checked_async_normalizes_frame_dependencies_and_indexes_operations() {
         let unit = BoundUnitId::new(7);
         let await_expression = BoundExpressionId::from_slot(unit, 2);
         let operand = BoundExpressionId::from_slot(unit, 1);
+        let join_expression = BoundExpressionId::from_slot(unit, 3);
         let storage = StorageAccessId::from_slot(unit, 3);
         let dependency = BoundDependencySubject::StorageAccess(storage);
 
         let suspension = AsyncSuspensionPoint::new(
             await_expression,
             AsyncSuspensionKind::Await { operand },
-            None,
             [],
             [dependency],
             [],
             false,
         );
 
-        let operation = AsyncTaskOperation::new(operand, AsyncTaskOperationKind::Start);
-
-        let cleanup = AsyncScopeExitPlan::new(
-            BoundBlockId::from_slot(unit, 4).into(),
-            BoundBlockId::from_slot(unit, 4).into(),
-            [AsyncStorageExitDecision::new(
-                crate::StorageIdentityId::from_slot(unit, 5),
-                AsyncStorageExitDisposition::Cleanup {
-                    access: storage,
-                    phases: AsyncCleanupPhases::CancellationThenLifecycle,
-                    guard: crate::AsyncCleanupGuard::Always,
-                },
-            )],
-            [storage],
-            [storage],
-            [crate::StoragePath::root(
-                crate::StorageIdentityId::from_slot(unit, 5),
-            )],
-            false,
-        );
+        let start = AsyncTaskOperation::new(operand, AsyncTaskOperationKind::Start);
+        let join = AsyncTaskOperation::new(join_expression, AsyncTaskOperationKind::Join);
 
         let analysis = CheckedAsync::try_new(
             unit,
             BoundUnitKind::CallableBody,
             [dependency, dependency],
             [suspension],
-            [operation],
+            [join, start],
             [],
             [],
-            [cleanup],
             false,
         )
         .unwrap_or_else(|error| panic!("unit-local analysis must build: {error:?}"));
 
         assert_eq!(analysis.frame_dependencies(), &[dependency]);
-        assert_eq!(analysis.task_operations(), &[operation]);
-        assert_eq!(analysis.suspensions().len(), 1);
-        assert_eq!(analysis.scope_exits().len(), 1);
+        assert_eq!(analysis.task_operations(), &[start, join]);
+        assert_eq!(analysis.task_operation(operand), Some(AsyncTaskOperationKind::Start));
+        assert_eq!(analysis.suspension(await_expression.into()), analysis.suspensions().first());
+    }
 
-        assert_eq!(
-            analysis.scope_exits()[0].moved(),
-            &[crate::StoragePath::root(
-                crate::StorageIdentityId::from_slot(unit, 5)
-            )]
+    #[test]
+    fn checked_async_rejects_duplicate_suspension_occurrences() {
+        let unit = BoundUnitId::new(7);
+        let occurrence = BoundExpressionId::from_slot(unit, 1);
+        let point = AsyncSuspensionPoint::new(occurrence, AsyncSuspensionKind::Yield, [], [], [], false);
+
+        let analysis = CheckedAsync::try_new(
+            unit,
+            BoundUnitKind::CallableBody,
+            [],
+            [point.clone(), point],
+            [],
+            [],
+            [],
+            false,
         );
 
-        assert_eq!(analysis.scope_exits()[0].storage().len(), 1);
+        assert_eq!(analysis, Err(super::AsyncAnalysisBuildError::DuplicateSuspension));
     }
 
     #[test]
@@ -803,40 +583,17 @@ mod tests {
     }
 
     #[test]
-    fn cleanup_queries_preserve_occurrence_identity_and_original_order() {
+    fn cleanup_queries_borrow_checked_storage_in_identity_order() {
         let unit = BoundUnitId::new(7);
-        let first_scope = BoundBlockId::from_slot(unit, 1);
-        let second_scope = BoundBlockId::from_slot(unit, 2);
-        let first_exit = BoundExpressionId::from_slot(unit, 1);
-        let second_exit = BoundExpressionId::from_slot(unit, 2);
         let first_identity = StorageIdentityId::from_slot(unit, 1);
         let second_identity = StorageIdentityId::from_slot(unit, 2);
 
-        let coordinates = [
-            (second_scope, first_exit),
-            (first_scope, second_exit),
-            (first_scope, first_exit),
-        ];
-
-        let plans = coordinates.map(|(scope, exit)| {
-            AsyncScopeExitPlan::new(scope.into(), exit.into(), [], [], [], [], false)
-        });
-
-        let requirements = [second_identity, first_identity].map(|identity| {
+        let requirements = [first_identity, second_identity].map(|identity| {
             AsyncStorageRequirement::new(
                 identity,
                 None,
                 false,
                 AsyncStorageCleanupRequirement::None,
-            )
-        });
-
-        let replacements = [(second_exit, 2), (first_exit, 1)].map(|(expression, slot)| {
-            StorageReplacementPlan::new(
-                expression,
-                StorageAccessId::from_slot(unit, slot),
-                AsyncStorageCleanupRequirement::None,
-                None,
             )
         });
 
@@ -848,84 +605,30 @@ mod tests {
             [],
             requirements.clone(),
             [],
-            plans.clone(),
             false,
         )
-        .expect("fixture checked async must be valid")
-        .with_replacements(replacements)
-        .expect("fixture `with_replacements` call must succeed");
+        .expect("fixture checked async must be valid");
 
-        assert_eq!(analysis.scope_exits(), &plans);
         assert_eq!(analysis.storage_requirements(), &requirements);
-
-        for (index, (scope, exit)) in coordinates.into_iter().enumerate() {
-            assert_eq!(
-                analysis.scope_exit_plan(scope.into(), exit.into()),
-                Some(&plans[index])
-            );
-        }
 
         assert_eq!(
             analysis.storage_requirement(first_identity),
-            Some(&requirements[1])
-        );
-
-        assert_eq!(
-            analysis.storage_requirement(second_identity),
             Some(&requirements[0])
         );
 
         assert_eq!(
-            analysis
-                .replacement(first_exit)
-                .expect("fixture `replacement` call must succeed")
-                .expression(),
-            first_exit
-        );
-
-        assert_eq!(
-            analysis
-                .replacement(second_exit)
-                .expect("fixture `replacement` call must succeed")
-                .expression(),
-            second_exit
-        );
-
-        assert_eq!(
-            analysis.scope_exit_plan(second_scope.into(), second_exit.into()),
-            None
+            analysis.storage_requirement(second_identity),
+            Some(&requirements[1])
         );
 
         for missing_unit in [unit, BoundUnitId::new(8)] {
-            let missing_exit = BoundExpressionId::from_slot(missing_unit, 3);
-
-            assert!(analysis.replacement(missing_exit).is_none());
-
             assert!(
                 analysis
                     .storage_requirement(StorageIdentityId::from_slot(missing_unit, 3))
                     .is_none()
             );
 
-            assert_eq!(
-                analysis.scope_exit_plan(first_scope.into(), missing_exit.into()),
-                None
-            );
         }
-
-        let duplicate = CheckedAsync::try_new(
-            unit,
-            BoundUnitKind::CallableBody,
-            [],
-            [],
-            [],
-            [],
-            [],
-            [plans[0].clone(), plans[0].clone()],
-            false,
-        );
-
-        assert_eq!(duplicate, Err(AsyncAnalysisBuildError::DuplicateScopeExit));
     }
 
     #[test]
@@ -958,7 +661,6 @@ mod tests {
                 [],
                 [],
                 [shape],
-                [],
                 false,
             );
 

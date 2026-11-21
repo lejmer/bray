@@ -287,9 +287,9 @@ using core.atomic;
                 executes(pure, total)
                 uses(layout_reinterpret)
             {
-                let pointer: FunctionPointer<Callback> = trusted core.memory.function_address<Callback>(entry);
+                let pointer: FunctionPointer<Callback> = core.memory.function_address<Callback>(entry);
 
-                return trusted core.memory.function.to_data<Callback>(pointer);
+                return core.memory.function.to_data<Callback>(pointer);
             }
             "#,
         );
@@ -340,7 +340,7 @@ using core.atomic;
             trusted func caller(pos pointer: DataPointer<u8>) -> Callback
                 uses(layout_reinterpret)
             {
-                let callable_pointer: FunctionPointer<Callback> = trusted core.memory.function.from_data<Callback>(pointer);
+                let callable_pointer: FunctionPointer<Callback> = core.memory.function.from_data<Callback>(pointer);
 
                 return trusted core.memory.callable_from_pointer<Callback>(callable_pointer);
             }

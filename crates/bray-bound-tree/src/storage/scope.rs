@@ -8,13 +8,22 @@ use crate::{
     StorageIdentityId, StoragePlan, walk_bound_unit_view,
 };
 
-/// The owner of storage whose cleanup runs at one block or iteration boundary.
+/// The owner of storage whose cleanup runs at one checked boundary.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum StorageScope {
     /// A lexical source block.
     Block(BoundBlockId),
     /// An iteration expression, including its source temporary and hidden cursor.
     Iteration(BoundExpressionId),
+    /// The independent cancellation and disposal of a displaced with result.
+    ScopedResultReplacement(BoundExpressionId),
+    /// Cleanup of a produced transfer when a prior scope fails before delivery.
+    AbandonedTransfer {
+        /// Source operation that committed the value.
+        transfer: AnyBoundNodeId,
+        /// Actual result slot that owns the undelivered value.
+        value: StorageIdentityId,
+    },
 }
 
 impl StorageScope {
@@ -39,7 +48,8 @@ impl StorageScope {
     pub const fn node(self) -> AnyBoundNodeId {
         match self {
             Self::Block(block) => AnyBoundNodeId::Block(block),
-            Self::Iteration(expression) => AnyBoundNodeId::Expression(expression),
+            Self::Iteration(expression) | Self::ScopedResultReplacement(expression) => AnyBoundNodeId::Expression(expression),
+            Self::AbandonedTransfer { transfer, .. } => transfer,
         }
     }
 
@@ -122,6 +132,7 @@ pub fn storage_identity_transfers_at_unit_exit(
             | StorageIdentity::CustomIndexBorrow(_)
             | StorageIdentity::InvocationResult(_)
             | StorageIdentity::ScopedCapability { .. }
+            | StorageIdentity::ScopedResultReplacement(_)
             | StorageIdentity::Allocation(_)
             | StorageIdentity::CompilerCreated(_)
             | StorageIdentity::Alternative { .. }
@@ -350,6 +361,7 @@ impl StorageScopeOwners {
                 .invocation_owners
                 .get(&crate::BoundExecutionSite::ScopedEnter(expression))
                 .copied(),
+            Some(StorageIdentity::ScopedResultReplacement(expression)) => Some(StorageScope::ScopedResultReplacement(expression)),
             Some(StorageIdentity::InvocationResult(occurrence)) => self
                 .invocation_owners
                 .get(&occurrence)

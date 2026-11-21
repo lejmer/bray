@@ -14,12 +14,12 @@ fn declared_value_type_templates_publish_lazy_source_evidence_and_constraints() 
         "func identity<const count: usize>(value: [i32; count]) -> [i32; count]\n",
         "{\n",
         "    let local: [i32; count] = value;\n",
-        "    const copy: [i32; count] = local;\n",
+        "    const copy: [i32; count] = [0; count];\n",
         "    let callable = lambda(item: [i32; count]) -> [i32; count]\n",
         "    {\n",
-        "        item\n",
+        "        return item;\n",
         "    };\n",
-        "    copy\n",
+        "    return copy;\n",
         "}\n",
     ));
 
@@ -203,7 +203,7 @@ fn declared_value_type_templates_cover_declaration_surface_categories() {
 fn runtime_defaults_publish_their_exact_parameter_type_template() {
     let compilation = compilation(concat!(
         "module app;\n",
-        "func defaults(first: i32 = 1, second: [i32; 1] = first)\n",
+        "func defaults(first: i32 = 1, second: [i32; 1] = [first])\n",
         "{\n",
         "}\n",
     ));

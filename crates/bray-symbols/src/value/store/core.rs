@@ -290,6 +290,18 @@ impl SemanticValueStore {
         }
     }
 
+    /// Interns the full specialization and target of one selected static.
+    pub fn intern_static_reference(
+        &self, selection: crate::StaticReferenceSelection,
+    ) -> Result<crate::StaticReferenceId, SemanticValueStoreError> {
+        Arc::make_mut(&mut self.tables().statics).intern(self.id, selection)
+    }
+
+    /// Returns the selected static reference issued by this store.
+    pub fn static_reference(&self, id: crate::StaticReferenceId) -> Arc<crate::StaticReferenceSelection> {
+        self.tables().statics.get_shared(self.id, id)
+    }
+
     /// Interns one canonical ordered generic substitution.
     pub fn intern_generic_substitution(
         &self,

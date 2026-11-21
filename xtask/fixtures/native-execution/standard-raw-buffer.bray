@@ -1,6 +1,8 @@
-module std.memory;
+trusted module raw_buffer_fixture;
 
 using core.atomic;
+using std.memory;
+using internal std.memory;
 
 internal static CLEANUP_ORDER: core.atomic.Atomic<usize> = core.atomic.initialize<usize>(0);
 

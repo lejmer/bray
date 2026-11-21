@@ -1,12 +1,32 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{
-    AsyncCleanupGuard, AsyncStorageCleanupRequirement, AsyncStorageExitDisposition,
-    AsyncStorageExitRecoveryCause, BoundDependencySubject, BoundUnit, CheckedDependencyContracts,
-    StorageAccessId, StorageIdentityId, StoragePlan,
+    AsyncStorageCleanupRequirement, AsyncStorageExitDisposition,
+    AsyncStorageExitRecoveryCause, BoundDependencyContract, BoundDependencySubject, BoundExecutionSite,
+    CheckedDependencyContracts,
+    StorageAccessId, StorageCleanupSchedule, StorageIdentityId, StoragePlan,
 };
 
 impl CheckedDependencyContracts {
+    /// Prepares runtime order selection for reached paths with conflicting orders.
+    pub fn conditional_cleanup_schedule(
+        &self,
+        storage: &StoragePlan,
+        mut accesses: Vec<StorageAccessId>,
+    ) -> StorageCleanupSchedule {
+        let root = |access| storage.root_identity(access).expect("selected cleanup access retains its owner");
+
+        accesses.sort_unstable_by_key(|access| std::cmp::Reverse(root(*access)));
+
+        let consumers = accesses.iter().map(|access| {
+            self.lifecycle_consumers.get(&root(*access)).into_iter()
+                .flat_map(|owners| accesses.iter().copied().filter(|candidate| owners.contains(&root(*candidate))))
+                .collect::<std::sync::Arc<[_]>>()
+        }).collect();
+
+        StorageCleanupSchedule::Conditional { priority: accesses.into(), consumers }
+    }
+
     /// Returns the established transitive storage dependencies of pending lifecycle consumers.
     /// Guarded dependencies remain retained until their consuming cleanup has completed.
     pub fn retained_lifecycle_storage<'a>(
@@ -28,54 +48,67 @@ impl CheckedDependencyContracts {
     pub fn lifecycle_order(
         &self,
         storage: &StoragePlan,
-        accesses: &[StorageAccessId],
+        accesses: Vec<StorageAccessId>,
     ) -> Result<Vec<StorageAccessId>, StorageAccessId> {
-        for access in accesses {
-            if storage.root_identity(*access).is_none() {
-                return Err(*access);
+        if accesses.len() < 2 || self.lifecycle_consumers.is_empty() {
+            if let Some(&access) = accesses.iter().find(|&&access| storage.root_identity(access).is_none()) {
+                return Err(access);
             }
+
+            return Ok(accesses);
         }
 
-        let mut remaining = accesses.to_vec();
+        let mut remaining = Vec::with_capacity(accesses.len());
+        let mut pending = BTreeMap::<_, usize>::new();
+
+        for access in accesses {
+            let identity = storage.root_identity(access).ok_or(access)?;
+
+            remaining.push((access, identity));
+            *pending.entry(identity).or_default() += 1;
+        }
+
         let mut ordered = Vec::with_capacity(remaining.len());
 
         while !remaining.is_empty() {
-            let identities = remaining
-                .iter()
-                .filter_map(|access| storage.root_identity(*access))
-                .collect::<BTreeSet<_>>();
-
-            let next = remaining.iter().position(|access| {
-                storage.root_identity(*access).is_some_and(|identity| {
-                    self.lifecycle_consumers
-                        .get(&identity)
-                        .is_none_or(|required| required.is_disjoint(&identities))
-                })
+            let next = remaining.iter().position(|(_, identity)| {
+                self.lifecycle_consumers.get(identity)
+                    .is_none_or(|required| !required.iter().any(|consumer| pending.contains_key(consumer)))
             });
 
             let Some(next) = next else {
-                return Err(remaining[0]);
+                return Err(remaining[0].0);
             };
 
-            ordered.push(remaining.remove(next));
+            let (access, identity) = remaining.remove(next);
+
+            let remaining_accesses = pending.get_mut(&identity).expect("selected access has a pending root");
+
+            *remaining_accesses -= 1;
+            if *remaining_accesses == 0 { pending.remove(&identity); }
+
+            ordered.push(access);
         }
 
         Ok(ordered)
     }
 
-    pub(crate) fn prepare_lifecycle_dependencies(
-        &self,
-        unit: &BoundUnit,
+    /// Records structural dependencies of all values that can reach a planned owner.
+    pub fn with_lifecycle_dependencies_from_storage(
+        mut self,
         storage: &StoragePlan,
-    ) -> BTreeMap<StorageIdentityId, BTreeSet<StorageIdentityId>> {
-        let mut contracts = BTreeMap::<StorageIdentityId, BTreeSet<_>>::new();
+        bindings: impl IntoIterator<Item = (BoundExecutionSite, Vec<StorageIdentityId>)>,
+    ) -> Self {
+        let mut contracts = BTreeMap::<StorageIdentityId, BTreeSet<&BoundDependencyContract>>::new();
+
+        let bound = |id: Option<crate::BoundDependencyContractId>| id.and_then(|id| self.contract(id));
 
         for (access, _) in storage.access_entries() {
             if let Some(identity) = storage.root_identity(access) {
                 contracts
                     .entry(identity)
                     .or_default()
-                    .extend(self.access(access));
+                    .extend(bound(self.access(access)));
             }
         }
 
@@ -83,20 +116,20 @@ impl CheckedDependencyContracts {
             if let Some(identity) = storage.root_identity(plan.access()) {
                 let entries = contracts.entry(identity).or_default();
 
-                entries.extend(self.expression(plan.expression()));
-                entries.extend(self.deferred_expression_through_bindings(unit, plan.expression()));
+                entries.extend(bound(self.expression(plan.expression())));
+                entries.extend(bound(self.deferred_expression(plan.occurrence())));
             }
         }
 
-        for (identity, definition) in storage.identity_entries() {
-            if let Some(crate::AnyBoundNodeId::Expression(expression)) =
-                definition.definition_node()
-            {
-                let entries = contracts.entry(identity).or_default();
+        let sources = bindings.into_iter().flat_map(|(site, owners)| owners.into_iter().map(move |owner| (site, owner)))
+            .chain(storage.identity_entries().filter_map(|(owner, identity)| Some((identity.definition_occurrence()?, owner))));
 
-                entries.extend(self.expression(expression));
-                entries.extend(self.deferred_expression_through_bindings(unit, expression));
-            }
+        for (site, owner) in sources {
+            let entries = contracts.entry(owner).or_default();
+
+            entries.extend(bound(self.expression(site)));
+            entries.extend(bound(self.deferred_expression(site)));
+            entries.extend(self.calls().get(&site).map(|call| call.result()));
         }
 
         let dependencies = contracts
@@ -104,7 +137,6 @@ impl CheckedDependencyContracts {
             .map(|(identity, contracts)| {
                 let required = contracts
                     .into_iter()
-                    .filter_map(|contract| self.contract(contract))
                     .flat_map(|contract| contract.required_subjects())
                     .filter_map(|subject| match subject {
                         BoundDependencySubject::Storage(identity) => Some(identity),
@@ -141,31 +173,27 @@ impl CheckedDependencyContracts {
             }
         }
 
-        consumers
+        self.lifecycle_consumers = std::sync::Arc::new(consumers);
+
+        self
     }
 }
 
 impl crate::AsyncStorageRequirement {
     /// Derives the exit disposition from independently checked ownership, shape, and flow.
-    pub fn exit_disposition(
+    pub fn exit_disposition<'path>(
         &self,
         storage: &StoragePlan,
         scope: crate::StorageScope,
-        initialized: bool,
         fully_moved: bool,
-        moved: impl Iterator<Item = crate::StoragePath>,
-        definitely_absent: impl Iterator<Item = crate::StoragePath> + Clone,
+        mut moved: impl Iterator<Item = &'path crate::StoragePath>,
+        definitely_absent: impl Iterator<Item = &'path crate::StoragePath> + Clone,
     ) -> AsyncStorageExitDisposition {
-        if self.owner() != Some(scope) {
-            return AsyncStorageExitDisposition::Retained;
-        }
+        let abandons_transfer = matches!(scope, crate::StorageScope::AbandonedTransfer { value, .. }
+            if value == self.identity());
 
-        if self.transfers() {
-            return AsyncStorageExitDisposition::Transferred;
-        }
-
-        if fully_moved {
-            return AsyncStorageExitDisposition::Moved;
+        if fully_moved || !abandons_transfer && (self.owner() != Some(scope) || self.transfers()) {
+            return AsyncStorageExitDisposition::NoCleanup;
         }
 
         if self.parts().is_some_and(|parts| {
@@ -178,9 +206,7 @@ impl crate::AsyncStorageRequirement {
             return AsyncStorageExitDisposition::NoCleanup;
         }
 
-        let is_partial = moved
-            .into_iter()
-            .any(|access| access.root == self.identity() && !access.projections.is_empty());
+        let is_partial = moved.any(|access| access.root == self.identity() && !access.projections.is_empty());
 
         if is_partial && self.parts().is_none() {
             return match self.cleanup() {
@@ -203,11 +229,6 @@ impl crate::AsyncStorageRequirement {
                     Some(access) => AsyncStorageExitDisposition::Cleanup {
                         access,
                         phases,
-                        guard: if self.parts().is_none() && initialized {
-                            AsyncCleanupGuard::Always
-                        } else {
-                            AsyncCleanupGuard::Initialized
-                        },
                     },
                     None => AsyncStorageExitDisposition::Recovered(
                         AsyncStorageExitRecoveryCause::UnavailableRootAccess,

@@ -187,6 +187,23 @@ impl OrderEncoder<'_, '_> {
             DependencySubjectRoot::ExactThreadStatic(id) => {
                 term("exact_thread_static", [self.symbol(id.into())?])
             }
+            DependencySubjectRoot::StaticInstance(reference, duration) => {
+                let reference = self.compilation.semantic_value_store()?.static_reference(reference);
+
+                let witnesses = reference.selected_witnesses().iter().map(|witness| self.implementation(*witness))
+                    .collect::<Result<Vec<_>, _>>()?;
+
+                term(match duration {
+                    bray_symbols::StaticStorageDuration::Product => "selected_product_static",
+                    bray_symbols::StaticStorageDuration::ExactThread => "selected_thread_static",
+                }, [
+                    self.symbol(reference.template().declaration().into())?,
+                    self.substitution(reference.substitution())?,
+                    reference.target().as_str().as_bytes().to_vec().into(),
+                    vec![u8::from(reference.closed_instance().is_some())].into(),
+                    super::encoding::sequence(witnesses),
+                ])
+            }
         };
 
         let projections = subject

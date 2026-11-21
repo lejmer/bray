@@ -24,7 +24,7 @@ pub(super) fn panic_requirement<C: CheckerRequestContext + ?Sized>(
     flow: &super::flow::ExecutionFlow<'_, '_, C>, node: bray_bound_tree::AnyBoundNodeId,
 ) -> CheckerQueryResult<Option<bray_diagnostics::DiagnosticContractObligation>, C::UpstreamError> {
     for edge in flow.domain.graph.edges() {
-        let Some(crate::analysis::model::AnalysisRefinement::PreconditionFailure(invocation)) = edge.refinement() else {
+        let Some(crate::analysis::model::AnalysisRefinement::InvocationEntry { invocation, admitted: false }) = edge.refinement() else {
             continue;
         };
 
@@ -68,14 +68,17 @@ fn condition<C: CheckerRequestContext + ?Sized>(
     *budget = remaining;
 
     Ok(match value.kind() {
+        crate::ExecutionConditionKind::CapturedValue { value, .. } | crate::ExecutionConditionKind::DeferredValue { value, .. } => condition(domain, value, budget)?,
+        crate::ExecutionConditionKind::StorageValue(_, operands) => match operands.first() {
+            Some(source) => condition(domain, source, budget)?,
+            None => Condition::Unknown,
+        },
         crate::ExecutionConditionKind::Boolean(value) => Condition::Boolean(*value),
         crate::ExecutionConditionKind::Literal(value) => literal(domain, value.kind(), budget)?,
         crate::ExecutionConditionKind::Input(value)
-            | crate::ExecutionConditionKind::Joined(_, _, value) => place(domain, value, budget)?,
+            | crate::ExecutionConditionKind::Joined(_, value) => place(domain, value, budget)?,
         crate::ExecutionConditionKind::Result => Condition::Result,
         crate::ExecutionConditionKind::Expression(value) | crate::ExecutionConditionKind::ScopedCapability(value) => expression(domain, *value, budget)?,
-        crate::ExecutionConditionKind::CapturedInput { owner, invocation, ordinal } =>
-            captured_input(domain, owner, *invocation, *ordinal, budget)?,
         crate::ExecutionConditionKind::Present(value) => Condition::Present(Box::new(condition(domain, value, budget)?)),
         crate::ExecutionConditionKind::Constructed(base, _) | crate::ExecutionConditionKind::ScalarValue(base) | crate::ExecutionConditionKind::PostState(_, base)
             | crate::ExecutionConditionKind::Trusted(base) | crate::ExecutionConditionKind::Borrowed(base)
@@ -109,21 +112,6 @@ fn condition<C: CheckerRequestContext + ?Sized>(
         crate::ExecutionConditionKind::Discriminant(value) | crate::ExecutionConditionKind::Descriptor(_, value) => condition(domain, value, budget)?,
         crate::ExecutionConditionKind::ValueAlias(_, _) => panic!("internal data alias reached source diagnostic rendering: {value:?}"),
     })
-}
-
-fn captured_input<C: CheckerRequestContext + ?Sized>(
-    domain: &ExecutionFlowDomain<'_, '_, C>, owner: &ExecutionCondition,
-    invocation: bray_bound_tree::BoundExecutionSite, ordinal: bray_symbols::SymbolOrdinal, budget: &mut usize,
-) -> Outcome<C> {
-    let source = invocation.expression()
-        .and_then(|expression| domain.semantics.selections().expression(expression))
-        .and_then(|selection| selection.input(ordinal))
-        .and_then(|input| input.expression());
-
-    match source {
-        Some(source) => expression(domain, source, budget),
-        None => Ok(Condition::CapturedInput { owner: Box::new(condition(domain, owner, budget)?), ordinal: ordinal.raw() }),
-    }
 }
 
 fn application<C: CheckerRequestContext + ?Sized>(
@@ -252,8 +240,13 @@ fn place<C: CheckerRequestContext + ?Sized>(
             }
         }
         ExecutionInput::Argument(ordinal) => Condition::Argument(ordinal.raw()),
+        ExecutionInput::FrameInput { source, .. } => condition(domain, source, budget)?,
         ExecutionInput::Constant(term) => term_value(domain, *term, budget)?,
         ExecutionInput::Static(selection) => Condition::Source(symbol_path(domain, selection.template().declaration().into())?.join(".")),
+        ExecutionInput::Pointee { producer, .. } => match producer {
+            Some(producer) => occurrence(domain, *producer, budget)?,
+            None => Condition::Unknown,
+        },
         ExecutionInput::Storage(storage) => {
             let identity = domain.storage.identity(*storage).expect("condition storage is planned");
 

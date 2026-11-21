@@ -1,24 +1,12 @@
 use std::collections::BTreeMap;
 
 use bray_bound_tree::{
-    BoundExpressionId, BoundPatternId, BoundUnitView, StorageBinding,
-    StorageBindingTarget, StoragePlan, StorageScopeOwners,
+    BoundExpression, BoundExpressionId, BoundPatternId, BoundUnitView, StorageAccessPurpose,
+    StorageBinding, StorageBindingTarget, StoragePlan,
 };
 
-use crate::{CheckerQueryError, CheckerRequestContext, CheckerUnitView};
+use crate::{CheckerRequestContext, CheckerUnitView};
 
-pub(crate) fn storage_scope_owners<C>(
-    request: CheckerUnitView<'_, C>,
-) -> Result<StorageScopeOwners, CheckerQueryError>
-where
-    C: CheckerRequestContext + ?Sized,
-{
-    Ok(
-        StorageScopeOwners::collect(request.unit()).unwrap_or_else(|error| {
-            panic!("storage_scope_owners must satisfy its checked construction contract: {error:?}")
-        }),
-    )
-}
 pub(crate) fn value_transfer_destinations<C>(
     request: CheckerUnitView<'_, C>,
     storage: &StoragePlan,
@@ -41,6 +29,20 @@ where
             pattern,
             result.entry(source).or_default(),
         );
+    }
+
+    for plan in storage.access_plans().iter().filter(|plan| plan.purpose() == StorageAccessPurpose::Assignment) {
+        let Some(root) = storage.root_identity(plan.access()) else { continue; };
+        let Some(BoundExpression::Assignment(assignment)) = request.view().expression(plan.expression()) else { continue; };
+        let [_, replacement] = assignment.operands() else { continue; };
+
+        let source = if assignment.operator().binary_operator().is_some() {
+            plan.occurrence()
+        } else {
+            (*replacement).into()
+        };
+
+        result.entry(source).or_default().push(root);
     }
 
     result

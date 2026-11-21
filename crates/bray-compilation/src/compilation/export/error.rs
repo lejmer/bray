@@ -344,34 +344,29 @@ mod tests {
     }
     #[test]
     fn source_export_errors_preserve_the_actual_diagnostic() {
-        let compilation = crate::test_support::compilation(
-            r#"
-            module app;
+        use bray_diagnostics::{Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticKind, SeverityKind};
 
-            func root()
-            {
-                missing;
-            }
-        "#,
-        );
+        let warning = Diagnostic::new(DiagnosticId::new(1), DiagnosticKind::BindingUnusedUsing, SeverityKind::Warning);
 
-        let diagnostics = compilation.check_diagnostics();
+        let expected = Diagnostic::new(DiagnosticId::new(2), DiagnosticKind::BindingUnresolvedName, SeverityKind::Error)
+            .with_arg(DiagnosticArg::declaration_name("missing"));
 
-        let expected = diagnostics
-            .iter()
-            .find(|diagnostic| diagnostic.severity() == bray_diagnostics::SeverityKind::Error)
-            .expect("fixture lookup must find its expected value");
+        let later = Diagnostic::new(DiagnosticId::new(3), DiagnosticKind::BindingUnresolvedName, SeverityKind::Error)
+            .with_arg(DiagnosticArg::declaration_name("other"));
+
+        let mut diagnostics = DiagnosticBag::new();
+
+        diagnostics.add(warning);
+
+        assert_eq!(super::source_diagnostic_export_error(&diagnostics), None);
+
+        diagnostics.add_range([expected.clone(), later]);
 
         assert_eq!(
-            super::source_diagnostic_export_error(diagnostics),
+            super::source_diagnostic_export_error(&diagnostics),
             Some(super::PackageInterfaceExportError::SourceDiagnostic(
-                Box::new(expected.clone())
+                Box::new(expected)
             ))
-        );
-
-        assert_eq!(
-            super::source_diagnostic_export_error(&bray_diagnostics::DiagnosticBag::new()),
-            None
         );
     }
 }

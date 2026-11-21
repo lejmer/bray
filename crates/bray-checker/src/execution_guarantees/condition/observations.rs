@@ -7,7 +7,8 @@ use std::collections::HashSet;
 impl ExecutionCondition {
     pub(crate) fn selector_place(&self) -> Option<crate::ExecutionPlace> {
         match self.kind() {
-            crate::ExecutionConditionKind::ScalarValue(origin) => return origin.selector_place(),
+            crate::ExecutionConditionKind::CapturedValue { value: origin, .. } | crate::ExecutionConditionKind::DeferredValue { value: origin, .. }
+            | crate::ExecutionConditionKind::ScalarValue(origin) => return origin.selector_place(),
             crate::ExecutionConditionKind::Joined(..)
             | crate::ExecutionConditionKind::PostState(..)
             | crate::ExecutionConditionKind::Projection(..) => {}
@@ -17,7 +18,7 @@ impl ExecutionCondition {
         let (root, projections) = self.observation_path()?;
 
         let place = match root.kind() {
-            crate::ExecutionConditionKind::Joined(_, _, place) => place,
+            crate::ExecutionConditionKind::Joined(_, place) => place,
             crate::ExecutionConditionKind::PostState(_, origin) => match origin.kind() {
                 crate::ExecutionConditionKind::Input(place) => place,
                 _ => return None,
@@ -62,25 +63,24 @@ impl ExecutionCondition {
     pub(crate) fn without_evaluation(
         &self,
         mutation: bray_bound_tree::StorageMutation,
-        remaining: &mut usize,
     ) -> Self {
-        if *remaining == 0 {
-            return ExecutionCondition::unknown();
-        }
-
-        *remaining -= 1;
-
         if !self.depends_on(mutation) {
             return self.clone();
         }
 
         let rewritten = match self.kind() {
+            crate::ExecutionConditionKind::DeferredValue { value, frame } =>
+                value.without_evaluation(mutation).with_deferred_value(std::sync::Arc::clone(frame)),
+            crate::ExecutionConditionKind::CapturedValue { value, storage } =>
+                value.without_evaluation(mutation).captured_value(storage.clone()),
+            crate::ExecutionConditionKind::StorageValue(operation, values) => Self::storage_value(*operation,
+                values.iter().map(|value| value.without_evaluation(mutation)).collect()),
             crate::ExecutionConditionKind::Constructed(base, fields) => Self::constructed(
-                base.without_evaluation(mutation, remaining),
+                base.without_evaluation(mutation),
                 fields
                     .iter()
                     .map(|(projection, value)| {
-                        (*projection, value.without_evaluation(mutation, remaining))
+                        (*projection, value.without_evaluation(mutation))
                     })
                     .collect(),
             ),
@@ -89,17 +89,17 @@ impl ExecutionCondition {
                     || *kind == ObservationKind::Reference && !owner.depends_on(mutation) =>
             {
                 Self::observation(
-                    owner.without_evaluation(mutation, remaining),
-                    contents.without_evaluation(mutation, remaining),
+                    owner.without_evaluation(mutation),
+                    contents.without_evaluation(mutation),
                     *kind,
                 )
             }
-            crate::ExecutionConditionKind::Discriminant(value) => value.without_evaluation(mutation, remaining).discriminant(),
-            crate::ExecutionConditionKind::Descriptor(kind, value) => value.without_evaluation(mutation, remaining).descriptor(*kind),
-            crate::ExecutionConditionKind::Present(value) => ExecutionCondition::new(crate::ExecutionConditionKind::Present(std::sync::Arc::new(value.without_evaluation(mutation, remaining)))),
+            crate::ExecutionConditionKind::Discriminant(value) => value.without_evaluation(mutation).discriminant(),
+            crate::ExecutionConditionKind::Descriptor(kind, value) => value.without_evaluation(mutation).descriptor(*kind),
+            crate::ExecutionConditionKind::Present(value) => ExecutionCondition::new(crate::ExecutionConditionKind::Present(std::sync::Arc::new(value.without_evaluation(mutation)))),
             crate::ExecutionConditionKind::Tagged(variant, value) => ExecutionCondition::new(crate::ExecutionConditionKind::Tagged(
                 *variant,
-                std::sync::Arc::new(value.without_evaluation(mutation, remaining)),
+                std::sync::Arc::new(value.without_evaluation(mutation)),
             )),
             // Scalar and proof terms cannot preserve their meaning after any
             // contributing evaluation expires. A retired reference also loses
@@ -153,19 +153,18 @@ impl ExecutionCondition {
 
     /// The copied descriptor, independently of its scalar slot and reached contents.
     pub(crate) fn descriptor_identity(&self) -> &Self {
-        let mut pointer = self.copied_value();
+        use crate::ExecutionConditionKind as Kind;
 
-        // An owning context can survive replacement of the address stored in it.
-        // Read that descriptor's current data before selecting its identity.
-        while let crate::ExecutionConditionKind::Observation { contents, kind: ObservationKind::Owned, .. } = pointer.kind() {
-            pointer = contents.copied_value();
+        let mut pointer = self;
+
+        loop {
+            pointer = match pointer.kind() {
+                Kind::CapturedValue { value, .. } | Kind::DeferredValue { value, .. }
+                | Kind::Observation { contents: value, kind: ObservationKind::Owned | ObservationKind::Scalar, .. }
+                | Kind::Borrowed(value) => value,
+                _ => return pointer.owner_identity(),
+            };
         }
-
-        while let crate::ExecutionConditionKind::Borrowed(reached) = pointer.kind() {
-            pointer = reached.copied_value();
-        }
-
-        pointer.owner_identity()
     }
 
     /// The carrier's identity survives changes to the component snapshot.
@@ -174,6 +173,8 @@ impl ExecutionCondition {
 
         loop {
             match value.kind() {
+                crate::ExecutionConditionKind::CapturedValue { value: captured, .. } | crate::ExecutionConditionKind::DeferredValue { value: captured, .. } => value = captured,
+                crate::ExecutionConditionKind::StorageValue(bray_symbols::CapturedValueOperation::Inline, values) => value = &values[0],
                 crate::ExecutionConditionKind::Constructed(base, _) => value = base,
                 crate::ExecutionConditionKind::Observation { owner: base, .. } if **base != ExecutionCondition::unknown() => value = base,
                 crate::ExecutionConditionKind::Tagged(_, base) | crate::ExecutionConditionKind::Present(base) => value = base,
@@ -204,6 +205,8 @@ impl ExecutionCondition {
         for _ in 0..Self::WORK_LIMIT {
             match value.kind() {
                 crate::ExecutionConditionKind::Observation { kind: ObservationKind::Scalar, .. } => return None,
+                crate::ExecutionConditionKind::CapturedValue { value: captured, .. } | crate::ExecutionConditionKind::DeferredValue { value: captured, .. } => value = captured,
+                crate::ExecutionConditionKind::StorageValue(bray_symbols::CapturedValueOperation::Inline, values) => value = &values[0],
                 crate::ExecutionConditionKind::Observation { owner, kind: ObservationKind::Reference, .. } => {
                     role = ObservationKind::Reference;
                     value = owner;
@@ -220,8 +223,9 @@ impl ExecutionCondition {
                     value = value.nullable_payload_snapshot().unwrap_or(parent);
                 }
                 crate::ExecutionConditionKind::Input(_) | crate::ExecutionConditionKind::Expression(_) | crate::ExecutionConditionKind::ScopedCapability(_)
-                | crate::ExecutionConditionKind::PostState(_, _) | crate::ExecutionConditionKind::Joined(_, _, _) | crate::ExecutionConditionKind::Result
-                | crate::ExecutionConditionKind::CapturedInput { .. } => return Some((role, identity)),
+                | crate::ExecutionConditionKind::PostState(_, _) | crate::ExecutionConditionKind::Joined(..) | crate::ExecutionConditionKind::Result
+                => return Some((role, identity)),
+                crate::ExecutionConditionKind::StorageValue(bray_symbols::CapturedValueOperation::Last, _) => return Some((role, identity)),
                 _ => return None,
             }
         }
@@ -251,6 +255,7 @@ impl ExecutionCondition {
 
         loop {
             match value.kind() {
+                crate::ExecutionConditionKind::CapturedValue { value: captured, .. } | crate::ExecutionConditionKind::DeferredValue { value: captured, .. } => value = captured,
                 crate::ExecutionConditionKind::Projection(component, parent) => {
                     path.push(*component);
                     value = parent;
@@ -273,8 +278,7 @@ impl ExecutionCondition {
                 crate::ExecutionConditionKind::Expression(_)
                 | crate::ExecutionConditionKind::ScopedCapability(_)
                 | crate::ExecutionConditionKind::PostState(_, _)
-                | crate::ExecutionConditionKind::Joined(_, _, _)
-                | crate::ExecutionConditionKind::CapturedInput { .. }
+                | crate::ExecutionConditionKind::Joined(..)
                 | crate::ExecutionConditionKind::Result => {
                     path.reverse();
 
@@ -314,13 +318,13 @@ impl ExecutionCondition {
         })
     }
 
-    /// Traverses containing value observations and captured frame identities.
-    pub(crate) fn ownership_ancestors(&self) -> impl Iterator<Item = &Self> {
+    /// Traverses actual containing value observations.
+    fn ownership_ancestors(&self) -> impl Iterator<Item = &Self> {
         std::iter::successors(Some(self.owner_identity()), |value| match value.kind() {
             crate::ExecutionConditionKind::Projection(_, parent)
             | crate::ExecutionConditionKind::Tagged(_, parent)
             | crate::ExecutionConditionKind::Present(parent)
-            | crate::ExecutionConditionKind::CapturedInput { owner: parent, .. } => Some(parent.owner_identity()),
+            => Some(parent.owner_identity()),
             _ => None,
         })
     }
@@ -334,9 +338,11 @@ impl ExecutionCondition {
             match condition.kind() {
                 crate::ExecutionConditionKind::Input(place) => inputs.push(place),
                 crate::ExecutionConditionKind::Operation(_, operands)
+                | crate::ExecutionConditionKind::StorageValue(_, operands)
                 | crate::ExecutionConditionKind::Predicate(_, _, operands)
                 | crate::ExecutionConditionKind::Call(_, _, _, operands, _) => pending.extend(operands.iter()),
-                crate::ExecutionConditionKind::Tagged(_, value)
+                crate::ExecutionConditionKind::CapturedValue { value, .. } | crate::ExecutionConditionKind::DeferredValue { value, .. }
+                | crate::ExecutionConditionKind::Tagged(_, value)
                 | crate::ExecutionConditionKind::VariantTest(_, value)
                 | crate::ExecutionConditionKind::Projection(_, value)
                 | crate::ExecutionConditionKind::Trusted(value)
@@ -346,7 +352,7 @@ impl ExecutionCondition {
                 | crate::ExecutionConditionKind::Entry {
                     condition: value, ..
                 }
-                | crate::ExecutionConditionKind::CapturedInput { owner: value, .. } => pending.push(value),
+                => pending.push(value),
                 crate::ExecutionConditionKind::Observation { owner, contents: value, .. } => pending.extend([owner.as_ref(), value.as_ref()]),
                 crate::ExecutionConditionKind::Constructed(base, fields) => {
                     pending.push(base);
@@ -382,9 +388,11 @@ impl ExecutionCondition {
             crate::ExecutionConditionKind::Observation { contents: value, kind: ObservationKind::Owned, .. }
                 if !self.ownership_identity().is_some_and(|(role, _)| role == ObservationKind::Reference) => Some(value.as_ref()),
             crate::ExecutionConditionKind::Present(value)
+            | crate::ExecutionConditionKind::CapturedValue { value, .. } | crate::ExecutionConditionKind::DeferredValue { value, .. }
             | crate::ExecutionConditionKind::Tagged(_, value) => Some(value.as_ref()),
-            crate::ExecutionConditionKind::Projection(bray_symbols::ConstantProjectionKind::NullableValue, value)
-                if self.ownership_identity().is_some_and(|(role, _)| role == ObservationKind::Owned) => Some(value.as_ref()),
+            crate::ExecutionConditionKind::Projection(bray_symbols::ConstantProjectionKind::NullableValue, _)
+                if self.ownership_identity().is_some_and(|(role, _)| role == ObservationKind::Owned) =>
+                    self.nullable_payload_snapshot(),
             _ => None,
         };
 
@@ -393,9 +401,30 @@ impl ExecutionCondition {
             _ => &[],
         };
 
+        let prefix = match self.kind() {
+            crate::ExecutionConditionKind::StorageValue(bray_symbols::CapturedValueOperation::Append | bray_symbols::CapturedValueOperation::OwningStorage(_), values) => values.as_ref(),
+            _ => &[],
+        };
+
+        let backing = match self.kind() {
+            crate::ExecutionConditionKind::Observation { contents, kind: ObservationKind::Reference, .. }
+            | crate::ExecutionConditionKind::Borrowed(contents) => contents.owning_storage_components(),
+            _ => Vec::new(),
+        };
+
+        let captures = match self.kind() {
+            crate::ExecutionConditionKind::DeferredValue { frame, .. } => Some(frame.producers.values()
+                .flat_map(|producer| producer.entry.owned_inputs.iter().filter_map(|ordinal|
+                    producer.entry.arguments.get(&crate::ExecutionPlace::argument(*ordinal))))),
+            _ => None,
+        };
+
         present
             .into_iter()
             .chain(fields.iter().map(|(_, value)| value))
+            .chain(prefix.iter())
+            .chain(backing)
+            .chain(captures.into_iter().flatten())
     }
 
     /// Returns independent clauses while preserving the guards within each clause.
@@ -441,15 +470,16 @@ impl ExecutionCondition {
                     condition,
                     captured: false,
                 } => pending.push(condition),
-                crate::ExecutionConditionKind::CapturedInput { owner, .. } => pending.push(owner),
                 crate::ExecutionConditionKind::Borrowed(_) | crate::ExecutionConditionKind::Observation { kind: ObservationKind::Reference, .. } => return false,
                 crate::ExecutionConditionKind::Observation { owner, contents: value, .. } => pending.extend([owner.as_ref(), value.as_ref()]),
-                crate::ExecutionConditionKind::Tagged(_, value)
+                crate::ExecutionConditionKind::CapturedValue { value, .. } | crate::ExecutionConditionKind::DeferredValue { value, .. }
+                | crate::ExecutionConditionKind::Tagged(_, value)
                 | crate::ExecutionConditionKind::VariantTest(_, value)
                 | crate::ExecutionConditionKind::Projection(_, value)
                 | crate::ExecutionConditionKind::Trusted(value)
                 | crate::ExecutionConditionKind::Present(value) => pending.push(value),
-                crate::ExecutionConditionKind::Predicate(_, _, values)
+                crate::ExecutionConditionKind::StorageValue(_, values)
+                | crate::ExecutionConditionKind::Predicate(_, _, values)
                 | crate::ExecutionConditionKind::Call(_, _, _, values, _)
                 | crate::ExecutionConditionKind::Operation(_, values) => pending.extend(values.iter()),
                 _ => return false,
@@ -461,8 +491,10 @@ impl ExecutionCondition {
 
     fn push_observations<'a>(&'a self, pending: &mut Vec<&'a Self>) {
         match self.kind() {
+            crate::ExecutionConditionKind::CapturedValue { value, .. } | crate::ExecutionConditionKind::DeferredValue { value, .. } => pending.push(value),
             crate::ExecutionConditionKind::ValueAlias(left, right) => pending.extend([left.as_ref(), right.as_ref()]),
             crate::ExecutionConditionKind::Operation(_, operands)
+            | crate::ExecutionConditionKind::StorageValue(_, operands)
             | crate::ExecutionConditionKind::Predicate(_, _, operands)
             | crate::ExecutionConditionKind::Call(_, _, _, operands, _) => {
                 pending.extend(operands.iter());
@@ -564,11 +596,13 @@ impl ExecutionCondition {
                     captured: false,
                 } => pending.push((condition, true)),
                 crate::ExecutionConditionKind::Operation(_, operands)
+                | crate::ExecutionConditionKind::StorageValue(_, operands)
                 | crate::ExecutionConditionKind::Predicate(_, _, operands)
                 | crate::ExecutionConditionKind::Call(_, _, _, operands, _) => {
                     pending.extend(operands.iter().map(|value| (value, live)))
                 }
-                crate::ExecutionConditionKind::Tagged(_, value)
+                crate::ExecutionConditionKind::CapturedValue { value, .. } | crate::ExecutionConditionKind::DeferredValue { value, .. }
+                | crate::ExecutionConditionKind::Tagged(_, value)
                 | crate::ExecutionConditionKind::VariantTest(_, value)
                 | crate::ExecutionConditionKind::Trusted(value)
                 | crate::ExecutionConditionKind::Projection(_, value)
@@ -595,19 +629,19 @@ pub(crate) fn memoize_observations(
     matches: impl Fn(&ExecutionCondition) -> bool,
     exclude: impl Fn(&ExecutionCondition) -> bool,
 ) -> impl Fn(&ExecutionCondition) -> bool {
-    let memo = super::memo::ConditionMemo::default();
+    let memo = std::cell::RefCell::new(hashbrown::HashMap::new());
 
     move |root| {
         let remember = |value: &ExecutionCondition, result| {
             // Retain the small immutable handle while this query scope owns its answer.
-            memo.lock().expect("observation query memo lock is not poisoned").insert(value.clone(), result);
+            memo.borrow_mut().insert(value.clone(), result);
         };
 
         let mut parents = Vec::new();
         let mut current = root;
 
         'descend: loop {
-            let cached = memo.lock().expect("observation query memo lock is not poisoned").get(current).copied();
+            let cached = memo.borrow().get(current).copied();
 
             let result = if let Some(result) = cached {
                 result

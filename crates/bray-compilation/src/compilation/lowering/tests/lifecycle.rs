@@ -112,7 +112,12 @@ fn unit_valued_replacement_retains_old_owner_cleanup_exits() {
 
         struct Resource
         {
-            destruct() {}
+            panic_on_cleanup: bool;
+
+            destruct()
+            {
+                if self.panic_on_cleanup { panic("old owner cleanup"); }
+            }
         }
 
         struct Container
@@ -164,17 +169,14 @@ fn unit_valued_replacement_retains_old_owner_cleanup_exits() {
         })
         .expect("replacement dispatches its enclosing failure collection");
 
-    assert_eq!(
-        cases.len(),
-        2,
-        "panic and cancellation retain separate exits"
-    );
+    let failures = cases.iter().map(|case| {
+        mir.block(case.edge().target()).expect("fixture MIR block must exist")
+    }).filter(|block| !matches!(block.terminator().kind(), MirTerminatorKind::Unreachable));
 
-    for case in cases.iter() {
-        let failure = mir
-            .block(case.edge().target())
-            .expect("fixture MIR block must exist");
+    assert!(failures.clone().any(|block| matches!(block.terminator().kind(), MirTerminatorKind::Panic { .. })),
+        "the old owner's possible panic has a failure continuation");
 
+    for failure in failures {
         let mut transfers = 0;
 
         let mut count_transfer = |operand: &bray_ir::MirOperand| {
@@ -190,21 +192,17 @@ fn unit_valued_replacement_retains_old_owner_cleanup_exits() {
                 .for_each_operand(&mut count_transfer);
         }
 
-        failure
-            .terminator()
-            .kind()
-            .for_each_input(&mut count_transfer);
+        let terminator = failure.terminator().kind();
 
-        if let MirTerminatorKind::CancelCurrentRun { cleanup } = failure.terminator().kind() {
+        terminator.for_each_input(&mut count_transfer);
+
+        if let MirTerminatorKind::CancelCurrentRun { cleanup } = terminator {
             for argument in cleanup.edge().arguments() {
                 count_transfer(argument);
             }
         }
 
-        assert_eq!(
-            transfers, 1,
-            "each failure exit transfers the collected report exactly once: {failure:#?}"
-        );
+        assert_eq!(transfers, 1, "the failure exit transfers the report exactly once: {failure:#?}");
     }
 }
 
@@ -479,15 +477,23 @@ fn fallible_scoped_phases_separate_the_capability_and_body_result_types() {
             "enter() -> Result<bool, i32> { return Error(7); }",
             "exit(pos lease: bool) -> Result<unit, i32> { return Error(8); }",
         ),
+        (
+            "enter() -> Result<bool, i32> { return Ok(true); }",
+            "exit(pos lease: bool) -> Result<unit, i32> { return Error(8); }",
+        ),
     ] {
         let compilation = compilation(&format!(
             r#"
             module app;
             struct Resource {{}}
             impl Resource {{ {enter} {exit} }}
-            func caller(pos resource: Resource) -> Result<bool, i32>
+            func caller(pos resource: Resource) -> Result<u32, i32>
             {{
-                return with lease: bool = resource {{ yield lease; }};
+                return with lease: bool = resource {{
+                    let body_value: u32 = if lease {{ yield 17; }} else {{ yield 23; }};
+
+                    yield body_value;
+                }};
             }}
         "#
         ));
@@ -520,13 +526,13 @@ fn fallible_scoped_phases_separate_the_capability_and_body_result_types() {
 
         assert!(scoped.failure_type().is_some());
 
-        assert_ne!(
+        assert_eq!(
             types
                 .value()
                 .expression(scoped.expression())
                 .expect("fixture expression must retain its checked type or storage")
                 .ty(),
-            scoped.capability_type()
+            types.value().callable_result_type().expect("caller declares Result<u32, i32>")
         );
 
         let result = compilation
@@ -847,13 +853,13 @@ fn cleanup_materializes_every_verified_lifecycle_storage() {
         .storage_plan(key.clone())
         .expect("fixture callable must have a storage plan");
 
-    let analysis = compilation
-        .async_analysis(key.clone())
-        .expect("fixture callable must complete async analysis");
+    let flow = compilation
+        .storage_flow(key.clone())
+        .expect("fixture callable must publish reached cleanup");
 
-    let required = analysis
+    let required = flow
         .value()
-        .scope_exits()
+        .exits()
         .iter()
         .flat_map(|exit| {
             exit.cancellation_broadcast()
@@ -862,6 +868,18 @@ fn cleanup_materializes_every_verified_lifecycle_storage() {
         })
         .filter_map(|access| storage.value().root_identity(*access))
         .collect::<BTreeSet<_>>();
+
+    let owned_locals = required.iter().copied().filter(|identity| {
+        matches!(storage.value().identity(*identity), Some(bray_bound_tree::StorageIdentity::LocalOwned(_)))
+    }).collect::<Vec<_>>();
+
+    let [resource] = owned_locals.as_slice() else {
+        panic!("the Resource must be the sole local owner selected for cleanup: {owned_locals:?}");
+    };
+
+    let resource_access = storage.value().root_access(*resource)
+        .and_then(|access| storage.value().access(access))
+        .expect("the selected resource retains its checked root access");
 
     let lowered = compilation
         .lowered_unit(key)
@@ -895,6 +913,15 @@ fn cleanup_materializes_every_verified_lifecycle_storage() {
         .collect::<BTreeSet<_>>();
 
     assert_eq!(cleanup_storages.len(), required.len(), "{cleanup_places:?}");
+
+    assert!(cleanup_storages.iter().any(|&storage| {
+        let owner = lowered_mir(&lowered).storage(storage).expect("cleanup names its MIR storage");
+
+        owner.kind() == &bray_ir::MirStorageKind::Local
+            && owner.ty() == resource_access.reached_type()
+            && matches!(owner.source(), bray_ir::MirSourceAnchor::Source(origin)
+                if origin.source_anchor() == resource_access.source())
+    }), "MIR cleans up the Resource at its checked declaration source");
 }
 
 #[test]
@@ -911,9 +938,33 @@ fn frame_admission_failure_retains_initialized_capture_cleanup() {
 
 fn assert_frame_admission_retains_capture(source: &str) {
     let compilation = compilation(source);
+    let key = source_function_body_key(&compilation, "create");
+    let selections = compilation.semantic_selections(key.clone()).expect("factory selection");
+
+    let invocation = selections.value().entries().iter().find_map(|entry| match entry.selection() {
+        bray_bound_tree::SemanticSelection::Call(call)
+            if matches!(call.resolution().result(), bray_bound_tree::BoundCallResult::LazyFuture(_)) => Some(entry.expression()),
+        _ => None,
+    }).expect("fixture has a selected lazy factory");
+
+    let flow = compilation.storage_flow(key.clone()).expect("factory has checked storage flow");
+    let storage = compilation.storage_plan(key.clone()).expect("factory has a checked input slot");
+
+    let (input, _) = storage.value().identity_entries().find(|(_, identity)| matches!(identity,
+        bray_bound_tree::StorageIdentity::InvocationInput { expression, ordinal }
+            if *expression == invocation && ordinal.raw() == 0
+    )).expect("factory keeps its staged guard before admission");
+
+    assert!(!flow.value().invocation_can_fail(invocation.into(), bray_symbols::DependencyFailureKind::Panic));
+
+    assert!(flow.value().exits().iter().any(|exit| {
+        exit.exit() == invocation.into()
+            && exit.lifecycle_resolution().iter()
+                .any(|access| storage.value().root_identity(*access) == Some(input))
+    }), "reservation failure leaves the staged input with caller cleanup");
 
     let lowered = compilation
-        .lowered_unit(source_function_body_key(&compilation, "create"))
+        .lowered_unit(key)
         .expect("fixture callable must lower successfully");
 
     let mir = lowered_mir(&lowered);
@@ -1001,45 +1052,20 @@ fn assert_frame_admission_retains_capture(source: &str) {
         })
         .expect("only admitted construction transfers captures");
 
-    let mut pending = vec![panicked.target()];
-    let mut seen = BTreeSet::new();
-    let mut resolves_capture = false;
+    let reached = bray_ir::reachable_blocks(mir, [panicked.target()], &Default::default());
 
-    while let Some(id) = pending.pop() {
-        if !seen.insert(id) {
-            continue;
-        }
+    let operations = reached.iter().filter_map(|id| mir.block(*id))
+        .flat_map(|block| block.operations()).filter_map(|id| mir.operation(*id));
 
-        let block = mir.block(id).expect("fixture MIR block must exist");
+    assert!(!operations.clone().any(|operation| matches!(operation.kind(),
+        MirOperationKind::Async(bray_ir::MirAsyncOperation::CreateFrame { .. })
+    )), "failed admission never constructs a frame");
 
-        for id in block.operations() {
-            let kind = mir
-                .operation(*id)
-                .expect("fixture MIR operation must exist")
-                .kind();
-
-            assert!(
-                !matches!(
-                    kind,
-                    MirOperationKind::Async(bray_ir::MirAsyncOperation::CreateFrame { .. })
-                ),
-                "failed admission never constructs a frame"
-            );
-
-            resolves_capture |= matches!(kind, MirOperationKind::Cleanup {
-                phase: bray_ir::MirCleanupPhase::LifecycleResolution, place, .. } if place == capture);
-        }
-
-        block
-            .terminator()
-            .kind()
-            .for_each_successor(|target| pending.push(target));
-    }
-
-    assert!(
-        resolves_capture,
-        "failed admission resolves the exact retained input"
-    );
+    assert!(operations.clone().any(|operation| matches!(operation.kind(),
+        MirOperationKind::Cleanup {
+            phase: bray_ir::MirCleanupPhase::LifecycleResolution, place, ..
+        } if place == capture
+    )), "failed admission resolves the exact retained input");
 }
 
 #[test]
@@ -1135,6 +1161,350 @@ fn inactive_frame_cancellation_cleans_captures_without_entering_body() {
         cleans_capture,
         "inactive cancellation resolves initialized captures"
     );
+}
+
+#[test]
+fn scope_broadcast_visits_a_task_capability_consumed_by_scoped_exit() {
+    let compilation = compilation(
+        r#"
+        module app;
+
+        async func work() {}
+
+        struct Lease { task: Task<unit>; }
+
+        struct Resource
+        {
+            async enter() -> Lease
+            {
+                return Lease { task = work().start() };
+            }
+
+            async exit(pos lease: Lease) {}
+        }
+
+        async func caller(pos resource: Resource)
+        {
+            with _ = resource {};
+        }
+        "#,
+    );
+
+    let key = source_function_body_key(&compilation, "caller");
+    let storage = compilation.storage_plan(key.clone()).expect("fixture storage plan");
+    let storage = storage.value();
+
+    let (capability, expression) = storage.identity_entries()
+        .find_map(|(identity, record)| match record {
+            bray_bound_tree::StorageIdentity::ScopedCapability { expression, .. } => Some((identity, expression)),
+            _ => None,
+        })
+        .expect("with binds the owned lease capability");
+
+    let access = storage.root_access(capability).expect("lease capability has a root access");
+    let ty = storage.storage_type(capability).expect("lease capability has a type");
+
+    let checked = compilation.storage_flow(key.clone()).expect("fixture reached cleanup");
+
+    assert!(!checked.diagnostics().has_errors(), "{:?}", checked.diagnostics());
+
+    let plans = checked.value().exits().iter().filter(|plan| plan.scoped_exit() == Some(expression))
+        .collect::<Vec<_>>();
+
+    assert!(!plans.is_empty());
+
+    let committed = plans.iter().find(|plan| plan.exit() == expression.into())
+        .expect("cancellation after entry completion owns the acquired capability");
+
+    assert_eq!(committed.cancellation_broadcast(), &[access]);
+
+    for plan in plans {
+        assert_eq!(plan.cancellation_broadcast(), &[access]);
+        assert!(!plan.lifecycle_resolution().contains(&access), "exit consumes the capability");
+    }
+
+    let lowered = compilation.lowered_unit(key).expect("fixture lowers with its selected lifecycle");
+
+    assert!(!lowered.diagnostics().has_errors(), "{:?}", lowered.diagnostics());
+
+    let mir = lowered_mir(&lowered);
+
+    assert!(mir.operations().iter().any(|operation| matches!(operation.kind(),
+        MirOperationKind::Cleanup { phase: bray_ir::MirCleanupPhase::TaskCancellation, place, .. }
+            if mir.storage(place.storage()).is_some_and(|storage| storage.ty() == ty)
+    )));
+}
+
+#[test]
+fn scoped_exit_panic_broadcasts_only_for_newly_exited_owners() {
+    use bray_ir::{MirAsyncOperation, MirBlockKind, MirCallTarget, MirCleanupPhase, MirOutgoingOwner, MirStorageKind};
+
+    for (outer, extra_broadcasts) in [("", 0), ("let outer = child().start();", 1)] {
+        let compilation = compilation(&format!(r#"
+            module app;
+            struct Resource {{
+                enter() -> bool {{ return true; }}
+                exit(pos acquired: bool) -> Result<unit, bool> {{
+                    if acquired {{ panic("exit"); }}
+                    return Ok(unit);
+                }}
+            }}
+            async func child() -> u8 {{ return 7; }}
+            async func caller() {{
+                {outer}
+                let resource = Resource {{}};
+                _ = with _ = resource {{
+                    let task = child().start();
+                    yield unit;
+                }};
+            }}
+        "#));
+
+        let key = source_function_body_key(&compilation, "caller");
+        let lowered = compilation.lowered_unit(key).expect("fixture lowers checked cleanup");
+
+        assert!(!lowered.diagnostics().has_errors(), "{:?}", lowered.diagnostics());
+
+        let mir = lowered_mir(&lowered);
+
+        let operations = |id| mir.block(id).into_iter().flat_map(bray_ir::MirBlock::operations)
+            .filter_map(|operation| mir.operation(*operation));
+
+        let started = mir.blocks().iter().rev().find(|block|
+            block.operations().iter().filter_map(|id| mir.operation(*id)).any(|operation| matches!(
+                operation.kind(), MirOperationKind::Async(MirAsyncOperation::StartTask { .. })
+            )))
+            .expect("fixture starts a child inside the scope");
+
+        let MirTerminatorKind::CheckCallOutcome { completed, .. } = started.terminator().kind() else {
+            panic!("the task is owned only after start succeeds");
+        };
+
+        let broadcasts = |id| operations(id).filter_map(|operation| match operation.kind() {
+            MirOperationKind::Cleanup { phase: MirCleanupPhase::TaskCancellation, place, .. }
+                if mir.storage(place.storage()).is_some_and(|storage| storage.kind() == &MirStorageKind::Local) =>
+                    Some(place.storage()),
+            _ => None,
+        });
+
+        let invokes_exit = |id| operations(id).any(|operation| matches!(
+            operation.kind(),
+            MirOperationKind::Call(call) if matches!(call.target(), MirCallTarget::Direct(target)
+                if target.instance().definition().callable_symbol().kind() == bray_symbols::SymbolKind::ScopeExit)
+        ));
+
+        let mut pending = std::collections::VecDeque::from([completed.target()]);
+        let mut visited = BTreeSet::new();
+        let mut issued = BTreeSet::new();
+        let mut lifecycle = Vec::new();
+
+        while let Some(id) = pending.pop_front() {
+            if !visited.insert(id) { continue; }
+
+            let block = mir.block(id).expect("cleanup successor belongs to its fixture");
+
+            if block.kind() == MirBlockKind::LifecycleResolution {
+                lifecycle.push(id);
+                continue;
+            }
+
+            issued.extend(broadcasts(id));
+            block.terminator().kind().for_each_successor(|target| pending.push_back(target));
+        }
+
+        assert_eq!(issued.len(), 1, "ordinary exit broadcasts to the inner child");
+        assert_eq!(lifecycle.len(), 1, "broadcast completes before the first lifecycle action");
+
+        pending.extend(lifecycle);
+        visited.clear();
+
+        let panicked = loop {
+            let id = pending.pop_front().expect("ordinary cleanup reaches its scoped exit");
+
+            if !visited.insert(id) { continue; }
+
+            let block = mir.block(id).expect("cleanup successor belongs to its fixture");
+
+            if invokes_exit(id) {
+                let MirTerminatorKind::CheckCallOutcome { panicked: edge, .. } = block.terminator().kind() else {
+                    panic!("the scoped exit publishes a panic edge");
+                };
+
+                break edge.target();
+            }
+
+            block.terminator().kind().for_each_successor(|target| pending.push_back(target));
+        };
+
+        pending.clear();
+        pending.push_back(panicked);
+        visited.clear();
+
+        // A retained broadcast entry belongs to a separate frame command.
+        while let Some(id) = pending.pop_front() {
+            if visited.insert(id) {
+                mir.block(id).expect("panic continuation stays in its unit")
+                    .terminator().kind().for_each_successor(|target| pending.push_back(target));
+            }
+        }
+
+        assert!(!visited.iter().copied().any(invokes_exit), "the panic cannot invoke the scoped exit again");
+
+        let discharges = visited.iter().copied().flat_map(operations).filter(|operation| matches!(
+            operation.kind(), MirOperationKind::DischargeOutgoing { owner: MirOutgoingOwner::Invocation { selection, .. }, .. }
+                if selection.reference().instance().definition().callable_symbol().kind() == bray_symbols::SymbolKind::ScopeExit
+        )).count();
+
+        assert_eq!(discharges, 1, "the failed exit releases its admitted backing");
+
+        let remaining = visited.into_iter().flat_map(broadcasts).collect::<BTreeSet<_>>();
+
+        assert!(issued.is_disjoint(&remaining), "the panic cannot repeat an issued request: {issued:?} vs {remaining:?}");
+        assert_eq!(remaining.len(), extra_broadcasts, "the panic broadcasts to the newly exited outer child: {remaining:?}");
+    }
+}
+
+#[test]
+fn scoped_backing_rejection_reaches_the_catch_before_entering_the_scope() {
+    for exit in [
+        "async exit(pos lease: bool) {}",
+        "exit(pos lease: bool) -> Result<unit, i32> { return Ok(unit); }",
+    ] {
+        let source = format!(r#"
+        module app;
+
+        struct Resource {{}}
+        impl Resource {{
+            enter() -> bool {{ return true; }}
+            {exit}
+        }}
+
+        async func caller(pos resource: Resource) -> Result<i32, PanicReport> {{
+            return catch {{
+                let outcome = with _ = resource {{ yield 7; }};
+                yield 9;
+            }};
+        }}
+    "#);
+
+        let compilation = compilation(&source);
+
+        let key = source_function_body_key(&compilation, "caller");
+        let selections = compilation.semantic_selections(key.clone()).expect("scoped use selects its entry");
+
+        let scoped = selections.value().entries().iter().find_map(|entry| match entry.selection() {
+            bray_bound_tree::SemanticSelection::ScopedUse(scoped) => Some(scoped),
+            _ => None,
+        }).expect("fixture has one scoped use");
+
+        let expression = scoped.expression();
+        let storage = compilation.storage_flow(key.clone()).expect("scope publishes its reached exits");
+
+        assert!(!storage.value().invocation_can_fail(bray_bound_tree::BoundExecutionSite::ScopedEnter(expression), bray_symbols::DependencyFailureKind::Panic));
+        assert!(storage.value().exits().iter().any(|exit| exit.exit() == expression.into()));
+
+        let lowered = compilation.lowered_unit(key).expect("backing rejection has checked cleanup");
+        let mir = lowered_mir(&lowered);
+
+        let reservation = mir.blocks().iter().find(|block| {
+            block.operations().iter().filter_map(|id| mir.operation(*id)).any(|operation| matches!(operation.kind(),
+                MirOperationKind::AdmitOutgoing { owner: bray_ir::MirOutgoingOwner::Invocation {
+                    selection, result,
+                }, .. } if selection.reference().instance() == scoped.exit().0 && *result == scoped.exit_result()
+            ))
+        }).expect("the exit factory reserves backing before entry");
+
+        let MirTerminatorKind::CheckCallOutcome { panicked, .. } = reservation.terminator().kind() else {
+            panic!("reservation must route an allocation panic");
+        };
+
+        let result = compilation.available_compiler_known_symbols().result_representation().expect("fixture has the Result representation");
+        let reached = bray_ir::reachable_blocks(mir, [panicked.target()], &Default::default());
+        let operations = reached.iter().filter_map(|id| mir.block(*id)).flat_map(|block| block.operations()).filter_map(|id| mir.operation(*id));
+
+        assert!(operations.clone().any(|operation| matches!(operation.kind(),
+            MirOperationKind::Construct(construction)
+                if construction.target() == bray_bound_tree::ConstructionTarget::UnionVariant(result.error_variant())
+        )), "the enclosing catch owns the reservation panic");
+
+        assert!(!operations.clone().any(|operation| matches!(operation.kind(),
+            MirOperationKind::Call(call) if matches!(call.target(), bray_ir::MirCallTarget::Direct(target)
+                if matches!(target.instance().definition().callable_symbol(), bray_symbols::CallableSymbolId::ScopeEnter(_)))
+        )), "reservation rejection precedes invocation of the entry");
+    }
+}
+
+#[test]
+fn cancelled_scoped_entry_cleans_the_committed_error_without_running_exit() {
+    let compilation = compilation(r#"
+        module app;
+        async func work() {}
+        struct Failure { child: Task<unit>; }
+        struct Resource {}
+
+        impl Resource {
+            async enter() -> Result<bool, Failure> {
+                return Error(Failure { child = work().start() });
+            }
+
+            async exit(pos lease: bool) {}
+        }
+
+        async func caller(pos resource: Resource) -> Result<i32, Failure> {
+            return with lease = resource { yield 7; };
+        }
+    "#);
+
+    let key = source_function_body_key(&compilation, "caller");
+    let selected = compilation.semantic_selections(key.clone()).expect("scope has a selected entry");
+
+    let expression = selected.value().entries().iter().find_map(|entry| match entry.selection() {
+        bray_bound_tree::SemanticSelection::ScopedUse(scoped) => Some(scoped.expression()),
+        _ => None,
+    }).expect("fixture has one scoped use");
+
+    let storage = compilation.storage_plan(key.clone()).expect("scoped error has a planned result");
+    let region = storage.value().value_slot(expression).expect("scoped error has a slot");
+    let result = storage.value().storage_type(region).expect("scoped result has a type");
+    let lowered = compilation.lowered_unit(key).expect("committed scoped error lowers");
+    let mir = lowered_mir(&lowered);
+
+    let (owner, cancelled) = mir.blocks().iter().find_map(|block| {
+        let MirTerminatorKind::Branch { then_edge, .. } = block.terminator().kind() else { return None; };
+
+        let mut operations = block.operations().iter().filter_map(|id| mir.operation(*id));
+
+        let owner = operations.find_map(|operation| match operation.kind() {
+            MirOperationKind::Store { destination, .. } if destination.ty() == result => Some(destination),
+            _ => None,
+        })?;
+
+        operations.any(|operation| matches!(operation.kind(), MirOperationKind::Async(bray_ir::MirAsyncOperation::ObserveFrameCancellation)))
+            .then_some((owner, then_edge.target()))
+    }).expect("the Error value takes ownership before the cancellation poll");
+
+    let cancelled = mir.block(cancelled).expect("the cancellation poll has a rejection block");
+
+    let MirTerminatorKind::CancelCurrentRun { cleanup } = cancelled.terminator().kind() else {
+        panic!("cancellation after acquiring Error must leave the current run");
+    };
+
+    let reached = bray_ir::reachable_blocks(mir, [cleanup.edge().target()], &Default::default());
+    let operations = reached.iter().filter_map(|id| mir.block(*id)).flat_map(|block| block.operations()).filter_map(|id| mir.operation(*id));
+
+    for expected in [bray_ir::MirCleanupPhase::TaskCancellation, bray_ir::MirCleanupPhase::LifecycleResolution] {
+        assert!(operations.clone().any(|operation| matches!(operation.kind(),
+            MirOperationKind::Cleanup { phase, place, .. } if *phase == expected && place.storage() == owner.storage()
+        )), "committed Error must own cleanup in {expected:?}");
+    }
+
+    assert!(!operations.clone().any(|operation| matches!(operation.kind(),
+        MirOperationKind::Call(call)
+        | MirOperationKind::Async(bray_ir::MirAsyncOperation::CreateFrame {
+            initializer: bray_ir::MirFrameInitializer::Callable(call), ..
+        }) if matches!(call.target(), bray_ir::MirCallTarget::Direct(target)
+            if matches!(target.instance().definition().callable_symbol(), bray_symbols::CallableSymbolId::ScopeExit(_)))
+    )), "an Error from entry cannot acquire a scope exit invocation");
 }
 
 #[test]
@@ -2615,6 +2985,110 @@ fn destructor_receiver_tail_retains_normal_completion() {
 }
 
 #[test]
+fn scoped_exit_error_cancels_displaced_task_before_waiting() {
+    let compilation = compilation(
+        r#"
+        module app;
+        struct Resource {}
+        impl Resource
+        {
+            enter() -> bool { return true; }
+            exit(pos lease: bool) -> Result<unit, i32> { return Error(8); }
+        }
+        async func caller(pos resource: Resource, pos task: Task<unit>) -> Result<Task<unit>, i32>
+        {
+            return with lease = resource { yield task; };
+        }
+        "#,
+    );
+
+    let diagnostics = compilation.check_diagnostics();
+
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+
+    let lowered = compilation
+        .lowered_unit(source_function_body_key(&compilation, "caller"))
+        .expect("the task-owning scope lowers");
+
+    let mir = lowered_mir(&lowered);
+
+    let error_variant = compilation.available_compiler_known_symbols().result_representation()
+        .expect("fixture has the Result representation").error_variant();
+
+    let (replacement, entry, displaced) = mir.blocks().iter().find_map(|block| {
+        let MirTerminatorKind::BeginCleanup(entry) = block.terminator().kind() else {
+            return None;
+        };
+
+        let mut operations = block.operations().iter().filter_map(|id| mir.operation(*id));
+
+        let (pending, displaced) = operations.find_map(|operation| match operation.kind() {
+            MirOperationKind::Store { destination, value: bray_ir::MirOperand::Move(pending), .. }
+                if destination.ty() == pending.ty() => Some((pending, destination)),
+            _ => None,
+        })?;
+
+        let error = operations.find_map(|operation| match operation.kind() {
+            MirOperationKind::Construct(construction)
+                if construction.target() == bray_bound_tree::ConstructionTarget::UnionVariant(error_variant) => operation.result(),
+            _ => None,
+        })?;
+
+        operations.any(|operation| matches!(operation.kind(),
+            MirOperationKind::Store { destination, value: bray_ir::MirOperand::Value(value), .. }
+                if destination == pending && *value == error
+        )).then_some((block, entry, displaced))
+    }).expect("the Error arm replaces the pending owner and begins its cleanup");
+
+    assert_eq!(entry.phase(), bray_ir::MirCleanupPhase::TaskCancellation);
+
+    let broadcast = mir.block(entry.edge().target()).expect("the broadcast entry exists");
+
+    let MirTerminatorKind::Branch { condition: bray_ir::MirOperand::Copy(guard), then_edge, .. } = broadcast.terminator().kind() else {
+        panic!("broadcast tests the displaced owner's initialization guard");
+    };
+
+    assert!(replacement.operations().iter().filter_map(|id| mir.operation(*id)).any(|operation| matches!(operation.kind(),
+        MirOperationKind::Store { destination, value: bray_ir::MirOperand::Immediate { value: bray_ir::MirImmediateValue::Boolean(true), .. }, .. }
+            if destination == guard
+    )), "replacement initializes the cleanup guard");
+
+    let cancellation_block = mir.block(then_edge.target()).expect("the initialized owner enters broadcast");
+
+    let collection_for = |block: &bray_ir::MirBlock, expected| {
+        block.operations().iter().filter_map(|id| mir.operation(*id)).find_map(|operation| match operation.kind() {
+            MirOperationKind::Cleanup { phase, place, collection: Some(collection) }
+                if *phase == expected && place == displaced => Some(collection),
+            _ => None,
+        }).expect("cleanup retains the displaced owner and its report collection")
+    };
+
+    let cancellation = collection_for(cancellation_block, bray_ir::MirCleanupPhase::TaskCancellation);
+
+    let resolution = std::iter::successors(Some(cancellation_block), |block| {
+        match block.terminator().kind() {
+            MirTerminatorKind::Goto(edge) | MirTerminatorKind::CheckCallOutcome { completed: edge, .. } => mir.block(edge.target()),
+            _ => None,
+        }
+    }).take(mir.blocks().len()).find_map(|block| match block.terminator().kind() {
+        MirTerminatorKind::ContinueCleanup(edge) if edge.phase() == bray_ir::MirCleanupPhase::LifecycleResolution => mir.block(edge.edge().target()),
+        _ => None,
+    }).expect("broadcast completion explicitly starts resolution");
+
+    let MirTerminatorKind::Branch { condition: bray_ir::MirOperand::Copy(resolution_guard), then_edge, .. } = resolution.terminator().kind() else {
+        panic!("resolution tests whether the displaced owner is still initialized");
+    };
+
+    assert_eq!(resolution_guard, guard);
+
+    let resolution_block = mir.block(then_edge.target()).expect("the displaced owner enters resolution");
+    let resolution = collection_for(resolution_block, bray_ir::MirCleanupPhase::LifecycleResolution);
+
+    assert_eq!(cancellation.places(), resolution.places());
+    assert!(resolution.retention().is_some());
+}
+
+#[test]
 fn fallible_scoped_exit_retains_its_error_quiescence_continuation() {
     for execution in ["", "async "] {
         for body in ["return Ok(unit);", r#"panic("");"#] {
@@ -2962,13 +3436,22 @@ fn discard_spellings_preserve_copy_borrow_and_trusted_expression_rules() {
     for prefix in ["let _", "_"] {
         let source = format!(
             r#"
-            module app;
-            trusted func number() -> i32 {{ return 1; }}
+            trusted module app;
+
+            trusted predicate admitted(value: i32);
+
+            trusted func number(pos value: i32) -> i32
+                requires(trusted admitted(value))
+            {{
+                return value;
+            }}
+
             func root(pos value: i32)
+                requires(trusted admitted(value))
             {{
                 {prefix} = value;
                 {prefix} = &value;
-                {prefix} = trusted number();
+                {prefix} = trusted number(value);
                 let copy = value;
             }}
         "#
@@ -2981,6 +3464,13 @@ fn discard_spellings_preserve_copy_borrow_and_trusted_expression_rules() {
             .expect("fixture callable must lower successfully");
 
         assert!(lowered.diagnostics().is_empty(), "{source}: {lowered:#?}");
-        assert!(lowered.value().is_some());
+
+        let number = crate::test_support::source_function(&compilation, "number").into();
+        let mir = lowered_mir(&lowered);
+
+        assert!(mir.operations().iter().any(|operation| matches!(operation.kind(),
+            MirOperationKind::Call(call) if matches!(call.target(), bray_ir::MirCallTarget::Direct(reference)
+                if reference.instance().definition().callable_symbol() == number)
+        )), "{source}: {mir:?}");
     }
 }

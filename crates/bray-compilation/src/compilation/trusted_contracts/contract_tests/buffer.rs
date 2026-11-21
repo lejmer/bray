@@ -165,7 +165,7 @@ fn nested_buffer_views_preserve_checked_storage_effects() {
                 return &slots[0];
             }
 
-            trusted core.target.abort();
+            core.target.abort();
         }
 
         trusted func inspect_indirect(pos owner: &LinkOwner, pos index: usize) -> &u32
@@ -173,17 +173,17 @@ fn nested_buffer_views_preserve_checked_storage_effects() {
         {
             let link = trusted borrow_link(owner);
 
-            return trusted inspect_shared(link.directory, index);
+            return inspect_shared(link.directory, index);
         }
 
         trusted func inspect_replaced(pos owner: &mut LinkOwner, pos index: usize) -> &u32
             requires(trusted linked(&owner))
         {
-            trusted rewrite_link(owner);
+            rewrite_link(owner);
 
             let link = trusted borrow_link(&owner);
 
-            return trusted inspect_shared(link.directory, index);
+            return inspect_shared(link.directory, index);
         }
 
         trusted func inspect_buffer(pos buffer: &mut std.memory.RawBuffer<Row>, pos index: usize) -> &mut u32
@@ -224,17 +224,17 @@ fn nested_buffer_views_preserve_checked_storage_effects() {
                 return &mut slots[index - first];
             }
 
-            trusted core.target.abort();
+            core.target.abort();
         }
 
         trusted func inspect_forwarded(pos buffer: &mut std.memory.RawBuffer<Row>, pos index: usize) -> &mut u32
         {
-            return trusted inspect_buffer(buffer, index);
+            return inspect_buffer(buffer, index);
         }
 
         trusted func inspect_issued(pos buffer: &mut std.memory.RawBuffer<Row>, pos index: usize) -> Pointer
         {
-            let slot = trusted inspect_buffer(buffer, index);
+            let slot = inspect_buffer(buffer, index);
             let issue = trusted lambda(pos slot: &u32) -> Pointer
                 uses(intrinsic)
             {
@@ -268,7 +268,9 @@ fn nested_buffer_views_preserve_checked_storage_effects() {
         assert_eq!(flow.value().dependencies().preserves_storage_on_normal_return(), name != "inspect_replaced");
         assert!(flow.value().dependencies().normal_completion());
 
-        let returned = flow.value().dependencies().borrows().iter().filter(|relation|
+        let borrows = flow.value().dependencies().borrows();
+
+        let returned = borrows.iter().filter(|relation|
             relation.exit().subject_root() == bray_symbols::DependencySubjectRoot::Result).collect::<Vec<_>>();
 
         assert!(!returned.is_empty(), "{name} publishes its actual result reference");

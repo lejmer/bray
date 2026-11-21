@@ -9,13 +9,19 @@ use bray_symbols::{
 
 use crate::{CheckerQueryError, CheckerRequestContext, CheckerUnitView};
 
+pub(crate) fn borrow_target_type(values: &SemanticValueStore, ty: TypeId) -> Option<TypeId> {
+    match values.type_data(ty).as_ref() {
+        TypeData::Borrow { target, .. } => Some(*target),
+        _ => None,
+    }
+}
+
 pub(crate) fn reference_target_type<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     ty: TypeId,
 ) -> Option<TypeId> {
-    match request.semantic_values().type_data(ty).as_ref() {
-        TypeData::Borrow { target, .. } => Some(*target),
-        _ => [
+    borrow_target_type(request.semantic_values(), ty).or_else(|| {
+        [
             RepresentationRole::RawPointer,
             RepresentationRole::FunctionPointer,
             RepresentationRole::DevicePointer,
@@ -25,18 +31,15 @@ pub(crate) fn reference_target_type<C: CheckerRequestContext + ?Sized>(
             request
                 .available_compiler_known_symbols()
                 .unary_representation_argument(request.semantic_values(), role, ty)
-        }),
-    }
+        })
+    })
 }
 
 pub(crate) fn reference_kind<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     ty: TypeId,
 ) -> Option<bray_symbols::DependencyReferenceKind> {
-    if matches!(
-        request.semantic_values().type_data(ty).as_ref(),
-        TypeData::Borrow { .. }
-    ) {
+    if borrow_target_type(request.semantic_values(), ty).is_some() {
         Some(bray_symbols::DependencyReferenceKind::Borrow)
     } else if type_representation(request, ty).is_some_and(is_address) {
         Some(bray_symbols::DependencyReferenceKind::Address)
@@ -372,6 +375,16 @@ pub(crate) fn intern_named_type(
         })
 }
 
+pub(crate) fn union_variant<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>, variant: &str,
+) -> bray_symbols::UnionVariantSymbolId {
+    let key = bray_compiler_known::CompilerKnownDeclarationKey::try_new(variant)
+        .expect("union selection uses a compiler-known variant");
+
+    request.available_compiler_known_symbols().declaration_symbol(&key)
+        .expect("recognized union retains its variant")
+}
+
 pub(crate) fn union_payload<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     variant: &str,
@@ -382,16 +395,11 @@ pub(crate) fn union_payload<C: CheckerRequestContext + ?Sized>(
 ) {
     let symbols = request.available_compiler_known_symbols();
 
-    let variant = bray_compiler_known::CompilerKnownDeclarationKey::try_new(variant)
-        .expect("union payload uses a compiler-known variant");
-
     let field = bray_compiler_known::CompilerKnownDeclarationKey::try_new(field)
         .expect("union payload uses a compiler-known payload");
 
     (
-        symbols
-            .declaration_symbol(&variant)
-            .expect("recognized union retains its variant"),
+        union_variant(request, variant),
         symbols
             .declaration_symbol(&field)
             .expect("recognized union retains its payload"),

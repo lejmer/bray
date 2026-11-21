@@ -96,16 +96,57 @@ fn infer_reachable_results(
         return Ok(result);
     }
 
+    let allocation = if crate::compilation::standard_library::recognized_declaration(
+        context,
+        root.into_any(),
+        "StandardPlatformHeapAlignedAllocate",
+    ).map_err(binder_error)? {
+        // The fallible allocator establishes only origin separation, not a live
+        // allocation or any access condition. Null remains an ordinary result.
+        Some(bray_symbols::DependencyBorrowRelation::new_allocation(
+            bray_symbols::DependencySubject::root(bray_symbols::DependencySubjectRoot::Result),
+            bray_symbols::DependencySubject::root(bray_symbols::DependencySubjectRoot::Result),
+            bray_symbols::DependencyReferenceKind::Address,
+        ))
+    } else {
+        None
+    };
+
+    // These leaves access OS-managed handles or thread state without changing Bray storage.
+    // They remain impure and still require foreign-call capability.
+    let preserves_storage = [
+        "StandardLinuxCurrentThreadIdentity",
+        "StandardLinuxThreadStorageLoad",
+        "StandardWindowsCurrentThreadIdentity",
+        "StandardWindowsFiberStorageLoad",
+        "StandardWindowsFindClose",
+        "StandardWindowsLastErrorRead",
+        "StandardWindowsLastErrorWrite",
+    ].into_iter().try_fold(false, |matched, key| {
+        if matched {
+            return Ok(true);
+        }
+
+        crate::compilation::standard_library::recognized_declaration(context, root.into_any(), key)
+            .map_err(binder_error)
+    })?;
+
+    let effects = bray_symbols::DependencyStorageEffect::capture_free_call()
+        .into_iter().filter(|_| !preserves_storage);
+    let rows = allocation.map(|relation| bray_symbols::CapturedValueOutcome::new(None, [])
+        .with_storage([relation], []).with_effects(effects.clone()));
+
     // A declaration without a body has explicit arguments and an explicit receiver.
-    let empty = context
+    let template = context
         .semantic_values()
         .intern_dependency_contract_template(
             bray_symbols::DependencyContractTemplateData::new([])
-                .with_effects(bray_symbols::DependencyStorageEffect::capture_free_call()),
+                .with_possible_effects(effects)
+                .with_captured_values(rows),
         )
         .expect("declared result dependency template satisfies the semantic store contract");
 
-    Ok(DiagnosticResult::new(empty, DiagnosticBag::new()))
+    Ok(DiagnosticResult::new(template, DiagnosticBag::new()))
 }
 
 fn source_component(
@@ -280,7 +321,7 @@ fn infer_component(
         .semantic_values()
         .intern_dependency_contract_template(
             bray_symbols::DependencyContractTemplateData::new([])
-                .with_effects([])
+                .with_possible_effects([])
                 .with_normal_completion(false),
         )
         .expect("empty result dependency template satisfies the semantic store contract");
@@ -360,13 +401,20 @@ fn infer_component(
         for (callable, inputs) in &units {
             let body = inputs.check(compilation, cancellation, Some(&templates), &recursive)?;
             let values = context.semantic_values();
-            let previous = values.dependency_contract_template_data(templates[callable]);
+            let checked = body.value().storage_flow().dependencies();
+            let previous = templates[callable];
+
+            let template = if previous == empty {
+                // The first solved body already owns the complete portable contract.
+                checked.clone()
+            } else {
+                let previous = values.dependency_contract_template_data(previous);
+
+                body_result_dependencies(checked, &previous)
+            };
 
             let dependencies = values
-                .intern_dependency_contract_template(body_result_dependencies(
-                    body.value().storage_flow().dependencies(),
-                    &previous,
-                ))
+                .intern_dependency_contract_template(template)
                 .expect("checked component summary has established semantic identities");
 
             bodies.insert(callable.clone(), BodyAnalysis { dependencies, body });
@@ -406,12 +454,7 @@ pub(in crate::compilation) fn expression_result_dependencies(
     let values = context.semantic_values();
 
     let result = values
-        .intern_dependency_contract_template(body_result_dependencies(
-            body.result().value().storage_flow().dependencies(),
-            &bray_symbols::DependencyContractTemplateData::new([])
-                .with_effects([])
-                .with_normal_completion(false),
-        ))
+        .intern_dependency_contract_template(body.result().value().storage_flow().dependencies().clone())
         .expect("checked default summary retains its semantic identities");
 
     Ok(DiagnosticResult::new(result, diagnostics))
@@ -421,51 +464,24 @@ fn body_result_dependencies(
     checked: &bray_symbols::DependencyContractTemplateData,
     previous: &bray_symbols::DependencyContractTemplateData,
 ) -> bray_symbols::DependencyContractTemplateData {
-    // Normal outcomes and mutations grow. Complete origin bounds grow with them,
-    // while value and authority promises must hold on every normal outcome.
-    let mut result = bray_symbols::DependencyContractTemplateData::new(
+    // Normal outcomes and mutations grow. Value and authority promises hold
+    // only where the same widening retains their supporting observations.
+    let outcomes = combined_result_values(checked, previous);
+
+    let failures = checked.failure_outcomes().map(|checked| {
+        bray_symbols::CapturedFailureOutcome::join_reachable(previous.failure_outcomes().unwrap_or_default(), checked)
+    });
+
+    bray_symbols::DependencyContractTemplateData::new(
         previous
             .requirements()
             .iter()
             .chain(checked.requirements())
             .cloned(),
     )
-    .with_borrows(combined_result_borrows(checked, previous))
-    .with_stored_values(combined_result_stored_values(checked, previous))
-    .with_carriers(
-        (if !previous.normal_completion() {
-            checked.carriers()
-        } else {
-            previous.carriers()
-        })
-        .iter()
-        .filter(|carrier| {
-            !previous.normal_completion()
-                || !checked.normal_completion()
-                || checked.carriers().binary_search(carrier).is_ok()
-        })
-        .cloned(),
-    )
-    .with_observed_result(if !previous.normal_completion() {
-        checked.observed_result()
-    } else if !checked.normal_completion()
-        || previous.observed_result() == checked.observed_result()
-    {
-        previous.observed_result()
-    } else {
-        None
-    })
-    .with_owned_result(if !previous.normal_completion() {
-        checked.owned_result().clone()
-    } else if !checked.normal_completion() {
-        previous.owned_result().clone()
-    } else {
-        bray_symbols::DependencyOwnedResult::choice([
-            previous.owned_result().clone(),
-            checked.owned_result().clone(),
-        ])
-    })
-    .with_effects(previous.effects().iter().chain(checked.effects()).cloned())
+    .with_captured_values(outcomes)
+    .with_failure_outcomes(failures)
+    .with_possible_effects(previous.effects().iter().chain(checked.effects()).cloned())
     .with_synchronous_cleanup(
         previous
             .synchronous_cleanup()
@@ -474,108 +490,16 @@ fn body_result_dependencies(
             .cloned(),
     )
     .with_normal_completion(previous.normal_completion() || checked.normal_completion())
-    .with_normal_storage_preservation(
-        (!previous.normal_completion() || previous.preserves_storage_on_normal_return())
-            && (!checked.normal_completion() || checked.preserves_storage_on_normal_return()),
-    );
-
-    if previous.completion_reports().is_some() || checked.completion_reports().is_some() {
-        result = result.with_completion_reports(
-            previous
-                .completion_reports()
-                .into_iter()
-                .flatten()
-                .chain(checked.completion_reports().into_iter().flatten())
-                .cloned(),
-        );
-    }
-
-    if previous.abnormal_reports().is_some() || checked.abnormal_reports().is_some() {
-        result = result.with_abnormal_reports(
-            previous
-                .abnormal_reports()
-                .into_iter()
-                .flatten()
-                .chain(checked.abnormal_reports().into_iter().flatten())
-                .cloned(),
-        );
-    }
-
-    result
 }
 
-fn combined_result_stored_values(
+fn combined_result_values(
     checked: &bray_symbols::DependencyContractTemplateData,
     previous: &bray_symbols::DependencyContractTemplateData,
-) -> Vec<bray_symbols::DependencyStoredValue> {
-    if !previous.normal_completion() {
-        return checked.stored_values().to_vec();
-    }
+) -> Vec<bray_symbols::CapturedValueOutcome> {
+    if !previous.normal_completion() { return checked.captured_values().to_vec(); }
+    if !checked.normal_completion() { return previous.captured_values().to_vec(); }
 
-    if !checked.normal_completion() {
-        return previous.stored_values().to_vec();
-    }
-
-    let destinations = |summary: &bray_symbols::DependencyContractTemplateData| {
-        summary.stored_values().iter().map(|stored| stored.destination().clone())
-            .collect::<BTreeSet<_>>()
-    };
-
-    let checked_destinations = destinations(checked);
-    let previous_destinations = destinations(previous);
-
-    previous.stored_values().iter().chain(checked.stored_values()).map(|stored| {
-        // A missing record on a reachable outcome leaves unknown contents, not an empty value.
-        if checked_destinations.contains(stored.destination())
-            && previous_destinations.contains(stored.destination()) {
-            stored.clone()
-        } else {
-            stored.clone().incomplete()
-        }
-    }).collect()
-}
-
-fn combined_result_borrows(
-    checked: &bray_symbols::DependencyContractTemplateData,
-    previous: &bray_symbols::DependencyContractTemplateData,
-) -> Vec<bray_symbols::DependencyBorrowRelation> {
-    let both = checked.normal_completion() && previous.normal_completion();
-
-    let bounded = |summary: &bray_symbols::DependencyContractTemplateData| {
-        summary
-            .borrows()
-            .iter()
-            .map(|relation| relation.exit().clone())
-            .collect::<BTreeSet<_>>()
-    };
-
-    let checked_exits = both.then(|| bounded(checked));
-    let previous_exits = both.then(|| bounded(previous));
-
-    previous
-        .borrows()
-        .iter()
-        .filter(|_| previous.normal_completion())
-        .chain(
-            checked
-                .borrows()
-                .iter()
-                .filter(|_| checked.normal_completion()),
-        )
-        .filter(|relation| {
-            !both
-                || checked_exits
-                    .as_ref()
-                    .expect("both outcomes have origin sets")
-                    .contains(relation.exit())
-                    && previous_exits
-                        .as_ref()
-                        .expect("both outcomes have origin sets")
-                        .contains(relation.exit())
-        })
-        // The next approximation owns its relations and shares their immutable projection paths.
-        .cloned()
-        .collect()
+    bray_symbols::CapturedValueOutcome::join_reachable(previous.captured_values(), checked.captured_values(), bray_symbols::DependencySubject::contains).to_vec()
 }
 
 fn body_key(

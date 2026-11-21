@@ -304,15 +304,25 @@ mod tests {
         let directory = std::path::absolute(directory.path())
             .expect("fixture `std::path::absolute` call must succeed");
 
-        for index in artifact.native_indexes() {
-            for unit in index.index().units() {
-                let path = index
-                    .payload(unit.digest())
-                    .expect("fixture `payload` call must succeed");
+        assert_eq!(artifact.native_indexes().len(), indexes.len());
 
-                assert!(path.is_absolute());
-                assert!(path.starts_with(directory.join("native")));
-            }
+        for (index, (_, expected)) in artifact.native_indexes().iter().zip(&indexes) {
+            assert_eq!(index.index(), expected.index());
+
+            let archives = index.index().units().iter()
+                .filter(|unit| unit.kind() == bray_native_artifact::NativeUnitKind::OpaqueArchive)
+                .collect::<Vec<_>>();
+
+            let [archive] = archives.as_slice() else {
+                panic!("each runtime index retains its single archive");
+            };
+
+            let expected_path = directory.join("native").join(archive.kind().file_name(
+                archive.digest(),
+                bray_target::NativeTarget::X86_64WindowsMsvc,
+            ));
+
+            assert_eq!(index.payload(archive.digest()), Some(expected_path.as_path()));
         }
     }
 

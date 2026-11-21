@@ -1,9 +1,73 @@
-use super::super::model::{Origin, Place, References, State, Target};
+use super::super::model::{Origin, Place, AddressValue, ReachedAccess, State, Target, ValueBinding};
 use bray_bound_tree::{BorrowCapabilityId, BoundExpressionId};
 use bray_symbols::TypeId;
 use std::collections::BTreeSet;
 
+pub(in crate::analysis::storage_flow) fn borrow_chain_from(
+    storage: &bray_bound_tree::StoragePlan,
+    memory: Option<&State>,
+    mut capability: Option<BorrowCapabilityId>,
+) -> Option<Vec<BorrowCapabilityId>> {
+    let mut chain = Vec::new();
+
+    while let Some(current) = capability {
+        if chain.contains(&current) {
+            return None;
+        }
+
+        let borrow = storage.borrow_capability(current)?;
+
+        chain.push(current);
+
+        if let Some(ancestors) = memory.and_then(|memory| memory.borrow_ancestors(current)) {
+            for &ancestor in ancestors {
+                if !chain.contains(&ancestor) {
+                    chain.push(ancestor);
+                }
+            }
+
+            break;
+        }
+
+        capability = borrow.parent();
+    }
+
+    Some(chain)
+}
+
 impl State {
+    pub(in crate::analysis::storage_flow) fn reached_dependency_storage(
+        &self,
+        target: &Target,
+        ty: TypeId,
+    ) -> Option<(bool, bool)> {
+        let contents = self.contents.get(target);
+        let allocation = target.allocation_region().and_then(|root| self.contents.get(&root));
+
+        let invalidated = contents.into_iter().chain(allocation)
+            .any(|contents| !contents.invalidations.is_empty());
+
+        if invalidated {
+            return None;
+        }
+
+        let initialized = contents.is_some_and(|contents| contents.is_initialized(ty));
+        let allocated = contents.into_iter().chain(allocation).any(|contents| !contents.allocations.is_empty());
+
+        Some((allocated || initialized, initialized))
+    }
+
+    pub(in crate::analysis::storage_flow) fn entry_cell_changes(
+        &self,
+    ) -> impl Iterator<Item = (&Target, bray_symbols::DependencyMutationKind)> {
+        self.contents.iter().filter(|(target, contents)| {
+            matches!(target.origin, Origin::Entry { kind, .. }
+                if kind == bray_symbols::DependencyReferenceKind::Address
+                    || target.projections().last() == Some(&bray_bound_tree::StorageProjection::UninitPayload))
+                && target.is_exact() && contents.invalidations.is_empty()
+        }).flat_map(|(target, contents)| contents.cell_changes().map(move |kind| (target, kind)))
+    }
+
     #[cfg(test)]
     pub(in crate::analysis::storage_flow) fn begin_borrow(
         &mut self,
@@ -11,32 +75,49 @@ impl State {
         source: Place,
         ty: TypeId,
     ) {
-        self.borrow_target_storage(crate::test_support::semantic_values(), capability, Target::storage(source), ty);
+        self.borrow_target_storage(crate::test_support::semantic_values(), capability, [Target::storage(source)], ty);
     }
 
-    pub(in crate::analysis::storage_flow) fn reborrow_value(
-        &mut self,
-        capability: BorrowCapabilityId,
-        source: &Target,
-        parent: Option<BorrowCapabilityId>,
-    ) {
-        let references = self
-            .values
-            .get(source)
-            .and_then(|value| value.references.as_ref())
-            .or_else(|| {
-                source
-                    .storage_path()
-                    .filter(|path| path.projections.is_empty())
-                    .and_then(|_| parent.and_then(|parent| self.borrows.get(&parent)))
-            })
-            .cloned()
-            .unwrap_or(References {
-                unknown: true,
-                ..References::default()
-            });
+    pub(in crate::analysis::storage_flow) fn reborrow_access(&self, source: ReachedAccess) -> ReachedAccess {
+        if !source.address.has_values() {
+            return source;
+        }
 
-        self.borrows.insert(capability, references);
+        let mut references = AddressValue::default();
+        let mut common_loan = None;
+
+        for slot in &source.address.targets {
+            let value = self.values.get(slot);
+            let loan = value.and_then(super::super::model::ValueBinding::borrow_capability).or(source.loan);
+
+            let incoming = value.and_then(|value| value.address.as_ref())
+                .or_else(|| {
+                    slot.storage_path()
+                        .filter(|path| path.projections.is_empty())
+                        .and_then(|_| loan.and_then(|parent| self.borrow_address(parent)))
+                });
+
+            if let Some(incoming) = incoming {
+                references.merge(incoming);
+            } else {
+                references.forget_value();
+            }
+
+            common_loan = Some(match common_loan {
+                None => loan,
+                Some(previous) if previous == loan => previous,
+                _ => None,
+            });
+        }
+
+        let loan = if references.has_values() && !references.targets.is_empty()
+            && references.targets.iter().all(|target| !target.previous) {
+            common_loan.flatten()
+        } else {
+            None
+        };
+
+        ReachedAccess { address: references, loan }
     }
 
     pub(in crate::analysis::storage_flow) fn retain_borrow(
@@ -46,10 +127,10 @@ impl State {
     ) {
         self.clear(&destination);
 
-        if let Some(references) = self.borrows.get(&capability) {
+        if let Some(references) = self.borrow_address(capability).cloned() {
             // The destination owns a reference value after the expression's capability expires.
             self.values
-                .insert(Target::storage(destination), references.clone().into());
+                .insert(Target::storage(destination), super::super::model::ValueBinding::borrowed(references, capability));
         }
     }
 
@@ -58,6 +139,17 @@ impl State {
         capability: BorrowCapabilityId,
     ) -> bool {
         self.borrows.contains_key(&capability)
+    }
+
+    pub(in crate::analysis::storage_flow) fn reached_borrow_capability(
+        &self,
+        target: &Target,
+    ) -> Option<BorrowCapabilityId> {
+        if !target.is_exact() {
+            return None;
+        }
+
+        self.values.get(target)?.borrow_capability()
     }
 
     pub(in crate::analysis::storage_flow) fn end_borrows(
@@ -93,44 +185,63 @@ impl State {
             bray_symbols::DependencyReferenceKind::Address,
         );
 
-        self.values
-            .insert(Target::storage(destination.clone()), references.into());
-
-        self.expose_address(&destination, ty, origin);
+        self.publish_exposed_address(&destination, ty, origin, &references.into());
     }
 
-    pub(in crate::analysis::storage_flow) fn expose_address(
+    pub(in crate::analysis::storage_flow) fn publish_exposed_address(
         &mut self,
         slot: &Place,
         ty: TypeId,
         origin: BoundExpressionId,
+        source: &ValueBinding,
     ) {
-        let references = self.references(&Target::storage(slot.clone()));
-        let exact = references.is_exact();
+        let value = source.exposed_address();
 
-        for target in &references.targets {
-            let contents = self.contents.entry(target.clone()).or_default();
+        self.observe_address_exposure(&value, ty, origin);
+        self.clear(slot);
+        self.values.insert(Target::storage(slot.clone()), value);
+    }
 
-            contents.exposed = true;
+    #[cfg(test)]
+    pub(in crate::analysis::storage_flow) fn expose_address(&mut self, slot: &Place, ty: TypeId, origin: BoundExpressionId) {
+        if let Some(value) = self.values.get(&Target::storage(slot.clone())).cloned() {
+            self.observe_address_exposure(&value, ty, origin);
+        }
+    }
 
-            if exact {
-                if let Some(previous) = contents.storage_type {
-                    assert_eq!(
-                        previous, ty,
-                        "exact address formation preserves the declared storage type: {target:?}"
-                    );
+    fn observe_address_exposure(
+        &mut self,
+        value: &ValueBinding,
+        ty: TypeId,
+        origin: BoundExpressionId,
+    ) {
+        let exact = value.address.as_ref().is_some_and(AddressValue::is_exact);
+
+        for references in value.possible_references() {
+            for target in &references.targets {
+                let contents = self.contents.entry(target.clone()).or_default();
+
+                contents.exposed = true;
+
+                if exact {
+                    if let Some(previous) = contents.storage_type {
+                        assert_eq!(
+                            previous, ty,
+                            "exact address formation preserves the declared storage type: {target:?}"
+                        );
+                    }
+
+                    contents.storage_type = Some(ty);
+                    contents.observe_initialized(ty);
                 }
 
-                contents.storage_type = Some(ty);
-                contents.initialized.insert(ty);
+                contents.pending.entry(ty).or_default().insert(origin);
             }
-
-            contents.pending.entry(ty).or_default().insert(origin);
         }
     }
 
     pub(in crate::analysis::storage_flow) fn borrow_view(&mut self, slot: &Place, ty: TypeId) {
-        let Some(references) = self.values.get_mut(&Target::storage(slot.clone())).and_then(|value| value.references.as_mut()) else {
+        let Some(references) = self.values.get_mut(&Target::storage(slot.clone())).and_then(|value| value.address.as_mut()) else {
             return;
         };
 
@@ -142,39 +253,47 @@ impl State {
 
             // A checked borrow may interpret a differently typed region. Keep
             // its provenance without making the view that region's declaration.
-            references.inexact = self
+            if self
                 .contents
                 .get(target)
                 .and_then(|contents| contents.storage_type)
-                .is_some_and(|declared| declared != ty);
+                .is_some_and(|declared| declared != ty) {
+                references.bound();
+            }
         }
     }
     pub(in crate::analysis::storage_flow::memory) fn references(
         &self,
         slot: &Target,
-    ) -> References {
+    ) -> AddressValue {
         // Transfers and mutations need an owned snapshot while changing their reached targets.
-        let mut references = if slot.is_exact() {
-            self.values.get(slot).and_then(|value| value.references.clone()).unwrap_or_default()
+        if slot.is_exact() {
+            self.values.get(slot).and_then(|value| value.captured_reference()).unwrap_or_else(AddressValue::unknown)
         } else {
-            References::default()
-        };
-
-        references.unknown |= references.targets.is_empty();
-
-        references
+            AddressValue::unknown()
+        }
     }
 
+    #[cfg(test)]
     pub(in crate::analysis::storage_flow) fn invalidated(&self, slot: &Target) -> bool {
-        self.values.get(slot).and_then(|value| value.references.as_ref()).is_some_and(|references| {
-            references.targets.iter().any(|target| {
-                self.contents
-                    .get(target)
-                    .is_some_and(|contents| !contents.invalidations.is_empty())
-            })
-        })
+        self.values.get(slot).is_some_and(|value| self.invalidated_capture(value))
     }
 
+    pub(in crate::analysis::storage_flow::memory) fn invalidated_capture(&self, value: &super::super::model::ValueBinding) -> bool {
+        self.captured_referent_contents(value)
+            .any(|contents| !contents.invalidations.is_empty())
+    }
+
+    pub(in crate::analysis::storage_flow) fn captured_referent_contents<'a>(
+        &'a self,
+        value: &'a super::super::model::ValueBinding,
+    ) -> impl Iterator<Item = &'a bray_bound_tree::StorageContents> + 'a {
+        value.possible_references()
+            .flat_map(|references| &references.targets)
+            .filter_map(|target| self.contents.get(target))
+    }
+
+    #[cfg(test)]
     pub(in crate::analysis::storage_flow::memory) fn initialized(
         &self,
         slot: &Target,
@@ -183,27 +302,25 @@ impl State {
         self.initialized_targets(&self.references(slot), ty)
     }
 
-    pub(in crate::analysis::storage_flow::memory) fn initialized_targets(
+    pub(in crate::analysis::storage_flow) fn initialized_targets(
         &self,
-        references: &References,
+        references: &AddressValue,
         ty: TypeId,
     ) -> bool {
-        !references.unknown
-            && !references.displaced
-            && !references.inexact
+        references.has_values()
             && !references.targets.is_empty()
             && references.targets.iter().all(|target| {
                 target.is_exact()
                     && self
                         .contents
                         .get(target)
-                        .is_some_and(|contents| contents.initialized.contains(&ty))
+                        .is_some_and(|contents| contents.invalidations.is_empty() && contents.is_initialized(ty))
             })
     }
 
     pub(in crate::analysis::storage_flow::memory) fn affected_targets(
         &self,
-        references: &References,
+        references: &AddressValue,
     ) -> BTreeSet<Target> {
         let regions = references.regions();
 
@@ -233,11 +350,22 @@ impl State {
     }
 
     /// Current ordinary storage reached by this pointer. The boolean identifies a must-target.
-    pub(in crate::analysis::storage_flow) fn reached_storage(
+    #[cfg(test)]
+    pub(in crate::analysis::storage_flow::memory) fn reached_storage(
         &self,
         slot: &Target,
     ) -> Vec<(Place, Option<TypeId>, bool)> {
-        let references = self.references(slot);
+        self.reached_reference_storage(&self.references(slot))
+    }
+
+    pub(in crate::analysis::storage_flow) fn reached_captured_storage(
+        &self,
+        binding: &super::super::model::ValueBinding,
+    ) -> Vec<(Place, Option<TypeId>, bool)> {
+        self.reached_reference_storage(&binding.captured_reference().unwrap_or_else(AddressValue::unknown))
+    }
+
+    fn reached_reference_storage(&self, references: &AddressValue) -> Vec<(Place, Option<TypeId>, bool)> {
         let exact = references.is_exact();
 
         // Exact paths already compare overlap. Unknown regions may reach any exposed storage.
@@ -300,58 +428,46 @@ impl State {
         &self,
         capability: BorrowCapabilityId,
     ) -> Option<Vec<Place>> {
-        located_storage(self.borrows.get(&capability)?.clone())
+        located_storage(self.borrow_address(capability)?.clone())
     }
 
-    pub(in crate::analysis::storage_flow) fn allocation_origins(
-        &self,
-        slot: &Target,
-    ) -> impl Iterator<Item = BoundExpressionId> + '_ {
-        self.references(slot)
-            .targets
-            .into_iter()
-            .flat_map(|target| {
-                self.contents
-                    .get(&target)
-                    .into_iter()
-                    .flat_map(|contents| contents.allocations.iter().copied())
-            })
+    #[cfg(test)]
+    fn referent_contents<'a>(
+        &'a self,
+        slot: &'a Target,
+    ) -> impl Iterator<Item = &'a bray_bound_tree::StorageContents> + 'a {
+        self.values.get(slot).filter(|_| slot.is_exact())
+            .into_iter().flat_map(|value| self.captured_referent_contents(value))
     }
 
-    pub(in crate::analysis::storage_flow) fn invalidation_origins(
-        &self,
-        slot: &Target,
-    ) -> impl Iterator<Item = BoundExpressionId> + '_ {
-        self.references(slot)
-            .targets
-            .into_iter()
-            .flat_map(|target| {
-                self.contents
-                    .get(&target)
-                    .into_iter()
-                    .flat_map(|contents| contents.invalidations.iter().copied())
-            })
+    #[cfg(test)]
+    pub(in crate::analysis::storage_flow) fn allocation_origins<'a>(
+        &'a self,
+        slot: &'a Target,
+    ) -> impl Iterator<Item = BoundExpressionId> + 'a {
+        self.referent_contents(slot).flat_map(|contents| contents.allocations.iter().copied())
     }
 
-    pub(in crate::analysis::storage_flow) fn initialization_origins(
-        &self,
-        slot: &Target,
-    ) -> impl Iterator<Item = BoundExpressionId> + '_ {
-        self.references(slot)
-            .targets
-            .into_iter()
-            .flat_map(|target| {
-                self.contents
-                    .get(&target)
-                    .into_iter()
-                    .flat_map(|contents| contents.pending.values().flatten().copied())
-            })
+    #[cfg(test)]
+    pub(in crate::analysis::storage_flow) fn invalidation_origins<'a>(
+        &'a self,
+        slot: &'a Target,
+    ) -> impl Iterator<Item = bray_bound_tree::BoundExecutionSite> + 'a {
+        self.referent_contents(slot).flat_map(|contents| contents.invalidations.iter().copied())
+    }
+
+    #[cfg(test)]
+    pub(in crate::analysis::storage_flow) fn initialization_origins<'a>(
+        &'a self,
+        slot: &'a Target,
+    ) -> impl Iterator<Item = BoundExpressionId> + 'a {
+        self.referent_contents(slot).flat_map(|contents| contents.pending.values().flatten().copied())
     }
 }
 
 #[cfg(test)]
-fn located_storage(references: References) -> Option<Vec<Place>> {
-    if references.unknown || references.displaced || references.inexact {
+fn located_storage(references: AddressValue) -> Option<Vec<Place>> {
+    if !references.has_values() {
         return None;
     }
 

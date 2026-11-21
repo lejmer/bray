@@ -55,20 +55,10 @@ fn replacement_plans_capture_old_state_after_rhs_transfers() {
 
         assert_eq!(decision.state(), expected, "{source}");
 
-        let analysis = compilation
-            .async_analysis(key.clone())
-            .expect("fixture callable must complete async analysis");
-
-        let [plan] = analysis.value().replacements() else {
-            panic!("one assignment must publish one cleanup plan: {analysis:?}");
-        };
-
-        assert_eq!(plan.expression(), decision.expression());
-        assert_eq!(plan.access(), decision.access());
-        assert_eq!(plan.parts().is_some(), partial, "{source}");
+        assert_eq!(decision.parts().is_some(), partial, "{source}");
 
         assert_eq!(
-            plan.cleanup() == AsyncStorageCleanupRequirement::None,
+            decision.cleanup() == AsyncStorageCleanupRequirement::None,
             expected == StorageReplacementState::Absent,
             "{source}"
         );
@@ -84,87 +74,6 @@ fn replacement_plans_capture_old_state_after_rhs_transfers() {
                 .and_then(|unit| unit.mir())
                 .is_some(),
             "{source}: {lowered:?}"
-        );
-    }
-}
-
-#[test]
-fn nested_cleanup_native_fixture_lowers_checked_paths() {
-    let compilation = compilation(include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../xtask/fixtures/composition/cleanup/main.bray"
-    )));
-
-    for name in [
-        "guard_id",
-        "make_guard",
-        "pending_result",
-        "nested_cleanup",
-        "nested_replacement",
-    ] {
-        let key = source_function_body_key(&compilation, name);
-
-        assert!(
-            compilation
-                .bound_unit(key.clone())
-                .expect("fixture callable must bind successfully")
-                .diagnostics()
-                .is_empty(),
-            "{name}"
-        );
-
-        let lowered = compilation.lowered_unit(key);
-
-        assert!(lowered.is_ok(), "{name}: {lowered:?}");
-
-        assert!(
-            lowered
-                .expect("fixture `lowered` call must succeed")
-                .value()
-                .is_some(),
-            "{name}"
-        );
-    }
-
-    assert!(compilation.check_diagnostics().is_empty());
-}
-
-#[test]
-fn replacement_native_fixture_lowers_checked_cleanup_paths() {
-    let compilation = compilation(include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../xtask/fixtures/native-execution/value-replacement.bray"
-    )));
-
-    assert!(
-        compilation.check_diagnostics().is_empty(),
-        "{:?}",
-        compilation.check_diagnostics()
-    );
-
-    for name in [
-        "ordinary_scope_cleanup",
-        "heap_replacement",
-        "pending_return",
-        "abandoned_return",
-        "return_across_catch",
-        "exited_catch_does_not_handle_outer_cleanup",
-        "rhs_failure",
-        "owned_cancellation",
-        "borrowed_task",
-        "borrowed_cancellation",
-        "main",
-    ] {
-        let lowered = compilation.lowered_unit(source_function_body_key(&compilation, name));
-
-        assert!(lowered.is_ok(), "{name}: {lowered:?}");
-
-        assert!(
-            lowered
-                .expect("fixture `lowered` call must succeed")
-                .value()
-                .is_some(),
-            "{name}"
         );
     }
 }

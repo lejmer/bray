@@ -1390,11 +1390,6 @@ mod tests {
 
         for (family, plan, expected) in cases {
             assert_eq!(system_arguments_for(&plan, family, None), Ok(expected));
-
-            assert_eq!(
-                system_arguments_for(&plan, family, None),
-                system_arguments_for(&plan, family, None)
-            );
         }
     }
 

@@ -10,6 +10,7 @@ mod atomic;
 mod attachment_protocol;
 mod borrow;
 mod borrow_completion;
+mod bootstrap;
 mod buffer;
 mod callable_contracts;
 mod carrier_authority;

@@ -1,63 +1,68 @@
 use super::model::{ExecutionFlow, ExecutionFlowDomain};
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{BoundExpressionId, CheckedExpressionSemantics};
 
 use crate::execution_guarantees::ExecutionCondition;
-use crate::{CheckerOutcome, CheckerRequestContext, CheckerUnitView};
+use crate::{CheckerRequestContext, CheckerUnitView};
 
-use super::super::super::fixed_point::{FixedPointOutcome, solve_fixed_point};
+use super::super::super::fixed_point::{FixedPointOutcome, solve_fixed_point_with};
+use super::super::super::model::AnalysisBlock;
+use super::super::super::outcomes::FlowOutcomes;
+use super::super::state::ExecutionState;
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "flow analysis consumes tables from independent checker queries without hidden lookups"
-)]
-pub(in crate::analysis::guarantee) fn analyze_execution_flow<
-    'a,
-    'view,
-    C: CheckerRequestContext + ?Sized,
->(
-    prepared: &'a crate::PreparedBodyAnalysis,
-    excluded_edges: BTreeSet<crate::analysis::id::AnalysisEdgeId>,
-    request: CheckerUnitView<'view, C>,
-    semantics: &'a CheckedExpressionSemantics,
-    assumptions: &'a [ExecutionCondition],
-    storage: &'a bray_bound_tree::StoragePlan,
-    memory: &'a bray_bound_tree::CheckedMemoryOperations,
-    checked_body: &'a bray_bound_tree::CheckedBodySemantics,
-    refinements: &'a std::collections::BTreeMap<
-        bray_bound_tree::BoundExecutionSite,
-        bray_bound_tree::StorageInvalidation,
-    >,
-    contracts: &'a BTreeMap<BoundExpressionId, Vec<crate::ExecutionCompletionContract>>,
-    disposal: &'a super::super::cleanup::Cleanup<'a>,
-    dependencies: &'a bray_bound_tree::CheckedDependencyContracts,
-) -> CheckerOutcome<ExecutionFlow<'a, 'view, C>, C::UpstreamError> {
-    let mut domain = prepare_execution_flow(
-        prepared,
-        request,
-        semantics,
-        assumptions,
-        storage,
-        memory,
-        refinements,
-        contracts,
-        disposal,
-        dependencies,
-    );
+impl<'a, 'view, C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'a, 'view, C> {
+    pub(in crate::analysis::guarantee) fn solve(
+        mut self,
+        assumptions: &[ExecutionCondition],
+        excluded_edges: BTreeSet<crate::analysis::id::AnalysisEdgeId>,
+    ) -> Option<ExecutionFlow<'a, 'view, C>> {
+        let entry = self.assumptions.to_mut();
+        entry.clear();
+        entry.extend_from_slice(assumptions);
+        self.excluded_edges = excluded_edges;
+        self.candidate_evidence.get_mut().clear();
+        self.consumed_completion_dependencies.get_mut().clear();
 
-    domain.excluded_edges = excluded_edges;
-    domain.checked_body = Some(checked_body);
+        let mut reached_acyclic = BTreeSet::new();
+        let transfer = |block: &AnalysisBlock, input: FlowOutcomes<ExecutionState>| {
+            if input.states().next().is_some() {
+                reached_acyclic.insert(block.id());
+            }
 
-    let states = match solve_fixed_point(&prepared.graph, &domain, &request) {
-        FixedPointOutcome::Complete(states) => states,
-        FixedPointOutcome::Cancelled => return CheckerOutcome::Cancelled,
-        FixedPointOutcome::ConvergenceInvariantViolated => {
-            panic!("execution condition flow exceeded its finite convergence bound");
-        }
-    };
+            self.transfer_owned(block, input)
+        };
 
-    CheckerOutcome::without_diagnostics(ExecutionFlow { domain, states })
+        let states = match solve_fixed_point_with(self.graph, &self, &self.request, Some(transfer)) {
+            FixedPointOutcome::Complete(states) => states,
+            FixedPointOutcome::Cancelled => return None,
+            FixedPointOutcome::ConvergenceInvariantViolated => {
+                panic!("execution condition flow exceeded its finite convergence bound");
+            }
+        };
+
+        Some(ExecutionFlow { domain: self, states, reached_acyclic })
+    }
+}
+
+impl<'a, 'view, C: CheckerRequestContext + ?Sized> ExecutionFlow<'a, 'view, C> {
+    pub(in crate::analysis::guarantee) fn into_domain(self) -> ExecutionFlowDomain<'a, 'view, C> {
+        let ExecutionFlow { mut domain, states, .. } = self;
+
+        drop(states);
+        domain.proofs = Default::default();
+
+        domain
+    }
+
+    pub(in crate::analysis::guarantee) fn matches_inputs(
+        &self,
+        assumptions: &[ExecutionCondition],
+        excluded: &BTreeSet<crate::analysis::id::AnalysisEdgeId>,
+    ) -> bool {
+        self.domain.assumptions.as_ref() == assumptions && &self.domain.excluded_edges == excluded
+    }
 }
 
 #[expect(
@@ -68,16 +73,13 @@ pub(crate) fn prepare_execution_flow<'a, 'view, C: CheckerRequestContext + ?Size
     prepared: &'a crate::PreparedBodyAnalysis,
     request: CheckerUnitView<'view, C>,
     semantics: &'a CheckedExpressionSemantics,
-    assumptions: &'a [ExecutionCondition],
+    assumptions: Cow<'a, [ExecutionCondition]>,
     storage: &'a bray_bound_tree::StoragePlan,
     memory: &'a bray_bound_tree::CheckedMemoryOperations,
-    refinements: &'a std::collections::BTreeMap<
-        bray_bound_tree::BoundExecutionSite,
-        bray_bound_tree::StorageInvalidation,
-    >,
     contracts: &'a BTreeMap<BoundExpressionId, Vec<crate::ExecutionCompletionContract>>,
     disposal: &'a super::super::cleanup::Cleanup<'a>,
     dependencies: &'a bray_bound_tree::CheckedDependencyContracts,
+    liveness: &'a bray_bound_tree::Liveness,
 ) -> ExecutionFlowDomain<'a, 'view, C> {
     const POINTER_PREDICATES: &[(&str, bool, &[usize])] = &[
         ("ValidRead", true, &[0]),
@@ -146,10 +148,24 @@ pub(crate) fn prepare_execution_flow<'a, 'view, C: CheckerRequestContext + ?Size
 
     content_predicates.extend(owned_allocation);
 
+    let mut retained_storage = BTreeSet::new();
+
+    for call in dependencies.calls().values() {
+        collect_retained_storage(call.result().requirements(), &mut retained_storage);
+
+        for report in call.report_contracts() {
+            collect_retained_storage(report.requirements(), &mut retained_storage);
+        }
+    }
+
     ExecutionFlowDomain {
+        candidate_evidence: Default::default(),
+        consumed_completion_dependencies: Default::default(),
         // Exact immutable query results survive cleanup-feasibility rounds within this body.
         proofs: Default::default(),
         dependencies,
+        liveness,
+        retained_storage,
         sequence_length: request
             .context()
             .available_compiler_known_symbols()
@@ -159,8 +175,20 @@ pub(crate) fn prepare_execution_flow<'a, 'view, C: CheckerRequestContext + ?Size
                 &bray_compiler_known::CompilerKnownDeclarationKey::try_new("SequenceLength")
                     .expect("closed sequence length key must be valid"),
             )
-            .copied(),
+            .map(|symbol| {
+                let definition = bray_symbols::CallableDefinitionId::try_new(*symbol)
+                    .expect("the sequence length declaration is callable");
+                let owner = bray_symbols::GenericOwnerId::try_new(*symbol)
+                    .expect("the sequence length declaration owns an empty substitution");
+                let substitution = bray_symbols::GenericSubstitutionData::try_new(owner, [], [])
+                    .expect("sequence length has no generic parameters");
+                let substitution = request.semantic_values().intern_generic_substitution(substitution)
+                    .expect("the sequence length substitution belongs to this semantic store");
+
+                bray_symbols::CallableInstanceData::new(definition, substitution)
+            }),
         has_bounds_checks: prepared.has_bounds_checks,
+        certify_predicate: false,
         observed_types: &prepared.observed_types,
         pattern_conditions: &prepared.pattern_conditions,
         borrowed_inputs: &prepared.borrowed_inputs,
@@ -169,7 +197,10 @@ pub(crate) fn prepare_execution_flow<'a, 'view, C: CheckerRequestContext + ?Size
         yield_targets: &prepared.yield_targets,
         generator_observations: &prepared.generator_observations,
         graph: &prepared.graph,
+        completion_blocks: prepared.graph.completion_exits().map(|exit| exit.block()).collect(),
         excluded_edges: BTreeSet::new(),
+        result_edges: &prepared.result_edges,
+        invocation_failures: &prepared.invocation_failures,
         request,
         semantics,
         assumptions,
@@ -179,12 +210,24 @@ pub(crate) fn prepare_execution_flow<'a, 'view, C: CheckerRequestContext + ?Size
         storage,
         contracts,
         disposal,
-        refinements,
         memory,
         checked_body: None,
         pointer_predicates,
         content_predicates,
         owned_allocation,
         initialized_range,
+    }
+}
+
+fn collect_retained_storage(
+    requirements: &[bray_bound_tree::BoundDependencyRequirement],
+    output: &mut BTreeSet<bray_bound_tree::StorageAccessId>,
+) {
+    for requirement in requirements {
+        if let Some(access) = requirement.retained_storage_access() {
+            output.insert(access);
+        } else if let bray_bound_tree::BoundDependencyRequirement::Guarded(guard) = requirement {
+            collect_retained_storage(guard.requirements(), output);
+        }
     }
 }

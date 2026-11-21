@@ -118,6 +118,7 @@ impl SourceTemplateBuilder<'_, '_, '_> {
             }
             StorageProjection::OwnedTarget
             | StorageProjection::AnyElement
+            | StorageProjection::ElementFromInput(_)
             | StorageProjection::AddressTarget
             | StorageProjection::UninitPayload
             | StorageProjection::SliceRange { .. } => {

@@ -1,4 +1,4 @@
-module bray.standard_library_tests.ffi;
+trusted module bray.standard_library_tests.ffi;
 
 using std.bytes;
 using std.ffi;

@@ -507,7 +507,7 @@ fn fresh_native_plans_ignore_unrelated_semantic_interning() {
 
 #[test]
 #[ignore = "tier:native"]
-fn cancelled_native_preparation_publishes_no_partial_plan() {
+fn native_preparation_rejects_an_already_cancelled_request() {
     let (_, compilation) = codegen_compilation(source_request_with_runtime(
         &[CONCRETE_GENERIC_SOURCE],
         CompilationOptions::new(

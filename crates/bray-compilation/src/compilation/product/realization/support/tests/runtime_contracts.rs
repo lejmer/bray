@@ -40,9 +40,32 @@ fn task_control_compiler_signatures_match_their_native_contracts() {
         kind => panic!("task control uses scalar or pointer ABI values: {kind:?}"),
     };
 
-    for role in RuntimeAbiRole::ALL.into_iter()
+    let roles = [
+        RuntimeAbiRole::TaskControlCreation,
+        RuntimeAbiRole::TaskControlAdmission,
+        RuntimeAbiRole::TaskControlRetention,
+        RuntimeAbiRole::TaskControlArenaRelease,
+        RuntimeAbiRole::TaskControlCancellation,
+        RuntimeAbiRole::TaskControlSnapshot,
+        RuntimeAbiRole::TaskControlPublication,
+        RuntimeAbiRole::TaskControlDispatch,
+        RuntimeAbiRole::TaskControlObservation,
+        RuntimeAbiRole::TaskControlDestruction,
+        RuntimeAbiRole::TaskControlReferenceRelease,
+        RuntimeAbiRole::TaskControlCallbackEntry,
+        RuntimeAbiRole::TaskControlCallbackExit,
+        RuntimeAbiRole::TaskControlWait,
+        RuntimeAbiRole::TaskControlRetirement,
+        RuntimeAbiRole::TaskControlComposition,
+    ];
+
+    let catalogued = RuntimeAbiRole::ALL.into_iter()
         .filter(|role| role.as_str().starts_with("task_control_"))
-    {
+        .collect::<std::collections::BTreeSet<_>>();
+
+    assert_eq!(catalogued, std::collections::BTreeSet::from(roles));
+
+    for role in roles {
         let native = role.native_signature().expect("task control has a native boundary");
 
         let parameters = native.parameters().iter()
@@ -207,19 +230,22 @@ fn frame_completion_signatures_demand_concrete_opaque_pointers() {
         .codegen_runtime_signature(RuntimeAbiRole::FrameCompletionMove)
         .expect("frame completion signature must realize");
 
-    let Some(CodegenParameterMapping::Direct { ty: pointer, .. }) = signature.parameters().first()
-    else {
-        panic!("frame completion must receive one direct state pointer");
-    };
+    let pointer = compilation.codegen_opaque_pointer_type()
+        .expect("frame completion uses concrete opaque pointers");
+
+    assert_eq!(signature, CodegenCallableSignature::new(
+        [CodegenParameterMapping::direct(pointer, None, []), CodegenParameterMapping::direct(pointer, None, [])],
+        CodegenResultMapping::Void, CallableAbi::C, false,
+    ));
 
     let element = compilation
         .compiler_known_type(RepresentationRole::ScalarU8)
         .expect("byte representation must resolve");
 
-    let mappings = realized_types(&compilation, &target, [*pointer]);
+    let mappings = realized_types(&compilation, &target, [pointer]);
 
     assert!(matches!(
-        mappings[pointer].kind(),
+        mappings[&pointer].kind(),
         CodegenTypeKind::Pointer {
             target,
             address_space: TargetAddressSpaceKind::Default,

@@ -135,7 +135,9 @@ trusted internal func create_execution(pos selected: &Current, pos configuration
         case ?value { yield value; }
         case none
         {
-            _ = allocation;
+            {
+                _ = allocation;
+            }
 
             trusted finish_native_provider_option(provider);
             return 4;
@@ -148,7 +150,9 @@ trusted internal func create_execution(pos selected: &Current, pos configuration
     {
         trusted bray.runtime.bootstrap.scheduler.destroy_reference(scheduler);
 
-        _ = allocation;
+        {
+            _ = allocation;
+        }
 
         trusted finish_native_provider_option(provider);
         return 4;

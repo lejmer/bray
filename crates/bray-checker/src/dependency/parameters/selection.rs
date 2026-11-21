@@ -64,7 +64,7 @@ impl SelectionParameters {
             let mut edges = Vec::new();
 
             let local =
-                selection_requirements(values, template.output_requirements(output), &mut pending, &mut edges).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in discover: {error:?}"));
+                selection_requirements(values, &template.output_requirements(output), &mut pending, &mut edges).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in discover: {error:?}"));
 
             let local = values
                 .intern_dependency_contract_template(DependencyContractTemplateData::new(local)).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in discover: {error:?}"));

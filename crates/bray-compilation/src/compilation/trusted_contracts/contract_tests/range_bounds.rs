@@ -3,7 +3,7 @@ use crate::test_support::{compilation};
 
 #[test]
 fn ordinary_observers_supply_extents_to_trusted_memory_operations() {
-    for (postcondition, valid) in [("ensures(result == count)", true), ("", false)] {
+    for (observed, postcondition, valid) in [("count", "ensures(result == count)", true), ("1", "", false)] {
         let source = format!(
             r#"
                 trusted module app;
@@ -14,7 +14,7 @@ fn ordinary_observers_supply_extents_to_trusted_memory_operations() {
                     {postcondition}
                     executes(pure, total)
                 {{
-                    return count;
+                    return {observed};
                 }}
 
                 trusted func copy(pos source: DataPointer<u8>, pos destination: DataPointer<u8>, count: usize)

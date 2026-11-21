@@ -24,26 +24,31 @@ const REQUIRED_CONTRACTS: &[&str] = &[
     "same-name isolation",
 ];
 const UNAVAILABLE_TARGET_FIXTURE: &str = "xtask/fixtures/readiness/memory-unavailable-target.bray";
-const INVALID_TARGET_CONTROL_FIXTURES: &[(&str, bray_target::NativeTarget)] = &[
+const INVALID_TARGET_CONTROL_FIXTURES: &[(&str, bray_target::NativeTarget, &str)] = &[
     (
         "xtask/fixtures/readiness/target-control-invalid.bray",
         bray_target::NativeTarget::X86_64LinuxGnu,
+        "core.target.assembly",
     ),
     (
         "xtask/fixtures/readiness/target-control-invalid-constraint.bray",
         bray_target::NativeTarget::X86_64LinuxGnu,
+        "core.target.assembly",
     ),
     (
         "xtask/fixtures/readiness/target-control-invalid-symbol.bray",
         bray_target::NativeTarget::X86_64LinuxGnu,
+        "core.target.assembly",
     ),
     (
         "xtask/fixtures/readiness/target-control-invalid-dialect.bray",
         bray_target::NativeTarget::Aarch64LinuxGnu,
+        "core.target.assembly",
     ),
     (
         "xtask/fixtures/readiness/target-control-invalid-diverging-pure.bray",
         bray_target::NativeTarget::X86_64LinuxGnu,
+        "core.target.diverging_assembly",
     ),
 ];
 
@@ -158,6 +163,7 @@ fn audit_unavailable_target(workspace: &RustWorkspace) -> Result<(), String> {
     if fixture_reports(
         workspace,
         UNAVAILABLE_TARGET_FIXTURE,
+        "core.memory.allocate",
         SelectedTarget::new(profile, baseline.runtime_abi()),
         DiagnosticKind::CheckingTargetMemoryOperationUnavailable,
     )? {
@@ -171,10 +177,11 @@ fn audit_unavailable_target(workspace: &RustWorkspace) -> Result<(), String> {
 }
 
 fn audit_invalid_target_control(workspace: &RustWorkspace) -> Result<(), String> {
-    for (fixture, target) in INVALID_TARGET_CONTROL_FIXTURES {
+    for (fixture, target, site) in INVALID_TARGET_CONTROL_FIXTURES {
         if !fixture_reports(
             workspace,
             fixture,
+            site,
             SelectedTarget::for_native(*target),
             DiagnosticKind::CheckingInvalidTargetControlContract,
         )? {
@@ -190,10 +197,13 @@ fn audit_invalid_target_control(workspace: &RustWorkspace) -> Result<(), String>
 fn fixture_reports(
     workspace: &RustWorkspace,
     source_path: &str,
+    site: &str,
     target: SelectedTarget,
     expected: DiagnosticKind,
 ) -> Result<bool, String> {
     let source = workspace.read_text(source_path)?;
+    let start = source.find(site).ok_or_else(|| format!("{source_path} is missing {site}"))?;
+    let end = start + site.len();
 
     let package = PackageIdentity::try_new("memory.readiness")
         .ok_or_else(|| "memory readiness package identity is invalid".to_owned())?;
@@ -205,7 +215,7 @@ fn fixture_reports(
         source,
     );
 
-    let options = CompilationOptions::new(WorkerBudget::serial(), ProductKind::Executable, target);
+    let options = CompilationOptions::new(WorkerBudget::serial(), ProductKind::Library, target);
 
     let compilation = Compilation::load(CompilationRequest::with_options(
         package,
@@ -214,10 +224,12 @@ fn fixture_reports(
     ))
     .map_err(|error| format!("could not load target-control fixture {source_path}: {error:?}"))?;
 
-    Ok(compilation
-        .check_diagnostics()
-        .iter()
-        .any(|diagnostic| diagnostic.kind() == expected))
+    Ok(compilation.check_diagnostics().by_kind(expected).any(|diagnostic| {
+        diagnostic.primary_span().is_some_and(|span| {
+            span.source_id() == bray_source::SourceId::new(0)
+                && (span.start().bytes() as usize) < end && (span.end().bytes() as usize) > start
+        })
+    }))
 }
 
 fn require_source_anchor(

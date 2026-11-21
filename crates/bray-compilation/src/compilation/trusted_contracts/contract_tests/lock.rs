@@ -21,7 +21,7 @@ fn production_spin_lock_rejects_fabricated_guard_authority() {
     ] {
         let caller = format!(
             r#"
-            trusted module app;
+            module app;
             using internal std.sync;
             struct Payload
             {{
@@ -116,7 +116,7 @@ fn production_rw_lock_requires_distinct_acquisition_authority() {
             let suffix = if nullable { "?" } else { "" };
 
             let source = format!(
-                r#"trusted module app; using internal std.sync;
+                r#"module app; using internal std.sync;
                 func production_probe()
                     requires(blocking_execution())
                 {{
@@ -363,8 +363,10 @@ fn production_guard_borrow_origin_reaches_the_protected_payload() {
 
     let template = callable_dependencies(&application, callable.into());
 
-    let relation = template
-        .borrows()
+    let borrows = template
+        .borrows();
+
+    let relation = borrows
         .iter()
         .find(|relation| {
             relation.exit().subject_root() == bray_symbols::DependencySubjectRoot::Result

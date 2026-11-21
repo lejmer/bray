@@ -532,19 +532,9 @@ impl InterfaceSemantics {
         result: bool,
         surface: &PackageInterfaceSurface,
     ) -> Result<(), InterfaceValidationError> {
-        let mut pending = vec![term];
-        let mut remaining = bray_symbols::EXECUTION_CONDITION_WORK_LIMIT;
-
-        while let Some(term) = pending.pop() {
-            remaining = remaining.checked_sub(1).ok_or_else(invalid)?;
-
-            let term = term
-                .to_index()
-                .and_then(|index| self.constant_terms.get(index))
-                .ok_or_else(invalid)?;
-
+        self.visit_constant_term_graph([term], |term, child| {
             match term {
-                InterfaceConstantTerm::Typed { term, .. } => pending.push(*term),
+                InterfaceConstantTerm::Typed { term, .. } => child(*term),
                 InterfaceConstantTerm::Value(_)
                 | InterfaceConstantTerm::DefinitionApplication { .. }
                 | InterfaceConstantTerm::TraitConstant { .. } => {}
@@ -555,7 +545,7 @@ impl InterfaceSemantics {
                         return Err(invalid());
                     }
                 }
-                InterfaceConstantTerm::NullablePresent(value) => pending.push(*value),
+                InterfaceConstantTerm::NullablePresent(value) => child(*value),
                 InterfaceConstantTerm::CallableArgument(ordinal) => {
                     let index = usize::try_from(ordinal.raw()).map_err(|_| invalid())?;
 
@@ -570,11 +560,12 @@ impl InterfaceSemantics {
                         return Err(invalid());
                     }
 
-                    pending.push(*subject);
+                    child(*subject);
                 }
-                InterfaceConstantTerm::Unary { operand, .. } => pending.push(*operand),
+                InterfaceConstantTerm::Unary { operand, .. } => child(*operand),
                 InterfaceConstantTerm::Binary { left, right, .. } => {
-                    pending.extend([*left, *right])
+                    child(*left);
+                    child(*right);
                 }
                 InterfaceConstantTerm::Call {
                     callable,
@@ -598,7 +589,7 @@ impl InterfaceSemantics {
                         return Err(invalid());
                     }
 
-                    pending.extend(arguments.iter().copied());
+                    arguments.iter().copied().for_each(&mut *child);
                 }
                 InterfaceConstantTerm::PredicateCall {
                     predicate: definition,
@@ -623,17 +614,44 @@ impl InterfaceSemantics {
                         return Err(invalid());
                     }
 
-                    pending.extend(arguments.iter().copied())
+                    arguments.iter().copied().for_each(&mut *child);
                 }
                 InterfaceConstantTerm::Projection { subject, kind } => {
                     validate_projection(kind, surface)?;
 
-                    pending.push(*subject);
+                    child(*subject);
                 }
-                _ => {
-                    return Err(invalid());
-                }
+                _ => return Err(invalid()),
             }
+            Ok(())
+        })
+    }
+
+    pub(super) fn visit_constant_term_graph(
+        &self,
+        roots: impl IntoIterator<Item = InterfaceConstantTermId>,
+        mut visit: impl FnMut(&InterfaceConstantTerm, &mut dyn FnMut(InterfaceConstantTermId)) -> Result<(), InterfaceValidationError>,
+    ) -> Result<(), InterfaceValidationError> {
+        let mut pending = roots.into_iter().map(|term| (term, false)).collect::<Vec<_>>();
+        let mut active = BTreeSet::new();
+        let mut complete = BTreeSet::new();
+
+        // Portable guards share interned terms. Validate each reachable node once
+        // and reject cycles independently of the proof engine's evaluation budget.
+        while let Some((id, exit)) = pending.pop() {
+            if exit {
+                active.remove(&id);
+                complete.insert(id);
+                continue;
+            }
+
+            if complete.contains(&id) { continue; }
+            if !active.insert(id) { return Err(invalid()); }
+
+            let term = id.to_index().and_then(|index| self.constant_terms.get(index)).ok_or_else(invalid)?;
+
+            pending.push((id, true));
+            visit(term, &mut |child| pending.push((child, false)))?;
         }
 
         Ok(())
@@ -673,6 +691,34 @@ fn validate_projection(
 mod tests {
     use crate::{InterfaceConstantTerm, InterfaceConstantTermId, InterfaceSemantics};
     use bray_symbols::{ConstantBinaryOperation, SymbolOrdinal};
+
+    #[test]
+    fn execution_guards_visit_shared_terms_once_and_reject_cycles() {
+        let bundle = crate::test_support::package_interface_export_bundle();
+        let mut terms = vec![InterfaceConstantTerm::CallableArgument(SymbolOrdinal::new(0))];
+
+        for index in 0..8 {
+            let previous = InterfaceConstantTermId::new(index);
+
+            terms.push(InterfaceConstantTerm::Binary {
+                operation: ConstantBinaryOperation::LogicalAnd,
+                left: previous,
+                right: previous,
+            });
+        }
+
+        let root = InterfaceConstantTermId::new(8);
+        let accepted = InterfaceSemantics::new().with_values([], [], [], terms.clone());
+
+        assert!(accepted.validate_execution_term(root, 1, false, bundle.surface()).is_ok());
+        assert!(accepted.validate_execution_term(root, 0, false, bundle.surface()).is_err());
+
+        terms[0] = InterfaceConstantTerm::NullablePresent(root);
+
+        let cyclic = InterfaceSemantics::new().with_values([], [], [], terms);
+
+        assert!(cyclic.validate_execution_term(root, 1, false, bundle.surface()).is_err());
+    }
 
     #[test]
     fn returned_input_metadata_rejects_computation_results_and_cycles() {

@@ -27,7 +27,7 @@ fn unproved_requirements_execute_before_declared_calls() {
                 requires(value > 0, value < 100)
                 uses(foreign_call);
         "#,
-            "trusted selected(input);",
+            "selected(input);",
             "uses(foreign_call)",
         ),
     ] {
@@ -82,56 +82,8 @@ fn unproved_requirements_execute_before_declared_calls() {
 
         let mir = lowered_mir(&result);
 
-        let predicate = mir
-            .operations_with_ids()
-            .find_map(|(id, operation)| match operation.kind() {
-                MirOperationKind::Call(call)
-                    if matches!(call.target(), MirCallTarget::Predicate(_)) =>
-                {
-                    Some(id)
-                }
-                _ => None,
-            })
-            .expect("unknown source input needs its runtime requirement");
-
-        let invocation = mir
-            .operations_with_ids()
-            .find_map(|(id, operation)| match operation.kind() {
-                MirOperationKind::Call(call)
-                    if matches!(
-                        call.target(),
-                        MirCallTarget::Direct(_) | MirCallTarget::Indirect { .. }
-                    ) =>
-                {
-                    Some(id)
-                }
-                _ => None,
-            })
-            .expect("successful requirement retains the original invocation");
-
-        assert!(predicate.slot() < invocation.slot());
-
-        for block in mir.blocks().iter().filter(|block| {
-            block.operations().iter().any(|id| {
-                matches!(
-                    mir.operation(*id)
-                        .expect("fixture `iter` call must succeed")
-                        .kind(),
-                    MirOperationKind::PanicReport(_)
-                )
-            })
-        }) {
-            assert!(
-                !matches!(block.terminator().kind(), MirTerminatorKind::Unreachable),
-                "ordinary precondition failure remains reachable for {callee}"
-            );
-        }
-
-        assert!(
-            mir.blocks()
-                .iter()
-                .any(|block| matches!(block.terminator().kind(), MirTerminatorKind::Branch { .. }))
-        );
+        assert_runtime_requirements_guard_invocation(mir, 2..=2, |target|
+            matches!(target, MirCallTarget::Direct(_) | MirCallTarget::Indirect { .. }));
     }
 }
 
@@ -215,8 +167,74 @@ fn represented_indirect_requirements_execute_before_invocation() {
 
     let mir = lowered_mir(&result);
 
-    assert!(mir.operations().iter().any(|operation| matches!(operation.kind(), MirOperationKind::Call(call) if matches!(call.target(), MirCallTarget::Predicate(bray_ir::MirPredicateReference::Condition { .. })))));
-    assert!(mir.operations().iter().any(|operation| matches!(operation.kind(), MirOperationKind::Call(call) if matches!(call.target(), MirCallTarget::Indirect { .. }))));
+    assert_runtime_requirements_guard_invocation(mir, 1..=1, |target|
+        matches!(target, MirCallTarget::Indirect { .. }));
+}
+
+fn assert_runtime_requirements_guard_invocation(
+    mir: &bray_ir::MirUnit,
+    expected: impl std::ops::RangeBounds<usize>,
+    invokes: impl Fn(&MirCallTarget) -> bool,
+) {
+    let operations = |block: bray_ir::MirBlockId| {
+        mir.block(block).expect("MIR block exists").operations().iter()
+            .map(|id| mir.operation(*id).expect("MIR block retains its operations").kind())
+    };
+
+    let invoked = mir.blocks_with_ids().filter_map(|(id, _)| {
+        operations(id).any(|operation| matches!(operation, MirOperationKind::Call(call)
+            if invokes(call.target()))).then_some(id)
+    }).collect::<std::collections::BTreeSet<_>>();
+
+    assert!(!invoked.is_empty(), "the checked call must be emitted");
+
+    let raises_panic = |id| operations(id).any(|operation| matches!(operation, MirOperationKind::PanicReport(_)));
+
+    let reachable = |start, stop_on_panic| bray_base::transitive_dependencies([start], |id| {
+        let mut children = Vec::new();
+
+        if stop_on_panic && raises_panic(*id) { return children; }
+
+        mir.block(*id).expect("successor belongs to the unit").terminator().kind()
+            .for_each_successor(|next| children.push(next));
+
+        children
+    });
+
+    let mut checks = 0;
+
+    for (id, block) in mir.blocks_with_ids() {
+        let predicates = operations(id).filter(|operation| matches!(operation, MirOperationKind::Call(call)
+            if matches!(call.target(), MirCallTarget::Predicate(_)))).count();
+
+        if predicates == 0 { continue; }
+
+        assert_eq!(predicates, 1, "each requirement has its own checked branch");
+        checks += 1;
+
+        let branch = match block.terminator().kind() {
+            MirTerminatorKind::TakeCallReport { completed, .. }
+            | MirTerminatorKind::CheckCallOutcome { completed, .. } =>
+                mir.block(completed.target()).expect("predicate completion has a block").terminator().kind(),
+            branch => branch,
+        };
+
+        let MirTerminatorKind::Branch { then_edge, else_edge, .. } = branch else {
+            panic!("a runtime requirement must branch on its result: {branch:?}");
+        };
+
+        let failure = reachable(else_edge.target(), true);
+
+        assert!(reachable(then_edge.target(), true).iter().any(|id| invoked.contains(id)),
+            "precondition success at {id:?} must reach one of {invoked:?}");
+
+        assert!(!failure.iter().any(|id| invoked.contains(id)),
+            "precondition failure at {id:?} reached an invocation before raising its panic");
+
+        assert!(failure.iter().copied().any(raises_panic), "{mir:?}");
+    }
+
+    assert!(expected.contains(&checks), "found {checks} requirement checks");
 }
 
 #[test]
@@ -323,8 +341,8 @@ fn constructors_and_receivers_check_requirements() {
 #[test]
 fn scoped_requirements_check_entry_and_exit() {
     for requirements in [
-        ("requires(self.ready, self.ready == true)", ""),
-        ("", "requires(lease, lease == true)"),
+        ("requires(self.ready)", ""),
+        ("", "requires(lease)"),
     ] {
         let (entry, exit) = requirements;
 
@@ -342,7 +360,7 @@ fn scoped_requirements_check_entry_and_exit() {
                 enter() -> bool
                     {entry}
                 {{
-                    return true;
+                    return self.ready;
                 }}
 
                 exit(pos lease: bool)
@@ -367,13 +385,27 @@ fn scoped_requirements_check_entry_and_exit() {
             compilation.check_diagnostics()
         );
 
+        let key = source_function_body_key(&compilation, "caller");
+        let selections = compilation.semantic_selections(key.clone()).expect("with selects entry and exit");
+
+        let selected = selections.value().entries().iter().find_map(|entry| {
+            match entry.selection() {
+                bray_bound_tree::SemanticSelection::ScopedUse(selected) => Some(selected),
+                _ => None,
+            }
+        }).expect("the caller contains one with expression");
+
+        let checked = if entry.is_empty() { selected.exit().0 } else { selected.enter().0 };
+
         let result = compilation
-            .lowered_unit(source_function_body_key(&compilation, "caller"))
+            .lowered_unit(key)
             .expect("fixture callable must lower successfully");
 
         let mir = lowered_mir(&result);
 
-        assert!(mir.operations().iter().any(|operation| matches!(operation.kind(), MirOperationKind::Call(call) if matches!(call.target(), MirCallTarget::Predicate(_)))));
+        assert_runtime_requirements_guard_invocation(mir, 1.., |target| {
+            matches!(target, MirCallTarget::Direct(reference) if reference.instance() == checked)
+        });
     }
 }
 

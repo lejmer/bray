@@ -26,7 +26,7 @@ impl ValueInputs {
         let projections = storage.resolved_projections(source)?.iter()
             .chain(path.projections().iter()).copied().collect::<Vec<_>>();
 
-        let projections = crate::storage::dependency_projections(&projections)?;
+        let projections = crate::storage::dependency_projections(request, &projections)?;
 
         let (source, remaining) =
             self.projected_input_value(request.semantic_values(), selections, producer, &projections)?;
@@ -431,7 +431,12 @@ pub(super) fn prepare_variants<C: crate::CheckerRequestContext + ?Sized>(
     };
 
     for call in contracts.calls().values() {
-        for subject in call.reference_subjects() {
+        for (destination, value) in call.captured_values().iter().flat_map(|outcome| outcome.bindings.iter()) {
+            retain(destination.projections());
+            retain(&value.projections().copied().collect::<Vec<_>>());
+        }
+
+        for (subject, _, _) in call.storage().subjects() {
             retain(subject.projections());
         }
 
@@ -446,7 +451,7 @@ pub(super) fn prepare_variants<C: crate::CheckerRequestContext + ?Sized>(
             retain(relation.target_projections());
         }
 
-        for carrier in call.carriers() {
+        for carrier in call.captured_values().iter().flat_map(|row| row.carriers.iter()) {
             retain(carrier.path());
         }
 
@@ -456,12 +461,13 @@ pub(super) fn prepare_variants<C: crate::CheckerRequestContext + ?Sized>(
             .chain(call.deferred_effects().into_iter().flatten())
             .chain(call.deferred_capture_cleanup().into_iter().flatten())
             .chain(call.deferred_result_cleanup().into_iter().flatten())
+            .chain(call.cell_changes())
         {
             if let Some(subject) = effect.subject() {
                 retain(subject.projections());
             }
 
-            if let bray_symbols::DependencyStorageEffect::Indirect { projections, .. } = effect {
+            for projections in effect.projection_paths() {
                 retain(projections);
             }
         }
@@ -478,21 +484,30 @@ pub(super) fn prepare_variants<C: crate::CheckerRequestContext + ?Sized>(
         }
     }
 
-    for contract in contracts.lifecycle_dependencies().values() {
+    let frame_bodies = contracts.frame_callees().values().map(|callee| callee.summary.as_ref());
+
+    for contract in contracts.lifecycle_dependencies().values().chain(frame_bodies) {
+        for carrier in contract.captured_values().iter().flat_map(|row| row.carriers.iter()) { retain(carrier.path()); }
+
+        for (destination, value) in contract.captured_values().iter().flat_map(|outcome| outcome.bindings.iter()) {
+            retain(destination.projections());
+            retain(&value.projections().copied().collect::<Vec<_>>());
+        }
+
         for subject in contract.reference_subjects() {
             retain(subject.projections());
         }
 
-        for relation in contract.borrows() {
+        for relation in contract.captured_values().iter().flat_map(|row| row.references.iter()) {
             retain(relation.target_projections());
         }
 
-        for effect in contract.effects() {
+        for effect in contract.effects().iter().chain(contract.cell_changes()) {
             if let Some(subject) = effect.subject() {
                 retain(subject.projections());
             }
 
-            if let bray_symbols::DependencyStorageEffect::Indirect { projections, .. } = effect {
+            for projections in effect.projection_paths() {
                 retain(projections);
             }
         }
@@ -518,12 +533,12 @@ pub(super) fn prepare_variants<C: crate::CheckerRequestContext + ?Sized>(
         }
     }
 
-    for (_, projection) in values.error_exits.values() {
+    for (_, projection, _) in values.error_exits.values() {
         retain(std::slice::from_ref(projection));
     }
 
     for call in contracts.calls().values() {
-        for transfer in call.owned_result().transfers() {
+        for transfer in call.captured_values().iter().flat_map(|row| row.ownership.transfers()) {
             let condition = crate::execution_condition_from_type_term(
                 request.semantic_values(),
                 transfer.input(),
@@ -547,6 +562,17 @@ pub(super) fn prepare_variants<C: crate::CheckerRequestContext + ?Sized>(
                         _ => None,
                     }),
             );
+
+            let mut masks = vec![transfer.preservation()];
+
+            while let Some(mask) = masks.pop() {
+                fields.extend(mask.children().keys().filter_map(|projection| match projection {
+                    bray_symbols::ConstantProjectionKind::UnionPayloadField(field) => Some(*field),
+                    _ => None,
+                }));
+
+                masks.extend(mask.children().values());
+            }
         }
     }
 

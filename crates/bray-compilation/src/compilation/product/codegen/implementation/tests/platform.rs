@@ -24,7 +24,7 @@ use bray_runtime_interface::{
 use bray_symbols::{NamedTypeSymbolId, ProductKind};
 use bray_target::{NativeTarget, TargetAddressSpaces, TargetProfile, TargetProperties};
 
-const TARGET_FENCE_SOURCE: &str = r#"module app;
+const TARGET_FENCE_SOURCE: &str = r#"trusted module app;
 
 using core.target;
 
@@ -43,19 +43,19 @@ public trusted func fence(order: FenceChoice) uses(intrinsic)
     {
         case FenceChoice.Acquire
         {
-            trusted core.target.hardware_fence(MemoryOrder.Acquire);
+            core.target.hardware_fence(MemoryOrder.Acquire);
         }
         case FenceChoice.Release
         {
-            trusted core.target.hardware_fence(MemoryOrder.Release);
+            core.target.hardware_fence(MemoryOrder.Release);
         }
         case FenceChoice.AcquireRelease
         {
-            trusted core.target.hardware_fence(MemoryOrder.AcquireRelease);
+            core.target.hardware_fence(MemoryOrder.AcquireRelease);
         }
         case FenceChoice.SequentiallyConsistent
         {
-            trusted core.target.hardware_fence(
+            core.target.hardware_fence(
                 MemoryOrder.SequentiallyConsistent,
             );
         }
@@ -118,14 +118,14 @@ public func fence(order: FenceOrder)
 }
 "#;
 
-const STRUCTURAL_ASSEMBLY_SOURCE: &str = r#"module app;
+const STRUCTURAL_ASSEMBLY_SOURCE: &str = r#"trusted module app;
 
 using core.target;
 
 public trusted func assemble(pos value: i32) -> i32
     uses(device_memory, intrinsic, raw_memory, unchecked_alias, unchecked_init)
 {
-    let outputs: (i32, i32) = trusted core.target.assembly<
+    let outputs: (i32, i32) = core.target.assembly<
         (i32, i32, i32),
         (i32, i32),
     >(
@@ -153,7 +153,7 @@ func generic_alternate<T>(pos value: T) -> never
 public trusted func assemble_addresses(pos pointer: DataPointer<u8>)
     uses(device_memory, intrinsic, raw_memory, unchecked_alias, unchecked_init)
 {
-    let ignored: (i32,) = trusted core.target.assembly<
+    let ignored: (i32,) = core.target.assembly<
         (func() -> never, func(pos value: i32) -> never, DataPointer<u8>),
         (i32,),
     >(
@@ -169,7 +169,7 @@ public trusted func assemble_addresses(pos pointer: DataPointer<u8>)
 public trusted func branch(pos value: i32) -> i32
     uses(device_memory, intrinsic, raw_memory, unchecked_alias, unchecked_init)
 {
-    let output: (i32,) = trusted core.target.branching_assembly<
+    let output: (i32,) = core.target.branching_assembly<
         (i32,),
         (i32,),
         (func() -> never,),
@@ -194,7 +194,7 @@ using core.target;
 public trusted func assemble_memory(pos pointer: DataPointer<u8>)
     uses(device_memory, intrinsic, raw_memory, unchecked_alias, unchecked_init)
 {
-    trusted core.target.assembly<(DataPointer<u8>,), unit>(
+    core.target.assembly<(DataPointer<u8>,), unit>(
         template = "incb $0",
         constraints = "m",
         clobbers = "memory",
@@ -217,7 +217,7 @@ func alternate() -> never
 public trusted func branch_void(pos pointer: DataPointer<u8>)
     uses(device_memory, intrinsic, raw_memory, unchecked_alias, unchecked_init)
 {
-    trusted core.target.branching_assembly<
+    core.target.branching_assembly<
         (DataPointer<u8>,),
         unit,
         (func() -> never,),
@@ -240,7 +240,7 @@ using core.target;
 public trusted func diverge() -> never
     uses(device_memory, intrinsic, raw_memory, unchecked_alias, unchecked_init)
 {
-    trusted core.target.diverging_assembly<(i32,)>(
+    core.target.diverging_assembly<(i32,)>(
         template = "ud2",
         constraints = "reg",
         clobbers = "",
@@ -265,7 +265,7 @@ trusted func device_roundtrip(pos pointer: DevicePointer<u8>, pos value: u8) -> 
 {
     trusted core.target.device_volatile_store<u8>(pointer, value);
     let result = trusted core.target.device_volatile_load<u8>(pointer);
-    trusted core.target.assembly<(DevicePointer<u8>,), unit>(
+    core.target.assembly<(DevicePointer<u8>,), unit>(
         template = "",
         constraints = "m",
         clobbers = "memory",
@@ -635,7 +635,7 @@ fn direct_platform_bindings_and_callback_entries_cover_every_native_target() {
         "}\n",
         "func main()\n",
         "{\n",
-        "    let status: PlatformStatus = trusted flush();\n",
+        "    let status: PlatformStatus = flush();\n",
         "}\n",
     );
 
@@ -873,7 +873,7 @@ trusted internal func create_directory(pos path: NativePath) -> PlatformStatus
 func platform_path_override_test()
 {
     let path: NativePath = { address = core.memory.null<u8>(), length = 0, terminated = 0 };
-    let status: PlatformStatus = trusted create_directory(path);
+    let status: PlatformStatus = create_directory(path);
 }
 "#;
 
@@ -937,12 +937,12 @@ fn bray_platform_service_implementations_are_native_fallbacks() {
         "}\n",
         "func main()\n",
         "{\n",
-        "    let status: PlatformStatus = trusted flush();\n",
+        "    let status: PlatformStatus = flush();\n",
         "}\n",
         "@test\n",
         "func platform_service_test()\n",
         "{\n",
-        "    let status: PlatformStatus = trusted flush();\n",
+        "    let status: PlatformStatus = flush();\n",
         "}\n",
     );
 

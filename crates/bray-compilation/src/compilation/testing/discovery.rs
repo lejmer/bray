@@ -233,19 +233,9 @@ mod tests {
             ["faster", "slower"]
         );
 
-        assert_eq!(
-            entries[0].identity().declaration().name().as_str(),
-            "faster"
-        );
-
         assert_eq!(entries[0].execution(), CallableExecution::Synchronous);
         assert_eq!(entries[0].constraint(), TestExecutionConstraint::Parallel);
         assert_eq!(entries[0].result(), TestResultShape::Unit);
-
-        assert_eq!(
-            entries[1].identity().declaration().name().as_str(),
-            "slower"
-        );
 
         assert_eq!(entries[1].execution(), CallableExecution::Asynchronous);
         assert_eq!(entries[1].constraint(), TestExecutionConstraint::Serial);
@@ -267,42 +257,40 @@ mod tests {
         let catalog = discovery.value().catalog();
         let alpha = &catalog.entries()[0];
 
-        let name = TestFilter::name_contains("a")
+        let name = TestFilter::name_contains("mm")
             .unwrap_or_else(|| panic!("non-empty test name filter must be valid"));
 
-        let serial = TestSelection::from_catalog(
-            catalog,
-            &TestSelectionQuery::new(
-                [
-                    name,
-                    TestFilter::Constraint(TestExecutionConstraint::Serial),
-                ],
-                None,
-            ),
-        );
+        fn names(selection: &TestSelection) -> Vec<&str> {
+            selection.entries().iter().map(|entry| entry.identity().declaration().name().as_str()).collect()
+        }
 
-        assert_eq!(serial.entries().len(), 1);
-
-        assert_eq!(
-            serial.entries()[0].identity().declaration().name().as_str(),
-            "gamma"
-        );
+        let other_package = bray_symbols::PackageIdentity::try_new("other.package").expect("test package");
+        let other_product = ProductIdentity::try_new(catalog.product().package().clone(), "other").expect("test product");
 
         let exact_filters = [
-            TestFilter::Package(catalog.product().package().clone()),
-            TestFilter::Product(catalog.product().clone()),
-            TestFilter::Module(alpha.identity().declaration().module().clone()),
-            TestFilter::Declaration(alpha.identity().declaration().clone()),
-            TestFilter::Identity(alpha.identity().clone()),
+            (name.clone(), &["gamma"][..]),
+            (TestFilter::Package(catalog.product().package().clone()), &["alpha", "beta", "gamma"][..]),
+            (TestFilter::Product(catalog.product().clone()), &["alpha", "beta", "gamma"][..]),
+            (TestFilter::Module(alpha.identity().declaration().module().clone()), &["alpha", "beta"][..]),
+            (TestFilter::Declaration(alpha.identity().declaration().clone()), &["alpha"][..]),
+            (TestFilter::Identity(alpha.identity().clone()), &["alpha"][..]),
+            (TestFilter::Package(other_package), &[][..]),
+            (TestFilter::Product(other_product), &[][..]),
         ];
 
-        for filter in exact_filters {
+        for (filter, expected) in exact_filters {
             let selected =
                 TestSelection::from_catalog(catalog, &TestSelectionQuery::new([filter], None));
 
-            assert!(!selected.entries().is_empty());
+            assert_eq!(names(&selected), expected);
         }
 
+        let intersection = TestSelection::from_catalog(catalog, &TestSelectionQuery::new([
+            name,
+            TestFilter::Constraint(TestExecutionConstraint::Parallel),
+        ], None));
+
+        assert!(intersection.entries().is_empty());
         assert_eq!(catalog.entry(alpha.identity()), Some(alpha));
 
         let shard_count =
@@ -320,7 +308,8 @@ mod tests {
         let second =
             TestSelection::from_catalog(catalog, &TestSelectionQuery::new([], Some(second_shard)));
 
-        assert_eq!(first.entries().len() + second.entries().len(), 3);
+        assert_eq!(names(&first), ["alpha", "gamma"]);
+        assert_eq!(names(&second), ["beta"]);
         assert_eq!(first.discovered_count(), 3);
         assert_eq!(second.discovered_count(), 3);
     }

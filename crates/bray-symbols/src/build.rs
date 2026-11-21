@@ -838,8 +838,8 @@ mod tests {
     fn kind_specific_records_publish_typed_declaration_relationships() {
         let table = declaration_table(&[concat!(
             "module app; ",
-            "func make<T, const N: Int>(first: T = 1, second: T) {} ",
-            "struct Config<U> { value: U = 1; func read() {} static func create() {} } ",
+            "func make<T, const N: i32>(first: i32 = 1, second: T) {} ",
+            "struct Config<U> { value: i32 = 1; func read() {} static func create() {} } ",
             "union Maybe { Some(value: Int = 1); None; } ",
             "overload create = {make}",
         )]);

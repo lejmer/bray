@@ -90,14 +90,14 @@ fn borrowed_completion_preserves_the_reached_owner_for_cleanup() {
             false,
         ),
         ("forget(&owner);", true),
-        ("may_fail(&owner);", true),
+        ("may_fail(&owner, fail);", true),
     ] {
         let source = format!(
             r#"
             trusted module app;
             struct Owner
             {{
-                epoch: u64;
+                mut epoch: u64;
                 trusted destruct() requires(trusted live(&self))
                 {{
                 }}
@@ -120,17 +120,17 @@ fn borrowed_completion_preserves_the_reached_owner_for_cleanup() {
             }}
             trusted func observe(pos value: &Owner)
                 requires(trusted live(value)) ensures(trusted live(value)) executes(total) {{}}
-            trusted func may_fail(pos value: &Owner)
+            trusted func may_fail(pos value: &Owner, pos fail: bool)
                 requires(trusted live(value)) ensures(trusted live(value))
             {{
-                if value.epoch == 2 {{ panic("stopped"); }}
+                if fail {{ panic("stopped"); }}
             }}
             trusted func observe_mut(pos value: &mut Owner)
                 requires(trusted live(&value)) ensures(trusted live(&value)) executes(total) {{}}
             func forget(pos value: &Owner)
             {{
             }}
-            func caller()
+            func caller(pos fail: bool)
             {{
                 let mut owner = make();
                 {body}
@@ -140,12 +140,7 @@ fn borrowed_completion_preserves_the_reached_owner_for_cleanup() {
 
         let compilation = compilation(&source);
 
-        assert_eq!(
-            !compilation.check_diagnostics().has_errors(),
-            valid,
-            "{source}: {:?}",
-            compilation.check_diagnostics()
-        );
+        assert_cleanup_outcome(compilation.check_diagnostics(), valid, &source);
     }
 }
 
@@ -184,21 +179,32 @@ fn cleanup_checks_destructor_against_finalizer_completion() {
                 }}
             }}
 
-            func caller()
+            func caller(pos epoch: u64)
             {{
-                let value: Owner = {{ epoch = 1 }};
+                let value: Owner = {{ epoch = epoch }};
             }}
         "#
         );
 
         let compilation = compilation(&source);
 
-        assert_eq!(
-            !compilation.check_diagnostics().has_errors(),
-            valid,
-            "{source}: {:?}",
-            compilation.check_diagnostics()
-        );
+        assert_cleanup_outcome(compilation.check_diagnostics(), valid, &source);
+    }
+}
+
+#[track_caller]
+fn assert_cleanup_outcome(diagnostics: &bray_diagnostics::DiagnosticBag, valid: bool, source: &str) {
+    bray_testing::assert_goal_state_diagnostic_outcome(
+        diagnostics,
+        (!valid).then_some(DiagnosticKind::CheckingTrustedObligationNotProven),
+        source,
+    );
+
+    if !valid {
+        assert!(diagnostics.iter().any(|diagnostic| diagnostic.args().iter().any(|argument| {
+            matches!(argument.value(), bray_diagnostics::DiagnosticArgValue::ContractObligation(obligation)
+                if obligation.kind == bray_diagnostics::DiagnosticContractObligationKind::CleanupRequirement)
+        })), "{source}: expected a cleanup requirement failure, got {diagnostics:?}");
     }
 }
 

@@ -311,7 +311,7 @@ impl CheckerRequestContext for TestCheckerContext {
         ))
     }
 
-    fn storage_member_type(
+    fn storage_declaration_type(
         &self,
         member: AnySymbolId,
     ) -> CheckerQueryResult<
@@ -328,7 +328,12 @@ impl CheckerRequestContext for TestCheckerContext {
                     bray_symbols::UnionPayloadFieldTypeQuery,
                 >::new(field))
             }
-            _ => panic!("storage member type requires a checked field: {member:?}"),
+            AnySymbolId::Static(declaration) => {
+                self.resolve_symbol_query(bray_symbols::SymbolQueryRequest::<
+                    bray_symbols::StaticDeclaredTypeQuery,
+                >::new(declaration))
+            }
+            _ => panic!("storage declaration type requires a checked field or static: {member:?}"),
         }
     }
 

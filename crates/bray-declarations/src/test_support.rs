@@ -12,6 +12,8 @@ pub(crate) fn parse_valid_source_unit_for_test(source: &SourceSnapshot) -> Sourc
 
     let (_source_id, source_unit, _diagnostics) = result.into_parts();
 
+    assert!(!source_unit.is_recovered());
+
     source_unit
 }
 

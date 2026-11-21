@@ -54,29 +54,6 @@ internal func runtime_failure(pos status: u32) -> bray.runtime.bootstrap.ReportO
     };
 }
 
-trusted internal func retain_task(
-    pos owner: &bray.runtime.bootstrap.execution.Reference,
-    pos handle: u64
-) -> (bray.runtime.bootstrap.task.Reference?, u32)
-    requires(trusted bray.runtime.bootstrap.execution.retained(owner = owner))
-    ensures(
-        trusted bray.runtime.bootstrap.execution.retained(owner = owner),
-        trusted bray.runtime.bootstrap.task.retained_option(owner = &result.0)
-    )
-{
-    let value = trusted domain(owner);
-    let lease = trusted bray.runtime.bootstrap.host.host_access();
-
-    if !lease.active
-    {
-        return (none, 4);
-    }
-
-    let mut anchor = trusted bray.runtime.bootstrap.task.arena_anchor(&value.arena, &lease);
-
-    return trusted bray.runtime.bootstrap.task.retain_locked(&lease, &mut anchor, handle);
-}
-
 @abi(c)
 trusted internal func root_observation(pos handle: u64) -> bray.runtime.bootstrap.ReportOutcome
     requires(

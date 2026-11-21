@@ -620,7 +620,7 @@ pub enum LinkOutputStagingBuildError {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Mutex;
 
     use bray_codegen::{
         ArtifactContent, ArtifactDigest, ArtifactDigestAlgorithm, AssemblySyntaxKind,
@@ -814,13 +814,41 @@ mod tests {
 
         let plan = linked_plan(directory.path().to_owned());
         let contribution = staged_contribution(&plan, b"object bytes");
-        let observations = AtomicUsize::new(0);
-        let cancellation = || observations.fetch_add(1, Ordering::AcqRel) >= 2;
+        let observed = Mutex::new(None);
+
+        let cancellation = || {
+            let mut directories = vec![directory.path().to_path_buf()];
+
+            while let Some(parent) = directories.pop() {
+                for entry in std::fs::read_dir(parent).expect("test staging root must be readable") {
+                    let entry = entry.expect("test staging entry must be readable");
+
+                    if !entry.file_type().expect("test staging entry must have a type").is_dir() {
+                        continue;
+                    }
+
+                    if entry.file_name().to_string_lossy().starts_with(super::LINK_TRANSACTION_PREFIX) {
+                        *observed.lock().expect("private link observation must be available") = Some(entry.path());
+
+                        return true;
+                    }
+
+                    directories.push(entry.path());
+                }
+            }
+
+            false
+        };
 
         assert!(matches!(
             LinkStaging::prepare(&plan, [contribution], &cancellation),
             Err(super::LinkStagingError::Cancelled)
         ));
+
+        let transaction = observed.into_inner().expect("private link observation must be available")
+            .expect("cancellation must occur after the link transaction is created");
+
+        assert!(!transaction.exists());
 
         let selection = crate::StorageSelection {
             kind: Some(crate::StorageKind::Intermediates),

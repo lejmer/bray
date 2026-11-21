@@ -195,7 +195,6 @@ trusted internal func acquire_worker_ready(
         trusted bray.runtime.bootstrap.worker.scope_live(owner = &scope.marker),
         trusted view_owned(owner = &selected.acquisition)
     )
-    uses(raw_memory, unchecked_init)
 {
     let ready = match consume trusted bray.runtime.bootstrap.worker.acquire_ready(
         scope,
@@ -206,12 +205,12 @@ trusted internal func acquire_worker_ready(
         case none { return false; }
     };
 
-    let pending: bray.runtime.bootstrap.scheduler.Observation? = ready;
+    {
+        let mut guard = trusted (trusted context(selected)).pending.lock();
+        let pending = trusted guard.get();
 
-    trusted std.memory.write<(bray.runtime.bootstrap.scheduler.Observation?)>(
-        trusted pending_storage(selected),
-        pending
-    );
+        pending = ready;
+    }
 
     return true;
 }
@@ -228,17 +227,17 @@ trusted internal func record_worker_failure(
         trusted bray.runtime.bootstrap.host.product.native_host()
     )
     ensures(trusted view_owned(owner = &selected.acquisition))
-    uses(raw_memory, intrinsic)
+    uses(intrinsic)
 {
-    let ready = match trusted std.memory.read<(bray.runtime.bootstrap.scheduler.Observation?)>(
-        trusted pending_storage(selected)
-    )
+    let arena = &(trusted domain(owner)).arena;
+
+    let ready = match trusted pending_observation(selected)
     {
         case ?value { yield value; }
         case none { yield trusted core.target.abort(); }
     };
 
-    let (reference, status) = trusted retain_task(owner, ready.task);
+    let (reference, status) = trusted bray.runtime.bootstrap.task.retain_in_arena(arena, ready.task);
 
     if reference matches none
     {

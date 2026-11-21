@@ -561,14 +561,11 @@ impl Compilation {
         ty: TypeId,
         cancellation: &CancellationToken,
     ) -> Result<Option<TargetAtomicRepresentation>, FactQueryError> {
-        let Ok(target) = self.selected_target().target().codegen_target() else {
-            return Ok(None);
-        };
+        let target = self.selected_target().target().profile();
 
-        match atomic_representation_for_type(self, ty, &target, cancellation) {
+        match atomic_representation_for_type(self, ty, target, cancellation) {
             Ok(Some(representation))
                 if target
-                    .profile()
                     .properties()
                     .atomics()
                     .representation(representation)

@@ -1,10 +1,12 @@
 use super::super::core::StorageFlowCollector;
+use super::super::diagnostics::DiagnosticSubject;
 use crate::CheckerRequestContext;
+use crate::analysis::storage_flow::memory::Effect;
 use crate::analysis::storage_flow::model::StorageFlowState;
-use bray_bound_tree::{BoundExpressionId, MemoryOperationStatus};
+use bray_bound_tree::{BoundExecutionSite, MemoryOperationStatus, StorageValueBinding};
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticId, DiagnosticKind, DiagnosticLabel, DiagnosticLabelKind,
-    DiagnosticRelatedLocation, DiagnosticRelatedLocationKind, SeverityKind,
+    DiagnosticMemoryOperation, DiagnosticRelatedLocation, DiagnosticRelatedLocationKind, SeverityKind,
 };
 
 const fn memory_diagnostic_kind(status: MemoryOperationStatus) -> Option<DiagnosticKind> {
@@ -33,49 +35,44 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         state: &StorageFlowState,
         operation: &bray_bound_tree::CheckedMemoryOperation,
         status: MemoryOperationStatus,
-    ) -> Vec<(DiagnosticRelatedLocationKind, Vec<BoundExpressionId>)> {
-        let storages = operation
-            .arguments()
-            .iter()
-            .filter_map(|argument| self.memory_argument_target(state, operation, *argument))
-            .collect::<Vec<_>>();
-
-        match status {
-            MemoryOperationStatus::InvalidatedAllocation => vec![
-                (
-                    DiagnosticRelatedLocationKind::AllocationOrigin,
-                    storages
-                        .iter()
-                        .flat_map(|storage| state.memory.allocation_origins(storage))
-                        .collect(),
-                ),
-                (
-                    DiagnosticRelatedLocationKind::DeallocationOrigin,
-                    storages
-                        .iter()
-                        .flat_map(|storage| state.memory.invalidation_origins(storage))
-                        .collect(),
-                ),
-            ],
-            MemoryOperationStatus::UninitializedRawStorage => vec![(
-                DiagnosticRelatedLocationKind::AllocationOrigin,
-                storages
-                    .iter()
-                    .flat_map(|storage| state.memory.allocation_origins(storage))
-                    .collect(),
-            )],
-            MemoryOperationStatus::OutstandingObligations => vec![(
+        pointer: Option<&StorageValueBinding>,
+    ) -> Vec<(DiagnosticRelatedLocationKind, Vec<BoundExecutionSite>)> {
+        if status == MemoryOperationStatus::OutstandingObligations {
+            return vec![(
                 DiagnosticRelatedLocationKind::InitializationOrigin,
-                storages
-                    .iter()
-                    .flat_map(|storage| state.memory.initialization_origins(storage))
-                    .collect(),
-            )],
-            MemoryOperationStatus::Unreachable
-            | MemoryOperationStatus::Valid
-            | MemoryOperationStatus::Recovered
-            | MemoryOperationStatus::MissingTrustedEvidence => Vec::new(),
+                state.memory.deallocation_duty_origins(pointer).into_iter().map(Into::into).collect(),
+            )];
         }
+
+        if !matches!(
+            status,
+            MemoryOperationStatus::InvalidatedAllocation | MemoryOperationStatus::UninitializedRawStorage
+        ) {
+            return Vec::new();
+        }
+
+        let execution = state.execution.as_ref().expect("memory diagnostics retain the evaluated inputs");
+
+        let reached = || {
+            pointer.into_iter().flat_map(|pointer| state.memory.captured_referent_contents(pointer))
+                .chain(operation.arguments().iter().filter(|_| pointer.is_none())
+                    .filter_map(|argument| self.captured_memory_operand(execution, operation, *argument)?.binding())
+                    .flat_map(|pointer| state.memory.captured_referent_contents(pointer)))
+        };
+
+        let mut origins = vec![(
+            DiagnosticRelatedLocationKind::AllocationOrigin,
+            reached().flat_map(|contents| contents.allocations.iter().copied()).map(Into::into).collect(),
+        )];
+
+        if status == MemoryOperationStatus::InvalidatedAllocation {
+            origins.push((
+                DiagnosticRelatedLocationKind::DeallocationOrigin,
+                reached().flat_map(|contents| contents.invalidations.iter().copied()).collect(),
+            ));
+        }
+
+        origins
     }
 
     pub(super) fn add_memory_diagnostic(
@@ -83,30 +80,69 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         state: &StorageFlowState,
         operation: &bray_bound_tree::CheckedMemoryOperation,
         status: MemoryOperationStatus,
+        pointer: Option<&StorageValueBinding>,
     ) {
         let Some(kind) = memory_diagnostic_kind(status) else {
             return;
         };
 
-        let origins = self.memory_failure_origins(state, operation, status);
-        let expression = operation.expression();
+        let origins = self.memory_failure_origins(state, operation, status, pointer);
 
-        if !self.reported_memory_diagnostics.insert((kind, expression)) {
-            return;
+        self.record_memory_diagnostic(operation.expression().into(), kind,
+            crate::memory_diagnostics::diagnostic_checked_memory_operation(operation.kind()), origins);
+    }
+
+    pub(in crate::analysis::storage_flow::check::analysis) fn check_raw_retirements(
+        &mut self,
+        state: &StorageFlowState,
+        occurrence: BoundExecutionSite,
+        effects: &[Effect],
+    ) {
+        use bray_symbols::{DependencyMutationKind as Mutation, DependencyReferenceKind};
+
+        if !self.publish { return; }
+
+        let mut origins = Vec::new();
+        let mut failed = false;
+
+        for effect in effects {
+            let Effect::Mutation { address: Some(address), discharged, kind: Mutation::Retire, access_type: Some(ty), .. } = effect else { continue; };
+
+            if crate::representation::reference_kind(self.request, *ty) != Some(DependencyReferenceKind::Address) {
+                continue;
+            }
+
+            if let Some(pending) = state.memory.retirement_obligations(address, discharged.as_deref().unwrap_or_default()) {
+                if std::env::var_os("BRA_694_TRACE_BOOTSTRAP").is_some() {
+                    eprintln!("raw retirement {occurrence:?} at {:?}: address={address:?} discharged={discharged:?} pending={pending:?}", self.request.unit().key());
+                }
+
+                failed = true;
+                origins.extend(pending.into_iter().map(BoundExecutionSite::from));
+            }
         }
 
-        let node = self
-            .request
-            .view()
-            .expression(expression)
-            .unwrap_or_else(|| {
-                panic!("checked memory operation {expression:?} retains its bound expression")
-            });
+        if failed {
+            self.record_memory_diagnostic(occurrence, DiagnosticKind::CheckingDeallocationWithOutstandingObligations,
+                DiagnosticMemoryOperation::RawDeallocation,
+                [(DiagnosticRelatedLocationKind::InitializationOrigin, origins)]);
+        }
+    }
 
-        let span = self.request.source(node.origin().source_anchor()).span();
+    fn record_memory_diagnostic(
+        &mut self,
+        occurrence: BoundExecutionSite,
+        kind: DiagnosticKind,
+        operation: DiagnosticMemoryOperation,
+        origins: impl IntoIterator<Item = (DiagnosticRelatedLocationKind, Vec<BoundExecutionSite>)>,
+    ) {
+        let node = crate::diagnostic::bound_node_origin(self.request, occurrence.node())
+            .unwrap_or_else(|| panic!("checked memory transition {occurrence:?} retains its bound source"));
+
+        let span = self.request.source(node.source_anchor()).span();
 
         let mut diagnostic = Diagnostic::new(
-            DiagnosticId::from_index(self.diagnostics.len()),
+            DiagnosticId::new(0),
             kind,
             SeverityKind::Error,
         )
@@ -115,20 +151,18 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             DiagnosticLabelKind::MemoryOperationFailure,
             span,
         ))
-        .with_arg(DiagnosticArg::memory_operation(
-            crate::memory_diagnostics::diagnostic_checked_memory_operation(operation.kind()),
-        ));
+        .with_arg(DiagnosticArg::memory_operation(operation));
 
         for (kind, origins) in origins {
             for origin in origins
                 .into_iter()
                 .collect::<std::collections::BTreeSet<_>>()
             {
-                let node = self.request.view().expression(origin).unwrap_or_else(|| {
-                    panic!("memory failure origin {origin:?} retains its bound expression")
+                let node = crate::diagnostic::bound_node_origin(self.request, origin.node()).unwrap_or_else(|| {
+                    panic!("memory failure origin {origin:?} retains its bound source")
                 });
 
-                let source = self.request.source(node.origin().source_anchor());
+                let source = self.request.source(node.source_anchor());
 
                 if source.span() != span {
                     diagnostic = diagnostic
@@ -137,6 +171,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             }
         }
 
-        self.diagnostics.add(diagnostic);
+        self.diagnostics.record(DiagnosticSubject::Memory(kind, occurrence), diagnostic);
     }
 }

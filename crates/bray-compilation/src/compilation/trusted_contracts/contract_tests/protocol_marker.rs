@@ -144,11 +144,11 @@ fn shared_protocol_markers_survive_native_exposure_and_loop_merges() {
                     uses(foreign_call)
                 {{
                     {binding}
-                    _ = trusted publish(owner);
+                    _ = publish(owner);
                     let mut index: u32 = 0;
                     while index < count
                     {{
-                        if index & 1 == 0 {{ trusted opaque(owner.pointer); }}
+                        if index & 1 == 0 {{ opaque(owner.pointer); }}
                         {use_owner}
                         observe_scalar(&owner.identity);
                         advance(&mut index);

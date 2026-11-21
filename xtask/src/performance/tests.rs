@@ -507,9 +507,15 @@ fn compilation_comparability_rejects_source_sizes_outside_the_syntax_tolerance()
         panic!("dissimilar source sizes must be incomparable");
     };
 
-    assert!(reasons.values().all(|reasons| {
-        reasons.contains(&CompilationIncomparability::DifferentSourceByteScale)
-    }));
+    assert_eq!(reasons.len(), 2);
+
+    for language in [CompilationLanguage::Bray, CompilationLanguage::Rust] {
+        assert_eq!(
+            reasons.get(&language).map(Vec::as_slice),
+            Some([CompilationIncomparability::DifferentSourceByteScale].as_slice()),
+            "{language:?}"
+        );
+    }
 }
 
 #[test]

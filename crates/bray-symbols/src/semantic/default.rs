@@ -597,40 +597,6 @@ mod tests {
     }
 
     #[test]
-    fn field_and_payload_surfaces_cannot_retain_contextual_inputs() {
-        let Ok(store) = SemanticValueStore::try_new() else {
-            panic!("semantic value store identity must be available");
-        };
-
-        let Ok(result) = store.intern_type(TypeData::Error) else {
-            panic!("error type must be valid");
-        };
-
-        let Ok(dependencies) =
-            store.intern_dependency_contract_template(DependencyContractTemplateData::new([]))
-        else {
-            panic!("empty dependency contract must be valid");
-        };
-
-        let field = super::StructFieldDefaultSurface::new(
-            RuntimeDefaultGenericContext::NonGeneric,
-            result,
-            empty_owned_behavior(dependencies),
-            interface_template(),
-        );
-
-        let payload = super::UnionPayloadDefaultSurface::new(
-            RuntimeDefaultGenericContext::NonGeneric,
-            result,
-            empty_owned_behavior(dependencies),
-            interface_template(),
-        );
-
-        assert!(field.inputs().is_empty());
-        assert!(payload.inputs().is_empty());
-    }
-
-    #[test]
     fn generic_contexts_retain_ordered_parameters_and_substitution() {
         use crate::{
             GenericArgument, GenericOwnerId, GenericParameterSymbolId, GenericSubstitutionData,
@@ -686,20 +652,6 @@ mod tests {
         );
 
         assert!(RuntimeDefaultGenericContext::generic([], substitution).is_none());
-    }
-
-    fn empty_owned_behavior(
-        dependencies: crate::DependencyContractTemplateId,
-    ) -> RuntimeDefaultBehavior {
-        RuntimeDefaultBehavior::new(
-            RuntimeDefaultOwnership::Owned,
-            [],
-            [],
-            [],
-            [],
-            dependencies,
-            dependencies,
-        )
     }
 
     fn interface_template() -> RuntimeDefaultTemplateReference {

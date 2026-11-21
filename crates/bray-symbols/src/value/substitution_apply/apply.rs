@@ -560,7 +560,7 @@ impl SemanticValueStore {
             .collect()
     }
 
-    fn substitute_static_reference(
+    pub(in crate::value) fn substitute_static_reference(
         &self,
         selection: &StaticReferenceSelection,
         substitution: &Substitution<'_>,
@@ -939,8 +939,8 @@ mod tests {
                     source_subject.clone(),
                     DependencyRequirementKind::StorageAlive,
                 )])
-                .with_borrows([projected_reference(source_term)])
-                .with_stored_values([stored_value(source_term)]),
+                .with_captured_values([crate::CapturedValueOutcome::new(None, [])
+                    .with_storage([projected_reference(source_term)], [stored_value(source_term)])]),
             )
             .unwrap_or_else(|error| panic!("invocation contract interning failed: {error:?}"));
 
@@ -1012,8 +1012,8 @@ mod tests {
                 target_subject.clone(),
                 DependencyRequirementKind::StorageAlive,
             )])
-            .with_borrows([projected_reference(target_term)])
-            .with_stored_values([stored_value(target_term)])
+            .with_captured_values([crate::CapturedValueOutcome::new(None, [])
+                .with_storage([projected_reference(target_term)], [stored_value(target_term)])])
         );
 
         assert_eq!(

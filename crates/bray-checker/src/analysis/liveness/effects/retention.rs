@@ -19,7 +19,7 @@ impl OperationEffects {
         cleanup: &crate::analysis::guarantee::CleanupPlan,
     ) {
         use crate::analysis::model::{AnalysisCallPhase, AnalysisOperationKind};
-        use bray_bound_tree::{BoundExecutionSite, CallReportOutput, SemanticSelection};
+        use bray_bound_tree::{BoundExecutionSite, SemanticSelection};
 
         let reporting = cleanup
             .reporting_accesses(dependencies)
@@ -32,9 +32,10 @@ impl OperationEffects {
 
         let mut reporting_scopes = BTreeMap::<_, BTreeSet<_>>::new();
 
-        for requirement in cleanup.requirements.iter().filter(|requirement| {
-            !requirement.transfers() && reporting.contains(&requirement.identity())
-        }) {
+        for requirement in reporting.iter()
+            .filter_map(|identity| cleanup.requirements.get(*identity))
+            .filter(|requirement| !requirement.transfers())
+        {
             if let Some(scope) = requirement.owner() {
                 reporting_scopes
                     .entry(scope)
@@ -90,13 +91,19 @@ impl OperationEffects {
                     .expect("report retention operation belongs to its graph")
             }) {
                 if let AnalysisOperationKind::ScopeExit { scope: exited, .. } = operation.kind() {
+                    let abandoned = match exited {
+                        bray_bound_tree::StorageScope::AbandonedTransfer { value, .. } if reporting.contains(&value) => Some(value),
+                        _ => None,
+                    };
+
                     for owner in
                         std::iter::successors(Some(boundary), |owner| graph.report_parent(*owner))
                     {
                         self.value_requirements
                             .entry(owner.into())
                             .or_default()
-                            .extend(reporting_scopes.get(&exited).into_iter().flatten().map(|root| bray_bound_tree::BoundDependencyRequirement::direct(BoundDependencySubject::Storage(*root), bray_bound_tree::BoundDependencyRequirementKind::ValueDependencies)));
+                            .extend(abandoned.into_iter().chain(reporting_scopes.get(&exited).into_iter().flatten().copied())
+                                .map(|root| bray_bound_tree::BoundDependencyRequirement::direct(BoundDependencySubject::Storage(root), bray_bound_tree::BoundDependencyRequirementKind::ValueDependencies)));
                     }
                 }
 
@@ -132,7 +139,9 @@ impl OperationEffects {
                 }
 
                 if phase == AnalysisCallPhase::Attempt {
-                    if let Some(contract) = call.report(CallReportOutput::Abnormal) {
+                    for (_, _, report) in call.reports().abnormal() {
+                        let contract = report.storage();
+
                         self.value_requirements
                             .entry(boundary.into())
                             .or_default()
@@ -153,9 +162,8 @@ impl OperationEffects {
                     continue;
                 }
 
-                let mut reports = call
-                    .report(CallReportOutput::Completed)
-                    .into_iter()
+                let mut reports = call.reports().completed()
+                    .map(|(_, report)| report.storage())
                     .collect::<Vec<_>>();
 
                 if let (BoundExecutionSite::ScopedExit(expression), Some(exit)) =
@@ -231,7 +239,7 @@ impl OperationEffects {
             .access_plans()
             .iter()
             .filter_map(|plan| {
-                reaches_borrowed_storage(request.semantic_values(), storage, plan.access())
+                storage.reference_route(plan.access()).is_none_or(|(_, route)| route.first_borrow_kind().is_some())
                     .then_some(plan.occurrence())
             })
             .collect::<BTreeSet<_>>();
@@ -434,38 +442,6 @@ impl OperationEffects {
 
         self.owner_dependencies = retained_by_expression;
     }
-}
-
-fn reaches_borrowed_storage(
-    values: &bray_symbols::SemanticValueStore,
-    storage: &StoragePlan,
-    access: bray_bound_tree::StorageAccessId,
-) -> bool {
-    let Some(root) = storage.root_identity(access) else {
-        return true;
-    };
-
-    let Some(path) = storage.resolved_projections(access) else {
-        return true;
-    };
-
-    (0..path.len()).any(|length| {
-        let ty = if length == 0 {
-            storage.identity_type(root)
-        } else {
-            storage
-                .access_at(root, &path[..length])
-                .and_then(|access| storage.access(access))
-                .map(|access| access.reached_type())
-        };
-
-        ty.is_none_or(|ty| {
-            matches!(
-                values.type_data(ty).as_ref(),
-                bray_symbols::TypeData::Borrow { .. }
-            )
-        })
-    })
 }
 
 fn index_value_sources_by_root(

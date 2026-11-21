@@ -411,7 +411,7 @@ fn at_generic_argument_expression_only_start(kind: SyntaxKind) -> bool {
 mod tests {
     use bray_diagnostics::DiagnosticKind;
     use bray_syntax::SeparatedSyntaxNode;
-    use bray_syntax::SyntaxText;
+    use bray_syntax::{SyntaxKind, SyntaxText};
     use bray_testing::test_source_store as source_store;
 
     use super::super::state::Parser;
@@ -443,7 +443,7 @@ mod tests {
     }
 
     #[test]
-    fn nested_storage_constants_parse_without_speculative_trees() {
+    fn nested_storage_constants_parse_as_generic_value_arguments() {
         let mut argument = "N".to_owned();
 
         for _ in 0..12 {
@@ -455,7 +455,27 @@ mod tests {
             assert!(!parsed.is_recovered());
             assert!(parsed.diagnostics().is_empty());
 
-            assert_eq!(parsed.type_expression().generic_argument_lists().count(), 1);
+            let lists = parsed.type_expression().generic_argument_lists().collect::<Vec<_>>();
+
+            let [list] = lists.as_slice() else {
+                panic!("the parsed type has one generic argument list");
+            };
+
+            let arguments = list.generic_arguments().collect::<Vec<_>>();
+
+            let [value] = arguments.as_slice() else {
+                panic!("the parsed type has one generic argument");
+            };
+
+            let expressions = value.expressions().collect::<Vec<_>>();
+
+            let [expression] = expressions.as_slice() else {
+                panic!("the argument is a value expression");
+            };
+
+            assert!(value.type_expressions().next().is_none());
+            assert_eq!(expression.operator_token().map(|token| token.kind()), Some(SyntaxKind::PlusToken));
+            assert_eq!(expression.full_text().trim(), argument);
         }
     }
 

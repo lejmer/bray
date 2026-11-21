@@ -27,6 +27,8 @@ pub enum InterfaceDependencySubjectRoot {
     ProductStatic(InterfaceSymbolReference),
     /// Exact-thread static declaration identity.
     ExactThreadStatic(InterfaceSymbolReference),
+    /// One selected static specialization and its ownership domain.
+    StaticInstance(super::InterfaceStaticReference, bray_symbols::StaticStorageDuration),
 }
 
 /// One source-independent dependency-subject projection.
@@ -309,66 +311,42 @@ pub enum InterfaceDependencyRequirementKind {
     LifecycleObligation(LifecycleObligationKind),
 }
 
+/// Selected callable, signature and witnesses in the package interface.
+pub type InterfaceCapturedCallable = bray_symbols::CapturedCallable<crate::InterfaceCallableInstanceId, crate::InterfaceTypeId,
+    (crate::InterfaceTypeId, crate::InterfaceTraitApplicationId), crate::InterfaceImplementationInstanceId>;
+
+/// Portable effect with interface-local subject, projection and type identities.
+pub type InterfaceStorageEffect = bray_symbols::DependencyStorageEffect<
+    InterfaceDependencySubject, InterfaceDependencyProjection, crate::InterfaceTypeId,
+>;
+
+/// Guarded normal values and ownership using interface-local identities.
+pub type InterfaceNormalOutcome = bray_symbols::CapturedValueOutcome<InterfaceDependencySubject, InterfaceConstantTermId,
+    InterfaceDependencyProjection, super::InterfaceStaticReference, InterfaceConstantTermId, super::InterfaceConstantProjection, InterfaceCapturedCallable, crate::InterfaceSymbolReference, InterfaceDependencyRequirement, InterfaceStorageEffect, InterfaceDependencySubject>;
+
+/// An evaluated value bound to its caller-visible storage destination.
+pub type InterfaceCapturedBinding = (InterfaceDependencySubject, bray_symbols::CapturedValueTemplate<InterfaceConstantTermId,
+    InterfaceDependencyProjection, super::InterfaceStaticReference, InterfaceCapturedCallable, crate::InterfaceSymbolReference>);
+
+/// One abnormal outcome using interface-local identities.
+pub type InterfaceFailureOutcome = bray_symbols::CapturedFailureOutcome<InterfaceConstantTermId,
+    Arc<[InterfaceDependencyRequirement]>, InterfaceStorageEffect, InterfaceCapturedBinding>;
+
 /// One normalized portable dependency contract.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct InterfaceDependencyContract {
-    pub(crate) owned_result: bray_symbols::DependencyOwnedResult<
-        super::InterfaceConstantProjection,
-        super::InterfaceConstantTermId,
-    >,
-    pub(crate) observed_result: Option<super::InterfaceConstantTermId>,
-    pub(crate) stored_values: Arc<[bray_symbols::DependencyStoredValue<InterfaceDependencySubject>]>,
-    pub(crate) carriers: Arc<
-        [bray_symbols::DependencyWitnessCarrier<
-            InterfaceDependencyProjection,
-            InterfaceConstantTermId,
-        >],
-    >,
+    pub(crate) captured_values: Arc<[InterfaceNormalOutcome]>,
     pub(crate) synchronous_cleanup: Arc<[InterfaceDependencyRequirement]>,
     pub(crate) normal_completion: bool,
-    pub(crate) normal_storage_preserved: bool,
     pub(crate) requirements: Arc<[InterfaceDependencyRequirement]>,
-    pub(crate) completion_reports: Option<Arc<[InterfaceDependencyRequirement]>>,
-    pub(crate) abnormal_reports: Option<Arc<[InterfaceDependencyRequirement]>>,
-    pub(crate) effects: Arc<
-        [bray_symbols::DependencyStorageEffect<
-            InterfaceDependencySubject,
-            InterfaceDependencyProjection,
-            crate::InterfaceTypeId,
-        >],
-    >,
-    pub(crate) borrows: Arc<
-        [bray_symbols::DependencyBorrowRelation<
-            InterfaceDependencySubject,
-            InterfaceDependencyProjection,
-        >],
-    >,
+    pub(crate) failure_outcomes: Option<Arc<[InterfaceFailureOutcome]>>,
+    pub(crate) effects: Arc<[InterfaceStorageEffect]>,
 }
 
 impl InterfaceDependencyContract {
-    /// Records possible values stored in normal-output subtrees.
-    pub fn with_stored_values(mut self, values: impl IntoIterator<Item = bray_symbols::DependencyStoredValue<InterfaceDependencySubject>>) -> Self {
-        self.stored_values = bray_symbols::DependencyStoredValue::normalize(values);
-
-        self
-    }
-
-    /// Records the value observation without introducing storage identity or authority.
-    pub fn with_observed_result(mut self, result: Option<super::InterfaceConstantTermId>) -> Self {
-        self.observed_result = result;
-
-        self
-    }
-
-    /// Records exact input ownership preserved under each normal result condition.
-    pub fn with_owned_result(
-        mut self,
-        result: bray_symbols::DependencyOwnedResult<
-            super::InterfaceConstantProjection,
-            super::InterfaceConstantTermId,
-        >,
-    ) -> Self {
-        self.owned_result = result;
+    /// Records actual whole-value bindings produced by normal completion.
+    pub fn with_captured_values(mut self, values: impl IntoIterator<Item = InterfaceNormalOutcome>) -> Self {
+        self.captured_values = sorted_unique_shared_slice(values);
 
         self
     }
@@ -377,17 +355,11 @@ impl InterfaceDependencyContract {
     pub fn new(requirements: impl IntoIterator<Item = InterfaceDependencyRequirement>) -> Self {
         Self {
             requirements: sorted_unique_shared_slice(requirements),
-            completion_reports: None,
-            abnormal_reports: None,
+            captured_values: Arc::from([]),
+            failure_outcomes: None,
             synchronous_cleanup: Arc::new([]),
             normal_completion: true,
-            normal_storage_preserved: false,
-            owned_result: bray_symbols::DependencyOwnedResult::default(),
-            observed_result: None,
-            stored_values: Arc::new([]),
-            carriers: Arc::new([]),
-            borrows: Arc::new([]),
-            effects: Arc::new(bray_symbols::DependencyStorageEffect::opaque_call()),
+            effects: sorted_unique_shared_slice(InterfaceStorageEffect::opaque_call()),
         }
     }
 
@@ -397,50 +369,60 @@ impl InterfaceDependencyContract {
         mut self,
         requirements: impl IntoIterator<Item = InterfaceDependencyRequirement>,
     ) -> Self {
-        self.completion_reports = Some(sorted_unique_shared_slice(requirements));
+        let report = sorted_unique_shared_slice(requirements);
+
+        if self.captured_values.is_empty() {
+            self.captured_values = [InterfaceNormalOutcome::new(None, [])
+                .with_effects(self.effects.iter().cloned()).with_report(Some(report))].into();
+        } else {
+            self.captured_values = sorted_unique_shared_slice(self.captured_values.iter().cloned()
+                .map(|row| row.with_report(Some(Arc::clone(&report)))));
+        }
 
         self
     }
 
-    /// Records dependencies of reports propagated by panic or cancellation.
+    /// Describes a possible report from a callable whose failure prefix is opaque.
     pub fn with_abnormal_reports(
-        mut self,
+        self,
         requirements: impl IntoIterator<Item = InterfaceDependencyRequirement>,
     ) -> Self {
-        self.abnormal_reports = Some(sorted_unique_shared_slice(requirements));
+        self.with_failure_outcomes(Some([InterfaceFailureOutcome {
+            kind: None,
+            guard: None,
+            report: Some(sorted_unique_shared_slice(requirements)),
+            effects: None,
+            cell_changes: None,
+            writes: Arc::new([]),
+        }]))
+    }
+
+    /// Attaches the alternatives that can reach abnormal completion.
+    pub fn with_failure_outcomes(mut self, outcomes: Option<impl IntoIterator<Item = InterfaceFailureOutcome>>) -> Self {
+        self.failure_outcomes = outcomes.map(sorted_unique_shared_slice);
 
         self
     }
 
     pub(crate) fn all_requirements(&self) -> impl Iterator<Item = &InterfaceDependencyRequirement> {
+        self.output_requirements().chain(self.synchronous_cleanup.iter())
+    }
+
+    pub(crate) fn output_requirements(&self) -> impl Iterator<Item = &InterfaceDependencyRequirement> {
         self.requirements
             .iter()
             .chain(
-                self.completion_reports
-                    .iter()
-                    .flat_map(|requirements| requirements.iter()),
+                self.captured_values.iter().flat_map(|row| row.report.iter().flat_map(|requirements| requirements.iter())),
             )
+            .chain(self.captured_values.iter().flat_map(|row| row.report_payloads.iter())
+                .flat_map(|payload| payload.requirements.iter()))
             .chain(
-                self.abnormal_reports
-                    .iter()
-                    .flat_map(|requirements| requirements.iter()),
+                self.failure_reports().flatten(),
             )
-            .chain(self.synchronous_cleanup.iter())
     }
 
-    /// Attaches the complete returned carriers of declared trusted guarantees.
-    pub fn with_carriers(
-        mut self,
-        carriers: impl IntoIterator<
-            Item = bray_symbols::DependencyWitnessCarrier<
-                InterfaceDependencyProjection,
-                InterfaceConstantTermId,
-            >,
-        >,
-    ) -> Self {
-        self.carriers = sorted_unique_shared_slice(carriers);
-
-        self
+    pub(crate) fn failure_reports(&self) -> impl Iterator<Item = &[InterfaceDependencyRequirement]> {
+        self.failure_outcomes.as_deref().into_iter().flatten().filter_map(|row| row.report.as_deref())
     }
 
     /// Records whether execution can complete normally.
@@ -450,11 +432,10 @@ impl InterfaceDependencyContract {
         self
     }
 
-    /// Records checked storage preservation on normal return, independently of abnormal effects.
-    pub fn with_normal_storage_preservation(mut self, preserved: bool) -> Self {
-        self.normal_storage_preserved = preserved;
-
-        self
+    pub(crate) fn cell_changes(&self) -> impl Iterator<Item = &InterfaceStorageEffect> {
+        self.captured_values.iter().flat_map(|row| row.cell_changes.as_deref().into_iter().flatten())
+            .chain(self.failure_outcomes.as_deref().into_iter().flatten()
+                .flat_map(|row| row.cell_changes.as_deref().into_iter().flatten()))
     }
 
     /// Records cleanup that must be synchronous after generic substitution.
@@ -472,36 +453,13 @@ impl InterfaceDependencyContract {
         &self.synchronous_cleanup
     }
 
-    /// Attaches the complete checked mutation summary.
-    pub fn with_effects(
-        mut self,
-        effects: impl IntoIterator<
-            Item = bray_symbols::DependencyStorageEffect<
-                InterfaceDependencySubject,
-                InterfaceDependencyProjection,
-                crate::InterfaceTypeId,
-            >,
-        >,
-    ) -> Self {
-        self.effects = bray_symbols::DependencyStorageEffect::normalize(effects);
+    /// Attaches the conservative transition envelope across all outcomes.
+    pub fn with_effects(mut self, effects: impl IntoIterator<Item = InterfaceStorageEffect>) -> Self {
+        self.effects = sorted_unique_shared_slice(effects);
 
         self
     }
 
-    /// Attaches checked borrow identities across normal completion.
-    pub fn with_borrows(
-        mut self,
-        borrows: impl IntoIterator<
-            Item = bray_symbols::DependencyBorrowRelation<
-                InterfaceDependencySubject,
-                InterfaceDependencyProjection,
-            >,
-        >,
-    ) -> Self {
-        self.borrows = sorted_unique_shared_slice(borrows);
-
-        self
-    }
 }
 
 #[cfg(test)]

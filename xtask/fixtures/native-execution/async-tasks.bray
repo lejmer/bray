@@ -1,4 +1,4 @@
-module async_tasks;
+trusted module async_tasks;
 
 using core.atomic;
 using std.task;
@@ -154,7 +154,7 @@ trusted async func main()
 
     std.testing.assert_cancelled<unit>(await cancelled.cancel());
 
-    await trusted represented_tasks();
+    await represented_tasks();
 
     assert(core.atomic.load<usize, 1>(&BUFFER_CLEANUPS) == 2);
     assert(core.atomic.load<usize, 1>(&BUFFER_DESTRUCTIONS) == 2);

@@ -132,7 +132,7 @@ pub(crate) fn callee_result_template<C: CheckerRequestContext + ?Sized>(
         // Callable values have no hidden environment. Only explicit inputs and
         // externally reachable storage can participate in their body effects.
         let mut template = DependencyContractTemplateData::new(requirements.iter().cloned())
-            .with_effects(bray_symbols::DependencyStorageEffect::capture_free_call());
+            .with_possible_effects(bray_symbols::DependencyStorageEffect::capture_free_call());
 
         if call.invocation() == bray_symbols::CallableInvocation::Bray {
             template = template.with_abnormal_reports(requirements.iter().cloned());
@@ -160,7 +160,18 @@ pub(crate) fn callee_result_template<C: CheckerRequestContext + ?Sized>(
     }
 
     if let Some(relation) = relation {
-        template = template.with_borrows([relation]);
+        let references: std::sync::Arc<[_]> = [relation].into();
+        let mut outcomes = template.captured_values().to_vec();
+
+        if outcomes.is_empty() {
+            outcomes.push(bray_symbols::CapturedValueOutcome::new(None, []));
+        }
+
+        for outcome in &mut outcomes {
+            outcome.references = std::sync::Arc::clone(&references);
+        }
+
+        template = template.with_captured_values(outcomes);
     }
 
     if matches!(
@@ -259,7 +270,7 @@ pub(crate) fn resolved_result_template<C: CheckerRequestContext + ?Sized>(
         .iter()
         .any(|effect| matches!(effect, bray_symbols::DependencyStorageEffect::Direct { kind: bray_symbols::DependencyMutationKind::Dispose(_) | bray_symbols::DependencyMutationKind::Cleanup(_), .. } | bray_symbols::DependencyStorageEffect::Indirect { kind: bray_symbols::DependencyMutationKind::Dispose(_) | bray_symbols::DependencyMutationKind::Cleanup(_), .. } | bray_symbols::DependencyStorageEffect::UnboundedMutation { kind: bray_symbols::DependencyMutationKind::Dispose(_) | bray_symbols::DependencyMutationKind::Cleanup(_), .. }))
     {
-        result = result.with_effects(super::cleanup::resolve_effects(request, template.effects())?);
+        result = super::cleanup::resolve_contract_effects(request, result)?;
     }
 
     if let Some(instance) = cleanup_call {
@@ -462,7 +473,7 @@ impl super::ValueInputs {
 
             let mut sources = std::collections::BTreeSet::new();
 
-            for relation in template.template.borrows() {
+            for relation in template.template.borrows().iter() {
                 let Some(entry) = relation.entry() else {
                     continue;
                 };
@@ -530,7 +541,7 @@ impl super::ValueInputs {
                 );
 
                 if template.template.requirements() != [expected]
-                    || !template.template.carriers().is_empty()
+                    || template.template.captured_values().iter().any(|row| !row.carriers.is_empty())
                 {
                     continue;
                 }

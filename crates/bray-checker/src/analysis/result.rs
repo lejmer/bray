@@ -138,7 +138,9 @@ impl<C: CheckerRequestContext + ?Sized> ControlFlowGraphBuilder<'_, C> {
         let completion = completion.map(|completion| {
             completion.map(|current| {
                 scope.map_or(current, |scope| {
-                    self.push_scope_exit(current, scope, id.into())
+                    let value = self.checked_storage().and_then(|storage| storage.value_slot(id));
+
+                    self.push_scope_exit(current, scope, id.into(), value)
                 })
             })
         });

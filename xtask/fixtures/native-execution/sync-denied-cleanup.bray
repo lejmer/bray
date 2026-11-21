@@ -18,7 +18,7 @@ internal struct Counter
     {
         if core.atomic.load<u32, 1>(&self.visits) != 3
         {
-            trusted core.target.abort();
+            core.target.abort();
         }
     }
 }
@@ -64,6 +64,6 @@ trusted func main()
         counter = &COUNTER
     };
 
-    trusted deny_through_shutdown();
+    deny_through_shutdown();
     panic("");
 }
