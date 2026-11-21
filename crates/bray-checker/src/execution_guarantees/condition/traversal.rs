@@ -12,14 +12,14 @@ pub(in crate::execution_guarantees) struct NodeIdentity<'a>(pub(in crate::execut
 
 impl PartialEq for NodeIdentity<'_> {
     fn eq(&self, other: &Self) -> bool {
-        std::ptr::eq(self.0.kind(), other.0.kind())
+        std::ptr::eq(self.0, other.0)
     }
 }
 
 impl Eq for NodeIdentity<'_> {}
 
 impl Hash for NodeIdentity<'_> {
-    fn hash<H: Hasher>(&self, state: &mut H) { std::ptr::hash(self.0.kind(), state); }
+    fn hash<H: Hasher>(&self, state: &mut H) { std::ptr::hash(self.0, state); }
 }
 
 /// Acyclic value graphs need remembered nodes only while another path is pending.
@@ -129,7 +129,11 @@ impl ExecutionCondition {
         let mut visited = HashSet::new();
 
         while let Some(condition) = pending.pop() {
-            if !visit_once(&mut visited, NodeIdentity(condition), !pending.is_empty()) { continue; }
+            // Dependency queries check existence or collect sets. A second
+            // handle to the same node supplies the same dependency facts.
+            let node = std::ptr::from_ref(condition.kind());
+
+            if !visit_once(&mut visited, node, !pending.is_empty()) { continue; }
 
             inspect(condition)?;
 

@@ -593,11 +593,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }
 
         let pointees = snapshots.map_or_else(|| self.pointee_preservations(state, invalidation, None), |(_, paths)| paths);
+        let changed_roots = changed_places.iter().map(|place| &place.root).collect::<BTreeSet<_>>();
 
         let masks = self.preservation_masks(
-            descriptor_paths.iter().map(|(place, path)| (place, path.as_ref())),
+            descriptor_paths.iter().filter(|(place, _)| changed_roots.contains(&place.root))
+                .map(|(place, path)| (place, path.as_ref())),
             values.iter().filter_map(StoragePreservation::mask)
-                .chain(pointees.iter().map(|(place, path, kind)| (place, path.as_ref(), *kind))));
+                .chain(pointees.iter().map(|(place, path, kind)| (place, path.as_ref(), *kind)))
+                .filter(|(place, _, _)| changed_roots.contains(&place.root)));
 
         Self::frame_changed_observations(state, (mutation, &moved), transfers, changed_places, &changed_paths, masks);
 
