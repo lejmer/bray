@@ -341,6 +341,22 @@ fn rewrite_equalities_inner(
     let value = match value.kind() {
         K::CapturedValue { value, storage } => rewrite_equalities(value, replacements, identities, budget, memo)
             .captured_value(storage.clone()),
+        K::DeferredValue { value, frame } if identities.is_some() => {
+            let value = rewrite_equalities(value, replacements, identities, budget, memo);
+
+            let frame = if memo.is_some_and(|(memo, _)| memo.rebind_frames) {
+                let budget = std::cell::RefCell::new(&mut *budget);
+
+                frame.rebind_input_conditions(
+                    &|value| rewrite_equalities(value, replacements, identities, &mut budget.borrow_mut(), memo),
+                    &|owner| rewrite_identity(owner, identities, &mut budget.borrow_mut(), memo),
+                )
+            } else {
+                Arc::clone(frame)
+            };
+
+            value.with_deferred_value(frame)
+        }
         K::StorageValue(operation, operands) => ExecutionCondition::storage_value(*operation,
             operands.iter().map(|value| rewrite_equalities(value, replacements, identities, budget, memo)).collect()),
         K::Discriminant(value) => rewrite_equalities(&value, replacements, identities, budget, memo).discriminant(),

@@ -632,7 +632,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 }).unwrap_or(result)
             };
 
-            Some(value)
+            Some(branch.publish_frame_owners(value, root))
         };
 
         let merge_producer = |previous: &mut ExecutionState, previous_value: &ExecutionCondition, branch: &ExecutionState, value: &ExecutionCondition| {

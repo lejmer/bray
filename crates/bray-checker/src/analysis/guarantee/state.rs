@@ -775,16 +775,17 @@ impl ExecutionState {
             return;
         }
 
-        let rename = |value: &ExecutionCondition| substitution.value(value);
-        let rename_identity = |value: &ExecutionCondition| substitution.owner(value);
-
         self.join_frame_values(substitution);
+        self.rename_values(substitution);
+    }
 
-        // Even identity-only joins prune stale frame captures above. They do not
-        // rename the remaining value snapshots, carrier clauses or storage identities.
+    pub(super) fn rename_values(&mut self, substitution: &ExecutionSubstitution<'_>) {
         if !substitution.has_changes() {
             return;
         }
+
+        let rename = |value: &ExecutionCondition| substitution.value(value);
+        let rename_identity = |value: &ExecutionCondition| substitution.owner(value);
 
         for facts in [&mut self.assumptions, &mut self.trusted_assumptions] {
             let mut renamed = ExecutionAssumptions::default();

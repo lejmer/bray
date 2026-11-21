@@ -1241,6 +1241,23 @@ const CASES: &[(&str, &str, bool)] = &[
         r"let value = await api.returned_fresh_frame(); api.observe(&value);",
         true,
     ),
+    (
+        "same_site_nested_frames",
+        r"
+        let mut first: Future<Future<api.Marker>>? = none;
+        let mut second: Future<Future<api.Marker>>? = none;
+        let mut index: u32 = 0;
+        while index < 2
+        {
+            let pending = api.pass<Future<api.Marker>>(api.pass<api.Marker>(api.make()));
+            if index == 0 { first = pending; } else { second = pending; }
+            index += 1;
+        }
+        match consume first { case ?pending { let inner = await pending; let value = await inner; api.observe(&value); } case none {} }
+        match consume second { case ?pending { let inner = await pending; let value = await inner; api.observe(&value); } case none {} }
+    ",
+        true,
+    ),
 ];
 
 fn check_deferred_completion(imported: bool, api: &str, cases: &[(&str, &str, bool)]) {
@@ -2146,6 +2163,7 @@ super::matrix::cases! {
     copied_real_equality_finite = 145,
     copied_real_alias_equality_unknown = 146,
     returned_fresh_carrier = 147,
+    same_site_nested_frames = 148,
 }
 
 #[test]

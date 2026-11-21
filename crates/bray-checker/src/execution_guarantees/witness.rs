@@ -335,8 +335,14 @@ impl super::ExecutionCallEvidence {
             return None;
         }
 
-        let rename = |value: &ExecutionCondition| substitution.value(value);
+        self.joined_conditions(&|value| substitution.value(value), &|owner| substitution.owner(owner))
+    }
 
+    pub(super) fn joined_conditions(
+        &self,
+        rename: &impl Fn(&ExecutionCondition) -> ExecutionCondition,
+        rename_owner: &impl Fn(&ExecutionCondition) -> ExecutionCondition,
+    ) -> Option<Self> {
         let rename_arguments = |arguments: &BTreeMap<crate::ExecutionPlace, ExecutionCondition>| {
             arguments
                 .iter()
@@ -350,10 +356,10 @@ impl super::ExecutionCallEvidence {
 
         let mut witness_inputs = self.witness_inputs.clone();
 
-        rename_witnesses(&mut witness_inputs, &rename, &|owner| substitution.owner(owner));
+        rename_witnesses(&mut witness_inputs, rename, rename_owner);
 
         let witness_allocations = self.witness_allocations.iter().filter_map(|(condition, owner)| {
-            let owner = substitution.owner(owner);
+            let owner = rename_owner(owner);
             let condition = rename(condition);
 
             (condition != ExecutionCondition::unknown() && witness_inputs.contains_key(&owner)).then_some((condition, owner))

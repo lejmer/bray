@@ -332,7 +332,7 @@ fn join_observations<'a>(
             .value_in(&incoming.current)
             .unwrap_or_else(ExecutionCondition::unknown);
 
-        if left != right
+        if published == Some(place) || left != right
             || target.owned_results.get(&left) != incoming.owned_results.get(&right)
         {
             owned_results.insert(
@@ -373,6 +373,13 @@ fn join_observations<'a>(
         .chain(join.explicit_result())
         .collect::<std::collections::BTreeSet<_>>()
     {
+        if let Some(place) = published {
+            let joined = joined_values.get(place).expect("the published result has a joined storage value");
+
+            results.push((expression, joined.clone()));
+            continue;
+        }
+
         let [value, other] = join.result_inputs(expression, [target, incoming])
             .map(|source| source.unwrap_or(&unknown));
         let root = match join {
@@ -380,18 +387,14 @@ fn join_observations<'a>(
             _ => ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expression)),
         };
 
-        let joined = match published {
-            Some(place) => joined_values.get(place)
-                .expect("the published result has a joined storage value").clone(),
-            _ => common_components(
-                value,
-                other,
-                Some(root),
-                (&target.proofs.ordinary_proof(&target.assumptions), &incoming.proofs.ordinary_proof(&incoming.assumptions)),
-                &mut joined_facts,
-                &mut { ExecutionCondition::WORK_LIMIT },
-            ),
-        };
+        let joined = common_components(
+            value,
+            other,
+            Some(root),
+            (&target.proofs.ordinary_proof(&target.assumptions), &incoming.proofs.ordinary_proof(&incoming.assumptions)),
+            &mut joined_facts,
+            &mut { ExecutionCondition::WORK_LIMIT },
+        );
 
         joins |= value != &joined || other != &joined;
 
@@ -449,7 +452,7 @@ fn join_observations<'a>(
             (target, &left_substitution),
             (incoming_joined.as_ref(), &right_substitution),
             &joined_values,
-            results.iter().map(|(expression, joined)| (
+            results.iter().filter(|_| published.is_none()).map(|(expression, joined)| (
                 join.result_inputs(*expression, [target, incoming]),
                 joined,
             )),

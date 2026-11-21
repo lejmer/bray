@@ -12,11 +12,12 @@ pub(super) enum MapRole {
 pub(super) struct RewriteMemo {
     pub(super) values: ExecutionMemo<ExecutionCondition>,
     pub(super) owners: ExecutionMemo<ExecutionCondition>,
+    pub(super) rebind_frames: bool,
 }
 
 impl RewriteMemo {
     fn new() -> Self {
-        Self { values: ExecutionMemo::default(), owners: ExecutionMemo::default() }
+        Self { values: ExecutionMemo::default(), owners: ExecutionMemo::default(), rebind_frames: false }
     }
 }
 
@@ -48,6 +49,14 @@ impl<'a> ExecutionSubstitution<'a> {
             owners: RewriteMap::new(owners),
             mapped: RewriteMemo::new(),
         }
+    }
+
+    pub(crate) fn frame_inputs(values: &'a BTreeMap<ExecutionCondition, ExecutionCondition>, owners: &'a BTreeMap<ExecutionCondition, ExecutionCondition>) -> Self {
+        let mut substitution = Self::new(values, owners);
+
+        substitution.mapped.rebind_frames = true;
+
+        substitution
     }
 
     pub(crate) fn has_changes(&self) -> bool { self.values.changed || self.owners.changed }

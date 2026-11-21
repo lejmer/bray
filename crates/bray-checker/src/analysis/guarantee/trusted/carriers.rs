@@ -6,7 +6,7 @@ use super::super::state::ExecutionState;
 use crate::{ExecutionCondition, ExecutionPlace};
 use bray_bound_tree::StorageProjection;
 use bray_symbols::{ConstantTermId, DependencyProjection, DependencyWitnessCarrier, DependencyWitnessSupport};
-use crate::execution_guarantees::{ExecutionGuarantee, ExecutionWitness};
+use crate::execution_guarantees::{ExecutionGuarantee, ExecutionSubstitution, ExecutionWitness};
 
 pub(in crate::analysis) type ReturnedCarrier = DependencyWitnessCarrier<StorageProjection, ConstantTermId, ExecutionPlace>;
 
@@ -335,6 +335,24 @@ fn returned_owners(
     result: &ExecutionCondition,
 ) -> BTreeMap<ExecutionCondition, Vec<StorageProjection>> {
     let mut owners = BTreeMap::new();
+
+    visit_returned_components(result, true, |value, path, declared_view| {
+        // Local component snapshots belong to the complete returned owner.
+        owners.insert(value.clone(), path.to_vec());
+
+        if !declared_view {
+            owners.insert(value.owner_identity().clone(), path.to_vec());
+        }
+    });
+
+    owners
+}
+
+fn visit_returned_components(
+    result: &ExecutionCondition,
+    include_referents: bool,
+    mut visit: impl FnMut(&ExecutionCondition, &[StorageProjection], bool),
+) {
     let mut pending = vec![(result, Vec::new())];
 
     while let Some((value, path)) = pending.pop() {
@@ -342,14 +360,11 @@ fn returned_owners(
             continue;
         }
 
-        if *value == ExecutionCondition::unknown() {
+        if *value == ExecutionCondition::unknown() || !include_referents && value.is_reference() {
             continue;
         }
 
-        // Publish the complete returned observation as well as its identity. Local
-        // component snapshots belong to this owner and need not escape in metadata.
-        owners.insert(value.clone(), path.clone());
-        owners.insert(value.owner_identity().clone(), path.clone());
+        visit(value, &path, false);
 
         match value.kind() {
             crate::ExecutionConditionKind::CapturedValue { value, .. }
@@ -384,19 +399,16 @@ fn returned_owners(
 
                     child.push(*projection);
 
-                    // Projection is the declared view of this retained component.
-                    // Nullable extraction can retain its containing owner's identity.
-                    let projected = value.clone().project(*projection);
-
-                    owners.insert(projected, child.clone());
+                    if include_referents {
+                        // A declared view can retain its containing owner's identity.
+                        visit(&value.clone().project(*projection), &child, true);
+                    }
                     pending.push((component, child));
                 }
             }
             _ => {}
         }
     }
-
-    owners
 }
 
 /// Convert complete storage paths only when publishing portable carrier contracts.
@@ -414,6 +426,36 @@ pub(in crate::analysis) fn portable_path<C: crate::CheckerRequestContext + ?Size
 }
 
 impl ExecutionState {
+    /// Binds completed owned values to their public result before the frame slot can be reused.
+    pub(in crate::analysis::guarantee) fn publish_frame_owners(
+        &mut self, result: ExecutionCondition, root: &ExecutionCondition,
+    ) -> ExecutionCondition {
+        use crate::ExecutionConditionKind as Kind;
+        use crate::execution_guarantees::ExecutionInput;
+
+        let mut owners = BTreeMap::new();
+
+        visit_returned_components(&result, false, |value, path, _| {
+            if matches!(value.kind(), Kind::Present(_)) { return; }
+
+            let Some((ObservationKind::Owned, owner)) = value.ownership_identity() else { return; };
+            let Some((origin, _)) = owner.observation_path() else { return; };
+            if !matches!(origin.kind(), Kind::Input(place) if matches!(place.root, ExecutionInput::FrameInput { .. })) { return; }
+
+            let output = path.iter().copied().fold(root.clone(), ExecutionCondition::project);
+
+            if !output.is_unknown() && owner != &output {
+                owners.entry(owner.clone()).or_insert(output);
+            }
+        });
+
+        let substitution = ExecutionSubstitution::new(&owners, &owners);
+
+        self.rename_values(&substitution);
+
+        substitution.value(&result)
+    }
+
     /// Discharges ordinary guards while each original carrier still supplies its own evidence.
     pub(in crate::analysis::guarantee) fn refine_witnesses(&mut self) {
         // Ordinary closure belongs to proof preparation. Publishing it as new
