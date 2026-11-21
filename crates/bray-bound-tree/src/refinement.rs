@@ -50,6 +50,9 @@ pub enum StorageInvalidation {
         /// Keep the origin, epoch and borrow layer until the consumer interprets them.
         /// These identities preserve no entry facts and establish no guarantees.
         snapshots: BTreeMap<crate::StoragePath, crate::StorageObservedTarget>,
+        /// Physical observations the resolved writes may change. An atomic frame
+        /// without finite targets leaves this set unspecified.
+        affected_pointees: Option<BTreeSet<crate::StorageTarget>>,
         /// References whose reachable contents may change while their address value survives.
         referents: BTreeSet<crate::StoragePath>,
         /// Slice descriptors proven disjoint from all writes to their reachable elements.
@@ -99,6 +102,7 @@ impl StorageInvalidation {
             Self::Observed {
                 accesses,
                 snapshots,
+                affected_pointees,
                 referents,
                 stable_descriptors,
                 stable_values,
@@ -110,6 +114,7 @@ impl StorageInvalidation {
                         access.unit() == unit && paths.iter().all(|path| path.is_valid_for(unit))
                     })
                     && snapshots.iter().all(|(path, observed)| path.is_valid_for(unit) && observed.target.is_valid_for(unit))
+                    && affected_pointees.iter().flatten().all(|target| target.is_valid_for(unit))
                     && referents.iter().chain(stable_descriptors).chain(stable_values.keys())
                         .all(|path| path.is_valid_for(unit))
             }
@@ -277,6 +282,7 @@ impl StorageInvalidation {
                     scope,
                     accesses: current,
                     snapshots,
+                    affected_pointees,
                     referents,
                     stable_descriptors,
                     stable_values,
@@ -286,6 +292,7 @@ impl StorageInvalidation {
                     scope: incoming_scope,
                     accesses: incoming,
                     snapshots: incoming_snapshots,
+                    affected_pointees: incoming_pointees,
                     referents: incoming_referents,
                     stable_descriptors: incoming_descriptors,
                     stable_values: incoming_values,
@@ -312,6 +319,12 @@ impl StorageInvalidation {
                 stable_values.extend(values);
                 snapshots.retain(|path, target| incoming_snapshots.get(path) == Some(target));
                 referents.extend(incoming_referents.iter().cloned());
+
+                if let (Some(current), Some(incoming)) = (&mut *affected_pointees, incoming_pointees) {
+                    current.extend(incoming.iter().cloned());
+                } else {
+                    *affected_pointees = None;
+                }
 
                 for (access, paths) in incoming {
                     let changed = current.entry(*access).or_default();
@@ -818,6 +831,7 @@ mod tests {
         let mutation = super::StorageInvalidation::Observed {
             transition: Default::default(),
             scope: super::StorageMutationScope::Invocation,
+            affected_pointees: None,
             accesses: [(StorageAccessId::from_slot(unit, 0), vec![path])].into(),
             snapshots: Default::default(),
             referents: Default::default(),
@@ -843,6 +857,7 @@ mod tests {
         let mut left = super::StorageInvalidation::Observed {
             transition: crate::StorageObservationTransition::Contents,
             scope: super::StorageMutationScope::Unbounded,
+            affected_pointees: Some([crate::StorageTarget::storage(first.clone())].into()),
             accesses: [(access, vec![first.clone()])].into(),
             snapshots: [
                 (first.clone(), observation(first.clone())),
@@ -858,6 +873,7 @@ mod tests {
         let right = super::StorageInvalidation::Observed {
             transition: crate::StorageObservationTransition::Contents,
             scope: super::StorageMutationScope::Unbounded,
+            affected_pointees: Some([crate::StorageTarget::storage(second.clone())].into()),
             accesses: [(access, vec![second.clone()])].into(),
             snapshots: [
                 (first.clone(), observation(first.clone())),
@@ -891,6 +907,7 @@ mod tests {
             super::StorageInvalidation::Observed {
                 transition: crate::StorageObservationTransition::Contents,
                 scope: super::StorageMutationScope::Unbounded,
+                affected_pointees: Some([crate::StorageTarget::storage(first.clone()), crate::StorageTarget::storage(second.clone())].into()),
                 accesses: [(access, vec![first.clone(), second.clone()])].into(),
                 snapshots: [(first.clone(), observation(first.clone()))].into(),
                 stable_descriptors: [first.clone()].into(),
@@ -923,6 +940,7 @@ mod tests {
         let precise = super::StorageInvalidation::Observed {
             transition: Default::default(),
             scope: super::StorageMutationScope::Unbounded,
+            affected_pointees: None,
             accesses: [(StorageAccessId::from_slot(unit, 0), vec![changed])].into(),
             snapshots: Default::default(),
             referents: [other.clone()].into(),
@@ -942,6 +960,7 @@ mod tests {
                 super::StorageInvalidation::Observed {
                     transition: Default::default(),
                     scope: super::StorageMutationScope::Unbounded,
+                    affected_pointees: None,
                     accesses: Default::default(),
                     snapshots: Default::default(),
                     referents: Default::default(),

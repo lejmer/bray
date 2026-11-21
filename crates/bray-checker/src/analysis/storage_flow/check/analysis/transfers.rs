@@ -28,13 +28,14 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     pub(super) fn capture_transfer_accesses(
         &self,
         state: &StorageFlowState,
+        execution: &crate::analysis::guarantee::ExecutionState,
         kind: crate::analysis::model::AnalysisOperationKind,
     ) -> OperationAccesses {
         kind.storage_plans(self.storage).filter(|plan| {
             plan.purpose().transfers_value()
                 && !self.storage.access_is_produced_at(plan.access(), kind.occurrence())
         }).map(|plan| {
-            let reached = self.input.reached_access(self.request.semantic_values(), &state.memory, self.storage, plan.access());
+            let reached = self.evaluated_access(&state.memory, execution, plan.access());
 
             (plan, reached)
         }).collect()

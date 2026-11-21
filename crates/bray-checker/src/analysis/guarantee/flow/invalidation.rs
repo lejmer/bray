@@ -235,7 +235,13 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 for value in state.owned_values(&snapshot).filter(|value| *value != ExecutionCondition::unknown()) {
                     // Existing loans can still observe the unchanged value.
                     observations.insert(value.clone());
-                    observations.insert(value.borrowed());
+                    let borrowed = if value.is_reference() {
+                        value.predicate_observation()
+                    } else {
+                        value.borrowed()
+                    };
+
+                    observations.insert(borrowed);
                 }
             } else {
                 observations.insert_classified(snapshot.clone(), *kind);
@@ -609,8 +615,15 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let (mut changed_places, changed_paths) = self.invalidated_places(invalidation);
 
-        changed_places.extend(state.current.iter().filter(|(place, _)| place.is_pointee())
-            .map(|(place, _)| place.clone()));
+        let StorageInvalidation::Observed { affected_pointees, .. } = invalidation else {
+            unreachable!("finite proof invalidation retains its checked observation frame");
+        };
+
+        changed_places.extend(state.current.iter().filter_map(|(place, _)| {
+            let crate::execution_guarantees::ExecutionInput::Pointee { target, .. } = &place.root else { return None; };
+
+            affected_pointees.as_ref().is_none_or(|affected| affected.contains(target)).then(|| place.clone())
+        }));
 
         let trace_dispatch = trace.is_some() && mutation.occurrence().expression().is_some_and(|expression|
             expression.unit().raw() == 749970 && expression.ordinal() == 117);

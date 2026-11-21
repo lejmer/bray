@@ -285,7 +285,7 @@ pub(crate) fn prepare_effect_paths<'a, C: CheckerRequestContext + ?Sized>(
 
         if (projections.is_empty() && reads.is_empty()) || paths.contains_key(effect) { continue; }
 
-        let Some(projections) = crate::storage::resolve_storage_projections(request, projections)? else { continue; };
+        let Some(projections) = crate::storage::resolve_effect_projections(request, projections)? else { continue; };
 
         if reads.is_empty() && bray_bound_tree::StorageProjection::remains_in_allocation(&projections)
             && !projections.contains(&bray_bound_tree::StorageProjection::AddressTarget)

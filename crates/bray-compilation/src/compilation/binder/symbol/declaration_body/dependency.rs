@@ -263,6 +263,7 @@ fn portable_projection(projection: StorageProjection) -> Option<DependencyProjec
         StorageProjection::ElementFromStart(_)
         | StorageProjection::ElementFromEnd(_)
         | StorageProjection::Element(_)
+        | StorageProjection::ElementFromInput(_)
         | StorageProjection::AnyElement
         | StorageProjection::SliceRange { .. } => return None,
     })

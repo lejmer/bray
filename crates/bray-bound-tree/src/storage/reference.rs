@@ -106,6 +106,38 @@ impl StorageReferencePath {
         })
     }
 
+    /// The typed buffer descriptors which this route reads to reach their backing.
+    pub fn backing_descriptors(&self) -> impl Iterator<Item = (&[StorageProjection], StructFieldSymbolId)> + '_ {
+        self.steps.iter().filter_map(|step| match *step {
+            StorageReferenceStep::Backing { index, pointer: Some(pointer), .. } => Some((&self.projections[..index], pointer)),
+            _ => None,
+        })
+    }
+
+    /// Binds selectors while keeping the prepared read positions, kinds and types.
+    pub fn bind_selectors(&self, mut bind: impl FnMut(StorageProjection) -> StorageProjection) -> std::borrow::Cow<'_, Self> {
+        let mut projections = None;
+
+        for (index, &projection) in self.projections.iter().enumerate() {
+            if !matches!(projection, StorageProjection::Element(_) | StorageProjection::ElementFromInput(_)) {
+                continue;
+            }
+
+            let reached = bind(projection);
+
+            if reached != projection {
+                assert!(matches!(reached, StorageProjection::ElementFromInput(_) | StorageProjection::ElementFromStart(_) | StorageProjection::AnyElement),
+                    "a bound index retains the same inline sequence projection");
+
+                projections.get_or_insert_with(|| self.projections.to_vec())[index] = reached;
+            }
+        }
+
+        projections.map_or(std::borrow::Cow::Borrowed(self), |projections| std::borrow::Cow::Owned(Self {
+            projections: projections.into(), steps: Arc::clone(&self.steps),
+        }))
+    }
+
     /// Retains a prepared prefix without reinterpreting any descriptor reads.
     pub fn prefix(&self, projections: usize, steps: usize) -> Self {
         Self { projections: self.projections[..projections].into(), steps: self.steps[..steps].into() }

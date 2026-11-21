@@ -623,7 +623,7 @@ mod tests {
     #[test]
     fn absent_summary_is_not_a_proof_of_no_mutation() {
         let missing = super::super::DependencyContractTemplateData::new([]);
-        let unchanged = missing.clone().with_effects([]);
+        let unchanged = missing.clone().with_possible_effects([]);
 
         assert_eq!(
             missing.effects(),

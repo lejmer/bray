@@ -512,6 +512,7 @@ impl State {
 
         let inline = |target: &Target| !matches!(target.projections().get(depth),
             Some(StorageProjection::AnyElement | StorageProjection::Element(_)
+                | StorageProjection::ElementFromInput(_)
                 | StorageProjection::ElementFromStart(_) | StorageProjection::ElementFromEnd(_)
                 | StorageProjection::SliceRange { .. }));
 

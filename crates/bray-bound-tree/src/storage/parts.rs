@@ -79,6 +79,7 @@ impl StorageCleanupProjectionKind {
             Self::ArrayElements(_) => matches!(
                 projection,
                 StorageProjection::Element(_)
+                    | StorageProjection::ElementFromInput(_)
                     | StorageProjection::AnyElement
                     | StorageProjection::ElementFromStart(_)
                     | StorageProjection::ElementFromEnd(_)

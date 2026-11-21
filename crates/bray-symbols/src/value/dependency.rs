@@ -998,21 +998,6 @@ impl DependencyContractTemplateData {
         super::CapturedValueOutcome::reference_origins(self.captured_values.iter(), DependencySubject::contains)
     }
 
-    /// Attaches possible transitions common to the authored normal outcomes.
-    pub fn with_effects(
-        mut self,
-        effects: impl IntoIterator<Item = DependencyStorageEffect>,
-    ) -> Self {
-        let effects = DependencyStorageEffect::normalize(effects);
-
-        if !self.captured_values.is_empty() {
-            self.captured_values = sorted_unique_shared_slice(self.captured_values.iter().cloned()
-                .map(|row| row.with_effects(effects.iter().cloned())));
-        }
-
-        self.with_possible_effects(effects.iter().cloned())
-    }
-
     /// Attaches the conservative transition envelope, retaining every normal row.
     pub fn with_possible_effects(mut self, effects: impl IntoIterator<Item = DependencyStorageEffect>) -> Self {
         self.effects = super::DependencyEffectOutcomes::new(DependencyStorageEffect::normalize(effects).iter().cloned());

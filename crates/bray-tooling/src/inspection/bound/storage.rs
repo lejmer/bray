@@ -435,6 +435,9 @@ enum InspectionStorageProjection {
     ElementFromEnd {
         ordinal: u32,
     },
+    ElementFromInput {
+        ordinal: u32,
+    },
     ActiveUnionPayloadField {
         variant: InspectionSymbolIdentity,
         field: InspectionSymbolIdentity,
@@ -469,6 +472,9 @@ impl InspectionStorageProjection {
             StorageProjection::ElementFromEnd(ordinal) => Self::ElementFromEnd {
                 ordinal: ordinal.raw(),
             },
+            StorageProjection::ElementFromInput(ordinal) => Self::ElementFromInput {
+                ordinal: ordinal.raw(),
+            },
             StorageProjection::ActiveUnionPayloadField { variant, field } => {
                 Self::ActiveUnionPayloadField {
                     variant: InspectionSymbolIdentity::from_symbol(symbols, variant.into()),
@@ -496,6 +502,7 @@ impl InspectionStorageProjection {
             Self::TupleElement { ordinal } => format!("tuple:{ordinal}"),
             Self::ElementFromStart { ordinal } => format!("from_start:{ordinal}"),
             Self::ElementFromEnd { ordinal } => format!("from_end:{ordinal}"),
+            Self::ElementFromInput { ordinal } => format!("from_input:{ordinal}"),
             Self::ActiveUnionPayloadField { variant, field } => {
                 format!("{}:{}", variant.display_name(), field.display_name())
             }

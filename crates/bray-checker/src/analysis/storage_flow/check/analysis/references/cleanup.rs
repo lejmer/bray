@@ -93,12 +93,8 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
                 // finite descriptor demands. Owning elements never become parent edges.
                 demands.entry(owner).or_default().insert((path.projections().into(), reached));
 
-                for step in path.steps() {
-                    let bray_bound_tree::StorageReferenceStep::Backing { index, pointer: Some(pointer), .. } = *step else {
-                        continue;
-                    };
-
-                    let descriptor = path.projections()[..index].iter().copied()
+                for (prefix, pointer) in path.backing_descriptors() {
+                    let descriptor = prefix.iter().copied()
                         .chain([bray_bound_tree::StorageProjection::ProductField(pointer)])
                         .collect::<std::sync::Arc<[_]>>();
 

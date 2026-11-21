@@ -1,5 +1,5 @@
 use crate::analysis::storage_flow::memory::Effect;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{StorageInvalidation, StorageObservationKind, StorageObservedTarget, StoragePath, StorageRelationship, StorageSnapshotRoot};
 
@@ -800,6 +800,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     .unwrap_or(bray_bound_tree::StorageMutationScope::Invocation),
                 accesses: observations,
                 snapshots,
+                affected_pointees: Some(BTreeSet::new()),
                 referents,
                 stable_descriptors,
                 stable_values: BTreeMap::new(),
@@ -992,6 +993,14 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         }
 
         if unrepresented.is_empty() {
+            let affected_pointees = memory.typed_storage()
+                .map(|(target, _)| target)
+                .filter(|target| mutations.clone().any(|mutation| {
+                    memory.target_relationship(mutation, target) != StorageRelationship::Disjoint
+                }))
+                .cloned()
+                .collect();
+
             StorageInvalidation::Observed {
                 transition: Default::default(),
                 scope: mutations
@@ -1003,6 +1012,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     .unwrap_or(bray_bound_tree::StorageMutationScope::Invocation),
                 accesses: observations,
                 snapshots,
+                affected_pointees: Some(affected_pointees),
                 referents,
                 stable_descriptors,
                 stable_values: BTreeMap::new(),

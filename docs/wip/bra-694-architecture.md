@@ -115,8 +115,9 @@ Normal completion publishes a new borrow's current identity from its exact
 reached target. Input materialization captures the published descriptor.
 Final call admission refreshes its contents through that same loan.
 Intervening argument evaluation can change the contents or end its authority.
-Finite mutations materialize retained proof observations on demand. Rewriting
-current storage uses the published masks for the changed places.
+Finite mutations publish which typed pointees can change using the reached
+memory's alias relation. Proof materializes retained observations on demand.
+Current storage applies the published masks to the affected places.
 An admitted extraction can retain its complete private snapshot through a write to
 the vacated slot. The selected outcome must preserve the captured value and its
 reached effects must leave the capture's carried regions untouched. The slot itself
@@ -128,10 +129,10 @@ coordinates do not form part of a portable predicate subject.
 An immutable scalar returned by a const call can publish its equality to the
 selected call term under the reached outcome. The checked reference capture
 continues to supply access authority for reference-valued calls.
-The produced identity of a nullable names the complete value. A present
-payload retains its own lineage. An absent alternative leaves that payload
-inactive. Rebase whole-value and payload observations at their distinct paths
-before publishing a witness from either.
+A known-present nullable can carry the existing owner of its payload. The
+whole nullable observation and the payload observation keep distinct paths.
+Rebase each exact observation from the returned value. An absent alternative
+has no payload carrier.
 Direct calls and deferred bodies share the prepared input route and output type
 for each owning transfer. A deferred body reads its current typed input
 referent at activation through its retained descriptor. The operation and
@@ -143,6 +144,8 @@ The physical state owns the input-region bounds of returned addresses by produce
 
 At a call attempt, escape analysis, observation invalidation, and returned-reference bounds share the reached input
 regions. The admitted operands supply possible reach through their captured descriptors and carried dependencies.
+Entry preparation includes the backing descriptor reads named by prepared
+result routes, including forwarded views of nested buffers.
 Await also reads the arguments in the retained frame. A finite bound requires complete inputs. A typed descriptor
 can identify the storage it reaches after its source slot changes. Raw address formation publishes the descriptor's
 address and bounds. It retains the ordinary loan only on the input.
@@ -154,6 +157,12 @@ Normal slice publication records the extent of the evaluated descriptor. Later i
 descriptor, including after the original bound variables change. An address returned from the slice retains the
 containing storage lifetime through its portable reference relationship. The fixed element selector and its backing
 lifetime remain distinct from an exact cell address in the caller.
+An evaluated integer index can select an exact cell when it retains a
+literal or the immutable value of an entry input. A portable effect binds
+the selector to the admitted call or frame's actual argument. Different
+symbolic values can alias. An unresolved value supplies only a region.
+Protected memory operations use the same admitted descriptor or staged
+owning coordinate for mutation, initialization, and result publication.
 
 A static effect can name an owned backing region without supplying its address. Bind the checked route to the
 current backing when the descriptor is available. Otherwise keep the static identity and its owning path as
@@ -206,6 +215,9 @@ operations. [CFG operation kinds and phases](../../crates/bray-checker/src/analy
 | Replay and lowering | Certification reads the actual targets, invalidation, completions, and retirements of the reached CFG operation. Templates and whole-body checks use a source target only when its reached operations agree. Lowering uses the plan, checked activity decisions, scope exits, suspensions, and completion presence to emit MIR. MIR carries explicit initialization guards, result and report transfers, cancellation, and cleanup edges to code generation. [Proof replay](../../crates/bray-checker/src/analysis/guarantee/flow/operation.rs) · [Lowerer](../../crates/bray-lowering/src/lowering/lowerer.rs) · [MIR cleanup](../../crates/bray-lowering/src/lowering/cleanup/control.rs) |
 
 Each prepared publication retains its source outcome row when several reached destinations join. Proof and storage flow use the same frame-alternative selection. Nullable and union refinements consume the checked discriminant observations, including tags whose payloads changed while the tag stayed live.
+The template's possible-effect envelope covers execution before an outcome
+is known. Each normal row supplies its own performed effects. Substitution
+and interface binding preserve those effects with the rest of the row.
 An outcome join receives both actual result values and their current states.
 When a result already occupies its planned slot, the slot and expression
 share one joined value and owner.

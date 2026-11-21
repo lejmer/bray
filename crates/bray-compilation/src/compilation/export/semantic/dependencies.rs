@@ -766,7 +766,7 @@ mod tests {
                             .with_effects(DependencyStorageEffect::opaque_call()).with_storage(borrows, []),
                     ]),
                     "carriers" => DependencyContractTemplateData::new([]).with_captured_values([bray_symbols::CapturedValueOutcome::new(None, []).with_carriers(carriers)]),
-                    "effects" => DependencyContractTemplateData::new([]).with_effects(effects),
+                    "effects" => DependencyContractTemplateData::new([]).with_possible_effects(effects),
                     _ => unreachable!(),
                 };
 
@@ -829,7 +829,7 @@ mod tests {
         let outer = values
             .intern_dependency_contract_template(
                 DependencyContractTemplateData::new([])
-                    .with_effects([DependencyStorageEffect::UnboundedMutation { kind: bray_symbols::DependencyMutationKind::Dispose(callable), access_type: None, ambient: false }])
+                    .with_possible_effects([DependencyStorageEffect::UnboundedMutation { kind: bray_symbols::DependencyMutationKind::Dispose(callable), access_type: None, ambient: false }])
                     .with_normal_completion(false),
             )
             .expect("fixture dependency contract must be interned");

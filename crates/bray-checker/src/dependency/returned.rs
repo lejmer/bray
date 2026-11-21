@@ -132,7 +132,7 @@ pub(crate) fn callee_result_template<C: CheckerRequestContext + ?Sized>(
         // Callable values have no hidden environment. Only explicit inputs and
         // externally reachable storage can participate in their body effects.
         let mut template = DependencyContractTemplateData::new(requirements.iter().cloned())
-            .with_effects(bray_symbols::DependencyStorageEffect::capture_free_call());
+            .with_possible_effects(bray_symbols::DependencyStorageEffect::capture_free_call());
 
         if call.invocation() == bray_symbols::CallableInvocation::Bray {
             template = template.with_abnormal_reports(requirements.iter().cloned());

@@ -42,10 +42,6 @@ pub(super) fn prepare_executable_outputs(
                     .map_err(super::super::fact_query_export_error)?;
 
                 if output.has_errors() {
-                    if std::env::var_os("BRA_694_TRACE_EXPORT").is_some() {
-                        eprintln!("export source output {key:?}: {:?}", output.diagnostic_bag());
-                    }
-
                     // rust-style: allow(context-erasing-failure-conversion, reason = "completed source output retains exact diagnostic causes")
                     return Err(PackageInterfaceExportError::InvalidCompilation);
                 }
@@ -212,10 +208,6 @@ fn export_executable_template_family(
         })?;
 
         if lowered.diagnostics().has_errors() {
-            if std::env::var_os("BRA_694_TRACE_EXPORT").is_some() {
-                eprintln!("export lowered output {declaration:?}: {:?}", lowered.diagnostics());
-            }
-
             // rust-style: allow(context-erasing-failure-conversion, reason = "source and semantic diagnostics retain the exact causes")
             return Err(PackageInterfaceExportError::InvalidCompilation);
         }
@@ -303,10 +295,6 @@ fn executable_template_family(
             })?;
 
         if output.has_errors() {
-            if std::env::var_os("BRA_694_TRACE_EXPORT").is_some() {
-                eprintln!("export template family {key:?}: {:?}", output.diagnostic_bag());
-            }
-
             // rust-style: allow(context-erasing-failure-conversion, reason = "completed source output retains exact diagnostic causes")
             return Err(PackageInterfaceExportError::InvalidCompilation);
         }

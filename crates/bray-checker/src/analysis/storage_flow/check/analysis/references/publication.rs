@@ -572,7 +572,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         for projection in projections.iter().copied() {
             result.push(match projection {
                 StorageProjection::AnyElement => DependencyProjection::AnyElement,
-                StorageProjection::Element(_) | StorageProjection::ElementFromEnd(_) => {
+                StorageProjection::Element(_) | StorageProjection::ElementFromInput(_) | StorageProjection::ElementFromEnd(_) => {
                     precise = false;
 
                     DependencyProjection::AnyElement
@@ -786,12 +786,14 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         let target_projections = match origin {
             Origin::Entry { projections, .. } if physical => self.stored_projections(projections).map(|(path, _)| path),
-            Origin::Entry { projections, .. } if !exact =>
+            Origin::Entry { projections, .. } if !exact || projections.iter().any(|projection|
+                matches!(projection, StorageProjection::ElementFromInput(_))) =>
                 projections
                     .iter()
                     .copied()
                     .map(|projection| match projection {
                         bray_bound_tree::StorageProjection::Element(_)
+                        | bray_bound_tree::StorageProjection::ElementFromInput(_)
                         | bray_bound_tree::StorageProjection::AnyElement
                         | bray_bound_tree::StorageProjection::ElementFromStart(_)
                         | bray_bound_tree::StorageProjection::ElementFromEnd(_) => Some(bray_symbols::DependencyProjection::AnyElement),

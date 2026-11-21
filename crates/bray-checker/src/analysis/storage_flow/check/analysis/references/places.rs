@@ -31,23 +31,19 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let selection = self.execution.semantics.selections().expression(operation.expression())?;
         let input = selection.inputs().find(|input| input.expression() == Some(argument))?;
         let values = self.request.semantic_values();
+        let captured = self.captured_memory_operand(execution, operation, argument);
 
         let address = if let bray_symbols::TypeData::Borrow { target, .. } = *values.type_data(input.ty(values)) {
-            let binding = self.captured_memory_operand(execution, operation, argument)
-                .and_then(bray_bound_tree::StorageCapturedValue::binding);
+            let binding = captured.and_then(bray_bound_tree::StorageCapturedValue::binding);
 
             binding.and_then(|binding| {
                 state.memory.captured_value_target(binding, target).map(StorageAddressValue::one)
                     .or_else(|| binding.captured_reference())
             }).unwrap_or_else(StorageAddressValue::unknown)
         } else {
-            let target = if selection.stages_inputs() {
-                self.invocation_place(operation.expression().into(), input.root()).map(Target::storage)
-            } else {
-                self.expression_target(state, argument)
-            }?;
+            let coordinate = captured?.storage_coordinate()?;
 
-            StorageAddressValue::one(target)
+            StorageAddressValue::one(Target::storage(coordinate.clone()))
         };
 
         Some(address.project(&[bray_bound_tree::StorageProjection::UninitPayload]))
@@ -95,22 +91,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     bray_symbols::TypeData::Borrow { .. }
                 )
             })
-    }
-
-    pub(in crate::analysis::storage_flow::check::analysis) fn expression_target(
-        &self,
-        state: &StorageFlowState,
-        expression: BoundExpressionId,
-    ) -> Option<Target> {
-        self.expression_result_storage(expression)
-            .map(Target::storage)
-            .or_else(|| {
-                self.storage.node_plans(expression.into()).find_map(|plan| {
-                    self.input
-                        .reference_target(self.request.semantic_values(), &state.memory, self.storage, plan.access())
-                })
-            })
-            .or_else(|| self.argument_storage(expression).map(Target::storage))
     }
 
     pub(in crate::analysis::storage_flow::check::analysis) fn argument_storage(

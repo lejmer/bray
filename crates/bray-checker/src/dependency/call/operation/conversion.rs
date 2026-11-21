@@ -31,7 +31,7 @@ pub(in crate::dependency::call) fn conversion_dependencies<C: CheckerRequestCont
                 .semantic_values()
                 .type_data(conversion.source_type());
 
-            let mut result = DependencyContractTemplateData::new([]).with_effects([]);
+            let mut result = DependencyContractTemplateData::new([]).with_possible_effects([]);
 
             let may_skip_child = match shape.as_ref() {
                 TypeData::Nullable(_) => true,
@@ -172,7 +172,7 @@ pub(in crate::dependency::call) fn conversion_dependencies<C: CheckerRequestCont
                 DependencySubject::root(DependencySubjectRoot::Receiver),
                 DependencyRequirementKind::ValueDependencies,
             )])
-            .with_effects([]);
+            .with_possible_effects([]);
 
             if matches!(
                 conversion.target(),

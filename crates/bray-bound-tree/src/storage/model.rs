@@ -371,6 +371,8 @@ pub enum StorageProjection {
     },
     /// An array or slice element selected by a checked expression occurrence.
     Element(BoundExpressionId),
+    /// An element selected by the immutable entry value of a positional input.
+    ElementFromInput(SymbolOrdinal),
     /// A conservative element region whose selector is not available in this unit.
     AnyElement,
     /// A raw-address load in an incoming reference route, without ownership or access authority.
@@ -412,6 +414,7 @@ impl StorageProjection {
             | Self::TupleElement(_)
             | Self::ElementFromStart(_)
             | Self::ElementFromEnd(_)
+            | Self::ElementFromInput(_)
             | Self::AnyElement
             | Self::AddressTarget
             | Self::ActiveUnionPayloadField { .. }

@@ -210,6 +210,18 @@ fn inferred_carriers<C: crate::CheckerRequestContext + ?Sized>(
             })
         {
             // Rename actual returned storage identities, never ordinary field equalities.
+            let path = if let Some((StorageProjection::NullableValue, parent)) = path.split_last() {
+                condition.observations().find_map(|observation| {
+                    let whole = observation.current_referent().unwrap_or(observation);
+
+                    (matches!(whole.kind(), crate::ExecutionConditionKind::Present(_))
+                        && whole.owner_identity() == owner
+                        && owners.get(whole).is_some_and(|observed| observed == parent))
+                        .then_some(parent)
+                }).unwrap_or(path)
+            } else {
+                path
+            };
             let condition = return_substitution(condition);
 
             if let Some(term) = portable(request, &condition) {

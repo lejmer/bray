@@ -397,7 +397,22 @@ pub(crate) fn resolve_storage_projections<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     projections: &[DependencyProjection],
 ) -> crate::CheckerQueryResult<Option<Vec<StorageProjection>>, C::UpstreamError> {
-    convert_projections(request.semantic_values(), projections, |field| {
+    resolve_projections(request, projections, false)
+}
+
+pub(crate) fn resolve_effect_projections<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
+    projections: &[DependencyProjection],
+) -> crate::CheckerQueryResult<Option<Vec<StorageProjection>>, C::UpstreamError> {
+    resolve_projections(request, projections, true)
+}
+
+fn resolve_projections<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
+    projections: &[DependencyProjection],
+    bind_inputs: bool,
+) -> crate::CheckerQueryResult<Option<Vec<StorageProjection>>, C::UpstreamError> {
+    convert_projections(request.semantic_values(), projections, bind_inputs, |field| {
         Ok(request
             .union_payload_field(field)?
             .expect("checked field projection retains its declaration")
@@ -469,7 +484,7 @@ pub(crate) fn storage_projections(
     dependencies: &bray_bound_tree::CheckedDependencyContracts,
     projections: &[DependencyProjection],
 ) -> Option<Vec<StorageProjection>> {
-    convert_projections(values, projections, |field| {
+    convert_projections(values, projections, false, |field| {
         Ok::<_, std::convert::Infallible>(dependencies.projection_variant(field))
     })
     .unwrap_or_else(|error| match error {})
@@ -478,6 +493,7 @@ pub(crate) fn storage_projections(
 fn convert_projections<E>(
     values: &bray_symbols::SemanticValueStore,
     projections: &[DependencyProjection],
+    bind_inputs: bool,
     mut variant: impl FnMut(
         bray_symbols::UnionPayloadFieldSymbolId,
     ) -> Result<bray_symbols::UnionVariantSymbolId, E>,
@@ -501,6 +517,11 @@ fn convert_projections<E>(
             }
             DependencyProjection::Element(term) => {
                 let term = values.constant_term_data(term);
+
+                if bind_inputs && let bray_symbols::ConstantTermData::CallableArgument(ordinal) = *term {
+                    result.push(StorageProjection::ElementFromInput(ordinal));
+                    continue;
+                }
 
                 let bray_symbols::ConstantTermData::Value(value) = term.as_ref() else {
                     return Ok(None);
@@ -541,6 +562,7 @@ pub fn projected_storage_type<C: CheckerRequestContext + ?Sized>(
             DependencyProjection::UnionPayloadField(field)
         }
         StorageProjection::Element(_)
+        | StorageProjection::ElementFromInput(_)
         | StorageProjection::AnyElement
         | StorageProjection::ElementFromStart(_)
         | StorageProjection::ElementFromEnd(_) => {

@@ -201,6 +201,7 @@ impl Footprint {
         self.atomic = Some(StorageInvalidation::Observed {
             transition: Default::default(),
             scope: bray_bound_tree::StorageMutationScope::Unbounded,
+            affected_pointees: None,
             accesses: BTreeMap::new(),
             snapshots: BTreeMap::new(),
             referents: BTreeSet::new(),
@@ -1059,12 +1060,13 @@ pub(crate) fn restrict(
         unreachable!("prepared atomic frame contains resolved observations");
     };
 
-    let (mut accesses, mut referents, mut snapshots, mut stable_descriptors, stable_values, stable_reference_slots, normal_snapshots, stable_pointees) =
+    let (mut accesses, mut referents, mut snapshots, affected_pointees, mut stable_descriptors, stable_values, stable_reference_slots, normal_snapshots, stable_pointees) =
         match invalidation {
             StorageInvalidation::Observed {
                 accesses,
                 referents,
                 snapshots,
+                affected_pointees,
                 stable_descriptors,
                 stable_values,
                 stable_reference_slots,
@@ -1075,6 +1077,7 @@ pub(crate) fn restrict(
                 accesses,
                 referents,
                 snapshots,
+                affected_pointees,
                 stable_descriptors,
                 stable_values,
                 stable_reference_slots,
@@ -1104,6 +1107,7 @@ pub(crate) fn restrict(
                     accesses,
                     referents: BTreeSet::new(),
                     snapshots: BTreeMap::new(),
+                    affected_pointees: None,
                     stable_descriptors,
                     stable_values,
                     stable_reference_slots,
@@ -1151,6 +1155,7 @@ pub(crate) fn restrict(
         accesses,
         referents,
         snapshots,
+        affected_pointees,
         stable_descriptors,
         stable_values,
         stable_reference_slots,

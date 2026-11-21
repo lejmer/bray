@@ -382,6 +382,7 @@ fn payload_absence_survives_contents_changes_but_not_discriminant_replacement() 
     let observed = |changed| StorageInvalidation::Observed {
         transition: Default::default(),
         scope: bray_bound_tree::StorageMutationScope::Unbounded,
+        affected_pointees: None,
         accesses: BTreeMap::from([(access, vec![changed])]),
         snapshots: BTreeMap::new(),
         referents: BTreeSet::new(),

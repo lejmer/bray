@@ -411,7 +411,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         }
 
         let (effects, rows) = selection.bind(templates, |effect| {
-            self.resolve_effects(memory, routes, std::slice::from_ref(effect), || entry.argument_regions(count), |subject, indirect| {
+            self.resolve_effects(memory, routes, (std::slice::from_ref(effect), Some(entry)), || entry.argument_regions(count), |subject, indirect| {
                 self.frame_effect_targets(memory, candidate, routes, subject, indirect)
             })
         });
@@ -498,7 +498,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         self.resolve_effects(
             memory,
             storage,
-            templates,
+            (templates, Some(&candidate.entry)),
             || match capture_count {
                 Some(count) => candidate.entry.argument_regions(count),
                 None => candidate.entry.outputs.common_value(&bray_bound_tree::StorageValueDestination::Result)

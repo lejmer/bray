@@ -1238,6 +1238,7 @@ mod tests {
         let effects = |slots: &[u32]| StorageInvalidation::Observed {
             transition: crate::StorageObservationTransition::Contents,
             scope: crate::StorageMutationScope::Invocation,
+            affected_pointees: None,
             accesses: slots.iter().map(|&slot| (StorageAccessId::from_slot(unit, slot), vec![path(slot)])).collect(),
             snapshots: Default::default(),
             referents: Default::default(),

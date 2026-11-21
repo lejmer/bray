@@ -85,6 +85,7 @@ impl StoragePath {
                     | StorageProjection::AnyElement
                     | StorageProjection::ElementFromStart(_)
                     | StorageProjection::ElementFromEnd(_)
+                    | StorageProjection::ElementFromInput(_)
                     | StorageProjection::ActiveUnionPayloadField { .. }
                     | StorageProjection::NullableValue
             )

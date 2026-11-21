@@ -109,15 +109,24 @@ generic iterator escape, and protected sibling fields.
 The optimized compilation test binary is
 `target/audit/comparison-owned-values-and-cleanup-evidence-compilation.exe`
 with SHA-256 `592D868B1B5A0CCB39636CE65E0CB5CD4A41BF53655F4DBE6B1ADB825AE593E3`.
-The comparison receipt records its source diff. The three test fixture reuse
-edits after that build still need validation. No build is running.
+The comparison receipt records its source diff. The next grouped candidate,
+`reached-selectors-and-observations`, includes the three fixture reuse edits
+and the combined changes below. Use the same 1,109 compilation controls with
+the observer trace narrowed to the selected view's cleanup path.
 
-Resume by reviewing the six regressions together with the four remaining
-failures. Follow the reached inputs through outcome materialization, scope
-retirement, proof invalidation, and portable summary binding before building
-the batch. Review the remaining independent effect setter on
-`DependencyContractTemplateData` during the old-path audit. Keep the native
-bootstrap failures deferred until the replacement is complete.
+The next batch covers the six regressions and four open failures together.
+Follow reached inputs through outcome materialization, scope retirement,
+proof invalidation, and portable binding. Keep the native bootstrap failures
+deferred until the replacement is complete.
+
+Normal rows are the only authority for their performed effects. Compiler-known
+and source producers author those effects with the result. Generic
+substitution, call binding, interface export, and import preserve the rows
+under the established effect envelope. Remove the template setter that
+overwrites normal effects independently. Its remaining callers attach an
+envelope before any rows exist. Check unchanged leaf operations, missing opaque
+summaries, failure prefixes, and interface round-trips in the grouped run.
+This removal should reduce production code without changing row contents.
 
 Use the unchanged production fixture for tests that query only declared
 production bodies. Their empty caller does not need a revised compilation.
@@ -155,6 +164,15 @@ Opaque cleanup checks each pending entry's private owners and admission
 facts when deciding whether it needs revocation. Pass that same prepared
 evidence to the update. Evaluate it only when pending proof needs it. Use
 the same immutable value tree and support rules for the check and update.
+
+Finite invalidation currently frames every proof pointee, even when the
+checked mutation is disjoint from its physical storage. Have physical flow
+publish the affected typed pointees using its current alias relation. Union
+that set across outcomes. Atomic frames without a finite physical target
+retain conservative coverage. Proof and certification consume the same
+set. Check unaffected static views, callback cleanup, retired or replaced
+owners, and raw and atomic mutation. Reconsider if a still-observable
+pointee has no corresponding physical slot at the attempted transition.
 
 Terminal states already own the reached physical bindings and execution
 values. Read them while encoding each normal outcome. The cross-outcome
@@ -272,43 +290,45 @@ writes, move-out, raw payload address formation, and source and imported
 consumers that retain independent fields.
 
 The indexed writer now completes without recovery and its caller preserves
-the sibling marker. The selected element's initialization is still absent at
-the caller. The portable effect widens before the selector because it only
-recognizes fixed ordinals. Trace the evaluated selector through portable
-term publication, call admission, and the typed cell observation. A selector
-that cannot be bound leaves only the containing region. Neither that region
-nor the opposite selector establishes initialization.
+the sibling marker. The selected element's initialization is still absent
+at the caller. A selector expressed by a literal or immutable entry scalar
+can name the actual cell at both evaluation and call admission. Preserve
+that selector in the row's effect and cell change. Bind it from the
+admitted arguments for ordinary calls and deferred execution. Different
+symbolic selectors may alias and an unresolved operand stays bounded.
+Only the selected normal row can establish initialization. Check the same
+index, the other index, changed inputs, raw memory, and imported summaries.
 
-The outer buffer's view provides the bounded element slot through its actual
-backing. The entry planner closes demanded field paths through inline types.
-It must also carry a demand from the typed slice to its buffer's explicit
-backing route. Install that binding when reading the entry snapshot. View
-production then reads the stored descriptor. Keep an unknown descriptor after
-an opaque replacement and keep region bounds separate from exact addresses.
-Constrain cyclic type paths to the explicit demands already present. Check
-nested and nullable buffers, wrapper transfer, and opaque replacement.
+Direct views now publish both backing steps. A forwarding body's entry
+preparation receives the call's typed result route, but seeds only the
+formal subject before that route. Include the route's backing descriptor
+demands in the same entry preparation used for direct views and cleanup.
+Follow their installed pointers in reached memory. Keep opaque replacement
+unknown and bounded element routes inexact. Check direct and forwarded
+nested buffers, address-returning callbacks, and replacement.
 
 ### Nested reference observation
 
 The attachment exit compares the same reached field, descriptor, and
 post-state data on either side of admission. The caller's restored reference
-adds an owning layer with the same identity as the reference descriptor.
-Canonicalize that observation when constructing the predicate argument.
-The stored value keeps its ownership structure for cleanup and retirement.
+can add an owning layer with the same identity as the reference descriptor.
+Keep the checked reached owner in the storage state. During referent refresh
+preserve the distinct owner or scalar context, and omit the duplicate loan
+context. Match preserved observations in the same form used by predicates.
 The trial that canonicalized the stored value passed the attachment exit
 and regressed channel cleanup. Check both, along with nested witnesses and
 replaced, crossed, or stale owners.
 
 ### Whole-value identity during publication
 
-A completed nullable value uses its own producing storage for whole-value
-clauses. The active payload may have separate ownership and a presence
-guard. Bind both from the produced row. Keep any admitted ownership
-transfer on the value it names. Source and imported callers must preserve
-that distinction through aggregate publication, joins, and extraction.
-Check whole nullable ownership, payload-only ownership, and forged or absent
-alternatives. A missing root must never be repaired by upgrading a payload
-witness to the whole value.
+A known-present wrapper can share the payload's actual owner. Whole and
+payload observations still have different expressions. When rebasing a
+returned value, map its exact borrowed wrapper alongside its inline
+contents. Keep projections of the payload mapped to their actual child.
+Only a witness that references the reached wrapper can use that whole path.
+Remove the speculative extra owner added for every present row. Source
+and imported rows must preserve whole nullable clauses, payload-only clauses,
+conditional transfers, and rejection of forged or absent alternatives.
 
 A returned static descriptor retains the provider's actual selection and
 pointee type even when the caller's plan has no static access expression.

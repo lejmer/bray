@@ -321,7 +321,7 @@ fn infer_component(
         .semantic_values()
         .intern_dependency_contract_template(
             bray_symbols::DependencyContractTemplateData::new([])
-                .with_effects([])
+                .with_possible_effects([])
                 .with_normal_completion(false),
         )
         .expect("empty result dependency template satisfies the semantic store contract");

@@ -1,6 +1,6 @@
 use crate::analysis::storage_flow::memory::{Origin, Place, ReachedAccess, State, Target};
 use crate::CheckerRequestContext;
-use bray_bound_tree::{StorageAccessId, StorageAddressValue, StoragePlan, StorageReferencePath};
+use bray_bound_tree::{StorageAccessId, StorageAddressValue, StoragePlan, StorageProjection, StorageReferencePath};
 
 impl crate::analysis::storage_flow::model::StorageFlowInput {
     pub(in crate::analysis::storage_flow) fn reference_slots<'a>(
@@ -87,7 +87,10 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
     ) -> Option<Target> {
         let (_, path) = storage.reference_route(access)?;
 
-        if !path.steps().is_empty() { return None; }
+        if !path.steps().is_empty() || path.projections().iter().any(|projection|
+            matches!(projection, StorageProjection::Element(_))) {
+            return None;
+        }
 
         Some(Target::storage(storage.logical_path(access)?.clone()))
     }
@@ -110,14 +113,19 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
         memory: &crate::analysis::storage_flow::memory::State,
         storage: &bray_bound_tree::StoragePlan,
         access: bray_bound_tree::StorageAccessId,
+        mut index: impl FnMut(bray_bound_tree::BoundExpressionId) -> Option<StorageProjection>,
     ) -> Option<ReachedAccess> {
-        if let Some(target) = self.direct_reference_target(storage, access) {
-            return Some(ReachedAccess { address: StorageAddressValue::one(target), loan: None });
+        let (start, path, root_borrow) = self.reference_start(memory, storage, access)?;
+        let reached = path.bind_selectors(|projection| match projection {
+            StorageProjection::Element(selector) => index(selector).unwrap_or(projection),
+            _ => projection,
+        });
+
+        if reached.steps().is_empty() {
+            return Some(ReachedAccess { address: StorageAddressValue::one(start.project(reached.projections())), loan: None });
         }
 
-        let (start, path, root_borrow) = self.reference_start(memory, storage, access)?;
-
-        memory.reached_access(values, start, path, root_borrow)
+        memory.reached_access(values, start, &reached, root_borrow)
     }
 
     fn reference_start<'storage>(
@@ -283,6 +291,45 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
         }
 
         Ok(())
+    }
+}
+
+impl<C: CheckerRequestContext + ?Sized> super::super::core::StorageFlowCollector<'_, C> {
+    pub(in crate::analysis::storage_flow) fn evaluated_access(
+        &self,
+        memory: &State,
+        execution: &crate::analysis::guarantee::ExecutionState,
+        access: StorageAccessId,
+    ) -> Option<ReachedAccess> {
+        self.input.reached_access(self.request.semantic_values(), memory, self.storage, access, |selector| {
+            self.evaluated_element(&self.execution.operand_value(execution, selector))
+        })
+    }
+
+    pub(in crate::analysis::storage_flow) fn evaluated_element(&self, value: &crate::ExecutionCondition) -> Option<StorageProjection> {
+        use crate::ExecutionConditionKind as Kind;
+
+        let value = match value.computed_value().kind() {
+            Kind::ScalarValue(data) => data,
+            _ => value.computed_value(),
+        };
+
+        match value.kind() {
+            Kind::Literal(value) => {
+                let bray_symbols::ConstantValueKind::Integer(index) = value.kind() else { return None; };
+                let index = u32::try_from(index.to_u64()?).ok()?;
+
+                Some(StorageProjection::ElementFromStart(bray_symbols::SymbolOrdinal::new(index)))
+            }
+            Kind::Input(place) if place.projections.is_empty() => {
+                let input = place.reference()?;
+                let ordinal = self.request.trusted_contracts()?.inputs.iter().position(|candidate| *candidate == input)?;
+                let ordinal = u32::try_from(ordinal).expect("checked input ordinal fits the callable signature");
+
+                Some(StorageProjection::ElementFromInput(bray_symbols::SymbolOrdinal::new(ordinal)))
+            }
+            _ => None,
+        }
     }
 }
 

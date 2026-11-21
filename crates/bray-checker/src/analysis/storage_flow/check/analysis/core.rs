@@ -857,7 +857,7 @@ where
         self.retain_operation_reports(state, *operation, &execution, task_outcome);
         self.transfer_result_dependencies(state, kind, &execution, task_outcome, panic_report.as_deref());
 
-        let accesses = self.capture_transfer_accesses(state, kind);
+        let accesses = self.capture_transfer_accesses(state, &execution, kind);
 
         if self.publish
             && !matches!(
@@ -899,7 +899,7 @@ where
     ) {
         let mut execution = state.execution.take().expect("a cleanup continuation owns its reached execution state");
         let first_continuation = self.cleanup_continuations.len();
-        let accesses = self.capture_transfer_accesses(state, operation.kind());
+        let accesses = self.capture_transfer_accesses(state, &execution, operation.kind());
 
         let displaced = self.apply_cleanup(state, &mut execution, operation);
 
@@ -1278,9 +1278,8 @@ where
             {
                 let assignment = plan.occurrence().expression().expect("destination belongs to an assignment expression");
 
-                let address = self.input.reached_access(
-                    self.request.semantic_values(), &state.memory, self.storage, plan.access(),
-                );
+                let execution = state.execution.as_ref().expect("destination evaluation retains its operands");
+                let address = self.evaluated_access(&state.memory, execution, plan.access());
 
                 state.memory.capture_assignment_destination(assignment, address);
             }
@@ -2007,7 +2006,9 @@ where
             {
                 self.assignment_destination(&state.memory, expression, access).map(Cow::into_owned)
             } else {
-                self.input.reached_access(self.request.semantic_values(), &state.memory, self.storage, access)
+                let execution = state.execution.as_ref().expect("a reached storage access retains its evaluated operands");
+
+                self.evaluated_access(&state.memory, execution, access)
             }
         });
 
@@ -2804,7 +2805,7 @@ where
                     field: self.diagnostic_symbol_name(field.into())?,
                 }
             }
-            StorageProjection::Element(_) | StorageProjection::AnyElement => DiagnosticStorageProjection::IndexedElement,
+            StorageProjection::Element(_) | StorageProjection::ElementFromInput(_) | StorageProjection::AnyElement => DiagnosticStorageProjection::IndexedElement,
             StorageProjection::SliceRange { start, end } => {
                 DiagnosticStorageProjection::SliceRange {
                     has_start: start.is_some(),

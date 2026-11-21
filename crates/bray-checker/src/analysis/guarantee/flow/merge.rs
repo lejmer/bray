@@ -845,6 +845,17 @@ pub(super) fn result_replacements(
             insert_replacement(values, contents, joined_contents);
         }
 
+        if !stable_values.contains(contents) && contents != joined_contents {
+            // A reference to the entire present wrapper can share its payload's
+            // owner. Rename the exact reference without renaming the owner twice.
+            let source = contents.clone().borrowed();
+            let target = joined_contents.clone().borrowed();
+
+            if !stable_values.contains(&source) {
+                insert_replacement(values, &source, &target);
+            }
+        }
+
         // Presence wraps the payload's existing owner. Move that owner to the
         // selected payload, never to both the nullable root and its child.
         result_replacements(payload, &joined_contents.clone().project(bray_bound_tree::StorageProjection::NullableValue),

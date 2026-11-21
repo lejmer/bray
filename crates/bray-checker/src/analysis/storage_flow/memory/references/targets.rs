@@ -61,7 +61,9 @@ impl State {
         &self,
     ) -> impl Iterator<Item = (&Target, bray_symbols::DependencyMutationKind)> {
         self.contents.iter().filter(|(target, contents)| {
-            matches!(target.origin, Origin::Entry { kind: bray_symbols::DependencyReferenceKind::Address, .. })
+            matches!(target.origin, Origin::Entry { kind, .. }
+                if kind == bray_symbols::DependencyReferenceKind::Address
+                    || target.projections().last() == Some(&bray_bound_tree::StorageProjection::UninitPayload))
                 && target.is_exact() && contents.invalidations.is_empty()
         }).flat_map(|(target, contents)| contents.cell_changes().map(move |kind| (target, kind)))
     }

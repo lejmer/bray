@@ -657,7 +657,7 @@ mod tests {
                 let contract = values
                     .intern_dependency_contract_template(
                         DependencyContractTemplateData::new([])
-                            .with_effects([])
+                            .with_possible_effects([])
                             .with_captured_values([
                                 bray_symbols::CapturedValueOutcome::new(None, []).with_ownership(ownership)
                             ]),

@@ -326,6 +326,7 @@ impl ExecutionCondition {
         }
 
         let contents = match previous.value_inside_capture().kind() {
+            K::Observation { owner, kind: ObservationKind::Owned, .. } if owner.as_ref() == identity => contents,
             K::Observation { owner, kind: kind @ (ObservationKind::Owned | ObservationKind::Scalar), .. } => {
                 Self::observation(owner.as_ref().clone(), contents, *kind)
             }
@@ -612,42 +613,7 @@ impl ExecutionCondition {
         mut arguments: Vec<Self>,
     ) -> Self {
         for argument in &mut arguments {
-            *argument = argument.without_captured_storage();
-
-            // A by-value predicate observes copied data. A borrowed argument
-            // retains its storage context even when the contents are equal.
-            *argument = argument.copied_value().clone();
-
-            if let K::Present(payload) = argument.kind() {
-                // Predicate arguments name the nullable value. Structural visitors
-                // separately retain its explicit initialized payload snapshot.
-                *argument = payload.as_ref().clone().present();
-            }
-
-            if let K::Observation { owner, contents, kind: ObservationKind::Reference } = argument.kind() {
-                let reached = match contents.kind() {
-                    K::Observation { owner: context, contents: data, kind: ObservationKind::Owned }
-                        if context == owner => Some(data.as_ref()),
-                    _ => contents.storage_contents().and_then(|(context, data)| {
-                        (context == data.owner_identity()).then_some(data)
-                    }),
-                };
-
-                if let Some(reached) = reached {
-                    // The predicate compares the same reached observation. Stored
-                    // values retain the ownership structure needed by retirement.
-                    *argument = Self::reference_value(owner.as_ref().clone(), reached.clone());
-                }
-            }
-
-            if let K::Observation { contents, kind: ObservationKind::Reference, .. } = argument.kind()
-                && (contents.ownership_identity().is_some_and(|(role, _)| role == ObservationKind::Owned)
-                    || contents.is_reference_computation())
-            {
-                // Retain the actual referent or checked reference computation,
-                // independently of the loan handle. Scalar contexts remain distinct.
-                *argument = contents.as_ref().clone().borrowed();
-            }
+            *argument = argument.predicate_observation();
         }
 
         for argument in &arguments {
@@ -657,6 +623,45 @@ impl ExecutionCondition {
         }
 
         ExecutionCondition::new(K::Predicate(predicate, substitution, arguments.into()))
+    }
+
+    /// Canonicalizes the reached observation shared by predicates and their preservation checks.
+    pub(crate) fn predicate_observation(&self) -> Self {
+        let value = self.without_captured_storage();
+
+        // A by-value predicate observes copied data. A borrowed argument
+        // retains its storage context even when the contents are equal.
+        let mut argument = value.copied_value().clone();
+
+        if let K::Present(payload) = argument.kind() {
+            // Predicate arguments name the nullable value. Structural visitors
+            // separately retain its explicit initialized payload snapshot.
+            argument = payload.as_ref().clone().present();
+        }
+
+        if let K::Observation { owner, contents, kind: ObservationKind::Reference } = argument.kind() {
+            let reached = match contents.kind() {
+                K::Observation { owner: context, contents: data, kind: ObservationKind::Owned }
+                    if context == owner => Some(data.as_ref()),
+                _ => contents.storage_contents().and_then(|(context, data)| {
+                    (context == data.owner_identity()).then_some(data)
+                }),
+            };
+
+            if let Some(reached) = reached {
+                argument = Self::reference_value(owner.as_ref().clone(), reached.clone());
+            }
+        }
+
+        if let K::Observation { contents, kind: ObservationKind::Reference, .. } = argument.kind()
+            && (contents.ownership_identity().is_some_and(|(role, _)| role == ObservationKind::Owned)
+                || contents.is_reference_computation())
+        {
+            // Retain the actual referent or checked reference computation.
+            argument = contents.as_ref().clone().borrowed();
+        }
+
+        argument
     }
 
     fn is_reference_computation(&self) -> bool {

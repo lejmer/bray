@@ -177,7 +177,7 @@ mod tests {
                     .with_synchronous_cleanup([crate::DependencyRequirement::SynchronousCleanup(
                         nested,
                     )])
-                    .with_effects([
+                    .with_possible_effects([
                         DependencyStorageEffect::UnboundedMutation { kind: DependencyMutationKind::Dispose(contextual), access_type: None, ambient: false },
                         DependencyStorageEffect::Direct { addressed: true,
                             subject: DependencySubject::root(DependencySubjectRoot::Receiver),

@@ -67,12 +67,6 @@ impl Compilation {
                 .has_errors()
             || self.imported_diagnostics().has_errors()
         {
-            if std::env::var_os("BRA_694_TRACE_EXPORT").is_some() {
-                eprintln!("export source rejection: source={:?} syntax={:?} graph={:?} execution={:?} imported={:?}",
-                    self.source_diagnostics(), self.syntax_tree_result().diagnostics(), source_graph.diagnostics(),
-                    self.execution_guarantee_diagnostics(), self.imported_diagnostics());
-            }
-
             // rust-style: allow(context-erasing-failure-conversion, reason = "source and semantic diagnostics retain the exact causes")
             return Err(PackageInterfaceExportError::InvalidCompilation);
         }
@@ -82,10 +76,6 @@ impl Compilation {
             .map_err(super::super::super::fact_query_export_error)?;
 
         if product.diagnostics().has_errors() || product.value().is_recovered() {
-            if std::env::var_os("BRA_694_TRACE_EXPORT").is_some() {
-                eprintln!("export product rejection: recovered={} diagnostics={:?}", product.value().is_recovered(), product.diagnostics());
-            }
-
             // rust-style: allow(context-erasing-failure-conversion, reason = "source and semantic diagnostics retain the exact causes")
             return Err(PackageInterfaceExportError::InvalidCompilation);
         }

@@ -539,7 +539,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let storage = contract.storage();
         let entry = execution.admitted_call(occurrence);
 
-        let resolved = self.resolve_effects(&state.memory, storage, effects,
+        let resolved = self.resolve_effects(&state.memory, storage, (effects, entry),
             || entry?.argument_regions(contract.input_count()), |subject, indirect| {
             let values = self.request.semantic_values();
             let root = subject.subject_root();
@@ -630,7 +630,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         &self,
         memory: &crate::analysis::storage_flow::memory::State,
         storage: &bray_bound_tree::BoundCallStorage,
-        effects: &[DependencyStorageEffect],
+        (effects, entry): (&[DependencyStorageEffect], Option<&crate::ExecutionCallEvidence>),
         mut input_regions: impl FnMut() -> Option<std::sync::Arc<[Target]>>,
         mut resolve: impl FnMut(&DependencySubject, bool) -> Option<Vec<crate::analysis::storage_flow::memory::MutationTarget>>,
     ) -> Vec<Effect> {
@@ -698,7 +698,14 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 })
             }.and_then(|targets| {
                 if continues {
-                    memory.follow_effect_path(self.request.semantic_values(), targets, storage.effect_path(effect)?)
+                    let path = storage.effect_path(effect)?.bind_selectors(|projection| {
+                        let StorageProjection::ElementFromInput(ordinal) = projection else { return projection; };
+                        let value = entry.and_then(|entry| entry.arguments.get(&crate::ExecutionPlace::argument(ordinal)));
+
+                        value.and_then(|value| self.evaluated_element(value)).unwrap_or(StorageProjection::AnyElement)
+                    });
+
+                    memory.follow_effect_path(self.request.semantic_values(), targets, &path)
                 } else {
                     Some(targets)
                 }
@@ -900,7 +907,17 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 let suffix = projections
                     .iter()
                     .copied()
-                    .map_while(|projection| crate::storage::dependency_projection(self.request, projection))
+                    .map_while(|projection| {
+                        if let StorageProjection::ElementFromInput(ordinal) = projection {
+                            let term = self.request.semantic_values()
+                                .intern_constant_term(bray_symbols::ConstantTermData::CallableArgument(ordinal))
+                                .expect("an evaluated entry selector belongs to the semantic store");
+
+                            return Some(bray_symbols::DependencyProjection::Element(term));
+                        }
+
+                        crate::storage::dependency_projection(self.request, projection)
+                    })
                     .collect::<Vec<_>>();
 
                 match source {
