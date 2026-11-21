@@ -360,7 +360,7 @@ pub(super) fn finite_protocol_loops<C: CheckerRequestContext + ?Sized>(
     cycles: &[(&AnalysisEdge, ExecutionState)],
     candidate: &mut crate::ExecutionCandidate,
 ) -> std::collections::BTreeSet<AnalysisBlockId> {
-    use super::super::model::{AnalysisCallPhase, AnalysisOperationKind};
+    use super::super::model::AnalysisRefinement;
     use bray_bound_tree::{BoundExecutionSite, SemanticSelection};
 
     let mut proved = std::collections::BTreeSet::new();
@@ -431,33 +431,13 @@ pub(super) fn finite_protocol_loops<C: CheckerRequestContext + ?Sized>(
                 continue;
             }
 
-            let completed = flow.domain.graph.blocks().iter().find(|block| {
-                block
-                    .operations()
-                    .iter()
-                    .filter_map(|id| flow.domain.graph.operation(*id))
-                    .any(|operation| {
-                        matches!(operation.kind(),
-                    AnalysisOperationKind::Call { invocation, phase: AnalysisCallPhase::Completion }
-                        if invocation == occurrence)
-                    })
-            });
+            let selects_item = |edge: &AnalysisEdge| matches!(edge.refinement(),
+                Some(AnalysisRefinement::InvocationPresence(invocation, true)) if invocation == occurrence);
 
-            let Some(completed) = completed else {
-                continue;
-            };
-
-            let matching = cycles
-                .iter()
-                .filter(|(edge, _)| edge.target() == header)
-                .collect::<Vec<_>>();
-
-            if matching.iter().any(|(edge, state)| {
-                (header != completed.id()
-                    && path_exists(flow, header, edge.source(), |candidate| {
-                        candidate.source() != completed.id() && candidate.target() != completed.id()
-                    }))
-                    || !next_present(flow, state, occurrence)
+            // The selected item can move or retire before the loop returns.
+            // Its reached presence edge is the progress evidence.
+            if cycles.iter().filter(|(edge, _)| edge.target() == header).any(|(edge, _)| {
+                !selects_item(edge) && path_exists(flow, header, edge.source(), |candidate| !selects_item(candidate))
             }) {
                 continue;
             }
@@ -515,40 +495,6 @@ fn path_exists<C: CheckerRequestContext + ?Sized>(
     }
 
     false
-}
-
-fn next_present<C: CheckerRequestContext + ?Sized>(
-    flow: &ExecutionFlow<'_, '_, C>,
-    state: &ExecutionState,
-    occurrence: bray_bound_tree::BoundExecutionSite,
-) -> bool {
-    let access = flow
-        .domain
-        .storage
-        .invocation_result(occurrence)
-        .expect("next has its actual nullable result");
-
-    let ty = flow
-        .domain
-        .storage
-        .access(access)
-        .expect("next storage has its type")
-        .reached_type();
-
-    let (_, missing) = crate::execution_guarantees::pattern_value(
-        flow.domain.request.semantic_values(),
-        ty,
-        bray_bound_tree::PatternPredicate::NullableAbsent,
-    )
-    .expect("next result has its absence value");
-
-    ExecutionCondition::pattern(
-        flow.domain.invocation_value(state, occurrence),
-        BoundOperator::NotEqual,
-        missing,
-    )
-    .prove_ordinary(&state.assumptions, Some(&state.proofs))
-        == Some(true)
 }
 
 fn loop_members<C: CheckerRequestContext + ?Sized>(
