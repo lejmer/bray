@@ -295,8 +295,8 @@ fn default_contextual_self<C: CheckerRequestContext + ?Sized>(
     CheckerQueryError<C::UpstreamError>,
 > {
     let Some(context) = request
-        .symbols()
-        .enclosing_self_type_context(provider.symbol())
+        .context()
+        .enclosing_self_type_context(provider.symbol())?
     else {
         return Ok(None);
     };
@@ -310,10 +310,9 @@ fn default_contextual_self<C: CheckerRequestContext + ?Sized>(
                 (None, Some(receiver)) => values.unborrowed_type(receiver.target_type()),
                 (None, None) => {
                     let subject = match context {
-                        bray_symbols::SelfTypeContext::NamedType(definition) => values
-                            .intern_open_named_type(request.symbols(), definition)
-                            .expect("selected default's named Self type is well formed")
-                            .expect("selected default's named Self declaration exists"),
+                        bray_symbols::SelfTypeContext::NamedType(definition) => {
+                            request.context().open_named_type(definition)?
+                        }
                         bray_symbols::SelfTypeContext::Implementation(implementation) => {
                             let subject = request
                                 .context()

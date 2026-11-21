@@ -134,17 +134,17 @@ impl SemanticValueStore {
 
         let substituted = match data.as_ref() {
             TypeData::ContextualSelf(SelfTypeContext::NamedType(definition)) => {
-                let Some(generic) = substitution.generic() else {
+                let Some(owner) = GenericOwnerId::try_new(definition.into_any()) else {
                     return Ok(ty);
                 };
 
-                let Some(owner) = GenericOwnerId::try_new(definition.into_any()) else {
+                let Some(generic) = substitution.generic().filter(|generic| generic.owner() == owner) else {
                     return Ok(ty);
                 };
 
                 TypeData::Named {
                     definition: *definition,
-                    substitution: self.intern_generic_substitution(generic.with_owner(owner))?,
+                    substitution: self.intern_generic_substitution(generic.clone())?,
                 }
             }
             TypeData::ExactInteger { .. }

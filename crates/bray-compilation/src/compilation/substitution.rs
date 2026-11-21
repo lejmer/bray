@@ -1,14 +1,13 @@
-use bray_binder::BindingQueryContext;
+use bray_binder::{BindingQueryContext, SymbolQueryProvider};
 use bray_symbols::{
-    AnySymbolId, GenericArgument, GenericOwnerId, GenericParameterSymbolId,
+    AnySymbolId, GenericArgument, GenericDeclarationTemplateQuery, GenericOwnerId, GenericParameterSymbolId,
     GenericSubstitutionData, GenericSubstitutionId, NamedTypeSymbolId, SelfTypeContext,
-    SemanticValueStore, TypeData, TypeId,
+    SemanticValueStore, SymbolQueryRequest, TypeData, TypeId,
 };
 
 use super::binder::CompilationBindingContext;
 use super::{
-    SemanticDataKind, SemanticQueryContext, SemanticQueryFailure, SemanticQueryViolation,
-    SemanticSymbolCategory,
+    SemanticQueryContext, SemanticQueryFailure, SemanticQueryViolation, SemanticSymbolCategory,
 };
 use crate::fact::FactQueryError;
 
@@ -129,19 +128,26 @@ pub(super) fn contextual_self_type(
         )
     })?;
 
-    binding_context
-        .semantic_values()
-        .intern_open_named_type(binding_context.symbols(), definition)
+    open_named_type(binding_context, definition)
+}
+
+pub(super) fn open_named_type(
+    binding_context: &CompilationBindingContext<'_>,
+    definition: NamedTypeSymbolId,
+) -> Result<TypeId, FactQueryError> {
+    let values = binding_context.semantic_values();
+
+    if let Some(ty) = values.intern_open_named_type(binding_context.symbols(), definition)
+        .map_err(FactQueryError::SemanticValueStore)? {
+        return Ok(ty);
+    }
+
+    let owner = GenericOwnerId::try_new(definition.into_any()).expect("named types own generic parameters");
+    let declaration = binding_context.resolve_symbol_query(SymbolQueryRequest::<GenericDeclarationTemplateQuery>::new(owner))
+        .map_err(super::binder::binding_query_error)?;
+
+    values.intern_open_named_type_from_parameters(definition, declaration.value().parameters())
         .map_err(FactQueryError::SemanticValueStore)
-        .and_then(|ty| {
-            ty.ok_or_else(|| {
-                SemanticQueryFailure::contract(
-                    SemanticQueryContext::Symbol(symbol),
-                    SemanticQueryViolation::Missing(SemanticDataKind::Type),
-                )
-                .into()
-            })
-        })
 }
 
 pub(super) fn named_type(

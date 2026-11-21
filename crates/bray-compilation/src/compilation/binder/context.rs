@@ -84,6 +84,21 @@ impl<'compilation> CompilationBindingContext<'compilation> {
         self.declarations
     }
 
+    pub(in crate::compilation) fn enclosing_self_type_context(
+        &self,
+        mut symbol: AnySymbolId,
+    ) -> BindingQueryResult<Option<bray_symbols::SelfTypeContext>> {
+        while let Some(owner) = self.containing_symbol(symbol)? {
+            if let Some(context) = bray_symbols::SelfTypeContext::try_new(owner) {
+                return Ok(Some(context));
+            }
+
+            symbol = owner;
+        }
+
+        Ok(None)
+    }
+
     pub(super) fn imported_path_root(
         &self,
         components: &[&str],

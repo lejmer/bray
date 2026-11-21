@@ -251,6 +251,18 @@ pub trait CheckerRequestContext: Sync {
         Ok(self.symbols().structure(id))
     }
 
+    /// Returns a named type with the open arguments of its source or imported declaration.
+    fn open_named_type(
+        &self,
+        definition: NamedTypeSymbolId,
+    ) -> CheckerQueryResult<TypeId, Self::UpstreamError> {
+        Ok(self
+            .semantic_values()
+            .intern_open_named_type(self.symbols(), definition)
+            .expect("named type has a valid generic identity")
+            .expect("named type retains its declaration"))
+    }
+
     /// Returns a source or imported structure field declaration.
     fn struct_field(
         &self,

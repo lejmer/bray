@@ -211,6 +211,60 @@ fn concrete_generic_instances_realize_signatures_and_layouts() {
 
 #[test]
 #[ignore = "tier:native"]
+fn generic_method_self_uses_its_declaring_instances_layout() {
+    let source = r#"
+        module app;
+
+        struct Container<T>
+        {
+            value: T;
+
+            static func wrapped<U>(pos value: T) -> Self?
+            {
+                return internal pack<T>(value);
+            }
+        }
+
+        internal func pack<T>(pos value: T) -> Container<T>
+        {
+            return { value = value };
+        }
+
+        public func read() -> i32
+        {
+            let narrow: Container<i32>? = Container<i32>.wrapped<bool>(1);
+            let wide: Container<i64>? = Container<i64>.wrapped<bool>(2);
+
+            return match (narrow, wide)
+            {
+                case (?left, ?right) { yield if right.value == 2 { yield left.value; } else { yield 1; }; }
+                case _ { yield 3; }
+            };
+        }
+    "#;
+
+    let (backend, compilation) = codegen_compilation(source_request_with_runtime(
+        &[source],
+        CompilationOptions::new(
+            WorkerBudget::serial(),
+            ProductKind::Library,
+            SelectedTarget::baseline(),
+        ),
+    ));
+
+    let plan = compilation.native_product_plan(
+        test_product_identity(),
+        crate::BuildConfiguration::Development,
+        None,
+        [],
+        None,
+    ).expect("both nominal Self specializations realize native layouts");
+
+    assert!(generated_artifacts(&backend, &plan).iter().any(|artifact| !artifact.is_empty()));
+}
+
+#[test]
+#[ignore = "tier:native"]
 fn library_roots_exclude_members_of_open_generic_containers() {
     let compilation = crate::test_support::compilation_with_product(
         concat!(

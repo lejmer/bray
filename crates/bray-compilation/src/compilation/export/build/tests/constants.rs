@@ -420,9 +420,12 @@ fn construction_inputs_preserve_nullable_constant_values_across_imports() {
 
     let [field] = fields.as_ref() else { panic!("the selected alternative has one field"); };
 
-    let symbols = consumer.symbol_graph().expect("consumer has its selected symbols");
+    let binding = consumer.binding_context(&consumer.state.cancellation)
+        .expect("consumer declarations bind");
+    let variant_name = binding.member_name((*variant).into())
+        .expect("consumer resolves the imported union variant");
 
-    assert_eq!(symbols.member_name((*variant).into()).map(|name| name.as_str()), Some("Some"));
+    assert_eq!(variant_name.map(|name| name.as_str()), Some("Some"));
     assert_eq!(values.constant_value_data(*field.value()), optional);
 
     let ConstantValueKind::NullablePresent(payload) = optional.kind() else {
