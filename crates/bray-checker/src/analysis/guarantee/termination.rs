@@ -47,13 +47,6 @@ pub(super) fn bounded_loop_ranks<C: CheckerRequestContext + ?Sized>(
                     let value = place.value_in(&end.current)?;
                     let step = flow.domain.strict_integer_step(end, &value, &start, equalities);
 
-                    if let Some(expression) = flow.domain.graph.loop_expression(header)
-                        && flow.domain.trace_authority_site(bray_bound_tree::StorageMutation::Operation(expression.into()))
-                    {
-                        eprintln!("loop progress {expression:?} {place:?} step={step:?} start={:?} end={:?} facts={:?}",
-                            start.kind(), value.kind(), end.assumptions);
-                    }
-
                     let step = step?;
 
                     if direction.is_some_and(|previous| previous != step) {

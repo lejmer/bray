@@ -308,10 +308,6 @@ impl<C: CheckerRequestContext + ?Sized> super::super::core::StorageFlowCollector
             let value = self.execution.operand_value(execution, selector);
             let element = self.evaluated_element(&value);
 
-            if self.execution.trace_authority_site(bray_bound_tree::StorageMutation::Operation(selector.into())) {
-                eprintln!("reached selector {selector:?} {access:?}: value={:?} element={element:?}", value.kind());
-            }
-
             element
         })
     }

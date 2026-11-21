@@ -15,6 +15,7 @@ pub(super) type EffectRows = BTreeMap<StorageEffectRow, Arc<[Effect]>>;
 /// Associates checked portable rows with their effects until the admitted operands are bound.
 pub(super) struct SelectedEffectRows<'a> {
     filter_normal: bool,
+    bound_opaque_normal: bool,
     has_failure_table: bool,
     failure_fallback: [bool; 2],
     sources: BTreeMap<&'a DependencyStorageEffect, Vec<StorageEffectRow>>,
@@ -25,11 +26,16 @@ impl<'a> SelectedEffectRows<'a> {
     pub(super) fn new(filter_normal: bool) -> Self {
         Self {
             filter_normal,
+            bound_opaque_normal: false,
             has_failure_table: false,
             failure_fallback: [false; 2],
             sources: BTreeMap::new(),
             retained: BTreeMap::new(),
         }
+    }
+
+    pub(super) fn apply_pure_normal_bound(&mut self, applies: bool) {
+        self.bound_opaque_normal = applies;
     }
 
     pub(super) fn select_failures<Guard, Report, Write>(
@@ -96,7 +102,9 @@ impl<'a> SelectedEffectRows<'a> {
 
         let outcomes = templates.try_flat_map_selected(self.has_failure_table, additional, |effect, in_envelope| {
             let resolved = resolve(effect);
-            let mut normal = !self.filter_normal;
+
+            let mut normal = !self.filter_normal
+                && !(self.bound_opaque_normal && effect.is_opaque_call_fallback());
 
             let mut failure = DependencyFailureKind::ALL.map(|kind| {
                 self.failure_fallback[kind.index()] && templates.failure(kind).binary_search(effect).is_ok()

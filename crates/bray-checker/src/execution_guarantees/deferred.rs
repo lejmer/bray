@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use super::{ExecutionCallEvidence, ExecutionCondition, ExecutionInput, ExecutionObservationKind, ExecutionProof};
 use crate::{ExecutionConditionKind as Kind, ExecutionPlace};
-use bray_bound_tree::{BoundExecutionSite, StorageDeferredProducer};
+use bray_bound_tree::StorageDeferredProducer;
 
 type Selection = BTreeSet<(ExecutionCondition, bool)>;
 
@@ -469,17 +469,6 @@ impl ExecutionDeferredValue {
             if let Some(previous) = self.producers.get_mut(source) {
                 if previous != candidate {
                     if previous.entry != candidate.entry {
-                        if std::env::var_os("BRA_694_TRACE_FRAME").is_some()
-                            && source.local().and_then(BoundExecutionSite::expression).is_some_and(|expression| matches!(expression.ordinal(), 14 | 21))
-                        {
-                            let describe = |entry: &ExecutionCallEvidence| entry.positional_arguments()
-                                .map(|(ordinal, value)| (ordinal, format!("{:?}", value.computed_value().kind()).chars().take(650).collect::<String>()))
-                                .collect::<Vec<_>>();
-
-                            eprintln!("frame join {source:?} left={:?} right={:?} ordinary={:?}/{:?} selected={:?}/{:?}",
-                                describe(&previous.entry), describe(&candidate.entry), previous.entry.assumptions, candidate.entry.assumptions,
-                                previous.selection, candidate.selection);
-                        }
 
                         changed |= Arc::make_mut(&mut previous.entry).intersect_guarded(
                             &candidate.entry, cache, Some([&previous.selection, &candidate.selection]),

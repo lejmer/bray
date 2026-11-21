@@ -100,29 +100,16 @@ where
 
     collector.trusted = trusted;
 
-    let profile = std::env::var_os("BRA_694_PROFILE_FLOW").map(|_| std::time::Instant::now());
-
-    let mut publication = BlockPublication {
-        profile: profile.is_some(),
-        ..Default::default()
-    };
+    let mut publication = BlockPublication::default();
 
     let mut reached = BTreeSet::new();
-    let mut published = std::time::Duration::ZERO;
 
     let transfer = |block: &AnalysisBlock, input: StorageFlowOutcomes| {
         if input.states().next().is_some() {
             reached.insert(block.id());
         }
 
-        let start = profile.map(|_| std::time::Instant::now());
-        let output = publication.transfer(&mut collector, graph, block, input);
-
-        if let Some(start) = start {
-            published += start.elapsed();
-        }
-
-        output
+        publication.transfer(&mut collector, graph, block, input)
     };
 
     let result = match solve_fixed_point_with(graph, &domain, &request, Some(transfer)) {
@@ -136,25 +123,13 @@ where
         }
     };
 
-    let solved = profile.map(|start| start.elapsed());
-    let cycle_start = profile.map(|_| std::time::Instant::now());
     let cyclic = domain.take_cyclic_publications();
-    let cyclic_blocks = cyclic.len();
 
     for (id, (checks, records)) in cyclic {
         reached.insert(id);
         collector.merge_block_checks(checks);
         publication.merge(records);
     }
-
-    if let (Some(solved), Some(cycle_start)) = (solved, cycle_start)
-        && solved.as_millis() >= 1000
-    {
-        eprintln!("flow phases {:?} {:?} blocks={} cyclic={cyclic_blocks} fixed_ms={} published_ms={} cyclic_publish_ms={}",
-            storage.unit(), request.unit().key(), graph.blocks().len(), solved.as_millis(), published.as_millis(), cycle_start.elapsed().as_millis());
-    }
-
-    super::cleanup::report_cleanup_profile(storage.unit());
 
     let (failure_effects, reached_cleanup_edges) = domain.into_edge_outcomes();
 
@@ -249,6 +224,7 @@ where
     .with_input_observation_scopes(scopes)
     .with_deferred_calls(collector.deferred_calls)
     .with_call_admissions(collector.value_captures, collector.value_transitions)
+    .with_pure_effect_premises(collector.pure_effect_premises)
     .with_operation_invalidations(observations)
     .with_operation_completions(collector.normal_completions.publish(bray_bound_tree::StorageCompletion::merge), |operation| {
         graph.operation(operation).expect("normal completion belongs to its graph").kind().occurrence()
@@ -295,7 +271,6 @@ pub(in crate::analysis::storage_flow) struct BlockPublication {
     reachable_blocks: BTreeSet<bray_bound_tree::BoundBlockId>,
     occurrences: BTreeMap<AnyBoundNodeId, crate::analysis::refinement::RefinementSet>,
     conditions: BTreeMap<BoundExpressionId, Option<bool>>,
-    profile: bool,
 }
 
 impl BlockPublication {
@@ -334,16 +309,8 @@ impl BlockPublication {
                 record_node_refinements(&mut self.occurrences, operation.kind(), &state.refinements);
             }
 
-            let profile = self.profile.then(|| (std::time::Instant::now(), outcomes.states().count()));
-
             outcomes.apply_operation(collector, block.id(), operation);
 
-            if let Some((start, input)) = profile
-                && start.elapsed().as_millis() >= 25
-            {
-                eprintln!("flow operation {:?} {:?} {:?} input={input} output={} elapsed_ms={}",
-                    block.id(), operation.id(), operation.kind(), outcomes.states().count(), start.elapsed().as_millis());
-            }
         }
 
         for state in outcomes.states() {
@@ -513,6 +480,7 @@ where
     pub(super) effects: BTreeSet<bray_symbols::DependencyStorageEffect>,
     pub(super) value_transitions: BTreeMap<(AnalysisOperationId, Option<bray_bound_tree::StorageDeferredProducer>), std::sync::Arc<[bray_bound_tree::StorageValueTransition]>>,
     operation_invalidations: BlockRecords<(AnalysisOperationId, bray_bound_tree::StorageOutcomeRows), bray_bound_tree::StorageInvalidation>,
+    pub(super) pure_effect_premises: BTreeSet<AnalysisOperationId>,
     normal_completions: BlockRecords<(AnalysisOperationId, bray_bound_tree::StorageOutcomeRows), bray_bound_tree::StorageCompletion>,
     pub(super) value_captures: BTreeMap<(AnalysisOperationId, Option<bray_bound_tree::StorageDeferredProducer>), std::sync::Arc<[bray_bound_tree::StorageValueCapture]>>,
     pub(super) capture_retirements: BTreeMap<(bray_bound_tree::StorageMutation, StorageValueBoundary), BTreeSet<(Target, StorageValueRetirement)>>,
@@ -680,6 +648,7 @@ where
             state_targets: BTreeMap::new(),
             value_transitions: BTreeMap::new(),
             operation_invalidations: BlockRecords::default(),
+            pure_effect_premises: BTreeSet::new(),
             normal_completions: BlockRecords::default(),
             value_captures: BTreeMap::new(),
             capture_retirements: BTreeMap::new(),
@@ -710,6 +679,7 @@ where
         self.is_recovered |= incoming.is_recovered;
 
         self.operation_invalidations.extend(incoming.operation_invalidations);
+        self.pure_effect_premises.extend(incoming.pure_effect_premises);
         self.normal_completions.extend(incoming.normal_completions);
         self.input_observation_scopes.extend(incoming.input_observation_scopes);
         self.outcome_mutations.extend(incoming.outcome_mutations);
@@ -879,11 +849,7 @@ where
 
         let first_continuation = self.cleanup_continuations.len();
 
-        self.execution.trace_assignment_source(&execution, kind, "storage before cleanup");
-
         let displaced = self.apply_cleanup(state, &mut execution, operation);
-
-        self.execution.trace_assignment_source(&execution, kind, "storage after cleanup");
 
         for continued in &mut self.cleanup_continuations[first_continuation..] {
             continued.refinements = refinements.clone();
@@ -1038,7 +1004,7 @@ where
         });
 
         let outcomes = self.begin_transition(
-            state, kind, &execution, invocation_roots.as_deref(), started.as_ref(),
+            state, operation, &execution, invocation_roots.as_deref(), started.as_ref(),
             (&mut failure_prefixes, &mut returned_referents),
         );
 
@@ -1436,31 +1402,6 @@ where
         invalidation: &mut bray_bound_tree::StorageInvalidation,
     ) {
         let occurrence = kind.occurrence();
-
-        if occurrence.expression().is_some_and(|expression| expression.unit().raw() == 2414952 && expression.ordinal() == 119)
-            && std::env::var_os("BRA_694_TRACE_TAG_ROOT").is_some()
-        {
-            eprintln!("tag-effect trace {occurrence:?} {effects:?}");
-
-            for effect in effects.into_iter().flatten() {
-                if let crate::analysis::storage_flow::memory::Effect::Mutation { footprint, .. } = effect {
-                    let (bounds, unbounded) = state.memory.effect_origins(footprint);
-
-                    eprintln!("tag-effect bound {footprint:?}: independent={unbounded} bounds={:?}", bounds.collect::<Vec<_>>());
-
-                    if let bray_bound_tree::StorageOrigin::Returned { reference, .. } = &footprint.origin {
-                        eprintln!("tag-effect producer {reference:?}: {:?}", self.storage.identity(reference.root));
-                    }
-                }
-            }
-
-            for path in self.input.footprint.discriminants.values().flatten().filter(|path| path.root.ordinal() == 17) {
-                let target = path.access_id(self.storage).and_then(|access| self.input.reference_targets(
-                    self.request.semantic_values(), &state.memory, self.storage, access));
-
-                eprintln!("tag-effect trace {path:?} reaches {target:?}");
-            }
-        }
 
         self.preserve_captured_observations(execution, occurrence, invalidation);
 
@@ -1895,11 +1836,6 @@ where
 
                         state.memory.complete_transition(invocation);
 
-                        if self.execution.trace_authority_site(bray_bound_tree::StorageMutation::Operation(invocation)) {
-                            let reached = self.invocation_result(invocation).and_then(|path| state.memory.referenced_regions(&crate::analysis::storage_flow::memory::Target::storage(path)));
-
-                            eprintln!("completed storage {invocation:?} phase={phase:?} reached={reached:?}");
-                        }
                     }
 
                     state.memory.finish_value_transfers();

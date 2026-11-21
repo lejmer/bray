@@ -13,7 +13,6 @@ use crate::{CheckerRequestContext, ExecutionCondition, ExecutionPlace};
 impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
     pub(super) fn candidate(
         &self,
-        memory: &bray_bound_tree::CheckedMemoryOperations,
         obligation: Option<crate::ExecutionObligation>,
         property: Option<crate::ExecutionProperty>,
     ) -> (crate::ExecutionCandidate, BTreeMap<AnalysisOperationId, ReachedScopeCleanup>) {
@@ -27,6 +26,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
         let mut reached_cleanup = BTreeMap::<_, ReachedScopeCleanup>::new();
         let mut dependencies = self.domain.consumed_completion_dependencies.borrow().clone();
         let mut results = BTreeSet::new();
+        let flow = self.domain.checked_body.expect("candidate retains its checked body").storage_flow();
 
         for block in self.domain.graph.blocks() {
             for reached in self.output_states(block.id()) {
@@ -39,19 +39,16 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
         }
 
         for evidence in self.domain.candidate_evidence.borrow().values() {
-            for (&occurrence, calls) in &evidence.calls {
-                if !occurrence.expression().and_then(|expression| memory.operation(expression)).is_some_and(|operation| {
-                    crate::memory::execution::guarantees(operation.kind(), crate::ExecutionProperty::Pure)
-                }) {
-                    let mut preserving = calls.iter().filter(|entry| self.domain.admitted_pure(occurrence, entry)).peekable();
+            for (&operation, calls) in &evidence.calls {
+                let point = self.domain.graph.operation(operation).expect("call evidence belongs to its CFG operation");
+                let occurrence = point.kind().occurrence();
 
-                    if preserving.peek().is_some() {
-                        let dependency = super::operation::invocation_dependency(
-                            self.domain.semantics.selections(), occurrence, crate::ExecutionProperty::Pure,
-                        );
+                if flow.requires_pure_effect_bound(operation) {
+                    let dependency = super::operation::invocation_dependency(
+                        self.domain.semantics.selections(), occurrence, crate::ExecutionProperty::Pure,
+                    );
 
-                        candidate.preservation.entry(dependency).or_default().extend(preserving.cloned());
-                    }
+                    candidate.preservation.entry(dependency).or_default().extend(calls.iter().cloned());
                 }
 
                 candidate.calls.entry(occurrence).or_default().extend(calls.iter().cloned());

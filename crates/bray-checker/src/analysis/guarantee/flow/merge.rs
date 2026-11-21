@@ -1026,12 +1026,15 @@ mod tests {
         use bray_symbols::SymbolOrdinal;
 
         let unit_id = BoundUnitId::new(0);
+
         let (unit, expressions) = crate::test_support::integer_expression_unit(unit_id, 2);
+
         let mut storage = StoragePlanBuilder::new(unit_id, unit.key().kind());
         let symbol = crate::test_support::compiler_known_symbol::<bray_symbols::PredicateSymbolId>("ValidRead");
         let substitution = crate::test_support::empty_substitution(symbol.into());
         let place = crate::ExecutionPlace::argument(SymbolOrdinal::new(0));
         let field = StorageProjection::TupleElement(SymbolOrdinal::new(0));
+
         let claim = |value: &ExecutionCondition| {
             ExecutionCondition::new(crate::ExecutionConditionKind::Trusted(std::sync::Arc::new(
                 ExecutionCondition::predicate(symbol.into(), substitution, vec![value.clone().borrowed()]),

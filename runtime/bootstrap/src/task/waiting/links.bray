@@ -72,7 +72,9 @@ trusted internal func task_slot_access(
 {
     return
     {
-        acquisition = LinkAcquisition {},
+        acquisition = LinkAcquisition
+        {
+        },
         lease = lease,
         pointer = owner.pointer
     };
@@ -94,7 +96,9 @@ trusted internal func previous_link_access(
 {
     return
     {
-        acquisition = LinkAcquisition {},
+        acquisition = LinkAcquisition
+        {
+        },
         lease = lease,
         pointer = owner.previous.pointer
     };
@@ -116,7 +120,9 @@ trusted internal func next_link_access(
 {
     return
     {
-        acquisition = LinkAcquisition {},
+        acquisition = LinkAcquisition
+        {
+        },
         lease = lease,
         pointer = owner.next.pointer
     };
@@ -137,7 +143,9 @@ trusted internal func delivery_link_access(
 {
     return
     {
-        acquisition = LinkAcquisition {},
+        acquisition = LinkAcquisition
+        {
+        },
         lease = lease,
         pointer = owner.next.pointer
     };
@@ -153,12 +161,17 @@ trusted internal func event_tail_access(
         lease.active,
         trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition)
     )
-    ensures(trusted bray.runtime.bootstrap.event.collection_owned(owner = owner), trusted link_access(owner = &result.acquisition))
+    ensures(
+        trusted bray.runtime.bootstrap.event.collection_owned(owner = owner),
+        trusted link_access(owner = &result.acquisition)
+    )
     executes(pure, total)
 {
     return
     {
-        acquisition = LinkAcquisition {},
+        acquisition = LinkAcquisition
+        {
+        },
         lease = lease,
         pointer = owner.tail.pointer
     };
@@ -224,7 +237,9 @@ trusted internal func task_head_access(
 
     return
     {
-        acquisition = LinkAcquisition {},
+        acquisition = LinkAcquisition
+        {
+        },
         lease = lease,
         pointer = head.pointer
     };

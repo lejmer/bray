@@ -79,12 +79,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         supported: &BTreeSet<ExecutionCondition>,
         instantiate: &impl Fn(&ExecutionCondition) -> ExecutionCondition,
     ) {
-        let trace = self.trace_authority_site(bray_bound_tree::StorageMutation::Operation(invocation))
-            && !guarantees.addresses.is_empty();
-
-        if trace {
-            eprintln!("address admission {invocation:?}: entry={:?} supported={supported:?} subjects={:?}", entry.addresses, guarantees.addresses);
-        }
 
         let carry_result = |state: &mut ExecutionState,
                             template: &ExecutionCondition,
@@ -100,10 +94,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 &guarantees.addresses,
                 instantiate,
             );
-
-            if trace {
-                eprintln!("address guarantee {invocation:?}: guarantee={guarantee:?} owner={carrier:?} support={sources:?}");
-            }
 
             self.carry_result_guarantee(
                 state,
@@ -187,13 +177,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             {
                 carry_result(state, template, &guarantee, result, false);
             }
-        }
-
-        if self.trace_authority_site(bray_bound_tree::StorageMutation::Operation(invocation)) {
-            let facts = guarantees.conditions.iter().map(|condition|
-                format!("{:?}", instantiate(condition).kind()).chars().take(570).collect::<String>()).collect::<Vec<_>>();
-
-            eprintln!("admitted completion {invocation:?}: facts={facts:?}");
         }
 
         for condition in &guarantees.conditions {

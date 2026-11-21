@@ -623,6 +623,7 @@ impl State {
             }
 
             let target = binding.reference()?.single_location()?;
+
             let Origin::Entry { reference, layer: 1, kind: Borrow, projections } = &target.origin else { return None; };
 
             if reference != path || !projections.is_empty() { return None; }

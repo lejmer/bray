@@ -175,6 +175,7 @@ pub struct BoundCallDependencyContracts {
     deferred_reports: Option<BoundCallReports>,
     storage: BoundCallStorage,
     effects: bray_symbols::DependencyEffectOutcomes<bray_symbols::DependencyStorageEffect>,
+    pure_normal_effect_bound: bool,
     retained_inputs: Option<BTreeSet<crate::BoundExecutionSite>>,
     normal_completion: bool,
     deferred_effects: Option<bray_symbols::DependencyEffectOutcomes<bray_symbols::DependencyStorageEffect>>,
@@ -226,6 +227,7 @@ impl BoundCallDependencyContracts {
             deferred_reports: None,
             storage: BoundCallStorage::default(),
             effects: bray_symbols::DependencyEffectOutcomes::new(bray_symbols::DependencyStorageEffect::opaque_call()),
+            pure_normal_effect_bound: false,
             retained_inputs: None,
             normal_completion: true,
             deferred_effects: None,
@@ -412,6 +414,17 @@ impl BoundCallDependencyContracts {
 
     /// Returns the connected effect contract for this invocation.
     pub const fn effect_outcomes(&self) -> &bray_symbols::DependencyEffectOutcomes<bray_symbols::DependencyStorageEffect> { &self.effects }
+
+    /// Binds a selected purity promise to the opaque normal fallback.
+    pub fn set_pure_normal_effect_bound(&mut self, selected_purity: bool) {
+        self.pure_normal_effect_bound = selected_purity
+            && self.deferred_effects.is_none()
+            && self.captured_values.is_empty()
+            && self.effects.normal().iter().any(bray_symbols::DependencyStorageEffect::is_opaque_call_fallback);
+    }
+
+    /// Whether valid call inputs can use the selected purity promise for opaque normal effects.
+    pub const fn has_pure_normal_effect_bound(&self) -> bool { self.pure_normal_effect_bound }
 
     /// Joins the portable reference origins before admission.
     pub fn references(&self) -> Vec<BoundCallReference> {

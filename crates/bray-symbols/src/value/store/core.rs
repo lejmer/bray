@@ -113,9 +113,11 @@ impl SemanticValueStore {
         parameters: &[GenericParameterSymbolId],
     ) -> Result<TypeId, SemanticValueStoreError> {
         let owner = GenericOwnerId::try_new(definition.into_any()).expect("named type symbols are generic owners");
+
         let arguments = parameters.iter().copied()
             .map(|parameter| self.intern_generic_parameter_argument(parameter))
             .collect::<Result<Vec<_>, _>>()?;
+
         let substitution = GenericSubstitutionData::try_new(owner, parameters.iter().copied(), arguments)
             .expect("declared generic parameters match their open arguments");
 

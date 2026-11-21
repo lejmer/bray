@@ -64,7 +64,6 @@ pub(crate) trait FixedPointDomain {
 
     fn convergence_bound(&self, graph: &ControlFlowGraph) -> usize;
 
-    fn trace_cycle_delta(&self, _: AnalysisBlockId, _: &Self::State, _: &Self::State) {}
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -138,13 +137,6 @@ pub(super) fn solve_fixed_point_with<D: FixedPointDomain>(
     let mut updates = 0_usize;
     let convergence_bound = domain.convergence_bound(graph);
 
-    static TRACE_CYCLES: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-
-    let trace = *TRACE_CYCLES.get_or_init(|| std::env::var_os("BRA_694_PROFILE_CYCLES").is_some())
-        && graph.blocks().iter().any(|block| graph.has_cyclic_input(block));
-
-    let mut traced = None;
-
     while let Some((_, block_id)) = worklist.pop_first() {
         if cancellation.is_cancelled() {
             return FixedPointOutcome::Cancelled;
@@ -155,13 +147,6 @@ pub(super) fn solve_fixed_point_with<D: FixedPointDomain>(
         let block = graph
             .block(block_id)
             .expect("scheduled block belongs to its graph");
-
-        if trace && traced.is_none_or(|last: std::time::Instant| last.elapsed().as_secs() >= 2) {
-            eprintln!("cyclic flow {:?} {} updates={updates} block={block_id:?}",
-                graph.unit(), std::any::type_name::<D>());
-
-            traced = Some(std::time::Instant::now());
-        }
 
         let previous = states[block_index].as_ref()
             .expect("a settled block cannot be scheduled again");
@@ -182,10 +167,6 @@ pub(super) fn solve_fixed_point_with<D: FixedPointDomain>(
         };
 
         let changed = previous != &incoming;
-
-        if trace && changed && block_id.unit().raw() == 1611 && matches!(block_id.to_index(), Some(48 | 63)) {
-            domain.trace_cycle_delta(block_id, previous, &incoming);
-        }
 
         if !changed && outputs[block_index].is_some() {
             continue;

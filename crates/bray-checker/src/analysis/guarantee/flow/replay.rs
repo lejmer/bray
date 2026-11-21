@@ -204,7 +204,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 let outcome = task.outcome;
 
                 if self.replay_operation(&mut branch, point, None, Some(task)) {
-                    evidence.record_call(&branch, invocation);
+                    evidence.record_call(&branch, point);
 
                     let path = Some(extend_path(path.as_ref(), OutcomeStep::TaskCompletion(invocation, outcome)));
 
@@ -225,7 +225,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             // Certification checks the admitted invocation before a successful
             // result can supply additional knowledge about its inputs.
-            evidence.record_call(&state, invocation);
+            evidence.record_call(&state, point);
             call_rows = self.feasible_call_outputs(&state, invocation);
 
             &call_rows
@@ -254,7 +254,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             if completes {
                 if !matches!(operation, AnalysisOperationKind::Call { .. }) {
-                    evidence.record_call(&state, invocation);
+                    evidence.record_call(&state, point);
                 }
 
                 outcomes.merge(path, Cow::Owned(state), |state, next| join_states(state, next, ExecutionJoin::Block(block)));

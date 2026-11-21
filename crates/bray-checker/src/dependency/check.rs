@@ -271,6 +271,23 @@ where
         Err(CheckerQueryError::Upstream(error)) => return CheckerOutcome::UpstreamFailure(error),
     };
 
+    let trusted = request.trusted_contracts();
+
+    for (&site, contracts) in &mut calls {
+        let declared = matches!(
+            site,
+            bray_bound_tree::BoundExecutionSite::Node(bray_bound_tree::AnyBoundNodeId::Expression(expression))
+                if matches!(selections.expression(expression),
+                    Some(SemanticSelection::Call(call)) if call.phase_behaviors().invocation()
+                        .execution_properties().contains(&crate::ExecutionProperty::Pure))
+        );
+
+        let requires_only_valid_inputs = trusted.and_then(|trusted| trusted.calls.get(&site))
+            .is_some_and(|contract| contract.preserves_inputs);
+
+        contracts.set_pure_normal_effect_bound(declared || requires_only_valid_inputs);
+    }
+
     let contracts = CheckedDependencyContracts::try_new(
         request.unit(),
         storage,

@@ -228,17 +228,6 @@ impl TrustedChecks {
         if let Some(Err(failure)) = admission.map(|admission| &admission.requirements) {
             // Acknowledgement is local to execution. Certification still checks
             // that the enclosing callable establishes or exposes the obligation.
-            if matches!(invocation, bray_bound_tree::BoundExecutionSite::ScopedExit(_))
-                && domain.trace_authority_site(bray_bound_tree::StorageMutation::Operation(invocation))
-            {
-                let debug = |value: &ExecutionCondition| format!("{:?}", value.kind()).chars().take(1800).collect::<String>();
-
-                let arguments = state.admitted_call(invocation).into_iter().flat_map(|entry| entry.positional_arguments())
-                    .map(|(ordinal, value)| (ordinal, debug(value))).collect::<Vec<_>>();
-
-                eprintln!("scoped exit authority {invocation:?} block={:?}: required={} actual={} arguments={arguments:?}",
-                    self.block, debug(failure.required()), debug(failure.actual()));
-            }
 
             record_failure(&mut self.failed, self.block, invocation, || failure.clone());
         }
@@ -365,25 +354,15 @@ impl TrustedChecks {
 }
 
 impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
-    pub(in crate::analysis) fn admitted_pure(
+    pub(in crate::analysis) fn admits_normal_effect_bound(
         &self,
         invocation: bray_bound_tree::BoundExecutionSite,
         entry: &crate::ExecutionCallEvidence,
     ) -> bool {
-        let declared = match invocation {
-            bray_bound_tree::BoundExecutionSite::Node(bray_bound_tree::AnyBoundNodeId::Expression(expression)) => {
-                matches!(self.semantics.selections().expression(expression),
-                    Some(bray_bound_tree::SemanticSelection::Call(call)) if call.phase_behaviors().invocation()
-                        .execution_properties().contains(&crate::ExecutionProperty::Pure))
-            }
-            _ => false,
-        };
-
         let contract = self.request.trusted_contracts().and_then(|contracts| contracts.calls.get(&invocation));
 
-        contract.map_or(declared, |contract| {
-            (declared || contract.preserves_inputs)
-                && entry.prove_requirements(contract.preconditions.iter().map(|(condition, _)| condition)).is_ok()
+        contract.is_none_or(|contract| {
+            entry.prove_requirements(contract.preconditions.iter().map(|(condition, _)| condition)).is_ok()
                 && (entry.trusted_boundary || self.prove_trusted_requirements(entry, &contract.requirements).is_ok())
         })
     }

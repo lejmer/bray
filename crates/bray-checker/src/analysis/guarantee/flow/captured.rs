@@ -16,19 +16,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let storage = self.dependencies.calls().get(&invocation).map(|call| call.storage());
 
-        let transitions = self.entry_value_transitions(state.admitted_call(invocation), bindings, storage,
-            |root| selection?.invocation_input_ordinal(invocation, root), resolve);
-
-        if self.trace_authority_site(StorageMutation::Operation(invocation)) {
-            for (row, transition) in bindings.iter().zip(&transitions) {
-                let template = format!("{:?}", row.bindings).chars().take(1800).collect::<String>();
-                let writes = format!("{:?}", transition.outcome.bindings).chars().take(1800).collect::<String>();
-
-                eprintln!("captured output bindings {invocation:?}: template={template} writes={writes}");
-            }
-        }
-
-        transitions
+        self.entry_value_transitions(state.admitted_call(invocation), bindings, storage,
+            |root| selection?.invocation_input_ordinal(invocation, root), resolve)
     }
 
     pub(super) fn entry_value_transitions(&self, entry: Option<&crate::ExecutionCallEvidence>,
@@ -436,18 +425,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             let Some(mut value) = input.value_in(&entry.arguments) else { continue; };
 
-            let trace_dispatch = self.trace_authority_site(StorageMutation::Operation(invocation))
-                && invocation.expression().is_some_and(|expression|
-                    expression.unit().raw() == 749970 && expression.ordinal() == 122);
-
-            let dispatch_before = trace_dispatch.then(|| value.clone().into_referent());
-
-            if self.trace_authority_site(StorageMutation::Operation(invocation)) {
-                eprintln!("argument storage {invocation:?} ordinal={:?} planned={:?} logical={:?}",
-                    capture.input, capture.value.address_regions(),
-                    value.inline_captured_storage().and_then(bray_bound_tree::StorageCapturedValue::address_regions));
-            }
-
             value = self.bind_captured_input(state, value, capture);
 
             if let Some((pointer, bounds)) = &capture.element_bounds {
@@ -472,29 +449,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
                     value.with_referent(attach(contents))
                 } else { attach(value) };
-            }
-
-            if self.trace_authority_site(StorageMutation::Operation(invocation)) {
-                eprintln!("bound argument storage {invocation:?} ordinal={:?} resolved={:?}",
-                    capture.input, value.inline_captured_storage().and_then(bray_bound_tree::StorageCapturedValue::known_address));
-            }
-
-            if let Some(before) = dispatch_before {
-                let reached = capture.referent.as_ref().and_then(|(ty, _)| {
-                    self.current_captured_target_value(state, capture.value.known_address()?, *ty, capture.value.enclosing_view(*ty))
-                });
-
-                let after = value.clone().into_referent();
-
-                let acquisition = bray_bound_tree::StorageProjection::ProductField(
-                    bray_symbols::StructFieldSymbolId::from_symbol_id(bray_symbols::SymbolId::new(2072)));
-
-                let field = |value: &ExecutionCondition| {
-                    format!("{:?}", value.clone().project(acquisition).kind()).chars().take(480).collect::<String>()
-                };
-
-                eprintln!("dispatch admission {invocation:?}: before={:?} reached={:?} after={:?}",
-                    field(&before), reached.as_ref().map(field), field(&after));
             }
 
             let named = match invocation {
@@ -848,20 +802,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             }].into());
         }
 
-        if self.trace_authority_site(StorageMutation::Operation(publication)) {
-            eprintln!("completed row {publication:?}: sources={:?} guard={}", row.sources,
-                format!("{:?}", guard.kind()).chars().take(720).collect::<String>());
-        }
-
         guard.assume(true, &mut state.assumptions);
 
         for (destination, value) in &row.writes {
             let value = value.clone();
-
-            if self.trace_authority_site(StorageMutation::Operation(publication)) {
-                eprintln!("captured output publication {publication:?}: {destination:?} value={}",
-                    format!("{:?}", value.kind()).chars().take(1200).collect::<String>());
-            }
 
             if *destination == StorageValueDestination::Result {
                 result = value.with_producer(result);
@@ -996,10 +940,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 // An unchanged transition preserves even an abstract referent.
                 (None, Some(_)) if unchanged => continue,
                 (None, Some(mutation)) => {
-                    if self.trace_authority_site(mutation) {
-                        eprintln!("absent reference observation {mutation:?} {path:?} address={:?} owner={}",
-                            storage.known_address(), format!("{:?}", descriptor.owner_identity().kind()).chars().take(300).collect::<String>());
-                    }
 
                     ExecutionCondition::post_state(mutation, descriptor.owner_identity().clone().into_referent())
                 }

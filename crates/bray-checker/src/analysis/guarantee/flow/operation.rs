@@ -13,27 +13,6 @@ use crate::execution_guarantees::ExecutionCondition;
 use super::super::state::ExecutionState;
 
 impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
-    pub(in crate::analysis) fn trace_assignment_source(
-        &self,
-        state: &ExecutionState,
-        operation: AnalysisOperationKind,
-        phase: &str,
-    ) {
-        let Some(expression) = operation.occurrence().expression() else { return; };
-
-        if !super::deferred::frame_value_trace(expression.unit()) { return; }
-
-        let Some(BoundExpression::Assignment(assignment)) = self.request.view().expression(expression) else { return; };
-
-        let [_, source] = assignment.operands() else { return; };
-
-        let place = self.storage.value_slot(*source).and_then(|slot| crate::ExecutionPlace::storage_identity(self.storage, slot));
-        let slot = place.as_ref().and_then(|place| state.current.slot(place));
-        let reached = slot.as_ref().map(|slot| (slot.value.deferred_values().len(), &slot.availability));
-        let cached = state.expressions.get(source).map(|value| (value.deferred_values().len(), value.is_unknown()));
-
-        eprintln!("frame assignment source {phase} {expression:?} rhs={source:?} reached={reached:?} cached={cached:?}");
-    }
 
     pub(in crate::analysis) fn observe_move(
         &self,
@@ -92,13 +71,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             return false;
         }
 
-        self.trace_assignment_source(state, operation, "replay before cleanup");
-
         if !self.transition_cleanup(state, point, observe) {
             return false;
         }
-
-        self.trace_assignment_source(state, operation, "replay after cleanup");
 
         let expression = operation.occurrence().expression();
 
@@ -133,13 +108,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         if task.is_some() && invalidation.is_none() && flow.operation_invalidation(point.id()).is_some() {
             return false;
-        }
-
-        if selection.is_some() && self.trace_authority_site(bray_bound_tree::StorageMutation::Operation(operation.occurrence())) {
-            let invocation = operation.occurrence();
-
-            eprintln!("replay source outcome {invocation:?} selection={selection:?} checked={:?}",
-                invalidation.as_ref().map(|frame| frame.observation_transition()));
         }
 
         let invalidation = invalidation.as_deref();
@@ -891,9 +859,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         state.expressions.insert(expression, value);
 
-        self.trace_assignment_source(state, AnalysisOperationKind::Bound(expression.into()), "before invalidation");
         self.invalidate(state, expression.into(), invalidation);
-        self.trace_assignment_source(state, AnalysisOperationKind::Bound(expression.into()), "after invalidation");
 
         match self.request.view().expression(expression) {
             Some(BoundExpression::Assignment(assignment)) => {
@@ -916,12 +882,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                             .expect("assignment target retains its checked type")
                             .ty(),
                     );
-
-                    if super::deferred::frame_value_trace(expression.unit()) {
-                        let text = format!("{:?}", value.kind());
-
-                        eprintln!("frame assignment {expression:?} {place:?}: frames={} value={}", value.deferred_values().len(), text.chars().take(290).collect::<String>());
-                    }
 
                     state.assign(place.clone(), value, None);
                 }
@@ -1039,11 +999,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             }
 
             // Named and discarded owners retain the same committed value and cleanup evidence.
-            if super::deferred::frame_value_trace(expression.unit()) {
-                let text = format!("{:?}", value.kind());
-
-                eprintln!("frame pattern {pattern:?} {place:?} from {expression:?}: frames={} value={}", value.deferred_values().len(), text.chars().take(290).collect::<String>());
-            }
 
             state.assign(place, value, None);
         }

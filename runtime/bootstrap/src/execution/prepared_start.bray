@@ -171,10 +171,7 @@ trusted internal func commit_start(
         trusted bray.runtime.bootstrap.task.retained(owner = reference),
         registration != 0,
         trusted bray.runtime.bootstrap.activation.producer_owned(owner = &token.acquisition),
-        trusted bray.runtime.bootstrap.activation.entry_authorized(
-            owner = &token.acquisition,
-            origin = initial.origin
-        ),
+        trusted bray.runtime.bootstrap.activation.entry_authorized(owner = &token.acquisition, origin = initial.origin),
         trusted bray.runtime.bootstrap.entry.native_entry(),
         trusted bray.runtime.bootstrap.host.product.native_host(),
         trusted bray.runtime.bootstrap.pool.protocol_access()

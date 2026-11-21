@@ -143,6 +143,7 @@ pub(super) fn open_named_type(
     }
 
     let owner = GenericOwnerId::try_new(definition.into_any()).expect("named types own generic parameters");
+
     let declaration = binding_context.resolve_symbol_query(SymbolQueryRequest::<GenericDeclarationTemplateQuery>::new(owner))
         .map_err(super::binder::binding_query_error)?;
 

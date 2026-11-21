@@ -352,7 +352,6 @@ impl RefinementUniverse {
     pub(crate) fn invalidate_for_operation(
         &self,
         set: &mut RefinementSet,
-        occurrence: impl Into<bray_bound_tree::BoundExecutionSite>,
         storage: &StoragePlan,
         invalidation: Option<&StorageInvalidation>,
         discriminants: &BTreeMap<
@@ -360,8 +359,6 @@ impl RefinementUniverse {
             BTreeSet<bray_bound_tree::StoragePath>,
         >,
     ) {
-        let occurrence = occurrence.into();
-
         let Some(mutations) = invalidation else {
             return;
         };
@@ -386,31 +383,8 @@ impl RefinementUniverse {
 
                 if let Some(path) = descriptor.and_then(|access| storage.logical_path(access)) {
                     let observed = discriminants.get(&path.root).is_some_and(|paths| paths.contains(path));
-                    let invalidated = mutations.invalidates_discriminant(path, observed);
 
-                    if invalidated {
-                        static TRACE_TAG_ROOT: std::sync::OnceLock<Option<(u32, u32)>> = std::sync::OnceLock::new();
-
-                        let selected = TRACE_TAG_ROOT.get_or_init(|| {
-                            let setting = std::env::var("BRA_694_TRACE_TAG_ROOT").ok()?;
-
-                            let (unit, slot) = setting.split_once('/')?;
-
-                            Some((unit.parse().ok()?, slot.parse().ok()?))
-                        });
-
-                        if *selected == Some((path.root.unit().raw(), path.root.ordinal())) {
-                            let tag = match mutations {
-                                StorageInvalidation::All { stable_values, .. } | StorageInvalidation::Observed { stable_values, .. } => stable_values.get(path),
-                                StorageInvalidation::Unchanged => None,
-                            };
-
-                            eprintln!("tag dropped at {occurrence:?}: {path:?} {:?} all={} prepared={} stable={tag:?}", refinement.kind(),
-                                matches!(mutations, StorageInvalidation::All { .. }), observed);
-                        }
-                    }
-
-                    return !invalidated;
+                    return !mutations.invalidates_discriminant(path, observed);
                 }
 
                 refinement

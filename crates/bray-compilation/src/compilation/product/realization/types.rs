@@ -348,8 +348,10 @@ impl Compilation {
             );
 
         let mut normalizer = bray_checker::TypeNormalizer::new(&checker, substitution);
+
         let ty = normalizer.normalize_type(ty)
             .map_err(codegen_checker_error)?;
+
         let diagnostics = normalizer.take_diagnostics();
 
         if diagnostics.has_errors() {

@@ -498,6 +498,11 @@ impl<Subject, Projection, Type> DependencyStorageEffect<Subject, Projection, Typ
         [Self::Ambient, Self::Escape]
     }
 
+    /// The broad fallback for a callable without checked normal effect rows.
+    pub const fn is_opaque_call_fallback(&self) -> bool {
+        matches!(self, Self::Unknown | Self::Ambient | Self::Escape)
+    }
+
     /// Describes a transition whose particular storage target is unresolved.
     /// Atomic updates and address escape retain their distinct meanings.
     pub fn unresolved(kind: DependencyMutationKind<Type>, access_type: Option<Type>) -> Self {

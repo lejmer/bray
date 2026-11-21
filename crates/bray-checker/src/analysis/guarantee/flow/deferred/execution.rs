@@ -317,12 +317,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             self.admit_inline_invocation(state, expression, inputs);
 
-            if frame_value_trace(expression.unit()) {
-                let receiver = state.admitted_receiver(expression.into());
-                let text = format!("{:?}", receiver.kind());
-
-                eprintln!("frame await {expression:?} frames={} receiver={}", receiver.deferred_values().len(), text.chars().take(330).collect::<String>());
-            }
         }
 
         let Some(value) = self.frame_execution_value(state, operation) else { return; };
@@ -437,8 +431,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 record(source, inputs.into_owned(), transitions);
             }
 
-            trace_frame_entry("execute", execution, entry, outputs.0.len());
-
             if entry.outputs != outputs || entry.failure_rows != failures {
                 let producer = Arc::make_mut(&mut started).producers.get_mut(source).expect("selected body retains its entry");
                 let entry = Arc::make_mut(&mut producer.entry);
@@ -485,8 +477,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         // The admitted inputs are already immutable evaluated values. Formation retains them directly.
         let captured = Arc::clone(entry);
-
-        trace_frame_entry("form", invocation, &captured, captured.outputs.0.len());
 
         Arc::make_mut(entry).pending_execution = false;
 
@@ -599,8 +589,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let complete = |branch: &mut ExecutionState, (source, candidate): (&StorageDeferredProducer, &ExecutionDeferredInvocation)| {
             let entry = &candidate.entry;
-
-            trace_frame_entry("complete", expression.into(), entry, entry.outputs.0.len());
 
             branch.assumptions.extend(candidate.selection.iter().cloned());
 
@@ -740,31 +728,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         *state = normal;
 
         joined
-    }
-}
-
-pub(in crate::analysis::guarantee::flow) fn frame_value_trace(unit: bray_bound_tree::BoundUnitId) -> bool {
-    static UNIT: std::sync::OnceLock<Option<u32>> = std::sync::OnceLock::new();
-
-    *UNIT.get_or_init(|| std::env::var("BRA_694_TRACE_FRAME_UNIT").ok()?.parse().ok()) == Some(unit.raw())
-}
-
-fn trace_frame_entry(phase: &str, site: BoundExecutionSite, entry: &crate::ExecutionCallEvidence, outputs: usize) {
-    if entry.owned_inputs.is_empty() || std::env::var_os("BRA_694_TRACE_FRAME").is_none() { return; }
-
-    let owners = entry.owned_arguments().map(|value| {
-        format!("{:?}", value.owner_identity().kind()).chars().take(180).collect::<String>()
-    }).collect::<Vec<_>>();
-
-    eprintln!("frame trace {phase} {site:?}: owners={owners:?} admitted_witnesses={} trusted={} outputs={outputs}",
-        entry.witness_inputs.len(), entry.trusted_assumptions.len());
-
-    if site.expression().is_some_and(|expression| frame_value_trace(expression.unit())) {
-        let args = entry.positional_arguments().map(|(ordinal, value)| {
-            (ordinal, format!("{:?}", value.computed_value().kind()).chars().take(670).collect::<String>())
-        }).collect::<Vec<_>>();
-
-        eprintln!("frame admitted arguments {phase} {site:?}: {args:?}");
     }
 }
 

@@ -243,10 +243,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         for condition in &contract.postconditions {
             let condition = instantiate(&entry.capture_condition(condition));
 
-            if self.trace_authority_site(mutation) {
-                eprintln!("published postcondition {mutation:?}: {:?}", condition.kind());
-            }
-
             condition.assume(true, &mut state.assumptions);
         }
 

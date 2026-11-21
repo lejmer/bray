@@ -232,13 +232,6 @@ impl ExecutionState {
                     && (directly_changed.contains(carrier.owner_identity()) || !stable(condition, memo));
 
                 if loses_owner || revokes_guarantee(condition, memo) || address_expired || availability_expired(condition) {
-                    if std::env::var_os("BRA_694_TRACE_FRAME").is_some()
-                        && matches!(carrier.kind(), crate::ExecutionConditionKind::Expression(expression)
-                            if expression.unit().raw() == 18981 && expression.ordinal() == 11)
-                    {
-                        eprintln!("frame carrier retired kind={kind:?} owner={loses_owner} observations={} availability={} retained_owner={} retained_data={}",
-                            revokes_guarantee(condition, memo), availability_expired(condition), retained_owner(carrier), retained_data(carrier));
-                    }
 
                     condition.clone().assume(true, &mut retired_conditions);
 

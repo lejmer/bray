@@ -535,6 +535,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         let absent = &state.definitely_absent;
         let execution = state.execution.as_ref();
+
         let references = contained.into_iter().flat_map(|paths| paths.iter())
             .filter(|(path, _)| destination.contains_storage(path)
                 && !inactive.iter().any(|payload| payload.contains_storage(path))

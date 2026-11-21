@@ -87,6 +87,10 @@ impl RetainedSnapshots {
     pub(crate) fn retains_contents(&self, value: &ExecutionCondition) -> bool {
         if self.roots.is_empty() { return false; }
 
+        if self.roots.contains(value) && !Self::contents(value).without_captured_storage().contains_unknown() {
+            return true;
+        }
+
         cached_condition(&self.index().preserved, value, || {
             // A retained field also retains its unchanged borrowed view. This
             // compares current contents and does not transfer referent ownership.

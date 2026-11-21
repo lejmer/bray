@@ -1,18 +1,22 @@
+use std::collections::{BTreeMap, BTreeSet};
+use std::sync::OnceLock;
+
+use bray_symbols::ConstantProjectionKind;
+
 use super::{ExecutionCondition, RetainedSnapshots};
 use super::memo::{ConditionMemo, cached_condition};
+
+type ObservationPaths = BTreeMap<ExecutionCondition, BTreeSet<Vec<ConstantProjectionKind>>>;
 
 /// Indexed changed values and their observed component paths.
 #[derive(Default)]
 pub(crate) struct Set {
     preserved: ConditionMemo,
     contained: ConditionMemo,
-    discriminants: std::collections::BTreeSet<ExecutionCondition>,
+    discriminants: BTreeSet<ExecutionCondition>,
     copies: RetainedSnapshots,
     values: RetainedSnapshots,
-    paths: std::collections::BTreeMap<
-        ExecutionCondition,
-        std::collections::BTreeSet<Vec<bray_symbols::ConstantProjectionKind>>,
-    >,
+    paths: OnceLock<ObservationPaths>,
 }
 
 impl Set {
@@ -55,11 +59,8 @@ impl Set {
     pub(crate) fn insert(&mut self, value: ExecutionCondition) {
         self.preserve_scalar_data(&value);
 
-        if let Some((root, path)) = Self::indexed_path(&value) {
-            self.paths.entry(root).or_default().insert(path);
-        }
-
         if self.values.insert(value) {
+            self.paths.take();
             self.contained.get_mut().expect("observation membership memo lock is not poisoned").clear();
             self.clear_preserved();
         }
@@ -94,7 +95,7 @@ impl Set {
                 return false;
             };
 
-            let Some(paths) = self.paths.get(&root) else {
+            let Some(paths) = self.paths().get(&root) else {
                 return false;
             };
 
@@ -113,7 +114,7 @@ impl Set {
             return false;
         };
 
-        self.paths.get(&root).is_some_and(|paths| {
+        self.paths().get(&root).is_some_and(|paths| {
             paths
                 .range(path.clone()..)
                 .next()
@@ -121,11 +122,23 @@ impl Set {
         })
     }
 
+    fn paths(&self) -> &ObservationPaths {
+        self.paths.get_or_init(|| {
+            let mut paths = ObservationPaths::new();
+
+            for (root, path) in self.values.iter().filter_map(Self::indexed_path) {
+                paths.entry(root).or_default().insert(path);
+            }
+
+            paths
+        })
+    }
+
     pub(super) fn indexed_path(
         value: &ExecutionCondition,
     ) -> Option<(
         ExecutionCondition,
-        Vec<bray_symbols::ConstantProjectionKind>,
+        Vec<ConstantProjectionKind>,
     )> {
         match value.kind() {
             // Retaining a borrow preserves that view and its projections. It

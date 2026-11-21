@@ -60,12 +60,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         let inactive = self.inactive_output_paths(occurrence, &invocation, outcomes.clone());
 
-        if self.execution.trace_authority_site(bray_bound_tree::StorageMutation::Operation(occurrence)) {
-            eprintln!("reference outcome {occurrence:?} rows={:?} inactive={inactive:?} resolved={:?}",
-                outcomes.clone().map(|row| (&row.references, &row.inactive_payloads)).collect::<Vec<_>>(),
-                references.iter().map(BoundCallReference::relation).collect::<Vec<_>>());
-        }
-
         for payload in &inactive {
             state.memory.stage_no_payload_alternative(occurrence, Target::storage(payload.clone()));
         }
@@ -119,13 +113,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         state.memory.begin_transition(occurrence);
 
         let source = entry.and_then(|entry| entry.argument_storage(bray_symbols::SymbolOrdinal::new(0)));
-
-        if self.execution.trace_authority_site(bray_bound_tree::StorageMutation::Operation(occurrence)) {
-            eprintln!("inline source {occurrence:?} entry={:?} actual={:?} regions={:?}",
-                entry.and_then(|entry| entry.positional_arguments().next()).map(|(_, value)| format!("{:?}", value.kind()).chars().take(1300).collect::<String>()),
-                source.and_then(bray_bound_tree::StorageCapturedValue::known_address),
-                source.and_then(bray_bound_tree::StorageCapturedValue::address_regions));
-        }
 
         if let Some(source) = source {
             let destination = self.invocation_result(occurrence).expect("inline materialization retains its input slot");
@@ -326,15 +313,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 state.memory.stage_unknown(occurrence, destination);
                 continue;
             };
-
-            if std::env::var_os("BRA_694_TRACE_BACKING").is_some()
-                && occurrence.expression().is_some_and(|expression| expression.unit().raw() == 118161
-                    && matches!(expression.ordinal(), 2 | 25))
-            {
-                let actual = sources.iter().flatten().map(|source| (source.targets(&state.memory), source.regions(&state.memory))).collect::<Vec<_>>();
-
-                eprintln!("queue backing publication {occurrence:?} {relation:?} destination={destination:?} actual={actual:?}");
-            }
 
             if let Some((allocation, projections)) = &allocation {
                 state.memory.stage_allocation_reference(occurrence, destination, allocation.clone(), projections);

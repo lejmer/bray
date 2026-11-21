@@ -404,20 +404,4 @@ where
             .saturating_add(self.execution.convergence_bound(graph))
     }
 
-    fn trace_cycle_delta(&self, block: AnalysisBlockId, previous: &Self::State, incoming: &Self::State) {
-        let incoming = incoming.iter().collect::<BTreeMap<_, _>>();
-
-        for (path, previous) in previous.iter() {
-            let Some(next) = incoming.get(&path) else { continue; };
-
-            eprintln!("cycle storage delta {block:?}: physical={} refinements={} deps={} failure={} moved={} effects={}",
-                previous.memory != next.memory, previous.refinements != next.refinements,
-                previous.result_dependencies != next.result_dependencies, previous.failure_entry != next.failure_entry,
-                previous.moved != next.moved, previous.effect_prefix != next.effect_prefix);
-
-            if let (Some(previous), Some(next)) = (&previous.execution, &next.execution) {
-                previous.trace_cycle_delta(next);
-            }
-        }
-    }
 }

@@ -67,7 +67,6 @@ where
     let graph = &prepared.graph;
 
     let mut diagnostics = DiagnosticBag::new();
-    let profile_start = std::env::var_os("BRA_694_PROFILE_FLOW").map(|_| std::time::Instant::now());
 
     let refinement_universe = complete!(
         diagnostics,
@@ -162,8 +161,6 @@ where
 
     diagnostics.add_range(preparation_diagnostics);
 
-    let profile_flow = profile_start.map(|_| std::time::Instant::now());
-
     let (flow, refinements, fallthrough) = complete!(
         diagnostics,
         check_storage_flow_with_graph(
@@ -184,13 +181,6 @@ where
             &excluded,
         )
     );
-
-    if let (Some(start), Some(solve)) = (profile_start, profile_flow)
-        && start.elapsed() >= std::time::Duration::from_millis(100)
-    {
-        eprintln!("flow profile {:?}: accesses={} prepare_ms={} solve_ms={}", storage.unit(),
-            storage.accesses().len(), (solve - start).as_millis(), solve.elapsed().as_millis());
-    }
 
     let asynchronous = complete!(
         diagnostics,

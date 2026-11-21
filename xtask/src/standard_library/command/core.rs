@@ -622,13 +622,6 @@ fn build_target(
         )
     })
     .map_err(|error| {
-        if std::env::var_os("BRA_694_PROFILE_FLOW").is_some()
-            && let (Some(profile), Some(report)) = (profile, compilation.profile_report())
-            && let Err(error) = write_compiler_profiles(&profile.output, &[(target.clone(), report)])
-        {
-            eprintln!("could not write failed planning profile: {error:?}");
-        }
-
         crate::progress::message("Collecting standard-library diagnostics");
 
         BuildError::compilation_failed(

@@ -261,16 +261,19 @@ impl bray.runtime.bootstrap.activation.Producer
                         return 5;
                     }
 
-                    let token = match consume trusted std.memory.take_nullable<bray.runtime.bootstrap.activation.Producer>(
-                        &mut owner.token
-                    )
+                    let token = match consume trusted std.memory.take_nullable<
+                        bray.runtime.bootstrap.activation.Producer
+                    >(&mut owner.token)
                     {
                         case ?value { yield value; }
                         case none { yield trusted core.target.abort(); }
                     };
 
                     // Lane admission applies to this token and its inspected origin.
-                    let authorize = trusted lambda(pos token: &bray.runtime.bootstrap.activation.Producer, pos origin: u64)
+                    let authorize = trusted lambda(
+                        pos token: &bray.runtime.bootstrap.activation.Producer,
+                        pos origin: u64
+                    )
                         requires(trusted bray.runtime.bootstrap.activation.producer_owned(owner = &token.acquisition))
                         ensures(
                             trusted bray.runtime.bootstrap.activation.entry_authorized(
@@ -290,6 +293,7 @@ impl bray.runtime.bootstrap.activation.Producer
                     {
                         // The task now owns the reservation, including if its wake fails.
                         owner.registration = none;
+
                         _ = trusted wake_reference(owner.reference, bray.runtime.bootstrap.scheduler.WAKE_EXPLICIT);
                     }
 

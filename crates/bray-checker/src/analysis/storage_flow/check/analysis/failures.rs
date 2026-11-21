@@ -292,7 +292,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         state.invalidate_observed_absence(&effects.invalidation, &self.input.footprint.discriminants);
 
-        self.refinements.invalidate_for_operation(&mut state.refinements, mutation.occurrence(), self.storage,
+        self.refinements.invalidate_for_operation(&mut state.refinements, self.storage,
             Some(&effects.invalidation), &self.input.footprint.discriminants);
 
         let execution = state.execution.as_mut().expect("reached outcome retains execution facts");

@@ -460,19 +460,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             let mut evidence = lifecycle.entry(state, value);
 
-            if self.trace_authority_site(StorageMutation::Cleanup(action))
-                && matches!(slot, bray_symbols::TypeAssociatedLifecycleSlot::Finalizer)
-            {
-                let receiver = evidence.arguments.get(&ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(0)));
-
-                let fields = receiver.map(|value| value.component_projections().into_iter()
-                    .map(|field| (field, format!("{:?}", value.clone().project(field).kind())
-                        .chars().take(210).collect::<String>()))
-                    .collect::<Vec<_>>());
-
-                eprintln!("finalizer reached receiver {action:?}: fields={fields:?}");
-            }
-
             self.preserve_integer_entry_conditions(
                 state,
                 &lifecycle.contract.preconditions,

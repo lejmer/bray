@@ -121,7 +121,7 @@ fn check_execution_candidate<C: CheckerRequestContext + ?Sized>(
     let memory = reachable.domain.memory;
     let mut diagnostics = bray_diagnostics::DiagnosticBag::new();
 
-    let (mut candidate, reached_cleanup) = reachable.candidate(memory, obligation, property);
+    let (mut candidate, reached_cleanup) = reachable.candidate(obligation, property);
 
     if property == Some(ExecutionProperty::Pure) && !internal {
         reachable.domain.check_predicate_blocks(body.storage_flow(), &mut diagnostics);

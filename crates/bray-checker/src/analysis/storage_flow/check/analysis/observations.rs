@@ -776,12 +776,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             }
         }
 
-        if self.execution.trace_authority_site(bray_bound_tree::StorageMutation::Operation(occurrence))
-            && matches!(occurrence, bray_bound_tree::BoundExecutionSite::ScopedEnter(_) | bray_bound_tree::BoundExecutionSite::ScopedExit(_))
-        {
-            eprintln!("scoped completion references {occurrence:?} {observations:?}");
-        }
-
         Some(bray_bound_tree::StorageCompletion::new(observations))
     }
 

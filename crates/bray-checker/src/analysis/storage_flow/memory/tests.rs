@@ -5185,9 +5185,11 @@ fn returned_null_does_not_invent_an_outside_origin() {
     let mut state = State::default();
 
     state.stage_null(call, Target::storage(result.clone()));
+
     state.stage_returned_references(call, [(result.clone(), error_type())], |_| -> [Target; 0] {
         panic!("an established null result needs no opaque input bounds")
     });
+
     state.complete_transition(call);
 
     assert_eq!(

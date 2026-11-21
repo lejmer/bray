@@ -63,54 +63,72 @@ evidence. Impossible internal states fail at the violated contract.
 
 ## Verified checkpoint
 
-Candidate `checked-continuation-demands` passed all 1,109 compilation controls,
-the selected and unrelated nullable extraction cases, and 938 symbols,
-bound-tree, and checker tests. The old call preparation,
-expression target, and independent normal storage promise have no remaining
-callers. The [architecture map](bra-694-architecture.md) records the resulting
-contracts.
+Pushed checkpoint `b02202c62` checks and lowers all 25 original bootstrap
+bodies and four direct task dispatcher helpers on Windows and Linux, for both
+x64 and AArch64. The checked acquisition follows its owner across the waiter,
+dispatch, retirement, and start transitions.
 
-On Windows x86-64 the candidate checked and lowered 21 of 25 selected
-bodies. The remaining bodies are `dispatch_ready`, `dispatch_task`,
-`start_frame`, and `retire_driver`. The checked continuation paths reduced
-unresolved effect routes in the scheduling source from 31 to two. The
-caller traces show which actual descriptors still lose their addresses.
+The expanded candidate passed 1,697 of the 1,709 audited cases. All cases
+reported an outcome. It also passed the 577 checker and 139 bound-tree cases.
+In the expanded native fixture, the original 25 bodies, four dispatch
+helpers, and `task_start` checked and lowered on all four targets.
+`main_drive` and `worker_callback` still fail to establish the retained
+execution-reference witness at their downstream calls.
 
-The production decimal loop passes. The optimized Windows standard library
-took 28.3 s to plan, 26.0 s to emit, and 61.6 s wall time with 24 workers.
-On the previous `live-enclosing-referent` profile, result-dependency
-solving used 151.5 worker seconds against a 60.0 reference. Cleanup
-completion used 22.7 worker seconds against 0.93.
-An earlier cleanup profile attributed 2.5 s to proof invalidation and 0.06 s
-to both state copies across 3,354 actions.
+The latest optimized 24-worker Windows x64 standard-library build planned
+in 28.2 s, emitted in 26.5 s, and took 62.6 s wall time. This produced the
+standard-library package. Executable link timing remains open. The latest
+profile attributes 153.7 worker seconds to 1,698 result-dependency component
+queries. A sample of 202 expensive body checks repeated one unit. A sample
+of 3,354 cleanup actions spent 2.5 s on proof invalidation and 0.06 s on
+state copies, with most time in referent checks and framing changed roots.
 
-## Active batch
+## Current verification batch
 
-| Affected transition | Reached evidence and expected behavior |
-| --- | --- |
-| Dispatch recovery | `dispatch_task` has the original task borrow when it acquires the dispatch claim. After the earlier worker call, a feasible path produces a symbolic service view where another path reaches the actual execution domain. The later call reads fields through the stored task and services borrows. Trace the reached writes before these reads, including failure prefixes. The selected inline marker and the pointees reached through the other fields have independent support. |
-| Start and rollback | `prepare_start` publishes exact selected and task borrows in `Ok`. Its execution pointer has several input-region origins and an independent alternative. `register_task` admits a loan to the actual inline execution field, then cannot read the pointer inside it. The first failed `commit_start` condition reads the selected status after this call. Trace the pointer through the task cell, pinning, publication, and scoped transfer. Registration presence remains independent. |
-| Driver retirement | Host progress and thread cleanup move nullable buffers out of host storage. Later cleanup has the receiver but cannot read the reached backing. The summary loses the binding to the receiver and reports unbounded retirement. Trace the written destination at the swap and the moved owner's backing at cleanup, including when the callback changes the selected row. |
-| Planning | Compare the storage flow preparation, solving, and certification for the same optimized build. Reuse exact proof inputs across reached consumers when their evidence and authority roles agree. |
+The physical transition for a call binds the formal route to the actual
+admitted operand before traversing its descriptor. Staged conversions
+already hold their formal wrapper. Unstaged present conversions remove the
+formal wrapper's path prefix. All three consumers keep reached cells,
+explicit absence, and possible regions distinct. Verify this across
+reference outputs, effects, failure rows, and deferred frames.
 
-The checked route owns the descriptor read and its target type. Entry
-preparation makes each selected component available at its actual location.
-A result, write, or move carries that binding into its new owner. Call,
-activation, and cleanup use the same binding while traversing effects.
-Maintain exact addresses, complete typed regions, and opaque region bounds
-through the entire route. Only a checked address can prove initialization,
-ownership, or a performed retirement. An inactive payload contributes no
-target. An active payload with an unresolved descriptor still needs a
-conservative effect. A raw pointer field can reach across ownership
-boundaries. Distinct field names alone cannot establish disjointness.
+Join assembly publishes each completed value into its retained root before
+mapping the surviving witnesses to its predicate observation. Present and
+absent predecessors, moved owners, independent views, and frame variants
+keep their own guarded alternatives. Stable observation lookup reads
+matching live entries without copying the predecessor tree.
 
-Use the nested buffer and imported reference controls for the positive
-cases and the unrelated extraction, overlapping write, and old-generation
-controls for the negative cases. Verify the same checked route with normal,
-abnormal, and deferred completion. Compare the Windows bootstrap and
-fixed compilation inventory with the same optimized binary. Reconsider
-any proposed representation that requires replaying previous writes or
-inferring a live pointer from a type or a former owner.
+The referent preservation query reads actual retained snapshots. Exact
+known roots can answer directly. Membership and overlap build a path index
+on demand and refresh it after insertion. The check must distinguish
+retention of a path, equal contents, and ownership of a referent. The
+comparison retains the same optimized standard-library inputs and the
+same fixed test inventory.
+
+An opaque normal effect bound comes from an applicable callable contract
+and the reached input checks. Apply that bound during effect row selection
+and publish any purity premise with the operation that relied on it.
+Certification discharges the recorded premise at the admitted call.
+Checked rows retain explicit effects. The conservative envelope,
+abnormal prefixes, and transfer of owned inputs keep their own semantics.
+Verify guarded and opaque calls alongside checked source and imported
+effects, including paths that bypass a requirement or replace a descriptor.
+
+The remaining fixed-inventory failures cover raw owner formation, borrowed
+protocol witnesses, slice bounds after an element write, and host retirement.
+The formation contract for a recognized storage type is a checked admission
+even when its literal invokes no callable. It must check the actual field
+operands before installing the owner. Cleanup and subsequent callers must
+observe ownership only if the formation proves it. The construction oracle
+checks a real ownership transfer, forged null fields, and copied owner fields.
+
+The bootstrap dispatch claim stays owned by the caller until explicit
+release. Wait-link access preserves the original host lease and slot
+address. The event marker represents a count already acquired by the same
+complete reference. Start commits the admitted token, selected registration,
+and actual metadata. Publication transfers rollback responsibility to the
+cell before wake. The runtime packager and linker still need verification
+with the resulting compiler.
 
 ## Acceptance
 

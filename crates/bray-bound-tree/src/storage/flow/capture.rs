@@ -77,6 +77,19 @@ impl StorageFlow {
         self.attempt_values.get(&(operation, producer)).map(Arc::as_ref)
     }
 
+    /// Publishes operations whose admitted normal effects rely on a purity promise.
+    pub fn with_pure_effect_premises(mut self, premises: BTreeSet<AnalysisOperationId>) -> Self {
+        assert!(premises.iter().all(|operation| operation.unit() == self.unit()));
+        self.pure_effect_premises = premises;
+
+        self
+    }
+
+    /// Whether the reached operation used an opaque purity promise to constrain effects.
+    pub fn requires_pure_effect_bound(&self, operation: AnalysisOperationId) -> bool {
+        self.pure_effect_premises.contains(&operation)
+    }
+
     /// Publishes observation frames by exact CFG operation and admitted rows.
     pub fn with_operation_invalidations(
         mut self,

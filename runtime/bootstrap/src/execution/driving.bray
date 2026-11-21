@@ -101,9 +101,7 @@ trusted internal func acquire_ready(pos selected: &Current, pos owner: &Referenc
 }
 
 // Copy and clear this driver's pending queue claim under one exclusive guard.
-trusted internal func take_ready(
-    pos value: &Context
-) -> bray.runtime.bootstrap.scheduler.Observation
+trusted internal func take_ready(pos value: &Context) -> bray.runtime.bootstrap.scheduler.Observation
     requires(trusted std.sync.spin_lock.valid(&value.pending.prepared.instance))
     ensures(trusted std.sync.spin_lock.valid(&value.pending.prepared.instance))
     uses(intrinsic)

@@ -422,6 +422,7 @@ fn construction_inputs_preserve_nullable_constant_values_across_imports() {
 
     let binding = consumer.binding_context(&consumer.state.cancellation)
         .expect("consumer declarations bind");
+
     let variant_name = binding.member_name((*variant).into())
         .expect("consumer resolves the imported union variant");
 

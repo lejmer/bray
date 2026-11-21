@@ -28,60 +28,6 @@ pub(super) struct CleanupOperands<'a> {
     pub(super) lifecycle_effects: Option<(EffectOutcomes, EffectRows)>,
 }
 
-#[derive(Clone, Copy)]
-enum CleanupProfilePhase {
-    Schedule,
-    Operands,
-    PhysicalCopy,
-    LogicalCopy,
-    FailureEffects,
-    NormalEffects,
-    Join,
-    Exit,
-}
-
-static CLEANUP_PROFILE: [std::sync::atomic::AtomicU64; 8] =
-    [const { std::sync::atomic::AtomicU64::new(0) }; 8];
-static CLEANUP_ACTION_PROFILE: [std::sync::atomic::AtomicU64; 6] =
-    [const { std::sync::atomic::AtomicU64::new(0) }; 6];
-
-pub(super) fn record_cleanup_action_profile(times: [u128; 5]) {
-    for (total, micros) in CLEANUP_ACTION_PROFILE.iter().zip(times.into_iter().chain([1])) {
-        total.fetch_add(micros as u64, std::sync::atomic::Ordering::Relaxed);
-    }
-}
-
-pub(super) fn cleanup_profile(unit: bray_bound_tree::BoundUnitId) -> bool {
-    static UNIT: std::sync::OnceLock<Option<u32>> = std::sync::OnceLock::new();
-
-    UNIT.get_or_init(|| std::env::var("BRA_694_PROFILE_CLEANUP").ok()?.parse().ok()) == &Some(unit.raw())
-}
-
-fn profile<T>(enabled: bool, phase: CleanupProfilePhase, action: impl FnOnce() -> T) -> T {
-    let start = enabled.then(std::time::Instant::now);
-    let value = action();
-
-    if let Some(start) = start {
-        CLEANUP_PROFILE[phase as usize].fetch_add(start.elapsed().as_micros() as u64, std::sync::atomic::Ordering::Relaxed);
-    }
-
-    value
-}
-
-pub(super) fn report_cleanup_profile(unit: bray_bound_tree::BoundUnitId) {
-    if cleanup_profile(unit) {
-        let micros = CLEANUP_PROFILE.iter().map(|time| time.swap(0, std::sync::atomic::Ordering::Relaxed))
-            .collect::<Vec<_>>();
-
-        eprintln!("cleanup profile {unit:?} schedule/operands/physical-copy/logical-copy/failure-effects/normal-effects/join/exit us={micros:?}");
-
-        let sections = CLEANUP_ACTION_PROFILE.iter().map(|time| time.swap(0, std::sync::atomic::Ordering::Relaxed))
-            .collect::<Vec<_>>();
-
-        eprintln!("cleanup action totals {unit:?} selection/observation/memory/proof/publication us and count={sections:?}");
-    }
-}
-
 impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     pub(super) fn apply_cleanup(
         &mut self,
@@ -91,7 +37,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     ) -> std::collections::BTreeSet<bray_bound_tree::BorrowCapabilityId> {
         let operation = point.kind();
         let domain = self.execution;
-        let profiling = cleanup_profile(self.storage.unit());
 
         let scope_exit = match operation {
             AnalysisOperationKind::ScopeExit { scope, exit, phase: AnalysisScopeExitPhase::LifecycleResolution, .. } => {
@@ -114,15 +59,13 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         let pending = CleanupProgress::resume(&mut state.cleanup, scope_exit, point.id());
 
-        let selected = profile(profiling, CleanupProfilePhase::Schedule, || {
-            if let Some(remainder) = pending {
-                Some(CleanupSelection { accesses: Some(remainder.accesses), after: Some(remainder.after), recoveries: Vec::new(), replacement: None })
-            } else if let AnalysisOperationKind::ScopeExit { scope, phase, .. } = operation {
-                Some(domain.select_scope_cleanup(state, self.dependencies, scope, phase))
-            } else {
-                replacement.and_then(|(_, plan)| self.select_replacement(state, plan, destination.as_ref()))
-            }
-        });
+        let selected = if let Some(remainder) = pending {
+            Some(CleanupSelection { accesses: Some(remainder.accesses), after: Some(remainder.after), recoveries: Vec::new(), replacement: None })
+        } else if let AnalysisOperationKind::ScopeExit { scope, phase, .. } = operation {
+            Some(domain.select_scope_cleanup(state, self.dependencies, scope, phase))
+        } else {
+            replacement.and_then(|(_, plan)| self.select_replacement(state, plan, destination.as_ref()))
+        };
 
         let Some(mut selected) = selected else {
             return Default::default();
@@ -157,23 +100,21 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
              mutation: crate::analysis::guarantee::CleanupMutation<'_>,
              conditional: bool| {
                 if let CleanupMutation::Repeat(remaining) = mutation {
-                    let mut continued = profile(profiling, CleanupProfilePhase::PhysicalCopy, || state.clone());
+                    let mut continued = state.clone();
 
-                    continued.execution = Some(profile(profiling, CleanupProfilePhase::LogicalCopy, || execution.clone()));
+                    continued.execution = Some(execution.clone());
                     continued.cleanup = Some(CleanupProgress::repeat(state.cleanup.as_ref(), remaining));
                     self.cleanup_continuations.push(continued);
 
                     return true;
                 }
 
-                let mut operands = profile(profiling, CleanupProfilePhase::Operands, ||
-                    self.cleanup_operands(&state.memory, execution, &mutation, replacement));
+                let mut operands = self.cleanup_operands(&state.memory, execution, &mutation, replacement);
 
-                let skipped = conditional.then(|| profile(profiling, CleanupProfilePhase::PhysicalCopy, || state.memory.clone()));
+                let skipped = conditional.then(|| state.memory.clone());
 
                 if let CleanupMutation::Lifecycle(call) = &mutation {
-                    operands.lifecycle_effects = Some(profile(profiling, CleanupProfilePhase::Operands, ||
-                        self.lifecycle_effects(&state.memory, operands.receiver.as_ref(), call)));
+                    operands.lifecycle_effects = Some(self.lifecycle_effects(&state.memory, operands.receiver.as_ref(), call));
                 }
 
                 if (lifecycle.is_some() || replacement.is_some())
@@ -198,21 +139,20 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
                 if let Some(skipped) = skipped {
                     // The guard's inactive branch retains its incoming physical contents.
-                    profile(profiling, CleanupProfilePhase::Join, ||
-                        state.memory.merge(&skipped, &Default::default(), &Default::default()));
+                    state.memory.merge(&skipped, &Default::default(), &Default::default());
                 }
 
                 completes
             };
 
-        let completes = profile(profiling, CleanupProfilePhase::Exit, || domain.transition_storage_cleanup(
+        let completes = domain.transition_storage_cleanup(
             execution,
             point,
             &selected,
             absent.keys(),
             publish.then_some(&mut observe as &mut crate::analysis::guarantee::Observer<'_>),
             &mut mutate,
-        ));
+        );
 
         state.reachable &= completes;
 
@@ -302,11 +242,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         mutation: &CleanupMutation<'_>,
         operands: &CleanupOperands<'_>,
     ) -> bool {
-        let profiling = cleanup_profile(self.storage.unit());
-
         let CleanupMutation::Lifecycle(call) = mutation else {
-            profile(profiling, CleanupProfilePhase::NormalEffects, ||
-                self.apply_cleanup_action(state, execution, operation, identity, mutation, operands));
+            self.apply_cleanup_action(state, execution, operation, identity, mutation, operands);
 
             return true;
         };
@@ -316,8 +253,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         };
 
         if call.contract.captured_values().is_empty() {
-            profile(profiling, CleanupProfilePhase::NormalEffects, ||
-                self.apply_cleanup_action(state, execution, operation, identity, mutation, operands));
+            self.apply_cleanup_action(state, execution, operation, identity, mutation, operands);
 
             return true;
         }
@@ -331,9 +267,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             (row, guard): (usize, crate::ExecutionCondition)| {
             domain.assume_cleanup_guard(execution, guard);
 
-            profile(profiling, CleanupProfilePhase::NormalEffects, ||
-                collector.apply_cleanup_action(state, execution, operation,
-                    StorageMutation::CleanupOutcome { action, row }, mutation, operands));
+            collector.apply_cleanup_action(state, execution, operation,
+                    StorageMutation::CleanupOutcome { action, row }, mutation, operands);
         };
 
         let Some(last) = rows.next_back() else {
@@ -342,28 +277,26 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             return true;
         };
 
-        let mut merged = profile(profiling, CleanupProfilePhase::PhysicalCopy, || state.clone());
-        let mut first_execution = profile(profiling, CleanupProfilePhase::LogicalCopy, || execution.clone());
+        let mut merged = state.clone();
+        let mut first_execution = execution.clone();
 
         apply(self, &mut merged, &mut first_execution, first);
         merged.execution = Some(first_execution);
 
         for row in rows {
-            let mut incoming = profile(profiling, CleanupProfilePhase::PhysicalCopy, || state.clone());
-            let mut incoming_execution = profile(profiling, CleanupProfilePhase::LogicalCopy, || execution.clone());
+            let mut incoming = state.clone();
+            let mut incoming_execution = execution.clone();
 
             apply(self, &mut incoming, &mut incoming_execution, row);
             incoming.execution = Some(incoming_execution);
 
-            profile(profiling, CleanupProfilePhase::Join, ||
-                merged.merge(&incoming, crate::analysis::guarantee::ExecutionJoin::Boundary));
+            merged.merge(&incoming, crate::analysis::guarantee::ExecutionJoin::Boundary);
         }
 
         apply(self, state, execution, last);
         state.execution = Some(std::mem::take(execution));
 
-        profile(profiling, CleanupProfilePhase::Join, ||
-            merged.merge(state, crate::analysis::guarantee::ExecutionJoin::Boundary));
+        merged.merge(state, crate::analysis::guarantee::ExecutionJoin::Boundary);
 
         *execution = merged.execution.take().expect("joined lifecycle outcomes retain their execution state");
         *state = merged;
@@ -383,8 +316,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         mutation: &CleanupMutation<'_>,
         operands: &CleanupOperands<'_>,
     ) {
-        let profiling = cleanup_profile(self.storage.unit());
-
         let (call, failures) = match mutation {
             CleanupMutation::Lifecycle(call) => (Some(call), DependencyFailureKind::ALL.as_slice()),
             CleanupMutation::Opaque { .. } if operands.inactive_captures.as_ref().is_some_and(Vec::is_empty) => return,
@@ -406,18 +337,17 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             })).then_some(None));
 
             for row in rows {
-                let mut execution = profile(profiling, CleanupProfilePhase::LogicalCopy, || execution.clone());
+                let mut execution = execution.clone();
 
                 if call.is_some_and(|call| !self.execution.assume_cleanup_failure(&mut execution, call.entry, row)) {
                     continue;
                 }
 
                 let remainder = remainder.get_or_insert_with(|| StorageCleanupRemainder::at(exit, order, action));
-                let mut failure = profile(profiling, CleanupProfilePhase::PhysicalCopy, || state.clone());
+                let mut failure = state.clone();
                 let identity = StorageMutation::CleanupFailure { action, kind, row };
 
-                profile(profiling, CleanupProfilePhase::FailureEffects, ||
-                    self.apply_cleanup_action(&mut failure, &mut execution, operation, identity, mutation, operands));
+                self.apply_cleanup_action(&mut failure, &mut execution, operation, identity, mutation, operands);
 
                 if self.publish {
                     self.cleanup_remainders.entry(identity).or_default().insert(remainder.clone());

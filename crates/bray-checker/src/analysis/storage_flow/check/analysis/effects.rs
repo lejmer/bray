@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 use super::core::StorageFlowCollector;
 use super::effect_rows::{EffectRows, SelectedEffectRows};
 use crate::CheckerRequestContext;
-use crate::analysis::model::{AnalysisCallPhase, AnalysisOperationKind};
+use crate::analysis::model::{AnalysisCallPhase, AnalysisOperation, AnalysisOperationKind};
 use crate::analysis::storage_flow::memory::{Origin, Target};
 use crate::analysis::storage_flow::model::{EffectPrefix, StorageFlowState};
 use crate::storage::storage_projections;
@@ -18,12 +18,14 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     pub(super) fn begin_transition(
         &mut self,
         state: &mut StorageFlowState,
-        operation: AnalysisOperationKind,
+        point: &AnalysisOperation,
         execution: &crate::analysis::guarantee::ExecutionState,
         roots: Option<&[Target]>,
         started: Option<&crate::ExecutionCondition>,
         (failure_prefixes, returned_referents): (&mut EffectRows, &mut BTreeMap<StoragePath, StorageObservedTarget>),
     ) -> Option<EffectOutcomes> {
+        let operation = point.kind();
+
         if let bray_bound_tree::BoundExecutionSite::Node(
             bray_bound_tree::AnyBoundNodeId::Expression(expression),
         ) = operation.occurrence()
@@ -100,7 +102,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 .extend(contracts.synchronous_cleanup().iter().cloned());
         }
 
-        let effects = if let Some(started) = started {
+        if let Some(started) = started {
             let frame = started.deferred_value();
             let body = frame.and_then(|frame| frame.effects(&proof));
             let scheduled = body.as_ref().map_or(&[Effect::Unknown][..], EffectOutcomes::possible);
@@ -112,26 +114,18 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
             // The scheduler must allow interference after publication. Before
             // publication fails, only the inactive capture environment runs cleanup.
-            EffectOutcomes::new(scheduled.iter().cloned().chain([Effect::Ambient]))
-                .with_failure_prefixes([failed.clone(), failed])
-        } else {
-            self.call_effect_outcomes(state, execution, invocation, contracts, &admitted, failure_prefixes)
-        };
-
-        if started.is_none() && contracts.captured_values().is_empty()
-            && effects.normal().iter().any(|effect| matches!(effect, Effect::Unknown | Effect::Ambient | Effect::Escape(_)))
-            && entry.is_some_and(|entry| self.execution.admitted_pure(invocation, entry))
-        {
-            // An opaque callable can supply a declared effect bound. Checked
-            // rows retain all their resolved effects, including unresolved writes.
-            let normal = effects.normal().iter()
-                .filter(|effect| !matches!(effect, Effect::Unknown | Effect::Ambient | Effect::Escape(_)))
-                .cloned().collect::<Vec<_>>();
-
-            return Some(effects.with_normal(normal));
+            return Some(EffectOutcomes::new(scheduled.iter().cloned().chain([Effect::Ambient]))
+                .with_failure_prefixes([failed.clone(), failed]));
         }
 
-        Some(effects)
+        let pure = contracts.has_pure_normal_effect_bound()
+            && entry.is_some_and(|entry| self.execution.admits_normal_effect_bound(invocation, entry));
+
+        if pure && self.publish {
+            self.pure_effect_premises.insert(point.id());
+        }
+
+        Some(self.call_effect_outcomes(state, execution, invocation, contracts, (&admitted, pure), failure_prefixes))
     }
 
     fn begin_await_transition(
@@ -447,9 +441,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         roots: Option<&[Target]>,
         escaped: &std::collections::BTreeSet<Target>,
     ) -> Option<StorageInvalidation> {
-        if self.execution.trace_authority_site(bray_bound_tree::StorageMutation::Operation(kind.occurrence())) {
-            eprintln!("physical observation {kind:?} local={local:?} effects={effects:?} roots={roots:?} escaped={escaped:?}");
-        }
 
         let mut observed = effects.map(|effects| {
             let mut invalidation = self.resolved_observations(&state.memory, effects, roots.into_iter().flatten().cloned(), escaped);
@@ -539,7 +530,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let storage = contract.storage();
         let entry = execution.admitted_call(occurrence);
 
-        let resolved = self.resolve_effects(&state.memory, storage, (effects, entry),
+        self.resolve_effects(&state.memory, storage, (effects, entry),
             || entry?.argument_regions(contract.input_count()), |subject, path, indirect| {
             let values = self.request.semantic_values();
             let root = subject.subject_root();
@@ -552,26 +543,19 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 return state.memory.reference_effect_targets(values, start, path, indirect);
             }
 
-            let path = path?;
+            let path = self.invocation_reference_path(occurrence, root, path?)?;
 
             if indirect || !path.steps().is_empty() {
                 let captured = self.execution.invocation_capture(entry?, occurrence, root)?;
 
-                return state.memory.captured_effect_targets(values, captured, path, indirect);
+                return state.memory.captured_effect_targets(values, captured, &path, indirect);
             }
 
             let slot = self.invocation_place(occurrence, root)?;
-            let path = self.invocation_reference_path(occurrence, root, path)?;
             let target = Target::storage(slot).project(path.projections());
 
             Some(vec![bray_bound_tree::StorageMutationTarget::location(target)])
-        });
-
-        if !resolved.is_empty() && self.execution.trace_authority_site(bray_bound_tree::StorageMutation::Operation(occurrence)) {
-            eprintln!("portable effect {occurrence:?} {effects:?} => {resolved:?}");
-        }
-
-        resolved
+        })
     }
 
     fn call_effect_outcomes<'outcome>(
@@ -580,11 +564,13 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         execution: &crate::analysis::guarantee::ExecutionState,
         occurrence: bray_bound_tree::BoundExecutionSite,
         contracts: &'outcome bray_bound_tree::BoundCallDependencyContracts,
-        admitted: &[(usize, &'outcome bray_symbols::CapturedValueOutcome)],
+        (admitted, pure): (&[(usize, &'outcome bray_symbols::CapturedValueOutcome)], bool),
         failure_prefixes: &mut EffectRows,
     ) -> EffectOutcomes {
         let mut selection = SelectedEffectRows::new(contracts.deferred_effect_outcomes().is_none()
             && admitted.len() != contracts.captured_values().len());
+
+        selection.apply_pure_normal_bound(pure);
 
         for &(index, row) in admitted {
             selection.select_normal(index, row, false);
@@ -787,9 +773,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     }
                 }
                 Effect::UnboundedMutation { kind, access_type, ambient } => {
-                    if *kind == DependencyMutationKind::Retire && self.trace_retirement_effects() {
-                        eprintln!("unbounded resolved effect {:?} {} {effect:?}", self.storage.unit(), std::panic::Location::caller());
-                    }
 
                     self.record_effect(DependencyStorageEffect::UnboundedMutation {
                         kind: *kind, access_type: *access_type, ambient: *ambient,
@@ -831,18 +814,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
             let (origins, unbounded) = memory.effect_origins(target);
 
-            if unbounded && self.storage.unit().raw() == 118161
-                && std::env::var_os("BRA_694_TRACE_BACKING").is_some()
-                && let Origin::Returned { reference, .. } = &target.origin
-            {
-                eprintln!("queue backing effect {kind:?} {target:?} producer={:?} bounds={:?}",
-                    self.storage.identity(reference.root), memory.effect_origins(target).0.collect::<Vec<_>>());
-            }
-
             if unbounded && kind != DependencyMutationKind::Escape {
-                if kind == DependencyMutationKind::Retire && self.trace_retirement_effects() {
-                    eprintln!("unbounded returned effect {target:?} type={access_type:?}");
-                }
 
                 // An independent alternative may reach external storage, without granting freshness.
                 self.record_effect(DependencyStorageEffect::UnboundedMutation {
@@ -874,19 +846,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
             self.record_effect(effect, prefix);
         }
-    }
-
-    pub(super) fn trace_retirement_effects(&self) -> bool {
-        static UNITS: std::sync::OnceLock<Vec<u32>> = std::sync::OnceLock::new();
-        static SOURCES: std::sync::OnceLock<Vec<u32>> = std::sync::OnceLock::new();
-
-        let selection = |name| std::env::var(name).ok().map_or_else(Vec::new, |setting| {
-            setting.split(',').filter_map(|piece| piece.parse().ok()).collect()
-        });
-
-        UNITS.get_or_init(|| selection("BRA_694_TRACE_RETIRE_UNITS")).contains(&self.storage.unit().raw())
-            || SOURCES.get_or_init(|| selection("BRA_694_TRACE_RETIRE_SOURCES"))
-                .contains(&self.request.unit().key().source().syntax().source_id().raw())
     }
 
     pub(super) fn outcome_cell_changes(

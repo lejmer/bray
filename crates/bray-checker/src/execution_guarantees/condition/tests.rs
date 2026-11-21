@@ -84,12 +84,10 @@ fn observation_walks_visit_shared_nodes_without_expanding_the_tree() {
         visits.set(0);
 
         let query = super::observations::memoize_observations(|_| { visits.set(visits.get() + 1); false }, |_| false);
-        let walked = roots.iter().map(|root| root.observations().count()).sum::<usize>();
 
         for root in &roots { assert!(!query(root)); }
 
         assert_eq!(visits.get(), depth + 1, "shared subtrees are evaluated once across growing roots");
-        eprintln!("observation graph depth={depth} independent_visits={walked} shared_visits={}", visits.get());
     }
 
     let pruned = super::observations::memoize_observations(|_| panic!("excluded subtrees must not be inspected"), |_| true);
@@ -1140,6 +1138,8 @@ fn observation_paths_distinguish_contents_from_containing_identity() {
             .clone()
             .component(ConstantProjectionKind::TupleElement(SymbolOrdinal::new(0)));
 
+        let right_child = right.clone().component(ConstantProjectionKind::TupleElement(SymbolOrdinal::new(0)));
+
         let mut changed = super::ObservationSet::default();
 
         changed.insert(left.clone());
@@ -1147,11 +1147,16 @@ fn observation_paths_distinguish_contents_from_containing_identity() {
         assert!(changed.overlaps(&left));
         assert!(changed.overlaps(&child));
         assert!(!changed.overlaps(&right));
+        assert!(!changed.contains(&right_child));
         assert!(!changed.contains(&root));
         assert!(changed.contains(&child));
         assert!(!right.clone().borrowed().observes(&left));
         assert!(root.clone().borrowed().observes(&left));
         assert!(left.clone().borrowed().observes(&root));
+
+        changed.insert(right);
+
+        assert!(changed.contains(&right_child));
 
         assert!(
             !ExecutionCondition::new(crate::ExecutionConditionKind::Entry {

@@ -253,7 +253,9 @@ trusted internal func released_slot_access(
 {
     return
     {
-        acquisition = LinkAcquisition {},
+        acquisition = LinkAcquisition
+        {
+        },
         lease = lease,
         pointer = reference.pointer
     };

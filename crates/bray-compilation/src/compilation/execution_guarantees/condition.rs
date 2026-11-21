@@ -578,22 +578,7 @@ impl Compilation {
         let inputs = self.execution_unit_inputs(body, cancellation)?;
 
         let proves = |conditions: &[ExecutionCondition]| {
-            let proof = evidence.prove_trusted_with_inputs(conditions, &inputs);
-
-            if let Err(failure) = &proof
-                && std::env::var_os("BRA_694_TRACE_AUTHORITY").is_some()
-            {
-                let required = format!("{:?}", failure.required().kind());
-
-                if required.contains("SymbolId(2074)") || required.contains("SymbolId(2077)") {
-                    eprintln!("authority property {property:?} body {:?} required={} actual={}",
-                        body.source().syntax().source_id(),
-                        required.chars().take(450).collect::<String>(),
-                        format!("{:?}", failure.actual().kind()).chars().take(600).collect::<String>());
-                }
-            }
-
-            proof.is_ok()
+            evidence.prove_trusted_with_inputs(conditions, &inputs).is_ok()
         };
 
         let requirements = requirements

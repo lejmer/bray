@@ -154,20 +154,14 @@ pub(crate) fn transfer_operation(
         AnalysisOperationKind::Bound(_) | AnalysisOperationKind::AssignmentInstall(_) => {
             let node = operation.kind().node();
 
-            universe.invalidate_for_operation(state, node, storage, invalidation, discriminants);
+            universe.invalidate_for_operation(state, storage, invalidation, discriminants);
             universe.finish_operation(state, node);
         }
         AnalysisOperationKind::Call {
-            invocation,
             phase: AnalysisCallPhase::Attempt,
+            ..
         } => {
-            universe.invalidate_for_operation(
-                state,
-                invocation,
-                storage,
-                invalidation,
-                discriminants,
-            );
+            universe.invalidate_for_operation(state, storage, invalidation, discriminants);
         }
         AnalysisOperationKind::Call {
             invocation,
@@ -178,13 +172,7 @@ pub(crate) fn transfer_operation(
             }
         }
         AnalysisOperationKind::Suspension { occurrence, .. } => {
-            universe.invalidate_for_operation(
-                state,
-                occurrence,
-                storage,
-                invalidation,
-                discriminants,
-            );
+            universe.invalidate_for_operation(state, storage, invalidation, discriminants);
 
             if let bray_bound_tree::BoundExecutionSite::Node(node) = occurrence {
                 universe.finish_operation(state, node);

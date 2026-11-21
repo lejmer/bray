@@ -152,8 +152,19 @@ The physical state owns the input-region bounds of returned addresses by produce
 
 At a call attempt, escape analysis, observation invalidation, and returned-reference bounds share the reached input
 regions. The admitted operands supply possible reach through their captured descriptors and carried dependencies.
+Result staging keeps an already published exact descriptor. It reads
+the input regions on demand when a remaining opaque output needs a bound.
 Entry preparation includes the backing descriptor reads named by prepared
 result routes, including forwarded views of nested buffers.
+An exact result relation can select a field behind an admitted address.
+Output staging reads that address binding and follows the checked suffix in
+current memory. A later consumer reads the published descriptor and any
+additional descriptors along its own route. A projected region bounds a
+possible effect. It cannot stand in for a subsequent descriptor read.
+Calls that materialize their arguments already carry the formal wrapper.
+When an operation uses an unwrapped admitted argument, effect and output
+binding both translate the formal route to that actual argument before
+reading its descriptors.
 Await also reads the arguments in the retained frame. A finite bound requires complete inputs. A typed descriptor
 can identify the storage it reaches after its source slot changes. Raw address formation publishes the descriptor's
 address and bounds. It retains the ordinary loan only on the input. Output dependency fallback uses the prepared
@@ -165,7 +176,11 @@ that decision for completion and keeps the remaining trusted requirements indepe
 A staged read or copy uses that admission at completion. An assignment stages and computes reachability
 from the same evaluated right-hand side. A compound assignment uses the completed operator's private result.
 Normal slice publication records the extent of the evaluated descriptor. Later indexing reads that extent through the
-descriptor, including after the original bound variables change. An address returned from the slice retains the
+descriptor, including after the original bound variables change. If a resolved write leaves the checked reference
+slot in place, proof framing retains its descriptor identity and replaces only the changed referent observations.
+The checked entry publishes the reference role of each installed, unconditionally present inline input descriptor.
+An input loan or active payload supplies the reached references after access or selection establishes them.
+An address returned from the slice retains the
 containing storage lifetime through its portable reference relationship. The fixed element selector and its backing
 lifetime remain distinct from an exact cell address in the caller.
 An evaluated integer index can select an exact cell in reached inline storage
@@ -174,9 +189,11 @@ binds the selector to the admitted call or frame's actual argument. Different
 symbolic values can alias. An unresolved value supplies only a region.
 Protected memory operations use the same admitted descriptor or staged
 owning coordinate for mutation, initialization, and result publication.
-An unresolved deallocation of a raw allocation cannot retire an invocation-owned inline slot. Physical
-invalidation and observation framing use that distinction. Reached allocation targets still retire through
-their actual captured addresses and generations.
+An unresolved raw deallocation cannot retire an invocation-owned inline slot. Physical invalidation and
+observation framing use the checked pointer type while still invalidating possible heap aliases. Buffer
+cleanup disposes initialized elements and retires their backing. The backing comes from the admitted
+owner's current descriptor. Reached allocation targets retire through their actual captured addresses
+and generations.
 
 A static effect can name an owned backing region without supplying its address. Bind the checked route to the
 current backing when the descriptor is available. Otherwise keep the static identity and its owning path as
@@ -242,6 +259,8 @@ When a result already occupies its planned slot, the slot and expression
 share one joined value and owner.
 The shared join uses the result selector when preserving conditional facts
 about current writes, ownership, and witnesses.
+Publication installs the assembled root with its captured components.
+Component records publish their initialization and use the root for data.
 
 At a storage join, each held frame binds its moved inputs and copied
 observations to its reached owner. It retains the copied data and its facts
@@ -326,6 +345,12 @@ distinct composite states through these joins. Loop headers and the finite alter
 conservative merge. Each transfer produces its block's reached storage decisions and condition facts. Acyclic blocks
 consume their inputs. Cyclic blocks keep the input needed for convergence and replace their publication when they run
 again. The final publication combines the last records from each reached block.
+Current-value joins publish the assembled root once. Component records supply their own initialization.
+The incoming predecessor supplies its original current storage for deferred frame guards and contributes
+remapped proof, captures, and pending results. Only the joined state retains current storage and ownership.
+Stable observations read the live entries of the retained roots. Predicates use the logical observation
+of each reached borrowed value. Joins use that same observation when remapping and checking clauses
+against their predecessors. Storage transfer keeps the complete physical capture.
 An inline field retains the data and physical capture of the selected payload. Its nullable extraction view
 can still name the containing snapshot for checks at the read site. Storing that view in the field would
 retain an obsolete parent on every loop pass.
@@ -378,6 +403,13 @@ Published snapshots and diagnostics retain graph order.
    · [Output rows](../../crates/bray-checker/src/execution_guarantees/outputs.rs)
 
 Ordinary call attempts can carry one selected row through physical effects, private production, and publication.
+Physical call effects adapt the formal route to the admitted input's representation before traversing
+its captured descriptor. A staged nullable input already holds the wrapper. An unstaged present
+conversion uses the original value and drops the corresponding formal projection before traversal.
+For a rowless callable, a selected purity promise bounds the normal fallback only after the
+input checks at admission. The effect row selector retains the conservative envelope and abnormal
+prefixes. Storage flow publishes the premise by CFG operation. Certification uses the entry evidence
+at that operation to verify it. Explicit effects in checked rows remain part of the transition.
 Reference staging passes unchanged descriptors' actual referents to normal invalidation. An ordinary call's
 failure edge uses the admitted state and captured failure prefix. Deferred observation uses the same
 composite flow for selected frame identities and completed or abnormal alternatives. The flow retains the
@@ -499,9 +531,12 @@ into the remaining cleanup. A region supplies possible effects and dependencies.
 | Composition | End-to-end relationship |
 | --- | --- |
 | Generic value, buffer, frame, and escape | A value containing a reference moves into generic `RawBuffer<T>` storage. The captured graph retains the whole appended or popped value. Admission captures the backing's reached element bounds. Publication binds new elements against those bounds. Branches and loops affect which prefix and owning transfer survive. Moving the buffer into a deferred frame carries the backing's dependencies and cleanup. Pop transfers the selected element and leaves the remaining dependencies with the buffer. Scope exit or escape checks referent lifetimes against the actual surviving owner. Source and imported callers instantiate the same rows. [Buffer source](../../standard-library/std/src/memory/buffer.bray) · [Checked buffer operations](../../crates/bray-checker/src/analysis/storage_flow/check/analysis/memory/buffer.rs) |
+| Nominal `Self` in a generic member | The selected method has bindings for its enclosing declaration and its own generic parameters. The named `Self` type uses the parameters of its declaring struct or union. Normalization and product mapping get that open type from the source or imported declaration before applying the selected bindings. Nested results and receiver types carry the same nominal identity. [Type normalization](../../crates/bray-checker/src/type_normalization.rs) · [Declaration lookup](../../crates/bray-compilation/src/compilation/substitution.rs) · [Constant import control](../../crates/bray-compilation/src/compilation/export/build/tests/constants.rs) |
 | Saved pointer, escape and retirement | Selecting a field, reading its descriptor, and following it are separate operations. A later write to the field changes the current descriptor. Retirement through the earlier evaluated value applies to that reached allocation and revokes its dependent witnesses. An incomplete escape route below a reached raw address starts its conservative reach at that address. Extend it through known carried data and aliases. The effect footprint bounds invalidation. A precise retirement still requires the captured operand. [Typed route execution](../../crates/bray-checker/src/analysis/storage_flow/memory/references/route.rs) · [Effect resolution](../../crates/bray-checker/src/analysis/storage_flow/check/analysis/effects.rs) |
-| Native dispatch and start | `dispatch_ready` holds `Current` and its acquisition while retaining a resident task reference. It uses the current context again after wait and task-failure transitions. `start_frame` moves the prepared owner from its selected result into a scoped entry. Its service acquisition supplies lane selection and registration. Commit consumes the token and hands the registration to the task cell. An early exit retains the preparation and withdraws its registration if present. [Dispatch](../../runtime/bootstrap/src/execution/driving.bray) · [Current and context](../../runtime/bootstrap/src/execution/context.bray) · [Task failure](../../runtime/bootstrap/src/execution/failure.bray) · [Start](../../runtime/bootstrap/src/execution/start.bray) · [Registration](../../runtime/bootstrap/src/execution/scheduling.bray) · [Commit and rollback](../../runtime/bootstrap/src/execution/prepared_start.bray) |
-| Native provider, worker and retirement | Provider construction returns a present or absent provider under `Ok`. The consumed payload survives binding installation and supplies provider installation. Worker locking binds the selected pool marker and the guard's actual acquisition before accessing protected state. Driver retirement restores the enclosing attachment while holding the exact execution owner. Releasing the captured allocation ends dependent authority at that allocation. [Entry](../../runtime/bootstrap/src/execution/native_owner.bray) · [Provider](../../runtime/bootstrap/src/execution/native_provider.bray) · [Worker locking](../../runtime/bootstrap/src/worker/storage.bray) · [Driver retirement](../../runtime/bootstrap/src/execution/retirement.bray) |
+| Native dispatch and start | `dispatch_ready` holds `Current` while retaining a resident task reference. The same context view supplies the pending read, worker attachment, and recovery thread. Recovery takes the scheduler reference reached from the execution owner. The C adapter reads its admitted native slots. Notification, frame retirement, and advancement keep the caller's dispatch claim until explicit release. `start_frame` moves the prepared owner from its selected result into a scoped entry. Its service acquisition supplies lane selection and registration. After lane admission, start moves the token out of its slot and authorizes it for the inspected thread origin. Commit consumes that token and receives the task borrow, selected registration, and inspected metadata. The scope keeps the view and service acquisitions and clears its registration before wake once the task cell owns it. An early exit withdraws the reservation if present before closing the service owner. [Dispatch](../../runtime/bootstrap/src/execution/driving.bray) · [Current and context](../../runtime/bootstrap/src/execution/context.bray) · [Recovery](../../runtime/bootstrap/src/scheduler/lane.bray) · [Start](../../runtime/bootstrap/src/execution/start.bray) · [Commit and rollback](../../runtime/bootstrap/src/execution/prepared_start.bray) |
+| Wait links and event counts | A selected neighbor access carries the slot address, the host lease, and the acquisition established under that lease. Withdrawal keeps both selected neighbors through collection updates. The same borrow supplies the link write. Event creation and retention issue an acquisition with the represented reference after establishing its count. Wait registration moves that reference with the duplicated waiter. Access uses the actual addresses and the acquisitions live with their owners. [Neighbor access](../../runtime/bootstrap/src/task/waiting/links.bray) · [Withdrawal](../../runtime/bootstrap/src/task/waiting/withdrawal.bray) · [Event ownership](../../runtime/bootstrap/src/event/storage.bray) · [Registration](../../runtime/bootstrap/src/event/registration.bray) |
+| Activation inspection and begin | Both operations use the checked slot selected under the report pool guard. The lookup validates layout and the lease's shape, epoch, address, and registered descriptor. Inspection reads the address of an inactive or retained frame. Begin accepts only the inactive state, consumes it under the guard, and then opens the header. The metadata caller's effect summary comes from the inspection path. The dispatch transition publishes the slot and header writes. [Resident selection](../../runtime/bootstrap/src/storage/activation.bray) · [Inspection](../../runtime/bootstrap/src/activation/storage.bray) · [Begin](../../runtime/bootstrap/src/activation/transition.bray) |
+| Native provider, worker and retirement | Provider construction returns a present or absent provider under `Ok`. The consumed payload survives binding installation and supplies provider installation. Worker locking binds the selected pool marker and the guard's actual acquisition before accessing protected state. Driver retirement withdraws the active context and moves its initialized packet after its views and service slots are closed. The complete packet retains the lock witness and backing allocation through attachment cleanup and predecessor restoration. Field cleanup releases the backing last and ends dependencies on that exact allocation. [Entry](../../runtime/bootstrap/src/execution/native_owner.bray) · [Provider](../../runtime/bootstrap/src/execution/native_provider.bray) · [Worker locking](../../runtime/bootstrap/src/worker/storage.bray) · [Driver retirement](../../runtime/bootstrap/src/execution/retirement.bray) |
 | Windows environment read | `native_environment_entry` produces the Boolean and span together and declares initialized-read guarantees under the true result selector. `environment_storage` selects the true branch and passes the actual address field to `byte_buffer_read`. The source returns distinct tuples. Loss can occur after result production, during guarantee instantiation, publication, branch refinement, or proof retention. [Windows implementation](../../standard-library/std/src/platform/windows.bray) · [Production check and lowering](../../crates/bray-compilation/src/compilation/trusted_contracts/contract_tests/standard_storage.rs) |
 | Scoped unit completion | Scope enter, body, and exit can complete with a unit result and no recorded observations. The collector publishes a completion for a reached normal phase even when its payload is empty. `invocation_completes` uses that record in lowering to preserve the following return. [Completion collection](../../crates/bray-checker/src/analysis/storage_flow/check/analysis/core.rs) · [Lowering consumer](../../crates/bray-lowering/src/lowering/expression/core/operations.rs) · [Scoped result control](../../crates/bray-compilation/src/compilation/lowering/tests/lifecycle.rs) |
 | Deferred task observation | `start` holds the selected body's evaluated inputs. The completed `join` or `cancel` outcome produces the body's value and resumes its witnesses. The abnormal outcome has its own prefix and cannot use that value. `try` selects `Completed` before transferring the payload. [Deferred frame and logical completion](../../crates/bray-checker/src/analysis/guarantee/flow/deferred/execution.rs) · [Composite outcome propagation](../../crates/bray-checker/src/analysis/storage_flow/model/outcomes.rs) · [Source and imported controls](../../crates/bray-compilation/src/compilation/export/build/tests/deferred_completion.rs) |

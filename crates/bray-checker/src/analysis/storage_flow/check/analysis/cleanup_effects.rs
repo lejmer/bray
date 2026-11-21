@@ -8,7 +8,7 @@ use bray_bound_tree::{
 };
 use bray_symbols::{DependencyMutationKind, DependencySubjectRoot};
 
-use super::cleanup::{CleanupOperands, cleanup_profile};
+use super::cleanup::CleanupOperands;
 use super::core::StorageFlowCollector;
 use super::effect_rows::{EffectRows, SelectedEffectRows};
 use crate::CheckerRequestContext;
@@ -176,18 +176,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     ) {
         let domain = self.execution;
         let publish = self.publish;
-        let profiling = cleanup_profile(operation.occurrence().node().unit());
-        let mut profile = profiling.then(std::time::Instant::now);
-        let mut times = [0; 5];
-
-        let mut checkpoint = |index| {
-            if let Some(start) = &mut profile {
-                let now = std::time::Instant::now();
-
-                times[index] = (now - *start).as_micros();
-                *start = now;
-            }
-        };
 
         let failure = match identity {
             StorageMutation::CleanupFailure { kind, row, .. } => Some((kind, row)),
@@ -249,19 +237,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         };
 
         let mut effects = self.selected_cleanup_effects(&state.memory, execution, identity, mutation, operands);
-
-        if std::env::var("BRA_694_TRACE_FRAME_UNIT").is_ok_and(|unit| unit.parse().ok() == Some(self.storage.unit().raw()))
-            && matches!(mutation, CleanupMutation::Opaque { .. })
-        {
-            eprintln!("frame cleanup {identity:?}: receiver={receiver:?} path={task_path:?} frame={} inactive={} captures={inactive_captures:?} effects={effects:?}",
-                task_source.is_some(), operands.inactive);
-        }
-
-        if self.trace_retirement_effects() && effects.as_ref().is_none_or(|effects| !effects.is_empty()) {
-            eprintln!("cleanup reached {identity:?} receiver={receiver:?} effects={effects:?}");
-        }
-
-        checkpoint(0);
 
         let inherited_tail =
             self.record_cleanup_obligations(operation, mutation, effects.as_deref());
@@ -337,7 +312,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         }
 
         self.preserve_storage_values(state, None, effects.as_deref(), &mut invalidation);
-        checkpoint(1);
 
         if let Some(call) = &invocation
             && call.completes
@@ -365,7 +339,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         }
 
         state.memory.apply_effects(effects.as_deref(), &invalidation, operation.occurrence());
-        checkpoint(2);
 
         if let Some((_, rows)) = &operands.lifecycle_effects {
             apply_lifecycle_cell_changes(&mut state.memory, identity, rows, invocation.is_some_and(|call| call.completes));
@@ -390,7 +363,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         };
 
         domain.invalidate_observations(execution, identity, &invalidation);
-        checkpoint(3);
         self.record_outcome_mutation(identity, Cow::Owned(invalidation));
         domain.refresh_storage_observations(execution, completion.references());
 
@@ -405,15 +377,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             self.completions.record(self.block(), identity, completion);
         }
 
-        checkpoint(4);
-
-        if profiling {
-            super::cleanup::record_cleanup_action_profile(times);
-        }
-
-        if times.iter().sum::<u128>() >= 2_000 {
-            eprintln!("cleanup action profile {identity:?} sections_us={times:?}");
-        }
     }
 
     fn selected_cleanup_effects<'effects>(

@@ -76,17 +76,6 @@ pub(super) fn update_parent_observations(
 }
 
 impl ExecutionState {
-    pub(in crate::analysis) fn trace_cycle_delta(&self, next: &Self) {
-        let size = |facts: &ExecutionAssumptions| {
-            (facts.len(), facts.iter().map(|(condition, _)| condition.observations().take(4096).count()).max().unwrap_or(0))
-        };
-
-        eprintln!("cycle proof delta: current={} expressions={} results={} entries={} ownership={} witnesses={} ordinary={:?}->{:?} trusted={:?}->{:?}",
-            self.current != next.current, self.expressions != next.expressions,
-            self.pending_results != next.pending_results, self.entries != next.entries,
-            self.owned_results != next.owned_results, self.witnesses != next.witnesses,
-            size(&self.assumptions), size(&next.assumptions), size(&self.trusted_assumptions), size(&next.trusted_assumptions));
-    }
 
     pub(in crate::analysis) fn ordinary_proof(&self) -> ExecutionProof<'_> {
         self.proofs.ordinary_proof(&self.assumptions)

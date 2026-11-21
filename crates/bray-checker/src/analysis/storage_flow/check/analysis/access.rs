@@ -51,47 +51,11 @@ pub(super) fn overlapping_borrow_conflict<'target>(
         };
 
         if overlaps {
-            trace_borrow_overlap(storage, state, access, active, targets.clone().map(|(targets, _)| targets), reached, authorizing_borrows);
             conflicts.push(active);
         }
     }
 
     (!conflicts.is_empty()).then_some(BorrowConflict::Borrows(conflicts))
-}
-
-fn trace_borrow_overlap<'target>(
-    storage: &bray_bound_tree::StoragePlan,
-    state: &StorageFlowState,
-    access: StorageAccessId,
-    loan: BorrowCapabilityId,
-    targets: Option<impl Iterator<Item = &'target bray_bound_tree::StorageTarget>>,
-    reached_overlap: Option<StorageRelationship>,
-    authority: &[BorrowCapabilityId],
-) {
-    type Pair = (StorageAccessId, BorrowCapabilityId);
-
-    static SEEN: std::sync::OnceLock<Option<std::sync::Mutex<std::collections::BTreeSet<Pair>>>> =
-        std::sync::OnceLock::new();
-
-    let Some(seen) = SEEN.get_or_init(|| std::env::var_os("BRA_694_TRACE_BORROWS").map(|_| Default::default())) else {
-        return;
-    };
-
-    if !seen.lock().expect("borrow trace lock").insert((access, loan)) {
-        return;
-    }
-
-    let capability = storage.borrow_capability(loan).expect("active borrow exists");
-
-    let describe = |access| {
-        (storage.access(access).map(|access| (access.root(), access.source(), access.reached_type())),
-            storage.logical_path(access),
-            storage.root_identity(access).and_then(|root| storage.identity(root)).map(|identity| identity.kind_name()))
-    };
-
-    eprintln!("bra-694 borrow unit={} kind={:?} access={access:?} plan={:?} reached={:?} loan={loan:?} capability={capability:?} loan_plan={:?} regions={:?} structural={:?} overlap={reached_overlap:?} authority={authority:?}",
-        storage.unit().raw(), storage.kind(), describe(access), targets.map(|targets| targets.collect::<Vec<_>>()),
-        describe(capability.access()), state.memory.borrow_regions(loan), storage.relationship(capability.access(), access));
 }
 
 impl<'analysis, C> StorageFlowCollector<'analysis, C>
@@ -211,12 +175,6 @@ where
             .collect::<Vec<_>>();
 
         if !inactive_authorizing_borrows.is_empty() {
-            if std::env::var_os("BRA_694_TRACE_BORROWS").is_some() {
-                eprintln!(
-                    "inactive borrow {plan:?} checked={planned:?} reached={actual:?} authority={authorizing_borrows:?} inactive={inactive_authorizing_borrows:?} active={:?}",
-                    state.active_borrows
-                );
-            }
 
             return Some(BorrowConflict::Borrows(inactive_authorizing_borrows));
         }

@@ -7,47 +7,6 @@ use crate::execution_guarantees::ExecutionCondition;
 use super::super::state::ExecutionState;
 use bray_bound_tree::StorageInvalidation;
 
-fn cleanup_observation_profile(unit: bray_bound_tree::BoundUnitId, mutation: bray_bound_tree::StorageMutation) -> bool {
-    use bray_bound_tree::StorageMutation;
-    static UNIT: std::sync::OnceLock<Option<u32>> = std::sync::OnceLock::new();
-
-    matches!(mutation, StorageMutation::Cleanup(_) | StorageMutation::CleanupOutcome { .. }
-        | StorageMutation::CleanupFailure { .. })
-        && UNIT.get_or_init(|| std::env::var("BRA_694_PROFILE_CLEANUP").ok()?.parse().ok()) == &Some(unit.raw())
-}
-
-fn record_cleanup_observation_profile(unit: bray_bound_tree::BoundUnitId, times: [u64; 6]) {
-    use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
-    static TOTALS: [AtomicU64; 6] = [const { AtomicU64::new(0) }; 6];
-    static COUNT: AtomicU64 = AtomicU64::new(0);
-
-    for (total, elapsed) in TOTALS.iter().zip(times) {
-        total.fetch_add(elapsed, Relaxed);
-    }
-
-    let count = COUNT.fetch_add(1, Relaxed) + 1;
-
-    if count % 500 == 0 {
-        let totals = TOTALS.each_ref().map(|total| total.load(Relaxed));
-
-        eprintln!("cleanup proof {unit:?} count={count} snapshots/referents/places/retirement/rewrite/references us={totals:?}");
-    }
-}
-
-fn authority_trace_ranges() -> &'static [(u32, u32, u32)] {
-    static RANGES: std::sync::OnceLock<Vec<(u32, u32, u32)>> = std::sync::OnceLock::new();
-
-    RANGES.get_or_init(|| {
-        let setting = std::env::var("BRA_694_TRACE_AUTHORITY").unwrap_or_default();
-
-        setting.split(',').filter_map(|range| {
-            let mut parts = range.split(':').map(str::parse::<u32>);
-
-            Some((parts.next()?.ok()?, parts.next()?.ok()?, parts.next()?.ok()?))
-        }).collect()
-    })
-}
-
 impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     fn disjoint_initialized_values(
         &self,
@@ -364,23 +323,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             unreachable!("global observation invalidation has an opaque frame");
         };
 
-        let trace = self.trace_authority_site(mutation);
-
-        static PROFILE_UNIT: std::sync::OnceLock<Option<u32>> = std::sync::OnceLock::new();
-
-        let profile = PROFILE_UNIT.get_or_init(|| std::env::var("BRA_694_PROFILE_CLEANUP").ok()?.parse().ok());
-        let mut profile = (*profile == Some(self.storage.unit().raw())).then(std::time::Instant::now);
-        let mut times = [0; 4];
-
-        let mut checkpoint = |index| {
-            if let Some(start) = &mut profile {
-                let now = std::time::Instant::now();
-
-                times[index] = (now - *start).as_micros();
-                *start = now;
-            }
-        };
-
         let descriptor_paths = descriptors
             .iter()
             .flat_map(|path| crate::ExecutionPlace::storage_path(self.storage, &path).into_iter().map(move |place| (place, path.clone())))
@@ -393,18 +335,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let values = self.storage_preservations(stable_values);
         let pointees = self.pointee_preservations(state, invalidation, Some(&mut snapshots));
 
-        if trace {
-            eprintln!(
-                "opaque proof observations {mutation:?}: values={stable_values:?} pointees={pointees:?}"
-            );
-        }
-
         let mut masks = self.preservation_masks(
             descriptor_paths.iter().map(|(place, path)| (place, path.projections.as_ref())),
             values.iter().map(|(place, path, kind)| (place, path.projections.as_ref(), *kind))
                 .chain(pointees.iter().map(|(place, path, kind)| (place, path.as_ref(), *kind))));
-
-        checkpoint(0);
 
         let current = state.current.root_slots().filter(|(_, _, availability)| {
             super::merge::resolve_availability(state, availability) != super::super::current::ValueAvailability::Absent
@@ -417,21 +351,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             let next = mask.frame_prepared(state, &source, &[], Some(&place), mutation, moved);
 
-            if trace {
-                for field in source.component_projections() {
-                    if !["SymbolId(2401)", "SymbolId(2072)", "SymbolId(2074)"].iter()
-                        .any(|index| format!("{field:?}").contains(index)) { continue; }
-
-                    let before = source.clone().project(field);
-                    let after = next.clone().project(field);
-                    let known = descriptor_paths.iter().filter(|(path, _)| place.contains(path)).collect::<Vec<_>>();
-
-                    eprintln!("selected descriptor {mutation:?} {place:?} preserved={known:?} before={} after={}",
-                        format!("{:?}", before.kind()).chars().take(320).collect::<String>(),
-                        format!("{:?}", after.kind()).chars().take(320).collect::<String>());
-                }
-            }
-
             if !std::ptr::eq(source.kind(), next.kind()) {
                 // Whole-root framing changes contents while the current slot
                 // retains its existing availability and observed components.
@@ -439,52 +358,13 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             }
         }
 
-        checkpoint(1);
-
         // Authority follows the actual surviving value tree. A descriptor keeps
         // its own identity, but cannot retain overwritten children by prefix.
         // Evaluated snapshots are not a second source of live ownership.
         let owners = state.current.live_values().collect::<crate::execution_guarantees::RetainedSnapshots>();
 
-        if trace && matches!(mutation, bray_bound_tree::StorageMutation::Operation(_)) {
-            for (carrier, witness) in &state.witnesses {
-                for condition in witness.conditions.keys() {
-                    let condition_text = format!("{:?}", condition.kind());
-
-                    if condition.contains_trusted() {
-                        let observations = condition.observations().map(|value| {
-                            (snapshots.preserves(value), format!("{:?}", value.kind()).chars().take(650).collect::<String>())
-                        }).collect::<Vec<_>>();
-
-                        eprintln!(
-                            "opaque witness {mutation:?} available={} owner_live={} matching_referents={:?} carrier={} condition={} observations={observations:?}",
-                            witness.available, owners.retains_owner(carrier), {
-                                let matches = std::cell::RefCell::new(Vec::new());
-
-                                owners.retains_witness_carrier(carrier, |referent| {
-                                    matches.borrow_mut().push(format!("{:?}", referent.kind()).chars().take(450).collect::<String>());
-
-                                    false
-                                });
-
-                                matches.into_inner()
-                            },
-                            format!("{:?}", carrier.kind()).chars().take(650).collect::<String>(),
-                            condition_text.chars().take(850).collect::<String>()
-                        );
-                    }
-                }
-            }
-        }
-
-        checkpoint(2);
-
         state.invalidate_cleanup(&snapshots, &owners, mutation.invocation());
-        checkpoint(3);
 
-        if times.iter().sum::<u128>() >= 1_000 {
-            eprintln!("opaque observation profile {mutation:?} sections_us={times:?}");
-        }
     }
 
     fn preservation_masks<'a>(
@@ -529,12 +409,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             return;
         }
 
-        let trace = self.trace_authority_site(mutation).then(|| {
-            eprintln!("authority invalidation {mutation:?} scope={:?} kind={transition:?}", std::mem::discriminant(invalidation));
-
-            state.trusted_assumptions.clone()
-        });
-
         let transfers = transition == StorageObservationTransition::Transfer;
         let content_only = transition.changes_contents_only();
 
@@ -548,22 +422,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         if matches!(invalidation, StorageInvalidation::All { .. }) {
             self.invalidate_all_observations(state, mutation, invalidation, &moved);
-            trace_authority_change(mutation, trace, state);
 
             return;
         }
-
-        let mut profile = cleanup_observation_profile(self.storage.unit(), mutation).then(std::time::Instant::now);
-        let mut times = [0; 6];
-
-        let mut checkpoint = |index| {
-            if let Some(start) = &mut profile {
-                let now = std::time::Instant::now();
-
-                times[index] = (now - *start).as_micros() as u64;
-                *start = now;
-            }
-        };
 
         let collect_snapshots = |state: &ExecutionState| {
             let mut observations = match invalidation {
@@ -585,8 +446,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         // The proof only needs observation snapshots when something reached
         // an existing observation. Framing the current slots uses the checked mask.
         let mut snapshots = None;
-
-        checkpoint(0);
 
         if !transfers && let StorageInvalidation::Observed { referents, .. } = invalidation {
             let mut observed = Vec::new();
@@ -638,8 +497,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             }
         }
 
-        checkpoint(1);
-
         let (mut changed_places, changed_paths) = self.invalidated_places(invalidation);
 
         let StorageInvalidation::Observed { affected_pointees, .. } = invalidation else {
@@ -653,9 +510,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 affected_pointees.as_ref().is_none_or(|affected| affected.contains(target)).then(|| place.clone())
             }));
         }
-
-        let trace_dispatch = trace.is_some() && mutation.occurrence().expression().is_some_and(|expression|
-            expression.unit().raw() == 749970 && expression.ordinal() == 117);
 
         // Storage flow distinguishes the descriptor slot from its reached elements.
         // Keep only descriptor identity. A fresh payload snapshot prevents opaque calls
@@ -710,8 +564,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 .map(ExecutionCondition::borrowed));
         }
 
-        checkpoint(2);
-
         if !scalar_places.is_empty() || !invalidated_values.is_empty() {
             let no_predicates = BTreeSet::new();
 
@@ -725,8 +577,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 extraction,
             );
         }
-
-        checkpoint(3);
 
         let values = match invalidation {
             StorageInvalidation::Observed { stable_values, .. } => self.storage_preservations(stable_values),
@@ -742,19 +592,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         Self::frame_changed_observations(state, (mutation, &moved), transfers, changed_places, &changed_paths, masks);
 
-        checkpoint(4);
-
-        if !transfers && let StorageInvalidation::Observed { snapshots, stable_values, .. } = invalidation {
-            self.refresh_invalidated_references(state, snapshots, trace_dispatch.then_some(stable_values));
+        if !transfers && let StorageInvalidation::Observed { snapshots, .. } = invalidation {
+            self.refresh_storage_observations(state, snapshots);
         }
 
-        checkpoint(5);
-
-        if profile.is_some() {
-            record_cleanup_observation_profile(self.storage.unit(), times);
-        }
-
-        trace_authority_change(mutation, trace, state);
     }
 
     fn extracted_input_snapshots(
@@ -818,30 +659,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }));
     }
 
-    fn refresh_invalidated_references(
-        &self,
-        state: &mut ExecutionState,
-        snapshots: &BTreeMap<bray_bound_tree::StoragePath, bray_bound_tree::StorageObservedTarget>,
-        trace_values: Option<&BTreeMap<bray_bound_tree::StoragePath, bray_bound_tree::StorageObservationKind>>,
-    ) {
-        let acquisition = trace_values.and_then(|values| values.keys().find(|path| path.root.ordinal() == 1
-            && format!("{:?}", path.projections).contains("SymbolId(2072)")));
-
-        let view = acquisition.and_then(|path| crate::ExecutionPlace::storage_path(self.storage, path));
-        let before = view.as_ref().and_then(|place| place.value_in(&state.current));
-
-        self.refresh_storage_observations(state, snapshots);
-
-        if let Some(view) = view {
-            let after = view.value_in(&state.current);
-            let targets = snapshots.iter().filter(|(path, _)| path.root.ordinal() == 1).collect::<Vec<_>>();
-
-            eprintln!("dispatch acquisition refresh {view:?}: targets={targets:?} before={} after={}",
-                format!("{before:?}").chars().take(540).collect::<String>(),
-                format!("{after:?}").chars().take(540).collect::<String>());
-        }
-    }
-
     fn repeats_mutation(&self, mutation: bray_bound_tree::StorageMutation) -> bool {
         use bray_bound_tree::StorageMutation;
 
@@ -854,32 +671,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             }
             _ => self.values.can_repeat(mutation.occurrence()),
         }
-    }
-
-    pub(in crate::analysis) fn trace_authority_site(&self, mutation: bray_bound_tree::StorageMutation) -> bool {
-        self.trace_authority_node(mutation.occurrence().node())
-    }
-
-    pub(in crate::analysis::guarantee) fn trace_authority_body(&self) -> bool {
-        let node = match self.request.root() {
-            crate::CheckerUnitRoot::CallableBody(body) => body.into(),
-            crate::CheckerUnitRoot::Expression(expression) => expression.into(),
-            crate::CheckerUnitRoot::ExpressionSequence(block) => block.into(),
-        };
-
-        self.trace_authority_node(node)
-    }
-
-    fn trace_authority_node(&self, node: bray_bound_tree::AnyBoundNodeId) -> bool {
-        let ranges = authority_trace_ranges();
-
-        if ranges.is_empty() { return false; }
-
-        let Some(node) = crate::diagnostic::bound_node_origin(self.request, node) else { return false; };
-
-        let span = self.request.source(node.source_anchor()).span();
-
-        ranges.iter().any(|&(source, start, end)| span.source_id().raw() == source && (start..=end).contains(&span.start().bytes()))
     }
 
     fn invalidated_places(
@@ -979,20 +770,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 *previous = value;
             }
         }
-    }
-}
-
-fn trace_authority_change(mutation: bray_bound_tree::StorageMutation,
-    before: Option<crate::execution_guarantees::ExecutionAssumptions>, state: &ExecutionState,
-) {
-    let Some(before) = before else { return; };
-
-    let removed = before.difference(&state.trusted_assumptions);
-
-    for (condition, holds) in removed {
-        let text = format!("{:?}", condition.kind());
-
-        eprintln!("authority retired {mutation:?} holds={holds}: {}", text.chars().take(520).collect::<String>());
     }
 }
 
