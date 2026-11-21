@@ -258,10 +258,10 @@ fn join_observations<'a>(
         .chain(published)
         .collect::<std::collections::BTreeSet<_>>();
 
-    let contents = super::joins::current_content_identities(target, incoming, &observed, join.observation_site());
+    let contents = std::cell::OnceCell::new();
     let unknown = ExecutionCondition::unknown();
 
-    for place in observed {
+    for &place in &observed {
         let left_value = place.value_in(&target.current);
         let right_value = place.value_in(&incoming.current);
         let value = left_value.as_ref().unwrap_or(&unknown);
@@ -272,7 +272,9 @@ fn join_observations<'a>(
 
         let slot = join_current_value(
             (target, value, &left_available), (incoming, other, &right_available),
-            place, join, &contents, &mut joined_facts,
+            place, join,
+            || contents.get_or_init(|| super::joins::current_content_identities(target, incoming, &observed, join.observation_site())),
+            &mut joined_facts,
         );
 
         let joined = slot.value;
@@ -474,19 +476,29 @@ fn joined_current_owners(
         let left = place.value_in(&target.current).unwrap_or_else(ExecutionCondition::unknown);
         let right = place.value_in(&incoming.current).unwrap_or_else(ExecutionCondition::unknown);
 
-        if published == Some(place) || left != right
-            || target.owned_results.get(&left) != incoming.owned_results.get(&right)
-        {
-            let ownership = if left_available == ValueAvailability::Absent {
-                incoming.owned_result(&right)
-            } else if right_available == ValueAvailability::Absent {
-                target.owned_result(&left)
-            } else {
-                super::witnesses::owned_alternatives((target, &left), (incoming, &right), joined)
-            };
+        if published != Some(place) && left == right && joined == &left {
+            let layout = target.owned_results.get(&left);
 
-            owners.insert(joined.clone(), ownership);
+            if layout == incoming.owned_results.get(&right) {
+                if let Some(layout) = layout {
+                    // Rewriting other observations can rekey the predecessor's
+                    // ledger. Keep the agreed record for this unchanged value.
+                    owners.entry(joined.clone()).or_insert_with(|| layout.clone());
+                }
+
+                continue;
+            }
         }
+
+        let ownership = if left_available == ValueAvailability::Absent {
+            incoming.owned_result(&right)
+        } else if right_available == ValueAvailability::Absent {
+            target.owned_result(&left)
+        } else {
+            super::witnesses::owned_alternatives((target, &left), (incoming, &right), joined)
+        };
+
+        owners.insert(joined.clone(), ownership);
     }
 
     owners
@@ -521,12 +533,12 @@ fn publish_joined_values(
 
 /// Join possible contents over the initialized predecessors. Missing storage
 /// contributes no value, whereas unknown data remains a conservative value.
-fn join_current_value(
+fn join_current_value<'contents>(
     left: (&ExecutionState, &ExecutionCondition, &ValueAvailability),
     right: (&ExecutionState, &ExecutionCondition, &ValueAvailability),
     place: &crate::ExecutionPlace,
     join: ExecutionJoin,
-    contents: &BTreeMap<ExecutionCondition, ExecutionCondition>,
+    contents: impl FnOnce() -> &'contents BTreeMap<ExecutionCondition, ExecutionCondition>,
     facts: &mut Vec<(ExecutionCondition, bool)>,
 ) -> CurrentValue {
     let site = join.observation_site();
@@ -540,7 +552,7 @@ fn join_current_value(
         }
 
         if let Some((_, owner)) = super::joins::common_current_owner(left.1, right.1) {
-            let shared = owner.with_snapshots(contents);
+            let shared = owner.with_snapshots(contents());
 
             if shared != owner { return shared; }
         }

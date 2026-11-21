@@ -131,6 +131,9 @@ Intervening argument evaluation can change the contents or end its authority.
 Finite mutations publish which typed pointees can change using the reached
 memory's alias relation. Proof materializes retained observations on demand.
 Current storage applies the published masks to the affected places.
+Framing and proof retirement resolve each checked preservation path once.
+Both read the actual current roots. A type-directed storage read also keeps
+the physical path when the path has no inline execution place.
 Consecutive unbounded effects with the same physical scope share one weakening
 of current memory. The checked effects retain their access types for proof
 framing, portable summaries, and diagnostics.
@@ -357,6 +360,12 @@ conservative merge. Each transfer produces its block's reached storage decisions
 consume their inputs. Cyclic blocks keep the input needed for convergence and replace their publication when they run
 again. The final publication combines the last records from each reached block.
 Current-value joins publish the assembled root once. Component records supply their own initialization.
+Logical ownership records connect a retained snapshot to the input it actually transports.
+They keep explicit absence of input lineage and conditional transfers distinct.
+A wholly empty layout has one representation. A mixed layout keeps the guards
+on both its transfer and no-transfer alternatives. When the predecessors agree
+on a current value and its layout, the join keeps that record through renaming.
+Physical addresses and cleanup duties remain part of the reached storage state.
 The incoming predecessor supplies its original current storage for deferred frame guards and contributes
 remapped proof, captures, and pending results. Only the joined state retains current storage and ownership.
 Stable observations read the live entries of the retained roots. Predicates use the logical observation
@@ -495,6 +504,8 @@ schedule, action, primary failure, and enclosing continuation. Storage flow
 and certification share the worklist. Each action that failed already
 attempted its own slot. Resumption starts with the following action or the
 next array iteration.
+A two-way cleanup join uses the checked selection guard. A join without a
+selector derives alternative guards from the retained predecessor premises.
 Admission rejection of a scoped invocation uses
 the caller's input state. A failure after admission uses the performed state.
 An abandoned transfer names its actual produced result slot. Its failure

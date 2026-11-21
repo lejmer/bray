@@ -68,15 +68,14 @@ bodies and four direct task dispatcher helpers on Windows and Linux, for both
 x64 and AArch64. The checked acquisition follows its owner across the waiter,
 dispatch, retirement, and start transitions.
 
-Pushed checkpoint `fb05ef10d` admits checked raw owner construction before
-installation. The expanded candidate passed 1,708 of the 1,709 audited cases,
-with an outcome for every case, and passed the 577 checker and 139 bound-tree
-cases. All 32 expanded bootstrap bodies checked and lowered on Windows and
-Linux for x64 and AArch64. Checkpoint `18ad9f166` binds entry witnesses to
-their installed storage. All 1,709 fixed cases passed on its optimized test
-binary. The timed-out case in the full run passed on the same binary in a
-43.1 s isolated retry. The 31 focused checks, 577 checker cases, and 139
-bound-tree cases also passed.
+The expanded candidate checked and lowered all 32 selected bootstrap bodies
+on Windows and Linux for x64 and AArch64. Checkpoint `fb05ef10d` verifies raw
+owner construction at admission. Checkpoint `18ad9f166` binds entry witnesses
+to their installed storage and passes the checker and bound-tree suites.
+Checkpoint `449f3d5ec` passes all 1,709 fixed cases in one run with the shared
+cleanup worklist. The same candidate checks and lowers all 32 selected bodies
+on all four native targets. The full runtime archive and executable link
+remain open.
 
 The optimized 24-worker Windows x64 standard-library build planned in
 28.7 s and emitted in 26.9 s. Runtime preparation compiled the same
@@ -119,15 +118,49 @@ The result-dependency component still accounts for 151.3 worker seconds.
 The current runtime sample spends 7.4 of 18.1 sampled worker seconds in
 state joins and 1.7 s scanning conditions for retired evaluations.
 
-Read the same condition node directly through every handle that shares it.
-One retirement uses the same dependency and value transformation across
-current slots, witness conditions, admitted calls, and deferred frames.
-It must leave unrelated nodes and captured lifetimes intact. A join uses
-its checked selection guard when available. Only joins without a selector
-derive path guards from both sets of ordinary premises. Reuse each joined
-predicate observation across both predecessor lookups. Verify loop epochs,
-saved referents, guarded facts, and deferred captures with the same native
-and fixed-inventory checks. Compare planning before making further changes.
+The shared-worklist runtime archive still had no output when interrupted at
+25 minutes. The body trace separates two costs. Complex division visits each
+block once, with one scope exit taking 85.6 s. In `arctangent`, the same loop
+keeps 37 work items pending and repeats its hottest block over 280 times.
+Compile the source body against the archive's standard-library bundle and
+query its storage flow directly. A certificate query can complete without
+checking the body when it declares no certified properties. The package-backed
+trace shows that successive header states differ only in `owned_results`
+after the first few visits. Current values, memory, and proof assumptions
+already agree. One key alternates between absent and an empty layout with
+three guards. Another empty layout accumulated 40 guards. A layout with no
+transfers has one canonical form in the retained ledger. A joined slot that
+keeps the same value and layout keeps the original record through renaming.
+An explicit no-transfer mapping still suppresses inferred input lineage.
+A possible empty arm still constrains a mixed layout with a real transfer.
+Guarded input moves, exact transfer origin and preservation masks still follow
+the reached snapshot through framing, return publication, and imported calls.
+The change removes redundant guard work and reuses an agreed record directly.
+If a key still alternates, identify the reached reader of that key before
+changing its lifetime. The body and archive are the convergence oracles.
+Use loop-carried references, conditional guarantees, and repeated cleanup
+to check whether the repair keeps or discards the wrong information.
+The instrumented candidate checked `arctangent` without diagnostics. The
+storage solver visited 1,245 blocks counting repeats, with at most four
+visits to any block. It took 49.9 s. The package-backed query took 124.7 s
+with its dependencies. Rerun the clean compiler before measuring throughput.
+
+Use the actual shared condition node for traversal identity. A join uses its
+checked selection guard when available. Only joins without that guard need
+to derive alternatives from both sets of ordinary premises. Reuse each
+joined predicate observation across predecessor lookups. The added retirement
+memo did not improve planning in paired runs. Framing and retirement can
+share the mapping of checked preservation paths into retained current roots.
+Join assembly can defer shared content identities until a changed output
+actually needs the identity of a common owner. The index must still read
+both original predecessors and choose the same owner for its aliases.
+Preserve the physical path for storage that needs its type-directed read.
+Definite absence still suppresses a change. An unknown component of an
+existing root is still a possible write target. There is no additional cache
+or retained table. If a reuse would require combining outcomes or replacing
+a reached address with a bound, keep those reads separate. Verify saved
+referents, copied values, represented cleanup, and deferred captures with the
+same native and fixed-inventory checks.
 
 ## Current verification batch
 

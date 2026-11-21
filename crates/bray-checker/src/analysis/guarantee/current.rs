@@ -439,12 +439,8 @@ fn collect_owned_places(
     }
 }
 
-fn root_place(place: &ExecutionPlace) -> ExecutionPlace {
-    let mut root = place.clone();
-
-    root.projections = [].into();
-
-    root
+pub(super) fn root_place(place: &ExecutionPlace) -> ExecutionPlace {
+    ExecutionPlace { root: place.root.clone(), projections: Arc::default() }
 }
 
 impl FromIterator<(ExecutionPlace, ExecutionCondition)> for CurrentValues {

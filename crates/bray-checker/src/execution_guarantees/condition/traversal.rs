@@ -12,14 +12,14 @@ pub(in crate::execution_guarantees) struct NodeIdentity<'a>(pub(in crate::execut
 
 impl PartialEq for NodeIdentity<'_> {
     fn eq(&self, other: &Self) -> bool {
-        std::ptr::eq(self.0, other.0)
+        std::ptr::eq(self.0.kind(), other.0.kind())
     }
 }
 
 impl Eq for NodeIdentity<'_> {}
 
 impl Hash for NodeIdentity<'_> {
-    fn hash<H: Hasher>(&self, state: &mut H) { std::ptr::hash(self.0, state); }
+    fn hash<H: Hasher>(&self, state: &mut H) { std::ptr::hash(self.0.kind(), state); }
 }
 
 /// Acyclic value graphs need remembered nodes only while another path is pending.

@@ -59,17 +59,6 @@ pub(super) fn conditional_facts<'value>(
 
     let [left_inputs, right_inputs] = inputs.each_ref().map(|inputs| SnapshotSubstitution::new(inputs));
 
-    let ordinary = [left, right].map(|(state, substitution)| {
-        state
-            .assumptions
-            .iter()
-            .filter(|(condition, _)| {
-                !condition.contains_trusted() && !condition.observes_live(None)
-            })
-            .map(|(condition, holds)| (substitution.value(condition), *holds))
-            .collect::<BTreeSet<_>>()
-    });
-
     // Immutable branch selectors can qualify a moved carrier even when the selector
     // is stored outside it. Each proposed clause still needs both predecessor proofs.
     let path_guards = if let Some(selector) = selector {
@@ -80,16 +69,20 @@ pub(super) fn conditional_facts<'value>(
 
             [selector.clone(), ExecutionCondition::operation(BoundOperator::LogicalNot, vec![selector])]
         }).collect::<BTreeSet<_>>()
-    } else { ordinary[0]
-        .iter()
-        .filter(|(condition, holds)| ordinary[1].contains(&(condition.clone(), !holds)))
-        .flat_map(|(condition, _)| {
-            [
-                condition.clone(),
-                ExecutionCondition::operation(BoundOperator::LogicalNot, vec![condition.clone()]),
-            ]
-        })
-        .collect::<BTreeSet<_>>() };
+    } else {
+        let [first, second] = [left, right].map(|(state, substitution)| {
+            state.assumptions.iter()
+                .filter(|(condition, _)| !condition.contains_trusted() && !condition.observes_live(None))
+                .map(|(condition, holds)| (substitution.value(condition), *holds))
+                .collect::<BTreeSet<_>>()
+        });
+
+        first.iter()
+            .filter(|(condition, holds)| second.contains(&(condition.clone(), !holds)))
+            .flat_map(|(condition, _)| {
+                [condition.clone(), ExecutionCondition::operation(BoundOperator::LogicalNot, vec![condition.clone()])]
+            }).collect::<BTreeSet<_>>()
+    };
 
     let ordinary_proofs = [left.0, right.0].map(|state| state.ordinary_proof());
     let all_guards = guards.iter().map(|(_, guard)| guard).chain(&path_guards).collect::<BTreeSet<_>>();
@@ -513,6 +506,12 @@ pub(in crate::analysis::guarantee) fn owned_alternatives(
     right: (&ExecutionState, &ExecutionCondition),
     joined: &ExecutionCondition,
 ) -> bray_symbols::DependencyOwnedResult<bray_bound_tree::StorageProjection, ExecutionCondition> {
+    let layouts = [left, right].map(|(state, source)| state.owned_result(source));
+
+    if layouts.iter().all(bray_symbols::DependencyOwnedResult::is_empty) {
+        return bray_symbols::DependencyOwnedResult::default();
+    }
+
     let mut guards = BTreeSet::new();
     let mut inputs = [BTreeMap::new(), BTreeMap::new()];
     let absent = [left.0, right.0].map(absent_observations);
@@ -523,10 +522,8 @@ pub(in crate::analysis::guarantee) fn owned_alternatives(
         &mut { ExecutionCondition::WORK_LIMIT },
     );
 
-    bray_symbols::DependencyOwnedResult::choice([(left, right.0), (right, left.0)].into_iter().zip(inputs).map(
-        |(((state, source), other), inputs)| {
-            let mut result = state.owned_result(source);
-
+    bray_symbols::DependencyOwnedResult::choice([(left.0, right.0), (right.0, left.0)].into_iter().zip(inputs).zip(layouts).map(
+        |(((state, other), inputs), mut result)| {
             let snapshots = SnapshotSubstitution::new(&inputs);
 
             for (condition, holds) in state.assumptions.difference(&other.assumptions) {
@@ -601,6 +598,7 @@ fn collect_observations(
     };
 
     let owner = owner.clone();
+    let observed = std::cell::OnceCell::new();
 
     for (source, inputs) in sources.into_iter().zip(inputs.iter_mut()) {
         let Some(source) = source else { continue; };
@@ -617,11 +615,12 @@ fn collect_observations(
             insert_snapshot(inputs, joined, source);
 
             if source.ownership_identity().is_some_and(|(role, _)| role == ObservationKind::Owned) {
-                let observed = joined.clone().borrowed().predicate_observation();
-                let previous = source.clone().borrowed().predicate_observation();
+                let observed = observed.get_or_init(|| joined.clone().borrowed().predicate_observation());
 
                 if !observed.contains_unknown() {
-                    insert_snapshot(inputs, &observed, &previous);
+                    let previous = source.clone().borrowed().predicate_observation();
+
+                    insert_snapshot(inputs, observed, &previous);
                 }
             }
         }

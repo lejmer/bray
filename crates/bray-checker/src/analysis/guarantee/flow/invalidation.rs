@@ -5,7 +5,19 @@ use crate::CheckerRequestContext;
 use crate::execution_guarantees::ExecutionCondition;
 
 use super::super::state::ExecutionState;
-use bray_bound_tree::StorageInvalidation;
+use bray_bound_tree::{StorageInvalidation, StorageObservationKind, StoragePath, StorageProjection};
+
+struct StoragePreservation<'path> {
+    place: Option<crate::ExecutionPlace>,
+    path: &'path StoragePath,
+    kind: StorageObservationKind,
+}
+
+impl StoragePreservation<'_> {
+    fn mask(&self) -> Option<(&crate::ExecutionPlace, &[StorageProjection], StorageObservationKind)> {
+        Some((self.place.as_ref()?, &self.path.projections, self.kind))
+    }
+}
 
 impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     fn disjoint_initialized_values(
@@ -179,26 +191,29 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         );
     }
 
-    fn storage_preservations(
+    fn storage_preservations<'path>(
         &self,
-        paths: &BTreeMap<bray_bound_tree::StoragePath, bray_bound_tree::StorageObservationKind>,
-    ) -> Vec<(crate::ExecutionPlace, bray_bound_tree::StoragePath, bray_bound_tree::StorageObservationKind)> {
-        paths.iter().flat_map(|(path, kind)| crate::ExecutionPlace::storage_path(self.storage, &path).into_iter()
-            .map(move |place| (place, path.clone(), *kind))).collect()
+        paths: &'path BTreeMap<StoragePath, StorageObservationKind>,
+    ) -> Vec<StoragePreservation<'path>> {
+        paths.iter().map(|(path, kind)| StoragePreservation {
+            place: crate::ExecutionPlace::storage_path(self.storage, path),
+            path,
+            kind: *kind,
+        }).collect()
     }
 
     fn preserved_storage_values(
         &self,
         state: &ExecutionState,
-        paths: &BTreeMap<bray_bound_tree::StoragePath, bray_bound_tree::StorageObservationKind>,
+        values: &[StoragePreservation<'_>],
     ) -> crate::execution_guarantees::ObservationSet {
         let mut observations = crate::execution_guarantees::ObservationSet::default();
 
-        for (path, kind) in paths.iter().filter(|(_, kind)| {
-            kind.is_immutable_inline() || **kind == bray_bound_tree::StorageObservationKind::Discriminant
+        for StoragePreservation { place, path, kind } in values.iter().filter(|entry| {
+            entry.kind.is_immutable_inline() || entry.kind == StorageObservationKind::Discriminant
         }) {
-            let value = match crate::ExecutionPlace::storage_path(self.storage, path) {
-                Some(place) => state.current.live_value(&place),
+            let value = match place {
+                Some(place) => state.current.live_value(place),
                 None => Some(self.storage_path_value(state, path)),
             };
 
@@ -328,16 +343,16 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .flat_map(|path| crate::ExecutionPlace::storage_path(self.storage, &path).into_iter().map(move |place| (place, path.clone())))
             .collect::<BTreeMap<_, _>>();
 
-        let mut snapshots = self.preserved_storage_values(state, stable_values);
+        let values = self.storage_preservations(stable_values);
+        let mut snapshots = self.preserved_storage_values(state, &values);
 
         self.preserve_normal_snapshots(state, mutation, normal_snapshots, &mut snapshots);
 
-        let values = self.storage_preservations(stable_values);
         let pointees = self.pointee_preservations(state, invalidation, Some(&mut snapshots));
 
         let mut masks = self.preservation_masks(
             descriptor_paths.iter().map(|(place, path)| (place, path.projections.as_ref())),
-            values.iter().map(|(place, path, kind)| (place, path.projections.as_ref(), *kind))
+            values.iter().filter_map(StoragePreservation::mask)
                 .chain(pointees.iter().map(|(place, path, kind)| (place, path.as_ref(), *kind))));
 
         let current = state.current.root_slots().filter(|(_, _, availability)| {
@@ -375,10 +390,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let mut masks = BTreeMap::<crate::ExecutionPlace, super::preservation::ValuePreservation>::new();
 
         for (place, path, kind) in descriptors.map(|(place, path)| (place, path, bray_bound_tree::StorageObservationKind::Identity)).chain(values) {
-            let mut root = place.clone();
-
-            root.projections = [].into();
-
+            let root = super::super::current::root_place(place);
             let mask = masks.entry(root).or_default().at_mut(path);
 
             mask.record(kind);
@@ -426,11 +438,13 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             return;
         }
 
+        let values = match invalidation {
+            StorageInvalidation::Observed { stable_values, .. } => self.storage_preservations(stable_values),
+            _ => Vec::new(),
+        };
+
         let collect_snapshots = |state: &ExecutionState| {
-            let mut observations = match invalidation {
-                StorageInvalidation::Observed { stable_values, .. } => self.preserved_storage_values(state, stable_values),
-                _ => crate::execution_guarantees::ObservationSet::default(),
-            };
+            let mut observations = self.preserved_storage_values(state, &values);
 
             if let Some(snapshots) = invalidation.normal_snapshots() {
                 self.preserve_normal_snapshots(state, mutation, snapshots, &mut observations);
@@ -578,16 +592,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             );
         }
 
-        let values = match invalidation {
-            StorageInvalidation::Observed { stable_values, .. } => self.storage_preservations(stable_values),
-            _ => Vec::new(),
-        };
-
         let pointees = snapshots.map_or_else(|| self.pointee_preservations(state, invalidation, None), |(_, paths)| paths);
 
         let masks = self.preservation_masks(
             descriptor_paths.iter().map(|(place, path)| (place, path.as_ref())),
-            values.iter().map(|(place, path, kind)| (place, path.projections.as_ref(), *kind))
+            values.iter().filter_map(StoragePreservation::mask)
                 .chain(pointees.iter().map(|(place, path, kind)| (place, path.as_ref(), *kind))));
 
         Self::frame_changed_observations(state, (mutation, &moved), transfers, changed_places, &changed_paths, masks);
@@ -622,20 +631,18 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let mut updates = BTreeMap::new();
 
         for place in changed_places {
-            if value_for_invalidation(state, &place).is_none() {
+            if !can_invalidate(state, &place) {
                 continue;
             }
 
-            let mut root = place.clone();
-
-            root.projections = [].into();
+            let root = super::super::current::root_place(&place);
 
             let (source, updated, mask) = match updates.entry(root) {
                 std::collections::btree_map::Entry::Occupied(entry) => entry.into_mut(),
                 std::collections::btree_map::Entry::Vacant(entry) => {
                     let root = entry.key();
 
-                    let Some(source) = root.value_in(&state.current) else { continue; };
+                    let Some(source) = state.current.get(root).cloned() else { continue; };
 
                     let mut mask = masks.remove(root).unwrap_or_default();
 
@@ -775,11 +782,15 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
 /// Definite absence retains terminal data, not another object that an effect can update.
 fn value_for_invalidation(state: &ExecutionState, place: &crate::ExecutionPlace) -> Option<ExecutionCondition> {
-    if super::merge::resolved_availability(state, place) == super::super::current::ValueAvailability::Absent {
-        None
-    } else {
+    if can_invalidate(state, place) {
         place.value_in(&state.current)
+    } else {
+        None
     }
+}
+
+fn can_invalidate(state: &ExecutionState, place: &crate::ExecutionPlace) -> bool {
+    super::merge::resolved_availability(state, place) != super::super::current::ValueAvailability::Absent
 }
 
 #[cfg(test)]

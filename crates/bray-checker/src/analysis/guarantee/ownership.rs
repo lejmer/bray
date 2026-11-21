@@ -21,6 +21,14 @@ impl OwnedResults {
     pub(super) fn insert(&mut self, value: ExecutionCondition, layout: OwnedLayout) -> bool {
         let value = value.without_captured_storage();
 
+        // Branch guards select competing transfers. An entirely empty layout
+        // records the same explicit absence of lineage under every guard.
+        let layout = if !matches!(&layout, OwnedLayout::All(values) if values.is_empty()) && layout.is_empty() {
+            OwnedLayout::default()
+        } else {
+            layout
+        };
+
         if self.0.get(&value) == Some(&layout) {
             return false;
         }
@@ -533,6 +541,42 @@ mod tests {
     use crate::{ExecutionCondition, ExecutionPlace};
     use bray_bound_tree::StorageProjection;
     use bray_symbols::{DependencyOwnedResult, DependencyOwnedTransfer, DependencyValuePreservation, SymbolOrdinal};
+
+    #[test]
+    fn guarded_empty_results_record_no_input_transfer() {
+        let input = |ordinal| ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(ordinal))));
+        let formal = bray_symbols::CallableParameterSymbolId::from_symbol_id(bray_symbols::SymbolId::new(0));
+
+        let value = ExecutionCondition::new(crate::ExecutionConditionKind::Input(
+            ExecutionPlace::from(bray_bound_tree::BoundReferenceTarget::Surface(formal.into())),
+        ));
+
+        let guard = input(1);
+        let inverse = ExecutionCondition::operation(bray_bound_tree::BoundOperator::LogicalNot, vec![guard.clone()]);
+        let mut state = ExecutionState::default();
+
+        assert!(!state.extracted_result(&value).is_empty(), "the formal input can otherwise supply extraction lineage");
+
+        let empty = DependencyOwnedResult::default();
+
+        for condition in [guard.clone(), inverse.clone()] {
+            state.owned_results.insert(value.clone(), DependencyOwnedResult::case(condition, empty.clone()));
+
+            assert_eq!(state.owned_results.get(&value), Some(&empty));
+            assert!(state.extracted_result(&value).is_empty(), "the recorded empty layout suppresses inferred ownership");
+        }
+
+        let transfer = DependencyOwnedResult::Transfer(DependencyOwnedTransfer::new(value.clone(), []));
+
+        let alternatives = DependencyOwnedResult::choice([
+            DependencyOwnedResult::case(guard, transfer),
+            DependencyOwnedResult::case(inverse, empty),
+        ]);
+
+        state.owned_results.insert(value.clone(), alternatives.clone());
+
+        assert_eq!(state.owned_results.get(&value), Some(&alternatives));
+    }
 
     #[test]
     fn initialized_alternatives_select_ownership_without_a_trusted_witness() {
