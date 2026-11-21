@@ -23,7 +23,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
     pub(in crate::analysis::storage_flow::check::analysis) fn memory_uninit_address(
         &self,
-        state: &StorageFlowState,
         execution: &crate::analysis::guarantee::ExecutionState,
         operation: &bray_bound_tree::CheckedMemoryOperation,
         argument: BoundExpressionId,
@@ -33,13 +32,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let values = self.request.semantic_values();
         let captured = self.captured_memory_operand(execution, operation, argument);
 
-        let address = if let bray_symbols::TypeData::Borrow { target, .. } = *values.type_data(input.ty(values)) {
-            let binding = captured.and_then(bray_bound_tree::StorageCapturedValue::binding);
-
-            binding.and_then(|binding| {
-                state.memory.captured_value_target(binding, target).map(StorageAddressValue::one)
-                    .or_else(|| binding.captured_reference())
-            }).unwrap_or_else(StorageAddressValue::unknown)
+        let address = if matches!(values.type_data(input.ty(values)).as_ref(), bray_symbols::TypeData::Borrow { .. }) {
+            captured.and_then(bray_bound_tree::StorageCapturedValue::binding)
+                .and_then(bray_bound_tree::StorageValueBinding::captured_reference)
+                .unwrap_or_else(StorageAddressValue::unknown)
         } else {
             let coordinate = captured?.storage_coordinate()?;
 

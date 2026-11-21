@@ -26,14 +26,14 @@ impl<C: crate::CheckerRequestContext + ?Sized> super::super::flow::ExecutionFlow
         let mut value = result.clone();
 
         for projection in path {
-            if matches!((value.owner_identity()).kind(), crate::ExecutionConditionKind::Borrowed(_)) {
+            if value.is_reference() {
                 return Some(value);
             }
 
             value = value.component(projection);
         }
 
-        matches!((value.owner_identity()).kind(), crate::ExecutionConditionKind::Borrowed(_)).then_some(value)
+        value.is_reference().then_some(value)
     }
 
     /// Preserve the input loan and any independently retained owning value.
@@ -65,14 +65,14 @@ impl<C: crate::CheckerRequestContext + ?Sized> super::super::flow::ExecutionFlow
             let Some(mut value) = root.value_in(arguments) else { return false; };
 
             for projection in place.projections.iter() {
-                if matches!((value.owner_identity()).kind(), crate::ExecutionConditionKind::Borrowed(_)) {
+                if value.is_reference() {
                     return true;
                 }
 
                 value = value.component(*projection);
             }
 
-            matches!((value.owner_identity()).kind(), crate::ExecutionConditionKind::Borrowed(_))
+            value.is_reference()
         });
 
         if !borrowed || condition == &ExecutionCondition::unknown() { return Vec::new(); }

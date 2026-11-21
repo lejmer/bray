@@ -100,22 +100,48 @@ generic iterator escape, and protected sibling fields.
 
 | Area | Current evidence and next boundary |
 | --- | --- |
-| Storage and proof publication | Candidate `staged-selectors-and-retained-views` passed 1,104 of 1,109 compilation controls and all 936 symbols, bound-tree, and checker tests. Staged input application consumes the resolved access from its evaluating operation. This removed the assertion and dependent fixture failures. |
-| Guarded authority | The optional transfer, nullable acquisition, imported whole nullable witness, and channel cleanup controls pass. Host exit and observer cleanup still lack the required authority. The static trace retains both selected pointee masks at opaque invalidation, yet the supported witness is retired. Follow those masks through the observation and authority ledgers. |
-| Bounds and cells | Direct and forwarded nested buffer views pass. The issued view reports an escaping dependency. The protected write retains its exact symbolic index through materialization and reaches parent admission with only regions. Follow the staged descriptor and returned-view dependencies into their consuming operations. |
+| Storage and proof publication | Candidate `captured-coordinates-and-witness-referents` passed 1,105 of 1,109 compilation controls and all 936 symbols, bound-tree, and checker tests. Materialization now copies the already selected snapshot. |
+| Guarded authority | The source and imported static witness cases pass. Host exit admission has the needed fact, but refreshing a nested reference inserts a redundant owning context into the required observation. Observer cleanup fails on the panic continuation of `destroy_captures`. Its rows 0 and 1 lose the acquisition mask while rows 2 and 3 retain it. Trace their additional effects to the producer before changing the checked separation rule. |
+| Bounds and cells | The exact symbolic index now reaches both the caller's write effect and its subsequent read. The read admission still requires an abstract predicate even when the same typed cell can establish initialization directly. The issued nested view still reports an escape. The callback's exact raw output relation currently stages the borrowed input's full binding. |
 | Native owner composition | The previous four-target comparison passed `prepare_start`. Once the refactor paths are replaced, trace `dispatch_ready`, `start_frame`, and `acquire_worker_ready` through the actual acquisition, resident task slot, callback cleanup, and backing. A retirement follows its captured allocation even if its former descriptor changes. |
 | Planning and emission | The current candidate emitted the Windows standard library in 45.7 s planning, 40.8 s emission, and 98.5 s wall time with concurrent desktop use. The previous completed run took 32.3 s planning and 32.4 s emission. At unchanged query and code-generation counts, result-dependency solving rose from 153.5 to 194.6 worker seconds, and code generation rose from 109.7 to 145.0. Compare under similar load before attributing the increase. An earlier cleanup profile attributed 2.5 s to proof invalidation and 0.06 s to both state copies across 3,354 actions. Trace why finite effects still visit unrelated physical observations. |
 
 The optimized compilation test binary is
-`target/audit/comparison-staged-selectors-and-retained-views-compilation.exe`
-with SHA-256 `858D0122A0D71DF9F9D5DB88F09158B104EB44F58EC7C9E9D9D734BDB63B71BA`.
+`target/audit/comparison-captured-coordinates-and-witness-referents-compilation.exe`
+with SHA-256 `A8EEE31EB4B4E294E9BDF697447DA39F755C0EFF87BFDB4F808CDE4E5C2573D4`.
 The comparison receipt records the compiled source. It includes the test
 fixture reuse edits. Use the same 1,109 controls to compare the next batch.
 
-The next batch covers the five remaining failures together.
+The next batch covers the four remaining failures together.
 Follow reached inputs through outcome materialization, scope retirement,
 proof invalidation, and portable binding. Keep the native bootstrap failures
 deferred until the replacement is complete.
+
+Evaluating a memory source resolves selectors and weakens overlapping data
+once. The resulting snapshot has a coordinate for its inline fields. Staging,
+current write publication, snapshots joined at a control-flow boundary, and
+retirement read those fields as captured. A symbolic source coordinate on an
+already evaluated loan must never weaken its actual address a second time.
+The indexed write and its untouched sibling and uninitialized-element checks
+cover both directions. Nested buffer and protected-move cases cover bounded
+selection and removal of the original slot. Reconsider the change if any
+consumer needs to follow a fresh descriptor while materializing a snapshot.
+
+Proof associates completion witnesses with the current carrier. A live view
+may sustain an already proved content clause about the referent it actually
+reaches when the checked observation frame preserves that clause. The proof
+must inspect that retained view, including references whose identity names a
+produced descriptor. It must not infer allocation authority from a view or
+retain a clause about an unrelated referent. Use the source and imported
+marker tests and the selected-static publication control.
+
+Physically produced raw addresses keep their origin and bounds without
+carrying the loan that read or formed the address. An inferred liveness
+dependency must not reattach that loan to a value whose prepared shape
+contains no borrows. An unknown shape still needs conservative support.
+Actual captured borrows and explicit support remain authoritative. Use the
+issued nested view, the generic iterator escape, and opaque replacement
+controls to check the distinction.
 
 Normal rows are the only authority for their performed effects. Compiler-known
 and source producers author those effects with the result. Generic

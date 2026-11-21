@@ -662,8 +662,8 @@ impl ExecutionState {
 
         let retains_clause = |owner: &ExecutionCondition, condition: &ExecutionCondition, support: &crate::execution_guarantees::ExecutionGuarantee| {
             retains_contents(condition) && (retained_owner(owner)
-                || support.addresses.is_empty() && stable_owners.retains_witness_carrier(owner)
-                    && observes_carried_referent(condition, owner))
+                || support.addresses.is_empty() && stable_owners.retains_witness_carrier(owner, |referent|
+                    observes_carried_referent(condition, referent)))
         };
 
         let admitted_witnesses = self.admitted_private_witnesses(admitted);
@@ -916,14 +916,13 @@ impl ExecutionState {
 
 }
 
-fn observes_carried_referent(condition: &ExecutionCondition, carrier: &ExecutionCondition) -> bool {
-    let referent = carrier.clone().into_referent();
+fn observes_carried_referent(condition: &ExecutionCondition, referent: &ExecutionCondition) -> bool {
     let mut trusted = condition.observations().filter(|value| {
         matches!(value.kind(), crate::ExecutionConditionKind::Trusted(_))
     }).peekable();
 
     trusted.peek().is_some() && trusted.all(|clause| {
-        clause.observes_live_where(|value| value.is_owned_projection_of(&referent), |_| false)
+        clause.observes_live_where(|value| value.is_owned_projection_of(referent), |_| false)
     })
 }
 

@@ -350,7 +350,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     !binding.whole_complete() && binding.address.is_none()
                 }))
             {
-                self.capture_operand_support(state, site, value)
+                self.capture_operand_support(state, site, ty, value)
             } else {
                 value
             };
@@ -385,9 +385,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         &self,
         state: &StorageFlowState,
         site: BoundExecutionSite,
+        ty: bray_symbols::TypeId,
         value: bray_bound_tree::StorageCapturedValue,
     ) -> bray_bound_tree::StorageCapturedValue {
-        let subjects = self.liveness.retained_by(site).collect::<std::collections::BTreeSet<_>>();
+        let subjects = self.inferred_value_subjects(site, Some(ty)).collect::<std::collections::BTreeSet<_>>();
         let requirements = state.result_dependencies.value_requirements(site).cloned().collect::<std::collections::BTreeSet<_>>();
 
         if subjects.is_empty() && requirements.is_empty() { return value; }
@@ -395,6 +396,17 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         value.with_dependency_support(Arc::new(bray_bound_tree::ReportDependencies {
             subjects, requirements, ..Default::default()
         }))
+    }
+
+    pub(in crate::analysis::storage_flow::check::analysis) fn inferred_value_subjects(
+        &self, site: BoundExecutionSite, ty: Option<bray_symbols::TypeId>,
+    ) -> impl Iterator<Item = bray_bound_tree::BoundDependencySubject> + '_ {
+        let carries_no_borrows = ty.is_some_and(|ty|
+            self.input.footprint.carries_no_borrows(self.request.semantic_values(), ty));
+
+        self.liveness.retained_by(site).filter(move |subject| {
+            !carries_no_borrows || !matches!(subject, bray_bound_tree::BoundDependencySubject::BorrowCapability(_))
+        })
     }
 
     fn publish_input_captures(&mut self, operation: AnalysisOperationId,
@@ -425,7 +437,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let source = self.expression_reference(state, operand).unwrap_or_else(|| Source::Value(coordinate.clone()));
         let value = state.memory.capture_evaluated_value(&source, coordinate, ty)
             .with_observations(self.input.footprint.typed_observations(ty));
-        let value = self.capture_operand_support(state, operand.into(), value);
+        let value = self.capture_operand_support(state, operand.into(), ty, value);
 
         self.publish_input_captures(operation, vec![StorageValueCapture {
             input: bray_symbols::SymbolOrdinal::new(0), value: Arc::new(value), referent: None, element_bounds: None,

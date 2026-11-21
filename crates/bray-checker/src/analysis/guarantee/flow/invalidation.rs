@@ -34,6 +34,20 @@ fn record_cleanup_observation_profile(unit: bray_bound_tree::BoundUnitId, times:
     }
 }
 
+fn authority_trace_ranges() -> &'static [(u32, u32, u32)] {
+    static RANGES: std::sync::OnceLock<Vec<(u32, u32, u32)>> = std::sync::OnceLock::new();
+
+    RANGES.get_or_init(|| {
+        let setting = std::env::var("BRA_694_TRACE_AUTHORITY").unwrap_or_default();
+
+        setting.split(',').filter_map(|range| {
+            let mut parts = range.split(':').map(str::parse::<u32>);
+
+            Some((parts.next()?.ok()?, parts.next()?.ok()?, parts.next()?.ok()?))
+        }).collect()
+    })
+}
+
 impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     fn disjoint_initialized_values(
         &self,
@@ -436,14 +450,24 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 for condition in witness.conditions.keys() {
                     let condition_text = format!("{:?}", condition.kind());
 
-                    if condition_text.contains("SymbolId(6425)") {
+                    if condition.contains_trusted() {
                         let observations = condition.observations().map(|value| {
                             (snapshots.preserves(value), format!("{:?}", value.kind()).chars().take(650).collect::<String>())
                         }).collect::<Vec<_>>();
 
                         eprintln!(
-                            "opaque witness {mutation:?} available={} owner_live={} carrier={} condition={} observations={observations:?}",
-                            witness.available, owners.retains_owner(carrier),
+                            "opaque witness {mutation:?} available={} owner_live={} matching_referents={:?} carrier={} condition={} observations={observations:?}",
+                            witness.available, owners.retains_owner(carrier), {
+                                let matches = std::cell::RefCell::new(Vec::new());
+
+                                owners.retains_witness_carrier(carrier, |referent| {
+                                    matches.borrow_mut().push(format!("{:?}", referent.kind()).chars().take(450).collect::<String>());
+
+                                    false
+                                });
+
+                                matches.into_inner()
+                            },
                             format!("{:?}", carrier.kind()).chars().take(650).collect::<String>(),
                             condition_text.chars().take(850).collect::<String>()
                         );
@@ -826,21 +850,25 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     }
 
     pub(in crate::analysis) fn trace_authority_site(&self, mutation: bray_bound_tree::StorageMutation) -> bool {
-        static RANGES: std::sync::OnceLock<Vec<(u32, u32, u32)>> = std::sync::OnceLock::new();
+        self.trace_authority_node(mutation.occurrence().node())
+    }
 
-        let ranges = RANGES.get_or_init(|| {
-            let setting = std::env::var("BRA_694_TRACE_AUTHORITY").unwrap_or_default();
+    pub(in crate::analysis::guarantee) fn trace_authority_body(&self) -> bool {
+        let node = match self.request.root() {
+            crate::CheckerUnitRoot::CallableBody(body) => body.into(),
+            crate::CheckerUnitRoot::Expression(expression) => expression.into(),
+            crate::CheckerUnitRoot::ExpressionSequence(block) => block.into(),
+        };
 
-            setting.split(',').filter_map(|range| {
-                let mut parts = range.split(':').map(str::parse::<u32>);
+        self.trace_authority_node(node)
+    }
 
-                Some((parts.next()?.ok()?, parts.next()?.ok()?, parts.next()?.ok()?))
-            }).collect()
-        });
+    fn trace_authority_node(&self, node: bray_bound_tree::AnyBoundNodeId) -> bool {
+        let ranges = authority_trace_ranges();
 
         if ranges.is_empty() { return false; }
 
-        let Some(node) = crate::diagnostic::bound_node_origin(self.request, mutation.occurrence().node()) else { return false; };
+        let Some(node) = crate::diagnostic::bound_node_origin(self.request, node) else { return false; };
 
         let span = self.request.source(node.source_anchor()).span();
 

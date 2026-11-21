@@ -43,7 +43,15 @@ impl RetainedSnapshots {
     }
 
     pub(crate) fn retains_owner(&self, value: &ExecutionCondition) -> bool {
-        self.retains_identity(value, false)
+        if self.roots.is_empty() { return false; }
+
+        let Some(identity) = value.ownership_identity() else { return false; };
+
+        cached_condition(&self.index().owned, value, || {
+            self.matching(value, false, |selected| {
+                !selected.is_unknown() && selected.ownership_identity() == Some(identity)
+            })
+        })
     }
 
     /// Actual frames held in the retained owning tree.
@@ -57,21 +65,9 @@ impl RetainedSnapshots {
     }
 
     /// A live reference can keep a carrier observable when checked effects preserve its data.
-    pub(crate) fn retains_witness_carrier(&self, value: &ExecutionCondition) -> bool {
-        self.retains_identity(value, true)
-    }
-
-    fn retains_identity(&self, value: &ExecutionCondition, observe_referents: bool) -> bool {
-        if self.roots.is_empty() { return false; }
-
-        let Some(identity) = value.ownership_identity() else { return false; };
-        let index = self.index();
-        let memo = if observe_referents { &index.witness_carriers } else { &index.owned };
-
-        cached_condition(memo, value, || {
-            self.matching(value, observe_referents, |selected| {
-                !selected.is_unknown() && selected.ownership_identity() == Some(identity)
-            })
+    pub(crate) fn retains_witness_carrier(&self, carrier: &ExecutionCondition, observes: impl Fn(&ExecutionCondition) -> bool) -> bool {
+        self.matching(carrier, true, |selected| {
+            !selected.is_unknown() && selected.has_same_owner(carrier) && observes(&selected.clone().into_referent())
         })
     }
 
@@ -190,7 +186,6 @@ impl RetainedSnapshots {
 #[derive(Default)]
 struct SnapshotIndex {
     owned: ConditionMemo,
-    witness_carriers: ConditionMemo,
     preserved: ConditionMemo,
     nodes: Vec<(ExecutionCondition, bool)>,
     owners: BTreeMap<(bool, ExecutionCondition), Vec<usize>>,

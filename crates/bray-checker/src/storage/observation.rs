@@ -39,6 +39,12 @@ impl Shape {
         self.complete_references && self.references.is_empty()
     }
 
+    fn carries_no_borrows(&self, values: &bray_symbols::SemanticValueStore) -> bool {
+        self.complete_references && !self.references.iter().any(|(_, ty)| {
+            matches!(values.type_data(*ty).as_ref(), TypeData::Borrow { .. })
+        })
+    }
+
     fn unknown(ty: TypeId) -> Self {
         // Opaque reachable state does not expose this value's inline storage.
         Self {
@@ -59,9 +65,7 @@ pub(crate) fn carries_no_borrows<C: CheckerRequestContext + ?Sized>(
 ) -> Result<bool, CheckerQueryError<C::UpstreamError>> {
     let shape = paths(request, ty, &mut BTreeSet::new(), &mut BTreeMap::new())?;
 
-    Ok(shape.complete_references && !shape.references.iter().any(|(_, ty)| {
-        matches!(request.semantic_values().type_data(*ty).as_ref(), TypeData::Borrow { .. })
-    }))
+    Ok(shape.carries_no_borrows(request.semantic_values()))
 }
 
 fn known_shape<C: CheckerRequestContext + ?Sized>(
@@ -173,6 +177,10 @@ impl Footprint {
     pub(crate) fn typed_observations(&self, ty: TypeId) -> impl Iterator<Item = (&[StorageProjection], Observation)> {
         self.shapes.get(&ty).into_iter().flat_map(|shape| shape.observations.iter())
             .map(|(path, kind)| (path.as_slice(), *kind))
+    }
+
+    pub(crate) fn carries_no_borrows(&self, values: &bray_symbols::SemanticValueStore, ty: TypeId) -> bool {
+        self.shapes.get(&ty).is_some_and(|shape| shape.carries_no_borrows(values))
     }
 
     pub(crate) fn reference_shape(&self, ty: TypeId) -> (bool, Vec<&[StorageProjection]>) {

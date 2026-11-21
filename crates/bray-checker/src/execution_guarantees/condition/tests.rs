@@ -1183,11 +1183,20 @@ fn retained_borrow_paths_do_not_retain_the_referents_ownership() {
 
     let live = super::RetainedSnapshots::from_iter([owner.clone().borrowed()]);
 
-    assert!(live.retains_witness_carrier(&field));
+    assert!(live.retains_witness_carrier(&field, |referent| referent == &field));
     assert!(!live.retains_owner(&field));
     let unrelated = ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(1))));
 
-    assert!(!live.retains_witness_carrier(&unrelated));
+    assert!(!live.retains_witness_carrier(&unrelated, |_| true));
+
+    let descriptor = unrelated.clone();
+    let reached = super::RetainedSnapshots::from_iter([
+        ExecutionCondition::reference_value(descriptor.clone(), field.clone()),
+    ]);
+
+    assert!(reached.retains_witness_carrier(&descriptor, |referent| referent == &field));
+    assert!(!reached.retains_witness_carrier(&descriptor, |referent| referent == &unrelated));
+    assert!(!reached.retains_owner(&descriptor));
 }
 
 #[test]

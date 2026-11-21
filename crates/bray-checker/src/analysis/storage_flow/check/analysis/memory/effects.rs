@@ -182,7 +182,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             .expression(argument).expect("checked memory access retains its argument type").ty());
 
         let targets = if protected {
-            self.memory_uninit_address(state, execution, operation, argument).and_then(|address| {
+            self.memory_uninit_address(execution, operation, argument).and_then(|address| {
                 Some(crate::analysis::storage_flow::memory::MutationTarget::reference(Some(&address), address.regions()?))
             })
         } else {

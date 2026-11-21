@@ -1260,14 +1260,14 @@ where
             && matches!(kind, AnalysisOperationKind::Bound(AnyBoundNodeId::Expression(_))
                 | AnalysisOperationKind::Result { phase: crate::analysis::model::AnalysisResultPhase::Production, .. }
                 | AnalysisOperationKind::Call { phase: AnalysisCallPhase::Completion, .. })
+            && let Some(result) = self.invocation_result(occurrence)
         {
-            let mut subjects = self.liveness.retained_by(occurrence).peekable();
+            let ty = self.storage.identity_type(result.root);
+            let subjects = self.inferred_value_subjects(occurrence, ty).collect();
 
-            if subjects.peek().is_some() && let Some(result) = self.invocation_result(occurrence) {
-                state.memory.bound_value_dependencies(result, bray_bound_tree::ReportDependencies {
-                    subjects: subjects.collect(), ..Default::default()
-                });
-            }
+            state.memory.bound_value_dependencies(result, bray_bound_tree::ReportDependencies {
+                subjects, ..Default::default()
+            });
         }
 
         if kind.value_consumption_phase() == Some(bray_bound_tree::StorageValueConsumptionPhase::Completion)

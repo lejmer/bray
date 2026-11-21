@@ -83,8 +83,21 @@ impl StorageCapturedValue {
 
     /// Installs this captured value's existing information in the produced storage coordinates.
     pub fn materialize(&self, destination: &Target) -> StorageCapturedTransition {
-        StorageCapturedTransition::capture(&self.state.values, &self.state.payloads,
-            &BTreeMap::new(), &self.root, destination)
+        let destination_of = |target: &Target| {
+            if destination == &self.root {
+                return target.clone();
+            }
+
+            destination.project(&target.projections()[self.root.projections().len()..])
+        };
+
+        StorageCapturedTransition {
+            values: storage_value_subtree(&self.state.values, &self.root)
+                .map(|(target, value)| (destination_of(target), value.clone())).collect(),
+            payloads: storage_value_subtree(&self.state.payloads, &self.root)
+                .map(|(target, value)| (destination_of(target), value.clone())).collect(),
+            ..Default::default()
+        }
     }
 
     /// The value binding at this snapshot's current projection coordinate.
@@ -161,7 +174,7 @@ impl StorageCapturedValue {
 
     /// Whole-value lineage retained even when inline descriptors cannot be enumerated.
     pub fn carried_sources(&self) -> impl Iterator<Item = &Target> + '_ {
-        selected_storage_values(&self.state.values, &self.root)
+        storage_value_subtree(&self.state.values, &self.root)
             .filter_map(|(_, value)| value.whole_sources())
             .flat_map(|(sources, _)| sources)
     }
@@ -237,7 +250,7 @@ impl StorageCapturedValue {
         for (current, retirement) in retirements {
             let state = updated.as_ref().unwrap_or(self.state.as_ref());
 
-            let affected = selected_storage_values(&state.values, &self.root)
+            let affected = storage_value_subtree(&state.values, &self.root)
                 .flat_map(|(_, value)| value.references())
                 .flat_map(|references| &references.targets)
                 .any(|target| retirement.contains(current, target));

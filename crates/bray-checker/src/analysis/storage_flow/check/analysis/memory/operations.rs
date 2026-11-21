@@ -441,7 +441,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     .write_value(payload, element, operation.expression(), operand(0));
             }
             CheckedMemoryOperationKind::UninitPointer { element, .. } => {
-                let Some(payload) = self.memory_uninit_address(state, execution, operation, arguments[0]) else {
+                let Some(payload) = self.memory_uninit_address(execution, operation, arguments[0]) else {
                     return MemoryOperationStatus::Recovered;
                 };
 
@@ -455,7 +455,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 }
             }
             CheckedMemoryOperationKind::UninitWrite { element } => {
-                let Some(payload) = self.memory_uninit_address(state, execution, operation, arguments[0]) else {
+                let Some(payload) = self.memory_uninit_address(execution, operation, arguments[0]) else {
                     return MemoryOperationStatus::Recovered;
                 };
 
@@ -482,7 +482,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             }
             CheckedMemoryOperationKind::UninitAssumeInitialized { element }
             | CheckedMemoryOperationKind::UninitMove { element } => {
-                let Some(payload) = self.memory_uninit_address(state, execution, operation, arguments[0]) else {
+                let Some(payload) = self.memory_uninit_address(execution, operation, arguments[0]) else {
                     return MemoryOperationStatus::Recovered;
                 };
 

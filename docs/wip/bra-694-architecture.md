@@ -113,6 +113,9 @@ Reference observations retain the reached target and the checked pointee type.
 Proof uses that observation to read updated contents through the existing descriptor.
 Normal completion publishes a new borrow's current identity from its exact
 reached target. Input materialization captures the published descriptor.
+Evaluating the source resolves overlapping selectors once. Staging copies the
+captured inline fields into their destination without reading the old source
+route or weakening the reached address because of its original coordinate.
 Final call admission refreshes its contents through that same loan.
 Intervening argument evaluation can change the contents or end its authority.
 Finite mutations publish which typed pointees can change using the reached
@@ -148,7 +151,8 @@ Entry preparation includes the backing descriptor reads named by prepared
 result routes, including forwarded views of nested buffers.
 Await also reads the arguments in the retained frame. A finite bound requires complete inputs. A typed descriptor
 can identify the storage it reaches after its source slot changes. Raw address formation publishes the descriptor's
-address and bounds. It retains the ordinary loan only on the input.
+address and bounds. It retains the ordinary loan only on the input. Output dependency fallback uses the prepared
+value shape and leaves inferred operand loans off values with no borrow fields.
 
 The physical memory intrinsics check initialization on the admitted operands before applying effects.
 A staged read or copy uses that admission at completion. An assignment stages and computes reachability
@@ -169,7 +173,8 @@ current backing when the descriptor is available. Otherwise keep the static iden
 a write bound. Reading a raw pointer from a static requires its own reached region.
 A returned view of exact product-static storage carries its actual selection and typed contents. Opaque
 transitions can preserve eligible inline observations through that view even when the caller has no direct
-access to the declaration. Thread-local storage also requires its attachment context.
+access to the declaration. A surviving view supports established content clauses about the referent it actually
+reaches. Thread-local storage also requires its attachment context.
 
 ## Composite flow from admission to publication
 

@@ -230,19 +230,20 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
                 let selected = TRACE_UNIT.get_or_init(|| std::env::var("BRA_694_TRACE_PROOF_UNIT").ok()?.parse().ok());
 
-                if (*selected == Some(self.storage.unit().raw()) ||
-                    std::env::var_os("BRA_694_TRACE_AUTHORITY").is_some()
-                        && matches!(self.request.unit().key().source().syntax().source_id().raw(), 83 | 85))
+                if (*selected == Some(self.storage.unit().raw()) || self.trace_authority_body())
                     && let Some(predicate) = traced_predicate(failed)
                 {
                     let known = known.iter().filter(|(condition, _)| traced_predicate(condition) == Some(predicate))
                         .map(|(condition, holds)| (*holds, format!("{:?}", condition.kind()).chars().take(1800).collect::<String>()))
                         .collect::<Vec<_>>();
 
+                    let arguments = entry.positional_arguments().map(|(ordinal, value)| {
+                        (ordinal, format!("{:?}", value.without_captured_storage().kind()).chars().take(1500).collect::<String>())
+                    }).collect::<Vec<_>>();
                     let text = format!("{:?}", failed.kind());
 
-                    eprintln!("authority requirement {:?}: {} available {known:?}",
-                        self.storage.unit(), text.chars().take(1800).collect::<String>());
+                    eprintln!("authority requirement {:?}: {} available {known:?} arguments={arguments:?}",
+                        self.storage.unit(), text.chars().take(2600).collect::<String>());
                 }
 
                 return Err(crate::UnprovenExecutionCondition::new(required.clone(), failed.clone()));
