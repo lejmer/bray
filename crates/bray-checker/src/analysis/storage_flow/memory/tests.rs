@@ -3243,6 +3243,16 @@ fn nested_backing_survives_descriptor_moves_and_pruning() {
     assert!(bounded.reference_locations(values, descriptor.clone(), &route, None).is_none(),
         "a possible backing region cannot supply the actual descriptor read");
 
+    let terminal = route.prefix(1, 1);
+    let bound = bray_bound_tree::StorageMutationTarget::bounded(outer.clone());
+    let captured_bound = bounded.capture_reached_value(&descriptor);
+
+    assert!(bounded.reference_locations(values, descriptor.clone(), &terminal, None).is_none());
+    assert_eq!(bounded.reference_effect_targets(values, descriptor.clone(), Some(&terminal), false),
+        Some(vec![bound.clone()]), "a terminal effect uses the existing region without obtaining an address");
+    assert_eq!(bounded.captured_effect_targets(values, &captured_bound, &terminal, false),
+        Some(vec![bound]), "captured routes preserve the same region precision");
+
     state.contents.get_mut(&inner).unwrap().observe_initialized(error_type());
     state.values.insert(Target::storage(alias.clone()), AddressValue::one(inner.clone()).into());
     state.transfer_value(&descriptor, moved.clone());
@@ -3267,6 +3277,30 @@ fn nested_backing_survives_descriptor_moves_and_pruning() {
         &bray_symbols::DependencyValuePreservation::all());
 
     let captured = state.capture_reached_value(&Target::storage(moved.clone()));
+
+    let selected = StorageProjection::ElementFromStart(bray_symbols::SymbolOrdinal::new(0));
+    let absent = outer.project(&[selected, StorageProjection::NullableValue]);
+    let optional_route = bray_bound_tree::StorageReferencePath::new(
+        [StorageProjection::OwnedTarget, selected, StorageProjection::NullableValue, StorageProjection::OwnedTarget].into(),
+        [
+            bray_bound_tree::StorageReferenceStep::Backing { index: 0, target: slice, pointer: Some(pointer) },
+            bray_bound_tree::StorageReferenceStep::Backing { index: 3, target: slice, pointer: Some(pointer) },
+        ].into(),
+    );
+
+    assert!(state.captured_effect_targets(values, &captured, &optional_route, false).is_none(),
+        "a missing pointer is unresolved while the selected owner may be active");
+
+    state.values.insert(absent.clone(), super::model::ValueBinding::no_payload());
+
+    assert_eq!(state.owned_mutation_targets(&bray_bound_tree::StorageMutationTarget::location(absent.clone()), buffer_pointer),
+        Some(Vec::new()), "an inactive buffer contributes no effects to an intrinsic release");
+    assert_eq!(state.reference_effect_targets(values, Target::storage(moved.clone()), Some(&optional_route), false),
+        Some(Vec::new()), "an inactive owner has no current backing effect");
+    assert_eq!(state.captured_effect_targets(values, &captured, &optional_route, false),
+        Some(Vec::new()), "activation observes the explicit absence of the nested owner");
+
+    state.values.remove(&absent);
 
     state.null(Place { root: moved.root, projections: [buffer_pointer].into() });
 

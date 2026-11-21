@@ -719,8 +719,9 @@ impl State {
         pointer: bray_bound_tree::StorageProjection,
     ) -> Option<&ValueBinding> {
         self.values
-            .get(&owner.project(&[pointer]))
-            .filter(|value| value.reference().is_some())
+            .get(owner)
+            .filter(|value| owner.is_exact() && !owner.previous && value.is_no_payload())
+            .or_else(|| self.values.get(&owner.project(&[pointer])))
     }
 
     pub(in crate::analysis::storage_flow) fn declare_owned_buffer(
@@ -756,7 +757,9 @@ impl State {
         owner: &Target,
         pointer: bray_bound_tree::StorageProjection,
     ) -> Option<Vec<Target>> {
-        self.owned_value(owner, pointer)?.reference()?.regions()
+        let value = self.owned_value(owner, pointer)?;
+
+        if value.is_no_payload() { Some(Vec::new()) } else { value.reference()?.regions() }
     }
 
     pub(in crate::analysis::storage_flow) fn owned_mutation_targets(
@@ -764,7 +767,12 @@ impl State {
         owner: &super::super::MutationTarget,
         pointer: bray_bound_tree::StorageProjection,
     ) -> Option<Vec<super::super::MutationTarget>> {
-        let mut targets = self.owned_value(owner.footprint(), pointer)?.mutation_targets()?;
+        let value = match &owner.address {
+            Some(address) => self.owned_value(address, pointer),
+            None => self.values.get(&owner.footprint().project(&[pointer]))
+                .filter(|value| value.reference().is_some()),
+        }?;
+        let mut targets = value.mutation_targets()?;
 
         if owner.address.is_none() {
             for target in &mut targets { target.address = None; }
@@ -786,7 +794,11 @@ impl State {
         if inexact { references.bound(); }
 
         for owner in owners {
-            if let Some(owned) = self.owned_value(owner, pointer).and_then(ValueBinding::reference) {
+            let value = self.owned_value(owner, pointer);
+
+            if value.is_some_and(ValueBinding::is_no_payload) { continue; }
+
+            if let Some(owned) = value.and_then(ValueBinding::reference) {
                 references.merge(owned);
             } else {
                 references.forget_value();

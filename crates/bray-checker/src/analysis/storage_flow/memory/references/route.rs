@@ -52,6 +52,44 @@ impl ReferenceRouteValue {
 
         self.project(projections)
     }
+
+    fn project_descriptor<'a>(
+        mut self,
+        projections: &[StorageProjection],
+        bind: &mut Option<&mut dyn FnMut(StorageProjection) -> StorageProjection>,
+        lookup: &impl Fn(&Target) -> Option<&'a ValueBinding>,
+    ) -> Self {
+        let mut start = 0;
+
+        for (index, projection) in projections.iter().enumerate() {
+            if matches!(projection, StorageProjection::NullableValue
+                | StorageProjection::ActiveUnionPayloadField { .. } | StorageProjection::UninitPayload)
+            {
+                let end = index + 1;
+
+                self = self.project_reached(&projections[start..end], bind).without_inactive(lookup);
+                start = end;
+            }
+        }
+
+        if start < projections.len() {
+            self.project_reached(&projections[start..], bind).without_inactive(lookup)
+        } else { self }
+    }
+
+    fn without_inactive<'a>(self, lookup: &impl Fn(&Target) -> Option<&'a ValueBinding>) -> Self {
+        match self {
+            Self::Capture(value) if value.binding().is_some_and(ValueBinding::is_no_payload) =>
+                Self::Locations(Vec::new(), None),
+            Self::Locations(mut targets, loan) => {
+                targets.retain(|target| target.previous || !target.is_exact()
+                    || !lookup(target).is_some_and(ValueBinding::is_no_payload));
+
+                Self::Locations(targets, loan)
+            }
+            route => route,
+        }
+    }
 }
 
 impl State {
@@ -268,13 +306,13 @@ impl State {
         mut bind: Option<&mut dyn FnMut(StorageProjection) -> StorageProjection>,
     ) -> Option<ReferenceRouteValue> {
         let mut selected = 0;
-        let captured = matches!(&reached, ReferenceRouteValue::Capture(_));
-
         for (step, operation) in path.steps().iter().copied().enumerate() {
             let index = operation.index();
 
             if selected != index {
-                reached = reached.project_reached(&path.projections()[selected..index], &mut bind);
+                reached = reached.project_descriptor(&path.projections()[selected..index], &mut bind, &lookup);
+            } else if matches!(operation, StorageReferenceStep::Backing { pointer: Some(_), .. }) {
+                reached = reached.without_inactive(&lookup);
             }
 
             let (pointer, consumes) = match operation {
@@ -348,7 +386,7 @@ impl State {
                             return Some(ReferenceRouteValue::Locations(Vec::new(), None));
                         }
 
-                        let (targets, precision) = self.reference_step_targets(values, operation, binding.reference()?)?;
+                        let (targets, precision) = self.reference_step_targets(values, operation, binding)?;
 
                         (targets.iter().cloned().collect::<Vec<_>>(), if borrow_read { binding.borrow_capability() } else { None }, precision)
                     }
@@ -364,10 +402,9 @@ impl State {
                                 continue;
                             }
 
-                            let reference = if captured { binding.reference() } else { binding.address.as_ref() }?;
                             let loan = binding.borrow_capability();
 
-                            let (reached, reached_precision) = self.reference_step_targets(values, operation, reference)?;
+                            let (reached, reached_precision) = self.reference_step_targets(values, operation, binding)?;
 
                             targets.extend(reached.iter().cloned());
                             precision = precision.min(reached_precision);
@@ -420,8 +457,12 @@ impl State {
         &self,
         values: &bray_symbols::SemanticValueStore,
         operation: StorageReferenceStep,
-        reference: &'a AddressValue,
+        binding: &'a ValueBinding,
     ) -> Option<(Cow<'a, BTreeSet<Target>>, ReferencePrecision)> {
+        let Some(reference) = &binding.address else {
+            return Some((Cow::Owned(binding.reference_regions()?.into_iter().collect()), ReferencePrecision::Region));
+        };
+
         match operation {
             StorageReferenceStep::ReadBorrow { target, .. } | StorageReferenceStep::ReadAddress { target, .. } => {
                 if let Some(targets) = self.route_pointer_targets(values, reference, target) {

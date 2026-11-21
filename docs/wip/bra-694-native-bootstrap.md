@@ -63,7 +63,7 @@ evidence. Impossible internal states fail at the violated contract.
 
 ## Verified checkpoint
 
-Candidate `captured-inline-witnesses` passed all 1,109 compilation controls,
+Candidate `terminal-backing-bounds` passed all 1,109 compilation controls,
 the selected and unrelated nullable extraction cases, and 938 symbols,
 bound-tree, and checker tests. The old call preparation,
 expression target, and independent normal storage promise have no remaining
@@ -71,10 +71,11 @@ callers. The [architecture map](bra-694-architecture.md) records the resulting
 contracts.
 
 On Windows x86-64 the candidate checked and lowered 21 of 25 selected
-bodies. `commit_start`, `worker.acquire_ready`, and `acquire_worker_ready`
-pass in addition to the 18 bodies verified at `244c673a8`. The four
+bodies, matching checkpoint `cbfc1fb95`. `commit_start`,
+`worker.acquire_ready`, and `acquire_worker_ready` pass in addition to
+the 18 bodies verified at `244c673a8`. The four
 remaining bodies are `dispatch_ready`, `dispatch_task`, `start_frame`,
-and `retire_driver`. The traced check completed in 138.6 s.
+and `retire_driver`. The corrected effect trace completed in 119.8 s.
 
 The production decimal loop passes. The optimized Windows standard library
 took 28.6 s to plan, 26.6 s to emit, and 62.7 s wall time with 24 workers
@@ -93,6 +94,38 @@ to both state copies across 3,354 actions.
 | Start and rollback | The guarded `Ok` payload of `prepare_start` enters the scope with the token and execution witnesses. Direct `commit_start` checks and lowers. At its call in `start_frame`, the later selected `Current` obligation and rollback still fail. Compare the same selected view across lane selection, `register_task`, and normal and abnormal completion. Registration presence remains an independent condition. |
 | Driver retirement | Some `retire_driver_resources` rows publish an untyped unbounded retirement, and the later acquisition observation loses its marker. The trace shows the same broad effect first appearing when reached cleanup cannot bind a prepared receiver backing route, including nested owned buffers. Trace the checked receiver, backing route, and actual captured descriptor at that boundary. Retirement must revoke precisely the retired backing without preserving old generations. |
 | Convergence | The array write selects element zero before the first join. The next evaluations agree on an unresolved index. Publish the enclosing logical observation when the physical write names only a region. Keep independently reached exact selectors and disjoint fields. Check the production decimal body and the existing indexed siblings and loop controls. |
+
+Read steps must distinguish a known inactive value from an unreadable
+descriptor. The first broad retirements appear inside host progress,
+thread cleanup, and attachment exit. Their prepared routes have actual
+receivers and go through owned buffer backing. Several receiver paths
+select nullable payloads. A read through a known inactive payload has no
+target. Preserve that actual absence through inline selection and the
+backing step. An unproved tag, missing binding, or unresolved pointer
+remains unknown. A present buffer uses its stored backing and preserves
+the existing conservative region when it cannot establish one address.
+Apply the rule to captured descriptors as well as current storage, and to
+nested selectors before the next stored descriptor is read. Direct and
+captured route controls must distinguish these cases for the same path.
+When a live binding carries only address bounds, a terminal effect can use
+those regions. Following another stored pointer or proving an actual address
+still requires the descriptor. Apply that rule to both live and captured
+bindings, including activation and lifecycle cleanup.
+
+The first failing `commit_start` condition in `start_frame` reads
+`owner.selected.status` after `register_task`. The recorded registration
+summary includes unbounded writes and replacements with no access type.
+`register_task` binds the scheduler argument returned by `scheduler_reference`.
+The selected result is a field of the reached execution domain. Entry
+preparation collects receiver subject paths and output backing reads, yet
+omits the relationship from the reached domain to a returned inline field
+when the output route has no backing step. The scheduler's demanded pointer
+field then has no entry value at its original physical location. Admit the
+checked selected output paths and the prepared descriptor reads in effect
+continuations into the same finite demand closure. Source, imported,
+deferred, and cleanup consumers use the resulting entry routes. Only the
+reads required by checked paths enter the closure. Keep the target's
+initialized shape, possible regions, and actual address independent.
 | Planning | Consecutive unbounded effects with identical physical scope repeatedly weaken the same memory. Apply the physical transition once and keep typed effects for proof framing, summaries, and diagnostics. Leave precise writes and retirements ordered. Empty pointee preservation entries carry no evidence and need no mask allocation. Measure the unchanged native query and emission boundaries with the completed batch. |
 
 Reuse the same optimized binary for bootstrap and the fixed inventory. The

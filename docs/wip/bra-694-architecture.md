@@ -281,6 +281,11 @@ An implicit receiver loan has the checked passed type. That type records whether
 
 The bound dependency table prepares the rest of an indirect effect's route from the type reached by its first descriptor. Calls, deferred execution, and cleanup follow the same typed route against the admitted targets. A projection into owning storage reads the backing from its retained descriptor. When the descriptor cannot be read, the owning region bounds its possible backing without supplying an address.
 
+A known inactive inline alternative has no descriptor to read. Route
+resolution checks that alternative before following a stored reference or
+owning backing. Missing descriptor knowledge still leaves the effect
+unresolved.
+
 Storage flow records the scope of mutable input targets as it admits a call.
 Certification reads that scope when checking a callee under its Observation
 obligation. The executed transition separately records which observations can
