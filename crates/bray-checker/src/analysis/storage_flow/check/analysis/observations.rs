@@ -155,19 +155,37 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         // Ordinary statics cannot be replaced while their product or exact-thread
         // owner is retained. Interior mutation cannot reach their empty markers.
         let exposed = memory.raw_exposed_regions();
+        let protected = |target: &Target| !exposed.iter().chain(escaped).any(|raw| {
+            memory.target_relationship(raw, target) != StorageRelationship::Disjoint
+        });
+        let static_observation = |kind| matches!(kind, StorageObservationKind::Identity | StorageObservationKind::Marker(_));
 
         for (root, observations) in &self.input.footprint.owned_observations {
             if matches!(self.storage.identity(*root), Some(bray_bound_tree::StorageIdentity::Static(_)))
-                && !exposed.iter().chain(escaped).any(|raw| memory.target_relationship(raw,
-                    &Target::storage(StoragePath::root(*root))) != StorageRelationship::Disjoint)
+                && protected(&Target::storage(StoragePath::root(*root)))
             {
                 stable_descriptors.insert(StoragePath::root(*root));
 
                 for (path, observation) in observations {
-                    if matches!(observation, bray_bound_tree::StorageObservationKind::Identity
-                        | bray_bound_tree::StorageObservationKind::Marker(_)) {
+                    if static_observation(*observation) {
                         observation.record_preservation(path.clone(), &mut stable_descriptors, &mut stable_values);
                     }
+                }
+            }
+        }
+
+        let mut stable_pointees = BTreeMap::new();
+
+        // A returned view may be the only access to this exact static instance.
+        for (target, ty) in memory.typed_storage().filter(|(target, _)| matches!(target.origin,
+            bray_bound_tree::StorageOrigin::Static {
+                root: bray_symbols::DependencySubjectRoot::StaticInstance(_, bray_symbols::StaticStorageDuration::Product),
+                selection: Some(_), ..
+            }))
+        {
+            for (path, observation) in self.input.footprint.typed_observations(ty) {
+                if static_observation(observation) && protected(&target.project(path)) {
+                    observation.record_pointee_preservation([target], ty, path, &mut stable_pointees);
                 }
             }
         }
@@ -175,7 +193,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         StorageInvalidation::All {
             stable_descriptors,
             stable_values,
-            stable_reference_slots: Default::default(), normal_snapshots: Default::default(), stable_pointees: Default::default(),
+            stable_reference_slots: Default::default(), normal_snapshots: Default::default(), stable_pointees,
         }
     }
 

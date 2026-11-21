@@ -114,7 +114,7 @@ fn production_report_pool_mutation_requires_protocol_authority() {
 fn production_observer_keeps_authority_through_conditional_protocol_changes() {
     for target in [bray_target::NativeTarget::X86_64LinuxGnu, bray_target::NativeTarget::X86_64WindowsMsvc] {
         let compilation = super::fixtures::production_host_compilation_for_target(
-            "module probe;", crate::SelectedTarget::for_native(target));
+            "module app;", crate::SelectedTarget::for_native(target));
 
         for name in ["poll", "destroy"] {
             let key = source_module_function_body_key(&compilation,

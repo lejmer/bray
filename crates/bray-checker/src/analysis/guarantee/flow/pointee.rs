@@ -125,6 +125,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         if target.value_observation_path().is_some() { return None; }
 
         let static_root = match &target.origin {
+            bray_bound_tree::StorageOrigin::Static {
+                root: bray_symbols::DependencySubjectRoot::StaticInstance(_, bray_symbols::StaticStorageDuration::Product),
+                selection: Some(_), ..
+            } => false,
             bray_bound_tree::StorageOrigin::Static { .. } => true,
             bray_bound_tree::StorageOrigin::Storage(path)
             | bray_bound_tree::StorageOrigin::Entry { reference: path, .. } => {
@@ -134,7 +138,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         };
 
         if static_root {
-            // Declaration-only paths cannot identify a generic or exact-thread instance.
+            // A declaration-wide region supplies no current value. An exact-thread
+            // view also needs its attachment context to identify storage.
             return None;
         }
 

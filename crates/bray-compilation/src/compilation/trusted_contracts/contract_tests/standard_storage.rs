@@ -6,7 +6,7 @@ use super::fixtures::production_host_compilation;
 #[test]
 fn production_byte_copy_does_not_publish_its_input_addresses() {
     let compilation = crate::test_support::production_standard_library_compilation(
-        crate::SelectedTarget::baseline(), "module probe;");
+        crate::SelectedTarget::baseline(), "module app;");
 
     let key = source_function_body_key(&compilation, "copy_spare_raw_bytes");
     let lowered = compilation.lowered_unit(key).expect("production byte copy lowers");
@@ -73,16 +73,15 @@ fn absent_buffer_cleanup_preserves_unrelated_input_facts() {
 #[test]
 fn production_awaited_writer_does_not_return_its_completed_receiver_loan() {
     let compilation = crate::test_support::production_standard_library_compilation(
-        crate::SelectedTarget::baseline(), "module probe;");
+        crate::SelectedTarget::baseline(), "module app;");
 
     let key = crate::test_support::source_type_callable_member_body_key(&compilation, "into_sink_async");
 
-    let lowered = compilation.lowered_unit(key)
+    let lowered = compilation.lowered_unit(key.clone())
         .expect("the consuming async writer publishes its checked completion");
 
     assert!(!lowered.diagnostics().has_errors(), "{:?}", lowered.diagnostics());
 
-    let key = crate::test_support::source_type_callable_member_body_key(&compilation, "into_sink_async");
     let flow = compilation.storage_flow(key).expect("the writer publishes its portable reports");
 
     let dependencies = flow.value().dependencies();
@@ -102,7 +101,7 @@ fn production_native_paths_preserve_their_admitted_input_contracts() {
 
     for target in [bray_target::NativeTarget::X86_64LinuxGnu, bray_target::NativeTarget::X86_64WindowsMsvc] {
         let compilation = crate::test_support::production_standard_library_compilation(
-            crate::SelectedTarget::for_native(target), "module probe;");
+            crate::SelectedTarget::for_native(target), "module app;");
 
         for name in ["prepare_native_path", "prepare_file_open", "prepare_dynamic_library_open_path", "platform_path_rename"] {
             let key = source_function_body_key(&compilation, name);
@@ -129,7 +128,7 @@ fn production_native_paths_preserve_their_admitted_input_contracts() {
 #[test]
 fn production_formatted_bytes_retain_the_buffer_owner() {
     let compilation = crate::test_support::production_standard_library_compilation(
-        crate::SelectedTarget::baseline(), "module probe;");
+        crate::SelectedTarget::baseline(), "module app;");
 
     let lowered = compilation.lowered_unit(source_function_body_key(&compilation, "bytes"))
         .expect("production formatted bytes reports its checked source contract");
@@ -140,7 +139,7 @@ fn production_formatted_bytes_retain_the_buffer_owner() {
 #[test]
 fn production_buffer_views_retain_external_storage() {
     let compilation = crate::test_support::production_standard_library_compilation(
-        crate::SelectedTarget::baseline(), "module probe;");
+        crate::SelectedTarget::baseline(), "module app;");
 
     let symbols = compilation.symbol_graph().expect("production symbols are available");
     let mut failures = Vec::new();
@@ -166,7 +165,7 @@ fn production_buffer_views_retain_external_storage() {
 #[test]
 fn production_dynamic_outputs_preserve_their_write_contracts() {
     let compilation = crate::test_support::production_standard_library_compilation(
-        crate::SelectedTarget::baseline(), "module probe;");
+        crate::SelectedTarget::baseline(), "module app;");
 
     let mut failures = Vec::new();
 
@@ -188,7 +187,7 @@ fn production_dynamic_outputs_preserve_their_write_contracts() {
 
 #[test]
 fn production_buffer_range_contracts_survive_pointer_staging() {
-    let compilation = production_host_compilation("module probe;");
+    let compilation = production_host_compilation("module app;");
     let mut failures = Vec::new();
 
     for name in ["fill_spare_bytes", "copy_spare_bytes", "copy_bytes_from_pointer"] {
@@ -336,7 +335,7 @@ fn production_collection_destructors_release_transferred_backing() {
 #[test]
 #[ignore = "tier:proof"]
 fn production_buffer_views_keep_nested_allocations_bounded() {
-    let compilation = production_host_compilation("module probe;");
+    let compilation = production_host_compilation("module app;");
 
     for name in ["slot_at", "record"] {
         let key = source_function_body_key(&compilation, name);

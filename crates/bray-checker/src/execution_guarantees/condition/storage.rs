@@ -239,12 +239,23 @@ impl ExecutionCondition {
                     Self::scalar_observation(producer, contents.as_ref().clone())
                 }
             }
-            K::Observation { owner, contents, kind } => Self::observation(
-                if owner.is_unknown() { producer.clone() } else { owner.as_ref().clone() },
-                contents.as_ref().clone().with_producer(producer), *kind),
-            K::Present(value) => Self::new(K::Present(Arc::new(
-                value.as_ref().clone().with_producer(producer.project(StorageProjection::NullableValue)),
-            ))),
+            K::Observation { owner, contents, kind } => {
+                let identity = if owner.is_unknown() { producer.clone() } else { owner.as_ref().clone() };
+                let producer = if *kind == super::ExecutionObservationKind::Owned { identity.clone() } else { producer };
+
+                Self::observation(identity, contents.as_ref().clone().with_producer(producer), *kind)
+            }
+            K::Present(value) => {
+                let payload = value.as_ref().clone().with_producer(producer.clone().project(StorageProjection::NullableValue));
+                let contents = Self::new(K::Present(Arc::new(payload)));
+
+                // The produced nullable and its active payload have distinct owners.
+                if matches!(producer.ownership_identity(), Some((super::ExecutionObservationKind::Owned, _))) {
+                    Self::owned_value(producer, contents)
+                } else {
+                    contents
+                }
+            }
             K::Tagged(variant, value) => Self::new(K::Tagged(*variant, std::sync::Arc::new(value.as_ref().clone().with_producer(producer)))),
             _ => self,
         }

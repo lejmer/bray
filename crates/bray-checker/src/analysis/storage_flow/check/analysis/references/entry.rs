@@ -139,6 +139,15 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
         // expression naming that buffer. Its demanded pointer still owns backing.
         self.prepare_buffer_fields(request, parents.keys().copied(), demands)?;
 
+        for (&buffer, fields) in &self.raw_buffers {
+            let backing = request.semantic_values().intern_type(bray_symbols::TypeData::Slice(fields.element))
+                .expect("a checked buffer retains the element type of its slice");
+
+            if demands.contains_key(&backing) || parents.contains_key(&backing) {
+                parents.entry(backing).or_default().insert((buffer, [bray_bound_tree::StorageProjection::OwnedTarget].into()));
+            }
+        }
+
         let components = bray_base::strongly_connected_components(parents.keys().copied(), |ty| {
             parents
                 .get(&ty)
@@ -152,14 +161,14 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
         .flat_map(|(component, types)| types.into_iter().map(move |ty| (ty, component)))
         .collect::<BTreeMap<_, _>>();
 
-        // Recovered recursive inline types must not expand paths indefinitely. Their
-        // representation diagnostic belongs to type analysis, not demand preparation.
+        // Recursive storage can describe an unbounded layout. Keep the explicit
+        // demands inside a cycle and propagate only between distinct components.
         for (ty, containing) in &mut parents {
             containing.retain(|(parent, _)| components[ty] != components[parent]);
         }
 
-        // Well-formed inline type containment is acyclic. Each demanded path is prepared
-        // once, independent of how many whole-value moves lead to its eventual use.
+        // Each demanded path is prepared once, independent of how many whole-value
+        // moves lead to its eventual use.
         let mut pending = demands
             .iter()
             .flat_map(|(root, paths)| {

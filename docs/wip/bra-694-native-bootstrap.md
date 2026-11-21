@@ -100,16 +100,30 @@ generic iterator escape, and protected sibling fields.
 
 | Area | Current evidence and next boundary |
 | --- | --- |
-| Storage and proof publication | Candidate `terminal-storage-and-bounds` passed 1,102 of 1,109 grouped compilation checks, plus all 574 checker and 139 bound-tree checks. Both slice bounds, returned raw ranges, the production host exit, and the absent-buffer control pass. The channel endpoint cleanup regressed. The bounded scan still lacks its ranking proof. |
-| Guarded authority | The host exit trace shows the correct physical loan into the selected attachment slot and lease. The guarded fact is still present before the consuming call applies its effects. The nullable owner trace shows that binding a `Present` output gives its payload the producer's projection, then uses that projection for the whole-result clause. The static trace shows that a returned descriptor retains its exact product-static selection while opaque invalidation revokes the fact. Keep scoped callback cleanup in the same witness and retirement contract. |
-| Bounds and cells | The current batch passes both captured slice-bound controls and the returned raw range. The protected indexed write and nested buffer remain open. The nested-buffer trace reaches the typed inner buffer descriptor through the outer view. Its backing is missing from the reached memory at the second view. |
-| Unknown cleanup | The absent-buffer test loses unrelated read authority after an unknown returned buffer. Trace the absent branch and cleanup against the reached owner. Disjointness requires established evidence about the actual allocation or effects. |
+| Storage and proof publication | Candidate `owned-values-and-cleanup-evidence` passed 1,099 of 1,109 grouped compilation checks, plus all 574 checker and 139 bound-tree checks. Compared with `terminal-storage-and-bounds` at 1,102, it restores channel cleanup and proves the bounded scan and imported whole nullable witness. Four optional transfer cases, nullable acquisition, and the host exit regress. |
+| Guarded authority | The broad `Present` wrapper distinguishes the whole value but loses payload authority in extraction and transfer. Use reached ownership and carrier subjects to bind whole and payload identities together. Trace host predicate normalization separately because the attachment exit compares reference contents. The exact product-static descriptor still loses its trusted fact at opaque invalidation. The observer still loses `view_owned` before the selected view's block destructor. |
+| Bounds and cells | Both captured slice-bound controls, returned raw ranges, and absent-buffer cleanup pass. Indexed protected writes preserve sibling fields. The selected write still loses its evaluated index at summary publication. The nested-buffer trace reaches the typed inner buffer descriptor from the outer view. Entry demand closure alone did not make the inner backing available at the second view. |
 | Native owner composition | The previous four-target comparison passed `prepare_start`. Once the refactor paths are replaced, trace `dispatch_ready`, `start_frame`, and `acquire_worker_ready` through the actual acquisition, resident task slot, callback cleanup, and backing. A retirement follows its captured allocation even if its former descriptor changes. |
-| Planning and emission | The terminal-storage batch planned the Windows standard library in 30.8 s. Emission stopped at interface export with `InvalidCompilation`. The previous run completed in 32.3 s planning, 32.4 s emission, and 75.0 s wall time. Its result dependency solving took 153.5 worker seconds against 60.0 in the planning reference. A scoped cleanup profile attributed 2.5 s to proof invalidation and 0.06 s to both state copies across 3,354 actions. Expose the interface rejection at its producing query. Trace why finite effects still visit unrelated physical observations. |
+| Planning and emission | The current candidate emitted the Windows standard library in 45.7 s planning, 40.8 s emission, and 98.5 s wall time with concurrent desktop use. The previous completed run took 32.3 s planning and 32.4 s emission. At unchanged query and code-generation counts, result-dependency solving rose from 153.5 to 194.6 worker seconds, and code generation rose from 109.7 to 145.0. Compare under similar load before attributing the increase. An earlier cleanup profile attributed 2.5 s to proof invalidation and 0.06 s to both state copies across 3,354 actions. Trace why finite effects still visit unrelated physical observations. |
 
 The optimized compilation test binary is
-`target/audit/comparison-terminal-storage-and-bounds-compilation.exe`
-with SHA-256 `8A1F0C513338FB65E16A0619B89305C23D71896BEDEE63012C63B333DFE18D67`.
+`target/audit/comparison-owned-values-and-cleanup-evidence-compilation.exe`
+with SHA-256 `592D868B1B5A0CCB39636CE65E0CB5CD4A41BF53655F4DBE6B1ADB825AE593E3`.
+The comparison receipt records its source diff. The three test fixture reuse
+edits after that build still need validation. No build is running.
+
+Resume by reviewing the six regressions together with the four remaining
+failures. Follow the reached inputs through outcome materialization, scope
+retirement, proof invalidation, and portable summary binding before building
+the batch. Review the remaining independent effect setter on
+`DependencyContractTemplateData` during the old-path audit. Keep the native
+bootstrap failures deferred until the replacement is complete.
+
+Use the unchanged production fixture for tests that query only declared
+production bodies. Their empty caller does not need a revised compilation.
+For repeated imported witness cases, encode the provider interface once and
+reuse the imported inputs while changing the caller source. Keep each case's
+diagnostic boundary and target checks.
 
 ### Cleanup proof work
 
@@ -136,6 +150,11 @@ survives keep their existing allocation. Different captured entries and
 different transitions still apply their own cleanup rules. Check deferred
 witness survival and revocation, nested producers, and the native cleanup
 profile alongside the observation traversal changes.
+
+Opaque cleanup checks each pending entry's private owners and admission
+facts when deciding whether it needs revocation. Pass that same prepared
+evidence to the update. Evaluate it only when pending proof needs it. Use
+the same immutable value tree and support rules for the check and update.
 
 Terminal states already own the reached physical bindings and execution
 values. Read them while encoding each normal outcome. The cross-outcome
@@ -234,10 +253,12 @@ The current comparison passes descriptor lifetime and joined-index checks.
 Length equality resolves the later index's operand to subtraction. Check the
 resolved expression with the same integer range proof used for source
 arithmetic. A strictly ordered pair gives the exact difference a minimum of
-one. Preserve the separate precondition check of the slice itself. Loop
-ranking must first read the actual header and back-edge value before using
-equality normalization, which can erase the recorded displacement. Verify
-bounded early returns, aliased counters, and overflowing iterations.
+one. Preserve the separate precondition check of the slice itself. The
+early-return scan's back edge has already folded the next value to one.
+Its incoming facts constrain the old counter to zero. Prove strict progress
+from the actual two values and the back-edge facts when the result has no
+retained arithmetic form. Continue requiring the same direction on every
+feasible cycle. Verify bounded early returns, aliased counters, and overflow.
 
 ### Protected storage operand
 
@@ -250,24 +271,33 @@ and do not recover the body or initialize other elements. Check protected
 writes, move-out, raw payload address formation, and source and imported
 consumers that retain independent fields.
 
+The indexed writer now completes without recovery and its caller preserves
+the sibling marker. The selected element's initialization is still absent at
+the caller. The portable effect widens before the selector because it only
+recognizes fixed ordinals. Trace the evaluated selector through portable
+term publication, call admission, and the typed cell observation. A selector
+that cannot be bound leaves only the containing region. Neither that region
+nor the opposite selector establishes initialization.
+
 The outer buffer's view provides the bounded element slot through its actual
-backing. Prepare the demanded nested pointer through the owning input route so
-the inner view reads the stored descriptor. Keep an unknown descriptor after
+backing. The entry planner closes demanded field paths through inline types.
+It must also carry a demand from the typed slice to its buffer's explicit
+backing route. Install that binding when reading the entry snapshot. View
+production then reads the stored descriptor. Keep an unknown descriptor after
 an opaque replacement and keep region bounds separate from exact addresses.
-Check nested inline and nullable buffers, transfer through a wrapper, and
-backing that could have changed through an opaque raw pointer.
+Constrain cyclic type paths to the explicit demands already present. Check
+nested and nullable buffers, wrapper transfer, and opaque replacement.
 
 ### Nested reference observation
 
 The attachment exit compares the same reached field, descriptor, and
 post-state data on either side of admission. The caller's restored reference
-adds an owning layer whose identity is already the reference descriptor's
-identity. Retain the reached data and its capture on that reference. Keep
-distinct owners, borrowed identities, and changed data epochs distinct. Use
-the common observation constructor so source, import, projection, witness
-checking, and mutation all see the same reference. Check the production
-attachment owner, nested borrowed witnesses, replaced descriptors, and
-crossed or stale owners.
+adds an owning layer with the same identity as the reference descriptor.
+Canonicalize that observation when constructing the predicate argument.
+The stored value keeps its ownership structure for cleanup and retirement.
+The trial that canonicalized the stored value passed the attachment exit
+and regressed channel cleanup. Check both, along with nested witnesses and
+replaced, crossed, or stale owners.
 
 ### Whole-value identity during publication
 

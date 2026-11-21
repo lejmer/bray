@@ -1,4 +1,4 @@
-use super::fixtures::{compilation, execution_consumer};
+use super::fixtures::{compilation, execution_dependency};
 
 const NESTED_ORDERS: [[usize; 3]; 6] = [
     [0, 1, 2],
@@ -1550,11 +1550,15 @@ fn witness_ownership_survives_imported_control_flow() {
                 bray_checker::ExecutionConditionKind::Trusted(_))),
         "a whole nullable guarantee is independent of payload presence: {contract:#?}");
 
+    let consumer = crate::test_support::compilation_with_dependencies("module app;", [execution_dependency(&provider)]);
+
+    assert!(!consumer.imported_diagnostics().has_errors(), "{:?}", consumer.imported_diagnostics());
+
     for (name, body, valid) in cases() {
         let body = body.replace("api.", "example.package.api.");
 
-        let consumer = execution_consumer(
-            &provider,
+        let caller = crate::test_support::with_fixture_caller(
+            &consumer,
             &format!(
                 r"
                 module app;
@@ -1570,7 +1574,7 @@ fn witness_ownership_survives_imported_control_flow() {
             ),
         );
 
-        collect_witness_failure(&name, &consumer, valid, &mut failures);
+        collect_witness_failure(&name, &caller, valid, &mut failures);
     }
 
     assert!(failures.is_empty(), "{}", failures.join("\n"));

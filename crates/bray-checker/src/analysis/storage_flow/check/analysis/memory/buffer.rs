@@ -65,12 +65,18 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             return MemoryOperationStatus::Recovered;
         };
 
-        let Some(owners) = source.address_regions() else {
-            return MemoryOperationStatus::Recovered;
-        };
-
         if let Some(result) = destination {
-            let inexact = source.known_address().is_none();
+            let Some(owners) = source.address_regions() else {
+                let kind = match operation.kind() {
+                    CheckedMemoryOperationKind::RawBufferInitializedSlice | CheckedMemoryOperationKind::RawBufferInitializedSliceMut =>
+                        bray_symbols::DependencyReferenceKind::Borrow,
+                    _ => bray_symbols::DependencyReferenceKind::Address,
+                };
+
+                state.memory.point_at_addresses(bray_bound_tree::StorageAddressValue::unknown(), result, fields.element, kind);
+
+                return MemoryOperationStatus::Valid;
+            };
 
             // Every view reaches the same allocation of the owner's element type.
             // A slice or spare-capacity view does not redeclare its backing storage.
@@ -79,7 +85,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 Target::storage(result.clone()),
                 fields.element,
                 bray_bound_tree::StorageProjection::ProductField(fields.pointer),
-                inexact,
+                source.known_address().is_none(),
             );
 
             if matches!(

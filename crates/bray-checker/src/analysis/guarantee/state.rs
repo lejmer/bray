@@ -268,19 +268,19 @@ impl ExecutionState {
     }
 
     /// Update admitted snapshots only when the transition invalidates their captured context.
-    pub(super) fn update_entry_snapshots(&mut self,
-        changed: &impl Fn(&crate::ExecutionCallEvidence) -> bool,
-        change: &mut impl FnMut(&mut crate::ExecutionCallEvidence),
+    pub(super) fn update_entry_snapshots<Prepared>(&mut self,
+        prepare: impl Fn(&crate::ExecutionCallEvidence) -> Option<Prepared>,
+        mut change: impl FnMut(&mut crate::ExecutionCallEvidence, Prepared),
     ) {
         use std::sync::Arc;
 
         let mut entries = hashbrown::HashMap::new();
         let mut update = |entry: &Arc<crate::ExecutionCallEvidence>| {
             entries.entry(Arc::as_ptr(entry)).or_insert_with(|| {
-                let replacement = changed(entry).then(|| {
+                let replacement = prepare(entry).map(|prepared| {
                     let mut replacement = entry.as_ref().clone();
 
-                    change(&mut replacement);
+                    change(&mut replacement, prepared);
 
                     Arc::new(replacement)
                 });
@@ -734,27 +734,29 @@ impl ExecutionState {
                 || witness.conditions.iter().any(|(condition, support)| !retains_clause(owner, condition, support)))
         });
 
-        self.update_entry_snapshots(&|entry| support_changes(entry) || entry.pending_execution && {
-            entry.trusted_boundary
-                || entry
-                    .assumptions
-                    .iter()
-                    .any(|(condition, _)| !retains_contents(condition))
-                || {
-                    let mut affected = entry.trusted_assumptions.iter().filter(|fact| !preserves(fact)).peekable();
+        self.update_entry_snapshots(|entry| {
+            if !entry.pending_execution {
+                return support_changes(entry).then_some(None);
+            }
 
-                    affected.peek().is_some() && {
-                        let owners = entry.owned_arguments().collect::<crate::execution_guarantees::RetainedSnapshots>();
-                        let admission = private_admission_facts(entry, entry.witness_inputs.values().filter(|witness| keeps_private_support(witness)), &proofs);
-
-                        affected.any(|fact| !preserves_owned(fact, &owners, &admission))
-                    }
-                }
-        }, &mut |entry| {
-            if entry.pending_execution {
+            let prepare_private = || {
                 let owners = entry.owned_arguments().collect::<crate::execution_guarantees::RetainedSnapshots>();
                 let admission = private_admission_facts(entry, entry.witness_inputs.values().filter(|witness| keeps_private_support(witness)), &proofs);
 
+                (owners, admission)
+            };
+            let mut private = None;
+            let needs_update = support_changes(entry) || entry.trusted_boundary
+                || entry.assumptions.iter().any(|(condition, _)| !retains_contents(condition))
+                || entry.trusted_assumptions.iter().filter(|fact| !preserves(fact)).any(|fact| {
+                    let (owners, admission) = private.get_or_insert_with(prepare_private);
+
+                    !preserves_owned(fact, owners, admission)
+                });
+
+            needs_update.then(|| Some(private.unwrap_or_else(prepare_private)))
+        }, |entry, private| {
+            if let Some((owners, admission)) = private {
                 entry.assumptions.retain(|(condition, _)| retains_contents(condition));
                 entry.trusted_assumptions.retain(|fact| preserves_owned(fact, &owners, &admission));
                 entry.trusted_boundary = false;
@@ -1042,7 +1044,7 @@ mod tests {
         Arc::make_mut(state.entries.entry(site).or_default()).arguments.insert(
             ExecutionPlace::argument(SymbolOrdinal::new(0)), input(1).with_deferred_value(Arc::clone(&frame)));
 
-        state.update_entry_snapshots(&|entry| !entry.pending_execution, &mut |entry| entry.pending_execution = true);
+        state.update_entry_snapshots(|entry| (!entry.pending_execution).then_some(()), |entry, ()| entry.pending_execution = true);
 
         let updated = state.expressions[&expressions[0]].deferred_value().unwrap().clone();
 

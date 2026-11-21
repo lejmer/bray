@@ -458,19 +458,6 @@ impl ExecutionCondition {
 
     pub(crate) fn observation(owner: Self, contents: Self, kind: ObservationKind) -> Self {
         let owner = owner.owner_identity();
-        let contents = if kind == ObservationKind::Reference
-            && let K::Observation { owner: context, contents: reached, kind: ObservationKind::Owned } = contents.value_inside_capture().kind()
-            && context.as_ref() == owner
-        {
-            // The reference already supplies this exact context for the reached data.
-            if let K::CapturedValue { storage, .. } = contents.kind() {
-                reached.as_ref().clone().captured_value(Arc::clone(storage))
-            } else {
-                reached.as_ref().clone()
-            }
-        } else {
-            contents
-        };
 
         if kind == ObservationKind::Owned && owner == &contents
             || kind == ObservationKind::Reference && matches!(owner.kind(), K::Borrowed(referent) if referent.as_ref() == &contents)
@@ -637,12 +624,20 @@ impl ExecutionCondition {
                 *argument = payload.as_ref().clone().present();
             }
 
-            if let K::Observation { owner, contents, kind: ObservationKind::Reference } = argument.kind()
-                && let Some((context, data)) = contents.storage_contents()
-                && context == data.owner_identity()
-            {
-                // A copy view of the same current owner adds no separate reached version.
-                *argument = Self::reference_value(owner.as_ref().clone(), data.clone());
+            if let K::Observation { owner, contents, kind: ObservationKind::Reference } = argument.kind() {
+                let reached = match contents.kind() {
+                    K::Observation { owner: context, contents: data, kind: ObservationKind::Owned }
+                        if context == owner => Some(data.as_ref()),
+                    _ => contents.storage_contents().and_then(|(context, data)| {
+                        (context == data.owner_identity()).then_some(data)
+                    }),
+                };
+
+                if let Some(reached) = reached {
+                    // The predicate compares the same reached observation. Stored
+                    // values retain the ownership structure needed by retirement.
+                    *argument = Self::reference_value(owner.as_ref().clone(), reached.clone());
+                }
             }
 
             if let K::Observation { contents, kind: ObservationKind::Reference, .. } = argument.kind()

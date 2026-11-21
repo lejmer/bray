@@ -5,7 +5,7 @@ use bray_bound_tree::BoundOperator;
 
 use super::super::id::AnalysisBlockId;
 use super::super::model::AnalysisEdge;
-use super::flow::ExecutionFlow;
+use super::flow::{ExecutionFlow, ExecutionFlowDomain};
 use super::state::ExecutionState;
 use crate::{CheckerRequestContext, ExecutionCondition, ExecutionPlace};
 
@@ -45,7 +45,7 @@ pub(super) fn bounded_loop_ranks<C: CheckerRequestContext + ?Sized>(
 
                 for (end, equalities) in &ends {
                     let value = place.value_in(&end.current)?;
-                    let step = strict_step(&value, &start, equalities);
+                    let step = flow.domain.strict_integer_step(end, &value, &start, equalities);
 
                     if let Some(expression) = flow.domain.graph.loop_expression(header)
                         && flow.domain.trace_authority_site(bray_bound_tree::StorageMutation::Operation(expression.into()))
@@ -67,6 +67,42 @@ pub(super) fn bounded_loop_ranks<C: CheckerRequestContext + ?Sized>(
             })
         })
         .collect()
+}
+
+impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
+    fn strict_integer_step(
+        &self,
+        state: &ExecutionState,
+        value: &ExecutionCondition,
+        base: &ExecutionCondition,
+        equalities: &BTreeMap<ExecutionCondition, ExecutionCondition>,
+    ) -> Option<Ordering> {
+        let value = value.computed_value();
+        let base = base.computed_value();
+
+        if value == base {
+            return None;
+        }
+
+        strict_step(value, base, equalities).or_else(|| {
+            // Exact arithmetic can fold to a literal on a refined back edge.
+            // Its progress still follows from the observed pre-step value.
+            if !matches!(value.kind(), crate::ExecutionConditionKind::Literal(_)) {
+                return None;
+            }
+
+            let mut ranges = super::integer::IntegerRanges::new();
+            let (minimum, maximum) = self.observed_integer_range(state, base, &mut ranges, &mut { ExecutionCondition::WORK_LIMIT })?;
+            let (value, _) = self.observed_integer_range(state, value, &mut ranges, &mut { ExecutionCondition::WORK_LIMIT })?;
+            if value > maximum {
+                Some(Ordering::Greater)
+            } else if value < minimum {
+                Some(Ordering::Less)
+            } else {
+                None
+            }
+        })
+    }
 }
 
 /// Returns the direction of a nonzero constant displacement in an established exact value.
@@ -177,7 +213,7 @@ pub(super) fn finite_step<C: CheckerRequestContext + ?Sized>(
 
                 let equalities = state.proofs.equalities(&state.assumptions, None);
 
-                let Some(step) = strict_step(&value, &base, &equalities) else {
+                let Some(step) = flow.domain.strict_integer_step(state, &value, &base, &equalities) else {
                     return false;
                 };
 

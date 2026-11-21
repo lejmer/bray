@@ -426,9 +426,9 @@ impl ExecutionState {
         let facts_revoked = |entry: &crate::ExecutionCallEvidence| entry.pending_execution && entry.assumptions
             .iter().chain(&entry.trusted_assumptions).any(|fact| revokes(&fact.0) || retired.contains(fact));
 
-        self.update_entry_snapshots(&|entry| {
-            facts_revoked(entry) || entry.witness_support_revoked(owner_revoked, &clause_revoked)
-        }, &mut |entry| {
+        self.update_entry_snapshots(|entry| {
+            (facts_revoked(entry) || entry.witness_support_revoked(owner_revoked, &clause_revoked)).then_some(())
+        }, |entry, ()| {
             entry.revoke_witness_support(owner_revoked, &clause_revoked);
 
             if entry.pending_execution {
@@ -592,11 +592,12 @@ impl ExecutionState {
             address_support_expired(guarantee)
         };
 
-        self.update_entry_snapshots(&|entry| {
-            entry.witness_support_revoked(&owner_revoked, &clause_revoked)
+        self.update_entry_snapshots(|entry| {
+            (entry.witness_support_revoked(&owner_revoked, &clause_revoked)
                 || entry.addresses.values().flat_map(|addresses| addresses.values().flatten()).any(expired)
-                || entry.pending_execution && entry.assumptions.iter().chain(&entry.trusted_assumptions).any(|fact| retired.contains(fact))
-        }, &mut |entry| {
+                || entry.pending_execution && entry.assumptions.iter().chain(&entry.trusted_assumptions).any(|fact| retired.contains(fact)))
+                .then_some(())
+        }, |entry, ()| {
             entry.revoke_witness_support(&owner_revoked, &clause_revoked);
             entry.addresses.retain(|_, addresses| {
                 addresses.retain(|_, places| !places.iter().any(expired));

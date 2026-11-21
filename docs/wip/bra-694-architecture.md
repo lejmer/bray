@@ -128,10 +128,10 @@ coordinates do not form part of a portable predicate subject.
 An immutable scalar returned by a const call can publish its equality to the
 selected call term under the reached outcome. The checked reference capture
 continues to supply access authority for reference-valued calls.
-When a normal result binds an absent tag, its produced identity names the
-complete nullable. The selected outcome still leaves its payload inactive.
-At a join, a captured present value supplies its existing payload lineage.
-Rebase the whole nullable observation and its payload at their distinct paths.
+The produced identity of a nullable names the complete value. A present
+payload retains its own lineage. An absent alternative leaves that payload
+inactive. Rebase whole-value and payload observations at their distinct paths
+before publishing a witness from either.
 Direct calls and deferred bodies share the prepared input route and output type
 for each owning transfer. A deferred body reads its current typed input
 referent at activation through its retained descriptor. The operation and
@@ -158,6 +158,9 @@ lifetime remain distinct from an exact cell address in the caller.
 A static effect can name an owned backing region without supplying its address. Bind the checked route to the
 current backing when the descriptor is available. Otherwise keep the static identity and its owning path as
 a write bound. Reading a raw pointer from a static requires its own reached region.
+A returned view of exact product-static storage carries its actual selection and typed contents. Opaque
+transitions can preserve eligible inline observations through that view even when the caller has no direct
+access to the declaration. Thread-local storage also requires its attachment context.
 
 ## Composite flow from admission to publication
 
