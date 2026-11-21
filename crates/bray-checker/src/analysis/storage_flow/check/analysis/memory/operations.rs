@@ -31,6 +31,22 @@ const fn memory_status_rank(status: MemoryOperationStatus) -> u8 {
 }
 
 impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
+    pub(in crate::analysis::storage_flow::check::analysis) fn protected_input_initialized(
+        &self,
+        memory: &crate::analysis::storage_flow::memory::State,
+        execution: &crate::analysis::guarantee::ExecutionState,
+        operation: &bray_bound_tree::CheckedMemoryOperation,
+    ) -> bool {
+        let element = match *operation.kind() {
+            CheckedMemoryOperationKind::UninitMove { element }
+            | CheckedMemoryOperationKind::UninitAssumeInitialized { element } => element,
+            _ => return false,
+        };
+
+        self.memory_uninit_address(execution, operation, operation.arguments()[0])
+            .is_some_and(|payload| memory.initialized_targets(&payload, element))
+    }
+
     pub(in crate::analysis::storage_flow::check::analysis) fn observe_memory_read(
         &mut self,
         state: &StorageFlowState,

@@ -19,6 +19,7 @@ pub struct BoundCallReference {
 struct ReferenceOutputRoute {
     preserves_value: bool,
     addressed_type: Option<bray_symbols::TypeId>,
+    exposes_borrow: bool,
     reads: Option<StorageReferencePath>,
     target: Option<StorageReferencePath>,
 }
@@ -32,14 +33,15 @@ impl BoundCallReference {
     ) -> Self {
         Self {
             relation,
-            route: ReferenceOutputRoute { preserves_value, addressed_type, reads: None, target: None },
+            route: ReferenceOutputRoute { preserves_value, addressed_type, exposes_borrow: false, reads: None, target: None },
         }
     }
 
     /// Attaches the typed reads from the actual source and from its reached target.
-    pub fn with_routes(mut self, reads: Option<StorageReferencePath>, target: Option<StorageReferencePath>) -> Self {
+    pub fn with_routes(mut self, reads: Option<StorageReferencePath>, target: Option<StorageReferencePath>, exposes_borrow: bool) -> Self {
         self.route.reads = reads;
         self.route.target = target;
+        self.route.exposes_borrow = exposes_borrow;
 
         self
     }
@@ -52,6 +54,11 @@ impl BoundCallReference {
     /// The reached storage type when forming an address or a bounded reference.
     pub const fn addressed_type(&self) -> Option<bray_symbols::TypeId> {
         self.route.addressed_type
+    }
+
+    /// Whether this output exposes an existing language borrow as a raw address.
+    pub const fn exposes_borrow(&self) -> bool {
+        self.route.exposes_borrow
     }
 
     /// Whether the output retains the input reference value, rather than only its target.

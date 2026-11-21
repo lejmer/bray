@@ -5693,6 +5693,32 @@ fn mutation_summaries_preserve_initialization_only_for_complete_typed_cells() {
 }
 
 #[test]
+fn unresolved_deallocation_distinguishes_inline_slots_from_backing() {
+    let ([owner, backing, ..], expressions) = places();
+    let ty = error_type();
+    let local = Target::storage(owner.clone());
+    let allocation = Target {
+        previous: false,
+        origin: Origin::Allocation { allocation: backing, projections: Arc::from([]) },
+    };
+
+    for (access_type, ambient, retains_local) in [(Some(ty), false, true), (Some(ty), true, true), (None, false, false)] {
+        let mut state = State { owned_storage: [owner.root].into(), ..State::default() };
+
+        for target in [&local, &allocation] {
+            state.contents.entry(target.clone()).or_default().record_write(ty);
+        }
+
+        state.escape_regions([local.clone(), allocation.clone()]);
+        state.apply_effects(Some(&[Effect::unbounded(DependencyMutationKind::Retire, access_type, ambient)]),
+            &bray_bound_tree::StorageInvalidation::unknown(), expressions[0].into());
+
+        assert_eq!(state.contents[&local].is_initialized(ty), retains_local);
+        assert!(!state.contents[&allocation].is_initialized(ty));
+    }
+}
+
+#[test]
 fn produced_buffer_allocation_survives_transport_without_publishing_early() {
     let ([owner, moved, exposed, raw], expressions) = places();
 

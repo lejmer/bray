@@ -984,7 +984,10 @@ where
         let intrinsic = memory_operation.is_some();
 
         self.call_admission = if (attempt.is_some() || single_phase.is_some()) && (self.publish || intrinsic) {
-            self.execution.call_admission_checks(&mut execution, occurrence)
+            let protected_initialized = memory_operation.is_some_and(|operation|
+                self.protected_input_initialized(&state.memory, &execution, operation));
+
+            self.execution.call_admission_checks(&mut execution, occurrence, protected_initialized)
         } else {
             None
         };

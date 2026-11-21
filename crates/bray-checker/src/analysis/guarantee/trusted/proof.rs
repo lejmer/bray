@@ -121,8 +121,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let mut ranges = None;
 
+        let storage_initialized = (entry.memory_access == Some(crate::execution_guarantees::MemoryAccessProof::ProtectedCellInitialized))
+            .then(|| self.initialization_requirement(["UninitInitialized"]));
+
         let instantiated = requirements
             .iter()
+            .filter(|required| !storage_initialized.as_ref().is_some_and(|initialized| initialized(required)))
             .map(|requirement| {
                 let condition = requirement
                     .substitute(
@@ -136,10 +140,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     )
                     .with_equalities(&equalities);
 
-                condition.with_reference_origins(self.request.semantic_values(), self.dependencies, &entry.assumptions)
-                    .pointer_observations(&self.pointer_predicates)
-            })
-            .collect::<Vec<_>>();
+                (requirement, condition.with_reference_origins(self.request.semantic_values(), self.dependencies, &entry.assumptions)
+                    .pointer_observations(&self.pointer_predicates))
+            });
 
         let proof = crate::execution_guarantees::ExecutionProof::new(&known, &ordinary);
 
@@ -222,7 +225,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 })
         };
 
-        for (required, actual) in requirements.iter().zip(instantiated) {
+        for (required, actual) in instantiated {
             if let Err(failed) = prove_requirement(&actual, &known, &mut prove_condition, &mut {
                 ExecutionCondition::WORK_LIMIT
             }) {

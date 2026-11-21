@@ -681,7 +681,13 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     ) {
         let relation = reference.relation();
 
-        if reference.addressed_type().is_some() {
+        if reference.exposes_borrow() {
+            memory.stage_exposed_borrow(occurrence, source, destination.clone());
+
+            if !relation.is_exact() {
+                memory.bound_staged_reference(occurrence, &destination);
+            }
+        } else if reference.addressed_type().is_some() {
             let Source::Value(target) = source else {
                 memory.stage_unknown(occurrence, destination);
                 return;

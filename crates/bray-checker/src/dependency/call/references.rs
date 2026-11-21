@@ -380,11 +380,14 @@ fn prepare_reference<C: CheckerRequestContext + ?Sized>(
         Some(target)
     } else { projected };
 
+    let exposes_borrow = relation.kind() == bray_symbols::DependencyReferenceKind::Address
+        && kind == Some(bray_symbols::DependencyReferenceKind::Borrow);
+
     Ok(Some(BoundCallReference::new(
         relation.clone(),
         !bounded && !entry.subject_root().is_static() && kind == Some(relation.kind()) && target_path.is_none(),
         addressed,
-    ).with_routes(reads, target_path)))
+    ).with_routes(reads, target_path, exposes_borrow)))
 }
 
 fn reference_input_type<C: CheckerRequestContext + ?Sized>(

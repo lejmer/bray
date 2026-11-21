@@ -89,22 +89,22 @@ impl State {
                     self.invalidate_cleanup_regions(&targets, invalidation);
 
                     if let Some(backing) = backing {
-                        self.invalidate_target(&backing, DependencyMutationKind::Retire, invalidation, true, Some(origin));
+                        self.invalidate_target(&backing, DependencyMutationKind::Retire, invalidation, true, Some(origin), false);
                     }
                 }
                 Effect::Mutation { address, footprint: target, kind, access_type, .. } => {
                     let retiring = (*kind == DependencyMutationKind::Retire).then_some(address.as_ref()).flatten();
 
                     if let Some(address) = retiring.filter(|address| *address != target) {
-                        self.invalidate_target(address, *kind, invalidation, true, Some(origin));
+                        self.invalidate_target(address, *kind, invalidation, true, Some(origin), false);
                     }
 
                     self.invalidate_target(target, *kind, invalidation,
                         access_type.is_none() && address.as_ref() == Some(target),
-                        retiring.filter(|address| *address == target).map(|_| origin))
+                        retiring.filter(|address| *address == target).map(|_| origin), false)
                 }
                 Effect::UnboundedMutation { kind, ambient: false, .. } => {
-                    self.invalidate(invalidation, *kind);
+                    self.invalidate_unknown_targets(invalidation, *kind, effect.is_unlocated_deallocation());
                 }
                 effect if effect.is_ambient() => {
                     let kind = match effect {
@@ -116,16 +116,21 @@ impl State {
                         self.include_unknown_targets(&mut targets, unknown);
 
                         for target in targets {
+                            if effect.is_unlocated_deallocation() && !self.unlocated_deallocation_may_reach(&target) {
+                                continue;
+                            }
+
                             self.invalidate_target(
                                 &target,
                                 kind,
                                 invalidation,
                                 false,
                                 None,
+                                effect.is_unlocated_deallocation(),
                             );
                         }
                     } else {
-                        self.invalidate(invalidation, kind);
+                        self.invalidate_unknown_targets(invalidation, kind, effect.is_unlocated_deallocation());
                     }
                 }
                 effect if effect.is_atomic() => self.invalidate(
@@ -147,10 +152,15 @@ impl State {
         invalidation: &StorageInvalidation,
         complete_cell: bool,
         retirement: Option<BoundExecutionSite>,
+        deallocation: bool,
     ) {
         let references = AddressValue::one(target.clone());
 
         for affected in self.affected_targets(&references) {
+            if deallocation && !self.unlocated_deallocation_may_reach(&affected) {
+                continue;
+            }
+
             // Atomic effects change protected payload observations, not ordinary
             // reference slots that merely may alias the atomic's address.
             if kind != DependencyMutationKind::Atomic
@@ -224,10 +234,21 @@ impl State {
         invalidation: &StorageInvalidation,
         kind: DependencyMutationKind,
     ) {
+        self.invalidate_unknown_targets(invalidation, kind, false);
+    }
+
+    fn invalidate_unknown_targets(
+        &mut self,
+        invalidation: &StorageInvalidation,
+        kind: DependencyMutationKind,
+        deallocation: bool,
+    ) {
         // An opaque operation can change the referent without replacing a reference
         // stored in an unexposed owner or reached through a protected shared entry borrow.
         // The established observation identifies the slot independently of its referent.
         let unaddressed = &self.unaddressed_storage;
+        let owned = &self.owned_storage;
+        let unaffected = |target: &Target| deallocation && !Self::deallocation_may_reach(owned, target);
 
         let unknown = matches!(
             invalidation,
@@ -236,6 +257,7 @@ impl State {
 
         self.values.retain(|target, value| {
             let retained = kind == DependencyMutationKind::Atomic
+                || unaffected(target)
                 || unknown && Self::unaddressed_inline_slot(unaddressed, target)
                 || Self::stable_reference_slot(target, invalidation)
                 || match target.observation_path() {
@@ -258,7 +280,7 @@ impl State {
         });
 
         for (target, contents) in &mut self.contents {
-            if unknown && Self::unaddressed_inline_slot(unaddressed, target) {
+            if unaffected(target) || unknown && Self::unaddressed_inline_slot(unaddressed, target) {
                 continue;
             }
 

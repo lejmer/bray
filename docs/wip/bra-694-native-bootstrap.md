@@ -100,22 +100,51 @@ generic iterator escape, and protected sibling fields.
 
 | Area | Current evidence and next boundary |
 | --- | --- |
-| Storage and proof publication | Candidate `captured-coordinates-and-witness-referents` passed 1,105 of 1,109 compilation controls and all 936 symbols, bound-tree, and checker tests. Materialization now copies the already selected snapshot. |
-| Guarded authority | The source and imported static witness cases pass. Host exit admission has the needed fact, but refreshing a nested reference inserts a redundant owning context into the required observation. Observer cleanup fails on the panic continuation of `destroy_captures`. Its rows 0 and 1 lose the acquisition mask while rows 2 and 3 retain it. Trace their additional effects to the producer before changing the checked separation rule. |
-| Bounds and cells | The exact symbolic index now reaches both the caller's write effect and its subsequent read. The read admission still requires an abstract predicate even when the same typed cell can establish initialization directly. The issued nested view still reports an escape. The callback's exact raw output relation currently stages the borrowed input's full binding. |
+| Storage and proof publication | Candidate `protected-admission-and-allocation-retirement` passed 1,108 of 1,109 compilation controls and all 937 symbols, bound-tree, and checker tests. Host exit and observer cleanup pass. |
+| Guarded authority | The channel endpoint regressed when refresh removed an owning context from the current tree. Keep the original carrier tree. Canonicalize the equivalent reference context only in the predicate's proof observation. Verify host and channel together, including the ownership, nullable, and view controls. |
+| Bounds and cells | The source and imported indexed write and the nested buffer controls pass. Protected admission consumes the typed cell's initialization. Portable raw outputs carry the actual address without the operand loan. |
 | Native owner composition | The previous four-target comparison passed `prepare_start`. Once the refactor paths are replaced, trace `dispatch_ready`, `start_frame`, and `acquire_worker_ready` through the actual acquisition, resident task slot, callback cleanup, and backing. A retirement follows its captured allocation even if its former descriptor changes. |
 | Planning and emission | The current candidate emitted the Windows standard library in 45.7 s planning, 40.8 s emission, and 98.5 s wall time with concurrent desktop use. The previous completed run took 32.3 s planning and 32.4 s emission. At unchanged query and code-generation counts, result-dependency solving rose from 153.5 to 194.6 worker seconds, and code generation rose from 109.7 to 145.0. Compare under similar load before attributing the increase. An earlier cleanup profile attributed 2.5 s to proof invalidation and 0.06 s to both state copies across 3,354 actions. Trace why finite effects still visit unrelated physical observations. |
 
 The optimized compilation test binary is
-`target/audit/comparison-captured-coordinates-and-witness-referents-compilation.exe`
-with SHA-256 `A8EEE31EB4B4E294E9BDF697447DA39F755C0EFF87BFDB4F808CDE4E5C2573D4`.
+`target/audit/comparison-protected-admission-and-allocation-retirement-compilation.exe`
+with SHA-256 `C168B8764D33335CBCDF6E771099844199417E5A51FF2AC03FC73100D5D14567`.
 The comparison receipt records the compiled source. It includes the test
 fixture reuse edits. Use the same 1,109 controls to compare the next batch.
 
-The next batch covers the four remaining failures together.
+The next batch closes the shared reference observation contract for host exit
+and channel cleanup.
 Follow reached inputs through outcome materialization, scope retirement,
 proof invalidation, and portable binding. Keep the native bootstrap failures
 deferred until the replacement is complete.
+
+A protected move admits the already evaluated payload. Definite initialized
+contents at every actual target can discharge only that operation's checked
+`UninitInitialized` requirement. Preserve the decision through completion
+while the value is taken. Unknown, nullable, historic, or overlapping-region
+evidence alone cannot grant initialization. Exercise the indexed sibling
+controls, explicit protected reads and raw reads with independent requirements.
+
+Forming an address from a captured borrow, including by portable call binding,
+copies its descriptor, preserving bounds and the selected storage identity.
+Copying a raw address can preserve its own carried support. Changing a borrow
+to an address must not carry the language loan. Exercise the callback-issued
+buffer, imported address producers, and opaque result controls.
+
+Refreshing a reached reference keeps the descriptor and the new contents.
+A nested owner with the exact same identity as the descriptor adds no separate
+context to a predicate. Ownership and moves still observe the actual current
+tree. Canonicalize proof observations from that tree without altering its
+carriers. Host exit and channel cleanup must both pass.
+
+Observer panic rows 0 and 1 add an unresolved raw deallocation alongside
+the ordinary effects of destruction. Rows 2 and 3 keep the acquisition
+marker with the same inputs. The deallocation can affect a backing allocation
+but cannot retire an invocation-owned inline slot. Apply that physical
+storage distinction in both memory and observation framing. Other unbounded
+effects and actual retired targets keep their existing reach. Check owned
+and borrowed backing after raw release, opaque retirement, and observer
+cleanup on panic. No separation follows from a pointee's nominal type.
 
 Evaluating a memory source resolves selectors and weakens overlapping data
 once. The resulting snapshot has a coordinate for its inline fields. Staging,

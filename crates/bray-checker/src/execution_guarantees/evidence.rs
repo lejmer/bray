@@ -39,6 +39,7 @@ pub(crate) struct ExecutionFailureRow {
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub(crate) enum MemoryAccessProof {
     Initialized,
+    ProtectedCellInitialized,
     EmptyCopy,
 }
 

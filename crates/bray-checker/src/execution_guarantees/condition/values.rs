@@ -333,6 +333,20 @@ impl ExecutionCondition {
             _ => contents,
         };
 
+        let contents = match contents.value_inside_capture().kind() {
+            K::Observation { owner, contents: reached, kind: ObservationKind::Owned }
+                if owner.as_ref() == identity => {
+                let reached = reached.as_ref().clone();
+
+                if let Some(storage) = contents.captured_storage() {
+                    reached.captured_value(storage.clone())
+                } else {
+                    reached
+                }
+            }
+            _ => contents,
+        };
+
         Self::reference_value(identity.clone(), contents)
     }
 

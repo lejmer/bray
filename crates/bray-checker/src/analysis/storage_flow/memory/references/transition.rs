@@ -467,6 +467,27 @@ impl State {
             .merge(&references);
     }
 
+    pub(in crate::analysis::storage_flow) fn stage_exposed_borrow(
+        &mut self,
+        call: bray_bound_tree::BoundExecutionSite,
+        source: super::Source,
+        destination: Target,
+    ) {
+        let reached = match source {
+            super::Source::Value(slot) => self.values.get(&slot).map(ValueBinding::exposed_address),
+            super::Source::Borrow(loan) => self.borrow_address(loan)
+                .map(|address| ValueBinding::from(address.clone()).exposed_address()),
+            super::Source::Captured(value) => value.binding().map(ValueBinding::exposed_address),
+        };
+
+        let Some(reached) = reached else {
+            self.stage_unknown(call, destination);
+            return;
+        };
+
+        self.pending.entry(call).or_default().values.entry(destination).or_default().include_value(&reached);
+    }
+
     pub(in crate::analysis::storage_flow) fn capture_failure_effects(
         &mut self,
         call: bray_bound_tree::BoundExecutionSite,

@@ -137,6 +137,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         let survives = |target: &Target, observation: Observation, owner: Option<bray_symbols::TypeId>, borrow: Option<bray_symbols::BorrowKind>| {
             transfers.iter().all(|(effect, ty, raw)| {
+                if effect.is_unlocated_deallocation() && !memory.unlocated_deallocation_may_reach(target) {
+                    return true;
+                }
+
                 // Ordinary code cannot transfer a retained shared loan's inline
                 // owner. Raw operations still retain their actual reached region.
                 if borrow == Some(bray_symbols::BorrowKind::Shared) && !raw { return true; }

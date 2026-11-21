@@ -155,6 +155,8 @@ address and bounds. It retains the ordinary loan only on the input. Output depen
 value shape and leaves inferred operand loans off values with no borrow fields.
 
 The physical memory intrinsics check initialization on the admitted operands before applying effects.
+A protected read can discharge its initialization requirement from the actual typed cell. Its admission records
+that decision for completion and keeps the remaining trusted requirements independent.
 A staged read or copy uses that admission at completion. An assignment stages and computes reachability
 from the same evaluated right-hand side. A compound assignment uses the completed operator's private result.
 Normal slice publication records the extent of the evaluated descriptor. Later indexing reads that extent through the
@@ -167,6 +169,9 @@ binds the selector to the admitted call or frame's actual argument. Different
 symbolic values can alias. An unresolved value supplies only a region.
 Protected memory operations use the same admitted descriptor or staged
 owning coordinate for mutation, initialization, and result publication.
+An unresolved deallocation of a raw allocation cannot retire an invocation-owned inline slot. Physical
+invalidation and observation framing use that distinction. Reached allocation targets still retire through
+their actual captured addresses and generations.
 
 A static effect can name an owned backing region without supplying its address. Bind the checked route to the
 current backing when the descriptor is available. Otherwise keep the static identity and its owning path as

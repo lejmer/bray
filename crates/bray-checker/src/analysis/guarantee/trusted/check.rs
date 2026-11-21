@@ -340,7 +340,7 @@ impl TrustedChecks {
         for (invocation, (_, failure)) in self.failed {
             if let bray_bound_tree::BoundExecutionSite::Node(AnyBoundNodeId::Expression(expression)) = invocation
                 && memory_decisions.get(&expression) == Some(&MemoryOperationStatus::UninitializedRawStorage)
-                && domain.initialization_requirement()(failure.actual())
+                && domain.initialization_requirement(["InitializedAs", "InitializedRangeAs"])(failure.actual())
             {
                 // The physical initialization diagnostic carries this failure and its origin.
                 continue;
@@ -450,8 +450,15 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         &self,
         state: &mut ExecutionState,
         invocation: bray_bound_tree::BoundExecutionSite,
+        protected_initialized: bool,
     ) -> Option<CallAdmissionChecks> {
         let contract = self.request.trusted_contracts()?.calls.get(&invocation)?;
+
+        if protected_initialized {
+            state.admitted_call_mut(invocation).expect("a checked protected read retains its admission")
+                .memory_access = Some(crate::execution_guarantees::MemoryAccessProof::ProtectedCellInitialized);
+        }
+
         let evidence = state.entries.get(&invocation)?;
         let execution_requirements = evidence.prove_requirements(&contract.execution_requirements);
         let requirements = self.prove_trusted_requirements(evidence, &contract.requirements);
@@ -462,11 +469,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }
 
         let empty_copy = self.empty_memory_copy(state, invocation);
+        let protected = evidence.memory_access == Some(crate::execution_guarantees::MemoryAccessProof::ProtectedCellInitialized);
 
-        let initialized = requirements.is_ok() || empty_copy || {
+        let initialized = requirements.is_ok() || empty_copy || protected || {
             // Failure of another requirement must not erase established initialization.
             // Resolve these identities only on the failing path.
-            let is_initialization = self.initialization_requirement();
+            let is_initialization = self.initialization_requirement(["InitializedAs", "InitializedRangeAs"]);
 
             // Conditions share their immutable operand trees with the call contract.
             let initialization = contract.requirements.iter()
@@ -478,6 +486,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let memory_access = initialized.then_some(if empty_copy {
             crate::execution_guarantees::MemoryAccessProof::EmptyCopy
+        } else if protected {
+            crate::execution_guarantees::MemoryAccessProof::ProtectedCellInitialized
         } else {
             crate::execution_guarantees::MemoryAccessProof::Initialized
         });
@@ -489,12 +499,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         Some(CallAdmissionChecks { requirements, execution_requirements })
     }
 
-    fn initialization_requirement(&self) -> impl Fn(&ExecutionCondition) -> bool {
+    pub(super) fn initialization_requirement<const N: usize>(&self, predicates: [&str; N]) -> impl Fn(&ExecutionCondition) -> bool {
         use crate::ExecutionConditionKind as Kind;
 
         let provider = self.request.context().available_compiler_known_symbols().provider();
 
-        let predicates = ["InitializedAs", "InitializedRangeAs"].map(|name| {
+        let predicates = predicates.map(|name| {
             let key = bray_compiler_known::CompilerKnownDeclarationKey::try_new(name)
                 .expect("closed initialization predicate key must be valid");
 

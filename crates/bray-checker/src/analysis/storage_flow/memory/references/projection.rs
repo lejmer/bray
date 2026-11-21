@@ -95,8 +95,19 @@ impl State {
     }
 
     pub(super) fn is_owned_inline_storage(&self, path: &Place) -> bool {
-        self.owned_storage.binary_search(&path.root).is_ok()
-            && !path.projections.contains(&StorageProjection::OwnedTarget)
+        Self::owned_inline_path(&self.owned_storage, path)
+    }
+
+    fn owned_inline_path(owned: &[StorageIdentityId], path: &Place) -> bool {
+        owned.binary_search(&path.root).is_ok() && !path.projections.contains(&StorageProjection::OwnedTarget)
+    }
+
+    pub(in crate::analysis::storage_flow) fn unlocated_deallocation_may_reach(&self, target: &Target) -> bool {
+        Self::deallocation_may_reach(&self.owned_storage, target)
+    }
+
+    pub(super) fn deallocation_may_reach(owned: &[StorageIdentityId], target: &Target) -> bool {
+        target.storage_path().is_none_or(|path| !Self::owned_inline_path(owned, path))
     }
 
     #[track_caller]

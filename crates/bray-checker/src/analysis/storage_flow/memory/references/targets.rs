@@ -302,7 +302,7 @@ impl State {
         self.initialized_targets(&self.references(slot), ty)
     }
 
-    pub(in crate::analysis::storage_flow::memory) fn initialized_targets(
+    pub(in crate::analysis::storage_flow) fn initialized_targets(
         &self,
         references: &AddressValue,
         ty: TypeId,
@@ -314,7 +314,7 @@ impl State {
                     && self
                         .contents
                         .get(target)
-                        .is_some_and(|contents| contents.is_initialized(ty))
+                        .is_some_and(|contents| contents.invalidations.is_empty() && contents.is_initialized(ty))
             })
     }
 
