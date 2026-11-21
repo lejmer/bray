@@ -540,7 +540,7 @@ trusted internal func native_directory_open(
         case Error(status) { return Error(internal std.io.platform_status_error(status)); }
     };
 
-    let search_handle: DataPointer<u8> = trusted std.os.windows.find_first_file_ex_w(
+    let search_handle: std.os.windows.Handle = trusted std.os.windows.find_first_file_ex_w(
         std.memory.pointer<u16>(&pattern),
         information_level = std.os.windows.FIND_EX_INFO_BASIC,
         data = trusted std.memory.reinterpret<u8, u64>(std.memory.address_of_mut<u64>(&mut state[0])),
@@ -549,12 +549,12 @@ trusted internal func native_directory_open(
         flags = std.os.windows.FIND_FIRST_EX_LARGE_FETCH,
     );
 
-    if trusted internal std.platform.pointer_handle(search_handle) == std.numeric.U64_MAX
+    if search_handle.value() == std.numeric.USIZE_MAX
     {
         return Error(trusted internal windows_io_error());
     }
 
-    return Ok(trusted internal std.platform.pointer_handle(search_handle));
+    return Ok(search_handle.value() as u64);
 }
 
 trusted internal func native_directory_next(
@@ -572,7 +572,7 @@ trusted internal func native_directory_next(
         return Error(internal std.io.invalid_transfer_error());
     }
 
-    let native_handle: DataPointer<u8> = trusted internal std.platform.handle_pointer(handle);
+    let native_handle = std.os.windows.handle(handle as usize);
 
     loop
     {
@@ -658,7 +658,7 @@ trusted internal func native_directory_close_handle(
     let pointer = trusted native_windows_directory_pointer(handle);
     let native = trusted std.memory.read<NativeWindowsDirectory>(pointer);
 
-    let status = if trusted std.os.windows.find_close(trusted internal std.platform.handle_pointer(native.handle)) == 0
+    let status = if trusted std.os.windows.find_close(std.os.windows.handle(native.handle as usize)) == 0
     {
         let status: std.platform.PlatformStatus = trusted internal std.platform.windows_error_status();
 

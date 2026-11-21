@@ -864,7 +864,7 @@
           "parameters": [
             {
               "name": "handle",
-              "type": "DataPointer<u8>",
+              "type": "Handle",
               "native_type": "HANDLE"
             }
           ],
@@ -951,7 +951,7 @@
               "native_type": "DWORD"
             }
           ],
-          "result": "DataPointer<u8>",
+          "result": "Handle",
           "native_result": "HANDLE",
           "link": "Kernel32",
           "error_state": "returns INVALID_HANDLE_VALUE and records GetLastError state on failure",
@@ -1053,7 +1053,7 @@
           "parameters": [
             {
               "name": "handle",
-              "type": "DataPointer<u8>",
+              "type": "Handle",
               "native_type": "HANDLE"
             },
             {
