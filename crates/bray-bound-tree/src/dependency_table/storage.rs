@@ -130,6 +130,15 @@ impl BoundCallStorage {
         self.effect_paths.get(effect.retirement_parts().0)
     }
 
+    /// Prepared effect continuations and the descriptor that supplies their first address.
+    pub fn effect_target_paths(&self) -> impl Iterator<Item = (TypeId, &StorageReferencePath)> {
+        self.effect_paths.iter().filter_map(|(effect, path)| {
+            let (ty, _) = self.subject(effect.subject()?)?;
+
+            Some((ty, path))
+        })
+    }
+
     /// Subjects with checked routes from an actual input, static or result root.
     pub fn subjects(&self) -> impl Iterator<Item = (&DependencySubject, TypeId, &StorageReferencePath)> {
         self.subjects.iter().map(|(subject, (ty, path))| (subject, *ty, path))

@@ -63,7 +63,7 @@ evidence. Impossible internal states fail at the violated contract.
 
 ## Verified checkpoint
 
-Candidate `terminal-backing-bounds` passed all 1,109 compilation controls,
+Candidate `checked-continuation-demands` passed all 1,109 compilation controls,
 the selected and unrelated nullable extraction cases, and 938 symbols,
 bound-tree, and checker tests. The old call preparation,
 expression target, and independent normal storage promise have no remaining
@@ -71,15 +71,14 @@ callers. The [architecture map](bra-694-architecture.md) records the resulting
 contracts.
 
 On Windows x86-64 the candidate checked and lowered 21 of 25 selected
-bodies, matching checkpoint `cbfc1fb95`. `commit_start`,
-`worker.acquire_ready`, and `acquire_worker_ready` pass in addition to
-the 18 bodies verified at `244c673a8`. The four
-remaining bodies are `dispatch_ready`, `dispatch_task`, `start_frame`,
-and `retire_driver`. The corrected effect trace completed in 119.8 s.
+bodies. The remaining bodies are `dispatch_ready`, `dispatch_task`,
+`start_frame`, and `retire_driver`. The checked continuation paths reduced
+unresolved effect routes in the scheduling source from 31 to two. The
+caller traces show which actual descriptors still lose their addresses.
 
 The production decimal loop passes. The optimized Windows standard library
-took 28.6 s to plan, 26.6 s to emit, and 62.7 s wall time with 24 workers
-on the previous `live-enclosing-referent` candidate. Result-dependency
+took 28.3 s to plan, 26.0 s to emit, and 61.6 s wall time with 24 workers.
+On the previous `live-enclosing-referent` profile, result-dependency
 solving used 151.5 worker seconds against a 60.0 reference. Cleanup
 completion used 22.7 worker seconds against 0.93.
 An earlier cleanup profile attributed 2.5 s to proof invalidation and 0.06 s
@@ -89,74 +88,29 @@ to both state copies across 3,354 actions.
 
 | Affected transition | Reached evidence and expected behavior |
 | --- | --- |
-| Dispatch recovery | Escape behind `Current.pointer` now starts at the reached raw region. Some `dispatch_task` and wait rows still retain an escaped inline `Current` and unbounded retirement. The direct task body exposes an earlier obligation. Trace the callee's actual captures and cleanup prefixes before the later `context(selected)` call. Real raw mutation and retirement must still revoke proof. |
-| Provider installation | `create_native_provider` publishes a nullable provider within `Ok`. The selected payload now carries its proof through the consumed match and `install_binding` to the absence-or-owned requirement. Source and imported controls reject a replaced payload. |
-| Start and rollback | The guarded `Ok` payload of `prepare_start` enters the scope with the token and execution witnesses. Direct `commit_start` checks and lowers. At its call in `start_frame`, the later selected `Current` obligation and rollback still fail. Compare the same selected view across lane selection, `register_task`, and normal and abnormal completion. Registration presence remains an independent condition. |
-| Driver retirement | Some `retire_driver_resources` rows publish an untyped unbounded retirement, and the later acquisition observation loses its marker. The trace shows the same broad effect first appearing when reached cleanup cannot bind a prepared receiver backing route, including nested owned buffers. Trace the checked receiver, backing route, and actual captured descriptor at that boundary. Retirement must revoke precisely the retired backing without preserving old generations. |
-| Convergence | The array write selects element zero before the first join. The next evaluations agree on an unresolved index. Publish the enclosing logical observation when the physical write names only a region. Keep independently reached exact selectors and disjoint fields. Check the production decimal body and the existing indexed siblings and loop controls. |
+| Dispatch recovery | `dispatch_task` has the original task borrow when it acquires the dispatch claim. After the earlier worker call, a feasible path produces a symbolic service view where another path reaches the actual execution domain. The later call reads fields through the stored task and services borrows. Trace the reached writes before these reads, including failure prefixes. The selected inline marker and the pointees reached through the other fields have independent support. |
+| Start and rollback | `prepare_start` publishes exact selected and task borrows in `Ok`. Its execution pointer has several input-region origins and an independent alternative. `register_task` admits a loan to the actual inline execution field, then cannot read the pointer inside it. The first failed `commit_start` condition reads the selected status after this call. Trace the pointer through the task cell, pinning, publication, and scoped transfer. Registration presence remains independent. |
+| Driver retirement | Host progress and thread cleanup move nullable buffers out of host storage. Later cleanup has the receiver but cannot read the reached backing. The summary loses the binding to the receiver and reports unbounded retirement. Trace the written destination at the swap and the moved owner's backing at cleanup, including when the callback changes the selected row. |
+| Planning | Compare the storage flow preparation, solving, and certification for the same optimized build. Reuse exact proof inputs across reached consumers when their evidence and authority roles agree. |
 
-Read steps must distinguish a known inactive value from an unreadable
-descriptor. The first broad retirements appear inside host progress,
-thread cleanup, and attachment exit. Their prepared routes have actual
-receivers and go through owned buffer backing. Several receiver paths
-select nullable payloads. A read through a known inactive payload has no
-target. Preserve that actual absence through inline selection and the
-backing step. An unproved tag, missing binding, or unresolved pointer
-remains unknown. A present buffer uses its stored backing and preserves
-the existing conservative region when it cannot establish one address.
-Apply the rule to captured descriptors as well as current storage, and to
-nested selectors before the next stored descriptor is read. Direct and
-captured route controls must distinguish these cases for the same path.
-When a live binding carries only address bounds, a terminal effect can use
-those regions. Following another stored pointer or proving an actual address
-still requires the descriptor. Apply that rule to both live and captured
-bindings, including activation and lifecycle cleanup.
+The checked route owns the descriptor read and its target type. Entry
+preparation makes each selected component available at its actual location.
+A result, write, or move carries that binding into its new owner. Call,
+activation, and cleanup use the same binding while traversing effects.
+Maintain exact addresses, complete typed regions, and opaque region bounds
+through the entire route. Only a checked address can prove initialization,
+ownership, or a performed retirement. An inactive payload contributes no
+target. An active payload with an unresolved descriptor still needs a
+conservative effect. A raw pointer field can reach across ownership
+boundaries. Distinct field names alone cannot establish disjointness.
 
-The first failing `commit_start` condition in `start_frame` reads
-`owner.selected.status` after `register_task`. The recorded registration
-summary includes unbounded writes and replacements with no access type.
-`register_task` binds the scheduler argument returned by `scheduler_reference`.
-The selected result is a field of the reached execution domain. Entry
-preparation collects receiver subject paths and output backing reads, yet
-omits the relationship from the reached domain to a returned inline field
-when the output route has no backing step. The scheduler's demanded pointer
-field then has no entry value at its original physical location. Admit the
-checked selected output paths and the prepared descriptor reads in effect
-continuations into the same finite demand closure. Source, imported,
-deferred, and cleanup consumers use the resulting entry routes. Only the
-reads required by checked paths enter the closure. Keep the target's
-initialized shape, possible regions, and actual address independent.
-| Planning | Consecutive unbounded effects with identical physical scope repeatedly weaken the same memory. Apply the physical transition once and keep typed effects for proof framing, summaries, and diagnostics. Leave precise writes and retirements ordered. Empty pointee preservation entries carry no evidence and need no mask allocation. Measure the unchanged native query and emission boundaries with the completed batch. |
-
-Reuse the same optimized binary for bootstrap and the fixed inventory. The
-current investigation uses actual checked captures and publication records.
-A finite alias bound cannot prove one exact target, initialization, ownership,
-or a performed retirement. Reconsider a storage change if it equates a live
-owner with an unrelated or historical carrier.
-
-The next batch also addresses repeated proof preparation in cleanup
-certification. The completed build spent 22.0 worker seconds in cleanup
-completion against 0.93 in the reference. Source property selection,
-imported obligation selection, and finalizer success verification read the
-admitted arguments, assumptions, and implementation witnesses. Their common
-instantiator currently walks the complete entry, including normal outputs,
-failure rows, extraction records, and carried authority. Give certification
-a borrowed view of its actual proof inputs. Keep full captured-value
-remapping for storage and deferred flow. The new view preserves the existing
-controls, but cleanup completion is still at the same cost. Inspect repeated
-proof preparation within the selected invocation and cleanup phases.
-
-For entry witnesses, an ordinary conjunct in a checked trusted requirement
-establishes its fact on entry. A trusted predicate or unresolved disjunction
-does not establish an ordinary result by itself. The entry ledger must bind
-forwarded contract views to the same selected referent that admission and
-extraction read. `commit_start` returns the admitted nullable token with its
-original identity, yet neither extraction nor the next call receives its
-producer witness. Normalize checked entry reference origins when they
-identify one complete referent. Register the resulting clause with that
-carrier before any write. Keep unresolved origins conditional. A move may
-carry the selected contents and their proof, while the emptied source and
-an unrelated optional slot gain no permission.
+Use the nested buffer and imported reference controls for the positive
+cases and the unrelated extraction, overlapping write, and old-generation
+controls for the negative cases. Verify the same checked route with normal,
+abnormal, and deferred completion. Compare the Windows bootstrap and
+fixed compilation inventory with the same optimized binary. Reconsider
+any proposed representation that requires replaying previous writes or
+inferring a live pointer from a type or a former owner.
 
 ## Acceptance
 

@@ -286,6 +286,13 @@ resolution checks that alternative before following a stored reference or
 owning backing. Missing descriptor knowledge still leaves the effect
 unresolved.
 
+Checked result views and effect continuations contribute their selected
+paths to entry preparation. Type-level demand propagates across inline
+components and through prepared raw-address reads. The finite closure
+stops recursive type expansion. The physical state resolves the resulting
+routes from its admitted entry values, including backing selection for
+owned buffers.
+
 Storage flow records the scope of mutable input targets as it admits a call.
 Certification reads that scope when checking a callee under its Observation
 obligation. The executed transition separately records which observations can

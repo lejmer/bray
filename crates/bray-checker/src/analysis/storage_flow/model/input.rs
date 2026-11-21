@@ -80,10 +80,21 @@ impl StorageFlowInput {
         path: &bray_bound_tree::StorageReferencePath,
         pointee: Option<bray_symbols::TypeId>,
     ) -> Option<crate::representation::RawBufferFields> {
+        if path.reads().any(|(_, index, _, _)| index >= path.projections().len()) {
+            return None;
+        }
+
+        self.buffer_pointer_fields(pointee, path.projections().last())
+    }
+
+    pub(in crate::analysis::storage_flow) fn buffer_pointer_fields(
+        &self,
+        pointee: Option<bray_symbols::TypeId>,
+        projection: Option<&bray_bound_tree::StorageProjection>,
+    ) -> Option<crate::representation::RawBufferFields> {
         self.raw_buffers.values().find_map(|fields| {
             (pointee == Some(fields.element)
-                && path.reads().all(|(_, index, _, _)| index < path.projections().len())
-                && path.projections().last() == Some(&bray_bound_tree::StorageProjection::ProductField(fields.pointer)))
+                && projection == Some(&bray_bound_tree::StorageProjection::ProductField(fields.pointer)))
                 .then_some(*fields)
         })
     }
