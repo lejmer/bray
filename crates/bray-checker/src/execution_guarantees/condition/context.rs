@@ -133,7 +133,7 @@ impl PreparedFacts {
 pub(crate) struct ExecutionProofCache {
     facts: Mutex<HashMap<[usize; 2], Arc<PreparedFacts>>>,
     inputs: Mutex<HashMap<ExecutionAssumptions, Arc<ProofMemo>>>,
-    aliases: Mutex<HashMap<usize, (ExecutionAssumptions, Arc<ProofMemo>)>>,
+    aliases: Mutex<HashMap<usize, (std::sync::Weak<BTreeSet<(ExecutionCondition, bool)>>, Arc<ProofMemo>)>>,
 }
 
 impl std::fmt::Debug for ExecutionProofCache {
@@ -209,7 +209,7 @@ impl ExecutionProofCache {
     }
 
     fn prepare_input(&self, input: &ExecutionAssumptions) -> Arc<ProofMemo> {
-        let storage = input.storage_key();
+        let storage = Arc::as_ptr(input.snapshot()).addr();
 
         if let Some((_, prepared)) = self.aliases.lock().expect("proof input aliases lock is not poisoned").get(&storage) {
             return Arc::clone(prepared);
@@ -218,9 +218,10 @@ impl ExecutionProofCache {
         let prepared = Arc::clone(self.inputs.lock().expect("proof input index lock is not poisoned")
             .entry(input.clone()).or_insert_with(|| Arc::new(ProofMemo::new())));
 
-        // Retain every physical alias, including equal independently allocated inputs.
+        // A weak reference prevents address reuse while allowing an equivalent
+        // snapshot's last strong owner to release or move its evidence.
         self.aliases.lock().expect("proof input aliases lock is not poisoned")
-            .insert(storage, (input.clone(), Arc::clone(&prepared)));
+            .insert(storage, (Arc::downgrade(input.snapshot()), Arc::clone(&prepared)));
 
         prepared
     }
@@ -641,6 +642,7 @@ mod tests {
         assert!(!rebuilt.shares_storage(&facts));
         assert_eq!(alias.prove_trusted(&claim), Some(true));
         assert!(Arc::ptr_eq(prepared, alias.prepared.get().expect("equal rebuilt inputs reuse preparation")));
+        assert_eq!(Arc::strong_count(rebuilt.snapshot()), 1, "an equivalent input retains its own evidence");
 
         let mut unchanged = copied.clone();
 

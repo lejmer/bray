@@ -264,15 +264,24 @@ both retained frames feasible. It also exposed an earlier loss. The
 branch merge brings together two admissions from the same source, one of
 which has already lost its captured witness. Both frames then reach
 execution without witness evidence. The valid transfer still fails and
-the active numeric extraction is accepted. Trace how a move installs the
-frame and how repeated evaluation retires the old input, using the
-checked physical destination and the frame's existing input capture.
-Keep a surviving frame's private witnesses tied to its own input, and
-keep prior input evidence from proving claims about a new evaluation.
-Start, await, cancellation, and cleanup consume the reached frame
-alternatives. Check both slots, valid transfers, active Boolean and
-numeric rejections, inactive controls, genuine opacity, and source and
-imported outcomes against the fixed comparison.
+the active numeric extraction is accepted.
+
+When the loop evaluates the argument producer again, the nullable slot
+still owns the previous frame and its private witness. The bound input
+has its original expression identity. Its physical capture's root names
+a projection coordinate, which can be reused. `retire_evaluation` accepts
+that old expression as live input to a previously formed frame, then
+revokes the witness when it expires the expression. The held frame needs
+a private input identity tied to its actual storage owner across loop
+joins. The reached argument and its witness, assumptions, bound output
+rows, and actual descriptor must keep referring to the same value. A
+later evaluation must remain independent, including when only one frame
+has authority. A later effect or cleanup can still invalidate the
+argument's reached storage through its checked targets. Start, await,
+cancellation, and cleanup consume the reached frame alternatives. Check
+both slots, valid transfers, active Boolean and numeric rejections,
+inactive and independent-owner controls, genuine opacity, and source
+and imported outcomes against the fixed comparison.
 
 The storage footprint records inline reference fields as descriptor slots.
 An effect on a sibling can invalidate the enclosing value while the checked
@@ -634,9 +643,9 @@ edges.
    Run native workflows outside the sandbox.
 5. Measure an optimized build on 24 cores. Acceptance requires planning in the
    prior 17–25 second range and a finished binary within 60 seconds. The latest
-   unprofiled Windows standard-library build took 32.5 seconds to plan and 34.8
-   seconds to emit at `72f589608`. The profiled run still spent 136.7 worker
-   seconds in the result dependency solve and 41.3 in the execution candidate
-   scan, up from the reference profile's 60.0 and 10.2 seconds.
+   unprofiled Windows standard-library build took 32.0 seconds to plan and 33.7
+   seconds to emit. The profile at `72f589608` spent 136.7 worker seconds in
+   the result dependency solve and 41.3 in the execution candidate scan, up
+   from the reference profile's 60.0 and 10.2 seconds.
 6. Complete the repository audit and independent review. Push to the existing
    draft PR. BRA-695 and BRA-696 cover native execution and shutdown.
