@@ -30,12 +30,23 @@ trusted internal func begin(pos token: Producer, pos origin: u64) -> usize
     ) -> usize
         uses(intrinsic, raw_memory, unchecked_alias)
     {
-        let address = trusted resident_address(pool, token, descriptor, dispatch = true);
-
-        if address == 0
+        let address =
         {
-            return 0;
-        }
+            let entry = match consume trusted resident_frame_slot(pool, token, descriptor)
+            {
+                case ?entry { yield entry; }
+                case none { return 0; }
+            };
+
+            if !(entry.state matches bray.runtime.bootstrap.storage.State.Inactive(_))
+            {
+                return 0;
+            }
+
+            entry.state = bray.runtime.bootstrap.storage.State.Dispatched;
+
+            yield entry.address + descriptor.header;
+        };
 
         let pointer = trusted core.target.from_exposed_address<Header>(address = address);
 
@@ -65,6 +76,7 @@ trusted internal func begin(pos token: Producer, pos origin: u64) -> usize
         header.origin = origin;
         header.phase = RUNNING;
         header.current = address;
+
         return address;
     };
 
@@ -97,6 +109,7 @@ trusted internal func attach(
     child.retained_affinity = affinity;
     child.retained_lanes = lanes;
     child.retained_origin = origin;
+
     parent.child = child_address;
 }
 
@@ -116,6 +129,7 @@ trusted internal func detach(
     }
 
     parent.child = 0;
+
     child.parent = 0;
     child.retained_affinity = 0;
     child.retained_lanes = 0;

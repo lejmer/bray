@@ -84,6 +84,7 @@ internal const func open_binding_owner(pos owner: &BindingOwnership) -> &Owner
 // another task or copying its checked continuation metadata.
 internal struct Context
 {
+    // Field destruction releases the allocation after the remaining context fields.
     mut allocation: std.memory.RawAllocation?;
     mut binding: Uninit<(Binding?)>;
     mut attachment: Uninit<(bray.runtime.bootstrap.host.attachment.Owner?)>;
@@ -94,7 +95,7 @@ internal struct Context
     thread: u64;
     mut driver: bray.runtime.bootstrap.scheduler.Lane;
     mut lanes: u32;
-    mut worker: DataPointer<u8>;
+    mut worker_attached: bool;
     task: core.atomic.Atomic<usize>;
     registration: core.atomic.Atomic<u64>;
     lane: core.atomic.Atomic<u32>;

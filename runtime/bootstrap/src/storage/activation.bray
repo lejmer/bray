@@ -78,6 +78,7 @@ trusted internal func reserve_lease(pos pool: &mut bray.runtime.bootstrap.Report
 
             entry.epoch = epoch;
             entry.state = State.Reserved;
+
             yield (next, entry.address);
         };
 
@@ -95,6 +96,7 @@ trusted internal func reserve_lease(pos pool: &mut bray.runtime.bootstrap.Report
     };
 
     pool.next_epoch += 1;
+
     return lease;
 }
 
@@ -163,6 +165,7 @@ trusted internal func activate_value(
     }
 
     entry.state = State.Active;
+
     return trusted core.target.from_exposed_address<u8>(address = entry.address);
 }
 
@@ -189,52 +192,40 @@ trusted internal func publish_frame(
     }
 
     entry.state = State.Inactive(identity);
+
     return true;
 }
 
-// Inspection checks the same registered identity as dispatch without consuming it.
-// Dispatch consumes that state before exposing the header to its exclusive owner.
-trusted internal func frame_address(
+// This lookup leaves the registered state intact. The pool borrow keeps the
+// selected slot available for inspection or a checked dispatch transition.
+trusted internal func registered_frame_slot(
     pos pool: &mut bray.runtime.bootstrap.ReportPool,
     pos lease: &Lease,
     pos descriptor: &Descriptor,
-    pos identity: usize,
-    dispatch: bool,
-) -> usize
+    pos identity: usize
+) -> (&mut Slot)?
 {
     if !trusted matches_shape(pool, lease, descriptor)
     {
-        return 0;
+        return none;
     }
 
     let values = trusted shapes(pool);
     let entry = trusted slot(&mut values[lease.shape - 1], lease.slot);
 
-    match entry.state
+    let registered = match entry.state
     {
-        case State.Inactive(registered)
-        {
-            if registered != identity
-            {
-                return 0;
-            }
-        }
-        case State.Retained(registered)
-        {
-            if dispatch || registered != identity
-            {
-                return 0;
-            }
-        }
-        case _ { return 0; }
+        case State.Inactive(registered) { yield registered; }
+        case State.Retained(registered) { yield registered; }
+        case _ { return none; }
+    };
+
+    if registered != identity
+    {
+        return none;
     }
 
-    if dispatch
-    {
-        entry.state = State.Dispatched;
-    }
-
-    return entry.address;
+    return entry;
 }
 
 // Return a terminal frame to its surviving source owner without allowing resume.
@@ -280,6 +271,7 @@ trusted internal func release_value(pos pool: &mut bray.runtime.bootstrap.Report
 
     shape.free = lease.slot;
     shape.available += 1;
+
     return true;
 }
 

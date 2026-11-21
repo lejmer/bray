@@ -45,6 +45,7 @@ trusted internal func main_drive() -> u32
     }
 
     trusted dispatch_ready(&selected, owner);
+
     return 0;
 }
 
@@ -117,6 +118,7 @@ trusted internal func take_ready(
     };
 
     pending = none;
+
     return ready;
 }
 
@@ -146,6 +148,7 @@ trusted internal func dispatch_ready(pos selected: &Current, pos owner: &Referen
     let dispatched = trusted bray.runtime.bootstrap.task.take_retained(task);
     let reference = &dispatched;
     let returned = trusted dispatch_task(selected, owner, reference, ready.registration, ready.lane);
+
     let (progress, execution, kind) = returned;
 
     if kind == 0 && progress.kind == 6
@@ -263,15 +266,14 @@ trusted internal func wait_ready(pos selected: &Current, pos owner: &Reference)
     if trusted acquire_ready(selected, owner)
     {
         trusted bray.runtime.bootstrap.scheduler.withdraw_parking(trusted scheduler_reference(owner), group);
-
         trusted dispatch_ready(selected, owner);
+
         return;
     }
 
     let milliseconds = trusted deadline_wait(owner, 1000);
 
     trusted bray.runtime.bootstrap.scheduler.park_reference(trusted scheduler_reference(owner), group, milliseconds);
-
     trusted bray.runtime.bootstrap.scheduler.withdraw_parking(trusted scheduler_reference(owner), group);
 }
 
@@ -359,6 +361,7 @@ trusted internal func destroy_reference(
 
         control.registration = 0;
         control.native_context = 0;
+
         yield (registration, metadata);
     };
 
@@ -368,6 +371,7 @@ trusted internal func destroy_reference(
     }
 
     trusted release_context(execution, metadata);
+
     return 0;
 }
 
@@ -378,19 +382,20 @@ trusted internal func retain_ready_driver(
 )
     requires(trusted bray.runtime.bootstrap.execution.retained(owner = owner))
     ensures(trusted bray.runtime.bootstrap.execution.retained(owner = owner))
-    uses(layout_reinterpret)
 {
-    let scope = trusted std.memory.reinterpret<bray.runtime.bootstrap.worker.Scope, u8>(driver.worker);
-    let slot = std.memory.address_of<DataPointer<bray.runtime.bootstrap.worker.Scope>>(&scope);
+    let worker_thread: u64? = if driver.worker_attached
+    {
+        yield driver.thread;
+    }
+    else
+    {
+        yield none;
+    };
 
-    let authorize = trusted lambda(
-        pos driver: &Context,
-        pos slot: DataPointer<DataPointer<bray.runtime.bootstrap.worker.Scope>>
-    )
-
-        ensures(trusted bray.runtime.bootstrap.scheduler.driver_entry(scope = slot))
-        executes(pure, total) {};
-
-    trusted authorize(driver, slot);
-    trusted bray.runtime.bootstrap.scheduler.recovery(trusted scheduler_slot(owner), registration, slot, 1);
+    trusted bray.runtime.bootstrap.scheduler.retain_registration_driver(
+        trusted scheduler_reference(owner),
+        registration,
+        worker_thread,
+        true
+    );
 }

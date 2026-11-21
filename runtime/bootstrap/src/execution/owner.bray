@@ -36,7 +36,7 @@ trusted internal func origin_context(pos attachment: bray.runtime.bootstrap.host
             thread = thread
         },
         lanes = 0xff0,
-        worker = std.memory.null<u8>(),
+        worker_attached = false,
         task = core.atomic.initialize<usize>(0),
         registration = core.atomic.initialize<u64>(0),
         lane = core.atomic.initialize<u32>(0),

@@ -126,8 +126,9 @@ trusted internal func nested_context(
     };
 
     value.lanes = active.lanes;
-    value.worker = active.worker;
+    value.worker_attached = active.worker_attached;
     value.binding = core.memory.uninit_from<(Binding?)>(trusted pin_binding(trusted pin(bound_execution(parent))));
+
     return value;
 }
 
@@ -248,6 +249,7 @@ trusted internal func resume_operation() -> BindingResume
         executes(pure, total) {};
 
     trusted authorize(pointer);
+
     return trusted std.memory.callable_from_pointer<BindingResume>(pointer);
 }
 

@@ -156,7 +156,6 @@ trusted internal func retire_driver(pos owner: bray.runtime.bootstrap.host.Execu
 {
     let (attachment, previous) = trusted take_retiring_resources(&owner, identity);
     let incidents = trusted prepare_retirement(&owner);
-    let remaining = retire_driver_resources(attachment, previous, identity);
 
     let pointer =
     {
@@ -171,17 +170,15 @@ trusted internal func retire_driver(pos owner: bray.runtime.bootstrap.host.Execu
         yield std.memory.address_of<Context>(value);
     };
 
-    // The temporary inspection borrow ends before the context packet moves.
-    // Its binding, provider, attachment and predecessor slots are already empty.
     let retired = trusted std.memory.read<Context>(pointer);
 
-    let allocation = match consume retired.allocation
+    if retired.allocation matches none
     {
-        case ?allocation { yield allocation; }
-        case none { yield trusted core.target.abort(); }
-    };
+        trusted core.target.abort();
+    }
 
-    _ = allocation;
+    let remaining = retire_driver_resources(attachment, previous, identity);
+    _ = retired;
 
     return incidents + remaining;
 }
