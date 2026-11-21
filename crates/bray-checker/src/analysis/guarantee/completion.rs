@@ -25,7 +25,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
 
         let mut candidate = crate::ExecutionCandidate::default();
         let mut reached_cleanup = BTreeMap::<_, ReachedScopeCleanup>::new();
-        let mut dependencies = BTreeSet::new();
+        let mut dependencies = self.domain.consumed_completion_dependencies.borrow().clone();
         let mut results = BTreeSet::new();
 
         for block in self.domain.graph.blocks() {

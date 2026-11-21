@@ -301,6 +301,10 @@ impl<State: OutcomeState> FlowOutcomes<State> {
             .map(|(path, state)| (path.as_ref(), state))
     }
 
+    pub(super) fn into_states(mut self) -> impl Iterator<Item = (Option<OutcomePath>, State)> {
+        self.take().flat_map(|(_, states)| states)
+    }
+
     pub(super) fn joined(&self, mut join: impl FnMut(&mut State, &State)) -> Option<Cow<'_, State>> {
         let mut states = self.states();
         let first = states.next()?;

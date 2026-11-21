@@ -29,8 +29,8 @@ impl StorageFlowOutcomes {
         self.0.iter()
     }
 
-    pub(super) fn into_states(mut self) -> impl Iterator<Item = (Option<OutcomePath>, StorageFlowState)> {
-        self.0.take().flat_map(|(_, states)| states)
+    pub(super) fn into_states(self) -> impl Iterator<Item = (Option<OutcomePath>, StorageFlowState)> {
+        self.0.into_states()
     }
 
     pub(in crate::analysis::storage_flow) fn apply_operation<C: CheckerRequestContext + ?Sized>(

@@ -23,6 +23,7 @@ pub(in crate::analysis::guarantee) struct ExecutionFlow<
 > {
     pub(in crate::analysis::guarantee) domain: ExecutionFlowDomain<'a, 'view, C>,
     pub(super) states: FixedPointResult<FlowOutcomes<ExecutionState>>,
+    pub(super) reached_acyclic: BTreeSet<AnalysisBlockId>,
 }
 
 /// Evidence produced by the latest transfer of a block's reached alternatives.
@@ -62,6 +63,7 @@ impl OperationDomainEvidence {
 pub(crate) struct ExecutionFlowDomain<'a, 'view, C: CheckerRequestContext + ?Sized> {
     pub(in crate::analysis::guarantee) proofs: std::sync::Arc<crate::execution_guarantees::ExecutionProofCache>,
     pub(in crate::analysis::guarantee) candidate_evidence: RefCell<BTreeMap<AnalysisBlockId, BlockExecutionEvidence>>,
+    pub(in crate::analysis::guarantee) consumed_completion_dependencies: RefCell<BTreeSet<crate::ExecutionCompletionDependency>>,
     pub(super) values: &'a crate::analysis::liveness::ValueRetention,
     pub(in crate::analysis::guarantee) liveness: &'a bray_bound_tree::Liveness,
     pub(in crate::analysis) retained_storage: BTreeSet<bray_bound_tree::StorageAccessId>,
@@ -80,6 +82,7 @@ pub(crate) struct ExecutionFlowDomain<'a, 'view, C: CheckerRequestContext + ?Siz
         &'a bray_bound_tree::GeneratorObservations,
     pub(in crate::analysis) yield_targets: &'a BTreeMap<BoundExpressionId, BoundExpressionId>,
     pub(in crate::analysis::guarantee) graph: &'a ControlFlowGraph,
+    pub(super) completion_blocks: BTreeSet<AnalysisBlockId>,
     pub(super) excluded_edges: BTreeSet<AnalysisEdgeId>,
     pub(in crate::analysis) result_edges: &'a BTreeSet<AnalysisEdgeId>,
     pub(super) invocation_failures: &'a BTreeSet<(bray_bound_tree::BoundExecutionSite, bray_symbols::DependencyFailureKind)>,
@@ -162,7 +165,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }
     }
 
-    fn finish_edge(&self, mut next: ExecutionState, edge: &AnalysisEdge) -> Option<ExecutionState> {
+    pub(super) fn finish_edge(&self, mut next: ExecutionState, edge: &AnalysisEdge) -> Option<ExecutionState> {
         next.cleanup = super::super::super::outcomes::cleanup_successor(next.cleanup.as_ref(), edge)?;
 
         if edge.kind() != AnalysisEdgeKind::Suspension {

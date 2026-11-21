@@ -7,7 +7,10 @@ use bray_bound_tree::{BoundExpressionId, CheckedExpressionSemantics};
 use crate::execution_guarantees::ExecutionCondition;
 use crate::{CheckerRequestContext, CheckerUnitView};
 
-use super::super::super::fixed_point::{FixedPointOutcome, solve_fixed_point};
+use super::super::super::fixed_point::{FixedPointOutcome, solve_fixed_point_with};
+use super::super::super::model::AnalysisBlock;
+use super::super::super::outcomes::FlowOutcomes;
+use super::super::state::ExecutionState;
 
 impl<'a, 'view, C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'a, 'view, C> {
     pub(in crate::analysis::guarantee) fn solve(
@@ -20,8 +23,18 @@ impl<'a, 'view, C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'a, 'view
         entry.extend_from_slice(assumptions);
         self.excluded_edges = excluded_edges;
         self.candidate_evidence.get_mut().clear();
+        self.consumed_completion_dependencies.get_mut().clear();
 
-        let states = match solve_fixed_point(self.graph, &self, &self.request) {
+        let mut reached_acyclic = BTreeSet::new();
+        let transfer = |block: &AnalysisBlock, input: FlowOutcomes<ExecutionState>| {
+            if input.states().next().is_some() {
+                reached_acyclic.insert(block.id());
+            }
+
+            self.transfer_owned(block, input)
+        };
+
+        let states = match solve_fixed_point_with(self.graph, &self, &self.request, Some(transfer)) {
             FixedPointOutcome::Complete(states) => states,
             FixedPointOutcome::Cancelled => return None,
             FixedPointOutcome::ConvergenceInvariantViolated => {
@@ -29,13 +42,13 @@ impl<'a, 'view, C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'a, 'view
             }
         };
 
-        Some(ExecutionFlow { domain: self, states })
+        Some(ExecutionFlow { domain: self, states, reached_acyclic })
     }
 }
 
 impl<'a, 'view, C: CheckerRequestContext + ?Sized> ExecutionFlow<'a, 'view, C> {
     pub(in crate::analysis::guarantee) fn into_domain(self) -> ExecutionFlowDomain<'a, 'view, C> {
-        let ExecutionFlow { mut domain, states } = self;
+        let ExecutionFlow { mut domain, states, .. } = self;
 
         drop(states);
         domain.proofs = Default::default();
@@ -147,6 +160,7 @@ pub(crate) fn prepare_execution_flow<'a, 'view, C: CheckerRequestContext + ?Size
 
     ExecutionFlowDomain {
         candidate_evidence: Default::default(),
+        consumed_completion_dependencies: Default::default(),
         // Exact immutable query results survive cleanup-feasibility rounds within this body.
         proofs: Default::default(),
         dependencies,
@@ -172,6 +186,7 @@ pub(crate) fn prepare_execution_flow<'a, 'view, C: CheckerRequestContext + ?Size
         yield_targets: &prepared.yield_targets,
         generator_observations: &prepared.generator_observations,
         graph: &prepared.graph,
+        completion_blocks: prepared.graph.completion_exits().map(|exit| exit.block()).collect(),
         excluded_edges: BTreeSet::new(),
         result_edges: &prepared.result_edges,
         invocation_failures: &prepared.invocation_failures,

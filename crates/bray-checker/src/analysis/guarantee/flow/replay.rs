@@ -13,7 +13,8 @@ use crate::CheckerRequestContext;
 
 impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
     pub(in crate::analysis::guarantee) fn is_block_reachable(&self, block: AnalysisBlockId) -> bool {
-        self.states.state(block).is_some_and(|outcomes| outcomes.states().next().is_some())
+        self.reached_acyclic.contains(&block)
+            || self.states.state(block).is_some_and(|outcomes| outcomes.states().next().is_some())
     }
 
     pub(in crate::analysis::guarantee) fn entry(&self, block: AnalysisBlockId) -> Option<Cow<'_, ExecutionState>> {
@@ -49,6 +50,46 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
 }
 
 impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
+    pub(super) fn transfer_owned(
+        &self,
+        block: &AnalysisBlock,
+        mut outcomes: FlowOutcomes<ExecutionState>,
+    ) -> FlowOutcomes<ExecutionState> {
+        let mut evidence = BlockExecutionEvidence::default();
+
+        for operation in block.operations().iter().filter_map(|id| self.graph.operation(*id)) {
+            if outcomes.states().next().is_none() {
+                evidence.first_unreached = Some(operation.id());
+
+                break;
+            }
+
+            self.replay_outcomes(&mut outcomes, block.id(), operation, &mut evidence);
+        }
+
+        let mut records = self.candidate_evidence.borrow_mut();
+
+        if evidence.is_empty() {
+            records.remove(&block.id());
+        } else {
+            records.insert(block.id(), evidence);
+        }
+
+        outcomes
+    }
+
+    fn merge_reached_edge(
+        &self,
+        target: &mut FlowOutcomes<ExecutionState>,
+        (edge, join): (&AnalysisEdge, ExecutionJoin<'_>),
+        path: Option<&OutcomePath>,
+        row: Option<usize>,
+        state: ExecutionState,
+    ) -> bool {
+        let path = edge_path(self.graph, edge, path, self.result_edges.contains(&edge.id()), row);
+        target.merge(path, Cow::Owned(state), |current, incoming| join_states(current, incoming, join))
+    }
+
     pub(super) fn replay_admission(
         &self, state: &mut ExecutionState, point: &AnalysisOperation, selection: Option<&StorageOutcomeRows>,
     ) {
@@ -289,29 +330,8 @@ impl<C: CheckerRequestContext + ?Sized> FixedPointDomain for ExecutionFlowDomain
     }
 
     fn transfer(&self, block: &AnalysisBlock, source: &Self::State) -> Self::State {
-        // The solver retains the immutable entry while operations update its selected outputs.
-        let mut outcomes = source.clone();
-        let mut evidence = BlockExecutionEvidence::default();
-
-        for operation in block.operations().iter().filter_map(|id| self.graph.operation(*id)) {
-            if outcomes.states().next().is_none() {
-                evidence.first_unreached = Some(operation.id());
-
-                break;
-            }
-
-            self.replay_outcomes(&mut outcomes, block.id(), operation, &mut evidence);
-        }
-
-        let mut records = self.candidate_evidence.borrow_mut();
-
-        if evidence.is_empty() {
-            records.remove(&block.id());
-        } else {
-            records.insert(block.id(), evidence);
-        }
-
-        outcomes
+        // Cyclic inputs remain available for convergence and rank checks.
+        self.transfer_owned(block, source.clone())
     }
 
     fn propagate(&self, source: &Self::State, edge: &AnalysisEdge, target: &mut Self::State) -> bool {
@@ -320,10 +340,39 @@ impl<C: CheckerRequestContext + ?Sized> FixedPointDomain for ExecutionFlowDomain
 
         for (path, state) in source.iter() {
             self.replay_edge(state, edge, |row, incoming| {
-                let path = edge_path(self.graph, edge, path, self.result_edges.contains(&edge.id()), row);
-
-                changed |= target.merge(path, Cow::Owned(incoming), |state, next| join_states(state, next, join));
+                changed |= self.merge_reached_edge(target, (edge, join), path, row, incoming);
             });
+        }
+
+        changed
+    }
+
+    fn propagate_settled_output(
+        &self,
+        source: &mut Option<Self::State>,
+        edge: &AnalysisEdge,
+        target: &mut Self::State,
+    ) -> bool {
+        if self.excluded_edges.contains(&edge.id()) {
+            return false;
+        }
+
+        if self.completion_blocks.contains(&edge.source()) {
+            return self.propagate(source.as_ref().expect("completion retains its output"), edge, target);
+        }
+
+        let source = source.take().expect("a settled sequential predecessor has an output");
+        let join = ExecutionJoin::incoming_block(self.graph, edge.target());
+        let mut changed = false;
+
+        for (path, state) in source.into_states() {
+            if !state.completion_dependencies.is_empty() {
+                self.consumed_completion_dependencies.borrow_mut().extend(state.completion_dependencies.iter().copied());
+            }
+
+            if let Some(incoming) = self.finish_edge(state, edge) {
+                changed |= self.merge_reached_edge(target, (edge, join), path.as_ref(), None, incoming);
+            }
         }
 
         changed
