@@ -214,7 +214,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     pub(in crate::analysis) fn single_phase_invocation(&self, operation: crate::analysis::model::AnalysisOperationKind) -> Option<BoundExpressionId> {
         let crate::analysis::model::AnalysisOperationKind::Bound(AnyBoundNodeId::Expression(expression)) = operation else { return None; };
 
-        (self.dependencies.calls().contains_key(&expression.into()) || self.memory.operation(expression).is_some()).then_some(expression)
+        let site = expression.into();
+
+        (self.dependencies.calls().contains_key(&site)
+            || self.memory.operation(expression).is_some()
+            || self.request.trusted_contracts().is_some_and(|contracts| contracts.calls.contains_key(&site)))
+            .then_some(expression)
     }
 
     pub(in crate::analysis) fn admit_inline_invocation(

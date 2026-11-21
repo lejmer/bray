@@ -491,12 +491,12 @@ fn copied_raw_buffer_fields_do_not_establish_initialized_ownership() {
     ] {
         let source = format!(
             r#"
-        module app;
+        trusted module app;
 
         using core.memory;
         using std.memory;
 
-        func forged_buffer() {{
+        trusted func forged_buffer() uses(raw_memory) {{
             let mut buffer: std.memory.RawBuffer<u8> = {{
                 pointer = core.memory.null<u8>(), capacity = 1, initialized = {initialized},
             }};
@@ -2235,18 +2235,16 @@ fn raw_reads_retire_initialization_after_moves_and_opaque_calls() {
 
 #[test]
 fn raw_allocation_copied_fields_do_not_transfer_the_live_owner() {
-    for (operation, expected_site, deallocate) in [
-        ("let second: std.memory.RawAllocation = { pointer = first.pointer, bytes = first.bytes, align = first.align };", "let second:", false),
-        ("let second = pack(pointer = first.pointer, bytes = first.bytes, align = first.align);", "pack(pointer = first.pointer", false),
-        ("core.memory.deallocate(first.pointer, bytes = first.bytes, align = first.align);", "core.memory.deallocate(first.pointer", true),
-        ("let pointer = first.pointer; let bytes = first.bytes; let align = first.align; let second = pack(pointer = pointer, bytes = bytes, align = align);", "pack(pointer = pointer", false),
-        ("let pointer = first.pointer; let bytes = first.bytes; let align = first.align; let second = pack_with_owner(owner = first, pointer = pointer, bytes = bytes, align = align);", "pack_with_owner(owner = first", false),
+    for (operation, expected_site) in [
+        ("let second: std.memory.RawAllocation = { pointer = first.pointer, bytes = first.bytes, align = first.align };", "let second:"),
+        ("let second = pack(pointer = first.pointer, bytes = first.bytes, align = first.align);", "pack(pointer = first.pointer"),
+        ("core.memory.deallocate(first.pointer, bytes = first.bytes, align = first.align);", "core.memory.deallocate(first.pointer"),
+        ("let pointer = first.pointer; let bytes = first.bytes; let align = first.align; let second = pack(pointer = pointer, bytes = bytes, align = align);", "pack(pointer = pointer"),
+        ("let pointer = first.pointer; let bytes = first.bytes; let align = first.align; let second = pack_with_owner(owner = first, pointer = pointer, bytes = bytes, align = align);", "pack_with_owner(owner = first"),
     ] {
-        let (trust, capabilities) = if deallocate { ("trusted ", "uses(manual_alloc)") } else { ("", "") };
-
         let source = format!(
             r#"
-            {trust}module app;
+            trusted module app;
 
             using core.memory;
             using std.memory;
@@ -2257,7 +2255,7 @@ fn raw_allocation_copied_fields_do_not_transfer_the_live_owner() {
                 return {{ pointer = pointer, bytes = bytes, align = align }};
             }}
 
-            {trust}func duplicate() {capabilities} {{
+            trusted func duplicate() uses(manual_alloc) {{
                 let first = std.memory.allocate(std.memory.MemoryLayout {{ bytes = 8, align = 8 }});
                 {operation}
             }}
