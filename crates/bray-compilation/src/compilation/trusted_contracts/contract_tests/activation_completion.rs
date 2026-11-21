@@ -4,14 +4,14 @@ use super::fixtures::{assert_production_probe, production_host_compilation};
 #[test]
 #[ignore = "tier:proof"]
 fn activation_retirement_does_not_preserve_dispatch_ownership() {
-    for (operation, valid) in [(0, true), (5, false)] {
+    let cases = [(0, true), (5, false)].into_iter().enumerate().map(|(case, (operation, valid))| {
         let caller = format!(
             r#"
             trusted internal module bray.runtime.bootstrap;
 
             using internal bray.runtime.bootstrap.activation;
             using internal bray.runtime.bootstrap.entry;
-            trusted func production_probe(
+            trusted func production_probe_{case}(
                 pos cursor: &mut bray.runtime.bootstrap.activation.run.Cursor,
                 pos callback: bray.runtime.bootstrap.activation.callback.Invoke,
                 pos ready: bray.runtime.bootstrap.activation.callback.Ready,
@@ -30,8 +30,10 @@ fn activation_retirement_does_not_preserve_dispatch_ownership() {
             "#
         );
 
-        super::fixtures::assert_production_contract(&caller, (!valid).then_some(bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven), "let (progress, _, _, _, _) = bray.runtime.bootstrap.activation.execution.invoke", "selected");
-    }
+        (caller, (!valid).then_some(bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven), "let (progress, _, _, _, _) = bray.runtime.bootstrap.activation.execution.invoke", "selected")
+    });
+
+    super::fixtures::assert_production_contracts(cases);
 }
 
 #[test]
@@ -83,7 +85,7 @@ fn activation_deferred_retirement_preserves_dispatch_ownership() {
 #[test]
 #[ignore = "tier:proof"]
 fn activation_retirement_requires_retained_native_destinations() {
-    for (requirement, valid) in [
+    let cases = [
         ("", false),
         (
             "requires(trusted bray.runtime.bootstrap.activation.execution.destinations(pointer = other, output = output, records = records, incidents = incidents))",
@@ -105,7 +107,7 @@ fn activation_retirement_requires_retained_native_destinations() {
             "requires(trusted bray.runtime.bootstrap.activation.execution.destinations(pointer = pointer, output = output, records = records, incidents = incidents))",
             true,
         ),
-    ] {
+    ].into_iter().enumerate().map(|(case, (requirement, valid))| {
         let caller = format!(
             r#"
             trusted internal module bray.runtime.bootstrap;
@@ -113,7 +115,7 @@ fn activation_retirement_requires_retained_native_destinations() {
             using internal bray.runtime.bootstrap.activation;
             using internal bray.runtime.bootstrap.entry;
             using core.memory;
-            trusted func production_probe(
+            trusted func production_probe_{case}(
                 pos pointer: DataPointer<bray.runtime.bootstrap.activation.Header>,
                 pos other: DataPointer<bray.runtime.bootstrap.activation.Header>,
                 pos callback: FunctionPointer<bray.runtime.bootstrap.activation.callback.Invoke>,
@@ -144,14 +146,16 @@ fn activation_retirement_requires_retained_native_destinations() {
             "#
         );
 
-        super::fixtures::assert_production_contract(&caller, (!valid).then_some(bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven), "return bray.runtime.bootstrap.activation.execution.execute", "destinations");
-    }
+        (caller, (!valid).then_some(bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven), "return bray.runtime.bootstrap.activation.execution.execute", "destinations")
+    });
+
+    super::fixtures::assert_production_contracts(cases);
 }
 
 #[test]
 #[ignore = "tier:proof"]
 fn activation_completion_requires_the_exact_admitted_destination() {
-    for (requirement, valid) in [
+    let cases = [
         ("", false),
         (
             "requires(trusted bray.runtime.bootstrap.activation.execution.completion_destination(pointer = other, address = destination))",
@@ -165,14 +169,14 @@ fn activation_completion_requires_the_exact_admitted_destination() {
             "requires(trusted bray.runtime.bootstrap.activation.execution.completion_destination(pointer = cursor.pointer, address = destination))",
             true,
         ),
-    ] {
+    ].into_iter().enumerate().map(|(case, (requirement, valid))| {
         let caller = format!(
             r#"
             trusted internal module bray.runtime.bootstrap;
 
             using internal bray.runtime.bootstrap.activation;
             using internal bray.runtime.bootstrap.entry;
-            trusted func production_probe(
+            trusted func production_probe_{case}(
                 pos cursor: &mut bray.runtime.bootstrap.activation.run.Cursor,
                 pos other: DataPointer<bray.runtime.bootstrap.activation.Header>,
                 pos callback: bray.runtime.bootstrap.activation.callback.Invoke,
@@ -192,8 +196,10 @@ fn activation_completion_requires_the_exact_admitted_destination() {
         "#
         );
 
-        super::fixtures::assert_production_contract(&caller, (!valid).then_some(bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven), "_ = bray.runtime.bootstrap.activation.execution.invoke", "completion_destination");
-    }
+        (caller, (!valid).then_some(bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven), "_ = bray.runtime.bootstrap.activation.execution.invoke", "completion_destination")
+    });
+
+    super::fixtures::assert_production_contracts(cases);
 }
 
 #[test]

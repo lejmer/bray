@@ -1,11 +1,9 @@
 use bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven;
 
-use super::fixtures::assert_production_contract;
-
 #[test]
 #[ignore = "tier:proof"]
 fn activation_cursor_fields_do_not_create_or_repair_selection_authority() {
-    for (body, valid) in [
+    let cases = [
         (
             "_ = bray.runtime.bootstrap.activation.execution.read(original);",
             true,
@@ -22,14 +20,14 @@ fn activation_cursor_fields_do_not_create_or_repair_selection_authority() {
             "let mut cursor: bray.runtime.bootstrap.activation.run.Cursor = { root = other, pointer = original.pointer }; _ = bray.runtime.bootstrap.activation.execution.read(&mut cursor);",
             false,
         ),
-    ] {
+    ].into_iter().enumerate().map(|(case, (body, valid))| {
         let caller = format!(
             r#"
             trusted internal module bray.runtime.bootstrap;
 
             using internal bray.runtime.bootstrap.activation;
             using std.memory;
-            trusted func production_probe(
+            trusted func production_probe_{case}(
                 pos original: &mut bray.runtime.bootstrap.activation.run.Cursor,
                 pos other: DataPointer<bray.runtime.bootstrap.activation.Header>,
             )
@@ -40,19 +38,21 @@ fn activation_cursor_fields_do_not_create_or_repair_selection_authority() {
             "#
         );
 
-        assert_production_contract(
-            &caller,
+        (
+            caller,
             (!valid).then_some(CheckingTrustedObligationNotProven),
             "bray.runtime.bootstrap.activation.execution.read(&mut cursor)",
             "selected",
-        );
-    }
+        )
+    });
+
+    super::fixtures::assert_production_contracts(cases);
 }
 
 #[test]
 #[ignore = "tier:proof"]
 fn activation_tokens_require_both_producer_and_entry_authority() {
-    for (requirements, missing) in [
+    let cases = [
         ("", Some("producer_owned")),
         (
             "requires(trusted bray.runtime.bootstrap.activation.producer_owned(owner = &token.acquisition))",
@@ -66,14 +66,14 @@ fn activation_tokens_require_both_producer_and_entry_authority() {
             "requires(trusted bray.runtime.bootstrap.activation.producer_owned(owner = &token.acquisition), trusted bray.runtime.bootstrap.activation.entry_authorized(owner = &token.acquisition, origin = origin))",
             None,
         ),
-    ] {
+    ].into_iter().enumerate().map(|(case, (requirements, missing))| {
         let caller = format!(
             r#"
             trusted internal module bray.runtime.bootstrap;
 
             using internal bray.runtime.bootstrap.activation;
             using internal bray.runtime.bootstrap.pool;
-            trusted func production_probe(
+            trusted func production_probe_{case}(
                 pos token: bray.runtime.bootstrap.activation.Producer,
                 pos origin: u64,
             ) -> usize
@@ -85,19 +85,21 @@ fn activation_tokens_require_both_producer_and_entry_authority() {
         "#
         );
 
-        super::fixtures::assert_production_contract(
-            &caller,
+        (
+            caller,
             missing.map(|_| bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven),
             "bray.runtime.bootstrap.activation.begin(token, origin)",
             missing.unwrap_or_default(),
-        );
-    }
+        )
+    });
+
+    super::fixtures::assert_production_contracts(cases);
 }
 
 #[test]
 #[ignore = "tier:proof"]
 fn activation_publication_requires_the_exact_producer_witness() {
-    for (requirements, valid) in [
+    let cases = [
         ("", false),
         (
             "requires(trusted bray.runtime.bootstrap.activation.producer(token = token))",
@@ -107,14 +109,14 @@ fn activation_publication_requires_the_exact_producer_witness() {
             "requires(trusted bray.runtime.bootstrap.activation.producer(token = other))",
             false,
         ),
-    ] {
+    ].into_iter().enumerate().map(|(case, (requirements, valid))| {
         let caller = format!(
             r#"
             trusted internal module bray.runtime.bootstrap;
 
             using internal bray.runtime.bootstrap.activation;
             using internal bray.runtime.bootstrap.pool;
-            trusted func production_probe(
+            trusted func production_probe_{case}(
                 pos token: &bray.runtime.bootstrap.activation.Inactive,
                 pos other: &bray.runtime.bootstrap.activation.Inactive,
             ) -> u32
@@ -126,19 +128,21 @@ fn activation_publication_requires_the_exact_producer_witness() {
             "#,
         );
 
-        assert_production_contract(
-            &caller,
+        (
+            caller,
             (!valid).then_some(CheckingTrustedObligationNotProven),
             "bray.runtime.bootstrap.activation.publish(token)",
             "producer",
-        );
-    }
+        )
+    });
+
+    super::fixtures::assert_production_contracts(cases);
 }
 
 #[test]
 #[ignore = "tier:proof"]
 fn native_activation_requires_producer_and_exact_entry_authority() {
-    for (requirements, missing) in [
+    let cases = [
         (
             "requires(trusted bray.runtime.bootstrap.activation.producer_slot(pointer = pointer))",
             Some("entry_slot_authorized"),
@@ -159,7 +163,7 @@ fn native_activation_requires_producer_and_exact_entry_authority() {
             "requires(trusted bray.runtime.bootstrap.activation.producer_slot(pointer = pointer), trusted bray.runtime.bootstrap.activation.entry_slot_authorized(pointer = pointer, origin = 0))",
             Some("entry_slot_authorized"),
         ),
-    ] {
+    ].into_iter().enumerate().map(|(case, (requirements, missing))| {
         let caller = format!(
             r#"
             trusted internal module bray.runtime.bootstrap;
@@ -167,7 +171,7 @@ fn native_activation_requires_producer_and_exact_entry_authority() {
             using internal bray.runtime.bootstrap.activation;
             using internal bray.runtime.bootstrap.pool;
             using core.memory;
-            trusted func production_probe(
+            trusted func production_probe_{case}(
                 pos pointer: DataPointer<bray.runtime.bootstrap.activation.Inactive>,
                 pos other: DataPointer<bray.runtime.bootstrap.activation.Inactive>,
                 pos origin: u64,
@@ -185,24 +189,26 @@ fn native_activation_requires_producer_and_exact_entry_authority() {
         "#
         );
 
-        assert_production_contract(
-            &caller,
+        (
+            caller,
             missing.map(|_| CheckingTrustedObligationNotProven),
             "bray.runtime.bootstrap.activation.activate(pointer, origin)",
             missing.unwrap_or_default(),
-        );
-    }
+        )
+    });
+
+    super::fixtures::assert_production_contracts(cases);
 }
 
 #[test]
 #[ignore = "tier:proof"]
 fn inactive_inspection_requires_retained_exact_owner_and_output() {
-    for (producer, owner, output, missing) in [
+    let cases = [
         (false, "pointer", "output", Some("producer_slot")),
         (true, "other", "output", Some("retained")),
         (true, "pointer", "other_output", Some("retained")),
         (true, "pointer", "output", None),
-    ] {
+    ].into_iter().enumerate().map(|(case, (producer, owner, output, missing))| {
         let producer = if producer {
             "requires(trusted bray.runtime.bootstrap.activation.producer_slot(pointer = pointer))"
         } else {
@@ -216,7 +222,7 @@ fn inactive_inspection_requires_retained_exact_owner_and_output() {
             using internal bray.runtime.bootstrap.activation;
             using internal bray.runtime.bootstrap.pool;
             using core.memory;
-            trusted func production_probe(
+            trusted func production_probe_{case}(
                 pos pointer: DataPointer<bray.runtime.bootstrap.activation.Inactive>,
                 pos other: DataPointer<bray.runtime.bootstrap.activation.Inactive>,
                 pos output: DataPointer<bray.runtime.bootstrap.activation.requirements.Execution>,
@@ -236,19 +242,21 @@ fn inactive_inspection_requires_retained_exact_owner_and_output() {
             "#
         );
 
-        assert_production_contract(
-            &caller,
+        (
+            caller,
             missing.map(|_| CheckingTrustedObligationNotProven),
             "bray.runtime.bootstrap.activation.requirements.inspect(pointer, 0, 0, 0, output)",
             missing.unwrap_or_default(),
-        );
-    }
+        )
+    });
+
+    super::fixtures::assert_production_contracts(cases);
 }
 
 #[test]
 #[ignore = "tier:proof"]
 fn metadata_inspection_cannot_infer_exclusive_ownership_from_a_producer() {
-    for (owner, valid) in [("", false), ("token", true), ("other", false)] {
+    let cases = [("", false), ("token", true), ("other", false)].into_iter().enumerate().map(|(case, (owner, valid))| {
         let ownership = if owner.is_empty() {
             String::new()
         } else {
@@ -263,7 +271,7 @@ fn metadata_inspection_cannot_infer_exclusive_ownership_from_a_producer() {
 
             using internal bray.runtime.bootstrap.activation;
             using internal bray.runtime.bootstrap.pool;
-            trusted func production_probe(
+            trusted func production_probe_{case}(
                 pos token: bray.runtime.bootstrap.activation.Inactive,
                 pos other: bray.runtime.bootstrap.activation.Inactive,
             ) -> bray.runtime.bootstrap.activation.requirements.Execution?
@@ -280,14 +288,16 @@ fn metadata_inspection_cannot_infer_exclusive_ownership_from_a_producer() {
             "#
         );
 
-        super::fixtures::assert_production_contract(&caller, (!valid).then_some(bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven), "token.into_producer()", "inactive_owner");
-    }
+        (caller, (!valid).then_some(bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven), "token.into_producer()", "inactive_owner")
+    });
+
+    super::fixtures::assert_production_contracts(cases);
 }
 
 #[test]
 #[ignore = "tier:proof"]
 fn inactive_cursor_requires_the_exact_native_token_and_outcome_pair() {
-    for (authority, valid) in [
+    let cases = [
         ("", false),
         ("trusted entry(token = pointer, outcome = outcome),", true),
         ("trusted entry(token = other, outcome = outcome),", false),
@@ -295,7 +305,7 @@ fn inactive_cursor_requires_the_exact_native_token_and_outcome_pair() {
             "trusted entry(token = pointer, outcome = other_outcome),",
             false,
         ),
-    ] {
+    ].into_iter().enumerate().map(|(case, (authority, valid))| {
         let source = format!(
             r#"
             trusted internal module bray.runtime.bootstrap.activation.inactive;
@@ -304,7 +314,7 @@ fn inactive_cursor_requires_the_exact_native_token_and_outcome_pair() {
             using core.memory;
             using std.memory;
 
-            func production_probe(
+            func production_probe_{case}(
                 pos pointer: DataPointer<bray.runtime.bootstrap.activation.Inactive>,
                 pos other: DataPointer<bray.runtime.bootstrap.activation.Inactive>,
                 pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>,
@@ -324,19 +334,21 @@ fn inactive_cursor_requires_the_exact_native_token_and_outcome_pair() {
             "#,
         );
 
-        assert_production_contract(
-            &source,
+        (
+            source,
             (!valid).then_some(CheckingTrustedObligationNotProven),
             "acquire(pointer, outcome)",
             "entry",
-        );
-    }
+        )
+    });
+
+    super::fixtures::assert_production_contracts(cases);
 }
 
 #[test]
 #[ignore = "tier:proof"]
 fn native_frame_acquisition_consumes_the_claim_even_if_address_bits_are_restored() {
-    for (body, valid) in [
+    let cases = [
         ("return root_frame(frame);", true),
         (
             r#"
@@ -357,7 +369,7 @@ fn native_frame_acquisition_consumes_the_claim_even_if_address_bits_are_restored
             "#,
             false,
         ),
-    ] {
+    ].into_iter().enumerate().map(|(case, (body, valid))| {
         let source = format!(
             r#"
             trusted internal module bray.runtime.bootstrap.execution;
@@ -365,7 +377,7 @@ fn native_frame_acquisition_consumes_the_claim_even_if_address_bits_are_restored
             using internal bray.runtime.bootstrap.activation;
             using std.memory;
 
-            trusted func production_probe(pos frame: &mut usize) -> bray.runtime.bootstrap.activation.Producer
+            trusted func production_probe_{case}(pos frame: &mut usize) -> bray.runtime.bootstrap.activation.Producer
                 requires(trusted frame_input(owner = &frame))
                 uses(raw_memory)
             {{
@@ -374,11 +386,13 @@ fn native_frame_acquisition_consumes_the_claim_even_if_address_bits_are_restored
             "#
         );
 
-        super::fixtures::assert_production_contract(
-            &source,
+        (
+            source,
             (!valid).then_some(bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven),
             "return root_frame(frame)",
             "frame_input",
-        );
-    }
+        )
+    });
+
+    super::fixtures::assert_production_contracts(cases);
 }

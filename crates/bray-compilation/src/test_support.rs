@@ -204,6 +204,13 @@ pub(crate) fn with_fixture_caller(baseline: &Compilation, caller: &str) -> Compi
         return baseline.clone();
     }
 
+    with_fixture_callers(baseline, &[caller])
+}
+
+/// Revise independent probe sources together so they share one set of checked declarations.
+pub(crate) fn with_fixture_callers(baseline: &Compilation, callers: &[&str]) -> Compilation {
+    let (first, remaining) = callers.split_first().expect("a fixture revision has a caller source");
+
     let sources = baseline
         .sources()
         .iter()
@@ -211,13 +218,18 @@ pub(crate) fn with_fixture_caller(baseline: &Compilation, caller: &str) -> Compi
         .map(|(index, source)| {
             source_input(
                 if source.text() == "module app;" {
-                    caller
+                    first
                 } else {
                     source.text()
                 },
                 u32::try_from(index).expect("production source index must fit"),
             )
         })
+        .chain(remaining.iter().enumerate().map(|(offset, caller)| {
+            let index = baseline.sources().len() + offset;
+
+            source_input(caller, u32::try_from(index).expect("production source index must fit"))
+        }))
         .collect();
 
     baseline

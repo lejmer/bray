@@ -167,14 +167,43 @@ pub(super) fn assert_production_contract(
     site: &str,
     predicate: &str,
 ) {
+    let compilation = production_host_compilation(caller);
+    let key = source_function_body_key(&compilation, "production_probe");
+
+    assert_contract_case(&compilation, key, caller, expected, site, predicate);
+}
+
+#[track_caller]
+pub(super) fn assert_production_contracts<'case>(
+    cases: impl Iterator<Item = (String, Option<DiagnosticKind>, &'case str, &'case str)>,
+) {
+    let cases = cases.collect::<Vec<_>>();
+    let sources = cases.iter().map(|(caller, ..)| caller.as_str()).collect::<Vec<_>>();
+    let baseline = production_host_compilation("module app;");
+    let compilation = crate::test_support::with_fixture_callers(&baseline, &sources);
+
+    for (case, (caller, expected, site, predicate)) in cases.into_iter().enumerate() {
+        let key = source_function_body_key(&compilation, &format!("production_probe_{case}"));
+
+        assert_contract_case(&compilation, key, &caller, expected, site, predicate);
+    }
+}
+
+#[track_caller]
+fn assert_contract_case(
+    compilation: &Compilation,
+    key: BoundUnitKey,
+    caller: &str,
+    expected: Option<DiagnosticKind>,
+    site: &str,
+    predicate: &str,
+) {
     use bray_diagnostics::{
         DiagnosticArgValue, DiagnosticContractObligationKind, DiagnosticWitnessTransferKind,
     };
 
-    let compilation = production_host_compilation(caller);
-    let key = source_function_body_key(&compilation, "production_probe");
     let source = key.source().syntax().source_id();
-    let diagnostics = production_probe_diagnostics(&compilation, key, expected, check_probe_storage);
+    let diagnostics = production_probe_diagnostics(compilation, key, expected, check_probe_storage);
 
     bray_testing::assert_goal_state_diagnostic_outcome(&diagnostics, expected, caller);
 
