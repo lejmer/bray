@@ -157,9 +157,9 @@ Normal slice publication records the extent of the evaluated descriptor. Later i
 descriptor, including after the original bound variables change. An address returned from the slice retains the
 containing storage lifetime through its portable reference relationship. The fixed element selector and its backing
 lifetime remain distinct from an exact cell address in the caller.
-An evaluated integer index can select an exact cell when it retains a
-literal or the immutable value of an entry input. A portable effect binds
-the selector to the admitted call or frame's actual argument. Different
+An evaluated integer index can select an exact cell in reached inline storage
+when its value is a literal or an immutable entry input. A portable effect
+binds the selector to the admitted call or frame's actual argument. Different
 symbolic values can alias. An unresolved value supplies only a region.
 Protected memory operations use the same admitted descriptor or staged
 owning coordinate for mutation, initialization, and result publication.
@@ -201,6 +201,10 @@ Ordinary and implicit calls use `Input`, `Attempt`, and `Completion`. Result reg
 operations. [CFG operation kinds and phases](../../crates/bray-checker/src/analysis/model.rs)
 · [Result region construction](../../crates/bray-checker/src/analysis/result.rs)
 · [Call and await construction](../../crates/bray-checker/src/analysis/execution.rs)
+
+Staged input preparation consumes the operation's resolved accesses. It reads
+evaluated selectors from the logical state owned by that operation. The
+completed capture returns to the composite state for admission and effects.
 
 | Boundary | What the implementation passes forward |
 | --- | --- |

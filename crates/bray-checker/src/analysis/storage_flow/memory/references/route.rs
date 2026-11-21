@@ -32,6 +32,26 @@ impl ReferenceRouteValue {
             regions @ Self::Regions(_) => regions,
         }
     }
+
+    fn project_reached(
+        self,
+        projections: &[StorageProjection],
+        bind: &mut Option<&mut dyn FnMut(StorageProjection) -> StorageProjection>,
+    ) -> Self {
+        if let Some(bind) = bind
+            && let Self::Locations(targets, _) = &self
+            && projections.iter().any(|projection| matches!(projection, StorageProjection::Element(_)))
+            && targets.iter().all(|target| target.is_exact() && target.value_observation_path().is_some())
+        {
+            // An inline reached value can name an exact indexed cell. A slice
+            // backing continues to use its prepared region and descriptor paths.
+            let projections = StorageProjection::bind_selectors(projections, bind);
+
+            return self.project(&projections);
+        }
+
+        self.project(projections)
+    }
 }
 
 impl State {
@@ -87,11 +107,12 @@ impl State {
         target: Target,
         path: &StorageReferencePath,
         root_borrow: Option<(Target, BorrowCapabilityId)>,
+        bind: &mut dyn FnMut(StorageProjection) -> StorageProjection,
     ) -> Option<ReachedAccess> {
         let start = ReferenceRouteValue::Locations(vec![target], None);
         let root_borrow = root_borrow.map(|(target, loan)| (target, Some(loan)));
 
-        match self.follow_reference_route(values, start, path, root_borrow, |target| self.values.get(target))? {
+        match self.follow_reference_route(values, start, path, root_borrow, |target| self.values.get(target), Some(bind))? {
             ReferenceRouteValue::Locations(locations, loan) => Some(ReachedAccess {
                 address: AddressValue::from_targets(locations), loan,
             }),
@@ -149,7 +170,7 @@ impl State {
         let start = ReferenceRouteValue::Locations(vec![start], None);
 
         let reached = if let Some(path) = path {
-            self.follow_reference_route(values, start, path, None, |target| self.values.get(target))?
+            self.follow_reference_route(values, start, path, None, |target| self.values.get(target), None)?
         } else {
             start
         };
@@ -216,7 +237,7 @@ impl State {
         value: &StorageCapturedValue,
         path: &StorageReferencePath,
     ) -> Option<ReferenceRouteValue> {
-        self.follow_reference_route(values, ReferenceRouteValue::Capture(value.clone()), path, None, |target| self.values.get(target))
+        self.follow_reference_route(values, ReferenceRouteValue::Capture(value.clone()), path, None, |target| self.values.get(target), None)
     }
 
     fn reference_locations_in<'a>(
@@ -230,7 +251,7 @@ impl State {
         let start = ReferenceRouteValue::Locations(vec![target], None);
         let root_borrow = root_borrow.map(|target| (target, None));
 
-        match self.follow_reference_route(values, start, path, root_borrow, lookup)? {
+        match self.follow_reference_route(values, start, path, root_borrow, lookup, None)? {
             ReferenceRouteValue::Locations(locations, _) => Some(locations),
             ReferenceRouteValue::Regions(..) => None,
             ReferenceRouteValue::Capture(_) => unreachable!("an actual storage route remains in memory"),
@@ -244,6 +265,7 @@ impl State {
         path: &StorageReferencePath,
         mut root_borrow: Option<(Target, Option<BorrowCapabilityId>)>,
         lookup: impl Fn(&Target) -> Option<&'a ValueBinding>,
+        mut bind: Option<&mut dyn FnMut(StorageProjection) -> StorageProjection>,
     ) -> Option<ReferenceRouteValue> {
         let mut selected = 0;
         let captured = matches!(&reached, ReferenceRouteValue::Capture(_));
@@ -252,7 +274,7 @@ impl State {
             let index = operation.index();
 
             if selected != index {
-                reached = reached.project(&path.projections()[selected..index]);
+                reached = reached.project_reached(&path.projections()[selected..index], &mut bind);
             }
 
             let (pointer, consumes) = match operation {
@@ -390,7 +412,7 @@ impl State {
         }
 
         Some(if selected == path.projections().len() { reached } else {
-            reached.project(&path.projections()[selected..])
+            reached.project_reached(&path.projections()[selected..], &mut bind)
         })
     }
 

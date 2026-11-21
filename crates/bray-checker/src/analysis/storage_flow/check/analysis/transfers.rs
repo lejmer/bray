@@ -35,7 +35,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             plan.purpose().transfers_value()
                 && !self.storage.access_is_produced_at(plan.access(), kind.occurrence())
         }).map(|plan| {
-            let reached = self.evaluated_access(&state.memory, execution, plan.access());
+            let access = self.operation_access(plan, self.storage.effective_purpose(plan));
+            let reached = self.evaluated_access(&state.memory, execution, access);
 
             (plan, reached)
         }).collect()

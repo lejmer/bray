@@ -826,22 +826,25 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     }
 
     pub(in crate::analysis) fn trace_authority_site(&self, mutation: bray_bound_tree::StorageMutation) -> bool {
-        static RANGES: std::sync::OnceLock<Option<(u32, u32, u32)>> = std::sync::OnceLock::new();
+        static RANGES: std::sync::OnceLock<Vec<(u32, u32, u32)>> = std::sync::OnceLock::new();
 
-        let selection = RANGES.get_or_init(|| {
-            let setting = std::env::var("BRA_694_TRACE_AUTHORITY").ok()?;
-            let mut parts = setting.split(':').map(str::parse::<u32>);
+        let ranges = RANGES.get_or_init(|| {
+            let setting = std::env::var("BRA_694_TRACE_AUTHORITY").unwrap_or_default();
 
-            Some((parts.next()?.ok()?, parts.next()?.ok()?, parts.next()?.ok()?))
+            setting.split(',').filter_map(|range| {
+                let mut parts = range.split(':').map(str::parse::<u32>);
+
+                Some((parts.next()?.ok()?, parts.next()?.ok()?, parts.next()?.ok()?))
+            }).collect()
         });
 
-        let Some((source_id, start, end)) = *selection else { return false; };
+        if ranges.is_empty() { return false; }
 
         let Some(node) = crate::diagnostic::bound_node_origin(self.request, mutation.occurrence().node()) else { return false; };
 
         let span = self.request.source(node.source_anchor()).span();
 
-        span.source_id().raw() == source_id && (start..=end).contains(&span.start().bytes())
+        ranges.iter().any(|&(source, start, end)| span.source_id().raw() == source && (start..=end).contains(&span.start().bytes()))
     }
 
     fn invalidated_places(

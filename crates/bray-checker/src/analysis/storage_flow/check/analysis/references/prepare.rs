@@ -116,16 +116,18 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
         mut index: impl FnMut(bray_bound_tree::BoundExpressionId) -> Option<StorageProjection>,
     ) -> Option<ReachedAccess> {
         let (start, path, root_borrow) = self.reference_start(memory, storage, access)?;
-        let reached = path.bind_selectors(|projection| match projection {
+        let mut bind = |projection| match projection {
             StorageProjection::Element(selector) => index(selector).unwrap_or(projection),
             _ => projection,
-        });
+        };
 
-        if reached.steps().is_empty() {
-            return Some(ReachedAccess { address: StorageAddressValue::one(start.project(reached.projections())), loan: None });
+        if path.steps().is_empty() {
+            let reached = StorageProjection::bind_selectors(path.projections(), bind);
+
+            return Some(ReachedAccess { address: StorageAddressValue::one(start.project(&reached)), loan: None });
         }
 
-        memory.reached_access(values, start, &reached, root_borrow)
+        memory.reached_access(values, start, path, root_borrow, &mut bind)
     }
 
     fn reference_start<'storage>(
@@ -302,7 +304,14 @@ impl<C: CheckerRequestContext + ?Sized> super::super::core::StorageFlowCollector
         access: StorageAccessId,
     ) -> Option<ReachedAccess> {
         self.input.reached_access(self.request.semantic_values(), memory, self.storage, access, |selector| {
-            self.evaluated_element(&self.execution.operand_value(execution, selector))
+            let value = self.execution.operand_value(execution, selector);
+            let element = self.evaluated_element(&value);
+
+            if self.execution.trace_authority_site(bray_bound_tree::StorageMutation::Operation(selector.into())) {
+                eprintln!("reached selector {selector:?} {access:?}: value={:?} element={element:?}", value.kind());
+            }
+
+            element
         })
     }
 

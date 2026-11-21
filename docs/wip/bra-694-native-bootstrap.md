@@ -100,21 +100,19 @@ generic iterator escape, and protected sibling fields.
 
 | Area | Current evidence and next boundary |
 | --- | --- |
-| Storage and proof publication | Candidate `owned-values-and-cleanup-evidence` passed 1,099 of 1,109 grouped compilation checks, plus all 574 checker and 139 bound-tree checks. Compared with `terminal-storage-and-bounds` at 1,102, it restores channel cleanup and proves the bounded scan and imported whole nullable witness. Four optional transfer cases, nullable acquisition, and the host exit regress. |
-| Guarded authority | The broad `Present` wrapper distinguishes the whole value but loses payload authority in extraction and transfer. Use reached ownership and carrier subjects to bind whole and payload identities together. Trace host predicate normalization separately because the attachment exit compares reference contents. The exact product-static descriptor still loses its trusted fact at opaque invalidation. The observer still loses `view_owned` before the selected view's block destructor. |
-| Bounds and cells | Both captured slice-bound controls, returned raw ranges, and absent-buffer cleanup pass. Indexed protected writes preserve sibling fields. The selected write still loses its evaluated index at summary publication. The nested-buffer trace reaches the typed inner buffer descriptor from the outer view. Entry demand closure alone did not make the inner backing available at the second view. |
+| Storage and proof publication | Candidate `staged-selectors-and-retained-views` passed 1,104 of 1,109 compilation controls and all 936 symbols, bound-tree, and checker tests. Staged input application consumes the resolved access from its evaluating operation. This removed the assertion and dependent fixture failures. |
+| Guarded authority | The optional transfer, nullable acquisition, imported whole nullable witness, and channel cleanup controls pass. Host exit and observer cleanup still lack the required authority. The static trace retains both selected pointee masks at opaque invalidation, yet the supported witness is retired. Follow those masks through the observation and authority ledgers. |
+| Bounds and cells | Direct and forwarded nested buffer views pass. The issued view reports an escaping dependency. The protected write retains its exact symbolic index through materialization and reaches parent admission with only regions. Follow the staged descriptor and returned-view dependencies into their consuming operations. |
 | Native owner composition | The previous four-target comparison passed `prepare_start`. Once the refactor paths are replaced, trace `dispatch_ready`, `start_frame`, and `acquire_worker_ready` through the actual acquisition, resident task slot, callback cleanup, and backing. A retirement follows its captured allocation even if its former descriptor changes. |
 | Planning and emission | The current candidate emitted the Windows standard library in 45.7 s planning, 40.8 s emission, and 98.5 s wall time with concurrent desktop use. The previous completed run took 32.3 s planning and 32.4 s emission. At unchanged query and code-generation counts, result-dependency solving rose from 153.5 to 194.6 worker seconds, and code generation rose from 109.7 to 145.0. Compare under similar load before attributing the increase. An earlier cleanup profile attributed 2.5 s to proof invalidation and 0.06 s to both state copies across 3,354 actions. Trace why finite effects still visit unrelated physical observations. |
 
 The optimized compilation test binary is
-`target/audit/comparison-owned-values-and-cleanup-evidence-compilation.exe`
-with SHA-256 `592D868B1B5A0CCB39636CE65E0CB5CD4A41BF53655F4DBE6B1ADB825AE593E3`.
-The comparison receipt records its source diff. The next grouped candidate,
-`reached-selectors-and-observations`, includes the three fixture reuse edits
-and the combined changes below. Use the same 1,109 compilation controls with
-the observer trace narrowed to the selected view's cleanup path.
+`target/audit/comparison-staged-selectors-and-retained-views-compilation.exe`
+with SHA-256 `858D0122A0D71DF9F9D5DB88F09158B104EB44F58EC7C9E9D9D734BDB63B71BA`.
+The comparison receipt records the compiled source. It includes the test
+fixture reuse edits. Use the same 1,109 controls to compare the next batch.
 
-The next batch covers the six regressions and four open failures together.
+The next batch covers the five remaining failures together.
 Follow reached inputs through outcome materialization, scope retirement,
 proof invalidation, and portable binding. Keep the native bootstrap failures
 deferred until the replacement is complete.
@@ -298,6 +296,14 @@ admitted arguments for ordinary calls and deferred execution. Different
 symbolic selectors may alias and an unresolved operand stays bounded.
 Only the selected normal row can establish initialization. Check the same
 index, the other index, changed inputs, raw memory, and imported summaries.
+Bind a selector when its typed route reaches actual storage. Keep the
+original selector on a bounded slice route. Its prepared entry paths
+describe regions and their descriptor demands without claiming exact cells.
+
+During staged input evaluation the operation owns the logical state
+directly. Use that state and the already resolved transfer access when
+preparing the staged slot. Transfer the resolved access into the application
+step. Later phases read the capture after the composite state is rejoined.
 
 Direct views now publish both backing steps. A forwarding body's entry
 preparation receives the call's typed result route, but seeds only the

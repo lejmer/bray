@@ -972,7 +972,7 @@ where
 
         let single_phase = self.execution.single_phase_invocation(kind);
 
-        let captures = self.capture_operation_inputs(state, operation, &refinements);
+        let captures = self.capture_operation_inputs(state, operation, &execution, &refinements, &mut reached_accesses);
         let captures = captures.as_deref().unwrap_or_default();
 
         if let Some(expression) = single_phase {
@@ -1483,7 +1483,9 @@ where
         &mut self,
         state: &mut StorageFlowState,
         operation: &AnalysisOperation,
+        execution: &crate::analysis::guarantee::ExecutionState,
         refinements: &crate::analysis::refinement::RefinementSet,
+        accesses: &mut OperationAccesses,
     ) -> Option<std::sync::Arc<[bray_bound_tree::StorageValueCapture]>> {
         let kind = operation.kind();
 
@@ -1499,13 +1501,19 @@ where
             self.initialize_operation_storage(state, kind);
 
             for plan in kind.storage_plans(self.storage) {
+                let reached = accesses.remove(&plan).unwrap_or_else(|| {
+                    let access = self.operation_access(plan, self.storage.effective_purpose(plan));
+
+                    self.evaluated_access(&state.memory, execution, access)
+                });
+
                 let _ = self.apply_plan(
                     state,
                     (operation.id(), None),
                     plan,
                     self.refinements.active_refinements(refinements),
                     None,
-                    None,
+                    Some(reached),
                 );
             }
         }

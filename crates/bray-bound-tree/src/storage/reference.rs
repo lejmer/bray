@@ -115,27 +115,16 @@ impl StorageReferencePath {
     }
 
     /// Binds selectors while keeping the prepared read positions, kinds and types.
-    pub fn bind_selectors(&self, mut bind: impl FnMut(StorageProjection) -> StorageProjection) -> std::borrow::Cow<'_, Self> {
-        let mut projections = None;
+    pub fn bind_selectors(&self, bind: impl FnMut(StorageProjection) -> StorageProjection) -> std::borrow::Cow<'_, Self> {
+        use std::borrow::Cow;
 
-        for (index, &projection) in self.projections.iter().enumerate() {
-            if !matches!(projection, StorageProjection::Element(_) | StorageProjection::ElementFromInput(_)) {
-                continue;
-            }
-
-            let reached = bind(projection);
-
-            if reached != projection {
-                assert!(matches!(reached, StorageProjection::ElementFromInput(_) | StorageProjection::ElementFromStart(_) | StorageProjection::AnyElement),
-                    "a bound index retains the same inline sequence projection");
-
-                projections.get_or_insert_with(|| self.projections.to_vec())[index] = reached;
-            }
+        match StorageProjection::bind_selectors(&self.projections, bind) {
+            Cow::Borrowed(_) => Cow::Borrowed(self),
+            Cow::Owned(projections) => Cow::Owned(Self {
+                projections: projections.into(),
+                steps: Arc::clone(&self.steps),
+            }),
         }
-
-        projections.map_or(std::borrow::Cow::Borrowed(self), |projections| std::borrow::Cow::Owned(Self {
-            projections: projections.into(), steps: Arc::clone(&self.steps),
-        }))
     }
 
     /// Retains a prepared prefix without reinterpreting any descriptor reads.
@@ -156,5 +145,29 @@ impl StorageReferencePath {
         Self { projections: Arc::clone(&self.projections), steps: self.steps.iter().copied().chain(targets.iter().map(|&(mode, target)| {
             StorageReferenceStep::ReadBorrow { index: self.projections.len(), target, mode }
         })).collect::<Vec<_>>().into() }
+    }
+}
+
+impl StorageProjection {
+    /// Binds an inline sequence selector through the reached input or local value.
+    pub fn bind_selectors(projections: &[Self], mut bind: impl FnMut(Self) -> Self) -> std::borrow::Cow<'_, [Self]> {
+        let mut bound = None;
+
+        for (index, &projection) in projections.iter().enumerate() {
+            if !matches!(projection, Self::Element(_) | Self::ElementFromInput(_)) {
+                continue;
+            }
+
+            let reached = bind(projection);
+
+            if reached != projection {
+                assert!(matches!(reached, Self::ElementFromInput(_) | Self::ElementFromStart(_) | Self::AnyElement),
+                    "a bound index retains the same inline sequence projection");
+
+                bound.get_or_insert_with(|| projections.to_vec())[index] = reached;
+            }
+        }
+
+        bound.map_or(std::borrow::Cow::Borrowed(projections), std::borrow::Cow::Owned)
     }
 }
