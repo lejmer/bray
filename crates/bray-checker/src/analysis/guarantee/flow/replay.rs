@@ -247,7 +247,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             });
 
             if completes {
-                if !attempt {
+                if !matches!(operation, AnalysisOperationKind::Call { .. }) {
                     evidence.record_call(&state, invocation);
                 }
 

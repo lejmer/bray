@@ -586,7 +586,7 @@ impl Compilation {
                     continue;
                 }
 
-                for (original, requested, site) in candidate_dependencies(candidate) {
+                for (original, requested, site, preserving) in candidate_dependencies(candidate) {
                     let requested = if required == ExecutionObligation::Observation
                         && requested
                             == ExecutionObligation::Property(
@@ -647,7 +647,8 @@ impl Compilation {
                         continue;
                     }
 
-                    let mut admissions = candidate.dependency_evidence(site, original_callable).peekable();
+                    let mut admissions = preserving.or_else(|| candidate.dependency_evidence(site, original_callable))
+                        .into_iter().flatten().map(std::sync::Arc::as_ref).peekable();
                     let absent = admissions.peek().is_none().then_some(None);
 
                     for evidence in absent.into_iter().chain(admissions.map(Some)) {
@@ -760,6 +761,7 @@ fn candidate_dependencies(
         bray_checker::ExecutionDependencyTarget,
         ExecutionObligation,
         bray_bound_tree::BoundExecutionSite,
+        Option<&BTreeSet<std::sync::Arc<bray_checker::ExecutionCallEvidence>>>,
     ),
 > + '_ {
     let execution = candidate.dependencies().iter().map(|dependency| {
@@ -767,6 +769,7 @@ fn candidate_dependencies(
             dependency.target,
             dependency.obligation,
             dependency.occurrence,
+            None,
         )
     });
 
@@ -778,9 +781,14 @@ fn candidate_dependencies(
                 dependency.target.into(),
                 ExecutionObligation::Postcondition(dependency.source),
                 dependency.node.into(),
+                None,
             )
         });
 
-    execution.chain(completion)
+    let preservation = candidate.preservation_dependencies().iter().map(|(dependency, admissions)| {
+        (dependency.target, dependency.obligation, dependency.occurrence, Some(admissions))
+    });
+
+    execution.chain(completion).chain(preservation)
 }
 

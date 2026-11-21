@@ -117,7 +117,6 @@ fn check_execution_candidate<C: CheckerRequestContext + ?Sized>(
 ) -> CandidateOutcome<C> {
     let request = reachable.domain.request;
     let graph = reachable.domain.graph;
-    let expressions = reachable.domain.semantics;
     let body = reachable.domain.checked_body.expect("candidate checks retain checked body semantics");
     let memory = reachable.domain.memory;
     let mut diagnostics = bray_diagnostics::DiagnosticBag::new();
@@ -127,14 +126,6 @@ fn check_execution_candidate<C: CheckerRequestContext + ?Sized>(
     if property == Some(ExecutionProperty::Pure) && !internal {
         reachable.domain.check_predicate_blocks(body.storage_flow(), &mut diagnostics);
     }
-
-    super::operation::collect_preservation_dependencies(
-        candidate.calls.keys().copied(),
-        expressions.selections(),
-        memory,
-        request.trusted_contracts(),
-        &mut candidate.dependencies,
-    );
 
     if let Some(property) = property {
         match check_operations(
@@ -339,12 +330,11 @@ fn check_operations<C: CheckerRequestContext + ?Sized>(
                     ..
                 } => {
                     if visited.insert(invocation) {
-                        super::operation::collect_invocation_dependency(
+                        candidate.dependencies.push(super::operation::invocation_dependency(
                             expressions.selections(),
                             invocation,
                             property,
-                            &mut candidate.dependencies,
-                        );
+                        ));
 
                         super::operation::check_storage_accesses(
                             request,

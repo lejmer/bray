@@ -64,7 +64,7 @@ trusted internal func native_text_width() -> usize
 }
 
 trusted internal func working_directory_storage() -> std.memory.RawBuffer<u8>
-    uses(foreign_call, unchecked_init)
+    uses(foreign_call)
 {
     let required: u32 = trusted std.os.windows.get_current_directory_w(0, destination = std.memory.null<u16>());
 
@@ -75,14 +75,12 @@ trusted internal func working_directory_storage() -> std.memory.RawBuffer<u8>
 
     let bytes: usize = required as usize * 2;
     let mut buffer: std.memory.RawBuffer<u8> = trusted internal context_buffer(bytes);
-    let observed: (bool, usize) = trusted internal fill_working_directory(&mut buffer, required = required);
+    let filled: bool = trusted internal fill_working_directory(&mut buffer, required = required);
 
-    if !observed.0
+    if !filled
     {
         panic("the platform startup working directory is unavailable");
     }
-
-    trusted std.memory.set_initialized_count<u8>(&mut buffer, count = observed.1);
 
     return buffer;
 }
@@ -1044,14 +1042,13 @@ trusted internal func handle_transfer_status(pos succeeded: i32) -> PlatformStat
     return internal success_status();
 }
 
-trusted internal func fill_working_directory(pos buffer: &mut std.memory.RawBuffer<u8>, required: u32) -> (bool, usize)
-    ensures(trusted core.memory.initialized_range_as<u8>(pointer = buffer.pointer, count = result.1))
+trusted internal func fill_working_directory(pos buffer: &mut std.memory.RawBuffer<u8>, required: u32) -> bool
     uses(foreign_call, raw_memory, unchecked_init)
 {
     let wide: std.memory.RawBuffer<u16> = match trusted internal zeroed_windows_text(required as usize)
     {
         case Ok(value) { yield value; }
-        case Error(_) { return (false, 0); }
+        case Error(_) { return false; }
     };
 
     let written: u32 = trusted std.os.windows.get_current_directory_w(
@@ -1061,7 +1058,7 @@ trusted internal func fill_working_directory(pos buffer: &mut std.memory.RawBuff
 
     if written == 0 || written >= required
     {
-        return (false, 0);
+        return false;
     }
 
     let count: usize = written as usize * 2;
@@ -1080,5 +1077,5 @@ trusted internal func fill_working_directory(pos buffer: &mut std.memory.RawBuff
         index += 1;
     }
 
-    return (true, count);
+    return true;
 }

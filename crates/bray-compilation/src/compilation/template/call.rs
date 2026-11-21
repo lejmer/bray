@@ -539,7 +539,7 @@ impl SourceTemplateBuilder<'_, '_, '_> {
             .anonymous_body()
             .map(|(body, _)| body)
             .or_else(|| {
-                let mut entries = self.execution?.dependency_evidence(expression.into(), call.target());
+                let mut entries = self.execution?.dependency_evidence(expression.into(), call.target())?.iter();
                 let body = entries.next()?.anonymous_target()?;
 
                 entries.all(|entry| entry.anonymous_target() == Some(body)).then_some(body)

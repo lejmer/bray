@@ -1,3 +1,6 @@
+use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
+
 use super::evidence::ExecutionCallEvidence;
 use bray_bound_tree::{AnyBoundNodeId, BoundCallableTarget};
 use bray_source::SourceSpan;
@@ -121,7 +124,7 @@ impl From<BoundCallableTarget> for ExecutionDependencyTarget {
 }
 
 /// A selected implementation and the exact property required from it.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ExecutionDependency {
     /// The selected callable or default provider.
     pub target: ExecutionDependencyTarget,
@@ -157,6 +160,7 @@ pub struct ExecutionCandidate {
         bray_bound_tree::BoundExecutionSite,
         std::collections::BTreeSet<std::sync::Arc<ExecutionCallEvidence>>,
     >,
+    pub(crate) preservation: BTreeMap<ExecutionDependency, BTreeSet<Arc<ExecutionCallEvidence>>>,
     pub(crate) failure: Option<ExecutionVerificationFailure<SourceSpan>>,
     pub(crate) constant_failure: Option<SourceSpan>,
     pub(crate) observation_failure: Option<SourceSpan>,
@@ -173,14 +177,20 @@ impl ExecutionCandidate {
         &self,
         occurrence: bray_bound_tree::BoundExecutionSite,
         target: BoundCallableTarget,
-    ) -> impl Iterator<Item = &ExecutionCallEvidence> {
+    ) -> Option<&BTreeSet<Arc<ExecutionCallEvidence>>> {
         let disposal = match target {
             BoundCallableTarget::Declaration(callable) => self.disposal.get(&(occurrence, callable)),
             _ => None,
         };
 
         disposal.or_else(|| self.calls.get(&occurrence))
-            .into_iter().flatten().map(std::sync::Arc::as_ref)
+    }
+
+    /// Returns the admissions whose purity established input preservation.
+    pub fn preservation_dependencies(
+        &self,
+    ) -> &BTreeMap<ExecutionDependency, BTreeSet<Arc<ExecutionCallEvidence>>> {
+        &self.preservation
     }
 
     /// Returns selected lifecycle actions with their receiver facts. The key retains the

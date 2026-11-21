@@ -42,11 +42,16 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
             for (&occurrence, calls) in &evidence.calls {
                 if !occurrence.expression().and_then(|expression| memory.operation(expression)).is_some_and(|operation| {
                     crate::memory::execution::guarantees(operation.kind(), crate::ExecutionProperty::Pure)
-                }) && calls.iter().any(|entry| self.domain.admitted_pure(occurrence, entry)) {
-                    super::operation::collect_invocation_dependency(
-                        self.domain.semantics.selections(), occurrence, crate::ExecutionProperty::Pure,
-                        &mut candidate.dependencies,
-                    );
+                }) {
+                    let mut preserving = calls.iter().filter(|entry| self.domain.admitted_pure(occurrence, entry)).peekable();
+
+                    if preserving.peek().is_some() {
+                        let dependency = super::operation::invocation_dependency(
+                            self.domain.semantics.selections(), occurrence, crate::ExecutionProperty::Pure,
+                        );
+
+                        candidate.preservation.entry(dependency).or_default().extend(preserving.cloned());
+                    }
                 }
 
                 candidate.calls.entry(occurrence).or_default().extend(calls.iter().cloned());
