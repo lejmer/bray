@@ -592,7 +592,13 @@ fn collect_observations(
         return;
     }
 
-    let Some((role, owner)) = joined.ownership_identity() else { return; };
+    let Some((role, owner)) = joined.ownership_identity() else {
+        if joined.observation_kind() == Some(ObservationKind::Scalar) {
+            collect_reached_data(sources, joined, inputs, budget);
+        }
+
+        return;
+    };
 
     let owner = owner.clone();
 
@@ -613,7 +619,7 @@ fn collect_observations(
     }
 
     if role == ObservationKind::Reference {
-        collect_reference_data(sources, joined, inputs, budget);
+        collect_reached_data(sources, joined, inputs, budget);
         return;
     }
 
@@ -678,15 +684,35 @@ fn collect_observations(
         }
 
         let values = sources.map(|source| source.map(|source| source.clone().project(field)));
+        let selected = joined.clone().project(field);
+
+        if let [Some(left), Some(right)] = values.each_ref().map(Option::as_ref)
+            && let (crate::ExecutionConditionKind::Boolean(left), crate::ExecutionConditionKind::Boolean(right)) =
+                (left.computed_value().kind(), right.computed_value().kind())
+            && left != right
+            && !selected.computed_value().contains_unknown()
+        {
+            let predicate = selected.computed_value().clone();
+            let guard = ExecutionCondition::operation(BoundOperator::LogicalAnd, vec![active.clone(), predicate.clone()]);
+
+            insert_guard(guards, &owner, guard);
+
+            if !matches!(active.kind(), crate::ExecutionConditionKind::Boolean(true)) {
+                let opposite = ExecutionCondition::operation(BoundOperator::LogicalNot, vec![predicate]);
+                insert_guard(guards, &owner, ExecutionCondition::operation(
+                    BoundOperator::LogicalAnd, vec![active.clone(), opposite],
+                ));
+            }
+        }
 
         collect_observations(
-            [values[0].as_ref(), values[1].as_ref()], &joined.clone().project(field), inputs, guards, absent,
+            [values[0].as_ref(), values[1].as_ref()], &selected, inputs, guards, absent,
             &active, budget,
         );
     }
 }
 
-fn collect_reference_data(
+fn collect_reached_data(
     sources: [Option<&ExecutionCondition>; 2],
     joined: &ExecutionCondition,
     inputs: &mut [BTreeMap<ExecutionCondition, ExecutionCondition>; 2],
@@ -725,7 +751,7 @@ fn collect_reference_data(
         for (field, value) in fields.iter() {
             let sources = sources.map(|source| source.map(|source| source.clone().project(*field)));
 
-            collect_reference_data([sources[0].as_ref(), sources[1].as_ref()], value, inputs, budget);
+            collect_reached_data([sources[0].as_ref(), sources[1].as_ref()], value, inputs, budget);
         }
     }
 }

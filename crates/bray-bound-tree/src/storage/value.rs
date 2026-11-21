@@ -3,13 +3,15 @@ use std::sync::Arc;
 
 use super::target::{StorageOrigin as Origin, StorageTarget as Target};
 
-/// Which descriptor incarnation an owning storage transition retires. This is not allocation authority.
+/// Which storage incarnation or lifetime a checked transition retires.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum StorageValueRetirement {
     /// Retire inline storage without following separately owned backing.
     Storage,
     /// Retire the producing storage namespace, including its backing descriptors.
     Producer,
+    /// End the reached allocation's lifetime and its dependent access guarantees.
+    Backing,
 }
 
 impl StorageValueRetirement {
@@ -24,12 +26,18 @@ impl StorageValueRetirement {
         }
     }
 
-    /// Whether this retirement scope includes the target within the current namespace.
+    /// Whether the target's stored descriptor belongs to the retired incarnation.
     pub fn contains(self, current: &Target, target: &Target) -> bool {
         match self {
             Self::Storage => current.contains_storage(target),
             Self::Producer => current.contains(target),
+            Self::Backing => false,
         }
+    }
+
+    /// Whether an address into the reached allocation has lost its backing.
+    pub fn ends_backing(self, current: &Target, target: &Target) -> bool {
+        self == Self::Backing && current.contains_storage(target)
     }
 }
 

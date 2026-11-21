@@ -1037,20 +1037,22 @@ mod tests {
 
     #[test]
     fn completion_after_opaque_execution_requires_a_terminal_state() {
-        for (completion, valid) in [
-            ("value.open = false;", false),
-            ("value = { open = false, pending = false };", true),
+        for (call, completion, valid) in [
+            ("opaque(&mut value);", "value.open = false;", false),
+            ("opaque(&mut value);", "value = { open = false, pending = false };", true),
+            ("opaque_unrelated();", "value.open = false;", true),
         ] {
             let source = format!(
                 r#"
                 trusted module app;
                 struct Resource {{ mut open: bool; mut pending: bool; }}
-                extern trusted func opaque();
+                extern trusted func opaque(pos value: &mut Resource);
+                extern trusted func opaque_unrelated();
                 trusted func close(pos value: &mut Resource)
                     ensures(!value.open && !value.pending)
                 {{
                     value.pending = false;
-                    opaque();
+                    {call}
                     {completion}
                 }}
             "#

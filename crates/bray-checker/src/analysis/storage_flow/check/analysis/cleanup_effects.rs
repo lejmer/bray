@@ -89,7 +89,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     ) -> Vec<Effect> {
         let values = self.request.semantic_values();
 
-        self.resolve_effects(memory, storage, effects, |subject, indirect| {
+        self.resolve_effects(memory, storage, effects,
+            || receiver.map(|target| [target.clone()].into()), |subject, indirect| {
             let start = self.cleanup_subject_root(receiver, subject)?;
             let path = storage.subject(subject).map(|(_, path)| path);
 
@@ -289,7 +290,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             phase: crate::analysis::model::AnalysisScopeExitPhase::TaskCancellationBroadcast, ..
         }) {
             // Broadcast work can affect external state without invoking the receiver's destructor.
-            effects = Some(Cow::Owned(vec![Effect::Unknown, Effect::Escape]));
+            effects = Some(Cow::Owned(vec![Effect::Unknown, Effect::Escape(None)]));
         }
 
         let escaped = self.escape_effects(
@@ -681,7 +682,7 @@ fn preserve_run_descriptor(
 
     if effects
         .iter()
-        .any(|effect| matches!(effect, Effect::Escape | Effect::UnboundedMutation { kind: DependencyMutationKind::Dispose(_) | DependencyMutationKind::Cleanup(_), .. }))
+        .any(|effect| matches!(effect, Effect::Escape(None) | Effect::UnboundedMutation { kind: DependencyMutationKind::Dispose(_) | DependencyMutationKind::Cleanup(_), .. }))
     {
         return;
     }
@@ -692,7 +693,9 @@ fn preserve_run_descriptor(
             effects
                 .iter()
                 .filter_map(Effect::mutation)
-                .map(|(target, _)| target.clone()),
+                .map(|(target, _)| target)
+                .chain(effects.iter().flat_map(Effect::escape_regions))
+                .cloned(),
         )
         .next()
         .is_some()

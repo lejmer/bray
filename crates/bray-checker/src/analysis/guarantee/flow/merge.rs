@@ -856,7 +856,7 @@ pub(super) fn result_replacements(
                 insert_replacement(identities, owner, joined_owner);
             }
 
-            reference_data_replacements(value, joined, stable_values, values, &mut { ExecutionCondition::WORK_LIMIT });
+            reached_data_replacements(value, joined, stable_values, values, &mut { ExecutionCondition::WORK_LIMIT });
         }
 
         return;
@@ -864,6 +864,14 @@ pub(super) fn result_replacements(
 
     if !stable_values.contains(value) {
         insert_replacement(values, value, joined);
+    }
+
+    if value.observation_kind() == Some(ObservationKind::Scalar)
+        && joined.observation_kind() == Some(ObservationKind::Scalar)
+    {
+        reached_data_replacements(value, joined, stable_values, values, &mut { ExecutionCondition::WORK_LIMIT });
+
+        return;
     }
 
     // A complete owned snapshot also names its tag through the base observation.
@@ -908,7 +916,7 @@ pub(super) fn result_replacements(
     }
 }
 
-fn reference_data_replacements(
+fn reached_data_replacements(
     source: &ExecutionCondition,
     joined: &ExecutionCondition,
     stable_values: &std::collections::BTreeSet<ExecutionCondition>,
@@ -919,8 +927,8 @@ fn reference_data_replacements(
 
     *budget = remaining;
 
-    // Both the parent loan and a separately observed component can contribute
-    // the same datum. The descriptor has a separate identity substitution.
+    // A parent loan and a separately observed component can contribute the
+    // same datum. A scalar result contributes its observed contents.
     let source = source.computed_value();
     let joined = joined.computed_value();
 
@@ -943,7 +951,7 @@ fn reference_data_replacements(
     projections.extend(joined.component_projections());
 
     for field in projections {
-        reference_data_replacements(&source.clone().project(field), &joined.clone().project(field),
+        reached_data_replacements(&source.clone().project(field), &joined.clone().project(field),
             stable_values, values, budget);
     }
 }
@@ -1173,7 +1181,7 @@ mod tests {
         let joined = ExecutionCondition::owned_value(source.clone(), data);
         let mut values = BTreeMap::new();
 
-        super::reference_data_replacements(&source, &joined, &Default::default(), &mut values,
+        super::reached_data_replacements(&source, &joined, &Default::default(), &mut values,
             &mut { ExecutionCondition::WORK_LIMIT });
 
         assert_eq!(marker.with_joined_values(&values, &BTreeMap::new()), marker,

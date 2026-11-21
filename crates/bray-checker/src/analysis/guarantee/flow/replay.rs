@@ -316,7 +316,11 @@ impl<C: CheckerRequestContext + ?Sized> FixedPointDomain for ExecutionFlowDomain
 
     fn bottom(&self) -> Self::State { FlowOutcomes::default() }
 
-    fn boundary(&self) -> Self::State { self.entry_state().map_or_else(FlowOutcomes::default, FlowOutcomes::entry) }
+    fn boundary(&self) -> Self::State {
+        let body = self.checked_body.expect("execution certification reuses the checked storage flow");
+
+        self.entry_state(body.storage_flow().entry_addresses()).map_or_else(FlowOutcomes::default, FlowOutcomes::entry)
+    }
 
     fn merge(&self, block: Option<AnalysisBlockId>, target: &mut Self::State, boundary: &Self::State) -> bool {
         let mut changed = false;

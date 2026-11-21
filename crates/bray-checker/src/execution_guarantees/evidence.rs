@@ -243,6 +243,22 @@ impl ExecutionCallEvidence {
         self.arguments.get(&super::ExecutionPlace::argument(ordinal))?.inline_captured_storage()
     }
 
+    /// Complete escape bounds from the evaluated operands, including their actual descriptors.
+    pub(crate) fn argument_regions(&self, count: usize) -> Option<Arc<[bray_bound_tree::StorageTarget]>> {
+        let mut arguments = self.positional_arguments();
+        let mut regions = Vec::new();
+
+        for index in 0..count {
+            let (ordinal, argument) = arguments.next()?;
+
+            if ordinal.to_index() != Some(index) { return None; }
+
+            regions.extend(argument.captured_input_regions()?);
+        }
+
+        arguments.next().is_none().then(|| bray_base::sorted_unique_shared_slice(regions))
+    }
+
     /// Actual values moved into the receiver-first noncopying input slots.
     pub(crate) fn owned_arguments(&self) -> impl Iterator<Item = super::ExecutionCondition> + '_ {
         self.owned_inputs.iter().filter_map(|ordinal| {

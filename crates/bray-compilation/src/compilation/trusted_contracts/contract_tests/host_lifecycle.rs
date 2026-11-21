@@ -5,12 +5,7 @@ use super::fixtures::{production_host_compilation};
 #[test]
 #[ignore = "tier:proof"]
 fn production_retained_exit_execution_contracts_are_verified() {
-    let compilation = production_host_compilation(
-        r#"module app;
-
-using core.target;
-"#,
-    );
+    let compilation = production_host_compilation("module app;");
 
     for name in [
         "host_anchor",

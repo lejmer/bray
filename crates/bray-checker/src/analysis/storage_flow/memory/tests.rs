@@ -4016,8 +4016,14 @@ fn ambient_reachability_requires_raw_publication_of_an_owned_slot() {
     assert_eq!(state.ambient_regions(&[Effect::Ambient]), Some((BTreeSet::new(), false)),
         "receiving a language borrow does not publish its inline owner");
 
-    assert!(state.ambient_regions(&[Effect::Ambient, Effect::Escape]).is_none(),
+    assert!(state.ambient_regions(&[Effect::Ambient, Effect::Escape(None)]).is_none(),
         "an opaque invocation still has unbounded input reachability");
+
+    assert_eq!(
+        state.ambient_regions(&[Effect::Ambient, Effect::Escape(Some([borrowed.clone()].into()))]),
+        Some((BTreeSet::from([borrowed.clone()]), false)),
+        "a bounded escape supplies the evaluated invocation region",
+    );
 
     let mut shared = state.clone();
 
@@ -5417,7 +5423,7 @@ fn staged_future_moves_retain_completion_effects_and_references() {
 
     // A loop can leave another frame from the same site in an owned capture.
     let child = captured_frame(producer, Arc::new(bray_bound_tree::StorageDeferredTransition {
-        effects: Some(super::EffectOutcomes::new([Effect::Escape])),
+        effects: Some(super::EffectOutcomes::new([Effect::Escape(None)])),
         ..Default::default()
     }));
 

@@ -640,7 +640,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let mut invalidation = if ambient {
             // Atomic access does not expose ordinary input storage. Keep its
             // protected write domain separate from ambient and ordinary writes.
-            let inputs = effects.contains(&Effect::Escape);
+            let inputs = effects.contains(&Effect::Escape(None));
 
             self.opaque_observations_with_escapes(memory, roots.into_iter().filter(|_| inputs)
                 .chain(ordinary.cloned()), escaped)

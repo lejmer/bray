@@ -447,7 +447,17 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 }
 
 impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
-    pub(in crate::analysis) fn entry_state(&self) -> Option<ExecutionState> {
+    pub(in crate::analysis) fn needs_entry_addresses(&self) -> bool {
+        !self.pointer_predicates.is_empty() && self.request.trusted_contracts()
+            .is_some_and(|contracts| contracts.requirements.iter().any(|condition| {
+                condition.observations().any(|condition| matches!(condition.kind(),
+                    crate::ExecutionConditionKind::Predicate(predicate, ..) if self.pointer_predicates.contains_key(predicate)))
+            }))
+    }
+
+    pub(in crate::analysis) fn entry_state(&self,
+        entry_addresses: &BTreeMap<bray_bound_tree::StoragePath, bray_bound_tree::StorageObservedTarget>,
+    ) -> Option<ExecutionState> {
         let mut state = ExecutionState {
             proofs: std::sync::Arc::clone(&self.proofs),
             ..Default::default()
@@ -606,6 +616,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 condition.clone().assume(true, &mut state.assumptions);
             }
 
+            let reached_addresses = entry_addresses.iter().filter_map(|(path, reached)| {
+                let descriptor = crate::ExecutionPlace::storage_path(self.storage, path)?;
+                let target = crate::ExecutionPlace::pointee(self.storage, &reached.target,
+                    reached.pointee.expect("entry address support retains its pointee type"));
+
+                Some((descriptor, target))
+            }).collect::<BTreeMap<_, _>>();
+
             for condition in &contracts.requirements {
                 let condition = condition.pointer_observations(&self.pointer_predicates);
 
@@ -613,6 +631,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     == Some(false)
                 {
                     return None;
+                }
+
+                if !reached_addresses.is_empty() {
+                    self.carry_entry_address_requirements(&mut state, &condition, &reached_addresses);
                 }
 
                 condition.assume(true, &mut state.trusted_assumptions);
@@ -637,5 +659,33 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }
 
         Some(state)
+    }
+
+    fn carry_entry_address_requirements(&self, state: &mut ExecutionState, requirement: &ExecutionCondition,
+        reached: &BTreeMap<crate::ExecutionPlace, crate::ExecutionPlace>,
+    ) {
+        use crate::ExecutionConditionKind;
+
+        let mut addresses = crate::execution_guarantees::AddressDependencies::new();
+
+        for observation in requirement.observations() {
+            let ExecutionConditionKind::Trusted(predicate) = observation.kind() else { continue; };
+            let ExecutionConditionKind::Predicate(symbol, _, arguments) = predicate.kind() else { continue; };
+            let Some(indices) = self.pointer_predicates.get(symbol) else { continue; };
+
+            for index in *indices {
+                let address = arguments[*index].descriptor_identity();
+                let Some((root, path)) = address.observation_path() else { continue; };
+                let ExecutionConditionKind::Input(formal) = root.kind() else { continue; };
+                let formal = path.into_iter().fold(formal.clone(), crate::ExecutionPlace::component);
+                let Some(target) = reached.get(&formal) else { continue; };
+
+                addresses.entry(address.clone()).or_default().insert(target.clone());
+            }
+        }
+
+        for address in addresses.keys() {
+            state.witnesses.entry(address.clone()).or_default().carry(requirement, false, &addresses);
+        }
     }
 }

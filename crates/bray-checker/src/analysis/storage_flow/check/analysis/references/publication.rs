@@ -165,6 +165,14 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             ExecutionInput::Pointee { target, .. } if target.is_exact() && !target.previous => {
                 match &target.origin {
                     Origin::Storage(path) => (self.formal_root(path.root)?, dependency_projections(&path.projections)?),
+                    Origin::Entry { reference, kind: bray_symbols::DependencyReferenceKind::Address, projections, .. }
+                        if projections.is_empty() => {
+                        let mut path = dependency_projections(&reference.projections)?;
+
+                        path.push(DependencyProjection::AddressTarget);
+
+                        (self.formal_root(reference.root)?, path)
+                    }
                     Origin::Static { root: root @ DependencySubjectRoot::StaticInstance(..), projections, .. } =>
                         (*root, dependency_projections(projections)?),
                     _ => return None,

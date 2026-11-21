@@ -100,7 +100,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             };
 
             let ty = match effect {
-                Effect::Escape | Effect::Atomic | Effect::Mutation { kind: Mutation::Escape | Mutation::Atomic, .. }
+                Effect::Escape(_) | Effect::Atomic | Effect::Mutation { kind: Mutation::Escape | Mutation::Atomic, .. }
                 | Effect::UnboundedMutation { kind: Mutation::Escape | Mutation::Atomic, .. } => continue,
                 Effect::Mutation { kind: Mutation::Replace(ty), .. } | Effect::UnboundedMutation { kind: Mutation::Replace(ty), .. } => Some(*ty),
                 Effect::Mutation { kind: Mutation::Write | Mutation::Consume | Mutation::Clear, access_type: Some(ty), .. }

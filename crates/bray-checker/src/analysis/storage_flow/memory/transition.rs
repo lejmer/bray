@@ -525,10 +525,17 @@ impl State {
         }
 
         for target in targets {
-            self.contents.entry(target).or_default().retire(origin.into());
+            self.retire_backing(target, origin.into());
         }
 
         MemoryOperationStatus::Valid
+    }
+
+    pub(in crate::analysis::storage_flow::memory) fn retire_backing(&mut self, target: Target,
+        origin: bray_bound_tree::BoundExecutionSite,
+    ) {
+        self.contents.entry(target.clone()).or_default().retire(origin);
+        self.retirements.insert((target, bray_bound_tree::StorageValueRetirement::Backing));
     }
 
     #[cfg(test)]

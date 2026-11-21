@@ -320,6 +320,48 @@ and independently owned backings reached through exclusive inputs. The final
 memory decision supplies the precise uninitialized-storage diagnostic. Retain
 independent bounds and alignment diagnostics.
 
+Address support names a storage place. Scope expiry retires its support
+directly, and storage effects revoke access to the backing they actually
+retire. Logical retirement of an owned value revokes that value's evidence.
+It must not expire another place by examining the pointer bits currently
+stored there. Check plain reads of stored bits after the pointee expires,
+rejected dereferences of the same bits, and independent live access through
+normal calls, imported calls, and deferred cleanup.
+
+A raw-access requirement at body entry retains the formal address that
+supplies its lifetime. The address is separate from the callee's parameter
+slot, which may be moved or go out of scope. Storage flow initializes the
+incoming reference targets and supplies the same targets to body proof and
+execution certification. Each required raw-memory clause records support
+for its observed address. Result summaries express an incoming target as the
+formal descriptor path followed by an address read. Completion binds that
+path to the actual admitted descriptor and carries its existing lifetime
+support. Physical retirement revokes only clauses whose actual backing ends.
+Check forwarding and defaults in source and imported calls, with live and
+retired sources. The result's independent marker can survive either case.
+
+Runtime defaults can borrow caller storage before the enclosing call is
+admitted. Their checked capture keeps the incoming loan and referent even
+when the logical operand is an unresolved input. Forward the actual entry
+loan's backing as formal support through the default's result. Local
+capability liveness can omit that incoming loan from its local owners.
+Publication must still bind the support to the enclosing call's actual
+argument. Check explicit forwarding, omitted arguments, and expiry for both.
+
+A returned frame binds each child capture from its parent's admitted value.
+The parent already records the raw-address support. Follow it into the child
+and through activation, joining only support valid on alternatives that can
+supply that descriptor. Scope exit and backing retirement revoke the same
+support in public and private records. Check a forwarded frame while its
+backing lives and after that backing ends.
+
+The Windows directory APIs receive a search handle issued by the operating
+system. The handle can cross the Windows ABI as a pointer-sized integer
+without granting access to Bray memory. Carry `std.os.windows.Handle` across
+the generated signatures and their callers and verify the SDK signatures and
+representation in both target probes. The separate directory record remains
+an address and keeps its existing ownership and initialization requirements.
+
 Numeric proofs use reached operands and the private typed result, including
 when arithmetic wraps. A later write to one operand can retire its own
 comparison observation while the other operand retains its bound. A protocol
@@ -328,9 +370,24 @@ the cursor between checks. Check generator folds, changing peers, wrapped
 steps, and early exits. A scalar const result can retain equality to its
 selected call term under the same row without acquiring reference authority.
 
+An actual Boolean component of a published outcome can qualify sibling
+data and witness clauses. Use the same reached predecessor values to bind
+the selector, extent, and support. The joined clause must hold on every
+reached alternative where its selector is true. Check a returned extent on
+both sides of a Boolean result, including a false row with a zero extent,
+the shared buffer address, and rejection when an active row lacks support.
+
 Certification reuses one prepared body, plan, checked flow, and dependency
 table. Changing entry assumptions or excluded edges replaces the solved state
 and its proof cache.
+
+Give a settled acyclic block ownership of its incoming proof state. Its sole
+unconditional sequential successor can receive the output after certification keeps
+the block's reached evidence and completion dependencies. Keep cyclic inputs
+for rank checks, branch outputs for entry failure diagnostics, and normal exits
+for postconditions. Reachability must still include an attempted operation whose
+normal continuation is empty. Check conditional postconditions, finite loops,
+and failed admission against the fixed comparison before timing the same build.
 
 The storage footprint records inline reference fields as descriptor slots.
 An effect on a sibling can invalidate the enclosing value while the checked
@@ -567,6 +624,12 @@ Follow its checked route into current memory for a nested referent. A moved
 input needs the same record as a live one. A retired descriptor supplies no
 new exact observation. Result and static routes read their actual storage.
 Remove the separate input refresh that searches argument slots on completion.
+Bind an escape of all inputs to the regions carried by the admitted operands.
+That finite bound is usable only when every input's dependency information is
+complete. An incomplete capture retains an unbounded escape. Physical
+invalidation and proof preservation use the same bound together with the
+already exposed regions. Apply the rule to ordinary calls, frames, and
+lifecycle actions on each reached outcome.
 Record surviving observations of consumed inputs by the admitted input
 ordinal and its relative path. Proof reads that captured argument after the
 slot loses authority. Keep borrowed and unresolved operand locations out of
@@ -588,7 +651,11 @@ same guards. Each changed current slot has an identity at that publication.
 Trusted clauses carry authority from each reached row. Ordinary postconditions
 bind to the joined result and current contents using the admitted input
 addresses. Check success and error rows, deferred completion, and the source
-and imported counterparts.
+and imported counterparts. A scalar result projection contributes its reached
+data to both directions of the join substitution. That data supplies operands
+for the predecessor proofs and cannot acquire ownership or address authority.
+Check an initialized extent whose successful and error results return different
+counts, including a later retirement of the input storage.
 
 Assignment evaluates its destination before the right-hand side. The checked
 assignment must keep that address through right-hand side evaluation, through
@@ -679,12 +746,11 @@ edges.
    skill after replacing the old paths.
 2. Compare the fixed inventory of 1,709 cases on the accepted candidate.
    Account for the test audit changes through `3afac09c5` and verify the
-   native replacements. The settled-transfer candidate passed 1,691 cases
-   and failed 18, with none missing. It reused 1,012 exact-binary results.
-   It recovered three cases from the previous fixed comparison with no new
-   failures, and passed all 573 checker tests. Four additional predicate
-   tests outside that inventory failed on both optimized binaries.
-   Repeat the comparison after the remaining refactor and bootstrap repairs.
+   native replacements. The entry-address and joined-outcome candidate
+   passed 1,692 cases and failed 17, with none missing. The stored-address
+   bits regression recovered. It passed all 573 checker tests and reused
+   1,064 exact-binary results. Four predicate failures remain outside that
+   inventory. Repeat the comparison after the remaining bootstrap repairs.
 3. After the refactor, check the owner entry, dispatch, and registration paths,
    including `dispatch_ready` and `start_frame`. Trace the allocation reached
    through the task slot and the lifetime that supports the acquired `Current`
@@ -695,9 +761,12 @@ edges.
 5. Measure an optimized build on 24 cores. Acceptance requires planning in the
    prior 17–25 second range and a finished binary within 60 seconds. The last
    successful Windows standard-library timing was 32.0 seconds for planning and
-   33.7 seconds for emission. The reached-descriptor build reached planning
-   diagnostics in 28.7 seconds on the same machine. Its directory close and
-   working-directory buffer checks prevented emission. The profile at
+   33.7 seconds for emission. The settled-transfer build reached planning
+   diagnostics in 26.1 seconds on the same machine, down from 28.7 seconds.
+   The next candidate took 26.7 seconds. Directory close, the working-directory
+   extent, and the `ChannelState.take_storage` postcondition prevented emission.
+   The Windows x64 SDK probe passed with typed search handles.
+   The profile at
    `72f589608` spent 136.7 worker seconds in the result dependency solve and
    41.3 in the execution candidate scan, up from the reference profile's 60.0
    and 10.2 seconds.

@@ -162,16 +162,13 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             || effects.is_none_or(|effects| {
                 effects
                     .iter()
-                    .any(|effect| matches!(effect, Effect::Escape))
+                    .any(|effect| matches!(effect, Effect::Escape(None)))
             });
 
         let targets = effects
             .into_iter()
             .flatten()
-            .filter_map(|effect| match effect {
-                Effect::Mutation { footprint: target, kind: DependencyMutationKind::Escape, .. } => Some(target),
-                _ => None,
-            })
+            .flat_map(Effect::escape_regions)
             .chain(roots.iter().filter(|_| all_inputs))
             .cloned()
             .collect::<Vec<_>>();

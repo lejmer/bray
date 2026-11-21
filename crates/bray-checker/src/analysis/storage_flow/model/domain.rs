@@ -19,6 +19,7 @@ where
 {
     graph: &'analysis ControlFlowGraph,
     terminal_outputs: BTreeSet<AnalysisBlockId>,
+    entry: RefCell<Option<StorageFlowState>>,
     failure_effects: RefCell<BTreeMap<AnalysisEdgeId, Vec<FailureEdgeEffects>>>,
     reached_cleanup_edges: RefCell<BTreeSet<AnalysisEdgeId>>,
     edge_lifetime_ends: &'analysis BTreeMap<AnalysisEdgeId, Vec<BoundDependencySubject>>,
@@ -45,6 +46,7 @@ where
     )]
     pub(in crate::analysis::storage_flow) fn new(
         graph: &'analysis ControlFlowGraph,
+        entry: StorageFlowState,
         edge_lifetime_ends: &'analysis BTreeMap<AnalysisEdgeId, Vec<BoundDependencySubject>>,
         reachability: &'analysis ReachabilityResult,
         storage: &'analysis StoragePlan,
@@ -65,6 +67,7 @@ where
         Self {
             graph,
             terminal_outputs: graph.exits().iter().map(|exit| exit.block()).collect(),
+            entry: RefCell::new(Some(entry)),
             failure_effects: RefCell::default(),
             reached_cleanup_edges: RefCell::default(),
             edge_lifetime_ends,
@@ -343,17 +346,7 @@ where
     }
 
     fn boundary(&self) -> Self::State {
-        let mut state = StorageFlowState::entry(self.request.semantic_values(), self.storage, self.input);
-
-        state.execution = self.execution.entry_state();
-        state.reachable = state.execution.is_some();
-
-        state.refinements =
-            crate::analysis::refinement::RefinementSet::empty(self.refinements.len());
-
-        state.recovered |= self.refinements.is_recovered();
-
-        StorageFlowOutcomes::entry(state)
+        StorageFlowOutcomes::entry(self.entry.borrow_mut().take().expect("the fixed-point solver takes the body entry once"))
     }
 
     fn merge(

@@ -586,6 +586,30 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let owners = bind_owners(support.owners())?;
         let mut addresses = crate::execution_guarantees::AddressDependencies::new();
 
+        let bind_address = |subject: &bray_symbols::DependencySubject| -> Option<BTreeSet<crate::ExecutionPlace>> {
+            use bray_bound_tree::{StorageProjection, StorageReferenceStep};
+            use bray_symbols::DependencyProjection;
+
+            if subject.projections().last() != Some(&DependencyProjection::AddressTarget) {
+                return bind_owner(subject);
+            }
+
+            let (storage, input_ordinal) = selected?;
+            let (_, route) = storage.subject(subject)?;
+            let (StorageProjection::AddressTarget, path) = route.projections().split_last()? else { return None; };
+            let (StorageReferenceStep::ReadAddress { index, .. }, prior) = route.steps().split_last()? else { return None; };
+
+            if *index != path.len() || !prior.iter().all(|step| matches!(step, StorageReferenceStep::ReadBorrow { .. })) {
+                return None;
+            }
+
+            let input = crate::ExecutionPlace::argument(input_ordinal(subject.subject_root())?);
+            let argument = entry.arguments.get(&input)?;
+            let descriptor = path.iter().copied().fold(argument.clone(), ExecutionCondition::project).into_referent();
+
+            entry.addresses.get(&input)?.get(descriptor.descriptor_identity()).cloned()
+        };
+
         // The portable witness may observe an address through a formal receiver.
         // Admission already has the address and the storage that actually bounds it.
         for (address, places) in entry.addresses.values().flatten().filter(|(address, _)| condition.observes_trusted(address)) {
@@ -600,7 +624,13 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             let address = descriptor.descriptor_identity();
 
             if let std::collections::btree_map::Entry::Vacant(entry) = addresses.entry(address.clone()) {
-                entry.insert(bind_owners(sources)?);
+                let mut bound = BTreeSet::new();
+
+                for source in sources {
+                    bound.extend(bind_address(source)?);
+                }
+
+                entry.insert(bound);
             }
         }
 

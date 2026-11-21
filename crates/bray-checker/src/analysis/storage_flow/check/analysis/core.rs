@@ -69,8 +69,19 @@ where
 {
     input.update_liveness(storage, liveness);
 
+    let mut entry = StorageFlowState::entry(request.semantic_values(), storage, input);
+    let entry_addresses = if execution.needs_entry_addresses() { entry.entry_addresses() } else { BTreeMap::new() };
+
+    entry.execution = execution.entry_state(&entry_addresses);
+    entry.reachable = entry.execution.is_some();
+    entry.refinements = crate::analysis::refinement::RefinementSet::empty(refinements.len());
+    entry.recovered |= refinements.is_recovered();
+
+    let trusted = crate::analysis::guarantee::TrustedChecks::new(execution, entry.execution.as_ref());
+
     let domain = StorageFlowDomain::new(
         graph,
+        entry,
         edge_lifetime_ends,
         reachability,
         storage,
@@ -98,7 +109,7 @@ where
         patterns,
     );
 
-    collector.trusted = crate::analysis::guarantee::TrustedChecks::new(execution);
+    collector.trusted = trusted;
 
     let profile = std::env::var_os("BRA_694_PROFILE_FLOW").map(|_| std::time::Instant::now());
 
@@ -248,6 +259,7 @@ where
     )
     .with_cleanup_entries(collector.exits.into_entries())
     .with_cleanup_remainders(collector.cleanup_remainders)
+    .with_entry_addresses(entry_addresses)
     .with_input_observation_scopes(scopes)
     .with_deferred_calls(collector.deferred_calls)
     .with_call_admissions(collector.value_captures, collector.value_transitions)

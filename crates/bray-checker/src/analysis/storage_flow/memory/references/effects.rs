@@ -50,12 +50,9 @@ impl State {
     /// Normal ambient effects share external roots and this call's escaped inputs.
     /// A whole invocation escape has no finite reachability bound.
     pub(in crate::analysis::storage_flow) fn ambient_regions(&self, effects: &[Effect]) -> Option<(std::collections::BTreeSet<Target>, bool)> {
-        if effects.contains(&Effect::Escape) { return None; }
+        if effects.contains(&Effect::Escape(None)) { return None; }
 
-        let escaped = effects.iter().filter_map(|effect| match effect {
-            Effect::Mutation { footprint: target, kind: DependencyMutationKind::Escape, .. } => Some(target.clone()),
-            _ => None,
-        });
+        let escaped = effects.iter().flat_map(Effect::escape_regions).cloned();
 
         Some(self.reachable_regions(self.escaped_regions(escaped)))
     }
@@ -77,7 +74,7 @@ impl State {
 
         for effect in effects {
             match effect {
-                Effect::Escape | Effect::Mutation { kind: DependencyMutationKind::Escape, .. } => {}
+                Effect::Escape(_) | Effect::Mutation { kind: DependencyMutationKind::Escape, .. } => {}
                 Effect::Mutation { address, footprint: target, kind: kind @ (DependencyMutationKind::Dispose(_) | DependencyMutationKind::Cleanup(_)), .. } => {
                     let backing = if matches!(kind, DependencyMutationKind::Dispose(_)) {
                         address.as_ref().and_then(|owner| self.owned_backing(owner)).cloned()
@@ -167,7 +164,7 @@ impl State {
             }
 
             if let Some(origin) = retirement {
-                self.contents.entry(affected).or_default().retire(origin);
+                self.retire_backing(affected, origin);
             } else if let Some(contents) = self.contents.get_mut(&affected) {
                 // An alias bound does not prove a complete typed update. Preserve
                 // only the ordinary selected cell, never a merely overlapping view.

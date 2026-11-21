@@ -122,7 +122,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             self.call_effect_outcomes(state, execution, invocation, contracts, &admitted, failure_prefixes)
         };
 
-        if started.is_none() && effects.normal().iter().any(|effect| matches!(effect, Effect::Unknown | Effect::Ambient | Effect::Escape))
+        if started.is_none() && effects.normal().iter().any(|effect| matches!(effect, Effect::Unknown | Effect::Ambient | Effect::Escape(_)))
             && entry.is_some_and(|entry| self.execution.admitted_pure(invocation, entry))
         {
             // A pure admission supplies the missing bound for an opaque normal
@@ -131,7 +131,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
             let normal = effects.normal().iter().filter(|effect| match effect {
                 Effect::Unknown => false,
-                Effect::Ambient | Effect::Escape => !opaque,
+                Effect::Ambient | Effect::Escape(_) => !opaque,
                 _ => true,
             }).cloned().collect::<Vec<_>>();
 
@@ -542,11 +542,13 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         occurrence: bray_bound_tree::BoundExecutionSite,
         effects: &[DependencyStorageEffect],
     ) -> Vec<Effect> {
-        let storage = self.dependencies.calls().get(&occurrence)
-            .expect("call effects retain their checked invocation").storage();
+        let contract = &self.dependencies.calls()[&occurrence];
+        let storage = contract.storage();
+        let entry = execution.admitted_call(occurrence);
         let read = |slot| crate::analysis::storage_flow::memory::Source::Value(slot).mutation_targets(&state.memory);
 
-        let resolved = self.resolve_effects(&state.memory, storage, effects, |subject, indirect| {
+        let resolved = self.resolve_effects(&state.memory, storage, effects,
+            || entry?.argument_regions(contract.input_count()), |subject, indirect| {
             let values = self.request.semantic_values();
             let root = subject.subject_root();
             let path = storage.subject(subject).map(|(_, path)| path);
@@ -562,8 +564,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             let path = path?;
 
             if indirect || !path.steps().is_empty() {
-                let entry = execution.admitted_call(occurrence)?;
-                let captured = self.execution.invocation_capture(entry, occurrence, root)?;
+                let captured = self.execution.invocation_capture(entry?, occurrence, root)?;
 
                 return state.memory.captured_effect_targets(values, captured, path, indirect);
             }
@@ -635,6 +636,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         memory: &crate::analysis::storage_flow::memory::State,
         storage: &bray_bound_tree::BoundCallStorage,
         effects: &[DependencyStorageEffect],
+        mut input_regions: impl FnMut() -> Option<std::sync::Arc<[Target]>>,
         mut resolve: impl FnMut(&DependencySubject, bool) -> Option<Vec<crate::analysis::storage_flow::memory::MutationTarget>>,
     ) -> Vec<Effect> {
         let mut resolved = Vec::new();
@@ -644,12 +646,17 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
             let (subject, indirect, continues, kind, access_type, addressed) = match effect {
                 DependencyStorageEffect::OrderedRetirement { .. } => unreachable!("retirement has one stated discharge prefix"),
-                DependencyStorageEffect::UnboundedMutation { kind, access_type, ambient } => {
-                    resolved.push(Effect::unbounded(*kind, *access_type, *ambient));
+                DependencyStorageEffect::Escape | DependencyStorageEffect::UnboundedMutation { kind: DependencyMutationKind::Escape, .. } => {
+                    let regions = input_regions();
+
+                    if regions.as_ref().is_none_or(|regions| !regions.is_empty()) {
+                        resolved.push(Effect::Escape(regions));
+                    }
+
                     continue;
                 }
-                DependencyStorageEffect::Escape => {
-                    resolved.push(Effect::Escape);
+                DependencyStorageEffect::UnboundedMutation { kind, access_type, ambient } => {
+                    resolved.push(Effect::unbounded(*kind, *access_type, *ambient));
                     continue;
                 }
                 DependencyStorageEffect::Ambient => {
@@ -748,7 +755,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         for effect in effects {
             match effect {
-                Effect::Escape | Effect::Mutation { kind: DependencyMutationKind::Escape, .. } => {}
+                Effect::Escape(_) | Effect::Mutation { kind: DependencyMutationKind::Escape, .. } => {}
                 Effect::Mutation { address, footprint, discharged, kind, access_type } => {
                     let by_operand = address.as_ref() == Some(footprint);
                     let discharged = discharged.as_deref().unwrap_or_default();

@@ -55,11 +55,9 @@ pub(in crate::analysis) struct TrustedChecks {
 impl TrustedChecks {
     pub(in crate::analysis) fn new<C: CheckerRequestContext + ?Sized>(
         domain: &ExecutionFlowDomain<'_, '_, C>,
+        boundary: Option<&ExecutionState>,
     ) -> Self {
-        let boundary = domain.entry_state();
-
         let guarantees = boundary
-            .as_ref()
             .into_iter()
             .flat_map(|boundary| {
                 domain
@@ -85,7 +83,7 @@ impl TrustedChecks {
             .collect::<Vec<_>>();
 
         Self {
-            owned_entry_conditions: boundary.as_ref().into_iter().flat_map(|state| state.assumptions.iter()).filter(|(condition, _)| matches!(condition.kind(), crate::ExecutionConditionKind::Input(place) if place.is_callable_input())).cloned().collect(),
+            owned_entry_conditions: boundary.into_iter().flat_map(|state| state.assumptions.iter()).filter(|(condition, _)| matches!(condition.kind(), crate::ExecutionConditionKind::Input(place) if place.is_callable_input())).cloned().collect(),
             guarantee_failures: vec![None; guarantees.len()],
             guarantees,
             ..Self::default()

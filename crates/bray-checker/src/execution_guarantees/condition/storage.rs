@@ -58,6 +58,21 @@ impl ExecutionCondition {
         }
     }
 
+    /// Complete regions supplied by this evaluated value to an opaque operation.
+    pub(crate) fn captured_input_regions(&self) -> Option<Vec<bray_bound_tree::StorageTarget>> {
+        if self.contains_deferred() { return None; }
+
+        let value = self.inline_captured_storage()?;
+
+        if let Some(regions) = value.address_regions() {
+            return Some(regions);
+        }
+
+        value.binding()?.whole_complete().then(|| {
+            value.complete_carried_regions().map(|regions| regions.into_iter().collect())
+        }).flatten()
+    }
+
     /// Proof data observes the value, independently of physical transport metadata.
     /// CurrentValues retains the paired snapshot for storage propagation and fixed-point equality.
     pub(crate) fn without_captured_storage(&self) -> Self {

@@ -7,7 +7,8 @@ use bray_symbols::{DependencyMutationKind, StorageDischarge, TypeId};
 pub enum StorageEffect {
     Unknown,
     Ambient,
-    Escape,
+    /// Invocation inputs may escape. A bound records the admitted input regions.
+    Escape(Option<Arc<[Target]>>),
     Atomic,
     // The original checked access type belongs to the mutation. An alias bound
     // supplies its region, never a substitute raw access or transfer type.
@@ -76,7 +77,7 @@ impl StorageEffect {
     pub fn preserves_storage_lifetimes(&self) -> bool {
         match self {
             Self::Unknown | Self::Ambient => false,
-            Self::Escape | Self::Atomic => true,
+            Self::Escape(_) | Self::Atomic => true,
             Self::Mutation { kind, .. } | Self::UnboundedMutation { kind, .. } => !matches!(
                 kind,
                 DependencyMutationKind::Dispose(_) | DependencyMutationKind::Cleanup(_)
@@ -92,7 +93,7 @@ impl StorageEffect {
     ) -> Self {
         match kind {
             DependencyMutationKind::Atomic => Self::Atomic,
-            DependencyMutationKind::Escape => Self::Escape,
+            DependencyMutationKind::Escape => Self::Escape(None),
             _ => Self::UnboundedMutation { kind, access_type, ambient },
         }
     }
@@ -116,13 +117,35 @@ impl StorageEffect {
                 *kind = kind.region_kind();
             }
         }
+
+        if let Self::Escape(Some(targets)) = self
+            && targets.iter().any(|target| retirement.contains(current, target))
+        {
+            *targets = bray_base::sorted_unique_shared_slice(targets.iter().cloned().map(|mut target| {
+                if retirement.contains(current, &target) {
+                    target.previous = true;
+                }
+
+                target
+            }));
+        }
     }
 
     pub fn references(&self, current: &Target, retirement: Retirement) -> bool {
         match self {
             Self::Mutation { address, footprint, .. } => address.iter().chain(std::iter::once(footprint))
                 .any(|target| retirement.contains(current, target)),
+            Self::Escape(Some(targets)) => targets.iter().any(|target| retirement.contains(current, target)),
             _ => false,
+        }
+    }
+
+    /// Regions known to escape on this effect.
+    pub fn escape_regions(&self) -> &[Target] {
+        match self {
+            Self::Escape(Some(regions)) => regions,
+            Self::Mutation { footprint, kind: DependencyMutationKind::Escape, .. } => std::slice::from_ref(footprint),
+            _ => &[],
         }
     }
 
@@ -141,7 +164,7 @@ impl StorageEffect {
         match self {
             Self::Mutation { kind: DependencyMutationKind::Escape, .. } => None,
             Self::Mutation { footprint: target, kind, .. } => Some((target, *kind)),
-            Self::Unknown | Self::Ambient | Self::Escape | Self::Atomic | Self::UnboundedMutation { .. } => None,
+            Self::Unknown | Self::Ambient | Self::Escape(_) | Self::Atomic | Self::UnboundedMutation { .. } => None,
         }
     }
 }

@@ -276,7 +276,7 @@ enum CompletionEntry {
 pub struct StorageObservedTarget {
     /// The physical value's established origin.
     pub target: crate::StorageTarget,
-    /// The reached type when this observation reads through a stored borrow.
+    /// The reached type when this observation reads through a stored reference.
     pub pointee: Option<bray_symbols::TypeId>,
 }
 

@@ -329,9 +329,12 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             }) {
                 None
             } else {
-                self.frame_cleanup_contract(source, candidate).map(|(storage, contracts)| contracts.map(|effects| {
-                    self.resolve_frame_cleanup(memory, candidate, storage, effects).into_iter().collect()
-                }))
+                self.frame_cleanup_contract(source, candidate).map(|(storage, count, [captures, result])| {
+                    [
+                        self.resolve_frame_cleanup(memory, candidate, storage, captures, Some(count)).into_iter().collect(),
+                        self.resolve_frame_cleanup(memory, candidate, storage, result, None).into_iter().collect(),
+                    ]
+                })
             };
 
             if cleanup.is_none() && previous.and_then(|transfer| transfer.effects.as_ref()) == effects.as_ref()
@@ -371,7 +374,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let entry = &candidate.entry;
         let mut selection;
 
-        let (templates, routes, rows) = if let Some(site) = source.local() {
+        let (templates, routes, rows, count) = if let Some(site) = source.local() {
             let call = self.dependencies.calls().get(&site)?;
             let rows = call.captured_values();
 
@@ -383,7 +386,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 |_| entry.failure_rows.is_some(),
             );
 
-            (call.deferred_effect_outcomes()?, call.storage(), rows)
+            (call.deferred_effect_outcomes()?, call.storage(), rows, call.input_count())
         } else {
             let callee = candidate.callee.as_deref()?;
             let body = self.dependencies.frame_callees().get(callee)?;
@@ -398,7 +401,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 |_| entry.failure_rows.is_some(),
             );
 
-            (summary.effect_outcomes(), &body.storage, rows)
+            (summary.effect_outcomes(), &body.storage, rows, body.capture_types.len())
         };
 
         for (index, row) in rows.iter().enumerate().filter(|(index, _)| {
@@ -408,7 +411,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         }
 
         let (effects, rows) = selection.bind(templates, |effect| {
-            self.resolve_effects(memory, routes, std::slice::from_ref(effect), |subject, indirect| {
+            self.resolve_effects(memory, routes, std::slice::from_ref(effect), || entry.argument_regions(count), |subject, indirect| {
                 self.frame_effect_targets(memory, candidate, routes, subject, indirect)
             })
         });
@@ -460,9 +463,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         for (source, candidate) in &frame.producers {
             if !crate::execution_guarantees::deferred_possible(&candidate.selection, proof) { continue; }
 
-            let (storage, [captures, _]) = self.frame_cleanup_contract(source, candidate)?;
+            let (storage, count, [captures, _]) = self.frame_cleanup_contract(source, candidate)?;
 
-            cleanup.extend(self.resolve_frame_cleanup(memory, candidate, storage, captures));
+            cleanup.extend(self.resolve_frame_cleanup(memory, candidate, storage, captures, Some(count)));
         }
 
         Some(cleanup.into_iter().collect())
@@ -472,15 +475,15 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         &self,
         source: &bray_bound_tree::StorageDeferredProducer,
         candidate: &crate::ExecutionDeferredInvocation,
-    ) -> Option<(&BoundCallStorage, [&[bray_symbols::DependencyStorageEffect]; 2])> {
+    ) -> Option<(&BoundCallStorage, usize, [&[bray_symbols::DependencyStorageEffect]; 2])> {
         if let Some(site) = source.local() {
             let call = self.dependencies.calls().get(&site)?;
 
-            Some((call.storage(), [call.deferred_capture_cleanup()?, call.deferred_result_cleanup()?]))
+            Some((call.storage(), call.input_count(), [call.deferred_capture_cleanup()?, call.deferred_result_cleanup()?]))
         } else {
             let body = self.dependencies.frame_callees().get(candidate.callee.as_deref()?)?;
 
-            Some((&body.storage, [&body.capture_cleanup, &body.result_cleanup]))
+            Some((&body.storage, body.capture_types.len(), [&body.capture_cleanup, &body.result_cleanup]))
         }
     }
 
@@ -490,11 +493,18 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         candidate: &crate::ExecutionDeferredInvocation,
         storage: &BoundCallStorage,
         templates: &[bray_symbols::DependencyStorageEffect],
+        capture_count: Option<usize>,
     ) -> Vec<Effect> {
         self.resolve_effects(
             memory,
             storage,
             templates,
+            || match capture_count {
+                Some(count) => candidate.entry.argument_regions(count),
+                None => candidate.entry.outputs.common_value(&bray_bound_tree::StorageValueDestination::Result)
+                    .and_then(crate::ExecutionCondition::captured_input_regions)
+                    .map(bray_base::sorted_unique_shared_slice),
+            },
             |subject, indirect| {
                 if !subject.subject_root().is_static() && !indirect
                     && storage.subject(subject).is_some_and(|(_, path)| path.steps().is_empty())

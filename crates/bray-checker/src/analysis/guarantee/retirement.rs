@@ -17,8 +17,18 @@ impl ExecutionState {
     pub(in crate::analysis) fn retire_captured_storage(&mut self,
         retirements: &[(bray_bound_tree::StorageTarget, bray_bound_tree::StorageValueRetirement)],
     ) {
-        if !retirements.is_empty() {
+        use bray_bound_tree::StorageValueRetirement;
+
+        if retirements.iter().any(|(_, scope)| *scope != StorageValueRetirement::Backing) {
             self.update_stored_values(ExecutionCondition::retiring_storage(retirements));
+        }
+
+        if retirements.iter().any(|(_, scope)| *scope == StorageValueRetirement::Backing) {
+            self.retire_witness_dependencies(&|place| {
+                let crate::execution_guarantees::ExecutionInput::Pointee { target, .. } = &place.root else { return false; };
+
+                retirements.iter().any(|(expired, scope)| scope.ends_backing(expired, target))
+            });
         }
     }
 
@@ -104,6 +114,17 @@ impl ExecutionState {
         let invalidated_owners = invalidated.iter()
             .filter_map(ExecutionCondition::ownership_identity)
             .collect::<BTreeSet<_>>();
+
+        // Address support follows a retired place. Its current contents can
+        // hold data from a separately retired owner.
+        let retired_places = if kind.is_write() {
+            BTreeSet::new()
+        } else {
+            invalidated_owners.iter().filter_map(|(_, owner)| match owner.kind() {
+                crate::ExecutionConditionKind::Input(place) => Some(place),
+                _ => None,
+            }).collect()
+        };
 
         let retired_owner = |value: &ExecutionCondition| if retained_snapshots.is_some() {
             value.ownership_identity().is_some_and(|owner| invalidated_owners.contains(&owner))
@@ -198,19 +219,9 @@ impl ExecutionState {
             witness.retain_conditions(|condition, guarantee| {
                 let memo = &queries(condition);
 
-                let address_expired = !kind.is_write()
-                    && guarantee.addresses.values().flatten().any(|owner| {
-                        owner.value_in(&self.current).is_some_and(|value| {
-                            value.observations().any(|observed| {
-                                !matches!((
-                                    observed).kind(),
-                                    crate::ExecutionConditionKind::Literal(_)
-                                        | crate::ExecutionConditionKind::Boolean(_)
-                                        | crate::ExecutionConditionKind::Variant(_)
-                                ) && invalidated_observations.overlaps(observed)
-                            })
-                        })
-                    });
+                let address_expired = !retired_places.is_empty()
+                    && guarantee.addresses.values().flatten()
+                        .any(|owner| retired_places.iter().any(|expired| expired.contains(owner)));
 
                 // Explicitly preserved components still belong to this live
                 // carrier. Only replacement or retirement can end their owner.
@@ -223,7 +234,7 @@ impl ExecutionState {
                         && matches!(carrier.kind(), crate::ExecutionConditionKind::Expression(expression)
                             if expression.unit().raw() == 18981 && expression.ordinal() == 11)
                     {
-                        eprintln!("frame carrier retired kind={kind:?} owner={loses_owner} observations={} address={address_expired} availability={} retained_owner={} retained_data={}",
+                        eprintln!("frame carrier retired kind={kind:?} owner={loses_owner} observations={} availability={} retained_owner={} retained_data={}",
                             revokes_guarantee(condition, memo), availability_expired(condition), retained_owner(carrier), retained_data(carrier));
                     }
 
@@ -551,21 +562,21 @@ impl ExecutionState {
         }
     }
 
-    fn retire_witness_roots(
+    fn retire_witness_dependencies(
         &mut self,
-        roots: &BTreeSet<crate::execution_guarantees::ExecutionInput>,
+        expired: &impl Fn(&crate::ExecutionPlace) -> bool,
     ) {
         let mut retired = BTreeSet::new();
 
         let address_support_expired = |guarantee: &crate::execution_guarantees::ExecutionGuarantee| {
-            guarantee.addresses.values().flatten().any(|owner| roots.contains(&owner.root))
+            guarantee.addresses.values().flatten().any(expired)
         };
 
         self.witnesses.retain(|carrier, witness| {
             // A scoped view expires without changing the independently held
             // referent. Root-bound address clauses expire at this same boundary.
             if matches!(carrier.ownership_identity(), Some((crate::execution_guarantees::ExecutionObservationKind::Reference, _)))
-                && witness.dependencies.iter().any(|owner| roots.contains(&owner.root))
+                && witness.dependencies.iter().any(expired)
             {
                 for condition in witness.conditions.keys() {
                     condition.clone().assume(true, &mut retired);
@@ -596,7 +607,7 @@ impl ExecutionState {
             .retain(|condition, _| !retired.contains(&(condition.clone(), true)));
 
         let owner_revoked = |_: &ExecutionCondition, witness: &crate::execution_guarantees::ExecutionWitness| {
-            witness.dependencies.iter().any(|owner| roots.contains(&owner.root))
+            witness.dependencies.iter().any(expired)
         };
 
         let clause_revoked = |_: &ExecutionCondition, guarantee: &crate::execution_guarantees::ExecutionGuarantee| {
@@ -605,9 +616,14 @@ impl ExecutionState {
 
         self.update_entry_snapshots(&|entry| {
             entry.witness_support_revoked(&owner_revoked, &clause_revoked)
+                || entry.addresses.values().flat_map(|addresses| addresses.values().flatten()).any(expired)
                 || entry.pending_execution && entry.assumptions.iter().chain(&entry.trusted_assumptions).any(|fact| retired.contains(fact))
         }, &mut |entry| {
             entry.revoke_witness_support(&owner_revoked, &clause_revoked);
+            entry.addresses.retain(|_, addresses| {
+                addresses.retain(|_, places| !places.iter().any(expired));
+                !addresses.is_empty()
+            });
 
             if entry.pending_execution {
                 entry.assumptions.retain(|fact| !retired.contains(fact));
@@ -628,7 +644,7 @@ impl ExecutionState {
             value.observations().any(|observed| matches!(observed.kind(), crate::ExecutionConditionKind::Input(place) if roots.contains(&place.root)))
         }, |_| false));
 
-        self.retire_witness_roots(roots);
+        self.retire_witness_dependencies(&|place| roots.contains(&place.root));
 
         let dependent = self
             .witnesses

@@ -2,6 +2,64 @@ use bray_diagnostics::{DiagnosticKind};
 use crate::test_support::{compilation};
 
 #[test]
+fn published_boolean_selects_the_initialized_extent() {
+    let source = r#"
+        trusted module app;
+
+        using core.memory;
+
+        extern trusted func initialize(pos pointer: DataPointer<u8>, pos extent: usize)
+            ensures(trusted core.memory.initialized_range_as<u8>(pointer = pointer, count = extent));
+
+        extern trusted func observe(pos pointer: DataPointer<u8>, pos extent: usize)
+            requires(trusted core.memory.initialized_range_as<u8>(pointer = pointer, count = extent));
+
+        trusted func measure(pos pointer: DataPointer<u8>, pos ready: bool, pos extent: usize) -> (bool, usize)
+            ensures(!result.0 || trusted core.memory.initialized_range_as<u8>(pointer = pointer, count = result.1))
+        {
+            if ready
+            {
+                trusted initialize(pointer, extent);
+                return (true, extent);
+            }
+
+            return (false, 1);
+        }
+
+        trusted func initialized(pos pointer: DataPointer<u8>, pos ready: bool, pos extent: usize)
+        {
+            let observed = trusted measure(pointer, ready, extent);
+
+            if observed.0
+            {
+                trusted observe(pointer, observed.1);
+            }
+        }
+
+        trusted func uninitialized(pos pointer: DataPointer<u8>, pos ready: bool, pos extent: usize)
+        {
+            let observed = trusted measure(pointer, ready, extent);
+
+            if !observed.0
+            {
+                trusted observe(pointer, observed.1);
+            }
+        }
+    "#;
+    let compilation = compilation(source);
+
+    for (name, expected) in [
+        ("initialized", None),
+        ("uninitialized", Some(DiagnosticKind::CheckingTrustedObligationNotProven)),
+    ] {
+        let key = crate::test_support::source_function_body_key(&compilation, name);
+        let checked = compilation.storage_flow(key).expect("callers reach storage checking");
+
+        bray_testing::assert_goal_state_diagnostic_outcome(checked.diagnostics(), expected, name);
+    }
+}
+
+#[test]
 fn borrowed_invariants_survive_loops_only_when_every_back_edge_preserves_them() {
     for (body, valid) in [
         ("trusted advance(&mut owner);", true),
