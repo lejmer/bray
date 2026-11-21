@@ -116,7 +116,7 @@ impl StorageCapturedValue {
 
     /// Returns the captured address only when it establishes one current actual target.
     pub fn known_address(&self) -> Option<&Target> {
-        self.binding()?.reference()?.single_location().filter(|target| target.is_exact())
+        self.binding()?.address.as_ref()?.single_location().filter(|target| target.is_exact())
     }
 
     /// Mutation operands of the evaluated descriptor, including independent conservative bounds.

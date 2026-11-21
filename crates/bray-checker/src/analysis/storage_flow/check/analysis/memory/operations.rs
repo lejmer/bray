@@ -247,12 +247,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     return MemoryOperationStatus::Recovered;
                 };
 
-                if let Some(source) = operand(0) {
-                    source.transfer(&mut state.memory, result.clone());
-
-                    state
-                        .memory
-                        .expose_address(&result, pointee, operation.expression());
+                if let Some(value) = self.captured_memory_operand(execution, operation, arguments[0])
+                    .and_then(bray_bound_tree::StorageCapturedValue::binding)
+                {
+                    state.memory.publish_exposed_address(&result, pointee, operation.expression(), value);
                 } else {
                     state.memory.clear(&result);
                 }

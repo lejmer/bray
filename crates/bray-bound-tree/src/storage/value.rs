@@ -425,6 +425,16 @@ impl StorageValueBinding {
         Self { borrow_capability: Some(capability), ..Self::from(address) }
     }
 
+    /// The raw address formed from this descriptor carries no ordinary borrow authority.
+    pub fn exposed_address(&self) -> Self {
+        Self {
+            observations: [super::StorageObservationKind::Address].into(),
+            address: self.address.clone(),
+            address_bounds: self.address_bounds.clone(),
+            ..Self::default()
+        }
+    }
+
     /// Returns a capability carried by the actual descriptor, independently of its address.
     pub fn borrow_capability(&self) -> Option<crate::BorrowCapabilityId> {
         self.address.as_ref().is_some_and(|address| address.has_values() && !address.targets.is_empty()

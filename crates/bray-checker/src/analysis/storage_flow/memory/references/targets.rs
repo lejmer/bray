@@ -1,4 +1,4 @@
-use super::super::model::{Origin, Place, AddressValue, ReachedAccess, State, Target};
+use super::super::model::{Origin, Place, AddressValue, ReachedAccess, State, Target, ValueBinding};
 use bray_bound_tree::{BorrowCapabilityId, BoundExpressionId};
 use bray_symbols::TypeId;
 use std::collections::BTreeSet;
@@ -151,39 +151,58 @@ impl State {
             bray_symbols::DependencyReferenceKind::Address,
         );
 
-        self.values
-            .insert(Target::storage(destination.clone()), references.into());
-
-        self.expose_address(&destination, ty, origin);
+        self.publish_exposed_address(&destination, ty, origin, &references.into());
     }
 
-    pub(in crate::analysis::storage_flow) fn expose_address(
+    pub(in crate::analysis::storage_flow) fn publish_exposed_address(
         &mut self,
         slot: &Place,
         ty: TypeId,
         origin: BoundExpressionId,
+        source: &ValueBinding,
     ) {
-        let references = self.references(&Target::storage(slot.clone()));
-        let exact = references.is_exact();
+        let value = source.exposed_address();
 
-        for target in &references.targets {
-            let contents = self.contents.entry(target.clone()).or_default();
+        self.observe_address_exposure(&value, ty, origin);
+        self.clear(slot);
+        self.values.insert(Target::storage(slot.clone()), value);
+    }
 
-            contents.exposed = true;
+    #[cfg(test)]
+    pub(in crate::analysis::storage_flow) fn expose_address(&mut self, slot: &Place, ty: TypeId, origin: BoundExpressionId) {
+        if let Some(value) = self.values.get(&Target::storage(slot.clone())).cloned() {
+            self.observe_address_exposure(&value, ty, origin);
+        }
+    }
 
-            if exact {
-                if let Some(previous) = contents.storage_type {
-                    assert_eq!(
-                        previous, ty,
-                        "exact address formation preserves the declared storage type: {target:?}"
-                    );
+    fn observe_address_exposure(
+        &mut self,
+        value: &ValueBinding,
+        ty: TypeId,
+        origin: BoundExpressionId,
+    ) {
+        let exact = value.address.as_ref().is_some_and(AddressValue::is_exact);
+
+        for references in value.possible_references() {
+            for target in &references.targets {
+                let contents = self.contents.entry(target.clone()).or_default();
+
+                contents.exposed = true;
+
+                if exact {
+                    if let Some(previous) = contents.storage_type {
+                        assert_eq!(
+                            previous, ty,
+                            "exact address formation preserves the declared storage type: {target:?}"
+                        );
+                    }
+
+                    contents.storage_type = Some(ty);
+                    contents.observe_initialized(ty);
                 }
 
-                contents.storage_type = Some(ty);
-                contents.observe_initialized(ty);
+                contents.pending.entry(ty).or_default().insert(origin);
             }
-
-            contents.pending.entry(ty).or_default().insert(origin);
         }
     }
 
