@@ -102,6 +102,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .map(|(place, _)| place.root.clone())
             .collect::<BTreeSet<_>>();
 
+        let external = expired.iter().flat_map(|(place, _)| state.current.entry_borrows_under(place))
+            .collect::<Vec<_>>();
+
         state.invalidate_trusted_roots(&expired_roots);
 
         // Terminal observations remain readable by completion clauses after the
@@ -126,10 +129,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .chain(
                 self.borrowed_inputs
                     .iter()
-                    .chain(&self.disposal.borrowed_inputs)
                     .filter(|place| expired_roots.contains(&place.root))
                     .filter_map(|place| place.value_in(&state.current)),
             )
+            .chain(external)
             .collect::<crate::execution_guarantees::RetainedSnapshots>();
 
         let retired = values

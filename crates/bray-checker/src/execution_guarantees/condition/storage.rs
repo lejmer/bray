@@ -260,9 +260,19 @@ impl ExecutionCondition {
                     Self::scalar_observation(producer, contents.as_ref().clone())
                 }
             }
-            K::Observation { owner, contents, kind } => Self::observation(
-                if owner.is_unknown() { producer.clone() } else { owner.as_ref().clone() },
-                contents.as_ref().clone().with_producer(producer), *kind),
+            K::Observation { owner, contents, kind } => {
+                // A portable reference can produce a live descriptor without
+                // identifying its origin. The evaluated result names that value.
+                let identity = if owner.is_unknown()
+                    || *kind == super::ExecutionObservationKind::Reference && owner.owner_identity().contains_unknown()
+                {
+                    producer.owner_identity()
+                } else {
+                    owner
+                };
+
+                Self::observation(identity.clone(), contents.as_ref().clone().with_producer(producer), *kind)
+            }
             K::Present(value) => Self::new(K::Present(Arc::new(
                 value.as_ref().clone().with_producer(producer.project(StorageProjection::NullableValue)),
             ))),
@@ -285,16 +295,11 @@ impl ExecutionCondition {
                 }
             }
             (Operation::Read, [value]) => {
-                let mut reference = value;
+                let contents = value.loan_contents().cloned().unwrap_or_else(|| {
+                    assert!(value.computed_value().is_unknown(), "a checked captured read receives one reference layer: {value:?}");
 
-                let contents = loop {
-                    match reference.kind() {
-                        K::CapturedValue { value, .. } | K::Observation { contents: value, kind: super::ExecutionObservationKind::Scalar, .. } => reference = value,
-                        K::Borrowed(contents) | K::Observation { contents, kind: super::ExecutionObservationKind::Reference, .. } => break contents.as_ref().clone(),
-                        K::Unknown => break Self::unknown(),
-                        _ => panic!("a checked captured read receives one reference layer: {reference:?}"),
-                    }
-                };
+                    Self::unknown()
+                });
 
                 let context = match contents.observation_kind() {
                     // A checked view can already name the actual storage of its

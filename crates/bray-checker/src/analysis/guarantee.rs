@@ -5,7 +5,7 @@ pub use unwind::{UnwindCall, UnwindCandidate, check_unwind_candidate};
 mod bounds;
 mod check;
 mod cleanup;
-pub(crate) use cleanup::{Cleanup, Plan as CleanupPlan};
+pub(crate) use cleanup::Plan as CleanupPlan;
 mod completion;
 mod current;
 mod integer;

@@ -138,6 +138,91 @@ fn allocation_producers_preserve_freshness_in_source_and_imported_calls() {
 }
 
 #[test]
+fn retiring_a_saved_pointer_preserves_the_replacement_in_source_and_imported_calls() {
+    let api = r#"
+        trusted module api;
+
+        using core.memory;
+
+        struct Slot
+        {
+            mut pointer: DataPointer<u8>;
+        }
+
+        trusted func fresh() -> DataPointer<u8>
+            ensures(trusted core.memory.owned_allocation(pointer = result, bytes = 8, align = 8))
+            uses(manual_alloc)
+        {
+            return core.memory.allocate(bytes = 8, align = 8);
+        }
+
+        trusted func replace_and_retire(pos original: DataPointer<u8>, pos replacement: DataPointer<u8>) -> Slot
+            requires(trusted core.memory.owned_allocation(pointer = original, bytes = 8, align = 8))
+            uses(manual_alloc)
+        {
+            let mut slot: Slot = { pointer = original };
+            let saved = slot.pointer;
+            slot.pointer = replacement;
+            trusted core.memory.deallocate(saved, bytes = 8, align = 8);
+            return slot;
+        }
+    "#;
+
+    let provider = compilation(api);
+    let diagnostics = provider.check_diagnostics();
+
+    assert!(!diagnostics.has_errors(), "{diagnostics:#?}");
+
+    for imported in [false, true] {
+        let prefix = if imported { "example.package.api" } else { "api" };
+
+        for repeat in [false, true] {
+            let caller = r#"
+                trusted module app;
+
+                using core.memory;
+                using API;
+
+                trusted func probe()
+                    uses(manual_alloc)
+                {
+                    let original = API.fresh();
+                    let replacement = API.fresh();
+                    let slot = trusted API.replace_and_retire(original, replacement);
+                    trusted core.memory.deallocate(slot.pointer, bytes = 8, align = 8);
+                    REPEAT_RETIREMENT
+                }
+            "#.replace("API", prefix).replace("REPEAT_RETIREMENT", if repeat {
+                "trusted core.memory.deallocate(original, bytes = 8, align = 8);"
+            } else {
+                ""
+            });
+
+            let consumer = if imported { execution_consumer(&provider, &caller) }
+                else { compilation_from_sources([api, &caller]) };
+
+            let body = source_function_body_key(&consumer, "probe");
+            let lowered = consumer.lowered_unit(body.clone()).expect("retirement probe is checked for lowering");
+            let diagnostics = lowered.diagnostics();
+
+            if repeat {
+                let kind = bray_diagnostics::DiagnosticKind::CheckingMemoryOperationAfterDeallocation;
+
+                bray_testing::assert_goal_state_diagnostic_kind(diagnostics, kind);
+
+                assert!(diagnostics.iter().filter(|diagnostic| diagnostic.kind() == kind).all(|diagnostic| {
+                    crate::test_support::diagnostic_at_call(
+                        diagnostic, body.source().syntax().source_id(), &caller, "core.memory.deallocate(original",
+                    )
+                }), "imported={imported}: {diagnostics:#?}");
+            } else {
+                assert!(!diagnostics.has_errors() && lowered.value().is_some(), "imported={imported}: {diagnostics:#?}");
+            }
+        }
+    }
+}
+
+#[test]
 fn returned_owners_preserve_siblings_of_nested_union_mutations() {
     let api = r#"
         trusted module api;

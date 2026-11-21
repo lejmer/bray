@@ -25,7 +25,7 @@ where
 
         let expires = |owner| match block {
             bray_bound_tree::StorageScope::AbandonedTransfer { value, .. } => owner == value,
-            _ => self.execution.disposal.plan.storage_scope(owner) == Some(block),
+            _ => self.execution.disposal.storage_scope(owner) == Some(block),
         };
 
         let survives = |owner| match block {
@@ -137,7 +137,7 @@ where
             };
 
             if block.is_some_and(|block| {
-                self.execution.disposal.plan.storage_scope(path.root) != Some(block)
+                self.execution.disposal.storage_scope(path.root) != Some(block)
             }) {
                 continue;
             }

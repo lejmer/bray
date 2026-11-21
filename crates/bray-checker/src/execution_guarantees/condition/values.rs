@@ -427,8 +427,8 @@ impl ExecutionCondition {
     }
 
     pub(crate) fn value_alias(left: Self, right: Self) -> Self {
-        let left = left.copied_value().clone();
-        let right = right.copied_value().clone();
+        let left = left.argument_value(false);
+        let right = right.argument_value(false);
 
         if left.contains_unknown() || right.contains_unknown() {
             return ExecutionCondition::unknown();
@@ -494,6 +494,20 @@ impl ExecutionCondition {
             K::CapturedValue { value, .. } | K::DeferredValue { value, .. } => value.current_referent(),
             K::Observation { contents, kind: ObservationKind::Reference, .. } => Some(contents),
             _ => None,
+        }
+    }
+
+    /// Read one stored loan layer, keeping any descriptor in its referent.
+    pub(crate) fn loan_contents(&self) -> Option<&Self> {
+        let mut value = self;
+
+        loop {
+            match value.kind() {
+                K::CapturedValue { value: contents, .. } | K::DeferredValue { value: contents, .. }
+                | K::Observation { contents, kind: ObservationKind::Scalar, .. } => value = contents,
+                K::Borrowed(contents) | K::Observation { contents, kind: ObservationKind::Reference, .. } => return Some(contents),
+                _ => return None,
+            }
         }
     }
 

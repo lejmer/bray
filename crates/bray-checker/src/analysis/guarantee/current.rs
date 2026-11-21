@@ -61,11 +61,12 @@ impl Eq for CurrentRoot {}
 pub(super) struct CurrentValues {
     roots: BTreeMap<ExecutionPlace, Arc<CurrentRoot>>,
     observed_types: Arc<BTreeMap<ExecutionPlace, Option<bray_symbols::TypeId>>>,
+    entry_borrows: Arc<BTreeSet<ExecutionPlace>>,
 }
 
 impl CurrentValues {
     pub(super) fn with_observed_types(observed_types: Arc<BTreeMap<ExecutionPlace, Option<bray_symbols::TypeId>>>) -> Self {
-        Self { roots: BTreeMap::new(), observed_types }
+        Self { observed_types, ..Self::default() }
     }
 
     fn observed_components<'a>(&'a self, place: &'a ExecutionPlace) -> impl Iterator<Item = &'a ExecutionPlace> {
@@ -93,6 +94,26 @@ impl CurrentValues {
         if !place.projections.is_empty() && !current.observed_components.contains(place) {
             CurrentRoot::edit(current).observed_components.insert(place.clone());
         }
+    }
+
+    /// Publish the installed entry descriptor and remember its caller-owned origin.
+    pub(super) fn observe_entry_borrow(&mut self, place: ExecutionPlace) {
+        self.observe_input(&place);
+
+        let value = ExecutionCondition::new(crate::ExecutionConditionKind::Input(place.clone())).borrowed();
+
+        self.insert(place.clone(), value);
+        Arc::make_mut(&mut self.entry_borrows).insert(place);
+    }
+
+    /// Select actual live descriptors that reach independently owned inputs.
+    pub(super) fn entry_borrows_under<'a>(&'a self, owner: &'a ExecutionPlace)
+        -> impl Iterator<Item = ExecutionCondition> + 'a
+    {
+        self.entry_borrows.range(owner.clone()..).take_while(move |place| owner.contains(place))
+            .filter_map(|place| self.live_value(place))
+            .filter(|value| value.is_reference() && matches!(value.referent_owner_identity().kind(),
+                crate::ExecutionConditionKind::Input(origin) if self.entry_borrows.contains(origin)))
     }
 
     pub(super) fn slot(&self, place: &ExecutionPlace) -> Option<CurrentValue> {

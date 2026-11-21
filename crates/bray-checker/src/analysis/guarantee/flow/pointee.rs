@@ -49,9 +49,19 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let value = state.current.live_value(&place)?;
 
-        Some(if borrowed && value.is_reference() {
-            ExecutionCondition::storage_value(bray_symbols::CapturedValueOperation::Read, vec![value].into()).copied_value().clone()
-        } else { value })
+        Some(self.typed_pointee_value(value, ty, borrowed))
+    }
+
+    fn typed_pointee_value(&self, value: ExecutionCondition, ty: TypeId, borrowed: bool) -> ExecutionCondition {
+        if let Some(contents) = value.loan_contents()
+            && (borrowed || crate::representation::borrow_target_type(self.request.semantic_values(), ty).is_none())
+        {
+            // A projection through an enclosing loan can retain its view
+            // even when the reached cell stores ordinary non-reference data.
+            contents.copied_value().clone()
+        } else {
+            value
+        }
     }
 
     pub(super) fn current_captured_target_value(
@@ -74,6 +84,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             let path = &target.projections()[enclosing.target.projections().len()..];
 
             state.current.live_value(&owner.project(path)?)
+                .map(|value| self.typed_pointee_value(value, ty, false))
         })
     }
 
@@ -120,7 +131,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 let provisional = produced && target.value_observation_path().is_some()
                     && reached.ownership_identity().is_some()
                     && projections.iter().fold(origin.clone(), |value, field| value.component(*field))
-                        .borrowed().owner_identity() == reference.owner_identity();
+                        == reference.referent_owner_identity();
 
                 let reference = if provisional {
                     let bound = reached.borrowed();

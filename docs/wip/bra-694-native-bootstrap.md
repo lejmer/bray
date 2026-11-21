@@ -68,20 +68,23 @@ bodies and four direct task dispatcher helpers on Windows and Linux, for both
 x64 and AArch64. The checked acquisition follows its owner across the waiter,
 dispatch, retirement, and start transitions.
 
-The expanded candidate passed 1,697 of the 1,709 audited cases. All cases
-reported an outcome. It also passed the 577 checker and 139 bound-tree cases.
-In the expanded native fixture, the original 25 bodies, four dispatch
-helpers, and `task_start` checked and lowered on all four targets.
-`main_drive` and `worker_callback` still fail to establish the retained
-execution-reference witness at their downstream calls.
+Pushed checkpoint `fb05ef10d` admits checked raw owner construction before
+installation. The expanded candidate passed 1,708 of the 1,709 audited cases,
+with an outcome for every case, and passed the 577 checker and 139 bound-tree
+cases. All 32 expanded bootstrap bodies checked and lowered on Windows and
+Linux for x64 and AArch64. The consuming-cleanup postcondition is the
+remaining fixed-inventory failure. Native package and executable timing
+remain open.
 
-The latest optimized 24-worker Windows x64 standard-library build planned
-in 28.2 s, emitted in 26.5 s, and took 62.6 s wall time. This produced the
-standard-library package. Executable link timing remains open. The latest
-profile attributes 153.7 worker seconds to 1,698 result-dependency component
-queries. A sample of 202 expensive body checks repeated one unit. A sample
-of 3,354 cleanup actions spent 2.5 s on proof invalidation and 0.06 s on
-state copies, with most time in referent checks and framing changed roots.
+The optimized 24-worker Windows x64 standard-library build planned in
+28.7 s and emitted in 26.9 s. Runtime preparation compiled the same
+standard-library package in 62.4 s with platform providers available.
+Executable link timing remains open. The same 1,698 result-dependency
+component evaluations took 151.8 worker seconds, up from 60.0 in the
+reference profile. A sample of 202 expensive body checks repeated one
+unit. A sample of 3,354 cleanup actions spent 2.5 s on proof invalidation
+and 0.06 s on state copies, with most time in referent checks and framing
+changed roots.
 
 ## Current verification batch
 
@@ -114,13 +117,47 @@ abnormal prefixes, and transfer of owned inputs keep their own semantics.
 Verify guarded and opaque calls alongside checked source and imported
 effects, including paths that bypass a requirement or replace a descriptor.
 
-The remaining fixed-inventory failures cover raw owner formation, borrowed
-protocol witnesses, slice bounds after an element write, and host retirement.
 The formation contract for a recognized storage type is a checked admission
 even when its literal invokes no callable. It must check the actual field
 operands before installing the owner. Cleanup and subsequent callers must
 observe ownership only if the formation proves it. The construction oracle
 checks a real ownership transfer, forged null fields, and copied owner fields.
+
+Bind entry clauses once against the value tree initialized from the plan and
+the flow's installed inline descriptor observations.
+Admission, cleanup, and certification must observe the same entry facts.
+Use the formal path to select each actual witness carrier in that tree.
+Its ownership role determines whether it can transfer authority. Formal
+auto-dereferenced storage holds the
+reached observation. Admission uses the typed pointee and strips inherited
+access layers without unwrapping a stored nested descriptor. Sequence
+extent uses the same reference conversion as a selected sequence call.
+Preserve the bound facts only while their original subjects survive. Verify
+the protected-write, copied data, returned loan, and loop controls alongside
+the host lifecycle cases. A write to an element can retain the descriptor.
+Selecting a different descriptor loses its prior bounds.
+
+When a checked result row produces a borrow whose portable owner is opaque,
+use the retained producer's logical identity. Preserve a row's known
+identity. Exact current storage supplies the established owner when the
+provisional producer names the same reached object. Physical address,
+reachability, and lifetime remain the completed storage transition's
+responsibility. The opaque row must never create an
+exact address, transfer ownership, or revive evidence from another
+evaluation. Check the two ABI callers and the existing positive and
+negative controls for returned references, stale predicates, and exposed
+storage. Reuse the current value tree and the existing producer
+substitution. Another observation table or a special rule at any caller
+would require reconsidering the design.
+
+Scope retirement uses the actual input loans published by storage flow.
+Retain the final reached observation of a still-caller-owned referent when
+its descriptor goes out of scope. A replacement can refer to a different
+object and cannot carry the original subject's witness. Remove the
+lifecycle plan's inferred surviving-input list. Check that a witness
+attached to an external loan survives without transferring ownership from
+its expired container. Verify independent external referents, descriptor
+replacement, and destruction of embedded owned backing.
 
 The bootstrap dispatch claim stays owned by the caller until explicit
 release. Wait-link access preserves the original host lease and slot
@@ -136,7 +173,7 @@ with the resulting compiler.
    Check value identity, retirement, and guarded transport as complete paths.
    Include round-trip import and source behavior, defaults, and cleanup.
 2. Run the fixed inventory of 1,709 cases against the candidate. The last
-   complete inventory passed 1,694 and failed 15, with no missing cases.
+   complete inventory passed 1,708 and failed one, with no missing cases.
    Use the same audited test inventory and reuse only exact-binary evidence.
 3. Check and lower the actual bootstrap owners, registration, and dispatch
    on Windows and Linux for both x86-64 and AArch64. Run native toolchain

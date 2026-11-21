@@ -9,11 +9,6 @@ use crate::{
     TrustedCallContract,
 };
 
-pub(crate) struct Cleanup<'a> {
-    pub(in crate::analysis) plan: &'a Plan,
-    pub(in crate::analysis::guarantee) borrowed_inputs: BTreeSet<ExecutionPlace>,
-}
-
 #[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
 pub(crate) struct Plan {
     cleanup_callees: BTreeSet<bray_symbols::CallableSymbolId>,
@@ -84,22 +79,6 @@ pub(in crate::analysis) struct Lifecycle {
     pub(in crate::analysis) call: bray_bound_tree::LifecycleCallable,
     pub(in crate::analysis::guarantee) receiver: BoundReferenceTarget,
     pub(in crate::analysis) contract: TrustedCallContract,
-}
-
-impl<'a> Cleanup<'a> {
-    pub(crate) fn new(
-        plan: &'a Plan,
-        dependencies: &'a bray_bound_tree::CheckedDependencyContracts,
-        values: &bray_symbols::SemanticValueStore,
-    ) -> Self {
-        let references = dependencies.lifecycle_dependencies();
-        let borrowed_inputs = plan.borrowed_inputs(references, values, dependencies);
-
-        Self {
-            plan,
-            borrowed_inputs,
-        }
-    }
 }
 
 impl Plan {
@@ -320,55 +299,6 @@ impl Plan {
         }
 
         Ok(references)
-    }
-
-    fn borrowed_inputs(
-        &self,
-        references: &BTreeMap<CallableInstanceData, bray_symbols::DependencyContractTemplateData>,
-        values: &bray_symbols::SemanticValueStore,
-        dependencies: &bray_bound_tree::CheckedDependencyContracts,
-    ) -> BTreeSet<ExecutionPlace> {
-        self.steps
-            .values()
-            .flatten()
-            .filter_map(|step| match step {
-                Step::Lifecycle {
-                    ty,
-                    place: Some(place),
-                    ..
-                } if place.is_callable_input() => Some((ty, place)),
-                _ => None,
-            })
-            .flat_map(|(ty, place)| {
-                [
-                    TypeAssociatedLifecycleSlot::Finalizer,
-                    TypeAssociatedLifecycleSlot::Destructor,
-                ]
-                .into_iter()
-                .filter_map(move |slot| self.lifecycles.get(&(*ty, slot)))
-                .flat_map(move |lifecycle| {
-                    references[&lifecycle.call.callable]
-                        .borrows()
-                        .iter()
-                        .filter_map(move |relation| {
-                            (relation.is_exact()
-                                && relation.dereferences() == 0
-                                && relation.target_projections().is_empty()
-                                && relation.entry() == Some(relation.exit())
-                                && relation.exit().subject_root()
-                                    == bray_symbols::DependencySubjectRoot::Receiver)
-                                .then(|| {
-                                    super::super::trusted::project_place(
-                                        values, dependencies, place.clone(),
-                                        relation.exit(),
-                                    )
-                                })
-                                .flatten()
-                        })
-                        .collect::<Vec<_>>()
-                })
-            })
-            .collect()
     }
 
     pub(crate) fn prepare<C: CheckerRequestContext + ?Sized>(

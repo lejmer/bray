@@ -585,7 +585,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             crate::execution_guarantees::deferred_possible(&candidate.selection, &proof)
         }) {
             let types = if let Some(source) = source.local() {
-                self.disposal.plan.future_capture_cleanup.get(&source.expression()?)?.as_slice()
+                self.disposal.future_capture_cleanup.get(&source.expression()?)?.as_slice()
             } else {
                 let body = self.dependencies.frame_callees().get(candidate.callee.as_deref()?)?;
 

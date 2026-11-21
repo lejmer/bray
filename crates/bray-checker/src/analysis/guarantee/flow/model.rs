@@ -103,7 +103,7 @@ pub(crate) struct ExecutionFlowDomain<'a, 'view, C: CheckerRequestContext + ?Siz
         Option<&'a bray_bound_tree::CheckedBodySemantics>,
     pub(in crate::analysis::guarantee) contracts:
         &'a BTreeMap<BoundExpressionId, Vec<crate::ExecutionCompletionContract>>,
-    pub(in crate::analysis) disposal: &'a super::super::cleanup::Cleanup<'a>,
+    pub(in crate::analysis) disposal: &'a super::super::cleanup::Plan,
     pub(in crate::analysis::guarantee) pointer_predicates:
         BTreeMap<bray_symbols::PredicateDefinitionSymbolId, &'static [usize]>,
     pub(in crate::analysis::guarantee) content_predicates:
@@ -547,28 +547,43 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             }
         }
 
-        for assumption in self.assumptions.iter().chain(
-            self.request
-                .trusted_contracts()
-                .into_iter()
-                .flat_map(|contracts| &contracts.requirements),
-        ) {
-            for place in assumption.inputs() {
+        let contracts = self.request.trusted_contracts();
+
+        for condition in self.assumptions.iter().chain(contracts.into_iter()
+            .flat_map(|contracts| contracts.requirements.iter().chain(&contracts.preconditions)))
+        {
+            for place in condition.inputs() {
                 state.current.observe_input(place);
             }
         }
 
+        if let Some(contracts) = contracts {
+            state.current.extend(contracts.constants.iter().map(|(place, value)| (place.clone(), value.clone())));
+        }
+
+        // Bind the declaration to the current entry tree once. Its facts
+        // describe that immutable snapshot after the body's slots change.
+        let bind = |condition: &ExecutionCondition, state: &ExecutionState| {
+            condition.substitute(
+                &|place| place.value_in(&state.current).unwrap_or_else(||
+                    ExecutionCondition::new(crate::ExecutionConditionKind::Input(place.clone()))),
+                &ExecutionCondition::result(),
+                &mut { ExecutionCondition::WORK_LIMIT },
+            )
+        };
+
         for assumption in self.input_invariants.iter().chain(self.assumptions.iter()) {
+            let assumption = bind(assumption, &state);
+
             if assumption.prove_ordinary(&state.assumptions, Some(&state.proofs)) == Some(false)
             {
                 return None;
             }
 
-            // Entry assumptions remain immutable when body storage changes.
-            assumption.clone().assume(true, &mut state.assumptions);
+            assumption.assume(true, &mut state.assumptions);
         }
 
-        if let Some(contracts) = self.request.trusted_contracts() {
+        if let Some(contracts) = contracts {
             for (selection, carriers) in self.dependencies.static_carriers() {
                 let place = crate::ExecutionPlace::static_instance(selection.clone());
                 let value = ExecutionCondition::new(crate::ExecutionConditionKind::Input(place.clone()));
@@ -607,21 +622,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 }
             }
 
-            state.current.extend(
-                contracts
-                    .constants
-                    .iter()
-                    .map(|(place, value)| (place.clone(), value.clone())),
-            );
-
             for condition in &contracts.preconditions {
-                condition.clone().assume(true, &mut state.assumptions);
+                bind(condition, &state).assume(true, &mut state.assumptions);
             }
 
             let values = self.request.semantic_values();
 
             let normalize = |condition: &ExecutionCondition, state: &ExecutionState| {
-                condition.with_reference_origins(values, self.dependencies, &state.assumptions)
+                bind(condition, state).with_reference_origins(values, self.dependencies, &state.assumptions)
                     .pointer_observations(&self.pointer_predicates)
             };
 
@@ -651,7 +659,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
                 for subject in carriers {
                     state.current.observe_input(&subject);
-                    state.carry_guarantee(ExecutionCondition::new(crate::ExecutionConditionKind::Input(subject)), witness.clone());
+
+                    let carrier = subject.value_in(&state.current)
+                        .expect("a checked entry witness names an observed carrier");
+
+                    state.carry_guarantee(carrier, witness.clone());
                 }
             }
 
@@ -688,13 +700,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             match kind {
                 DependencyReferenceKind::Borrow if place.is_callable_input() => {
-                    // An enclosing formal can move without a direct read of this slot.
-                    // Publish the checked loan on that formal before either path uses it.
-                    state.current.observe_input(&place);
-
-                    let input = ExecutionCondition::new(crate::ExecutionConditionKind::Input(place.clone()));
-
-                    state.current.insert(place, input.borrowed());
+                    state.current.observe_entry_borrow(place);
                 }
                 DependencyReferenceKind::Address => {
                     let ty = reached.pointee.expect("entry address support retains its pointee type");

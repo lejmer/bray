@@ -667,7 +667,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             StorageMutation::Cleanup(action)
             | StorageMutation::CleanupOutcome { action, .. }
             | StorageMutation::CleanupFailure { action, .. } => {
-                self.values.can_repeat(action.occurrence) || self.disposal.plan.repeats_action(action)
+                self.values.can_repeat(action.occurrence) || self.disposal.repeats_action(action)
             }
             _ => self.values.can_repeat(mutation.occurrence()),
         }

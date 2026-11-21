@@ -192,7 +192,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         replacement: Option<ReplacementPath<'_>>,
         mutate: &mut Option<&mut Mutation<'_>>,
     ) {
-        let steps = self.disposal.plan.steps.get(&access)
+        let steps = self.disposal.steps.get(&access)
             .expect("selected cancellation has prepared cleanup parts");
 
         for (part, step) in steps.iter().enumerate().filter(|(_, step)| step.phases().includes_cancellation()) {
@@ -250,7 +250,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     ) -> bool {
         let access = remaining[0];
 
-        let steps = self.disposal.plan.steps.get(&access)
+        let steps = self.disposal.steps.get(&access)
             .expect("selected cleanup has prepared transitions");
 
         let (start, after_slot) = match after {
@@ -404,13 +404,18 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             if let Some(disposed) = disposed {
                 // Destruction ends captured ownership even when cleanup has no user storage effects.
-                if let Some(place) = reached.as_deref().and_then(|path| ExecutionPlace::storage_path(self.storage, path))
-                {
-                    state.current.retire(&place);
+                let place = reached.as_deref().and_then(|path| ExecutionPlace::storage_path(self.storage, path));
+
+                let external = place.iter().flat_map(|place| state.current.entry_borrows_under(place))
+                    .collect::<Vec<_>>();
+
+                if let Some(place) = &place {
+                    state.current.retire(place);
                 }
 
                 let retained = state.current.live_values()
                     .chain(state.pending_results.values().cloned())
+                    .chain(external)
                     .collect::<crate::execution_guarantees::RetainedSnapshots>();
 
                 state.retire_trusted_values([disposed], retained);
@@ -430,7 +435,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             TypeAssociatedLifecycleSlot::Finalizer,
             TypeAssociatedLifecycleSlot::Destructor,
         ].into_iter().skip(completed).filter_map(|slot| {
-            let lifecycle = self.disposal.plan.lifecycles.get(&(*ty, slot))?;
+            let lifecycle = self.disposal.lifecycles.get(&(*ty, slot))?;
 
             let action = StorageCleanupAction {
                 occurrence,

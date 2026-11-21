@@ -79,7 +79,6 @@ pub(crate) fn prepare_execution_flow<'a, 'view, C: CheckerRequestContext + ?Size
     storage: &'a bray_bound_tree::StoragePlan,
     memory: &'a bray_bound_tree::CheckedMemoryOperations,
     contracts: &'a BTreeMap<BoundExpressionId, Vec<crate::ExecutionCompletionContract>>,
-    disposal: &'a super::super::cleanup::Cleanup<'a>,
     dependencies: &'a bray_bound_tree::CheckedDependencyContracts,
     liveness: &'a bray_bound_tree::Liveness,
 ) -> ExecutionFlowDomain<'a, 'view, C> {
@@ -214,7 +213,7 @@ pub(crate) fn prepare_execution_flow<'a, 'view, C: CheckerRequestContext + ?Size
         literals: &prepared.literals,
         storage,
         contracts,
-        disposal,
+        disposal: &prepared.cleanup,
         memory,
         checked_body: None,
         pointer_predicates,

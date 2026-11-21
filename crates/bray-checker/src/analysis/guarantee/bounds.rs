@@ -182,8 +182,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     }
 
     fn slice_length(&self, value: &ExecutionCondition) -> Option<ExecutionCondition> {
+        // Indexing and the selected sequence call observe the same borrow descriptor.
+        let view = value.clone().argument_value(true);
+
         let length = ExecutionCondition::call(self.sequence_length?, None, [],
-            vec![value.descriptor(crate::execution_guarantees::ExecutionDescriptorKind::Reference)], None);
+            vec![view.descriptor(crate::execution_guarantees::ExecutionDescriptorKind::Reference)], None);
 
         (!length.is_unknown()).then_some(length)
     }

@@ -414,6 +414,8 @@ fn conditional_cleanup_cannot_publish_unconditional_guarantees() {
 
 #[test]
 fn consuming_cleanup_retains_only_proven_external_borrow_identity() {
+    use bray_diagnostics::{DiagnosticArgValue, DiagnosticContractObligationKind};
+
     for (cleanup, valid) in [("", true), ("self.reference = self.other;", false)] {
         let source = format!(
             r#"
@@ -428,11 +430,11 @@ fn consuming_cleanup_retains_only_proven_external_borrow_identity() {
             {{
                 mut reference: &Payload;
                 other: &Payload;
-                trusted destruct()
-                    requires(trusted acquired(&self))
+                destruct()
+                    requires(trusted acquired(&self), trusted live(self.reference))
                     ensures(trusted live(self.reference)) {{ let reference = self.reference; {cleanup} }}
                 consume func release()
-                    requires(trusted acquired(&self))
+                    requires(trusted acquired(&self), trusted live(self.reference))
                     ensures(trusted live(self.reference)) {{}}
             }}
         "#
@@ -452,6 +454,11 @@ fn consuming_cleanup_retains_only_proven_external_borrow_identity() {
                 diagnostics,
                 DiagnosticKind::CheckingTrustedObligationNotProven,
             );
+
+            assert!(diagnostics.iter().any(|diagnostic| diagnostic.args().iter().any(|argument| {
+                matches!(argument.value(), DiagnosticArgValue::ContractObligation(obligation)
+                    if obligation.kind == DiagnosticContractObligationKind::Postcondition)
+            })), "{diagnostics:#?}");
         }
     }
 }

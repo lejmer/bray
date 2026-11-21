@@ -99,8 +99,6 @@ where
         return CheckerOutcome::from_query_error(error);
     }
 
-    let disposal = crate::analysis::guarantee::Cleanup::new(&prepared.cleanup, &dependencies, request.semantic_values());
-
     let completion_contracts = std::collections::BTreeMap::new();
 
     let effects = crate::analysis::liveness::OperationEffects::from_checked_inputs(
@@ -154,7 +152,6 @@ where
         storage,
         memory,
         &completion_contracts,
-        &disposal,
         &dependencies,
         &liveness,
     );

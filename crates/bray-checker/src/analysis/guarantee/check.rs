@@ -46,12 +46,6 @@ pub fn with_execution_candidate_checker<C: CheckerRequestContext + ?Sized, R>(
 
     let graph = &prepared.graph;
 
-    let disposal = super::cleanup::Cleanup::new(
-        &prepared.cleanup,
-        body.dependencies(),
-        request.semantic_values(),
-    );
-
     let checked_exclusions: BTreeSet<_> = body.storage_flow().excluded_edges().iter().copied().collect();
 
     let mut previous = None::<ExecutionFlow<'_, '_, C>>;
@@ -88,7 +82,7 @@ pub fn with_execution_candidate_checker<C: CheckerRequestContext + ?Sized, R>(
             let domain = previous.take().map(ExecutionFlow::into_domain).unwrap_or_else(|| {
                 let mut domain = prepare_execution_flow(
                     prepared, request, expressions, std::borrow::Cow::Borrowed(&[]),
-                    storage, memory, contracts, &disposal, body.dependencies(), body.liveness(),
+                    storage, memory, contracts, body.dependencies(), body.liveness(),
                 );
 
                 domain.checked_body = Some(body);

@@ -514,7 +514,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     }
 }
 
-pub(in crate::analysis::guarantee) fn project_place(
+fn project_place(
     values: &bray_symbols::SemanticValueStore,
     dependencies: &bray_bound_tree::CheckedDependencyContracts,
     place: ExecutionPlace,

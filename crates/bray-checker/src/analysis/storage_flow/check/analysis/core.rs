@@ -2478,7 +2478,7 @@ where
 
                 std::slice::from_ref(value)
             }
-            _ => self.execution.disposal.plan.requirements.retiring_storage(block),
+            _ => self.execution.disposal.requirements.retiring_storage(block),
         };
 
         state.memory.end_storage(retiring);

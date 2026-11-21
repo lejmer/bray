@@ -259,7 +259,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         observe: &mut Option<&mut Observer<'_>>,
     ) -> bool {
         let required = entry.orders().iter().flat_map(|order| order.iter().copied()).collect::<std::collections::BTreeSet<_>>()
-            .into_iter().filter(|access| self.disposal.plan.steps[access].iter().any(|step| {
+            .into_iter().filter(|access| self.disposal.steps[access].iter().any(|step| {
                 step.phases().includes_lifecycle()
                     && self.cleanup_part_condition(state, step.selection(), entry.absent(), None)
                         .prove_ordinary(&state.assumptions, Some(&state.proofs)) == Some(true)
@@ -291,7 +291,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     }
 
     pub(in crate::analysis) fn replacement_cleanup_required(&self, access: StorageAccessId) -> bool {
-        matches!(self.disposal.plan.requirements.replacement(access), bray_bound_tree::AsyncStorageCleanupRequirement::Cleanup(_))
+        matches!(self.disposal.requirements.replacement(access), bray_bound_tree::AsyncStorageCleanupRequirement::Cleanup(_))
     }
 
     pub(in crate::analysis) fn select_scope_cleanup(
@@ -304,7 +304,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let mut accesses = Vec::new();
         let mut recoveries = Vec::new();
 
-        let requirements = &self.disposal.plan.requirements;
+        let requirements = &self.disposal.requirements;
 
         for identity in requirements.scope_candidates(scope).rev().filter(|identity| state.live.contains(identity)) {
             let requirement = requirements.get(identity).expect("scope candidate has a checked requirement");
