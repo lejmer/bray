@@ -790,9 +790,10 @@ fn assume_guarantees(
     guarantees: impl Iterator<Item = ExecutionCondition>,
 ) {
     for guarantee in guarantees {
-        guarantee.assume_with(true, &mut |condition, holds| {
+        guarantee.assume_proof(true, false, &mut |condition, holds| {
             if condition.contains_trusted() {
-                state.trusted_assumptions.insert((condition, holds));
+                // An ordinary exit guard has no witness support to revoke.
+                condition.assume(holds, &mut state.trusted_assumptions);
             } else {
                 state.assumptions.insert((condition, holds));
             }

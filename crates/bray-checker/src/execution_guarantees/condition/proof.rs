@@ -286,7 +286,7 @@ impl ExecutionCondition {
         self.assume_proof(value, true, insert);
     }
 
-    pub(in crate::execution_guarantees) fn assume_proof(
+    pub(crate) fn assume_proof(
         self,
         value: bool,
         expose_trusted_truth: bool,

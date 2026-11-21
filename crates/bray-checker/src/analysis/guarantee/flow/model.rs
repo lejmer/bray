@@ -346,40 +346,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 return false;
             }
 
-            if !value
-                && let Some(BoundExpression::Binary(binary)) =
-                    self.request.view().expression(expression)
-                && binary.operands().iter().all(|operand| {
-                    self.semantics
-                        .types()
-                        .expression(*operand)
-                        .and_then(|entry| {
-                            crate::representation::type_representation(self.request, entry.ty())
-                        })
-                        .and_then(bray_compiler_known::RepresentationRole::integer_representation)
-                        .is_some()
-                })
-                && let crate::ExecutionConditionKind::Operation(operator, operands) = (&condition).kind()
-                && let Some(complement) = match operator {
-                    bray_bound_tree::BoundOperator::Less => {
-                        Some(bray_bound_tree::BoundOperator::GreaterEqual)
-                    }
-                    bray_bound_tree::BoundOperator::LessEqual => {
-                        Some(bray_bound_tree::BoundOperator::Greater)
-                    }
-                    bray_bound_tree::BoundOperator::Greater => {
-                        Some(bray_bound_tree::BoundOperator::LessEqual)
-                    }
-                    bray_bound_tree::BoundOperator::GreaterEqual => {
-                        Some(bray_bound_tree::BoundOperator::Less)
-                    }
-                    _ => None,
-                }
-            {
-                // Integer ordering has no unordered outcome; floating-point NaN does.
-                ExecutionCondition::operation(complement, operands.iter().cloned().collect())
-                    .assume(true, &mut state.assumptions);
-            }
+            self.assume_integer_order(state, expression, &condition, value);
 
             // Keep both the stable evaluated branch and its checked Boolean meaning.
             // The latter exposes conjunctions carried by completion observations.

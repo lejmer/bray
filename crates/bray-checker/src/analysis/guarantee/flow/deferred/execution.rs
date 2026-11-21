@@ -372,7 +372,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             for (slot, value) in &producer.entry.arguments {
                 let identity = std::ptr::from_ref(value.kind());
                 let current = if let Some(capture) = paired.get(&identity) {
-                    self.bind_captured_input_referent(state, value.clone(), capture)
+                    self.bind_captured_input(state, value.clone(), capture)
                 } else {
                     reached.entry(identity).or_insert_with(||
                         self.refresh_captured_references(state, value.clone(), None)).clone()

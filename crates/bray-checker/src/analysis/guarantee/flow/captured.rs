@@ -446,7 +446,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     value.inline_captured_storage().and_then(bray_bound_tree::StorageCapturedValue::address_regions));
             }
 
-            value = self.bind_captured_input_referent(state, value, capture);
+            value = self.bind_captured_input(state, value, capture);
 
             if let Some((pointer, bounds)) = &capture.element_bounds {
                 let attach = |value: ExecutionCondition| {
@@ -470,14 +470,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
                     value.with_referent(attach(contents))
                 } else { attach(value) };
-            }
-
-            if value.inline_captured_storage().is_none_or(|current| {
-                current.known_address().is_none() && capture.value.known_address().is_some()
-            }) {
-                // The reached input capture owns the passed descriptor. The
-                // captured contents of a referent do not describe its address.
-                value = value.captured_value(capture.value.clone());
             }
 
             if self.trace_authority_site(StorageMutation::Operation(invocation)) {
@@ -525,17 +517,22 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         self.admit_buffer_relocation(invocation, captures, entry);
     }
 
-    pub(super) fn bind_captured_input_referent(
+    pub(super) fn bind_captured_input(
         &self, state: &ExecutionState, value: ExecutionCondition, capture: &bray_bound_tree::StorageValueCapture,
     ) -> ExecutionCondition {
-        let Some((ty, snapshot)) = &capture.referent else { return value; };
+        let value = if let Some((ty, snapshot)) = &capture.referent && value.is_reference() {
+            let reached = capture.value.known_address().and_then(|target| self.current_target_value(state, target, Some(*ty)))
+                .or_else(|| value.current_referent().cloned())
+                .unwrap_or_else(|| value.clone().into_referent());
 
-        if !value.is_reference() { return value; }
+            value.with_referent(reached.captured_value(snapshot.clone()))
+        } else {
+            value
+        };
 
-        let reached = capture.value.known_address().and_then(|target| self.current_target_value(state, target, Some(*ty)))
-            .unwrap_or_else(|| value.clone().into_referent());
-
-        value.with_referent(reached.captured_value(snapshot.clone()))
+        // The outer input capture identifies the passed descriptor even when
+        // the reached referent contains another exact descriptor of its own.
+        value.captured_value(capture.value.clone())
     }
 
     fn admit_buffer_relocation(
