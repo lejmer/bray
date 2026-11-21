@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use super::super::flow::ExecutionFlowDomain;
 use super::super::state::ExecutionState;
+use super::guarantees::{CompletionGuarantees, assume_guarantees};
 use crate::execution_guarantees::ExecutionOutput;
 use crate::{CheckerRequestContext, ExecutionCondition};
 
@@ -168,6 +169,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             return result;
         };
 
+        let (row_guarantees, published_guarantees) = CompletionGuarantees::prepare(contract, &entry);
         let admission = frame.is_none().then_some(invocation);
 
         let completed = self.complete_entry_outputs(state, (Some(invocation), publication), &result, &entry, |state, value, row| {
@@ -182,48 +184,61 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 }
             }
 
-            self.complete_admitted_call(state, (invocation, publication), output, (&result, value), observations, contract, &entry, row)
+            self.complete_admitted_call(state, (invocation, publication), output, (&result, value), observations, (contract, &row_guarantees), &entry, row)
         });
 
         let Some(result) = completed else { return result; };
 
-        self.assume_reached_postconditions(state, (invocation, publication), &entry, &result, &contract.postconditions);
+        self.publish_reached_contract(
+            state, (invocation, publication), (contract, &published_guarantees),
+            (&entry, admission), &result,
+        );
 
         result
     }
 
-    fn assume_reached_postconditions(
-        &self, state: &mut ExecutionState, (invocation, publication): (bray_bound_tree::BoundExecutionSite, bray_bound_tree::BoundExecutionSite),
-        entry: &crate::ExecutionCallEvidence, result: &ExecutionCondition, postconditions: &[ExecutionCondition],
+    fn publish_reached_contract(
+        &self,
+        state: &mut ExecutionState,
+        (invocation, publication): (bray_bound_tree::BoundExecutionSite, bray_bound_tree::BoundExecutionSite),
+        (contract, guarantees): (&crate::TrustedCallContract, &CompletionGuarantees<'_>),
+        (entry, admission): (&crate::ExecutionCallEvidence, Option<bray_bound_tree::BoundExecutionSite>),
+        result: &ExecutionCondition,
     ) {
         let expression = match invocation {
             bray_bound_tree::BoundExecutionSite::Node(bray_bound_tree::AnyBoundNodeId::Expression(expression)) => Some(expression),
             _ => None,
         };
 
-        if postconditions.is_empty() && expression.is_none_or(|expression| !self.contracts.contains_key(&expression)) {
+        if guarantees.is_empty() && contract.postconditions.is_empty()
+            && expression.is_none_or(|expression| !self.contracts.contains_key(&expression))
+        {
             return;
         }
 
-        // Ordinary promises hold for the published completion. Binding against
-        // each row before joining can simplify a result guard away and lose the
-        // relation between the final result and the current borrowed contents.
+        // Binding a result guard on a single row can erase it. These declarations
+        // observe the published result and current borrowed contents together.
         let mutation = bray_bound_tree::StorageMutation::Operation(publication);
-        let (arguments, _) = self.completed_call_observations(state, invocation, mutation, entry, false);
-        let transfer_equalities = self.completion_transfer_equalities(invocation, entry);
+        let (arguments, owners) = self.completed_call_observations(state, invocation, mutation, entry, !guarantees.is_empty());
+        let instantiate = self.completion_instantiator(invocation, entry, &arguments, result);
 
-        for condition in postconditions {
-            let condition = entry.capture_condition(condition).substitute(
-                &|place| place.value_in(arguments.as_ref()).unwrap_or_else(ExecutionCondition::unknown),
-                result,
-                &mut { ExecutionCondition::WORK_LIMIT },
+        if !guarantees.is_empty() {
+            let references = self.dependencies.calls().get(&invocation).map_or_else(Vec::new, |call| {
+                let completed = admission.and_then(|site| state.admitted_call(site)).unwrap_or(entry);
+
+                call.storage().reference_outputs(call.captured_values().iter().enumerate().filter_map(|(index, row)| {
+                    completed.outputs.is_admitted(index).then_some(row)
+                }))
+            });
+
+            self.publish_call_guarantees(
+                state, (invocation, &references), (contract, entry), guarantees, result,
+                (&arguments, &owners), &BTreeSet::new(), &instantiate,
             );
-            let condition = match &transfer_equalities {
-                Some(equalities) => condition.with_equalities(equalities),
-                None => condition,
-            };
+        }
 
-            let condition = condition.pointer_observations(&self.pointer_predicates);
+        for condition in &contract.postconditions {
+            let condition = instantiate(&entry.capture_condition(condition));
 
             if self.trace_authority_site(mutation) {
                 eprintln!("published postcondition {mutation:?}: {:?}", condition.kind());
@@ -242,24 +257,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         (invocation, publication): (bray_bound_tree::BoundExecutionSite, bray_bound_tree::BoundExecutionSite),
         output: Option<&crate::ExecutionPlace>, (producer, result): (&ExecutionCondition, ExecutionCondition),
         observations: &bray_bound_tree::StorageCompletion,
-        contract: &crate::TrustedCallContract, entry: &crate::ExecutionCallEvidence, row: Option<&ExecutionOutput>,
+        (contract, guarantees): (&crate::TrustedCallContract, &CompletionGuarantees<'_>),
+        entry: &crate::ExecutionCallEvidence, row: Option<&ExecutionOutput>,
     ) -> ExecutionCondition {
-
-        let capture = |condition: &ExecutionCondition| entry.capture_condition(condition);
-        let guarantees = contract.guarantees.iter().flat_map(ExecutionCondition::conjuncts).map(capture).collect::<Vec<_>>();
-
-        let subjects = contract.witness_subjects.iter().filter_map(|(guarantee, subject)| {
-            let guarantee = capture(guarantee);
-
-            guarantee.contains_trusted().then_some((guarantee, subject))
-        }).collect::<Vec<_>>();
-
-        let address_subjects = contract
-            .address_subjects
-            .iter()
-            .map(|(guarantee, subject, owning)| (capture(guarantee), subject.clone(), *owning))
-            .collect::<Vec<_>>();
-
         let selection = invocation.expression().and_then(|expression| self.semantics.selections().expression(expression));
         let ordinal = |root| selection?.invocation_input_ordinal(invocation, root);
         let checked = self.dependencies.calls().get(&invocation);
@@ -268,7 +268,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             ExecutionOutput::reference_relations(row, call.storage(), call.captured_values())
         });
 
-        let origins = (invocation, references.as_slice());
         let preserved = self.preserved_borrowed_inputs(&references, &entry.arguments, &ordinal);
         let empty_ownership = bray_symbols::DependencyOwnedResult::default();
         let ownership = row.map_or(&empty_ownership, |row| &row.ownership);
@@ -295,21 +294,46 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let result = self.complete_returned_references(state, mutation, output, (producer, result), observations);
 
-        if guarantees.is_empty() && subjects.is_empty() && address_subjects.is_empty() && carriers.is_empty() {
+        if guarantees.is_empty() && carriers.is_empty() {
             return result;
         }
 
-        let (arguments, owners) = self.completed_call_observations(state, invocation, mutation, entry, true);
+        {
+            let (arguments, owners) = self.completed_call_observations(state, invocation, mutation, entry, true);
+            let instantiate = self.completion_instantiator(invocation, entry, &arguments, &result);
+            let selected = checked.map(|call| (call.storage(), ordinal));
+
+            let supported = self.complete_returned_carriers(
+                state, entry, &result, carriers, selected, output, &instantiate,
+            );
+
+            self.publish_call_guarantees(
+                state, (invocation, &references), (contract, entry), guarantees, &result,
+                (&arguments, &owners), &supported, &instantiate,
+            );
+        }
+
+        result
+    }
+
+
+    fn completion_instantiator<'a>(
+        &'a self,
+        invocation: bray_bound_tree::BoundExecutionSite,
+        entry: &crate::ExecutionCallEvidence,
+        arguments: &'a BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
+        result: &'a ExecutionCondition,
+    ) -> impl Fn(&ExecutionCondition) -> ExecutionCondition + 'a {
         let transfer_equalities = self.completion_transfer_equalities(invocation, entry);
 
-        let instantiate = |condition: &ExecutionCondition| {
+        move |condition: &ExecutionCondition| {
             let condition = condition.substitute(
                 &|place| {
                     place
-                        .value_in(arguments.as_ref())
+                        .value_in(arguments)
                         .unwrap_or_else(ExecutionCondition::unknown)
                 },
-                &result,
+                result,
                 &mut { ExecutionCondition::WORK_LIMIT },
             );
 
@@ -317,134 +341,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 Some(equalities) => condition.with_equalities(equalities),
                 None => condition,
             }.pointer_observations(&self.pointer_predicates)
-        };
-
-        let selected = checked.map(|call| (call.storage(), ordinal));
-
-        let supported = self.complete_returned_carriers(
-            state, entry, &result, carriers, selected, output, &instantiate,
-        );
-
-        let trace = self.trace_authority_site(bray_bound_tree::StorageMutation::Operation(invocation))
-            && !address_subjects.is_empty();
-
-        if trace {
-            eprintln!("address admission {invocation:?}: entry={:?} supported={supported:?} subjects={address_subjects:?}", entry.addresses);
         }
-
-        let carry_result = |state: &mut ExecutionState,
-                            template: &ExecutionCondition,
-                            guarantee: &ExecutionCondition,
-                            carrier: &ExecutionCondition,
-                            owning: bool| {
-            let sources = self.result_guarantee_owners(
-                origins,
-                &entry.arguments,
-                template,
-                owning,
-                &owners,
-                &address_subjects,
-                &instantiate,
-            );
-
-            if trace {
-                eprintln!("address guarantee {invocation:?}: guarantee={guarantee:?} owner={carrier:?} support={sources:?}");
-            }
-
-            self.carry_result_guarantee(
-                state,
-                carrier,
-                guarantee,
-                !contract.transferred_inputs.is_empty(),
-                owning,
-                sources,
-            );
-        };
-
-        for (template, subject) in &subjects {
-            let guarantee = instantiate(template);
-            let condition = instantiate(subject);
-
-            if subject.observes_completion_result() && supported.iter().any(|proof| proof.implies(&guarantee)) {
-                continue;
-            }
-
-            // A guarantee discharged solely by its ordinary guard carries no trusted authority.
-            if condition == ExecutionCondition::unknown()
-                || guarantee.prove_ordinary(&state.assumptions, Some(&state.proofs)) == Some(true)
-            {
-                continue;
-            }
-
-            if subject.observes_completion_result() {
-                let carrier = self.borrowed_result_carrier(&result, subject).unwrap_or(condition);
-
-                carry_result(state, template, &guarantee, &carrier, true);
-                continue;
-            }
-
-            let carriers = self.input_witness_owners(
-                state, template, subject, &condition, &arguments, &address_subjects,
-            );
-
-            if carriers.is_empty() { continue; }
-
-            let addresses = self.input_guarantee_addresses(
-                origins,
-                &entry.arguments,
-                template,
-                &owners,
-                &address_subjects,
-                &instantiate,
-            );
-
-            for carrier in carriers {
-                state
-                    .witnesses
-                    .entry(carrier.owner_identity().clone())
-                    .or_default()
-                    .carry(&guarantee, true, &addresses);
-            }
-        }
-
-        self.carry_input_access_guarantees(
-            origins,
-            state,
-            &entry.arguments,
-            &address_subjects,
-            &owners,
-            &instantiate,
-        );
-
-        for template in guarantees
-            .iter()
-            .filter(|guarantee| guarantee.contains_trusted() && guarantee.observes_completion_result())
-        {
-            if subjects.iter().any(|(guarantee, subject)| {
-                guarantee == template && subject.observes_completion_result()
-            }) {
-                continue;
-            }
-
-            let guarantee = instantiate(template);
-
-            if !supported.iter().any(|proof| proof.implies(&guarantee))
-                && guarantee.prove_ordinary(&state.assumptions, Some(&state.proofs)) != Some(true)
-            {
-                carry_result(state, template, &guarantee, &result, false);
-            }
-        }
-
-        if self.trace_authority_site(bray_bound_tree::StorageMutation::Operation(invocation)) {
-            let facts = guarantees.iter().map(|condition|
-                format!("{:?}", instantiate(condition).kind()).chars().take(570).collect::<String>()).collect::<Vec<_>>();
-
-            eprintln!("admitted completion {invocation:?}: facts={facts:?}");
-        }
-
-        assume_guarantees(state, guarantees.iter().map(&instantiate));
-
-        result
     }
 
     fn completion_transfer_equalities(
@@ -636,57 +533,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         Some((owners, addresses))
     }
 
-    fn carry_result_guarantee(
-        &self,
-        state: &mut ExecutionState,
-        carrier: &ExecutionCondition,
-        guarantee: &ExecutionCondition,
-        transferred: bool,
-        owning: bool,
-        sources: (
-            BTreeSet<crate::ExecutionPlace>,
-            crate::execution_guarantees::AddressDependencies,
-        ),
-    ) {
-        let (dependencies, addresses) = sources;
-
-        let witness = state
-            .witnesses
-            .entry(carrier.owner_identity().clone())
-            .or_default();
-
-        if !dependencies.is_subset(&witness.dependencies) {
-            std::sync::Arc::make_mut(witness)
-                .dependencies
-                .extend(dependencies);
-        }
-
-        witness.carry(guarantee, owning, &addresses);
-
-        // Copyable raw-address facts do not own allocation authority. Only a complete
-        // owning carrier restricts which transferred values may supply that authority.
-        if !owning {
-            return;
-        }
-
-        let mut pending = vec![guarantee];
-
-        while let Some(predicate) = pending.pop() {
-            match predicate.kind() {
-                crate::ExecutionConditionKind::Trusted(predicate) => pending.push(predicate),
-                crate::ExecutionConditionKind::Operation(_, operands) => pending.extend(operands.iter()),
-                crate::ExecutionConditionKind::Predicate(symbol, _, _)
-                    if Some(*symbol) == self.owned_allocation
-                        && (predicate.observes(carrier) || transferred) =>
-                {
-                    state
-                        .allocation_owners
-                        .insert(predicate.clone(), carrier.owner_identity().clone());
-                }
-                _ => {}
-            }
-        }
-    }
     fn completed_entry(
         &self,
         state: &mut ExecutionState,
@@ -811,21 +657,5 @@ mod admission_tests {
 
         assert!(assume_normal_entry(&mut completed,
             &[(ExecutionCondition::boolean(false), bray_symbols::PredicateDomain::Value)], &[], &Default::default()).is_none());
-    }
-}
-
-fn assume_guarantees(
-    state: &mut ExecutionState,
-    guarantees: impl Iterator<Item = ExecutionCondition>,
-) {
-    for guarantee in guarantees {
-        guarantee.assume_proof(true, false, &mut |condition, holds| {
-            if condition.contains_trusted() {
-                // An ordinary exit guard has no witness support to revoke.
-                condition.assume(holds, &mut state.trusted_assumptions);
-            } else {
-                state.assumptions.insert((condition, holds));
-            }
-        });
     }
 }

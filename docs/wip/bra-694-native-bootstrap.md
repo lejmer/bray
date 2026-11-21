@@ -63,7 +63,7 @@ evidence. Impossible internal states fail at the violated contract.
 
 ## Verified checkpoint
 
-Draft PR checkpoint `293c8edbf` passed all 1,109 compilation controls and
+Draft PR checkpoint `a04650e79` passed all 1,109 compilation controls and
 938 symbols, bound-tree, and checker tests on one optimized binary. The old
 call preparation, expression target, and independent normal storage promise
 have no remaining callers. The controls cover host exit, observer panic
@@ -71,26 +71,58 @@ cleanup, channel cleanup, indexed protected writes, nested buffer and raw
 address publication, imported witnesses, deferred frames, and destruction.
 The [architecture map](bra-694-architecture.md) records the resulting contracts.
 
-Candidate `bounded-escapes-and-observations` checked and lowered 20 selected
-bodies on each of the four targets. Fourteen passed per target. This includes
-`prepare_start` and `register_task`. The previous five failures remain and
-the new direct `commit_start` check exposes its own failure. The production
-decimal loop passes. The optimized Windows standard library completed with
-24 workers in 28.9 s planning, 26.8 s emission, and 62.9 s wall time.
-Result-dependency solving used 150.7 worker seconds, down from 194.6 in the
-previous completed comparison and above the 60.0 reference. An earlier
-cleanup profile attributed 2.5 s to proof invalidation and 0.06 s to both
-state copies across 3,354 actions.
+Candidate `guarded-result-publication` passed the same 1,109 controls and 938
+unit checks. On Windows x86-64 it checked and lowered 18 of 25 selected
+bodies. `owner_entry_scope` now passes. `start_frame` reaches scoped entry
+with the token and execution witnesses. Its later selected-view obligation
+still fails. `commit_start` captures and returns the exact token slot, but
+its admitted witness set is empty. Direct `dispatch_task` and worker
+`acquire_ready` checks expose failures within those callees. Direct
+`create_native_provider`, `install_binding`, and `retire_driver_resources`
+pass. The previous candidate passed 14 of the original 20 across all four
+targets, including `prepare_start` and `register_task`.
+
+The production decimal loop passes. The current optimized Windows standard
+library took 29.1 s to plan, 26.8 s to emit, and 63.1 s wall time with 24
+workers. The previous candidate took 28.9 s, 26.8 s, and 62.9 s. Its
+result-dependency solving used 150.7 worker seconds against a 60.0 reference.
+An earlier cleanup profile attributed 2.5 s to proof invalidation and 0.06 s
+to both state copies across 3,354 actions.
 
 ## Active batch
 
+An admitted callable's authored outcome promise applies to the result of
+normal completion. Binding a guarded result clause to each individual row
+simplifies its result test away. The `prepare_start` trace shows seven
+`Error` rows with a true clause and two `Ok` rows with the active owner
+clauses. Scoped entry then receives the correct `Ok` projection without
+the producer witness. Bind value-dependent guarded declarations to the
+published result and reached input observations. Keep checked portable
+carriers and physical support on the rows that establish them. A failed
+admission, an inactive guard, an unrelated payload, or a replaced subject
+must confer no authority. Use the same completion for a selected local
+deferred producer. Keep raw-address promises with their selected bounds.
+
+Check guarded owner transport in the actual bootstrap and a smaller
+source and imported contract with a positive selected payload and a
+negative replacement. Remove duplicate row binding of the declaration.
+Reconsider this approach if it weakens portable support or transfers a
+fulfillment fact to an unproven owner.
+
+At the physical effect boundary, repeated addressless non-atomic writes
+with identical footprints perform the same weakening. Keep the typed
+effects available to proof and export. Apply only the first consecutive
+weakening when neither effect can write a complete cell, follow a cleanup
+receiver, or retire backing. Verify the existing exact-write, backing
+retirement, and alias controls alongside native timing.
+
 | Affected transition | Reached evidence and expected behavior |
 | --- | --- |
-| Dispatch recovery | Binding an unresolved escape behind `Current.pointer` widened it to every input of `dispatch_task`. The later wait continued with the entire inline `Current` marked as escaped. Keep the reached raw address as the start of the conservative escape. Source, imported, deferred, and cleanup calls must retain real aliases from that address and preserve genuinely unrestricted escapes. Check the later `context(selected)` call and the negative raw mutation and retirement cases. |
-| Provider installation | `create_native_provider` publishes a nullable provider within `Ok`. Follow the selected payload through the consumed match and across `install_binding`. `install_native_provider` requires the live provider's absence-or-owned clause. Keep distinct owners and overwritten payloads from using that clause. |
-| Start and rollback | Follow the `Ok` payload of `prepare_start` into scoped entry, lane selection, `register_task`, `commit_start`, and each rollback edge. Entry fails on the token's producer witness. The observed commit failure in the caller is the selected status clause. The direct `commit_start` body loses the producer witness after extracting the nullable token and before authorizing the captured origin. Compare the two token carriers and the proof that follows the moved payload. Check registration presence independently and keep actual registration and token transfers tied to their outcome. |
+| Dispatch recovery | Escape behind `Current.pointer` now starts at the reached raw region. Some `dispatch_task` and wait rows still retain an escaped inline `Current` and unbounded retirement. The direct task body exposes an earlier obligation. Trace the callee's actual captures and cleanup prefixes before the later `context(selected)` call. Real raw mutation and retirement must still revoke proof. |
+| Provider installation | `create_native_provider` publishes a nullable provider within `Ok`. The selected payload now carries its proof through the consumed match and `install_binding` to the absence-or-owned requirement. Source and imported controls reject a replaced payload. |
+| Start and rollback | The guarded `Ok` payload of `prepare_start` now enters the scope with the token and execution witnesses. Compare the selected `Current` identity through scoped entry, lane selection, `register_task`, `commit_start`, and rollback. Direct `commit_start` extracts and returns the same nullable input identity. Its admission captures no associated witness. Trace the entry requirement and the reached payload carrier before the write. Registration presence remains an independent condition. |
 | Worker acquisition | Compare the pool reference and guard's acquisition at `locked_state`. Their `acquisition_for` clause depends on both endpoints. Follow the outer scope marker across acquisition and the pending write. An unrelated pool or guard must still fail admission. |
-| Driver retirement | The restore call exposes some rows with an absent inline acquisition mask. Track the actual execution owner and context across restore, `owned_context`, and allocation transfer. Retirement must revoke precisely the retired backing without preserving old generations. |
+| Driver retirement | Some `retire_driver_resources` rows already publish an untyped unbounded retirement, and the later acquisition observation becomes a post-state value without its marker. Its direct check passes. Trace the summary effect to the first reached cleanup action or provisional recovery that exports it. Retirement must revoke precisely the retired backing without preserving old generations. |
 | Convergence | The array write selects element zero before the first join. The next evaluations agree on an unresolved index. Publish the enclosing logical observation when the physical write names only a region. Keep independently reached exact selectors and disjoint fields. Check the production decimal body and the existing indexed siblings and loop controls. |
 | Planning | Consecutive unbounded effects with identical physical scope repeatedly weaken the same memory. Apply the physical transition once and keep typed effects for proof framing, summaries, and diagnostics. Leave precise writes and retirements ordered. Empty pointee preservation entries carry no evidence and need no mask allocation. Measure the unchanged native query and emission boundaries with the completed batch. |
 

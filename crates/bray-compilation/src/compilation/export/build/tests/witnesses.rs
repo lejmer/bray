@@ -9,7 +9,7 @@ const NESTED_ORDERS: [[usize; 3]; 6] = [
     [2, 1, 0],
 ];
 
-const API: &str = r"
+const API: &str = r#"
     trusted module api;
 
     using core.memory;
@@ -49,6 +49,33 @@ const API: &str = r"
 
     func observe(pos value: &Receipt)
         requires(trusted held(owner = &value.marker)) {}
+
+    const func successful_receipt(pos outcome: &Result<Receipt, usize>) -> &Receipt
+        requires(outcome matches Ok(_))
+        executes(pure, total)
+    {
+        return match outcome
+        {
+            case Ok(value) { yield &value; }
+            case Error(_) { panic("missing receipt"); }
+        };
+    }
+
+    trusted func guarded_receipt(pos existing: bool, pos repeat: bool) -> Result<Receipt, usize>
+        ensures(!(result matches Ok(_)) || trusted held(owner = &successful_receipt(&result).marker))
+    {
+        if existing
+        {
+            return Ok(Receipt { marker = Marker {} });
+        }
+
+        if repeat
+        {
+            return Ok(Receipt { marker = Marker {} });
+        }
+
+        return Error(1);
+    }
 
     func choose(pos existing: bool) -> Choice
     {
@@ -283,7 +310,7 @@ const API: &str = r"
             yield Choice.Backing;
         };
     }
-    ";
+    "#;
 
 const NESTED_SHAPES: &[(&str, &str, [&str; 3], &str)] = &[
     (
@@ -1654,6 +1681,20 @@ fn cases() -> impl Iterator<Item = (String, String, bool)> {
         (name.to_owned(), format!("{body}{}", NESTED_SHAPES[shape].3), valid)
     });
 
+    let declared = [
+        ("authored_active_payload", "api.observe(&value);", true),
+        ("authored_replaced_payload", "let mut replacement = value; replacement.marker = api.Marker {}; api.observe(&replacement);", false),
+    ].into_iter().map(|(name, body, valid)| {
+        (name.to_owned(), format!("
+            let completed = api.guarded_receipt(existing, repeat);
+            match consume completed
+            {{
+                case Ok(value) {{ {body} }}
+                case Error(_) {{}}
+            }}
+        "), valid)
+    });
+
     CASES
         .iter()
         .map(|&(name, body, valid)| (name.to_owned(), body.to_owned(), valid))
@@ -1661,6 +1702,7 @@ fn cases() -> impl Iterator<Item = (String, String, bool)> {
         .chain(nested)
         .chain(provider)
         .chain(guarded)
+        .chain(declared)
 }
 
 fn collect_witness_failure(name: &str, compilation: &crate::Compilation, valid: bool, failures: &mut Vec<String>) {

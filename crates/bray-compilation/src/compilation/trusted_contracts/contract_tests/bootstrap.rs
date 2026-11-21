@@ -37,15 +37,18 @@ fn assert_bootstrap_contracts(target: NativeTarget) {
     let mut failures = Vec::new();
 
     for name in [
-        "owner_entry_scope", "dispatch_ready", "start_frame", "prepare_start", "register_task", "commit_start",
+        "owner_entry_scope", "dispatch_ready", "dispatch_task", "start_frame", "prepare_start", "register_task", "commit_start",
         "origin_context", "worker_context", "owned_context", "borrow_execution", "view_context", "context",
-        "pending_observation", "take_ready", "acquire_ready", "acquire_worker_ready",
-        "record_worker_failure", "retire_driver", "retain_in_arena", "retention",
+        "pending_observation", "take_ready", "acquire_ready", "worker.acquire_ready", "acquire_worker_ready",
+        "record_worker_failure", "retire_driver", "retire_driver_resources", "retain_in_arena", "retention",
+        "create_native_provider", "install_binding",
     ] {
         let key = if name == "start_frame" {
             source_type_callable_member_body_key(&compilation, name)
         } else if name == "owner_entry_scope" {
             source_function_body_key(&compilation, name)
+        } else if name == "worker.acquire_ready" {
+            source_module_function_body_key(&compilation, &["bray", "runtime", "bootstrap", "worker"], "acquire_ready")
         } else if matches!(name, "retain_in_arena" | "retention") {
             source_module_function_body_key(&compilation, &["bray", "runtime", "bootstrap", "task"], name)
         } else {

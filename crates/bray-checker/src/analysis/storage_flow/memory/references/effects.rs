@@ -74,6 +74,7 @@ impl State {
 
         let unbounded_ambient = effects.contains(&Effect::Escape(None));
         let mut previous_unbounded = None;
+        let mut previous_bound = None;
 
         for effect in effects {
             let unbounded = match effect {
@@ -83,6 +84,8 @@ impl State {
             };
 
             if let Some(kind) = unbounded {
+                previous_bound = None;
+
                 // Without an address, the access type still informs proof framing.
                 // Physical weakening only distinguishes atomic and allocation scope.
                 let deallocation = effect.is_unlocated_deallocation();
@@ -97,6 +100,21 @@ impl State {
             }
 
             previous_unbounded = None;
+
+            let bound = match effect {
+                Effect::Mutation { address: None, footprint, kind, .. }
+                    if !matches!(kind, DependencyMutationKind::Atomic | DependencyMutationKind::Dispose(_)
+                        | DependencyMutationKind::Cleanup(_) | DependencyMutationKind::Escape) => Some(footprint),
+                _ => None,
+            };
+
+            // These effects only forget overlapping values and initialization.
+            // Their checked types still remain on the transition for proof.
+            if bound.is_some() && previous_bound == bound {
+                continue;
+            }
+
+            previous_bound = bound;
 
             match effect {
                 Effect::Escape(_) | Effect::Mutation { kind: DependencyMutationKind::Escape, .. } => {}

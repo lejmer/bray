@@ -5,6 +5,7 @@ mod check;
 mod completion;
 mod dependencies;
 mod diagnostic;
+mod guarantees;
 mod observations;
 mod owned;
 mod proof;
