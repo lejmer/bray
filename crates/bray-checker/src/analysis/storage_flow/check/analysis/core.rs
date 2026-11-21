@@ -626,9 +626,7 @@ where
         let references = state.memory.exit_references(result, &state.definitely_absent);
 
         let report_payloads = references.report_payloads(result).filter_map(|(slot, report, complete)| {
-            let path = slot.projections.iter().copied()
-                .map(|projection| crate::storage::value_dependency_projection(self.request, projection))
-                .collect::<Option<Vec<_>>>()?;
+            let path = crate::storage::dependency_projections(self.request, &slot.projections)?;
 
             Some(bray_symbols::CapturedReportPayload {
                 destination: bray_symbols::DependencySubject::new(bray_symbols::DependencySubjectRoot::Result, path),

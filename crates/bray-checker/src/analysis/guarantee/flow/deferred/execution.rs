@@ -627,7 +627,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
                     let value = self.complete_transferred_ownership(branch, expression.into(), checked.map(|(storage, _)| storage), entry, value, (ownership, preserved));
                     let mutation = bray_bound_tree::StorageMutation::Operation(expression.into());
-                    let value = self.complete_returned_references(branch, (mutation, None), output, (&result, value), observations);
+                    let value = self.complete_returned_references(branch, mutation, output, (&result, value), observations);
 
                     self.complete_returned_carriers(branch, entry, &value, carriers, selected, output, &|formal| {
                         entry.bind_condition(formal, &value).pointer_observations(&self.pointer_predicates)

@@ -76,6 +76,11 @@ pub(in crate::analysis::guarantee) fn check_postconditions<C: CheckerRequestCont
 
             (equalities, known)
         });
+        let normalized_condition = condition.with_equalities(equalities);
+
+        if normalized_condition != condition && reflexive_comparison(domain, state, &normalized_condition) {
+            continue;
+        }
 
         let trusted = trusted.get_or_init(|| {
             crate::execution_guarantees::trusted_condition_closure(
@@ -88,8 +93,7 @@ pub(in crate::analysis::guarantee) fn check_postconditions<C: CheckerRequestCont
         });
 
         let proof = normalized_proof.get_or_init(|| crate::execution_guarantees::ExecutionProof::new(trusted, known));
-
-        if proof.prove_mixed(&condition.with_equalities(equalities), &mut {
+        if proof.prove_mixed(&normalized_condition, &mut {
             ExecutionCondition::WORK_LIMIT
         }) == Some(true)
         {
@@ -97,7 +101,7 @@ pub(in crate::analysis::guarantee) fn check_postconditions<C: CheckerRequestCont
         }
 
         if !super::integer::unsigned_arithmetic_is_bounded(
-            &condition.with_equalities(equalities), known, &|value| domain.unsigned_value(value),
+            &normalized_condition, known, &|value| domain.unsigned_value(value),
         ) {
             static TRACE_SOURCE: std::sync::OnceLock<Option<u32>> = std::sync::OnceLock::new();
 

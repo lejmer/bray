@@ -180,7 +180,7 @@ fn expand<C: CheckerRequestContext + ?Sized>(
     for (ty, part) in parts.value() {
         let scope = part.as_ref().and_then(|part| {
             part.projections().iter().map(|projection| match projection.projection() {
-                bray_bound_tree::StorageCleanupProjectionKind::Component(component) => crate::storage::dependency_projection(component),
+                bray_bound_tree::StorageCleanupProjectionKind::Component(component) => crate::storage::dependency_projection(request, component),
                 bray_bound_tree::StorageCleanupProjectionKind::OwnedTarget(_) => Some(Projection::OwnedTarget),
                 bray_bound_tree::StorageCleanupProjectionKind::ArrayElements(_) => Some(Projection::AnyElement),
                 _ => None,

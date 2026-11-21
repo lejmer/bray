@@ -171,7 +171,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
                 let Some(value) = values.remove(destination) else { continue; };
 
-                let value = self.complete_captured_references(state, mutation, None, value)
+                let value = self.complete_captured_references(state, mutation, value)
                     .captured_value(snapshot.clone());
 
                 self.publish_current_value(state, target, *ty, value);
@@ -584,6 +584,7 @@ impl Lifecycle {
             anonymous_target: None,
             trusted_boundary: !state.trust_boundaries.is_empty(),
             pending_execution: false,
+            storage_unchanged: false,
             memory_access: None,
             arguments,
             assumptions,

@@ -643,7 +643,7 @@ fn join_current_truth(
     }
 
     let needs_proof = [left.0, right.0].into_iter().any(|value| {
-        matches!(value.kind(), crate::ExecutionConditionKind::Literal(_) | crate::ExecutionConditionKind::Boolean(_))
+        matches!(joined_proof_value(value).kind(), crate::ExecutionConditionKind::Literal(_) | crate::ExecutionConditionKind::Boolean(_))
     });
 
     let [Some(left), Some(right)] = [left, right].map(|(value, state)| {
@@ -733,6 +733,8 @@ fn common_join_conditions(
     let mut right_candidates = BTreeMap::new();
 
     for (place, value) in joined {
+        let value = joined_proof_value(value);
+
         if value == &ExecutionCondition::unknown() {
             continue;
         }
@@ -741,15 +743,16 @@ fn common_join_conditions(
             (left, &mut left_inputs, &mut left_candidates),
             (right, &mut right_inputs, &mut right_candidates),
         ] {
-            let input = place
+            let reached = place
                 .value_in(&state.current)
                 .unwrap_or_else(ExecutionCondition::unknown);
+            let input = joined_proof_value(&reached);
 
-            if input == *value {
+            if input == value {
                 continue;
             }
 
-            insert_replacement(inputs, value, &input);
+            insert_replacement(inputs, value, input);
 
             if !matches!((
                 input).kind(),
@@ -757,7 +760,7 @@ fn common_join_conditions(
                     | crate::ExecutionConditionKind::Boolean(_)
                     | crate::ExecutionConditionKind::Unknown
             ) {
-                insert_replacement(candidates, &input, value);
+                insert_replacement(candidates, input, value);
             }
         }
     }
@@ -791,6 +794,10 @@ fn common_join_conditions(
                 })
         })
         .collect()
+}
+
+fn joined_proof_value(value: &ExecutionCondition) -> &ExecutionCondition {
+    if value.observation_kind() == Some(ObservationKind::Scalar) { value.computed_value() } else { value }
 }
 
 pub(super) fn result_replacements(

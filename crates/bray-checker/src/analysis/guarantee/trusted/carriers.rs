@@ -419,7 +419,7 @@ pub(in crate::analysis) fn portable_path<C: crate::CheckerRequestContext + ?Size
     path.iter()
         .copied()
         .map(|projection| {
-            crate::storage::value_dependency_projection(request, projection)
+            crate::storage::dependency_projection(request, projection)
                 .expect("returned owner retains a portable storage projection")
         })
         .collect()

@@ -58,12 +58,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     pub(in crate::analysis::guarantee) fn complete_returned_references(
         &self,
         state: &mut ExecutionState,
-        (mutation, admitted): (bray_bound_tree::StorageMutation, Option<(bray_bound_tree::BoundExecutionSite, &crate::ExecutionCallEvidence)>),
+        mutation: bray_bound_tree::StorageMutation,
         output: Option<&ExecutionPlace>,
         (producer, result): (&ExecutionCondition, ExecutionCondition),
         completion: &bray_bound_tree::StorageCompletion,
     ) -> ExecutionCondition {
-        let mut result = self.complete_captured_references(state, mutation, admitted, result);
+        let mut result = self.complete_captured_references(state, mutation, result);
         let Some(output) = output else { return result; };
         let origin = producer.referent_owner_identity();
         let produced = matches!(origin.kind(), crate::ExecutionConditionKind::Expression(expression)

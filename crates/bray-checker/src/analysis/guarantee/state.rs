@@ -2033,6 +2033,7 @@ mod tests {
                 anonymous_target: None,
                 trusted_boundary: true,
                 pending_execution: true,
+                storage_unchanged: false,
                 memory_access: None,
                 arguments: [(place.clone(), old.clone())].into(),
                 assumptions: [(old.clone(), true)].into(),

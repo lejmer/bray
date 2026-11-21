@@ -73,6 +73,8 @@ pub struct ExecutionCallEvidence {
     pub(crate) anonymous_target: Option<bray_bound_tree::BoundUnitKey>,
     pub(crate) trusted_boundary: bool,
     pub(crate) pending_execution: bool,
+    /// The reached normal transition left storage observations unchanged.
+    pub(crate) storage_unchanged: bool,
     pub(crate) memory_access: Option<MemoryAccessProof>,
     pub(crate) arguments:
         std::collections::BTreeMap<super::ExecutionPlace, super::ExecutionCondition>,
@@ -341,6 +343,7 @@ impl ExecutionCallEvidence {
             anonymous_target: self.anonymous_target.clone(),
             trusted_boundary: self.trusted_boundary,
             pending_execution: self.pending_execution,
+            storage_unchanged: self.storage_unchanged,
             memory_access: self.memory_access,
             ..Self::default()
         };
@@ -422,6 +425,7 @@ impl ExecutionCallEvidence {
             self.anonymous_target.is_some(),
             self.trusted_boundary,
             self.pending_execution,
+            self.storage_unchanged,
             self.memory_access,
             self.assumptions.len(),
             self.trusted_assumptions.len(),
@@ -434,6 +438,7 @@ impl ExecutionCallEvidence {
         let mut addresses_changed = false;
         let mut borrow_support_changed = false;
 
+        self.storage_unchanged &= other.storage_unchanged;
         self.memory_access = self.memory_access.zip(other.memory_access).map(|(left, right)| {
             if left == right { left } else { MemoryAccessProof::Initialized }
         });
@@ -582,6 +587,7 @@ impl ExecutionCallEvidence {
                     self.anonymous_target.is_some(),
                     self.trusted_boundary,
                     self.pending_execution,
+                    self.storage_unchanged,
                     self.memory_access,
                     self.assumptions.len(),
                     self.trusted_assumptions.len(),

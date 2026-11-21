@@ -35,9 +35,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             let inactive_payloads = physical.absent_payloads().iter().filter_map(|absent| {
                 let root = self.formal_root(absent.root)?;
 
-                let path = absent.projections.iter().copied()
-                    .map(|projection| crate::storage::value_dependency_projection(self.request, projection))
-                    .collect::<Option<Vec<_>>>()?;
+                let path = dependency_projections(self.request, &absent.projections)?;
 
                 Some(DependencySubject::new(root, path))
             }).chain(result_slots.iter().filter_map(|slot| self.inactive_result_payload(slot, &value)))
@@ -164,17 +162,17 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             }
             ExecutionInput::Pointee { target, .. } if target.is_exact() && !target.previous => {
                 match &target.origin {
-                    Origin::Storage(path) => (self.formal_root(path.root)?, dependency_projections(&path.projections)?),
+                    Origin::Storage(path) => (self.formal_root(path.root)?, dependency_projections(self.request, &path.projections)?),
                     Origin::Entry { reference, kind: bray_symbols::DependencyReferenceKind::Address, projections, .. }
                         if projections.is_empty() => {
-                        let mut path = dependency_projections(&reference.projections)?;
+                        let mut path = dependency_projections(self.request, &reference.projections)?;
 
                         path.push(DependencyProjection::AddressTarget);
 
                         (self.formal_root(reference.root)?, path)
                     }
                     Origin::Static { root: root @ DependencySubjectRoot::StaticInstance(..), projections, .. } =>
-                        (*root, dependency_projections(projections)?),
+                        (*root, dependency_projections(self.request, projections)?),
                     _ => return None,
                 }
             }
@@ -187,7 +185,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             ConstantProjectionKind::TupleElement(index) => DependencyProjection::TupleElement(index),
             ConstantProjectionKind::NullableValue => DependencyProjection::NullableValue,
             ConstantProjectionKind::ArrayElement(index) => DependencyProjection::Element(index),
-            ConstantProjectionKind::ArrayElementOrdinal(_) | ConstantProjectionKind::ArraySlice { .. } => return None,
+            ConstantProjectionKind::ArrayElementOrdinal(index) =>
+                return dependency_projection(self.request, StorageProjection::ElementFromStart(index)),
+            ConstantProjectionKind::ArraySlice { .. } => return None,
         })).collect::<Option<Vec<_>>>()?;
 
         Some(DependencySubject::new(root, base.into_iter().chain(tail)))
@@ -198,9 +198,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         for (depth, projection) in slot.projections.iter().copied().enumerate() {
             if value.excludes_component(projection) {
-                let path = slot.projections[..=depth].iter().copied()
-                    .map(|projection| crate::storage::value_dependency_projection(self.request, projection))
-                    .collect::<Option<Vec<_>>>()?;
+                let path = dependency_projections(self.request, &slot.projections[..=depth])?;
 
                 return Some(DependencySubject::new(DependencySubjectRoot::Result, path));
             }
@@ -231,8 +229,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 && bounds != ReferenceBounds::InputRegions && bounds != ReferenceBounds::Unknown
                 && !projections.contains(&bray_bound_tree::StorageProjection::OwnedTarget)
                 && self.reference_kind(slot, ty)? == Some(bray_symbols::DependencyReferenceKind::Address)
-                && let Some(exit) = dependency_projections(&slot.projections)
-                && let Some(target_projections) = dependency_projections(projections)
+                && let Some(exit) = dependency_projections(self.request, &slot.projections)
+                && let Some(target_projections) = dependency_projections(self.request, projections)
             {
                 let exit = bray_symbols::DependencySubject::new(
                     self.formal_root(slot.root).expect("allocation output has a formal root"), exit);
@@ -290,7 +288,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
             let Some(kind) = self.reference_kind(slot, ty)? else { continue; };
 
-            let Some(projections) = dependency_projections(&slot.projections) else { continue; };
+            let Some(projections) = dependency_projections(self.request, &slot.projections) else { continue; };
 
             let exit = bray_symbols::DependencySubject::new(root, projections);
 
@@ -550,7 +548,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
                     DependencyProjection::AnyElement
                 }
-                _ => crate::storage::value_dependency_projection(self.request, projection)?,
+                _ => dependency_projection(self.request, projection)?,
             });
         }
 
@@ -576,7 +574,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         mut ty: bray_symbols::TypeId,
     ) -> crate::CheckerQueryResult<Option<bray_symbols::DependencyReferenceKind>, C::UpstreamError>
     {
-        let Some(projections) = dependency_projections(&slot.projections) else {
+        let Some(projections) = dependency_projections(self.request, &slot.projections) else {
             return Ok(None);
         };
 
@@ -648,9 +646,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         };
 
         if let Some((root, projections)) = static_source {
-            let Some(entry) = dependency_projections(projections) else { return Ok(None); };
+            let Some(entry) = dependency_projections(self.request, projections) else { return Ok(None); };
 
-            let Some(exit) = dependency_projections(&slot.projections) else { return Ok(None); };
+            let Some(exit) = dependency_projections(self.request, &slot.projections) else { return Ok(None); };
 
             let kind = if physical { self.physical_reference_kind(slot, ty)? } else { self.reference_kind(slot, ty)? };
 
@@ -676,7 +674,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         };
 
         let Some((target, stored_reference)) = source else {
-            let Some(exit) = (if physical { self.stored_projections(&slot.projections).map(|(path, _)| path) } else { dependency_projections(&slot.projections) }) else {
+            let Some(exit) = (if physical { self.stored_projections(&slot.projections).map(|(path, _)| path) } else { dependency_projections(self.request, &slot.projections) }) else {
                 return Ok(None);
             };
 
@@ -710,11 +708,11 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             return Ok(None);
         }
 
-        let Some(entry) = (if physical { self.stored_projections(&target.projections).map(|(path, _)| path) } else { dependency_projections(&target.projections) }) else {
+        let Some(entry) = (if physical { self.stored_projections(&target.projections).map(|(path, _)| path) } else { dependency_projections(self.request, &target.projections) }) else {
             return Ok(None);
         };
 
-        let Some(exit) = (if physical { self.stored_projections(&slot.projections).map(|(path, _)| path) } else { dependency_projections(&slot.projections) }) else {
+        let Some(exit) = (if physical { self.stored_projections(&slot.projections).map(|(path, _)| path) } else { dependency_projections(self.request, &slot.projections) }) else {
             return Ok(None);
         };
 
@@ -768,10 +766,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                         | bray_bound_tree::StorageProjection::AnyElement
                         | bray_bound_tree::StorageProjection::ElementFromStart(_)
                         | bray_bound_tree::StorageProjection::ElementFromEnd(_) => Some(bray_symbols::DependencyProjection::AnyElement),
-                        projection => dependency_projection(projection),
+                        projection => dependency_projection(self.request, projection),
                     })
                     .collect::<Option<Vec<_>>>(),
-            Origin::Entry { projections, .. } => dependency_projections(projections),
+            Origin::Entry { projections, .. } => dependency_projections(self.request, projections),
             _ => Some(Vec::new()),
         };
 

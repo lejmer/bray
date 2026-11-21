@@ -446,6 +446,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             anonymous_target: None,
             trusted_boundary: !state.trust_boundaries.is_empty(),
             pending_execution: false,
+            storage_unchanged: false,
             memory_access: None,
             arguments,
             assumptions: state.assumptions.clone(),

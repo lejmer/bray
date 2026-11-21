@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::collections::BTreeMap;
 use hashbrown::HashMap;
 
@@ -20,9 +21,19 @@ pub(in crate::execution_guarantees) fn cached_condition<T: Clone>(memo: &Conditi
 
 /// Captured immutable inputs establish the scope of each pure condition query.
 pub(crate) fn memoize_condition<T: Clone>(query: impl Fn(&ExecutionCondition) -> T) -> impl Fn(&ExecutionCondition) -> T {
-    let memo = Mutex::new(HashMap::new());
+    let memo = RefCell::new(HashMap::<ExecutionCondition, T>::new());
 
-    move |value| cached_condition(&memo, value, || query(value))
+    move |value| {
+        if let Some(result) = memo.borrow().get(value) {
+            return result.clone();
+        }
+
+        let result = query(value);
+
+        memo.borrow_mut().insert(value.clone(), result.clone());
+
+        result
+    }
 }
 
 struct Computation<T> {

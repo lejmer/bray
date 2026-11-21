@@ -58,11 +58,13 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             let root = selection.invocation_input_root(invocation, ordinal)?;
             let site = selection.invocation_input_site(invocation, root)?;
 
-            let incoming = entry.argument_storage(ordinal).and_then(|argument| argument.known_address())
-                .filter(|target| matches!(target.origin,
-                    bray_bound_tree::StorageOrigin::Entry { kind: bray_symbols::DependencyReferenceKind::Borrow, .. }))
-                .and_then(|target| target.value_observation_path())
-                .and_then(|path| ExecutionPlace::storage_owner(self.storage, &path));
+            let incoming = entry.argument_storage(ordinal)
+                .and_then(bray_bound_tree::StorageCapturedValue::binding)
+                .and_then(|binding| binding.address.as_ref())
+                .filter(|address| address.has_values())
+                .into_iter().flat_map(|address| &address.targets)
+                .filter_map(bray_bound_tree::StorageTarget::value_observation_path)
+                .filter_map(|path| ExecutionPlace::storage_owner(self.storage, &path));
 
             let owners = self.liveness.retained_by(site).filter_map(|subject| {
                 let access = match subject {
@@ -82,8 +84,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 ExecutionPlace::storage_owner(self.storage, self.storage.logical_path(access)?)
             });
 
-            // Caller-owned entry loans can support a returned address without
-            // introducing a new invocation-local capability.
+            // An evaluated range can identify its containing storage without
+            // identifying one exact cell or introducing another loan.
             Some((ordinal, bray_base::sorted_unique_shared_slice(owners.chain(incoming))))
         }).collect()
     }
@@ -93,13 +95,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         entry: &'entry ExecutionCallEvidence, retain_authority: bool,
     ) -> (Cow<'entry, BTreeMap<ExecutionPlace, ExecutionCondition>>, BTreeMap<BoundExecutionSite, GuaranteeSource>) {
         let mut arguments = Cow::Borrowed(&entry.arguments);
-        let admission = Some((invocation, entry));
 
         for (place, value) in &entry.arguments {
             let completed = if retain_authority {
-                self.complete_captured_references(state, mutation, admission, value.clone())
+                self.complete_captured_references(state, mutation, value.clone())
             } else {
-                self.refresh_captured_references(state, value.clone(), Some((mutation, admission)))
+                self.refresh_captured_references(state, value.clone(), Some(mutation))
             };
 
             if completed != *value {

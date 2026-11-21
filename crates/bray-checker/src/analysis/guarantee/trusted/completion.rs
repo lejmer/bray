@@ -285,7 +285,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }));
 
         let mutation = bray_bound_tree::StorageMutation::Operation(publication);
-        let admitted = Some((invocation, entry));
         let result = match self.dependencies.calls().get(&invocation).and_then(|contract|
             contract.storage().subject(&bray_symbols::DependencySubject::root(bray_symbols::DependencySubjectRoot::Result))
                 .map(|(ty, _)| ty))
@@ -294,7 +293,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             None => result,
         };
 
-        let result = self.complete_returned_references(state, (mutation, admitted), output, (producer, result), observations);
+        let result = self.complete_returned_references(state, mutation, output, (producer, result), observations);
 
         if guarantees.is_empty() && subjects.is_empty() && address_subjects.is_empty() && carriers.is_empty() {
             return result;

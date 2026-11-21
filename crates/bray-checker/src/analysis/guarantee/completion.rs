@@ -180,6 +180,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             anonymous_target: None,
             trusted_boundary: !state.trust_boundaries.is_empty(),
             pending_execution,
+            storage_unchanged: false,
             memory_access: None,
             arguments,
             assumptions: state.assumptions.clone(),
@@ -263,6 +264,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             anonymous_target: None,
             trusted_boundary: !state.trust_boundaries.is_empty(),
             pending_execution: false,
+            storage_unchanged: false,
             memory_access: None,
             arguments,
             assumptions: state.assumptions.clone(),
@@ -523,6 +525,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             addresses: Default::default(),
             borrow_owners: Default::default(),
             anonymous_target: self.anonymous_call_target(state, expression, call),
+            storage_unchanged: false,
             memory_access: None,
             trusted_boundary: !state.trust_boundaries.is_empty(),
             pending_execution: matches!(

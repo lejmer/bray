@@ -601,22 +601,22 @@ pub(super) fn element_projection<C: CheckerRequestContext + ?Sized>(
     }
 }
 
-pub(crate) fn dependency_projections(
+pub(crate) fn dependency_projections<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
     projections: &[StorageProjection],
 ) -> Option<Vec<DependencyProjection>> {
     projections
         .iter()
         .copied()
-        .map(dependency_projection)
+        .map(|projection| dependency_projection(request, projection))
         .collect()
 }
 
-pub(crate) fn dependency_projection(
+/// Returns the portable path component of an actual evaluated value.
+pub(crate) fn dependency_projection<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
     projection: StorageProjection,
 ) -> Option<DependencyProjection> {
-    use bray_bound_tree::StorageProjection;
-    use bray_symbols::DependencyProjection;
-
     match projection {
         StorageProjection::ProductField(field) => Some(DependencyProjection::ProductField(field)),
         StorageProjection::TupleElement(index) => Some(DependencyProjection::TupleElement(index)),
@@ -628,30 +628,21 @@ pub(crate) fn dependency_projection(
         StorageProjection::UninitPayload => Some(DependencyProjection::UninitPayload),
         StorageProjection::AddressTarget => Some(DependencyProjection::AddressTarget),
         StorageProjection::AnyElement => Some(DependencyProjection::AnyElement),
+        StorageProjection::ElementFromStart(index) => {
+            let values = request.semantic_values();
+
+            let value = values
+                .intern_constant_value(bray_symbols::ConstantValueData::new(
+                    crate::representation::representation_type(request, bray_compiler_known::RepresentationRole::ScalarUsize),
+                    bray_symbols::ConstantValueKind::Integer(bray_symbols::IntegerConstant::from_u64(u64::from(index.raw()))),
+                ))
+                .expect("checked array index belongs to the same semantic store");
+
+            let term = values.intern_constant_term(bray_symbols::ConstantTermData::Value(value))
+                .expect("checked array selector belongs to the same semantic store");
+
+            Some(DependencyProjection::Element(term))
+        }
         _ => None,
     }
-}
-
-/// Returns the portable path component of an actual evaluated value.
-pub(crate) fn value_dependency_projection<C: CheckerRequestContext + ?Sized>(
-    request: CheckerUnitView<'_, C>,
-    projection: StorageProjection,
-) -> Option<DependencyProjection> {
-    let StorageProjection::ElementFromStart(index) = projection else {
-        return dependency_projection(projection);
-    };
-
-    let values = request.semantic_values();
-
-    let value = values
-        .intern_constant_value(bray_symbols::ConstantValueData::new(
-            crate::representation::representation_type(request, bray_compiler_known::RepresentationRole::ScalarUsize),
-            bray_symbols::ConstantValueKind::Integer(bray_symbols::IntegerConstant::from_u64(u64::from(index.raw()))),
-        ))
-        .expect("checked array index belongs to the same semantic store");
-
-    let term = values.intern_constant_term(bray_symbols::ConstantTermData::Value(value))
-        .expect("checked array selector belongs to the same semantic store");
-
-    Some(DependencyProjection::Element(term))
 }

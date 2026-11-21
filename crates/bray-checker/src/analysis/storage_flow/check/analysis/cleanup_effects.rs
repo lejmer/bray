@@ -506,7 +506,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 unreachable!("cleanup publishes a reached receiver slot");
             };
 
-            let value = self.execution.complete_captured_references(execution, mutation, None, value);
+            let value = self.execution.complete_captured_references(execution, mutation, value);
 
             self.record_current_write(state, target);
             self.publish_value_graph(state, target.clone(), value.clone(), true);

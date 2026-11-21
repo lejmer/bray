@@ -26,7 +26,7 @@ impl ValueInputs {
         let projections = storage.resolved_projections(source)?.iter()
             .chain(path.projections().iter()).copied().collect::<Vec<_>>();
 
-        let projections = crate::storage::dependency_projections(&projections)?;
+        let projections = crate::storage::dependency_projections(request, &projections)?;
 
         let (source, remaining) =
             self.projected_input_value(request.semantic_values(), selections, producer, &projections)?;

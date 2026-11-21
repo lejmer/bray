@@ -113,6 +113,86 @@ with SHA-256 `0E47BE9B1D4234AAB2D6B0058A6CE21FA228978CC3F020534D9F06A0F01396B6`.
 The checkpoint also removes temporary probes and dead lookups and updates
 the forged and repacked fixture cases.
 
+### Cleanup proof work
+
+Scope and replacement cleanup already pass their reached mutation and
+observation mask into proof. Each transition must apply the same revocation
+rules to ordinary facts, trusted facts, current witnesses, allocation owners,
+and admitted frames. A borrow of an address slot retains its descriptor when
+the pointee changes. Known stable observations and preserved predicates keep
+their existing exemptions. Cache traversal answers only inside the immutable
+transition inputs. Remove repeated walks of the same subtrees and defer
+retirement-only work until a lifetime actually ends. Loan retirement needs
+only the current candidates, and reads support from the real live values
+and reports. Check scoped and replacement cleanup, raw address aliases,
+protected cells, conflicting loans, and private frame witness retirement.
+Reuse the paired native profile and exact control group. Reconsider the
+change if repeated walks shrink too little to affect planning or the cache
+requires copying current state.
+
+### Joined scalar data
+
+The joined-index trace reaches the checked selector but has only the original
+parameter bound in the proof ledger. The join must propose the scalar bound
+using the copied contents of each incoming slot and of the joined slot. The
+same observation is used for proposing a condition and rebinding it against
+each predecessor. A literal provides evidence in its own predecessor and
+cannot replace all equal literals in a condition. Never transfer a witness or
+loan by comparing copies. Check the bounded index, the out-of-bounds sibling,
+guarded output scalars, and loop stabilization.
+
+Postcondition proof applies its typed reflexive comparison to the normalized
+condition as well as the original condition. A copied call result can become
+the same integer term after its recorded data correspondence is substituted.
+Machine arithmetic must still establish exactness before publication, and
+floating equality retains its existing NaN behavior. Check the guarded
+deterministic call product and the overflowing control.
+
+### Returned address lifetime
+
+The positive and expired slice-prefix callers admit the actual range of a
+local array. The producer publishes `address_of` with an incoming-borrow
+target and a fixed first-element projection. Normal exit reads that binding,
+but the portable reference conversion drops the fixed projection. The caller
+therefore sees a result with no formal address source. Admission separately
+requires an exact cell to record an incoming lifetime, even though the range
+still identifies its containing storage.
+
+Publish fixed selectors from the reached targets through the same projection
+conversion used by stored values. The prepared call route must consume these
+selectors for source and imported summaries. Use the captured address
+alternatives directly for lifetime support even when they describe a range.
+Bounded regions supply neither an exact cell nor a new loan. Guarantee
+completion must follow that returned address source, and scope retirement must
+expire its guarantees with the containing storage. Shared conversion also
+keeps mutation, cleanup, and copied-value dependency paths from dropping the
+same fixed selector. Unknown and displaced selectors keep their existing
+conservative handling.
+
+Check live and expired slice prefixes, returned raw ranges across imports,
+protected indexed writes, and raw exposure after a borrow ends. Reconsider
+if a prepared route cannot bind the published selector or if backing
+retirement revokes an unrelated address. This change replaces the narrower
+projection conversion and uses the existing reached value and proof ledger.
+
+### Reference contents at completion
+
+The operation's resolved `StorageInvalidation` determines whether execution
+changed observations. Retain its unchanged decision on the reached call
+entry. Refresh reference contents from the current typed target when it is
+available. When the target is abstract, preserve admitted contents only if
+that same reached transition established no change. Cleanup and abnormal
+outcomes use their own transition and cannot use the normal decision. An
+await reads the decision at activation or observation, where its effects
+were applied, rather than at frame formation.
+
+Remove the completion-time purity query and its separate preservation
+decision. Keep the certification dependency for use of an opaque callable's
+declared effect bound. Check source and imported calls, delayed captures,
+deferred receiver refresh, and failure-prefix cleanup. Reconsider the
+handoff if a completion cannot identify its actual attempt without a source
+lookup or a second effect resolution.
+
 ## Acceptance
 
 1. Finish replacing old paths and search for their callers and equivalents.

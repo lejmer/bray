@@ -295,6 +295,6 @@ fn value_projection<C: CheckerRequestContext + ?Sized>(domain: &ExecutionFlowDom
 ) -> Option<bray_symbols::DependencyProjection> {
     match projection {
         bray_bound_tree::StorageProjection::AnyElement | bray_bound_tree::StorageProjection::AddressTarget => None,
-        projection => crate::storage::value_dependency_projection(domain.request, projection),
+        projection => crate::storage::dependency_projection(domain.request, projection),
     }
 }

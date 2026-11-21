@@ -76,12 +76,12 @@ impl ExecutionState {
 
         let retiring_snapshots = retained_snapshots.as_ref().map(|_| pending.iter().cloned().collect::<RetainedSnapshots>());
 
-        let unchanged = retiring_snapshots.as_ref().zip(retained_snapshots.as_ref()).map(|(before, after)| {
-            memoize_condition(move |value| before.retains_contents_between(after, value))
-        });
+        let changed_contents = retiring_snapshots.as_ref().zip(retained_snapshots.as_ref()).map(|(before, after)| {
+            let observations = pending.iter().flat_map(|value| value.observations().cloned())
+                .collect::<crate::execution_guarantees::ObservationSet>();
 
-        let retiring_observations = pending.iter().flat_map(|value| value.observations().cloned())
-            .collect::<crate::execution_guarantees::ObservationSet>();
+            memoize_condition(move |value| observations.overlaps(value) && !before.retains_contents_between(after, value))
+        });
 
         // A spatial fact survives a contents change, but replacing its actual
         // carrier revokes it. Components reached through that carrier are distinct.
@@ -165,7 +165,7 @@ impl ExecutionState {
 
         let borrowed_changed = |condition: &ExecutionCondition, memo: &RetirementQueries| *memo.borrowed.get_or_init(|| condition.observes_live_where(|value| {
             observes(value)
-                || unchanged.as_ref().is_some_and(|unchanged| retiring_observations.overlaps(value) && !unchanged(value))
+                || changed_contents.as_ref().is_some_and(|changed| changed(value))
         }, &retained_data) || borrowed_slot_changed(condition));
 
         let retained_contents = |condition: &ExecutionCondition, memo: &RetirementQueries| *memo.contents.get_or_init(|| {
@@ -313,7 +313,7 @@ impl ExecutionState {
             }).cloned());
         }
 
-        let (dependents, input_dependents) = self.retirement_dependents(kind);
+        let (dependents, input_dependents) = if kind.is_write() { Default::default() } else { self.retirement_dependents() };
 
         let mut visited = BTreeSet::new();
         let mut invalidated = BTreeSet::new();
@@ -347,7 +347,9 @@ impl ExecutionState {
 
             invalidated.insert(value.clone());
 
-            if let crate::ExecutionConditionKind::Input(place) = (&value).kind() {
+            if let crate::ExecutionConditionKind::Input(place) = value.kind() {
+                if input_dependents.is_empty() { continue; }
+
                 for length in 0..place.projections.len() {
                     let mut prefix = place.clone();
 
@@ -373,7 +375,6 @@ impl ExecutionState {
 
     fn retirement_dependents(
         &self,
-        kind: bray_symbols::DependencyMutationKind,
     ) -> (
         BTreeMap<ExecutionCondition, BTreeSet<ExecutionCondition>>,
         BTreeMap<crate::ExecutionPlace, BTreeSet<ExecutionCondition>>,
@@ -385,10 +386,6 @@ impl ExecutionState {
 
         // Index current dependencies once, then visit only carriers reached by the worklist.
         for (carrier, witness) in &self.witnesses {
-            if kind.is_write() {
-                continue;
-            }
-
             for dependency in witness
                 .dependencies
                 .iter()
@@ -467,45 +464,26 @@ impl ExecutionState {
 
         let observes_only_stable = memoize_condition(|condition| condition.observes_only(&stable_contents));
 
-        let revokes = memoize_condition(|condition| {
-            let predicate = match condition.kind() {
-                crate::ExecutionConditionKind::Trusted(predicate) => predicate.as_ref(),
-                _ => condition,
-            };
-
-            !preserved.contains(condition)
-                && !matches!(predicate.kind(), crate::ExecutionConditionKind::Predicate(symbol, _, _) if stable_predicates.contains(symbol))
-                && condition
-                    .observations_except(|observation| {
-                        // A borrow of an address slot observes the descriptor itself.
-                        // Pointee mutation still revokes claims on the unborrowed address.
-                        matches!(observation.kind(), crate::ExecutionConditionKind::Borrowed(value)
-                        if address_slots.contains(value.owner_identity()))
-                    })
-                    .any(|observation| referents.overlaps(observation))
-                && !observes_only_stable(condition)
+        let affected_referent = memoize_observations(|observation| referents.overlaps(observation), |observation| {
+            // A borrow of an address slot observes the descriptor itself.
+            // Pointee mutation still revokes claims on the unborrowed address.
+            matches!(observation.kind(), crate::ExecutionConditionKind::Borrowed(value)
+                if address_slots.contains(value.owner_identity()))
         });
 
         // A referent write changes observations through borrows and callable or
         // predicate contracts. A by-value guard, including a nullable tag, still
         // describes the same live owner. Physical replacement retires its observations separately.
-        let revokes_observation = memoize_condition(|condition| {
-            if preserved.contains(condition) {
-                return false;
-            }
-
-            condition.observations_except(|observation| {
-                preserved.contains(observation)
-                    || matches!(observation.kind(), crate::ExecutionConditionKind::Predicate(symbol, _, _) if stable_predicates.contains(symbol))
-            }).any(|observation| {
-                matches!((
-                    observation).kind(),
-                    crate::ExecutionConditionKind::Borrowed(_)
-                        | crate::ExecutionConditionKind::Predicate(_, _, _)
-                        | crate::ExecutionConditionKind::Call(_, _, _, _, _)
-                ) && revokes(observation)
-            }) && !observes_only_stable(condition)
+        let affected_observation = memoize_observations(|observation| {
+            matches!(observation.kind(), crate::ExecutionConditionKind::Borrowed(_)
+                | crate::ExecutionConditionKind::Predicate(_, _, _)
+                | crate::ExecutionConditionKind::Call(_, _, _, _, _))
+                && affected_referent(observation) && !observes_only_stable(observation)
+        }, |observation| {
+            preserved.contains(observation)
+                || matches!(observation.kind(), crate::ExecutionConditionKind::Predicate(symbol, _, _) if stable_predicates.contains(symbol))
         });
+        let revokes_observation = |condition: &ExecutionCondition| affected_observation(condition) && !observes_only_stable(condition);
 
         self.assumptions
             .retain(|(condition, _)| !revokes_observation(condition));

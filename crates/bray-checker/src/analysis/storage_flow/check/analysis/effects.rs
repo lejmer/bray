@@ -841,7 +841,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             let effect = if effect.is_addressed_retirement() && !discharged.is_empty() {
                 let duties = discharged.iter().filter_map(|duty| {
                     Some(bray_symbols::StorageDischarge {
-                        projections: crate::storage::dependency_projections(&duty.projections)?.into(),
+                        projections: crate::storage::dependency_projections(self.request, &duty.projections)?.into(),
                         ty: duty.ty,
                     })
                 });
@@ -896,14 +896,14 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             } => {
                 let root = self.formal_root(reference.root)?;
 
-                let source = crate::storage::dependency_projections(&reference.projections);
+                let source = crate::storage::dependency_projections(self.request, &reference.projections);
 
                 // An unportable selector widens the reached region, never the identity
                 // of the reference through which this operation obtained access.
                 let suffix = projections
                     .iter()
                     .copied()
-                    .map_while(crate::storage::dependency_projection)
+                    .map_while(|projection| crate::storage::dependency_projection(self.request, projection))
                     .collect::<Vec<_>>();
 
                 match source {
@@ -924,7 +924,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             Origin::Allocation { .. } => None,
             Origin::Static { root, projections, .. } => {
                 // An unresolved selector widens within the same static identity.
-                let suffix = projections.iter().copied().map_while(crate::storage::dependency_projection).collect::<Vec<_>>();
+                let suffix = projections.iter().copied().map_while(|projection| crate::storage::dependency_projection(self.request, projection)).collect::<Vec<_>>();
 
                 Some(DependencyStorageEffect::Direct { addressed: addressed && suffix.len() == projections.len(),
                     subject: DependencySubject::new(*root, suffix),
@@ -1022,7 +1022,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             _ => return None,
         };
 
-        let projections = crate::storage::dependency_projections(&path.projections);
+        let projections = crate::storage::dependency_projections(self.request, &path.projections);
 
         let Some(projections) = projections else {
             return Some(DependencyStorageEffect::Unknown);

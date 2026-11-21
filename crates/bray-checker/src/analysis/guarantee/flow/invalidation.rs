@@ -485,8 +485,16 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         use bray_bound_tree::StorageObservationTransition;
 
         let transition = invalidation.observation_transition();
+        let unchanged = transition == StorageObservationTransition::Unchanged;
 
-        if transition == StorageObservationTransition::Unchanged {
+        if matches!(mutation, bray_bound_tree::StorageMutation::Operation(_) | bray_bound_tree::StorageMutation::TaskObservation { .. })
+            && let Some(site) = mutation.invocation()
+            && state.admitted_call(site).is_some_and(|entry| entry.storage_unchanged != unchanged)
+        {
+            state.admitted_call_mut(site).expect("the reached transition retains its call entry").storage_unchanged = unchanged;
+        }
+
+        if unchanged {
             return;
         }
 

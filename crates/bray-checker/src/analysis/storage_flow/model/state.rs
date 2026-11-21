@@ -187,21 +187,25 @@ impl StorageFlowState {
         self.forget_storage(identity, storage, input);
     }
 
-    pub(in crate::analysis::storage_flow) fn retained_borrow_lookup<'state>(
-        &'state self, input: &'state StorageFlowInput,
-    ) -> impl Fn(BorrowCapabilityId) -> bool + 'state {
+    fn retain_unheld_borrows(
+        &self, ended: &mut BTreeSet<BorrowCapabilityId>, input: &StorageFlowInput,
+    ) {
         use bray_bound_tree::BoundDependencySubject::BorrowCapability;
 
-        let retained = std::cell::OnceCell::<BTreeSet<BorrowCapabilityId>>::new();
+        let loans = self.memory.surviving_value_loans(
+            |path| self.value_is_live(path), |path| Self::owns_cleanup(input, path.root),
+        );
+        let reports = self.reachable_reports(|_| true)
+            .flat_map(|report| report.subjects.iter().copied())
+            .filter_map(|subject| match subject {
+                BorrowCapability(borrow) => Some(borrow),
+                _ => None,
+            });
 
-        move |borrow| {
-            retained.get_or_init(|| self.memory.surviving_value_loans(
-                |path| self.value_is_live(path), |path| Self::owns_cleanup(input, path.root),
-            )
-                .chain(self.reachable_reports(|_| true).flat_map(|report| report.subjects.iter().copied()).filter_map(|subject| match subject {
-                    BorrowCapability(borrow) => Some(borrow),
-                    _ => None,
-                })).collect()).contains(&borrow)
+        for loan in loans.chain(reports) {
+            ended.remove(&loan);
+
+            if ended.is_empty() { break; }
         }
     }
 
@@ -291,9 +295,7 @@ impl StorageFlowState {
     ) {
         if ended.is_empty() { return; }
 
-        let retained = self.retained_borrow_lookup(input);
-        ended.retain(|borrow| !retained(*borrow));
-        drop(retained);
+        self.retain_unheld_borrows(&mut ended, input);
 
         if ended.is_empty() { return; }
 

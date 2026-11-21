@@ -415,7 +415,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             let Some(value) = writes.common_value(destination).cloned() else { continue; };
 
-            let value = self.complete_captured_references(state, mutation, None, value)
+            let value = self.complete_captured_references(state, mutation, value)
                 .captured_value(snapshot.clone());
 
             self.publish_current_value(state, target, *ty, value);
@@ -795,7 +795,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let mut complete = |branch: &mut ExecutionState, (row, guard): (&crate::execution_guarantees::ExecutionOutput, ExecutionCondition)| {
             let value = self.complete_output_row(branch, source.map(|site| (site, entry)), publication, result.clone(), row, guard);
 
-            if matches!(computation.kind(), crate::ExecutionConditionKind::Call(_, _, _, _, None)) {
+            if matches!(computation.kind(), crate::ExecutionConditionKind::Call(_, _, _, _, None))
+                && (result == computation || result.observation_kind() == Some(crate::execution_guarantees::ExecutionObservationKind::Scalar))
+            {
                 let observed = value.computed_value();
 
                 if observed != computation && !observed.is_unknown() && !observed.is_reference()
@@ -860,7 +862,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             if *destination == StorageValueDestination::Result {
                 result = value.with_producer(result);
             } else {
-                let value = self.complete_captured_references(state, StorageMutation::Operation(publication), admitted, value);
+                let value = self.complete_captured_references(state, StorageMutation::Operation(publication), value);
 
                 self.publish_captured_output(state, publication, destination, value);
             }
@@ -948,9 +950,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
     /// Refreshing a reached view does not change the actual enclosing owner's lineage.
     pub(in crate::analysis) fn complete_captured_references(&self, state: &mut ExecutionState,
-        mutation: StorageMutation, admitted: Option<(BoundExecutionSite, &crate::ExecutionCallEvidence)>, value: ExecutionCondition,
+        mutation: StorageMutation, value: ExecutionCondition,
     ) -> ExecutionCondition {
-        let refreshed = self.refresh_captured_references(state, value.clone(), Some((mutation, admitted)));
+        let refreshed = self.refresh_captured_references(state, value.clone(), Some(mutation));
 
         if refreshed != value {
             let ownership = state.owned_result(&value);
@@ -963,10 +965,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
     /// A captured descriptor survives its old slot. Its reached data observes current memory.
     pub(in crate::analysis::guarantee) fn refresh_captured_references(&self, state: &ExecutionState, value: ExecutionCondition,
-        completed: Option<(StorageMutation, Option<(BoundExecutionSite, &crate::ExecutionCallEvidence)>)>,
+        completed: Option<StorageMutation>,
     ) -> ExecutionCondition {
         let mut refreshed = value.clone();
-        let preserves_inputs = std::cell::OnceCell::new();
+        let unchanged = matches!(completed, Some(StorageMutation::Operation(site))
+            if state.admitted_call(site).is_some_and(|entry| entry.storage_unchanged));
 
         for (path, kind) in value.captured_observations() {
             let bray_bound_tree::StorageObservationKind::Reference(ty) = kind else { continue; };
@@ -983,12 +986,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             let reached = match (reached, completed) {
                 (Some(reached), _) => reached,
-                // A pure completion observes its admitted referent even when no
-                // separately tracked current slot exists for that viewed storage.
-                (None, Some((_, Some((site, entry))))) if *preserves_inputs.get_or_init(|| {
-                    self.admitted_pure(site, entry)
-                }) => continue,
-                (None, Some((mutation, _))) => {
+                // An unchanged transition preserves even an abstract referent.
+                (None, Some(_)) if unchanged => continue,
+                (None, Some(mutation)) => {
                     if self.trace_authority_site(mutation) {
                         eprintln!("absent reference observation {mutation:?} {path:?} address={:?} owner={}",
                             storage.known_address(), format!("{:?}", descriptor.owner_identity().kind()).chars().take(300).collect::<String>());

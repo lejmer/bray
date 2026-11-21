@@ -89,7 +89,9 @@ impl State {
         &'a self, mut live: impl FnMut(&Place) -> bool + 'a, mut owns_cleanup: impl FnMut(&Place) -> bool + 'a,
     ) -> impl Iterator<Item = bray_bound_tree::BorrowCapabilityId> + 'a {
         let current = self.values.iter().filter(move |(target, value)| {
-            !target.previous && !value.is_no_payload() && target.storage_path().is_none_or(&mut live)
+            !target.previous && !value.is_no_payload()
+                && (value.borrow_capability().is_some() || value.dependency_support().is_some())
+                && target.storage_path().is_none_or(&mut live)
         }).flat_map(move |(target, value)| {
             let cleanup_support = value.dependency_support().filter(|_| target.storage_path().is_some_and(&mut owns_cleanup));
 

@@ -629,19 +629,19 @@ pub(crate) fn memoize_observations(
     matches: impl Fn(&ExecutionCondition) -> bool,
     exclude: impl Fn(&ExecutionCondition) -> bool,
 ) -> impl Fn(&ExecutionCondition) -> bool {
-    let memo = super::memo::ConditionMemo::default();
+    let memo = std::cell::RefCell::new(hashbrown::HashMap::new());
 
     move |root| {
         let remember = |value: &ExecutionCondition, result| {
             // Retain the small immutable handle while this query scope owns its answer.
-            memo.lock().expect("observation query memo lock is not poisoned").insert(value.clone(), result);
+            memo.borrow_mut().insert(value.clone(), result);
         };
 
         let mut parents = Vec::new();
         let mut current = root;
 
         'descend: loop {
-            let cached = memo.lock().expect("observation query memo lock is not poisoned").get(current).copied();
+            let cached = memo.borrow().get(current).copied();
 
             let result = if let Some(result) = cached {
                 result
