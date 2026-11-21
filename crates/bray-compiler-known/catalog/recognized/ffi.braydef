@@ -23,6 +23,16 @@ scope StandardLinuxThread at std.os.linux {
 }
 
 scope StandardWindowsThread at std.os.windows {
+    declaration StandardWindowsFindClose {
+        identity name find_close;
+        availability ForeignAbi;
+
+        surface {
+            trusted func find_close(pos handle: Handle) -> i32
+                uses(foreign_call);
+        }
+    }
+
     declaration StandardWindowsFiberStorageLoad {
         identity name fls_get_value;
         availability ForeignAbi;

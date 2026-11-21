@@ -786,6 +786,7 @@ mod tests {
             "StandardWindowsCurrentThreadIdentity",
             "StandardLinuxThreadStorageLoad",
             "StandardWindowsFiberStorageLoad",
+            "StandardWindowsFindClose",
             "StandardWindowsLastErrorRead",
             "StandardWindowsLastErrorWrite",
             "StandardNumericUsizeMaximum",

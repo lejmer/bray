@@ -112,13 +112,14 @@ fn infer_reachable_results(
         Vec::new()
     };
 
-    // These leaves access OS-private thread or fiber state without changing Bray storage.
+    // These leaves access OS-managed handles or thread state without changing Bray storage.
     // They remain impure and still require foreign-call capability.
     let preserves_storage = [
         "StandardLinuxCurrentThreadIdentity",
         "StandardLinuxThreadStorageLoad",
         "StandardWindowsCurrentThreadIdentity",
         "StandardWindowsFiberStorageLoad",
+        "StandardWindowsFindClose",
         "StandardWindowsLastErrorRead",
         "StandardWindowsLastErrorWrite",
     ].into_iter().try_fold(false, |matched, key| {
