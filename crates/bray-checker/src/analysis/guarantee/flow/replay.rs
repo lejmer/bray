@@ -5,7 +5,7 @@ use bray_bound_tree::{StorageOutcomeRows, StorageValueBoundary};
 use super::super::super::fixed_point::{FixedPointDomain, FlowDirection};
 use super::super::super::id::{AnalysisBlockId, AnalysisEdgeId};
 use super::super::super::model::{AnalysisBlock, AnalysisCallPhase, AnalysisEdge, AnalysisOperation, AnalysisOperationKind, ControlFlowGraph};
-use super::super::super::outcomes::{FlowOutcomes, OutcomePath, OutcomeStep, apply_call_rows, edge_path, extend_path, reach_cleanup_iteration};
+use super::super::super::outcomes::{FlowOutcomes, OutcomePath, OutcomeStep, apply_call_rows, continue_cleanup, edge_path, extend_path};
 use super::super::state::ExecutionState;
 use super::merge::{ExecutionJoin, join_states};
 use super::model::{BlockExecutionEvidence, ExecutionFlow, ExecutionFlowDomain, OperationDomainEvidence};
@@ -267,24 +267,16 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         state: &mut ExecutionState,
         point: &AnalysisOperation,
         observe: &mut super::super::cleanup::Observer<'_>,
-        mut reached: impl FnMut(ExecutionState),
+        reached: impl FnMut(ExecutionState),
     ) -> bool {
         let mut continuations = Vec::new();
-        let mut iterations = std::collections::BTreeMap::new();
         let completes = self.replay_with_cleanup_continuations(state, point, &mut continuations, observe);
 
-        while let Some(mut continued) = continuations.pop() {
-            if !reach_cleanup_iteration(&mut iterations, &mut continued,
-                |current, incoming| join_states(current, incoming, ExecutionJoin::Boundary)) {
-                continue;
-            }
-
-            let resume = continued.cleanup.as_ref().is_some_and(|cleanup| cleanup.resumes_at(point.id()));
-
-            if !resume || self.replay_with_cleanup_continuations(&mut continued, point, &mut continuations, observe) {
-                reached(continued);
-            }
-        }
+        continue_cleanup(point.id(), continuations,
+            |continued, next| self.replay_with_cleanup_continuations(continued, point, next, observe),
+            |current, incoming| join_states(current, incoming, ExecutionJoin::Boundary),
+            reached,
+        );
 
         completes
     }

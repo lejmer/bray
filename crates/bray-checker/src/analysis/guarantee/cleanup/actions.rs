@@ -274,12 +274,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         };
 
         for (part, step) in steps.iter().enumerate().skip(start) {
-            if step.phases().includes_lifecycle() {
+            let after = (part == start).then_some(after_slot).flatten();
+
+            if step.phases().includes_lifecycle() && after != Some(TypeAssociatedLifecycleSlot::Destructor) {
                 let condition = self.cleanup_part_condition(state, step.selection(), definitely_absent.clone(), replacement);
 
                 if !super::selection::select_cleanup(state, condition, |state, conditional| {
-                    let after = (part == start).then_some(after_slot).flatten();
-
                     self.dispose_part(state, remaining, part, step, observe, point, (after, replacement), conditional, mutate)
                 }) {
                     return false;
@@ -427,7 +427,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let completed = match after {
             None => 0,
             Some(TypeAssociatedLifecycleSlot::Finalizer) => 1,
-            Some(TypeAssociatedLifecycleSlot::Destructor) => 2,
             Some(slot) => unreachable!("cleanup cannot resume after {slot:?}"),
         };
 

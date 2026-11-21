@@ -70,10 +70,13 @@ impl CleanupProgress {
         Some(result)
     }
 
-    pub(in crate::analysis) fn resumes_at(&self, operation: AnalysisOperationId) -> bool {
-        matches!(self, Self::Resolving { resume: Some(head), .. } if head.remainder.after.operation == operation)
-            || matches!(self, Self::Replacement { remaining: Some(remainder), .. } if remainder.after.operation == operation)
-            || matches!(self, Self::Repeating { remaining, .. } if remaining.after.operation == operation)
+    fn remainder(&self) -> Option<&StorageCleanupRemainder> {
+        match self {
+            Self::Resolving { resume: Some(head), .. } => Some(&head.remainder),
+            Self::Replacement { remaining, .. } => remaining.as_ref(),
+            Self::Repeating { remaining, .. } => Some(remaining),
+            _ => None,
+        }
     }
 
     pub(in crate::analysis) fn repeat(active: Option<&Self>, remaining: StorageCleanupRemainder) -> Self {
@@ -164,7 +167,53 @@ pub(super) trait OutcomeState: Clone {
     fn cleanup_progress(&self) -> Option<&CleanupProgress>;
 }
 
-pub(super) fn reach_cleanup_iteration<S: OutcomeState>(
+/// Joins reached states at the same cursor of one incoming outcome path.
+/// Earlier positions can contribute to later suffixes before those suffixes run.
+pub(super) fn continue_cleanup<S: OutcomeState + Eq>(
+    operation: AnalysisOperationId,
+    mut incoming: Vec<S>,
+    mut apply: impl FnMut(&mut S, &mut Vec<S>) -> bool,
+    mut merge: impl FnMut(&mut S, &S) -> bool,
+    mut reached: impl FnMut(S),
+) {
+    use std::collections::btree_map::Entry;
+
+    let mut waiting = BTreeMap::new();
+    let mut iterations = BTreeMap::new();
+
+    loop {
+        for state in incoming.drain(..) {
+            let cursor = state.cleanup_progress().and_then(|progress| {
+                progress.remainder().map(|remainder| (progress, remainder))
+            });
+
+            let Some((progress, remainder)) = cursor
+                .filter(|(_, remainder)| remainder.after.operation == operation)
+            else {
+                reached(state);
+                continue;
+            };
+
+            let position = (std::cmp::Reverse(remainder.accesses.len()), remainder.after.part, remainder.after.kind);
+
+            match waiting.entry((position, progress.clone())) {
+                Entry::Vacant(entry) => { entry.insert(state); }
+                Entry::Occupied(mut entry) if entry.get() != &state => { merge(entry.get_mut(), &state); }
+                Entry::Occupied(_) => {}
+            }
+        }
+
+        let Some((_, mut state)) = waiting.pop_first() else { break; };
+
+        if reach_cleanup_iteration(&mut iterations, &mut state, &mut merge)
+            && apply(&mut state, &mut incoming)
+        {
+            reached(state);
+        }
+    }
+}
+
+fn reach_cleanup_iteration<S: OutcomeState>(
     iterations: &mut BTreeMap<CleanupProgress, S>,
     state: &mut S,
     merge: impl FnOnce(&mut S, &S) -> bool,

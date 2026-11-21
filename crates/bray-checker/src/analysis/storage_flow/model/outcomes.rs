@@ -5,7 +5,7 @@ use crate::analysis::guarantee::ExecutionJoin;
 use crate::analysis::id::AnalysisBlockId;
 use crate::analysis::model::{AnalysisCallPhase, AnalysisOperation, AnalysisOperationKind};
 use crate::analysis::storage_flow::check::StorageFlowCollector;
-use crate::analysis::outcomes::{FlowOutcomes, OutcomePath, OutcomeStep, apply_call_rows, extend_path, reach_cleanup_iteration};
+use crate::analysis::outcomes::{FlowOutcomes, OutcomePath, OutcomeStep, apply_call_rows, continue_cleanup, extend_path};
 use crate::{CheckerRequestContext, ExecutionDeferredValue};
 
 use super::StorageFlowState;
@@ -136,22 +136,16 @@ impl StorageFlowOutcomes {
         }
 
         let branch = Self::apply_widened(collector, operation, state, frames, None);
+        let continuations = std::mem::take(&mut collector.cleanup_continuations);
 
-        let mut continuations = std::mem::take(&mut collector.cleanup_continuations);
-        let mut iterations = std::collections::BTreeMap::new();
+        continue_cleanup(operation.id(), continuations, |continued, next| {
+            collector.resume_cleanup(continued, operation);
+            next.append(&mut collector.cleanup_continuations);
 
-        while let Some(mut continued) = continuations.pop() {
-            if !reach_cleanup_iteration(&mut iterations, &mut continued, |current, incoming| current.merge(incoming, None)) {
-                continue;
-            }
-
-            if continued.cleanup.as_ref().is_some_and(|cleanup| cleanup.resumes_at(operation.id())) {
-                collector.resume_cleanup(&mut continued, operation);
-                continuations.append(&mut collector.cleanup_continuations);
-            }
-
+            true
+        }, |current, incoming| current.merge(incoming, None), |continued| {
             self.merge(Some(block), path.clone(), Cow::Owned(continued));
-        }
+        });
 
         self.merge(Some(block), path, Cow::Owned(branch));
     }

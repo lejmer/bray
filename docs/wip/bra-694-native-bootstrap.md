@@ -72,9 +72,11 @@ Pushed checkpoint `fb05ef10d` admits checked raw owner construction before
 installation. The expanded candidate passed 1,708 of the 1,709 audited cases,
 with an outcome for every case, and passed the 577 checker and 139 bound-tree
 cases. All 32 expanded bootstrap bodies checked and lowered on Windows and
-Linux for x64 and AArch64. The consuming-cleanup postcondition is the
-remaining fixed-inventory failure. Native package and executable timing
-remain open.
+Linux for x64 and AArch64. Checkpoint `18ad9f166` binds entry witnesses to
+their installed storage. All 1,709 fixed cases passed on its optimized test
+binary. The timed-out case in the full run passed on the same binary in a
+43.1 s isolated retry. The 31 focused checks, 577 checker cases, and 139
+bound-tree cases also passed.
 
 The optimized 24-worker Windows x64 standard-library build planned in
 28.7 s and emitted in 26.9 s. Runtime preparation compiled the same
@@ -85,6 +87,47 @@ reference profile. A sample of 202 expensive body checks repeated one
 unit. A sample of 3,354 cleanup actions spent 2.5 s on proof invalidation
 and 0.06 s on state copies, with most time in referent checks and framing
 changed roots.
+
+The Windows x64 runtime archive had produced no archive after 23 minutes.
+Resumed cleanup accounted for about two-thirds of a sample of active threads.
+One runtime scope exit resumed 2,047 times at 11 distinct cursors for a
+single incoming state, taking 56 s. Standard-library operations also revisit
+the same cursors in storage flow and certification.
+
+Join pending continuations at the same admitted action before visiting the
+remaining suffix. Use the existing flow joins and visit cursors in schedule
+order. The cursor retains the ordered `StoragePlan` accesses, current part,
+lifecycle slot, primary failure, and enclosing continuation. Separate source
+paths, replacement storage, panic and cancellation, and distinct schedules
+keep their own frames. The joined `StorageFlowState` carries all possible
+effects and reports and only supported definite observations. Certification
+uses the same worklist with its current proof state. An abstract array still
+iterates to convergence. A failed destructor has already attempted its slot.
+Resumption can still reach the next array iteration.
+
+Check represented-child guarantees, exact receiver writes, conditional
+cleanup rejection, replacement failure, pending-result abandonment, and
+retained report dependencies against the same fixed inventory. Use the full
+native archive and standard-library timing to verify that duplicate suffix
+work decreases. If merging at an equal cursor loses a guard needed later,
+retain that guarded input under the cursor rather than joining other
+continuations or treating a possible address as exact.
+
+The shared-worklist compiler planned the standard library in 27.0 s and
+emitted it in 24.3 s. The warm-provider package took 59.65 s wall time.
+The result-dependency component still accounts for 151.3 worker seconds.
+The current runtime sample spends 7.4 of 18.1 sampled worker seconds in
+state joins and 1.7 s scanning conditions for retired evaluations.
+
+Read the same condition node directly through every handle that shares it.
+One retirement uses the same dependency and value transformation across
+current slots, witness conditions, admitted calls, and deferred frames.
+It must leave unrelated nodes and captured lifetimes intact. A join uses
+its checked selection guard when available. Only joins without a selector
+derive path guards from both sets of ordinary premises. Reuse each joined
+predicate observation across both predecessor lookups. Verify loop epochs,
+saved referents, guarded facts, and deferred captures with the same native
+and fixed-inventory checks. Compare planning before making further changes.
 
 ## Current verification batch
 
@@ -172,9 +215,8 @@ with the resulting compiler.
 1. Finish replacing old paths and search for their callers and equivalents.
    Check value identity, retirement, and guarded transport as complete paths.
    Include round-trip import and source behavior, defaults, and cleanup.
-2. Run the fixed inventory of 1,709 cases against the candidate. The last
-   complete inventory passed 1,708 and failed one, with no missing cases.
-   Use the same audited test inventory and reuse only exact-binary evidence.
+2. Run the fixed inventory of 1,709 cases against the candidate. Use the same
+   audited test inventory and reuse only exact-binary evidence.
 3. Check and lower the actual bootstrap owners, registration, and dispatch
    on Windows and Linux for both x86-64 and AArch64. Run native toolchain
    steps outside the sandbox. BRA-695 and BRA-696 cover execution and shutdown.

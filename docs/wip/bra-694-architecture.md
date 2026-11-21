@@ -489,6 +489,12 @@ the remaining schedule after that action. The continuation retains the
 broadcast and resolved prefix, then broadcasts newly exited scopes and the
 abandoned pending value. The checked entry of each cleanup phase or suffix
 retains its order, incoming absence facts, and any displaced destination.
+Within an operation, continuations waiting at the same checked cursor join
+their current states before running the suffix. The cursor keeps the selected
+schedule, action, primary failure, and enclosing continuation. Storage flow
+and certification share the worklist. Each action that failed already
+attempted its own slot. Resumption starts with the following action or the
+next array iteration.
 Admission rejection of a scoped invocation uses
 the caller's input state. A failure after admission uses the performed state.
 An abandoned transfer names its actual produced result slot. Its failure
