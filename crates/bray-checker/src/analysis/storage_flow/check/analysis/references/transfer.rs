@@ -496,30 +496,32 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     ) {
         let Some(destination) = self.invocation_result(occurrence) else { return; };
 
-        self.stage_result_reference_bounds(state, occurrence, &destination, &[], |state| {
+        self.stage_result_reference_bounds(state, occurrence, &destination, &[], |memory, execution| {
             let operation = occurrence.expression().and_then(|expression| self.memory.operation(expression));
 
             match operation {
                 Some(operation) if matches!(operation.kind(), bray_bound_tree::CheckedMemoryOperationKind::BorrowFrom { .. }) => {
                     // The loan's first input retains its lifetime. Only the pointer
                     // input describes the storage it can reach.
-                    state.execution.as_ref().and_then(|execution| self.captured_memory_operand(execution, operation, operation.arguments()[1]))
+                    execution.and_then(|execution| self.captured_memory_operand(execution, operation, operation.arguments()[1]))
                         .and_then(bray_bound_tree::StorageCapturedValue::address_regions)
                         .unwrap_or_default()
                 }
-                _ => Self::invocation_roots(state,
-                    state.execution.as_ref().and_then(|execution| execution.admitted_call(occurrence))),
+                _ => Self::invocation_roots(memory, execution.and_then(|execution| execution.admitted_call(occurrence))),
             }
         });
     }
 
-    pub(super) fn stage_result_reference_bounds(
+    pub(super) fn stage_result_reference_bounds<I: IntoIterator<Item = Target>>(
         &self,
         state: &mut StorageFlowState,
         occurrence: BoundExecutionSite,
         destination: &Place,
         inactive: &[Place],
-        inputs: impl FnOnce(&StorageFlowState) -> Vec<Target>,
+        opaque_inputs: impl FnOnce(
+            &crate::analysis::storage_flow::memory::State,
+            Option<&crate::analysis::guarantee::ExecutionState>,
+        ) -> I,
     ) {
         let root = destination.projections.is_empty().then(|| self.storage.storage_type(destination.root))
             .flatten().and_then(|ty| crate::representation::reference_target_type(self.request, ty))
@@ -531,17 +533,17 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             return;
         }
 
-        let inputs = inputs(state);
-
+        let absent = &state.definitely_absent;
+        let execution = state.execution.as_ref();
         let references = contained.into_iter().flat_map(|paths| paths.iter())
             .filter(|(path, _)| destination.contains_storage(path)
                 && !inactive.iter().any(|payload| payload.contains_storage(path))
-                && (path.projections.is_empty() || !state.definitely_absent.iter().any(|(absent, reason)| {
+                && (path.projections.is_empty() || !absent.iter().any(|(absent, reason)| {
                     *reason == bray_bound_tree::StorageAbsence::NoPayload && absent.contains_storage(path)
                 })))
             .map(|(path, ty)| (path.clone(), *ty))
             .chain(root.filter(|(path, _)| !contained.is_some_and(|paths| paths.contains_key(path))));
 
-        state.memory.stage_returned_references(occurrence, references, inputs);
+        state.memory.stage_returned_references(occurrence, references, |memory| opaque_inputs(memory, execution));
     }
 }

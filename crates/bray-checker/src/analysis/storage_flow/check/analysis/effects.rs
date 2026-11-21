@@ -268,7 +268,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         resolved.push(Effect::Ambient);
 
-        let roots = Self::invocation_roots(state, execution.admitted_call(occurrence));
+        let roots = Self::invocation_roots(&state.memory, execution.admitted_call(occurrence));
 
         let cells = if let StorageTaskOutcome::Abnormal { depth, kind, row } = outcome {
             self.execution.observed_task_at(execution, expression, depth)

@@ -89,12 +89,12 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         match &invocation {
             InvocationOutputs::Call { roots, .. } => {
                 if let Some(result) = self.invocation_result(occurrence) {
-                    self.stage_result_reference_bounds(state, occurrence, &result, &inactive, |_| roots.to_vec());
+                    self.stage_result_reference_bounds(state, occurrence, &result, &inactive, |_, _| roots.iter().cloned());
                 }
             }
             InvocationOutputs::Frame { result, entry, .. } => {
-                self.stage_result_reference_bounds(state, occurrence, result, &inactive, |state| {
-                    Self::invocation_roots(state, Some(entry))
+                self.stage_result_reference_bounds(state, occurrence, result, &inactive, |memory, _| {
+                    Self::invocation_roots(memory, Some(entry))
                 });
             }
             InvocationOutputs::Lifecycle { .. } => {}

@@ -195,7 +195,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     }
 
     pub(in crate::analysis::storage_flow::check::analysis) fn invocation_roots(
-        state: &StorageFlowState,
+        memory: &crate::analysis::storage_flow::memory::State,
         entry: Option<&crate::ExecutionCallEvidence>,
     ) -> Vec<Target> {
         let mut roots = Vec::new();
@@ -215,7 +215,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             for support in value.dependency_support() {
                 for subject in &support.subjects {
                     if let bray_bound_tree::BoundDependencySubject::BorrowCapability(loan) = *subject {
-                        roots.extend(state.memory.borrow_regions(loan).into_iter().flatten());
+                        roots.extend(memory.borrow_regions(loan).into_iter().flatten());
                     }
                 }
             }

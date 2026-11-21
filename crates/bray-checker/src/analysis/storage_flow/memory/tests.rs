@@ -2866,7 +2866,7 @@ fn slice_projection_retains_the_element_allocation_without_retyping_it() {
 
     super::Source::Borrow(capability).stage(&mut state, call, admitted.clone());
 
-    state.stage_returned_references(call, [(nested_slot, element)], [selected.clone()]);
+    state.stage_returned_references(call, [(nested_slot, element)], |_| [selected.clone()]);
     state.complete_transition(call);
 
     assert_eq!(state.referenced_regions(&admitted), Some(vec![selected.clone()]),
@@ -3890,7 +3890,7 @@ fn returned_borrow_regions_bound_aliases_without_claiming_argument_identity() {
         state.stage_returned_references(
             call,
             [(result.clone(), error_type())],
-            [Target::storage(first.clone())],
+            |_| [Target::storage(first.clone())],
         );
 
         state.complete_transition(call);
@@ -3926,7 +3926,7 @@ fn returned_borrow_regions_bound_aliases_without_claiming_argument_identity() {
         state.stage_returned_references(
             call,
             [(result.clone(), error_type())],
-            [Target::storage(second.clone())],
+            |_| [Target::storage(second.clone())],
         );
 
         assert_eq!(state.target_relationship(&returned, &Target::storage(second.clone())),
@@ -4444,7 +4444,7 @@ fn returned_references_capture_external_exposure_when_they_are_created() {
         ..State::default()
     };
 
-    state.stage_returned_references(call, [(result.clone(), error_type())], []);
+    state.stage_returned_references(call, [(result.clone(), error_type())], |_| []);
     state.complete_transition(call);
 
     let pointer = state
@@ -4470,7 +4470,7 @@ fn returned_references_capture_external_exposure_when_they_are_created() {
         "external reachability does not imply this call received a local input"
     );
 
-    state.stage_returned_references(call, [(later_result.clone(), error_type())], []);
+    state.stage_returned_references(call, [(later_result.clone(), error_type())], |_| []);
     state.complete_transition(call);
 
     let later = state
@@ -4568,7 +4568,7 @@ fn returned_pointer_bounds_do_not_merge_owned_payloads_with_their_headers() {
     let header = Target::storage(owner.clone());
     let payload = header.project(&[StorageProjection::OwnedTarget]);
 
-    state.stage_returned_references(call, [(result.clone(), error_type())], [payload.clone()]);
+    state.stage_returned_references(call, [(result.clone(), error_type())], |_| [payload.clone()]);
     state.complete_transition(call);
 
     let pointer = state
@@ -4690,7 +4690,7 @@ fn borrowed_choices_read_existing_pointer_values_before_publication() {
             state.stage_returned_reference(call, Target::storage(result.clone()), result.clone(), view_type, candidates.clone());
         } else {
             state.bound_staged_reference(call, &Target::storage(result.clone()));
-            state.stage_returned_references(call, [(result.clone(), view_type)], candidates.clone());
+            state.stage_returned_references(call, [(result.clone(), view_type)], |_| candidates.iter().cloned());
         }
 
         state.complete_transition(call);
@@ -4815,7 +4815,7 @@ fn rewritten_returned_references_keep_flat_input_bounds() {
         );
 
         state.bound_staged_reference(call, &Target::storage(output.clone()));
-        state.stage_returned_references(call, [(output.clone(), error_type())], []);
+        state.stage_returned_references(call, [(output.clone(), error_type())], |_| []);
         state.complete_transition(call);
 
         input = state
@@ -5078,7 +5078,7 @@ fn bounded_forwarding_retains_a_typed_result_and_the_call_input_regions() {
     );
 
     state.bound_staged_reference(call, &destination);
-    state.stage_returned_references(call, [(result, view_type)], [payload.clone()]);
+    state.stage_returned_references(call, [(result, view_type)], |_| [payload.clone()]);
     state.complete_transition(call);
 
     let target = state
@@ -5185,7 +5185,9 @@ fn returned_null_does_not_invent_an_outside_origin() {
     let mut state = State::default();
 
     state.stage_null(call, Target::storage(result.clone()));
-    state.stage_returned_references(call, [(result.clone(), error_type())], []);
+    state.stage_returned_references(call, [(result.clone(), error_type())], |_| -> [Target; 0] {
+        panic!("an established null result needs no opaque input bounds")
+    });
     state.complete_transition(call);
 
     assert_eq!(
@@ -5227,7 +5229,7 @@ fn returned_null_does_not_invent_an_outside_origin() {
     state.begin_transition(call);
     state.stage_slot(call, &result, result.clone());
     state.bound_staged_reference(call, &Target::storage(result.clone()));
-    state.stage_returned_references(call, [(result.clone(), error_type())], []);
+    state.stage_returned_references(call, [(result.clone(), error_type())], |_| []);
     state.complete_transition(call);
 
     assert!(state.value_targets(&Target::storage(result.clone())).is_none());
@@ -5273,7 +5275,7 @@ fn bounded_returned_references_preserve_input_exclusivity() {
             }
 
             state.bound_staged_reference(call, &destination);
-            state.stage_returned_references(call, [(result.clone(), error_type())], [left.clone()]);
+            state.stage_returned_references(call, [(result.clone(), error_type())], |_| [left.clone()]);
         }
 
         state.complete_transition(call);

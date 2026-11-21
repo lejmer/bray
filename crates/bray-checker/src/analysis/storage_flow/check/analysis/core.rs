@@ -999,7 +999,7 @@ where
 
         let assignment_mutation = assignment_plan.map(|plan| self.assignment_mutation(kind, plan, &execution));
 
-        let invocation_roots = attempt.map(|_| Self::invocation_roots(state, execution.admitted_call(occurrence)));
+        let invocation_roots = attempt.map(|_| Self::invocation_roots(&state.memory, execution.admitted_call(occurrence)));
 
         if kind.awaited_expression().is_none() {
             self.prepare_frame_execution(&state.memory, &mut execution, operation, &[]);

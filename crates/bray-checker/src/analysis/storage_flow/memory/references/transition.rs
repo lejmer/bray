@@ -63,11 +63,11 @@ impl State {
         );
     }
 
-    pub(in crate::analysis::storage_flow) fn stage_returned_references(
+    pub(in crate::analysis::storage_flow) fn stage_returned_references<I: IntoIterator<Item = Target>>(
         &mut self,
         call: bray_bound_tree::BoundExecutionSite,
         references: impl IntoIterator<Item = (Place, TypeId)>,
-        inputs: impl IntoIterator<Item = Target>,
+        opaque_inputs: impl FnOnce(&Self) -> I,
     ) {
         // Established pointer values and known absence need no symbolic result.
         // Preserve displacement as well as exact identity. Opaque values receive
@@ -100,7 +100,7 @@ impl State {
         let opaque_bounds = references
             .iter()
             .any(|(_, _, bounds, _)| bounds.is_none())
-            .then(|| self.unbounded_reference_regions(self.transitive_regions(inputs, |_, _| true).0));
+            .then(|| self.unbounded_reference_regions(self.transitive_regions(opaque_inputs(self), |_, _| true).0));
 
         for (destination, ty, forwarded, nullable) in references {
             let bounds = match forwarded {
