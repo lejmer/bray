@@ -5,6 +5,7 @@ using core.atomic;
 using core.memory;
 using core.target;
 using std.memory;
+using internal std.sync.spin_lock;
 using internal bray.runtime.bootstrap;
 using internal bray.runtime.bootstrap.scheduler;
 using internal bray.runtime.bootstrap.task;
@@ -101,14 +102,13 @@ trusted internal func acquire_ready(pos selected: &Current, pos owner: &Referenc
 
 // Copy and clear this driver's pending queue claim under one exclusive guard.
 trusted internal func take_ready(
-    pos selected: &Current,
-    pos owner: &Reference
+    pos value: &Context
 ) -> bray.runtime.bootstrap.scheduler.Observation
-    requires(trusted view_owned(owner = &selected.acquisition), selected.status == 0, trusted retained(owner = owner))
-    ensures(trusted view_owned(owner = &selected.acquisition), trusted retained(owner = owner))
+    requires(trusted std.sync.spin_lock.valid(&value.pending.prepared.instance))
+    ensures(trusted std.sync.spin_lock.valid(&value.pending.prepared.instance))
     uses(intrinsic)
 {
-    let mut guard = trusted (trusted context(selected)).pending.lock();
+    let mut guard = trusted value.pending.lock();
     let pending = trusted guard.get();
 
     let ready = match pending
@@ -136,7 +136,8 @@ trusted internal func dispatch_ready(pos selected: &Current, pos owner: &Referen
     uses(intrinsic)
 {
     let arena = &(trusted domain(owner)).arena;
-    let ready = trusted take_ready(selected, owner);
+    let driver = trusted context(selected);
+    let ready = trusted take_ready(driver);
 
     let (task, status) = trusted bray.runtime.bootstrap.task.retain_in_arena(arena, ready.task);
 
@@ -176,7 +177,7 @@ trusted internal func dispatch_ready(pos selected: &Current, pos owner: &Referen
             if failure.stage != 0
             {
                 trusted record_task_failure(reference, failure);
-                trusted retain_ready_driver(trusted context(selected), owner, ready.registration);
+                trusted retain_ready_driver(driver, owner, ready.registration);
 
                 _ = trusted wake_reference(reference, bray.runtime.bootstrap.scheduler.WAKE_EXPLICIT);
 

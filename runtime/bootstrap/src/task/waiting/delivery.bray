@@ -96,6 +96,7 @@ trusted internal func notify_waiters(pos owner: &Dispatch, pos retirement: u8)
         trusted dispatch_acquired(owner = &owner.acquisition),
         trusted bray.runtime.bootstrap.host.product.native_host()
     )
+    ensures(trusted dispatch_acquired(owner = &owner.acquisition))
 {
     let mut delivery = trusted take_waiters(owner, retirement);
 

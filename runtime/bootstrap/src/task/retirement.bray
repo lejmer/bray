@@ -248,11 +248,12 @@ trusted internal func released_slot_access(
         lease.active,
         trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition)
     )
-    ensures(trusted released(owner = reference), trusted link_access(owner = &result))
+    ensures(trusted released(owner = reference), trusted link_access(owner = &result.acquisition))
     executes(pure, total)
 {
     return
     {
+        acquisition = LinkAcquisition {},
         lease = lease,
         pointer = reference.pointer
     };

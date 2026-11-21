@@ -41,13 +41,18 @@ trusted internal func wait_link(pos owner: &Reference) -> WaitLink
 
 // The resident lease prevents recycling and final arena extraction. A producer
 // first establishes actual list membership from its complete retained owner.
+internal struct LinkAcquisition
+{
+}
+
 internal struct LinkAccess
 {
+    acquisition: LinkAcquisition;
     lease: &bray.runtime.bootstrap.host.HostLease;
     pointer: DataPointer<Slot>;
 }
 
-trusted internal predicate link_access(owner: &LinkAccess);
+trusted internal predicate link_access(owner: &LinkAcquisition);
 
 // Neighbor storage is retained only while this membership remains linked
 // under this actual resident lease. Owning resources alone does not prove it.
@@ -62,11 +67,12 @@ trusted internal func task_slot_access(
         lease.active,
         trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition)
     )
-    ensures(trusted retained(owner = owner), trusted link_access(owner = &result))
+    ensures(trusted retained(owner = owner), trusted link_access(owner = &result.acquisition))
     executes(pure, total)
 {
     return
     {
+        acquisition = LinkAcquisition {},
         lease = lease,
         pointer = owner.pointer
     };
@@ -83,11 +89,12 @@ trusted internal func previous_link_access(
         lease.active,
         trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition)
     )
-    ensures(trusted registration_owned(owner = &owner.resources), trusted link_access(owner = &result))
+    ensures(trusted registration_owned(owner = &owner.resources), trusted link_access(owner = &result.acquisition))
     executes(pure, total)
 {
     return
     {
+        acquisition = LinkAcquisition {},
         lease = lease,
         pointer = owner.previous.pointer
     };
@@ -104,11 +111,12 @@ trusted internal func next_link_access(
         lease.active,
         trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition)
     )
-    ensures(trusted registration_owned(owner = &owner.resources), trusted link_access(owner = &result))
+    ensures(trusted registration_owned(owner = &owner.resources), trusted link_access(owner = &result.acquisition))
     executes(pure, total)
 {
     return
     {
+        acquisition = LinkAcquisition {},
         lease = lease,
         pointer = owner.next.pointer
     };
@@ -124,11 +132,12 @@ trusted internal func delivery_link_access(
         lease.active,
         trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition)
     )
-    ensures(trusted delivery_owned(owner = owner), trusted link_access(owner = &result))
+    ensures(trusted delivery_owned(owner = owner), trusted link_access(owner = &result.acquisition))
     executes(pure, total)
 {
     return
     {
+        acquisition = LinkAcquisition {},
         lease = lease,
         pointer = owner.next.pointer
     };
@@ -144,25 +153,26 @@ trusted internal func event_tail_access(
         lease.active,
         trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition)
     )
-    ensures(trusted bray.runtime.bootstrap.event.collection_owned(owner = owner), trusted link_access(owner = &result))
+    ensures(trusted bray.runtime.bootstrap.event.collection_owned(owner = owner), trusted link_access(owner = &result.acquisition))
     executes(pure, total)
 {
     return
     {
+        acquisition = LinkAcquisition {},
         lease = lease,
         pointer = owner.tail.pointer
     };
 }
 
 trusted internal func link_slot(pos anchor: &mut LinkAccess) -> &mut Slot
-    requires(trusted link_access(owner = &anchor))
-    ensures(trusted link_access(owner = &anchor))
+    requires(trusted link_access(owner = &anchor.acquisition))
+    ensures(trusted link_access(owner = &anchor.acquisition))
     uses(raw_memory, unchecked_alias)
 {
     let pointer = anchor.pointer;
 
     let permit = trusted lambda(pos owner: &LinkAccess, pos pointer: DataPointer<Slot>)
-        requires(trusted link_access(owner = owner))
+        requires(trusted link_access(owner = &owner.acquisition))
         ensures(
             trusted core.memory.valid_read<Slot>(pointer = pointer, count = 1),
             trusted core.memory.valid_write<Slot>(pointer = pointer, count = 1),
@@ -192,7 +202,7 @@ trusted internal func task_head_access(
         lease.active,
         trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition)
     )
-    ensures(trusted retained(owner = owner), trusted link_access(owner = &result))
+    ensures(trusted retained(owner = owner), trusted link_access(owner = &result.acquisition))
     uses(intrinsic)
 {
     let mut access = trusted task_slot_access(owner, lease);
@@ -214,6 +224,7 @@ trusted internal func task_head_access(
 
     return
     {
+        acquisition = LinkAcquisition {},
         lease = lease,
         pointer = head.pointer
     };

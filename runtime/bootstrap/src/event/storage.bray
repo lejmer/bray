@@ -80,7 +80,8 @@ trusted internal func initialize_domain(pos allocation: DataPointer<u8>) -> Refe
 
     return
     {
-        pointer = pointer
+        pointer = pointer,
+        acquisition = ReferenceAcquisition {}
     };
 }
 
@@ -109,7 +110,8 @@ trusted internal func retain_event(pos owner: &Reference) -> Reference
         {
             return
             {
-                pointer = owner.pointer
+                pointer = owner.pointer,
+                acquisition = ReferenceAcquisition {}
             };
         }
 

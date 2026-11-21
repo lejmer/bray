@@ -10,8 +10,8 @@ using internal bray.runtime.bootstrap.event;
 using internal bray.runtime.bootstrap.host.product;
 
 trusted internal func take_registration(pos access: &mut LinkAccess) -> WaitRegistration?
-    requires(trusted link_access(owner = &access))
-    ensures(trusted optional_registration(owner = &result), trusted link_access(owner = &access))
+    requires(trusted link_access(owner = &access.acquisition))
+    ensures(trusted optional_registration(owner = &result), trusted link_access(owner = &access.acquisition))
 {
     let slot = trusted link_slot(access);
 
