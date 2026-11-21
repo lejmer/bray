@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use bray_bound_tree::{StorageAccessId, StorageCleanupAction, StorageCleanupActionKind, StorageMutation};
 use bray_symbols::TypeAssociatedLifecycleSlot;
@@ -484,6 +485,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             let established = requirements.is_ok();
 
+            let template = &self.dependencies.lifecycle_dependencies()[&lifecycle.call.callable];
+
+            evidence.failure_rows = self.select_frame_failures(&evidence, template.failure_outcomes());
+
+            let evidence = Arc::new(evidence);
+
             if let Some(observe) = observe {
                 observe(CleanupObservation::Invocation {
                     access,
@@ -498,10 +505,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             }
 
             if let Some(mutate) = mutate {
-                let template = &self.dependencies.lifecycle_dependencies()[&lifecycle.call.callable];
-
-                evidence.failure_rows = self.select_frame_failures(&evidence, template.failure_outcomes());
-
                 let outcomes = template.captured_values().iter().enumerate().filter_map(|(index, row)| {
                     self.cleanup_normal_guard(state, &evidence, row).map(|guard| (index, row, guard))
                 })
@@ -525,14 +528,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 ) {
                     return false;
                 }
-            } else {
-                let template = &self.dependencies.lifecycle_dependencies()[&lifecycle.call.callable];
-
-                evidence.failure_rows = self.select_frame_failures(&evidence, template.failure_outcomes());
-
-                if !self.replay_cleanup_action(state, action, remaining, Some((&evidence, template)), observe) {
-                    return false;
-                }
+            } else if !self.replay_cleanup_action(state, action, remaining, Some((&evidence, template)), observe) {
+                return false;
             }
 
             if established {

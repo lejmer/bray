@@ -19,6 +19,7 @@ impl<'a, 'view, C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'a, 'view
         entry.clear();
         entry.extend_from_slice(assumptions);
         self.excluded_edges = excluded_edges;
+        self.candidate_evidence.get_mut().clear();
 
         let states = match solve_fixed_point(self.graph, &self, &self.request) {
             FixedPointOutcome::Complete(states) => states,
@@ -145,6 +146,7 @@ pub(crate) fn prepare_execution_flow<'a, 'view, C: CheckerRequestContext + ?Size
     }
 
     ExecutionFlowDomain {
+        candidate_evidence: Default::default(),
         // Exact immutable query results survive cleanup-feasibility rounds within this body.
         proofs: Default::default(),
         dependencies,
@@ -161,6 +163,7 @@ pub(crate) fn prepare_execution_flow<'a, 'view, C: CheckerRequestContext + ?Size
             )
             .copied(),
         has_bounds_checks: prepared.has_bounds_checks,
+        certify_predicate: false,
         observed_types: &prepared.observed_types,
         pattern_conditions: &prepared.pattern_conditions,
         borrowed_inputs: &prepared.borrowed_inputs,

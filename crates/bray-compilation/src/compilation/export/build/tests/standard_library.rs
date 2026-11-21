@@ -1813,6 +1813,8 @@ fn standard_runtime_text_storage_has_complete_contracts() {
 
 #[test]
 fn raw_byte_access_requires_initialized_extents_and_rejects_index_overflow() {
+    use bray_diagnostics::{DiagnosticArgValue, DiagnosticCondition, DiagnosticKind};
+
     let sources = [
         include_str!("../../../../../../../standard-library/std/src/std.bray"),
         include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
@@ -1864,7 +1866,7 @@ fn raw_byte_access_requires_initialized_extents_and_rejects_index_overflow() {
         } else {
             bray_testing::assert_goal_state_diagnostic_kind(
                 compilation.check_diagnostics(),
-                bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven,
+                DiagnosticKind::CheckingTrustedObligationNotProven,
             );
         }
     }
@@ -2021,12 +2023,12 @@ fn raw_byte_access_requires_initialized_extents_and_rejects_index_overflow() {
         compilation.check_diagnostics(),
     );
 
-    for source in [
-        r#"
+    for (source, expected, impossible_requirement) in [
+        (r#"
         module std.memory;
 
         using std.numeric;
-        internal func read_after_changing_guarded_index(pos bytes: &[u8]) {
+        trusted internal func read_after_changing_guarded_index(pos bytes: &[u8]) uses(raw_memory) {
             let count: usize = bytes.length();
             let byte_pointer: DataPointer<u8> = internal slice_pointer(bytes, count = count);
             let mut index: usize = 0;
@@ -2036,49 +2038,55 @@ fn raw_byte_access_requires_initialized_extents_and_rejects_index_overflow() {
                 _ = trusted internal byte_buffer_read(byte_pointer, index = index);
             }
         }
-        "#,
-        r#"
+        "#, DiagnosticKind::CheckingTrustedObligationNotProven, false),
+        (r#"
         module std.memory;
 
         using core.memory;
-        internal func read_without_initialization(pos pointer: DataPointer<u8>) -> u8
-            requires(trusted core.memory.valid_read<u8>(pointer = pointer, count = 1)) {
+        trusted internal func read_without_initialization(pos pointer: DataPointer<u8>) -> u8
+            requires(trusted core.memory.valid_read<u8>(pointer = pointer, count = 1))
+            uses(raw_memory) {
             return trusted internal byte_buffer_read(pointer, index = 0);
         }
-        "#,
-        r#"
+        "#, DiagnosticKind::CheckingTrustedObligationNotProven, false),
+        (r#"
         module std.memory;
 
         using core.memory;
-        internal func copy_without_initialization(pos source: DataPointer<u8>, pos destination: DataPointer<u8>)
+        trusted internal func copy_without_initialization(pos source: DataPointer<u8>, pos destination: DataPointer<u8>)
             requires(
                 trusted core.memory.valid_read<u8>(pointer = source, count = 1),
                 trusted core.memory.valid_write<u8>(pointer = destination, count = 1),
-            ) {
+            ) uses(raw_memory, unchecked_init) {
             trusted std.memory.copy_overlapping<u8>(source, destination, count = 1);
         }
-        "#,
-        r#"
+        "#, DiagnosticKind::CheckingUninitializedRawStorage, false),
+        (r#"
         module std.memory;
 
         using std.numeric;
 
         using core.memory;
-        internal func overflowing_index(pos pointer: DataPointer<u8>) -> u8
+        trusted internal func overflowing_index(pos pointer: DataPointer<u8>) -> u8
             requires(
                 trusted core.memory.valid_read<u8>(pointer = pointer, count = 0),
                 trusted core.memory.initialized_range_as<u8>(pointer = pointer, count = 0),
-            ) {
+            ) uses(raw_memory) {
             return trusted internal byte_buffer_read(pointer, index = std.numeric.USIZE_MAX);
         }
-        "#,
+        "#, DiagnosticKind::CheckingTrustedObligationNotProven, true),
     ] {
         let compilation = standard_library_compilation(sources.into_iter().chain([source]));
 
-        bray_testing::assert_goal_state_diagnostic_kind(
-            compilation.check_diagnostics(),
-            bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven,
-        );
+        let diagnostics = compilation.check_diagnostics();
+
+        bray_testing::assert_goal_state_diagnostic_kind(diagnostics, expected);
+
+        if impossible_requirement {
+            assert!(diagnostics.by_kind(expected).any(|diagnostic| diagnostic.args().iter()
+                .any(|argument| matches!(argument.value(), DiagnosticArgValue::ContractObligation(obligation)
+                    if obligation.actual == DiagnosticCondition::Boolean(false)))), "{diagnostics:#?}");
+        }
     }
 }
 

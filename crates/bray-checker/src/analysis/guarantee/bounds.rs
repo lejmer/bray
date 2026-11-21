@@ -12,8 +12,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         &self,
         state: &ExecutionState,
         expression: BoundExpressionId,
-    ) -> bool {
-        if !matches!(
+    ) -> Option<bool> {
+        matches!(
             self.semantics.selections().expression(expression),
             Some(SemanticSelection::Operation(SelectedOperation::Index {
                 target: IndexTarget::ArrayElement
@@ -22,10 +22,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     | IndexTarget::Slice,
                 ..
             }))
-        ) {
-            return false;
-        }
+        ).then(|| self.prove_index_bounds(state, expression))
+    }
 
+    fn prove_index_bounds(
+        &self,
+        state: &ExecutionState,
+        expression: BoundExpressionId,
+    ) -> bool {
         let Some(BoundExpression::Structured(index)) = self.request.view().expression(expression)
         else {
             panic!("checked built-in indexing retains its structured expression");

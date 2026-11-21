@@ -1,6 +1,8 @@
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use bray_bound_tree::StorageAccessId;
+use bray_symbols::{CallableExecution, CallableInstanceData, TypeAssociatedLifecycleSlot, TypeId};
 
 use super::super::super::id::AnalysisOperationId;
 use super::super::super::model::{AnalysisOperation, AnalysisOperationKind};
@@ -9,7 +11,42 @@ use super::super::state::ExecutionState;
 use super::{CleanupObservation, ReachedScopeCleanup};
 use crate::{CheckerRequestContext, ExecutionCandidate, ExecutionCondition, ExecutionPlace, ExecutionProperty};
 
+pub(in crate::analysis::guarantee) enum ReachedCleanup {
+    Cancellation,
+    Part {
+        access: StorageAccessId,
+        ty: TypeId,
+        releases_storage: bool,
+        preserves_inputs: bool,
+    },
+    Invocation {
+        access: StorageAccessId,
+        part: usize,
+        slot: TypeAssociatedLifecycleSlot,
+        callable: CallableInstanceData,
+        result: TypeId,
+        execution: CallableExecution,
+        whole: bool,
+        represented: bool,
+        evidence: Arc<crate::ExecutionCallEvidence>,
+    },
+}
+
 impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
+    pub(in crate::analysis::guarantee) fn reached_cleanup(&self, observation: CleanupObservation<'_>) -> Option<ReachedCleanup> {
+        Some(match observation {
+            CleanupObservation::Continuation(_) => return None,
+            CleanupObservation::Cancellation => ReachedCleanup::Cancellation,
+            CleanupObservation::Part { access, ty, releases_storage, before } => ReachedCleanup::Part {
+                access, ty, releases_storage, preserves_inputs: self.cleanup_preserves_inputs(before, access),
+            },
+            CleanupObservation::Invocation { access, part, slot, lifecycle, whole, represented, evidence, .. } => ReachedCleanup::Invocation {
+                access, part, slot, callable: lifecycle.call.callable, result: lifecycle.call.result.completion_type(),
+                execution: lifecycle.call.result.execution(), whole, represented, evidence: Arc::clone(evidence),
+            },
+        })
+    }
+
     pub(in crate::analysis::guarantee) fn observe_candidate_cleanup(
         &self,
         candidate: &mut ExecutionCandidate,
@@ -17,23 +54,21 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         operation: &AnalysisOperation,
         scope_property: Option<ExecutionProperty>,
         collect_cleanup: bool,
-        observation: CleanupObservation<'_>,
+        observation: &ReachedCleanup,
     ) {
         let certify_scope = scope_property.is_some();
 
-        let (access, part, slot, lifecycle, whole, represented, evidence) = match observation {
-            CleanupObservation::Continuation(_) => return,
-            CleanupObservation::Cancellation => {
+        let (access, part, slot, callable, result, execution, whole, represented, evidence) = match *observation {
+            ReachedCleanup::Cancellation => {
                 if certify_scope {
                     reached_cleanup.entry(operation.id()).or_default().cancels_tasks = true;
                 }
 
                 return;
             }
-            CleanupObservation::Part { access, ty, releases_storage, before } => {
+            ReachedCleanup::Part { access, ty, releases_storage, preserves_inputs } => {
                 if certify_scope {
-                    let inert = scope_property == Some(ExecutionProperty::Pure)
-                        && self.cleanup_preserves_inputs(before, access);
+                    let inert = scope_property == Some(ExecutionProperty::Pure) && preserves_inputs;
 
                     reached_cleanup.entry(operation.id()).or_default().parts
                         .entry((access, ty, releases_storage))
@@ -43,9 +78,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
                 return;
             }
-            CleanupObservation::Invocation { access, part, slot, lifecycle, whole, represented, evidence, .. } => {
-                (access, part, slot, lifecycle, whole, represented, evidence)
-            }
+            ReachedCleanup::Invocation { access, part, slot, callable, result, execution, whole, represented, ref evidence } =>
+                (access, part, slot, callable, result, execution, whole, represented, evidence),
         };
 
         let node = match operation.kind() {
@@ -56,11 +90,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         };
 
         if represented && let Some(property) = scope_property {
-            let call = &lifecycle.call;
-
             let dependency = crate::asynchronous::lifecycle_execution_dependency(
                 self.request,
-                (call.callable, call.result.completion_type(), call.result.execution()),
+                (callable, result, execution),
                 slot, crate::asynchronous::ExecutionCleanupMode::Disposal, property, node,
             );
 
@@ -68,13 +100,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }
 
         let collect_disposal = (collect_cleanup || certify_scope && represented)
-            && lifecycle.call.result.execution() == bray_symbols::CallableExecution::Synchronous;
+            && execution == CallableExecution::Synchronous;
 
         if !collect_cleanup && !collect_disposal {
             return;
         }
-
-        let evidence = std::sync::Arc::new(evidence.clone());
 
         if collect_cleanup {
             let normal = operation.kind().is_normal_cleanup();
@@ -83,10 +113,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 .cleanup
                 .entry((node, access, part, slot, normal))
                 .or_insert_with(|| crate::ExecutionCleanup {
-                    callable: lifecycle.call.callable,
-                    result: lifecycle.call.result.completion_type(),
-                    synchronous: lifecycle.call.result.execution()
-                        == bray_symbols::CallableExecution::Synchronous,
+                    callable,
+                    result,
+                    synchronous: execution == CallableExecution::Synchronous,
                     caller_continuation: self.storage.is_root_access(access)
                         && self.storage.root_identity(access).is_some_and(|identity| {
                             bray_bound_tree::storage_identity_is_destructor_receiver(
@@ -98,7 +127,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     evidence: Default::default(),
                 });
 
-            cleanup.evidence.insert(std::sync::Arc::clone(&evidence));
+            cleanup.evidence.insert(Arc::clone(evidence));
         }
 
         // Whole-value completion can omit an async finalizer without
@@ -107,9 +136,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         if collect_disposal {
             candidate
                 .disposal
-                .entry((node.into(), lifecycle.call.callable))
+                .entry((node.into(), callable))
                 .or_default()
-                .insert(evidence);
+                .insert(Arc::clone(evidence));
         }
     }
 

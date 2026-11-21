@@ -1,5 +1,5 @@
 use bray_diagnostics::DiagnosticExecutionProofFailure as FailureCause;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
     AnyBoundNodeId, CheckedBodySemantics, CheckedExpressionSemantics, CheckedMemoryOperations,
@@ -92,6 +92,7 @@ pub fn with_execution_candidate_checker<C: CheckerRequestContext + ?Sized, R>(
                 );
 
                 domain.checked_body = Some(body);
+                domain.certify_predicate = predicate;
 
                 domain
             });
@@ -234,6 +235,22 @@ fn check_operations<C: CheckerRequestContext + ?Sized>(
     let graph = reachable.domain.graph;
     let expressions = reachable.domain.semantics;
     let storage = reachable.domain.storage;
+    let static_initializer = property == ExecutionProperty::Total
+        && (predicate || internal || reachable.domain.has_bounds_checks)
+        && request.unit().key().is_static_initializer();
+
+    let evidence = reachable.domain.candidate_evidence.borrow();
+    let mut operation_domains = BTreeMap::<_, super::flow::OperationDomainEvidence>::new();
+
+    if property == ExecutionProperty::Total {
+        for block in evidence.values() {
+            for (&expression, &proof) in &block.operation_domains {
+                operation_domains.entry(expression)
+                    .and_modify(|current| current.merge(proof))
+                    .or_insert(proof);
+            }
+        }
+    }
 
     let mut visited = BTreeSet::new();
 
@@ -246,23 +263,13 @@ fn check_operations<C: CheckerRequestContext + ?Sized>(
             return Err(crate::CheckerQueryError::Cancelled);
         }
 
-        let mut state = (property == ExecutionProperty::Total
-            && (predicate || internal || reachable.domain.has_bounds_checks))
-            .then(|| {
-                reachable
-                    .entry(block.id())
-                    .expect("reachable block retains its execution state")
-            });
+        let first_unreached = evidence.get(&block.id()).and_then(|block| block.first_unreached);
 
-        let mut predicate_ranges = super::integer::IntegerRanges::new();
+        for operation in block.operations().iter().filter_map(|id| graph.operation(*id)) {
+            if first_unreached == Some(operation.id()) {
+                break;
+            }
 
-        let mut operations = block
-            .operations()
-            .iter()
-            .filter_map(|id| graph.operation(*id))
-            .peekable();
-
-        while let Some(operation) = operations.next() {
             let node = operation.kind().node();
 
             if property == ExecutionProperty::Total {
@@ -366,18 +373,17 @@ fn check_operations<C: CheckerRequestContext + ?Sized>(
                             check_expression_eligibility(reachable, body, expression, candidate);
                         }
 
-                        let predicate_valid = !predicate
-                            || state.as_ref().is_none_or(|state| {
-                                reachable.domain.predicate_operation_is_valid(
-                                    state,
-                                    expression,
-                                    &mut predicate_ranges,
-                                    &mut candidate.integer_maxima,
-                                )
-                            });
+                        let proof = operation_domains.get(&expression);
+                        let domain_proven = proof.is_some_and(|proof| proof.proven);
 
-                        if !predicate_valid {
+                        if predicate && proof.is_some() && !domain_proven {
                             record_constant_failure(request, candidate, expression.into());
+                        }
+
+                        if let Some((operand, maximum)) = proof.filter(|proof| proof.proven).and_then(|proof| proof.integer_maximum) {
+                            candidate.integer_maxima.entry(operand)
+                                .and_modify(|current| *current = (*current).max(maximum))
+                                .or_insert(maximum);
                         }
 
                         valid &= check_expression_execution(
@@ -388,11 +394,7 @@ fn check_operations<C: CheckerRequestContext + ?Sized>(
                             storage,
                             body,
                             memory,
-                            state.as_ref().is_some_and(|state| {
-                                request.unit().key().is_static_initializer()
-                                    || reachable.domain.index_in_bounds(state, expression)
-                                    || predicate && predicate_valid
-                            }),
+                            domain_proven || static_initializer,
                             &mut candidate.dependencies,
                             diagnostics,
                         )?;
@@ -428,18 +430,6 @@ fn check_operations<C: CheckerRequestContext + ?Sized>(
 
             if !preserves {
                 record_failure(request, candidate, node, FailureCause::Unproven);
-            }
-
-            if let Some(current) = &mut state
-                && operations.peek().is_some()
-            {
-                if !reachable.domain.operation(current.to_mut(), operation, block.id(), None) {
-                    break;
-                }
-
-                if matches!(operation.kind(), AnalysisOperationKind::Call { .. }) {
-                    predicate_ranges.clear();
-                }
             }
         }
     }

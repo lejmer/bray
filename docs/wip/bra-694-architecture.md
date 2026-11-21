@@ -48,8 +48,9 @@ flowchart TD
   [Result dependency component](../../crates/bray-compilation/src/compilation/binder/symbol/result_dependencies.rs)
 - **Downstream queries.** `execution_properties` uses the checked body, prepared graph, and certified dependencies to
   check execution promises. Its proof flow applies the body's checked storage records. A candidate query shares the
-  solved flow across obligations with the same entry assumptions and enabled edges. Each obligation records its own
-  dependencies and diagnostics. `lowered_unit` assembles
+  solved flow across obligations with the same entry assumptions and enabled edges. The settled transfer records
+  actual call admissions, cleanup actions, and arithmetic and index proofs. Each obligation certifies that evidence
+  and records its own dependencies and diagnostics. `lowered_unit` assembles
   checked inputs for `bray-lowering`, which builds MIR. Compilation collects structured diagnostics from the prerequisites
   and returns no lowered unit on errors. `bray-messages` renders diagnostic text.
   [Execution certification query](../../crates/bray-compilation/src/compilation/execution_guarantees/query.rs)

@@ -1,5 +1,7 @@
 use std::borrow::Cow;
+use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
 use bray_bound_tree::{BoundExpression, BoundExpressionId, CheckedExpressionSemantics};
 
@@ -8,7 +10,7 @@ use crate::{CheckerRequestContext, CheckerUnitView};
 
 use super::super::super::fixed_point::FixedPointResult;
 use super::super::super::outcomes::FlowOutcomes;
-use super::super::super::id::AnalysisEdgeId;
+use super::super::super::id::{AnalysisBlockId, AnalysisEdgeId, AnalysisOperationId};
 use super::super::super::model::{
     AnalysisEdge, AnalysisEdgeKind, AnalysisRefinement, ControlFlowGraph,
 };
@@ -23,14 +25,50 @@ pub(in crate::analysis::guarantee) struct ExecutionFlow<
     pub(super) states: FixedPointResult<FlowOutcomes<ExecutionState>>,
 }
 
+/// Evidence produced by the latest transfer of a block's reached alternatives.
+#[derive(Default)]
+pub(in crate::analysis::guarantee) struct BlockExecutionEvidence {
+    pub(in crate::analysis::guarantee) calls: BTreeMap<bray_bound_tree::BoundExecutionSite, BTreeSet<Arc<crate::ExecutionCallEvidence>>>,
+    pub(in crate::analysis::guarantee) cleanup: Vec<(AnalysisOperationId, super::super::cleanup::ReachedCleanup)>,
+    pub(in crate::analysis::guarantee) operation_domains: BTreeMap<BoundExpressionId, OperationDomainEvidence>,
+    pub(in crate::analysis::guarantee) first_unreached: Option<AnalysisOperationId>,
+}
+
+impl BlockExecutionEvidence {
+    pub(super) fn is_empty(&self) -> bool {
+        self.calls.is_empty() && self.cleanup.is_empty() && self.operation_domains.is_empty() && self.first_unreached.is_none()
+    }
+
+    pub(super) fn record_call(&mut self, state: &ExecutionState, invocation: bray_bound_tree::BoundExecutionSite) {
+        if let Some(entry) = state.entries.get(&invocation) {
+            self.calls.entry(invocation).or_default().insert(Arc::clone(entry));
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(in crate::analysis::guarantee) struct OperationDomainEvidence {
+    pub(in crate::analysis::guarantee) proven: bool,
+    pub(in crate::analysis::guarantee) integer_maximum: Option<(BoundExpressionId, u64)>,
+}
+
+impl OperationDomainEvidence {
+    pub(in crate::analysis::guarantee) fn merge(&mut self, other: Self) {
+        self.proven &= other.proven;
+        self.integer_maximum = self.integer_maximum.max(other.integer_maximum);
+    }
+}
+
 pub(crate) struct ExecutionFlowDomain<'a, 'view, C: CheckerRequestContext + ?Sized> {
     pub(in crate::analysis::guarantee) proofs: std::sync::Arc<crate::execution_guarantees::ExecutionProofCache>,
+    pub(in crate::analysis::guarantee) candidate_evidence: RefCell<BTreeMap<AnalysisBlockId, BlockExecutionEvidence>>,
     pub(super) values: &'a crate::analysis::liveness::ValueRetention,
     pub(in crate::analysis::guarantee) liveness: &'a bray_bound_tree::Liveness,
     pub(in crate::analysis) retained_storage: BTreeSet<bray_bound_tree::StorageAccessId>,
     pub(in crate::analysis::guarantee) dependencies:
         &'a bray_bound_tree::CheckedDependencyContracts,
     pub(in crate::analysis::guarantee) has_bounds_checks: bool,
+    pub(in crate::analysis::guarantee) certify_predicate: bool,
     pub(in crate::analysis::guarantee) sequence_length: Option<bray_symbols::AnySymbolId>,
     pub(super) observed_types: &'a std::sync::Arc<BTreeMap<crate::ExecutionPlace, Option<bray_symbols::TypeId>>>,
     pub(in crate::analysis::guarantee) borrowed_inputs: &'a BTreeSet<crate::ExecutionPlace>,

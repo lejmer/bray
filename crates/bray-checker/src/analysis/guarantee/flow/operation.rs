@@ -114,6 +114,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         self.prepare_replay_outputs(state, point);
 
+        if let AnalysisOperationKind::Call { invocation, phase: AnalysisCallPhase::Attempt } = operation {
+            self.prepare_failure_rows(state, invocation);
+        }
+
         let task = task.or_else(|| self.task_observation_outcome(state, operation));
         let selection = self.operation_outcome_rows(state, operation, task.as_ref());
         let rows = selection.as_ref();

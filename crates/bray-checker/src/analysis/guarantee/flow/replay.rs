@@ -8,7 +8,7 @@ use super::super::super::model::{AnalysisBlock, AnalysisCallPhase, AnalysisEdge,
 use super::super::super::outcomes::{FlowOutcomes, OutcomePath, OutcomeStep, apply_call_rows, edge_path, extend_path, reach_cleanup_iteration};
 use super::super::state::ExecutionState;
 use super::merge::{ExecutionJoin, join_states};
-use super::model::{ExecutionFlow, ExecutionFlowDomain};
+use super::model::{BlockExecutionEvidence, ExecutionFlow, ExecutionFlowDomain, OperationDomainEvidence};
 use crate::CheckerRequestContext;
 
 impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
@@ -24,10 +24,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
 
     pub(in crate::analysis::guarantee) fn output_states(&self, block: AnalysisBlockId) -> impl Iterator<Item = &ExecutionState> {
         self.states.output(block).into_iter().flat_map(FlowOutcomes::states)
-    }
-
-    pub(in crate::analysis::guarantee) fn input_states(&self, block: AnalysisBlockId) -> impl Iterator<Item = &ExecutionState> {
-        self.states.state(block).into_iter().flat_map(FlowOutcomes::states)
     }
 
     pub(in crate::analysis::guarantee) fn output(&self, block: AnalysisBlockId) -> Option<Cow<'_, ExecutionState>> {
@@ -84,8 +80,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     pub(super) fn prepare_replay_outputs(&self, state: &mut ExecutionState, operation: &AnalysisOperation) {
         let AnalysisOperationKind::Call { invocation, phase: AnalysisCallPhase::Attempt } = operation.kind() else { return; };
 
-        self.prepare_failure_rows(state, invocation);
-
         if state.admitted_call(invocation).is_none_or(|entry| !entry.outputs.0.is_empty()) { return; }
 
         if let Some(values) = self.checked_body.and_then(|body|
@@ -95,23 +89,52 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }
     }
 
-    fn replay_outcomes(&self, outcomes: &mut FlowOutcomes<ExecutionState>, block: AnalysisBlockId, point: &AnalysisOperation) {
+    fn replay_outcomes(&self, outcomes: &mut FlowOutcomes<ExecutionState>, block: AnalysisBlockId, point: &AnalysisOperation,
+        evidence: &mut BlockExecutionEvidence,
+    ) {
         let operation = point.kind();
+        let expression = operation.explicit_attempt_expression()
+            .filter(|_| self.certify_predicate || self.has_bounds_checks);
 
         for (mut budget, incoming) in outcomes.take() {
             for (path, mut state) in incoming {
+                if let Some(expression) = expression
+                    && let Some(proof) = self.operation_domain(&state, expression)
+                {
+                    evidence.operation_domains.entry(expression)
+                        .and_modify(|current| current.merge(proof))
+                        .or_insert(proof);
+                }
+
                 if operation.awaited_expression().is_some() {
                     self.prepare_frame_execution(&mut state, point, None, |_, _, _| {});
                 }
 
-                self.replay_outcome(outcomes, block, point, &mut budget, path, state);
+                self.replay_outcome(outcomes, block, point, (&mut budget, evidence), path, state);
             }
         }
     }
 
+    fn operation_domain(
+        &self,
+        state: &ExecutionState,
+        expression: bray_bound_tree::BoundExpressionId,
+    ) -> Option<OperationDomainEvidence> {
+        let mut integer_maximum = None;
+        let proven = if self.certify_predicate {
+            self.predicate_operation_is_valid(
+                state, expression, &mut super::super::integer::IntegerRanges::new(), &mut integer_maximum,
+            )
+        } else {
+            self.index_in_bounds(state, expression)?
+        };
+
+        Some(OperationDomainEvidence { proven, integer_maximum })
+    }
+
     fn replay_outcome(
         &self, outcomes: &mut FlowOutcomes<ExecutionState>, block: AnalysisBlockId, point: &AnalysisOperation,
-        budget: &mut usize, path: Option<OutcomePath>, mut state: ExecutionState,
+        (budget, evidence): (&mut usize, &mut BlockExecutionEvidence), path: Option<OutcomePath>, mut state: ExecutionState,
     ) {
         let operation = point.kind();
         let invocation = operation.occurrence();
@@ -124,7 +147,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             self.visit_deferred_alternatives(state, operation, (frame, alternatives), |branch| branch, |producer, branch| {
                 let path = Some(extend_path(path.as_ref(), OutcomeStep::Frame(invocation, producer)));
 
-                self.replay_outcome(outcomes, block, point, budget, path, branch);
+                self.replay_outcome(outcomes, block, point, (budget, evidence), path, branch);
             });
 
             return;
@@ -137,6 +160,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 let outcome = task.outcome;
 
                 if self.replay_operation(&mut branch, point, None, Some(task)) {
+                    evidence.record_call(&branch, invocation);
+
                     let path = Some(extend_path(path.as_ref(), OutcomeStep::TaskCompletion(invocation, outcome)));
 
                     outcomes.merge(path, Cow::Owned(branch), |state, next| join_states(state, next, ExecutionJoin::Block(block)));
@@ -149,8 +174,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let frame = self.direct_await_outputs(&state, operation);
         let call_rows;
 
-        let rows = if matches!(operation, AnalysisOperationKind::Call { phase: AnalysisCallPhase::Attempt, .. }) {
+        let attempt = matches!(operation, AnalysisOperationKind::Call { phase: AnalysisCallPhase::Attempt, .. });
+        let rows = if attempt {
             self.prepare_replay_outputs(&mut state, point);
+            // Certification checks the admitted invocation before a successful
+            // result can supply additional knowledge about its inputs.
+            evidence.record_call(&state, invocation);
             call_rows = self.feasible_call_outputs(&state, invocation);
 
             &call_rows
@@ -167,59 +196,35 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 }
             }
 
-            let completes = self.replay_cleanup_paths(&mut state, point, None, |_, continued| {
+            let mut observe = |observation: super::super::cleanup::CleanupObservation<'_>| {
+                if let Some(observation) = self.reached_cleanup(observation) {
+                    evidence.cleanup.push((point.id(), observation));
+                }
+            };
+            let completes = self.replay_cleanup_paths(&mut state, point, &mut observe, |continued| {
                 outcomes.merge(path.clone(), Cow::Owned(continued), |state, next| join_states(state, next, ExecutionJoin::Block(block)));
             });
 
             if completes {
+                if !attempt {
+                    evidence.record_call(&state, invocation);
+                }
+
                 outcomes.merge(path, Cow::Owned(state), |state, next| join_states(state, next, ExecutionJoin::Block(block)));
             }
         });
-    }
-
-    pub(in crate::analysis::guarantee) fn operation(
-        &self,
-        state: &mut ExecutionState,
-        operation: &AnalysisOperation,
-        block: AnalysisBlockId,
-        observe: Option<&mut super::super::cleanup::Observer<'_>>,
-    ) -> bool {
-        if operation.kind().awaited_expression().is_some() {
-            self.prepare_frame_execution(state, operation, None, |_, _, _| {});
-        }
-
-        let mut continuation = None;
-        let join = ExecutionJoin::Block(block);
-
-        let completes = self.replay_cleanup_paths(state, operation, observe, |primary, reached| {
-            if reached.cleanup.as_ref() == primary {
-                super::merge::merge(&mut continuation, &Some(reached), join);
-            }
-        });
-
-        if let Some(continued) = continuation {
-            if completes {
-                join_states(state, &continued, join);
-            } else {
-                *state = continued;
-            }
-
-            return true;
-        }
-
-        completes
     }
 
     fn replay_cleanup_paths(
         &self,
         state: &mut ExecutionState,
         point: &AnalysisOperation,
-        mut observe: Option<&mut super::super::cleanup::Observer<'_>>,
-        mut reached: impl FnMut(Option<&crate::analysis::outcomes::CleanupProgress>, ExecutionState),
+        observe: &mut super::super::cleanup::Observer<'_>,
+        mut reached: impl FnMut(ExecutionState),
     ) -> bool {
         let mut continuations = Vec::new();
         let mut iterations = std::collections::BTreeMap::new();
-        let completes = self.replay_with_cleanup_continuations(state, point, &mut continuations, &mut observe);
+        let completes = self.replay_with_cleanup_continuations(state, point, &mut continuations, observe);
 
         while let Some(mut continued) = continuations.pop() {
             if !reach_cleanup_iteration(&mut iterations, &mut continued,
@@ -229,8 +234,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             let resume = continued.cleanup.as_ref().is_some_and(|cleanup| cleanup.resumes_at(point.id()));
 
-            if !resume || self.replay_with_cleanup_continuations(&mut continued, point, &mut continuations, &mut observe) {
-                reached(state.cleanup.as_ref(), continued);
+            if !resume || self.replay_with_cleanup_continuations(&mut continued, point, &mut continuations, observe) {
+                reached(continued);
             }
         }
 
@@ -242,24 +247,22 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         state: &mut ExecutionState,
         point: &AnalysisOperation,
         continuations: &mut Vec<ExecutionState>,
-        observe: &mut Option<&mut super::super::cleanup::Observer<'_>>,
+        observe: &mut super::super::cleanup::Observer<'_>,
     ) -> bool {
         let cleanup = matches!(point.kind(), AnalysisOperationKind::ScopeExit { .. })
             || self.checked_body.is_some_and(|body| body.storage_flow().cleanup_entry(point.id(), None).is_some());
 
-        let collect = cleanup || observe.is_some();
-
         let mut emit = |observation: super::super::cleanup::CleanupObservation<'_>| {
             if let super::super::cleanup::CleanupObservation::Continuation(state) = observation {
                 continuations.push(*state);
-            } else if let Some(observe) = observe {
+            } else {
                 observe(observation);
             }
         };
 
         self.replay_operation(
             state, point,
-            collect.then_some(&mut emit as &mut super::super::cleanup::Observer<'_>),
+            cleanup.then_some(&mut emit as &mut super::super::cleanup::Observer<'_>),
             None,
         )
     }
@@ -288,9 +291,24 @@ impl<C: CheckerRequestContext + ?Sized> FixedPointDomain for ExecutionFlowDomain
     fn transfer(&self, block: &AnalysisBlock, source: &Self::State) -> Self::State {
         // The solver retains the immutable entry while operations update its selected outputs.
         let mut outcomes = source.clone();
+        let mut evidence = BlockExecutionEvidence::default();
 
         for operation in block.operations().iter().filter_map(|id| self.graph.operation(*id)) {
-            self.replay_outcomes(&mut outcomes, block.id(), operation);
+            if outcomes.states().next().is_none() {
+                evidence.first_unreached = Some(operation.id());
+
+                break;
+            }
+
+            self.replay_outcomes(&mut outcomes, block.id(), operation, &mut evidence);
+        }
+
+        let mut records = self.candidate_evidence.borrow_mut();
+
+        if evidence.is_empty() {
+            records.remove(&block.id());
+        } else {
+            records.insert(block.id(), evidence);
         }
 
         outcomes

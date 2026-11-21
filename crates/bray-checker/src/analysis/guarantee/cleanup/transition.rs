@@ -31,7 +31,7 @@ pub(in crate::analysis) enum CleanupObservation<'a> {
         lifecycle: &'a Lifecycle,
         whole: bool,
         represented: bool,
-        evidence: &'a ExecutionCallEvidence,
+        evidence: &'a Arc<ExecutionCallEvidence>,
         proof: &'a Result<(), crate::UnprovenExecutionCondition>,
     },
 }

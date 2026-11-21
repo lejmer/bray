@@ -288,7 +288,49 @@ same owner. Check private input identities through a nested frame and a
 single normal output as well. A completed transfer binds the witness and
 its supporting observations to the reached output owner. Abnormal outcomes
 contribute their performed effects and no normal result evidence. Check
-direct await, task join, and cancellation.
+direct await, task join, and cancellation. Retain the admission of each
+nested frame under its actual holder. Moving a frame cannot publish its
+result, acquire authority through a loan, or activate another frame.
+
+Trust acknowledgement is local to the captured operation. The enclosing
+callable must prove or expose the obligation. Certify the reached entry of
+explicit calls, defaults, deferred bodies, and cleanup. An impossible
+ordinary entry can take an abnormal edge and supplies no normal witness.
+Ordinary guards cannot derive authority from a qualified clause.
+
+Forward displacement reads the support of the current value, including held
+cleanup and report values. Backward liveness uses the storage plan's existing
+assignment route. A later use of a slot cannot prolong a loan held only by
+the displaced value. Verify replacement and partial movement alongside
+reassigned slices, tasks, raw address conversion, and lock release.
+
+Normal publication binds facts to the reached value. Borrow results use an
+exact typed referent when the checked completion supplies one. Forwarded
+descriptors retain their captured identities, and newly produced scalar
+fields get an observation at their actual result projection. At a join,
+forward and inverse substitutions must identify the same observed datum
+while retaining the independent loan identity. Check copied and reacquired
+loans, a default that mutates the referent, and expiry after a field changes.
+
+Typed cell writes preserve access to the backing while updating initialization
+and the stored bits. Copying raw address bits cannot extend the lifetime they
+observe or tie the destination's initialization to their pointee. Proof and
+physical memory use the same checked separation for distinct exact allocations
+and independently owned backings reached through exclusive inputs. The final
+memory decision supplies the precise uninitialized-storage diagnostic. Retain
+independent bounds and alignment diagnostics.
+
+Numeric proofs use reached operands and the private typed result, including
+when arithmetic wraps. A later write to one operand can retire its own
+comparison observation while the other operand retains its bound. A protocol
+loop requires its successful progress edge on every back edge and cannot reset
+the cursor between checks. Check generator folds, changing peers, wrapped
+steps, and early exits. A scalar const result can retain equality to its
+selected call term under the same row without acquiring reference authority.
+
+Certification reuses one prepared body, plan, checked flow, and dependency
+table. Changing entry assumptions or excluded edges replaces the solved state
+and its proof cache.
 
 The storage footprint records inline reference fields as descriptor slots.
 An effect on a sibling can invalidate the enclosing value while the checked
@@ -637,12 +679,11 @@ edges.
    skill after replacing the old paths.
 2. Compare the fixed inventory of 1,709 cases on the accepted candidate.
    Account for the test audit changes through `3afac09c5` and verify the
-   native replacements. The comparison at `0f9f3d0cc` had 1,665 passes and
-   44 failures. The two conditional absent transfers and the caught nullable
-   result recovered, with no new failures since `020191205`.
-   The following capture and completion checkpoint passed 573 checker tests,
-   all 305 deferred-completion cases, and all 529 ownership cases in the
-   optimized test binaries. The full comparison is still pending for it.
+   native replacements. The settled-transfer candidate passed 1,691 cases
+   and failed 18, with none missing. It reused 1,012 exact-binary results.
+   It recovered three cases from the previous fixed comparison with no new
+   failures, and passed all 573 checker tests. Four additional predicate
+   tests outside that inventory failed on both optimized binaries.
    Repeat the comparison after the remaining refactor and bootstrap repairs.
 3. After the refactor, check the owner entry, dispatch, and registration paths,
    including `dispatch_ready` and `start_frame`. Trace the allocation reached
@@ -652,10 +693,21 @@ edges.
    lowering on Windows and Linux for x86-64 and AArch64 on the same candidate.
    Run native workflows outside the sandbox.
 5. Measure an optimized build on 24 cores. Acceptance requires planning in the
-   prior 17–25 second range and a finished binary within 60 seconds. The latest
-   unprofiled Windows standard-library build took 32.0 seconds to plan and 33.7
-   seconds to emit. The profile at `72f589608` spent 136.7 worker seconds in
-   the result dependency solve and 41.3 in the execution candidate scan, up
-   from the reference profile's 60.0 and 10.2 seconds.
+   prior 17–25 second range and a finished binary within 60 seconds. The last
+   successful Windows standard-library timing was 32.0 seconds for planning and
+   33.7 seconds for emission. The reached-descriptor build reached planning
+   diagnostics in 28.7 seconds on the same machine. Its directory close and
+   working-directory buffer checks prevented emission. The profile at
+   `72f589608` spent 136.7 worker seconds in the result dependency solve and
+   41.3 in the execution candidate scan, up from the reference profile's 60.0
+   and 10.2 seconds.
+   Certification reads call admissions, cleanup actions, and operating-domain
+   proofs from each settled transfer over the checked storage transitions.
+   Check arithmetic and indexing on all incoming alternatives before selecting
+   the operation's outcome. A finite count uses the greatest proven bound.
+   Preserve the admitted call across row selection, and distinguish cleanup
+   actions from continuations. The fixed comparison covers guarded numeric
+   operations, fallback calls, and cleanup paths. Certification must not run a
+   second block transfer or retain a copy of its execution state.
 6. Complete the repository audit and independent review. Push to the existing
    draft PR. BRA-695 and BRA-696 cover native execution and shutdown.

@@ -20,6 +20,6 @@ mod witnesses;
 pub(super) use joins::{merge_returned, return_substitution};
 pub(in crate::analysis) use completion::TaskSelection;
 pub(in crate::analysis) use merge::{ExecutionJoin, merge as merge_execution};
-pub(super) use model::ExecutionFlow;
+pub(super) use model::{ExecutionFlow, OperationDomainEvidence};
 pub(crate) use model::ExecutionFlowDomain;
 pub(crate) use prepare::prepare_execution_flow;

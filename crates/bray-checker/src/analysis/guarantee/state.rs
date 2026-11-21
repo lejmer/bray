@@ -535,28 +535,31 @@ impl ExecutionState {
         value: &ExecutionCondition,
     ) -> crate::execution_guarantees::AddressDependencies {
         let mut addresses = crate::execution_guarantees::AddressDependencies::new();
-        let mut pending = self.owned_values(value).collect::<Vec<_>>();
-        let mut observed = BTreeSet::new();
-
-        while let Some(value) = pending.pop() {
-            // Input loans observe their current data without owning it. Old
-            // descriptor snapshots are not the values of cleared address fields.
-            let data = value.computed_value();
-
-            if !observed.insert(data.clone()) { continue; }
-            pending.extend(data.owned_components().cloned());
-        }
-
+        let observed = std::cell::OnceCell::new();
         let proof = self.proof();
 
         for witness in self.witnesses.values() {
             for (condition, guarantee) in &witness.conditions {
-                if proof.prove_trusted(condition) != Some(true) {
-                    continue;
-                }
+                let mut established = None;
 
                 for (address, owners) in &guarantee.addresses {
                     let Some((root, path)) = address.observation_path() else { continue; };
+
+                    let observed = observed.get_or_init(|| {
+                        let mut pending = self.owned_values(value).collect::<Vec<_>>();
+                        let mut observed = BTreeSet::new();
+
+                        while let Some(value) = pending.pop() {
+                            // A loan observes its current data without owning its contents.
+                            let data = value.computed_value();
+
+                            if observed.insert(data.clone()) {
+                                pending.extend(data.owned_components().cloned());
+                            }
+                        }
+
+                        observed
+                    });
 
                     let current = observed.iter().any(|data| {
                         let Some((source, prefix)) = data.observation_path() else { return false; };
@@ -569,9 +572,14 @@ impl ExecutionState {
                         actual.descriptor_identity().observation_path() == Some((root.clone(), path.clone()))
                     });
 
-                    if current {
-                        addresses.entry(address.clone()).or_default().extend(owners.iter().cloned());
+                    if !current { continue; }
+
+                    // Certify the actual observed clause once, after finding an address it supports.
+                    if !*established.get_or_insert_with(|| proof.prove_trusted(condition) == Some(true)) {
+                        break;
                     }
+
+                    addresses.entry(address.clone()).or_default().extend(owners.iter().cloned());
                 }
             }
         }

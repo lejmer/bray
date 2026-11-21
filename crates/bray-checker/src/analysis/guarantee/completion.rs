@@ -1,11 +1,10 @@
-use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{BoundExpressionId, BoundReferenceTarget};
 use bray_symbols::TypeData;
 
 use super::super::id::AnalysisOperationId;
-use super::super::model::{AnalysisCallPhase, AnalysisOperation, AnalysisOperationKind, AnalysisScopeExitPhase};
+use super::super::model::AnalysisOperationKind;
 use super::cleanup::ReachedScopeCleanup;
 use super::flow::{ExecutionFlow, ExecutionFlowDomain};
 use super::state::ExecutionState;
@@ -18,132 +17,48 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
         obligation: Option<crate::ExecutionObligation>,
         property: Option<crate::ExecutionProperty>,
     ) -> (crate::ExecutionCandidate, BTreeMap<AnalysisOperationId, ReachedScopeCleanup>) {
-        let admission = matches!(
+        let collect_cleanup = matches!(
             obligation,
-            Some(crate::ExecutionObligation::Property(
-                crate::ExecutionProperty::Total,
-                _
-            ))
+            Some(crate::ExecutionObligation::Property(crate::ExecutionProperty::Total, _)
+                | crate::ExecutionObligation::Termination | crate::ExecutionObligation::FiniteIteration)
         );
-
-        let collect_cleanup = admission
-            || matches!(
-                obligation,
-                Some(
-                    crate::ExecutionObligation::Termination
-                        | crate::ExecutionObligation::FiniteIteration
-                )
-            );
 
         let mut candidate = crate::ExecutionCandidate::default();
         let mut reached_cleanup = BTreeMap::<_, ReachedScopeCleanup>::new();
         let mut dependencies = BTreeSet::new();
         let mut results = BTreeSet::new();
 
-        let normal_exit_blocks = self
-            .domain
-            .graph
-            .completion_exits()
-            .map(|exit| exit.block())
-            .collect::<BTreeSet<_>>();
-
         for block in self.domain.graph.blocks() {
-            let operations = || block.operations().iter().map(|id| {
-                self.domain.graph.operation(*id).expect("proof block retains its operation")
-            });
+            for reached in self.output_states(block.id()) {
+                dependencies.extend(reached.completion_dependencies.iter().cloned());
+            }
+        }
 
-            let only_operation = match block.operations() {
-                [id] => self.domain.graph.operation(*id),
-                _ => None,
-            };
+        for exit in self.domain.graph.completion_exits() {
+            results.extend(self.output_states(exit.block()).map(|state| self.domain.returned_value(state).known_variant()));
+        }
 
-            let use_output = (block.operations().is_empty()
-                || only_operation.is_some_and(|operation| self.can_read_candidate_output(operation, collect_cleanup, property.is_some())))
-                && self.output_states(block.id()).next().is_some();
+        for evidence in self.domain.candidate_evidence.borrow().values() {
+            for (&occurrence, calls) in &evidence.calls {
+                if !occurrence.expression().and_then(|expression| memory.operation(expression)).is_some_and(|operation| {
+                    crate::memory::execution::guarantees(operation.kind(), crate::ExecutionProperty::Pure)
+                }) && calls.iter().any(|entry| self.domain.admitted_pure(occurrence, entry)) {
+                    super::operation::collect_invocation_dependency(
+                        self.domain.semantics.selections(), occurrence, crate::ExecutionProperty::Pure,
+                        &mut candidate.dependencies,
+                    );
+                }
 
-            let reached = self.output_states(block.id()).filter(|_| use_output)
-                .chain(self.input_states(block.id()).filter(|_| !use_output))
-                .map(Cow::Borrowed);
-
-            if normal_exit_blocks.contains(&block.id()) {
-                results.extend(self.output_states(block.id()).map(|state| self.domain.returned_value(state).known_variant()));
+                candidate.calls.entry(occurrence).or_default().extend(calls.iter().cloned());
             }
 
-            'states: for mut state in reached {
-                if use_output
-                    && !admission
-                    && let Some(operation) = only_operation
-                    && let AnalysisOperationKind::Call { invocation, phase: AnalysisCallPhase::Completion } = operation.kind()
-                    && let Some(evidence) = state.entries.get(&invocation)
-                {
-                    candidate.calls.entry(invocation).or_default().insert(std::sync::Arc::clone(evidence));
-                }
+            for (operation, cleanup) in &evidence.cleanup {
+                let operation = self.domain.graph.operation(*operation).expect("cleanup evidence belongs to a checked operation");
+                let scope_property = property.filter(|_| matches!(operation.kind(), AnalysisOperationKind::ScopeExit { .. }));
 
-                for operation in operations().filter(|_| !use_output) {
-                    let scope_property = property.filter(|_| matches!(operation.kind(), AnalysisOperationKind::ScopeExit { .. }));
-
-                    let observer: &mut super::cleanup::Observer<'_> = &mut |observation| {
-                        self.domain.observe_candidate_cleanup(
-                            &mut candidate, &mut reached_cleanup, operation, scope_property, collect_cleanup, observation,
-                        );
-                    };
-
-                    if !self.domain.operation(
-                        state.to_mut(),
-                        operation,
-                        block.id(),
-                        (collect_cleanup || scope_property.is_some()).then_some(observer),
-                    ) {
-                        continue 'states;
-                    }
-
-                    if !admission
-                        && let super::super::model::AnalysisOperationKind::Call {
-                            invocation,
-                            phase: super::super::model::AnalysisCallPhase::Completion,
-                            ..
-                        } = operation.kind()
-                        && let Some(evidence) = state.entries.get(&invocation)
-                    {
-                        // Preservation and completion proofs use successful entry checks.
-                        // Totality keeps the pre-admission snapshot, including fallible checks.
-                        candidate.calls.entry(invocation).or_default().insert(std::sync::Arc::clone(evidence));
-                    }
-                }
-
-                for operation in operations() {
-                    let occurrence = operation.kind().occurrence();
-
-                    let evidence = match &mut state {
-                        Cow::Borrowed(state) => state.entries.get(&occurrence).cloned(),
-                        Cow::Owned(state) => state.entries.remove(&occurrence),
-                    };
-
-                    if let Some(evidence) = evidence {
-                        if !occurrence
-                                .expression()
-                                .and_then(|expression| memory.operation(expression))
-                                .is_some_and(|operation| {
-                                    crate::memory::execution::guarantees(
-                                        operation.kind(),
-                                        crate::ExecutionProperty::Pure,
-                                    )
-                                })
-                            && self.domain.admitted_pure(occurrence, &evidence)
-                        {
-                            super::operation::collect_invocation_dependency(
-                                self.domain.semantics.selections(),
-                                occurrence,
-                                crate::ExecutionProperty::Pure,
-                                &mut candidate.dependencies,
-                            );
-                        }
-
-                        candidate.calls.entry(occurrence).or_default().insert(evidence);
-                    }
-                }
-
-                dependencies.extend(state.completion_dependencies.iter().cloned());
+                self.domain.observe_candidate_cleanup(
+                    &mut candidate, &mut reached_cleanup, operation, scope_property, collect_cleanup, cleanup,
+                );
             }
         }
 
@@ -156,38 +71,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
         };
 
         (candidate, reached_cleanup)
-    }
-
-    fn can_read_candidate_output(&self, operation: &AnalysisOperation, collect_cleanup: bool, certify_scopes: bool) -> bool {
-        // Candidate evidence retains the joined entry on operations that select
-        // output rows or complete deferred work.
-        if matches!(operation.kind(), AnalysisOperationKind::Call { phase: AnalysisCallPhase::Attempt, .. })
-            || operation.kind().awaited_expression().is_some()
-        {
-            return false;
-        }
-
-        let Some(flow) = self.domain.checked_body.map(bray_bound_tree::CheckedBodySemantics::storage_flow) else {
-            return true;
-        };
-
-        let has_actions = flow.cleanup_entry(operation.id(), None).is_some_and(|entry| !entry.orders().is_empty());
-
-        match operation.kind() {
-            AnalysisOperationKind::ScopeExit { phase: AnalysisScopeExitPhase::TaskCancellationBroadcast, .. } if certify_scopes => {
-                !has_actions
-            }
-            AnalysisOperationKind::ScopeExit { scope, exit, phase: AnalysisScopeExitPhase::LifecycleResolution, .. } if collect_cleanup || certify_scopes => {
-                !has_actions
-                    && flow.outcome_mutation(bray_bound_tree::StorageMutation::ScopeCleanupOrder {
-                        operation: operation.id(),
-                        point: bray_bound_tree::StorageExitPoint::new(scope, exit),
-                    }).is_none()
-            }
-            AnalysisOperationKind::Bound(bray_bound_tree::AnyBoundNodeId::Expression(_))
-            | AnalysisOperationKind::AssignmentInstall(_) if collect_cleanup => !has_actions,
-            _ => true,
-        }
     }
 }
 
