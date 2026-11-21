@@ -70,9 +70,9 @@ where
     input.update_liveness(storage, liveness);
 
     let mut entry = StorageFlowState::entry(request.semantic_values(), storage, input);
-    let entry_addresses = if execution.needs_entry_addresses() { entry.entry_addresses() } else { BTreeMap::new() };
+    let entry_observations = entry.memory.entry_observations(execution.needs_entry_addresses());
 
-    entry.execution = execution.entry_state(&entry_addresses);
+    entry.execution = execution.entry_state(&entry_observations);
     entry.reachable = entry.execution.is_some();
     entry.refinements = crate::analysis::refinement::RefinementSet::empty(refinements.len());
     entry.recovered |= refinements.is_recovered();
@@ -245,7 +245,7 @@ where
     )
     .with_cleanup_entries(collector.exits.into_entries())
     .with_cleanup_remainders(collector.cleanup_remainders)
-    .with_entry_addresses(entry_addresses)
+    .with_entry_observations(entry_observations)
     .with_input_observation_scopes(scopes)
     .with_deferred_calls(collector.deferred_calls)
     .with_call_admissions(collector.value_captures, collector.value_transitions)

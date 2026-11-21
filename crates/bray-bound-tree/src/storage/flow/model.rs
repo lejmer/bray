@@ -462,7 +462,7 @@ pub struct StorageFlow {
     reachable_blocks: Arc<[BoundBlockId]>,
     conditions: std::collections::BTreeMap<BoundExpressionId, bool>,
     proven_preconditions: Arc<[crate::BoundExecutionSite]>,
-    entry_addresses: std::collections::BTreeMap<crate::StoragePath, crate::StorageObservedTarget>,
+    entry_observations: Arc<[crate::StorageObservedTarget]>,
     state_targets: std::collections::BTreeMap<(StorageStateTarget, AnalysisOperationId), super::capture::OperationOutcomes<Option<crate::StorageTarget>>>,
     pub(super) capture_retirements: std::collections::BTreeMap<(crate::StorageMutation, crate::StorageValueBoundary), Arc<[(crate::StorageTarget, crate::StorageValueRetirement)]>>,
     pub(super) operation_retirements: std::collections::BTreeMap<(AnalysisOperationId, crate::StorageValueBoundary), super::capture::OperationOutcomes<Vec<(crate::StorageTarget, crate::StorageValueRetirement)>>>,
@@ -599,7 +599,7 @@ impl StorageFlow {
             reachable_blocks,
             conditions: Default::default(),
             proven_preconditions: Arc::from([]),
-            entry_addresses: Default::default(),
+            entry_observations: Arc::from([]),
             excluded_edges: Arc::from([]),
             failing_cleanup: Arc::from([]),
             exits: shared_slice(exits),
@@ -999,17 +999,17 @@ impl StorageFlow {
         reached.all(|value| value == Some(target)).then_some(target)
     }
 
-    /// Returns the reached incoming targets that support raw-address contracts.
-    pub fn entry_addresses(&self) -> &std::collections::BTreeMap<crate::StoragePath, crate::StorageObservedTarget> {
-        &self.entry_addresses
+    /// Returns the checked incoming references used to seed proof observations.
+    pub fn entry_observations(&self) -> &[crate::StorageObservedTarget] {
+        &self.entry_observations
     }
 
-    /// Keeps the incoming targets that support raw-address contracts during certification.
-    pub fn with_entry_addresses(mut self, addresses: std::collections::BTreeMap<crate::StoragePath, crate::StorageObservedTarget>) -> Self {
-        assert!(addresses.iter().all(|(path, reached)| path.is_valid_for(self.unit) && reached.target.is_valid_for(self.unit)),
-            "entry address support belongs to the checked body");
+    /// Publishes the same checked incoming references for storage and certification.
+    pub fn with_entry_observations(mut self, observations: Vec<crate::StorageObservedTarget>) -> Self {
+        assert!(observations.iter().all(|reached| reached.target.is_valid_for(self.unit)),
+            "entry reference observations belong to the checked body");
 
-        self.entry_addresses = addresses;
+        self.entry_observations = observations.into();
 
         self
     }

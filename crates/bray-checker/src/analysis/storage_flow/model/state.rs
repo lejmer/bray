@@ -452,20 +452,6 @@ impl StorageFlowState {
         }
     }
 
-    pub(in crate::analysis::storage_flow) fn entry_addresses(&self)
-        -> BTreeMap<bray_bound_tree::StoragePath, bray_bound_tree::StorageObservedTarget>
-    {
-        self.memory.typed_storage().filter_map(|(target, pointee)| {
-            let bray_bound_tree::StorageOrigin::Entry {
-                reference, kind: bray_symbols::DependencyReferenceKind::Address, ..
-            } = &target.origin else { return None; };
-
-            Some((reference.clone(), bray_bound_tree::StorageObservedTarget {
-                target: target.clone(), pointee: Some(pointee),
-            }))
-        }).collect()
-    }
-
     pub(in crate::analysis::storage_flow) fn merge<'join>(
         &mut self,
         incoming: &Self,

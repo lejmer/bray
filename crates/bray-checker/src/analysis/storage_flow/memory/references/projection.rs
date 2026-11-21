@@ -605,6 +605,38 @@ impl State {
             .filter_map(|(target, contents)| contents.storage_type.map(|ty| (target, ty)))
     }
 
+    pub(in crate::analysis::storage_flow) fn entry_observations(&self, raw_addresses: bool)
+        -> Vec<bray_bound_tree::StorageObservedTarget>
+    {
+        use bray_symbols::DependencyReferenceKind::{Address, Borrow};
+
+        let addresses = raw_addresses.then(|| self.typed_storage()).into_iter().flatten()
+            .filter(|(target, _)| matches!(target.origin, Origin::Entry { kind: Address, .. }));
+
+        let loans = self.values.iter().filter_map(|(slot, binding)| {
+            let path = slot.storage_path()?;
+
+            if path.projections.is_empty() || !path.is_exact() || !path.is_inline()
+                || path.projections.iter().any(|projection| matches!(projection,
+                    StorageProjection::NullableValue | StorageProjection::ActiveUnionPayloadField { .. })) {
+                return None;
+            }
+
+            let target = binding.reference()?.single_location()?;
+            let Origin::Entry { reference, layer: 1, kind: Borrow, projections } = &target.origin else { return None; };
+
+            if reference != path || !projections.is_empty() { return None; }
+
+            let pointee = self.contents.get(target)?.storage_type?;
+
+            Some((target, pointee))
+        });
+
+        addresses.chain(loans).map(|(target, pointee)| bray_bound_tree::StorageObservedTarget {
+            target: target.clone(), pointee: Some(pointee),
+        }).collect()
+    }
+
     pub(in crate::analysis::storage_flow) fn projected_type<C: crate::CheckerRequestContext + ?Sized>(
         &self,
         request: crate::CheckerUnitView<'_, C>,

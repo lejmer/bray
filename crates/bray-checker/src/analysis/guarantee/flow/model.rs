@@ -456,7 +456,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     }
 
     pub(in crate::analysis) fn entry_state(&self,
-        entry_addresses: &BTreeMap<bray_bound_tree::StoragePath, bray_bound_tree::StorageObservedTarget>,
+        entry_observations: &[bray_bound_tree::StorageObservedTarget],
     ) -> Option<ExecutionState> {
         let mut state = ExecutionState {
             proofs: std::sync::Arc::clone(&self.proofs),
@@ -480,11 +480,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 state.current.observe_input(place);
 
                 if self.observed_types[place].is_some_and(|ty|
-                    matches!(self.request.semantic_values().type_data(ty).as_ref(), bray_symbols::TypeData::Borrow { .. }))
+                    crate::representation::borrow_target_type(self.request.semantic_values(), ty).is_some())
                 {
                     // The entry value records its loan role before any capture.
                     // Its referent retains the same formal data used by entry facts.
-                    state.current.insert(place.clone(), ExecutionCondition::reference_value(input.clone().borrowed(), input.clone()));
+                    state.current.insert(place.clone(), input.clone().borrowed());
                 }
 
                 // Only the formal value owns storage at entry. Observations of
@@ -526,6 +526,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 }
             }
         }
+
+        let reached_addresses = self.seed_entry_observations(&mut state, entry_observations);
 
         for (identity, storage) in self.storage.identity_entries() {
             if crate::ExecutionPlace::tracks_local_storage(&storage) {
@@ -616,15 +618,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 condition.clone().assume(true, &mut state.assumptions);
             }
 
-            let reached_addresses = entry_addresses.iter().filter_map(|(path, reached)| {
-                let descriptor = crate::ExecutionPlace::storage_path(self.storage, path)?;
-
-                let target = crate::ExecutionPlace::pointee(self.storage, &reached.target,
-                    reached.pointee.expect("entry address support retains its pointee type"));
-
-                Some((descriptor, target))
-            }).collect::<BTreeMap<_, _>>();
-
             let values = self.request.semantic_values();
 
             let normalize = |condition: &ExecutionCondition, state: &ExecutionState| {
@@ -674,6 +667,45 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }
 
         Some(state)
+    }
+
+    fn seed_entry_observations(
+        &self,
+        state: &mut ExecutionState,
+        observations: &[bray_bound_tree::StorageObservedTarget],
+    ) -> BTreeMap<crate::ExecutionPlace, crate::ExecutionPlace> {
+        use crate::ExecutionPlace;
+        use bray_symbols::DependencyReferenceKind;
+
+        let mut addresses = BTreeMap::new();
+
+        for reached in observations {
+            let bray_bound_tree::StorageOrigin::Entry { reference, kind, .. } = &reached.target.origin else {
+                unreachable!("entry proof observations retain their checked input origin");
+            };
+
+            let Some(place) = ExecutionPlace::storage_path(self.storage, reference) else { continue; };
+
+            match kind {
+                DependencyReferenceKind::Borrow if place.is_callable_input() => {
+                    // An enclosing formal can move without a direct read of this slot.
+                    // Publish the checked loan on that formal before either path uses it.
+                    state.current.observe_input(&place);
+
+                    let input = ExecutionCondition::new(crate::ExecutionConditionKind::Input(place.clone()));
+
+                    state.current.insert(place, input.borrowed());
+                }
+                DependencyReferenceKind::Address => {
+                    let ty = reached.pointee.expect("entry address support retains its pointee type");
+
+                    addresses.insert(place, ExecutionPlace::pointee(self.storage, &reached.target, ty));
+                }
+                _ => {}
+            }
+        }
+
+        addresses
     }
 
     fn carry_entry_address_requirements(&self, state: &mut ExecutionState, requirement: &ExecutionCondition,
