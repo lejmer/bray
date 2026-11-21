@@ -180,7 +180,7 @@ impl ExecutionState {
         self.suspend_owned_witnesses(&carriers);
     }
 
-    fn admitted_private_witnesses(
+    pub(super) fn admitted_private_witnesses(
         &self,
         invocation: Option<bray_bound_tree::BoundExecutionSite>,
     ) -> Vec<std::sync::Arc<crate::execution_guarantees::ExecutionWitness>> {
@@ -524,6 +524,17 @@ impl ExecutionState {
             })
             .cloned()
             .collect()
+    }
+
+    /// An admitted contract can establish ordinary facts alongside trusted authority.
+    pub(super) fn assume_contract_condition(&mut self, condition: ExecutionCondition) {
+        condition.assume_proof(true, false, &mut |condition, holds| {
+            if condition.contains_trusted() {
+                condition.assume(holds, &mut self.trusted_assumptions);
+            } else {
+                self.assumptions.insert((condition, holds));
+            }
+        });
     }
 
     pub(super) fn carry_guarantee(
@@ -1170,6 +1181,7 @@ mod tests {
             [ExecutionCondition::boolean(true)],
             &BTreeSet::new(),
             &crate::execution_guarantees::ObservationSet::default(),
+            None,
         );
 
         assert!(!state.trusted_assumptions.contains(&(observed, true)));
@@ -1216,7 +1228,7 @@ mod tests {
         assert!(!retained.preserves(&guard));
         retained.insert_classified(snapshot, bray_bound_tree::StorageObservationKind::Discriminant);
         assert_eq!(retained.preserves(&guard), preserved, "owner identity alone cannot preserve a different tag");
-        state.invalidate_contents(&BTreeSet::new(), [owner.clone()], &BTreeSet::new(), &retained);
+        state.invalidate_contents(&BTreeSet::new(), [owner.clone()], &BTreeSet::new(), &retained, None);
         if preserved { assert!(state.assumptions.contains(&(guard.clone(), true))); }
 
         assert_eq!(current_guard.prove_trusted(&state.trusted_assumptions, &state.assumptions) == Some(true), preserved,
@@ -1436,7 +1448,7 @@ mod tests {
                 let mut changed = state.clone();
 
                 changed.invalidate_referents(&[input(2)], &BTreeSet::new(), &BTreeSet::new(),
-                    &BTreeSet::new(), &Default::default());
+                    &BTreeSet::new(), &Default::default(), None);
 
                 let after_write = changed.entries[&pending].clone();
 
@@ -1757,6 +1769,7 @@ mod tests {
             &BTreeSet::new(),
             &BTreeSet::new(),
             &stable_values,
+            None,
         );
 
         assert!(state.trusted_assumptions.contains(&(ownership.clone(), true)));
@@ -1765,7 +1778,7 @@ mod tests {
         assert!(!state.witnesses[&carrier].conditions.contains_key(&access));
 
         state.invalidate_contents(&BTreeSet::new(), [carrier], &BTreeSet::new(),
-                &Default::default());
+                &Default::default(), None);
 
         assert!(!state.trusted_assumptions.contains(&(ownership, true)));
         }
@@ -2091,6 +2104,7 @@ mod tests {
             [carrier.clone()],
             &BTreeSet::new(),
                 &[marker].into_iter().collect(),
+            None,
         );
 
         assert_eq!(
@@ -2146,6 +2160,7 @@ mod tests {
             [input(0)],
             &stable,
                 &Default::default(),
+            None,
         );
 
         assert_eq!(
@@ -2175,7 +2190,7 @@ mod tests {
         state.carry_guarantee(external.clone(), spatial.clone());
 
         state.invalidate_contents(&BTreeSet::new(), [external], &stable,
-                &Default::default());
+                &Default::default(), None);
 
         assert!(state.trusted_assumptions.is_empty());
 
@@ -2192,7 +2207,7 @@ mod tests {
         overwritten.trusted_assumptions.insert((spatial, true));
 
         overwritten.invalidate_contents(&BTreeSet::new(), [carrier], &stable,
-                &Default::default());
+                &Default::default(), None);
 
         assert!(overwritten.trusted_assumptions.is_empty());
     }
@@ -2233,6 +2248,7 @@ mod tests {
             [input(0)],
             &BTreeSet::from([symbol.into()]),
                 &Default::default(),
+            None,
         );
 
         assert_eq!(state.trusted_assumptions, ExecutionAssumptions::from([(spatial, true)]));
@@ -2358,6 +2374,7 @@ mod tests {
                     [input(1), input(256)],
                     &BTreeSet::new(),
                 &Default::default(),
+                    None,
                 );
 
                 assert!(state.trusted_assumptions.contains(&(input(2), true)));

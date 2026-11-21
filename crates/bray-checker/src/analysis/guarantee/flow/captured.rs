@@ -479,7 +479,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             if let Some(before) = dispatch_before {
                 let reached = capture.referent.as_ref().and_then(|(ty, _)| {
-                    self.current_target_value(state, capture.value.known_address()?, Some(*ty))
+                    self.current_captured_target_value(state, capture.value.known_address()?, *ty, capture.value.enclosing_view(*ty))
                 });
 
                 let after = value.clone().into_referent();
@@ -521,10 +521,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         &self, state: &ExecutionState, value: ExecutionCondition, capture: &bray_bound_tree::StorageValueCapture,
     ) -> ExecutionCondition {
         let value = if let Some((ty, snapshot)) = &capture.referent {
-            let reached = capture.value.known_address().and_then(|target| self.current_target_value(state, target, Some(*ty)))
-                .or_else(|| value.current_referent().cloned())
+            let reached = capture.value.known_address().and_then(|target| {
+                self.current_captured_target_value(state, target, *ty, capture.value.enclosing_view(*ty))
+            }).or_else(|| value.current_referent().cloned())
                 .unwrap_or_else(|| value.clone().into_referent());
-            let reached = reached.captured_value(snapshot.clone());
+            let reached = reached.captured_value(std::sync::Arc::clone(snapshot));
 
             if value.is_reference() {
                 value.with_referent(reached)
@@ -982,7 +983,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             let Some(storage) = descriptor.inline_captured_storage() else { continue; };
 
-            let reached = storage.known_address().and_then(|target| self.current_target_value(state, target, Some(ty)));
+            let reached = storage.known_address().and_then(|target| {
+                self.current_captured_target_value(state, target, ty, storage.enclosing_view(ty))
+            });
 
             let reached = match (reached, completed) {
                 (Some(reached), _) => reached,

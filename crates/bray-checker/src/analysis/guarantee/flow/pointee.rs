@@ -54,6 +54,29 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         } else { value })
     }
 
+    pub(super) fn current_captured_target_value(
+        &self,
+        state: &ExecutionState,
+        target: &StorageTarget,
+        ty: TypeId,
+        enclosing: Option<&bray_bound_tree::StorageObservedTarget>,
+    ) -> Option<ExecutionCondition> {
+        self.current_target_value(state, target, Some(ty)).or_else(|| {
+            let enclosing = enclosing?;
+
+            if !enclosing.target.contains_storage(target)
+                || state.current.get(&ExecutionPlace::pointee(self.storage, target, ty)).is_some()
+            {
+                return None;
+            }
+
+            let owner = ExecutionPlace::pointee(self.storage, &enclosing.target, enclosing.pointee?);
+            let path = &target.projections()[enclosing.target.projections().len()..];
+
+            state.current.live_value(&owner.project(path)?)
+        })
+    }
+
     /// Binds a produced result's reference fields to the reached post-state.
     pub(in crate::analysis::guarantee) fn complete_returned_references(
         &self,
@@ -83,7 +106,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             let ty = observation.pointee.expect("a completed reference retains its checked pointee type");
             let projections = &place.projections[output.projections.len()..];
             let reference = projections.iter().fold(result.clone(), |value, projection| value.component(*projection));
-            let reached = self.current_target_value(state, target, Some(ty))
+            let enclosing = reference.inline_captured_storage().filter(|storage| storage.known_address() == Some(target))
+                .and_then(|storage| storage.enclosing_view(ty));
+            let reached = self.current_captured_target_value(state, target, ty, enclosing)
                 .or_else(|| self.publish_returned_pointee(state, target, ty, &reference));
 
             if let Some(reached) = reached {

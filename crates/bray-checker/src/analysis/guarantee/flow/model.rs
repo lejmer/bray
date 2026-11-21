@@ -624,8 +624,15 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 Some((descriptor, target))
             }).collect::<BTreeMap<_, _>>();
 
+            let values = self.request.semantic_values();
+            let normalize = |condition: &ExecutionCondition, state: &ExecutionState| {
+                condition.with_reference_origins(values, self.dependencies, &state.assumptions)
+                    .pointer_observations(&self.pointer_predicates)
+            };
+            let mut admitted = Vec::with_capacity(contracts.requirements.len());
+
             for condition in &contracts.requirements {
-                let condition = condition.pointer_observations(&self.pointer_predicates);
+                let condition = normalize(condition, &state);
 
                 if condition.prove_trusted(&state.trusted_assumptions, &state.assumptions)
                     == Some(false)
@@ -637,17 +644,22 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     self.carry_entry_address_requirements(&mut state, &condition, &reached_addresses);
                 }
 
-                condition.assume(true, &mut state.trusted_assumptions);
+                state.assume_contract_condition(condition.clone());
+                admitted.push(condition);
             }
 
             for (condition, subject, containing_value) in &contracts.required_witnesses {
-                for subject in subject.carrier_inputs(self.request.semantic_values(), self.dependencies, *containing_value) {
+                let witness = normalize(condition, &state);
+                let subject = subject.with_reference_origins(values, self.dependencies, &state.assumptions);
+                let carriers = subject.carrier_inputs(values, self.dependencies, *containing_value);
+
+                for subject in carriers {
                     state.current.observe_input(&subject);
-                    state.carry_guarantee(ExecutionCondition::new(crate::ExecutionConditionKind::Input(subject)), condition.pointer_observations(&self.pointer_predicates));
+                    state.carry_guarantee(ExecutionCondition::new(crate::ExecutionConditionKind::Input(subject)), witness.clone());
                 }
             }
 
-            for (condition, owner) in self.allocation_subjects(&contracts.requirements) {
+            for (condition, owner) in self.allocation_subjects(&admitted) {
                 let owner = ExecutionCondition::new(crate::ExecutionConditionKind::Input(owner));
 
                 state

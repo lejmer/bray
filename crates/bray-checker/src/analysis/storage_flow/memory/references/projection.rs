@@ -547,6 +547,56 @@ impl State {
         self.contents.get(target)?.storage_type
     }
 
+    pub(in crate::analysis::storage_flow) fn enclosing_typed_view<C: crate::CheckerRequestContext + ?Sized>(
+        &self,
+        request: crate::CheckerUnitView<'_, C>,
+        target: &Target,
+        ty: TypeId,
+    ) -> crate::CheckerQueryResult<Option<bray_bound_tree::StorageObservedTarget>, C::UpstreamError> {
+        if target.previous || !target.is_exact() || target.value_observation_path().is_some()
+            || !self.contents.get(target)
+                .is_some_and(|contents| contents.storage_type == Some(ty) && contents.invalidations.is_empty())
+        {
+            return Ok(None);
+        }
+
+        for length in (0..target.projections().len()).rev() {
+            let path = &target.projections()[length..];
+
+            if !bray_bound_tree::StoragePath::inline_projections(path) {
+                break;
+            }
+
+            let ancestor = target.prefix(length);
+            let Some(contents) = self.contents.get(&ancestor) else { continue; };
+            let Some(owner) = contents.storage_type else { continue; };
+
+            if !contents.invalidations.is_empty()
+                || matches!(ancestor.projections().last(), Some(StorageProjection::OwnedTarget | StorageProjection::SliceRange { .. }))
+            {
+                break;
+            }
+
+            let mut projected = owner;
+
+            for projection in path {
+                // An inline view cannot pass through a stored loan descriptor.
+                if request.semantic_values().unborrowed_type(projected) != projected {
+                    return Ok(None);
+                }
+
+                let checked = crate::storage::projected_storage_type(request, projected, *projection)?;
+                let Some(component) = *checked.value() else { return Ok(None); };
+
+                projected = component;
+            }
+
+            return Ok((projected == ty).then(|| bray_bound_tree::StorageObservedTarget::borrowed(ancestor, owner)));
+        }
+
+        Ok(None)
+    }
+
     pub(in crate::analysis::storage_flow) fn typed_storage(&self) -> impl Iterator<Item = (&Target, TypeId)> {
         self.contents.iter().filter(|(target, _)| !target.previous && target.is_exact())
             .filter_map(|(target, contents)| contents.storage_type.map(|ty| (target, ty)))
@@ -605,16 +655,7 @@ impl State {
                 return Ok(None);
             }
 
-            match &mut ancestor.origin {
-                Origin::Entry { projections, .. }
-                | Origin::Returned { projections, .. }
-                | Origin::Static { projections, .. } | Origin::Allocation { projections, .. } => {
-                    *projections = projections[..length - 1].into();
-                }
-                Origin::Storage(path) => {
-                    path.projections = path.projections[..length - 1].into();
-                }
-            }
+            ancestor = target.prefix(length - 1);
         }
     }
 

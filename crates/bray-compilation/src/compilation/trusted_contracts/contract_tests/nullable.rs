@@ -270,6 +270,87 @@ fn mutated_nullable_owners_keep_promised_evidence_through_extraction() {
 }
 
 #[test]
+fn nested_nullable_extraction_preserves_selected_entry_carrier() {
+    let source = r#"
+        trusted module app;
+
+        using std.memory;
+
+        struct Marker
+        {
+        }
+
+        struct Owner
+        {
+            marker: Marker;
+        }
+
+        struct Holder
+        {
+            mut token: Owner?;
+        }
+
+        trusted predicate acquired(owner: &Marker);
+
+        const func present_owner(pos token: &(Owner?)) -> &Owner
+            requires(token matches ?_)
+            executes(pure, total)
+        {
+            return match token
+            {
+                case ?value { yield &value; }
+                case none { panic("missing owner"); }
+            };
+        }
+
+        predicate ready(owner: &Holder) = owner.token matches ?_ &&
+            acquired(owner = &present_owner(&owner.token).marker);
+
+        func consume_owner(pos owner: Owner)
+            requires(trusted acquired(owner = &owner.marker)) {}
+
+        trusted func owned_slot(pos holder: &mut Holder)
+            requires(trusted ready(owner = &holder))
+        {
+            let outgoing = trusted std.memory.take_nullable<Owner>(&mut holder.token);
+
+            match consume outgoing
+            {
+                case ?value { consume_owner(value); }
+                case none {}
+            }
+        }
+
+        trusted func unrelated_slot(pos holder: &mut Holder, pos other: &mut Holder)
+            requires(trusted ready(owner = &holder))
+        {
+            let outgoing = trusted std.memory.take_nullable<Owner>(&mut other.token);
+
+            match consume outgoing
+            {
+                case ?value { consume_owner(value); }
+                case none {}
+            }
+        }
+    "#;
+
+    let application = crate::test_support::production_standard_library_compilation(
+        crate::SelectedTarget::baseline(), source,
+    );
+
+    let checked = |name| application.lowered_unit(source_function_body_key(&application, name))
+        .expect("nullable extraction reaches lowering");
+    let owned = checked("owned_slot");
+
+    assert!(!owned.diagnostics().has_errors(), "{:#?}", owned.diagnostics());
+    assert!(owned.value().is_some(), "the actual selected owner lowers");
+    bray_testing::assert_goal_state_diagnostic_kind(
+        checked("unrelated_slot").diagnostics(),
+        DiagnosticKind::CheckingTrustedObligationNotProven,
+    );
+}
+
+#[test]
 fn nested_nullable_absence_does_not_satisfy_outer_absence() {
     for (value, valid) in [("none", true), ("inner", false)] {
         let source = format!(

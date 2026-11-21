@@ -195,7 +195,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             eprintln!("admitted completion {invocation:?}: facts={facts:?}");
         }
 
-        assume_guarantees(state, guarantees.conditions.iter().map(instantiate));
+        for condition in &guarantees.conditions {
+            state.assume_contract_condition(instantiate(condition));
+        }
     }
 
     pub(super) fn carry_result_guarantee(
@@ -248,21 +250,5 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 _ => {}
             }
         }
-    }
-}
-
-pub(super) fn assume_guarantees(
-    state: &mut ExecutionState,
-    guarantees: impl Iterator<Item = ExecutionCondition>,
-) {
-    for guarantee in guarantees {
-        guarantee.assume_proof(true, false, &mut |condition, holds| {
-            if condition.contains_trusted() {
-                // An ordinary exit guard has no witness support to revoke.
-                condition.assume(holds, &mut state.trusted_assumptions);
-            } else {
-                state.assumptions.insert((condition, holds));
-            }
-        });
     }
 }

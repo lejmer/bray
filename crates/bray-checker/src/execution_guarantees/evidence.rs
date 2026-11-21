@@ -87,7 +87,7 @@ impl ExecutionCallEvidence {
     /// Whether reusing an evaluation can change this reached admission.
     pub(crate) fn observes_retiring_evaluation(&self, stale: &impl Fn(&Condition) -> bool) -> bool {
         (self.pending_execution && self.assumptions.iter().chain(&self.trusted_assumptions).any(|(condition, _)| stale(condition)))
-            || self.witness_support_revoked(&|owner, _| stale(owner), &|condition, support| {
+            || self.witness_support_revoked(&|owner, _| stale(owner), &|condition, support, _| {
                 stale(condition) || support.addresses.keys().any(stale)
             })
             || self.arguments.values().chain(self.outputs.conditions()).chain(self.extracted_values.values()).any(stale)
@@ -99,7 +99,7 @@ impl ExecutionCallEvidence {
         mutation: bray_bound_tree::StorageMutation,
         stale: &impl Fn(&Condition) -> bool,
     ) {
-        self.revoke_witness_support(&|owner, _| stale(owner), &|condition, support| {
+        self.revoke_witness_support(&|owner, _| stale(owner), &|condition, support, _| {
             stale(condition) || support.addresses.keys().any(stale)
         });
 
@@ -123,30 +123,36 @@ impl ExecutionCallEvidence {
     pub(crate) fn witness_support_revoked(
         &self,
         owner_revoked: &impl Fn(&Condition, &super::ExecutionWitness) -> bool,
-        clause_revoked: &impl Fn(&Condition, &super::ExecutionGuarantee) -> bool,
+        clause_revoked: &impl Fn(&Condition, &super::ExecutionGuarantee, *const super::ExecutionWitness) -> bool,
     ) -> bool {
         self.witness_inputs.iter().any(|(owner, witness)| {
             owner_revoked(owner, witness)
-                || witness.conditions.iter().any(|(condition, support)| clause_revoked(condition, support))
-        }) || self.witness_allocations.keys().any(|condition| clause_revoked(condition, &Default::default()))
+                || witness.conditions.iter().any(|(condition, support)| clause_revoked(condition, support, Arc::as_ptr(witness)))
+        }) || self.witness_allocations.iter().any(|(condition, owner)| {
+            self.witness_inputs.get(owner).is_none_or(|witness| clause_revoked(condition, &Default::default(), Arc::as_ptr(witness)))
+        })
     }
 
     pub(crate) fn revoke_witness_support(
         &mut self,
         owner_revoked: &impl Fn(&Condition, &super::ExecutionWitness) -> bool,
-        clause_revoked: &impl Fn(&Condition, &super::ExecutionGuarantee) -> bool,
+        clause_revoked: &impl Fn(&Condition, &super::ExecutionGuarantee, *const super::ExecutionWitness) -> bool,
     ) {
+        self.witness_allocations.retain(|condition, owner| {
+            self.witness_inputs.get(owner).is_some_and(|witness| !clause_revoked(condition, &Default::default(), Arc::as_ptr(witness)))
+        });
+
         self.witness_inputs.retain(|owner, witness| {
             if owner_revoked(owner, witness) { return false; }
 
-            witness.retain_conditions(|condition, support| !clause_revoked(condition, support));
+            let identity = Arc::as_ptr(witness);
+
+            witness.retain_conditions(|condition, support| !clause_revoked(condition, support, identity));
 
             !witness.conditions.is_empty() || !witness.dependencies.is_empty()
         });
 
-        self.witness_allocations.retain(|condition, owner| {
-            self.witness_inputs.contains_key(owner) && !clause_revoked(condition, &Default::default())
-        });
+        self.witness_allocations.retain(|_, owner| self.witness_inputs.contains_key(owner));
     }
 
     pub(crate) fn select_failure_rows<Report, Write>(

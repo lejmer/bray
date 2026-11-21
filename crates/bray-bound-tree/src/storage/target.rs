@@ -515,6 +515,21 @@ impl StorageTarget {
             && StorageProjection::remains_in_allocation(&other.projections()[self.projections().len()..])
     }
 
+    /// The same origin and epoch at an enclosing projection prefix.
+    pub fn prefix(&self, length: usize) -> Self {
+        let mut prefix = self.clone();
+
+        match &mut prefix.origin {
+            StorageOrigin::Storage(path) => path.projections = path.projections[..length].into(),
+            StorageOrigin::Entry { projections, .. } | StorageOrigin::Returned { projections, .. }
+            | StorageOrigin::Allocation { projections, .. } | StorageOrigin::Static { projections, .. } => {
+                *projections = projections[..length].into();
+            }
+        }
+
+        prefix
+    }
+
     /// Derives components while preserving the original reference identity and epoch.
     pub fn project(&self, projections: &[StorageProjection]) -> Self {
         let append =

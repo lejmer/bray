@@ -543,6 +543,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let admitted = mutation.invocation();
         let moved = self.extracted_input_snapshots(state, mutation);
+        let extraction = admitted.map(|site| (site, &moved));
 
         if matches!(invalidation, StorageInvalidation::All { .. }) {
             self.invalidate_all_observations(state, mutation, invalidation, &moved);
@@ -631,6 +632,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     if content_only { &self.content_predicates } else { &unstable },
                     &preserved,
                     stable_values,
+                    extraction,
                 );
             }
         }
@@ -718,6 +720,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 invalidated_values,
                 if content_only { &self.content_predicates } else { &no_predicates },
                 stable_values,
+                extraction,
             );
         }
 

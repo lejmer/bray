@@ -1,25 +1,11 @@
 use std::collections::BTreeMap;
-use crate::{StorageOrigin as Origin, StorageProjection, StorageTarget as Target};
+use crate::{StorageProjection, StorageTarget as Target};
 
 /// The exact prefix before the first dynamic selector, retaining origin and epoch.
 pub fn storage_selector_parent(target: &Target) -> Option<Target> {
     let length = target.projections().iter().position(|projection| !projection.is_exact())?;
 
-    Some(target_prefix(target, length))
-}
-
-fn target_prefix(target: &Target, length: usize) -> Target {
-    let mut prefix = target.clone();
-
-    match &mut prefix.origin {
-        Origin::Storage(path) => path.projections = path.projections[..length].into(),
-        Origin::Entry { projections, .. } | Origin::Returned { projections, .. }
-        | Origin::Allocation { projections, .. } | Origin::Static { projections, .. } => {
-            *projections = projections[..length].into();
-        }
-    }
-
-    prefix
+    Some(target.prefix(length))
 }
 
 pub fn storage_value_subtree<'a, V>(
@@ -39,7 +25,7 @@ pub fn selected_storage_values<'a, V>(
 
     let prefix = source.projections().iter().position(|projection| {
         !projection.is_exact() || matches!(projection, StorageProjection::ElementFromStart(_) | StorageProjection::ElementFromEnd(_))
-    }).map_or_else(|| source.clone(), |length| target_prefix(source, length));
+    }).map_or_else(|| source.clone(), |length| source.prefix(length));
 
     let widened = prefix != *source;
     let limit = prefix.clone();
@@ -59,7 +45,7 @@ pub fn selected_storage_values<'a, V>(
                 return true;
             }
 
-            target_prefix(slot, prefix.projections().len()) == prefix
+            slot.prefix(prefix.projections().len()) == prefix
                 && StorageProjection::relationship(
                     source.projections(), &slot.projections()[..length],
                 ) != crate::StorageRelationship::Disjoint

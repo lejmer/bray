@@ -55,6 +55,7 @@ impl ExecutionState {
             Some(retained.into()),
             &BTreeSet::new(),
             (bray_symbols::DependencyMutationKind::Retire, &BTreeSet::new()),
+            None,
         );
     }
 
@@ -65,6 +66,7 @@ impl ExecutionState {
         retained_snapshots: Option<RetainedSnapshots>,
         stable_predicates: &BTreeSet<bray_symbols::PredicateDefinitionSymbolId>,
         effect: (bray_symbols::DependencyMutationKind, &BTreeSet<crate::ExecutionPlace>),
+        extraction: Option<(bray_bound_tree::BoundExecutionSite, &RetainedSnapshots)>,
     ) {
         let (kind, places) = effect;
 
@@ -271,7 +273,7 @@ impl ExecutionState {
         });
 
         self.retire_entry_context(&|condition| revokes(condition, &queries(condition)),
-            &retired_conditions, &|owner, _| retired_owner(owner) && !retained_owner(owner));
+            &retired_conditions, &|owner, _| retired_owner(owner) && !retained_owner(owner), extraction);
 
         // Another iteration can already own a different frame from this evaluation
         // site. Retire the actual inactive frame whose owner the change reached.
@@ -413,23 +415,47 @@ impl ExecutionState {
         (dependents, input_dependents)
     }
 
-    pub(super) fn retire_entry_context(
+    fn retire_entry_context(
         &mut self,
         revokes: &impl Fn(&ExecutionCondition) -> bool,
         retired: &BTreeSet<(ExecutionCondition, bool)>,
         owner_revoked: &impl Fn(&ExecutionCondition, &crate::execution_guarantees::ExecutionWitness) -> bool,
+        extraction: Option<(bray_bound_tree::BoundExecutionSite, &RetainedSnapshots)>,
     ) {
-        let clause_revoked = |condition: &ExecutionCondition, support: &crate::execution_guarantees::ExecutionGuarantee| {
-            revokes(condition) || support.addresses.keys().any(revokes)
+        let private = extraction.filter(|(_, moved)| !moved.is_empty())
+            .map_or_else(Vec::new, |(site, _)| self.admitted_private_witnesses(Some(site)));
+        let is_private = |identity| private.iter().any(|witness| Arc::as_ptr(witness) == identity);
+        let retained = memoize_condition(|condition| extraction.is_some_and(|(_, moved)| condition.observes_only(|value| {
+            matches!(value.kind(), crate::ExecutionConditionKind::Borrowed(observed)
+                if moved.retains_inline_contents(observed))
+        })));
+        let clause_revoked = |pending, condition: &ExecutionCondition, support: &crate::execution_guarantees::ExecutionGuarantee, identity| {
+            support.addresses.keys().any(revokes)
+                || revokes(condition) && (pending || !support.addresses.is_empty()
+                    || !is_private(identity) || !retained(condition))
+        };
+        let owner_revoked = |pending, owner: &ExecutionCondition, witness: &crate::execution_guarantees::ExecutionWitness| {
+            owner_revoked(owner, witness) && (pending || !is_private(std::ptr::from_ref(witness))
+                || !extraction.is_some_and(|(_, moved)| moved.retains_owner(owner)))
         };
 
         let facts_revoked = |entry: &crate::ExecutionCallEvidence| entry.pending_execution && entry.assumptions
             .iter().chain(&entry.trusted_assumptions).any(|fact| revokes(&fact.0) || retired.contains(fact));
 
         self.update_entry_snapshots(|entry| {
-            (facts_revoked(entry) || entry.witness_support_revoked(owner_revoked, &clause_revoked)).then_some(())
+            let pending = entry.pending_execution;
+
+            (facts_revoked(entry) || entry.witness_support_revoked(
+                &|owner, witness| owner_revoked(pending, owner, witness),
+                &|condition, support, identity| clause_revoked(pending, condition, support, identity),
+            )).then_some(())
         }, |entry, ()| {
-            entry.revoke_witness_support(owner_revoked, &clause_revoked);
+            let pending = entry.pending_execution;
+
+            entry.revoke_witness_support(
+                &|owner, witness| owner_revoked(pending, owner, witness),
+                &|condition, support, identity| clause_revoked(pending, condition, support, identity),
+            );
 
             if entry.pending_execution {
                 entry.assumptions.retain(|fact| !revokes(&fact.0) && !retired.contains(fact));
@@ -445,6 +471,7 @@ impl ExecutionState {
         stable_predicates: &BTreeSet<bray_symbols::PredicateDefinitionSymbolId>,
         preserved: &BTreeSet<ExecutionCondition>,
         stable_values: &crate::execution_guarantees::ObservationSet,
+        extraction: Option<(bray_bound_tree::BoundExecutionSite, &RetainedSnapshots)>,
     ) {
         if values.is_empty() {
             return;
@@ -500,7 +527,7 @@ impl ExecutionState {
         self.allocation_owners
             .retain(|condition, _| !revokes_observation(condition));
 
-        self.retire_entry_context(&revokes_observation, &BTreeSet::new(), &|_, _| false);
+        self.retire_entry_context(&revokes_observation, &BTreeSet::new(), &|_, _| false, extraction);
     }
 
     pub(super) fn invalidate_contents(
@@ -509,6 +536,7 @@ impl ExecutionState {
         values: impl IntoIterator<Item = ExecutionCondition>,
         stable_predicates: &BTreeSet<bray_symbols::PredicateDefinitionSymbolId>,
         stable_values: &crate::execution_guarantees::ObservationSet,
+        extraction: Option<(bray_bound_tree::BoundExecutionSite, &RetainedSnapshots)>,
     ) {
         // Writes revoke observed contents. A live carrier's lifetime dependencies
         // are retired only when the physical owner or capability ends.
@@ -518,6 +546,7 @@ impl ExecutionState {
             None,
             stable_predicates,
             (bray_symbols::DependencyMutationKind::Write, places),
+            extraction,
         );
     }
 
@@ -588,7 +617,7 @@ impl ExecutionState {
             witness.dependencies.iter().any(expired)
         };
 
-        let clause_revoked = |_: &ExecutionCondition, guarantee: &crate::execution_guarantees::ExecutionGuarantee| {
+        let clause_revoked = |_: &ExecutionCondition, guarantee: &crate::execution_guarantees::ExecutionGuarantee, _| {
             address_support_expired(guarantee)
         };
 
@@ -786,7 +815,7 @@ mod tests {
 
         field_claim.clone().assume(true, &mut state.trusted_assumptions);
         sibling_claim.clone().assume(true, &mut state.trusted_assumptions);
-        state.invalidate_contents(&[place.clone().component(field)].into(), [], &Default::default(), &Default::default());
+        state.invalidate_contents(&[place.clone().component(field)].into(), [], &Default::default(), &Default::default(), None);
 
         assert_ne!(field_claim.prove_trusted(&state.trusted_assumptions, &state.assumptions), Some(true));
         assert_eq!(sibling_claim.prove_trusted(&state.trusted_assumptions, &state.assumptions), Some(true));
@@ -794,7 +823,7 @@ mod tests {
         let mut retained_data = crate::execution_guarantees::ObservationSet::default();
 
         retained_data.preserve_copied_data([selector.clone()]);
-        state.invalidate_contents(&[place].into(), [], &Default::default(), &retained_data);
+        state.invalidate_contents(&[place].into(), [], &Default::default(), &retained_data, None);
 
         let value = state.current.live_value(&ExecutionPlace::argument(SymbolOrdinal::new(2))).unwrap();
         let frame = value.deferred_value().unwrap();

@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use super::super::flow::ExecutionFlowDomain;
 use super::super::state::ExecutionState;
-use super::guarantees::{CompletionGuarantees, assume_guarantees};
+use super::guarantees::CompletionGuarantees;
 use crate::execution_guarantees::ExecutionOutput;
 use crate::{CheckerRequestContext, ExecutionCondition};
 
@@ -393,7 +393,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             installed.insert(condition);
         }
 
-        assume_guarantees(state, installed.iter().cloned());
+        for condition in &installed {
+            state.assume_contract_condition(condition.clone());
+        }
 
         installed
     }

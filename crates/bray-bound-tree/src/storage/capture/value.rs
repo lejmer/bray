@@ -10,18 +10,21 @@ pub struct StorageCapturedValue {
     root: Target,
     state: std::sync::Arc<StorageCapturedTransition>,
     state_hash: u64,
+    enclosing_view: Option<(bray_symbols::TypeId, std::sync::Arc<crate::StorageObservedTarget>)>,
 }
 
 impl Hash for StorageCapturedValue {
     fn hash<H: Hasher>(&self, hasher: &mut H) {
         self.root.hash(hasher);
         self.state_hash.hash(hasher);
+        self.enclosing_view.hash(hasher);
     }
 }
 
 impl PartialEq for StorageCapturedValue {
     fn eq(&self, other: &Self) -> bool {
         self.root == other.root && self.state_hash == other.state_hash && self.state == other.state
+            && self.enclosing_view == other.enclosing_view
     }
 }
 
@@ -30,7 +33,7 @@ impl StorageCapturedValue {
     pub fn new(root: Target, state: StorageCapturedTransition) -> Self {
         let state_hash = Self::state_hash(&state);
 
-        Self { root, state: std::sync::Arc::new(state), state_hash }
+        Self { root, state: std::sync::Arc::new(state), state_hash, enclosing_view: None }
     }
 
     /// Selects inline data without reading through a pointer or owning allocation.
@@ -39,6 +42,7 @@ impl StorageCapturedValue {
             root: self.root.project(&[projection]),
             state: std::sync::Arc::clone(&self.state),
             state_hash: self.state_hash,
+            enclosing_view: None,
         }
     }
 
@@ -132,6 +136,18 @@ impl StorageCapturedValue {
         self.binding()?.address.as_ref()?.single_location().filter(|target| target.is_exact())
     }
 
+    /// Records the enclosing inline view established for this actual descriptor.
+    pub fn set_enclosing_view(&mut self, ty: bray_symbols::TypeId, view: Option<crate::StorageObservedTarget>) {
+        self.enclosing_view = view.map(|view| (ty, std::sync::Arc::new(view)));
+    }
+
+    /// The established enclosing cell from which current logical contents can be read.
+    pub fn enclosing_view(&self, ty: bray_symbols::TypeId) -> Option<&crate::StorageObservedTarget> {
+        let (reached, view) = self.enclosing_view.as_ref()?;
+
+        (*reached == ty).then_some(view.as_ref())
+    }
+
     /// Mutation operands of the evaluated descriptor, including independent conservative bounds.
     pub fn mutation_targets(&self) -> Option<Vec<crate::StorageMutationTarget>> {
         self.binding()?.mutation_targets()
@@ -210,7 +226,13 @@ impl StorageCapturedValue {
 
         state.merge(&incoming.materialize(&self.root));
 
-        Self::new(self.root.clone(), state)
+        let mut merged = Self::new(self.root.clone(), state);
+
+        if self.enclosing_view == incoming.enclosing_view && merged.known_address().is_some() {
+            merged.enclosing_view.clone_from(&self.enclosing_view);
+        }
+
+        merged
     }
 
     /// Replaces inline physical information at the same component publication as its data.
@@ -220,7 +242,10 @@ impl StorageCapturedValue {
         let destination = self.root.project(path);
 
         // A projection of this snapshot already has the installed physical state.
-        if replacement.is_some_and(|value| value.root == destination && std::sync::Arc::ptr_eq(&value.state, &self.state)) {
+        if replacement.is_some_and(|value| value.root == destination
+            && std::sync::Arc::ptr_eq(&value.state, &self.state)
+            && (!path.is_empty() || self.enclosing_view == value.enclosing_view))
+        {
             return self.clone();
         }
 
@@ -240,7 +265,15 @@ impl StorageCapturedValue {
 
         if let Some(root) = state.values.get_mut(&self.root) { root.completeness.lose_completeness(); }
 
-        Self::new(self.root.clone(), state)
+        let mut updated = Self::new(self.root.clone(), state);
+
+        if !path.is_empty() {
+            updated.enclosing_view.clone_from(&self.enclosing_view);
+        } else if let Some(replacement) = replacement {
+            updated.enclosing_view.clone_from(&replacement.enclosing_view);
+        }
+
+        updated
     }
 
     /// Applies one transition's retirements to the selected capture in order.
