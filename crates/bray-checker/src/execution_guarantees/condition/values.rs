@@ -333,20 +333,6 @@ impl ExecutionCondition {
             _ => contents,
         };
 
-        let contents = match contents.value_inside_capture().kind() {
-            K::Observation { owner, contents: reached, kind: ObservationKind::Owned }
-                if owner.as_ref() == identity => {
-                let reached = reached.as_ref().clone();
-
-                if let Some(storage) = contents.captured_storage() {
-                    reached.captured_value(storage.clone())
-                } else {
-                    reached
-                }
-            }
-            _ => contents,
-        };
-
         Self::reference_value(identity.clone(), contents)
     }
 
@@ -641,7 +627,7 @@ impl ExecutionCondition {
 
     /// Canonicalizes the reached observation shared by predicates and their preservation checks.
     pub(crate) fn predicate_observation(&self) -> Self {
-        let value = self.without_captured_storage();
+        let value = self.predicate_value();
 
         // A by-value predicate observes copied data. A borrowed argument
         // retains its storage context even when the contents are equal.
@@ -654,13 +640,9 @@ impl ExecutionCondition {
         }
 
         if let K::Observation { owner, contents, kind: ObservationKind::Reference } = argument.kind() {
-            let reached = match contents.kind() {
-                K::Observation { owner: context, contents: data, kind: ObservationKind::Owned }
-                    if context == owner => Some(data.as_ref()),
-                _ => contents.storage_contents().and_then(|(context, data)| {
-                    (context == data.owner_identity()).then_some(data)
-                }),
-            };
+            let reached = contents.storage_contents().and_then(|(context, data)| {
+                (context == data.owner_identity()).then_some(data)
+            });
 
             if let Some(reached) = reached {
                 argument = Self::reference_value(owner.as_ref().clone(), reached.clone());
@@ -676,6 +658,15 @@ impl ExecutionCondition {
         }
 
         argument
+    }
+
+    /// A reference already identifies the same storage context used by its reached data.
+    pub(super) fn redundant_reference_contents<'a>(owner: &Self, contents: &'a Self) -> Option<&'a Self> {
+        match contents.value_inside_capture().kind() {
+            K::Observation { owner: context, contents, kind: ObservationKind::Owned }
+                if context.as_ref() == owner => Some(contents),
+            _ => None,
+        }
     }
 
     fn is_reference_computation(&self) -> bool {

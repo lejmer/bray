@@ -113,6 +113,8 @@ Reference observations retain the reached target and the checked pointee type.
 Proof uses that observation to read updated contents through the existing descriptor.
 Normal completion publishes a new borrow's current identity from its exact
 reached target. Input materialization captures the published descriptor.
+Predicates read the reached value without duplicating the reference's own context.
+Ownership and cleanup continue to read the original current value tree.
 Evaluating the source resolves overlapping selectors once. Staging copies the
 captured inline fields into their destination without reading the old source
 route or weakening the reached address because of its original coordinate.

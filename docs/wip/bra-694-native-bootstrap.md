@@ -100,23 +100,21 @@ generic iterator escape, and protected sibling fields.
 
 | Area | Current evidence and next boundary |
 | --- | --- |
-| Storage and proof publication | Candidate `protected-admission-and-allocation-retirement` passed 1,108 of 1,109 compilation controls and all 937 symbols, bound-tree, and checker tests. Host exit and observer cleanup pass. |
-| Guarded authority | The channel endpoint regressed when refresh removed an owning context from the current tree. Keep the original carrier tree. Canonicalize the equivalent reference context only in the predicate's proof observation. Verify host and channel together, including the ownership, nullable, and view controls. |
-| Bounds and cells | The source and imported indexed write and the nested buffer controls pass. Protected admission consumes the typed cell's initialization. Portable raw outputs carry the actual address without the operand loan. |
+| Storage and proof publication | Candidate `predicate-reference-context` passed all 1,109 compilation controls and all 938 symbols, bound-tree, and checker tests. The retired call preparation, address reconstruction, and independent normal-storage promise APIs have no remaining callers. |
+| Guarded authority | Host exit, observer panic cleanup, and channel cleanup pass on the same candidate. The proof observation canonicalizes identical reference contexts while the actual current owner tree remains available to cleanup. |
+| Bounds and cells | Source and imported indexed writes and nested buffer controls pass. Protected admission consumes the typed cell's initialization. Portable raw outputs carry the actual address without the operand loan. |
 | Native owner composition | The previous four-target comparison passed `prepare_start`. Once the refactor paths are replaced, trace `dispatch_ready`, `start_frame`, and `acquire_worker_ready` through the actual acquisition, resident task slot, callback cleanup, and backing. A retirement follows its captured allocation even if its former descriptor changes. |
 | Planning and emission | The current candidate emitted the Windows standard library in 45.7 s planning, 40.8 s emission, and 98.5 s wall time with concurrent desktop use. The previous completed run took 32.3 s planning and 32.4 s emission. At unchanged query and code-generation counts, result-dependency solving rose from 153.5 to 194.6 worker seconds, and code generation rose from 109.7 to 145.0. Compare under similar load before attributing the increase. An earlier cleanup profile attributed 2.5 s to proof invalidation and 0.06 s to both state copies across 3,354 actions. Trace why finite effects still visit unrelated physical observations. |
 
 The optimized compilation test binary is
-`target/audit/comparison-protected-admission-and-allocation-retirement-compilation.exe`
-with SHA-256 `C168B8764D33335CBCDF6E771099844199417E5A51FF2AC03FC73100D5D14567`.
+`target/audit/comparison-predicate-reference-context-compilation.exe`
+with SHA-256 `3268A4CECC9324B82A616A55EF1BC68844F226C9E398C643E202A6102A906DBF`.
 The comparison receipt records the compiled source. It includes the test
 fixture reuse edits. Use the same 1,109 controls to compare the next batch.
 
-The next batch closes the shared reference observation contract for host exit
-and channel cleanup.
-Follow reached inputs through outcome materialization, scope retirement,
-proof invalidation, and portable binding. Keep the native bootstrap failures
-deferred until the replacement is complete.
+Verify the standard-library performance and all four native bootstrap
+checking and lowering targets on this candidate. Use the complete lifecycle
+and actual retirements from the architecture map for any remaining failures.
 
 A protected move admits the already evaluated payload. Definite initialized
 contents at every actual target can discharge only that operation's checked

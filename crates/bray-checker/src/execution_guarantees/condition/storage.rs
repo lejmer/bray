@@ -76,7 +76,13 @@ impl ExecutionCondition {
     /// Proof data observes the value, independently of physical transport metadata.
     /// CurrentValues retains the paired snapshot for storage propagation and fixed-point equality.
     pub(crate) fn without_captured_storage(&self) -> Self {
-        Self::map_value_metadata(Self::contains_storage, |_| None, |_| false, |_, frame| Some(Arc::clone(frame)))(self)
+        Self::map_value_metadata(Self::contains_storage, |_| None, |_| false, |_, frame| Some(Arc::clone(frame)), false)(self)
+    }
+
+    /// Reads the predicate's data observation without altering the current carrier tree.
+    pub(super) fn predicate_value(&self) -> Self {
+        Self::map_value_metadata(|value| value.contains_storage() || value.contains_redundant_reference_context(),
+            |_| None, |_| false, |_, frame| Some(Arc::clone(frame)), true)(self)
     }
 
     /// Actual owning subvalues and their prepared observation roles, expressed as value selectors.
@@ -124,7 +130,7 @@ impl ExecutionCondition {
         Self::map_value_metadata(Self::contains_storage, move |storage| {
             Some(Arc::clone(snapshots.entry(Arc::as_ptr(storage)).or_insert_with(||
                 storage.retired(retirements).map_or_else(|| Arc::clone(storage), Arc::new))))
-        }, |_| true, move |_, frame| Some(frame.retiring_storage(retirements)))
+        }, |_| true, move |_, frame| Some(frame.retiring_storage(retirements)), false)
     }
 
     /// Shares transformed records across all holders in a single state transition.
@@ -132,7 +138,7 @@ impl ExecutionCondition {
         keep: impl Fn(&Self) -> bool,
         map: impl FnMut(&Arc<ExecutionDeferredValue>, &Arc<ExecutionDeferredValue>) -> Option<Arc<ExecutionDeferredValue>>,
     ) -> impl FnMut(&Self) -> Self {
-        Self::map_value_metadata(Self::contains_deferred, |storage| Some(Arc::clone(storage)), keep, map)
+        Self::map_value_metadata(Self::contains_deferred, |storage| Some(Arc::clone(storage)), keep, map, false)
     }
 
     fn map_value_metadata(
@@ -140,6 +146,7 @@ impl ExecutionCondition {
         mut storage: impl FnMut(&Arc<StorageCapturedValue>) -> Option<Arc<StorageCapturedValue>>,
         keep: impl Fn(&Self) -> bool,
         mut deferred: impl FnMut(&Arc<ExecutionDeferredValue>, &Arc<ExecutionDeferredValue>) -> Option<Arc<ExecutionDeferredValue>>,
+        canonical_references: bool,
     ) -> impl FnMut(&Self) -> Self {
         use std::collections::HashMap;
 
@@ -200,6 +207,20 @@ impl ExecutionCondition {
                             None => child(data),
                             Some(updated) if !changed(data) && Arc::ptr_eq(updated, frame) => value.clone(),
                             Some(updated) => child(data).with_deferred_value(Arc::clone(updated)),
+                        }
+                    }
+                    K::Observation { owner, contents, kind: super::ExecutionObservationKind::Reference } if canonical_references => {
+                        let context = mapped_child(owner).unwrap_or(owner);
+                        let mut reached = mapped_child(contents).unwrap_or(contents);
+
+                        while let Some(data) = Self::redundant_reference_contents(context, reached) {
+                            reached = data;
+                        }
+
+                        if std::ptr::eq(context.kind(), owner.kind()) && std::ptr::eq(reached.kind(), contents.kind()) {
+                            value.clone()
+                        } else {
+                            Self::reference_value(context.clone(), reached.clone())
                         }
                     }
                     _ if value.structural_children().any(changed) => value.map_children(child),

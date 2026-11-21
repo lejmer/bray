@@ -1200,6 +1200,27 @@ fn retained_borrow_paths_do_not_retain_the_referents_ownership() {
 }
 
 #[test]
+fn predicate_observations_read_nested_reference_context_without_changing_carriers() {
+    let input = |ordinal| ExecutionCondition::new(crate::ExecutionConditionKind::Input(
+        ExecutionPlace::argument(SymbolOrdinal::new(ordinal)),
+    ));
+    let owner = input(0);
+    let data = ExecutionCondition::boolean(true);
+    let nested = |contents| ExecutionCondition::constructed(input(2), [(
+        bray_bound_tree::StorageProjection::TupleElement(SymbolOrdinal::new(0)),
+        ExecutionCondition::reference_value(owner.clone(), contents),
+    )].into());
+
+    let direct = nested(data.clone());
+    let same = nested(ExecutionCondition::owned_value(owner.clone(), data.clone()));
+    let different = nested(ExecutionCondition::owned_value(input(1), data));
+
+    assert_ne!(direct, same);
+    assert_eq!(direct.predicate_observation(), same.predicate_observation());
+    assert_ne!(direct.predicate_observation(), different.predicate_observation());
+}
+
+#[test]
 fn boolean_proofs_keep_decisive_operands_without_equating_unknowns() {
     use bray_bound_tree::BoundOperator;
 

@@ -160,6 +160,7 @@ pub(in crate::execution_guarantees) struct ConditionNode {
     hash: u64,
     contains_deferred: bool,
     contains_storage: bool,
+    contains_redundant_reference_context: bool,
     prefix_starts_empty: bool,
     comparisons: OnceLock<Box<ComparisonForms>>,
 }
@@ -176,13 +177,20 @@ impl ConditionNode {
 
         let mut contains_deferred = matches!(kind, ExecutionConditionKind::DeferredValue { .. });
         let mut contains_storage = contains_deferred || matches!(kind, ExecutionConditionKind::CapturedValue { .. });
+        let mut contains_redundant_reference_context = match &kind {
+            ExecutionConditionKind::Observation { owner, contents, kind: super::ExecutionObservationKind::Reference } =>
+                ExecutionCondition::redundant_reference_contents(owner, contents).is_some(),
+            ExecutionConditionKind::DeferredValue { value, .. } => value.contains_redundant_reference_context(),
+            _ => false,
+        };
 
         if !(contains_deferred && contains_storage) {
             for child in kind.structural_children() {
                 contains_deferred |= child.contains_deferred();
                 contains_storage |= child.contains_storage();
+                contains_redundant_reference_context |= child.contains_redundant_reference_context();
 
-                if contains_deferred && contains_storage { break; }
+                if contains_deferred && contains_storage && contains_redundant_reference_context { break; }
             }
         }
 
@@ -194,7 +202,7 @@ impl ConditionNode {
             _ => false,
         };
 
-        Self { kind, hash, contains_deferred, contains_storage, prefix_starts_empty, comparisons: OnceLock::new() }
+        Self { kind, hash, contains_deferred, contains_storage, contains_redundant_reference_context, prefix_starts_empty, comparisons: OnceLock::new() }
     }
 
     #[cfg(test)]
@@ -258,6 +266,8 @@ impl ExecutionCondition {
     pub(super) fn contains_deferred(&self) -> bool { self.0.contains_deferred }
 
     pub(super) fn contains_storage(&self) -> bool { self.0.contains_storage }
+
+    pub(super) fn contains_redundant_reference_context(&self) -> bool { self.0.contains_redundant_reference_context }
 
     /// The prefix was built from an empty buffer, so it covers all initialized elements.
     pub(crate) fn prefix_starts_empty(&self) -> bool { self.computed_value().0.prefix_starts_empty }
