@@ -259,13 +259,6 @@ exclude a producer whose argument, witness, and output rows reach await.
 The loop branch merge also treats a nullable extraction as opaque even
 though its retained payload contains the actual producer.
 
-Retiring the selector independently and joining the actual payload made
-both retained frames feasible. It also exposed an earlier loss. The
-branch merge brings together two admissions from the same source, one of
-which has already lost its captured witness. Both frames then reach
-execution without witness evidence. The valid transfer still fails and
-the active numeric extraction is accepted.
-
 When the loop evaluates the argument producer again, the nullable slot
 still owns the previous frame and its private witness. The bound input
 has its original expression identity. Its physical capture's root names
@@ -282,6 +275,20 @@ cancellation, and cleanup consume the reached frame alternatives. Check
 both slots, valid transfers, active Boolean and numeric rejections,
 inactive and independent-owner controls, genuine opacity, and source
 and imported outcomes against the fixed comparison.
+
+The private input scope preserves the witness for both same-site frame
+transfers and rejects both active Boolean extractions. A copied numeric
+input still becomes unknown before activation. The frame's captured data
+and facts about that data must survive the join independently of the
+control-flow selector and later writes to its source slot.
+
+In the widened case each normal branch publishes the returned witness.
+The first composite completion merge changes the public owner to the
+actual await result and loses the witness. A completed transfer must bind
+the witness and its supporting observations to the reached output owner.
+The old frame identity cannot supply authority after the holder is reused.
+Abnormal outcomes contribute their performed effects and no normal result
+evidence. Check direct await, task join, and cancellation.
 
 The storage footprint records inline reference fields as descriptor slots.
 An effect on a sibling can invalidate the enclosing value while the checked
