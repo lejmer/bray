@@ -251,19 +251,28 @@ observations, and preserve paired storage.
 Check both destinations of the same-site Boolean and numeric guard cases,
 including source and imported calls and ordered and NaN real inputs.
 
-The same-site loop reaches await with the known producer and its output
-rows. The loop's current exit facts contradict the historical condition
-that allowed an earlier iteration to form the frame. Selection wrongly
-suppresses the known producer. The presence of an opaque alternative can
-also come from joining a carried frame with an unwrapped view of that
-evaluation. The joined slot is built before the predecessor frame rewrite
-and installed afterward. Trace the lifetime of the selectors and owning
-arguments through that installation. Simplifying the guards globally
-made the active numeric case pass incorrectly and discarded real
-input evidence. Preserve the facts that select a retained value or explain
-its copied input. Verify active extraction rejections, complete transfers,
-actual opaque producers, both loop destinations, and source and imported
-cases from the fixed comparison.
+The checked assignment reaches the loop counter's slot. Retirement sees
+the frame's old selector there, but surviving scalar data keeps the
+observation query from visiting it. That leaves the old loop premise on
+active and opaque frame alternatives. The current exit facts can then
+exclude a producer whose argument, witness, and output rows reach await.
+The loop branch merge also treats a nullable extraction as opaque even
+though its retained payload contains the actual producer.
+
+Retiring the selector independently and joining the actual payload made
+both retained frames feasible. It also exposed an earlier loss. The
+branch merge brings together two admissions from the same source, one of
+which has already lost its captured witness. Both frames then reach
+execution without witness evidence. The valid transfer still fails and
+the active numeric extraction is accepted. Trace how a move installs the
+frame and how repeated evaluation retires the old input, using the
+checked physical destination and the frame's existing input capture.
+Keep a surviving frame's private witnesses tied to its own input, and
+keep prior input evidence from proving claims about a new evaluation.
+Start, await, cancellation, and cleanup consume the reached frame
+alternatives. Check both slots, valid transfers, active Boolean and
+numeric rejections, inactive controls, genuine opacity, and source and
+imported outcomes against the fixed comparison.
 
 The storage footprint records inline reference fields as descriptor slots.
 An effect on a sibling can invalidate the enclosing value while the checked
@@ -612,8 +621,9 @@ edges.
    skill after replacing the old paths.
 2. Compare the fixed inventory of 1,709 cases on the accepted candidate.
    Account for the test audit changes through `3afac09c5` and verify the
-   native replacements. The comparison at `020191205` had 1,662 passes and
-   47 failures. Both array witness cases recovered, with no new failures.
+   native replacements. The comparison at `0f9f3d0cc` had 1,665 passes and
+   44 failures. The two conditional absent transfers and the caught nullable
+   result recovered, with no new failures since `020191205`.
    Repeat the comparison after the remaining refactor and bootstrap repairs.
 3. After the refactor, check the owner entry, dispatch, and registration paths,
    including `dispatch_ready` and `start_frame`. Trace the allocation reached
@@ -624,8 +634,9 @@ edges.
    Run native workflows outside the sandbox.
 5. Measure an optimized build on 24 cores. Acceptance requires planning in the
    prior 17–25 second range and a finished binary within 60 seconds. The latest
-   profiled Windows standard-library build took 34.7 seconds to plan and 35.1
-   seconds to emit. Track the result dependency solve and export proof scan
-   alongside native reachability and emission.
+   unprofiled Windows standard-library build took 32.5 seconds to plan and 34.8
+   seconds to emit at `72f589608`. The profiled run still spent 136.7 worker
+   seconds in the result dependency solve and 41.3 in the execution candidate
+   scan, up from the reference profile's 60.0 and 10.2 seconds.
 6. Complete the repository audit and independent review. Push to the existing
    draft PR. BRA-695 and BRA-696 cover native execution and shutdown.
