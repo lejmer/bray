@@ -1,5 +1,5 @@
 use bray_diagnostics::{DiagnosticKind};
-use crate::test_support::{compilation};
+use crate::test_support::{compilation, source_function_body_key};
 
 #[test]
 fn bootstrap_host_access_requires_owner_bound_acquisition_evidence() {
@@ -449,7 +449,7 @@ fn safe_forwarders_preserve_existing_witnesses() {
 
 #[test]
 fn ordinary_producer_requirements_guard_trusted_guarantees() {
-    for (value, valid) in [("1", true), ("0", false), ("epoch", true)] {
+    for (value, completes) in [("1", true), ("0", false), ("epoch", true)] {
         let compilation = compilation(&format!(
             r#"
             trusted module app;
@@ -479,11 +479,13 @@ fn ordinary_producer_requirements_guard_trusted_guarantees() {
         "#
         ));
 
-        assert_eq!(
-            !compilation.check_diagnostics().has_errors(),
-            valid,
-            "{:?}",
-            compilation.check_diagnostics()
-        );
+        let diagnostics = compilation.check_diagnostics();
+
+        assert!(!diagnostics.has_errors(), "{value}: {diagnostics:?}");
+
+        let caller = source_function_body_key(&compilation, "caller");
+        let flow = compilation.storage_flow(caller).unwrap();
+
+        assert_eq!(flow.value().dependencies().normal_completion(), completes, "{value}");
     }
 }

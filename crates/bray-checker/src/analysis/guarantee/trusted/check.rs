@@ -219,9 +219,9 @@ impl TrustedChecks {
             record_failure(&mut self.failed_execution, self.block, invocation, || failure);
         }
 
-        if let Some(Err(failure)) = evidence
-            && !state.admitted_call(invocation).is_some_and(|entry| entry.trusted_boundary)
-        {
+        if let Some(Err(failure)) = evidence {
+            // Acknowledgement is local to execution. Certification still checks
+            // that the enclosing callable establishes or exposes the obligation.
             if matches!(invocation, bray_bound_tree::BoundExecutionSite::ScopedExit(_))
                 && domain.trace_authority_site(bray_bound_tree::StorageMutation::Operation(invocation))
             {
