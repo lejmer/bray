@@ -1,5 +1,6 @@
 mod assumptions;
 mod clause;
+mod call_proof;
 mod boolean;
 mod condition;
 mod declaration;
@@ -32,6 +33,7 @@ pub use implication::{
     execution_condition_is_implied, map_execution_condition_references,
     remap_execution_condition_inputs, substitute_execution_condition,
 };
+pub use call_proof::ExecutionCallProof;
 pub use evidence::{ExecutionCallEvidence, UnprovenExecutionCondition};
 pub(crate) use evidence::{ExecutionFailureRow, MemoryAccessProof};
 pub use deferred::{ExecutionDeferredInvocation, ExecutionDeferredValue};

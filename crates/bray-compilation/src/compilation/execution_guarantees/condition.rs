@@ -553,8 +553,8 @@ impl Compilation {
 
         let mut diagnostics = DiagnosticBag::new();
 
-        let evidence = self.instantiate_execution_evidence(
-            evidence.unwrap_or(&bray_checker::ExecutionCallEvidence::default()),
+        let evidence = self.instantiate_execution_proof(
+            evidence,
             cancellation,
             &mut diagnostics,
         )?;

@@ -70,7 +70,7 @@ pub use context::{
 pub use dependency::generator_result_dependencies;
 pub use diagnostic::{diagnostic_borrow_kind, diagnostic_type};
 pub use execution_guarantees::{
-    DeclaredExecutionProperty, ExecutionCallEvidence, ExecutionCandidate, ExecutionCandidates, UnprovenExecutionCondition,
+    DeclaredExecutionProperty, ExecutionCallEvidence, ExecutionCallProof, ExecutionCandidate, ExecutionCandidates, UnprovenExecutionCondition,
     ExecutionCertification, ExecutionClauseId, ExecutionCleanup, ExecutionCompletionContract,
     ExecutionCompletionDependency, ExecutionCondition, ExecutionConditionKind, ExecutionJoinSite, ExecutionOperands, ExecutionDeclaration, ExecutionDependency,
     ExecutionDependencyTarget, ExecutionDeferredInvocation, ExecutionDeferredValue, ExecutionDomain, ExecutionObligation, ExecutionVerificationFailure, ExecutionPlace,

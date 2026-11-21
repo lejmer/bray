@@ -407,8 +407,8 @@ impl Compilation {
 
         let mut diagnostics = DiagnosticBag::new();
 
-        let evidence = self.instantiate_execution_evidence(
-            evidence.unwrap_or(&ExecutionCallEvidence::default()),
+        let proof = self.instantiate_execution_proof(
+            evidence,
             cancellation,
             &mut diagnostics,
         )?;
@@ -419,7 +419,7 @@ impl Compilation {
 
         let contracts = self.callable_completion_contracts(
             callable,
-            evidence.implementation_witnesses(),
+            proof.implementation_witnesses(),
             cancellation,
         )?;
 
@@ -430,7 +430,7 @@ impl Compilation {
         let mut postconditions = Vec::new();
 
         for contract in contracts.into_parts().0 {
-            if !evidence.prove_trusted_requirements(&contract.entry).is_ok() {
+            if !proof.prove_trusted_requirements(&contract.entry).is_ok() {
                 continue;
             }
 
@@ -439,7 +439,7 @@ impl Compilation {
                     .verified_execution_obligation(
                         callable,
                         ExecutionObligation::Postcondition(clause),
-                        Some(&evidence),
+                        evidence,
                         cancellation,
                     )?
                     .is_some()

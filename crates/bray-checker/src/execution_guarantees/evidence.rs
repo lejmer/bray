@@ -332,7 +332,7 @@ impl ExecutionCallEvidence {
     }
 
     /// Instantiates call identities in captured values without changing the reusable entry snapshot.
-    pub fn try_map_conditions<E>(
+    pub(crate) fn try_map_conditions<E>(
         &self,
         mut map: impl FnMut(&super::ExecutionCondition) -> Result<super::ExecutionCondition, E>,
     ) -> Result<Self, E> {
@@ -349,11 +349,7 @@ impl ExecutionCallEvidence {
             ..Self::default()
         };
 
-        mapped.arguments = self
-            .arguments
-            .iter()
-            .map(|(place, condition)| Ok((place.clone(), map(condition)?)))
-            .collect::<Result<_, E>>()?;
+        mapped.arguments = super::call_proof::map_arguments(&self.arguments, &mut map)?;
 
         mapped.outputs = self.outputs.try_map(&mut map)?;
 
@@ -382,17 +378,8 @@ impl ExecutionCallEvidence {
             }
         }
 
-        mapped.assumptions = self
-            .assumptions
-            .iter()
-            .map(|(condition, value)| Ok((map(condition)?, *value)))
-            .collect::<Result<_, E>>()?;
-
-        mapped.trusted_assumptions = self
-            .trusted_assumptions
-            .iter()
-            .map(|(condition, value)| Ok((map(condition)?, *value)))
-            .collect::<Result<_, E>>()?;
+        mapped.assumptions = super::call_proof::map_assumptions(&self.assumptions, &mut map)?;
+        mapped.trusted_assumptions = super::call_proof::map_assumptions(&self.trusted_assumptions, &mut map)?;
 
         Ok(mapped)
     }
@@ -599,17 +586,22 @@ impl ExecutionCallEvidence {
                 )
     }
 
+    /// Borrows the inputs that obligation selection reads.
+    pub fn proof_inputs(&self) -> super::ExecutionCallProof<'_> {
+        super::ExecutionCallProof::new(self)
+    }
+
     /// Proves every entry condition, retaining the first condition and its actual arguments on failure.
     pub fn prove_requirements<'a>(
         &self,
         conditions: impl IntoIterator<Item = &'a super::ExecutionCondition>,
     ) -> Result<(), UnprovenExecutionCondition> {
-        self.prove_from(conditions, &self.assumptions, &[])
+        self.proof_inputs().prove_requirements(conditions)
     }
 
     /// Proves every trusted obligation from the captured live evidence.
     pub fn prove_trusted_requirements(&self, conditions: &[super::ExecutionCondition]) -> Result<(), UnprovenExecutionCondition> {
-        self.prove_from(conditions, &self.trusted_assumptions, &[])
+        self.proof_inputs().prove_trusted_requirements(conditions)
     }
 
     /// Checks a declaration's own inputs against captured receiver-first arguments.
@@ -618,81 +610,7 @@ impl ExecutionCallEvidence {
         conditions: &[super::ExecutionCondition],
         inputs: &[bray_bound_tree::BoundReferenceTarget],
     ) -> Result<(), UnprovenExecutionCondition> {
-        self.prove_from(conditions, &self.trusted_assumptions, inputs)
-    }
-
-    fn prove_from<'a>(
-        &self,
-        conditions: impl IntoIterator<Item = &'a super::ExecutionCondition>,
-        assumptions: &std::collections::BTreeSet<(super::ExecutionCondition, bool)>,
-        inputs: &[bray_bound_tree::BoundReferenceTarget],
-    ) -> Result<(), UnprovenExecutionCondition> {
-        let mut conditions = conditions.into_iter().peekable();
-
-        if conditions.peek().is_none() {
-            return Ok(());
-        }
-
-        let equalities = super::ExecutionCondition::equalities(&self.assumptions, None);
-
-        let known = Self::proof_facts(assumptions)
-            .map(|(condition, value)| (condition.with_equalities(&equalities), value))
-            .collect();
-
-        let known = super::trusted_condition_closure(known, &self.assumptions);
-        let proof = super::ExecutionProof::new(&known, &self.assumptions);
-
-        for required in conditions {
-            let condition = required.substitute(
-                &|input| {
-                    input
-                        .value_in(&self.arguments)
-                        .or_else(|| {
-                            let ordinal = inputs
-                                .iter()
-                                .position(|reference| Some(*reference) == input.reference())?;
-
-                            let mut argument =
-                                super::ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(
-                                    u32::try_from(ordinal)
-                                        .expect("callable parameter ordinal fits"),
-                                ));
-
-                            // The captured argument retains this immutable component path.
-                            argument.projections = Arc::clone(&input.projections);
-
-                            argument.value_in(&self.arguments)
-                        })
-                        .or_else(|| {
-                            input
-                                .constant_term()
-                                .map(|_| super::ExecutionCondition::new(crate::ExecutionConditionKind::Input(input.clone())))
-                        })
-                        .or_else(|| match input.reference() {
-                            Some(bray_bound_tree::BoundReferenceTarget::Surface(
-                                bray_symbols::AnySymbolId::GenericConstParameter(_),
-                            )) => {
-                                // Generic substitution has already mapped this immutable compile-time input into the caller.
-                                Some(super::ExecutionCondition::new(crate::ExecutionConditionKind::Input(input.clone())))
-                            }
-                            _ => None,
-                        })
-                        .unwrap_or_else(super::ExecutionCondition::unknown)
-                },
-                &super::ExecutionCondition::unknown(),
-                &mut { crate::ExecutionCondition::WORK_LIMIT },
-            );
-
-            let condition = condition.with_equalities(&equalities);
-
-            if proof.prove_mixed(&condition, &mut {
-                super::ExecutionCondition::WORK_LIMIT
-            }) != Some(true) {
-                return Err(UnprovenExecutionCondition::new(required.clone(), condition));
-            }
-        }
-
-        Ok(())
+        self.proof_inputs().prove_trusted_with_inputs(conditions, inputs)
     }
 }
 
