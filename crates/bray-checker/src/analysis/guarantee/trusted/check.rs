@@ -34,6 +34,12 @@ fn record_failure<Key: Ord, Cause>(
     }
 }
 
+fn merge_failures<Key: Ord, Cause>(failures: &mut Failures<Key, Cause>, incoming: Failures<Key, Cause>) {
+    for (key, (block, cause)) in incoming {
+        record_failure(failures, block, key, || cause);
+    }
+}
+
 #[derive(Default)]
 pub(in crate::analysis) struct TrustedChecks {
     pub(in crate::analysis) block: Option<AnalysisBlockId>,
@@ -53,6 +59,13 @@ pub(in crate::analysis) struct TrustedChecks {
 }
 
 impl TrustedChecks {
+    pub(in crate::analysis) fn merge_block_failures(&mut self, incoming: Self) {
+        merge_failures(&mut self.failed, incoming.failed);
+        merge_failures(&mut self.failed_execution, incoming.failed_execution);
+        merge_failures(&mut self.transfers, incoming.transfers);
+        merge_failures(&mut self.cleanup_failures, incoming.cleanup_failures);
+    }
+
     pub(in crate::analysis) fn new<C: CheckerRequestContext + ?Sized>(
         domain: &ExecutionFlowDomain<'_, '_, C>,
         boundary: Option<&ExecutionState>,

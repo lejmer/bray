@@ -26,6 +26,10 @@ impl<Key: Ord, Value> BlockRecords<Key, Value> {
         self.0.entry(block).or_default().push((key, value));
     }
 
+    pub(super) fn extend(&mut self, incoming: Self) {
+        self.0.extend(incoming.0);
+    }
+
     pub(super) fn publish(self, merge: impl Fn(&mut Value, &Value)) -> BTreeMap<Key, Value> {
         let mut published = BTreeMap::new();
 
@@ -96,6 +100,37 @@ fn is_subsequence(selection: &[StorageAccessId], ordered: &[StorageAccessId]) ->
 }
 
 impl CleanupSnapshots {
+    pub(super) fn merge_block(&mut self, incoming: Self) {
+        self.entries.extend(incoming.entries);
+
+        super::core::merge_records(&mut self.exits, incoming.exits, |snapshot, reached| {
+            snapshot.broadcast.extend(reached.broadcast);
+            snapshot.cleanup_recoveries.extend(reached.cleanup_recoveries);
+            snapshot.phase_recovered |= reached.phase_recovered;
+
+            if let Some(incoming) = reached.lifecycle_accesses {
+                match &mut snapshot.lifecycle_accesses {
+                    Some(known) => match incoming {
+                        ReachedLifecycle::Ordered(order) => known.record(order),
+                        ReachedLifecycle::Multiple(orders) => {
+                            for order in orders {
+                                known.record(order);
+                            }
+                        }
+                    },
+                    None => snapshot.lifecycle_accesses = Some(incoming),
+                }
+            }
+
+            if let Some(incoming) = reached.lifecycle {
+                match &mut snapshot.lifecycle {
+                    Some(known) => known.merge_snapshot(incoming),
+                    None => snapshot.lifecycle = Some(incoming),
+                }
+            }
+        });
+    }
+
     pub(super) fn record_entry(
         &mut self,
         operation: AnalysisOperationId,
@@ -264,27 +299,38 @@ impl ExitState {
     }
 
     pub(super) fn merge(&mut self, incoming: &StorageFlowState) {
+        self.merge_availability(&incoming.live, &incoming.initialized, &incoming.fully_moved,
+            &incoming.active_borrows, incoming.recovered);
+        self.moved.extend(incoming.moved.keys().cloned());
+        self.definitely_absent.retain(|access| incoming.definitely_absent.contains_key(access));
+    }
+
+    fn merge_snapshot(&mut self, incoming: Self) {
+        self.merge_availability(&incoming.live, &incoming.initialized, &incoming.fully_moved,
+            &incoming.active_borrows, incoming.recovered);
+        self.moved.extend(incoming.moved);
+        self.definitely_absent.retain(|access| incoming.definitely_absent.contains(access));
+    }
+
+    fn merge_availability(
+        &mut self,
+        live: &BTreeSet<StorageIdentityId>,
+        initialized: &BTreeSet<StorageIdentityId>,
+        fully_moved: &BTreeSet<StorageIdentityId>,
+        active_borrows: &BTreeSet<BorrowCapabilityId>,
+        recovered: bool,
+    ) {
         crate::analysis::storage_flow::model::merge_fully_moved(
             &self.live,
             &mut self.fully_moved,
-            &incoming.live,
-            &incoming.fully_moved,
+            live,
+            fully_moved,
         );
 
-        self.live.extend(incoming.live.iter().copied());
-
-        self.initialized
-            .retain(|identity| incoming.initialized.contains(identity));
-
-        self.moved.extend(incoming.moved.keys().cloned());
-
-        self.definitely_absent
-            .retain(|access| incoming.definitely_absent.contains_key(access));
-
-        self.active_borrows
-            .extend(incoming.active_borrows.iter().copied());
-
-        self.recovered |= incoming.recovered;
+        self.live.extend(live.iter().copied());
+        self.initialized.retain(|identity| initialized.contains(identity));
+        self.active_borrows.extend(active_borrows.iter().copied());
+        self.recovered |= recovered;
     }
 }
 

@@ -91,25 +91,6 @@ impl<State> FixedPointResult<State> {
 
         self.states.get(block.to_index()?)?.as_ref()
     }
-
-    /// Moves a retained input out after the last analysis consumer has used it.
-    pub(super) fn take_state(&mut self, block: AnalysisBlockId) -> Option<State> {
-        if block.unit() != self.unit {
-            return None;
-        }
-
-        self.states.get_mut(block.to_index()?)?.take()
-    }
-
-    /// Retains the output produced while publishing a converged cyclic input.
-    pub(super) fn replace_output(&mut self, block: AnalysisBlockId, output: State) {
-        assert_eq!(block.unit(), self.unit, "published output belongs to the solved unit");
-
-        let index = block.to_index().expect("published block has a solved index");
-        let previous = self.outputs[index].replace(output);
-
-        assert!(previous.is_some(), "published cyclic block was transferred during solving");
-    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

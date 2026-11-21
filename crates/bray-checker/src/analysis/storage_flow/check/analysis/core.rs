@@ -79,7 +79,7 @@ where
 
     let trusted = crate::analysis::guarantee::TrustedChecks::new(execution, entry.execution.as_ref());
 
-    let domain = StorageFlowDomain::new(
+    let mut domain = StorageFlowDomain::new(
         graph,
         entry,
         edge_lifetime_ends,
@@ -96,18 +96,7 @@ where
         patterns,
     );
 
-    let mut collector = StorageFlowCollector::new(
-        request,
-        storage,
-        liveness,
-        refinements,
-        memory,
-        input,
-        execution,
-        dependencies,
-        values,
-        patterns,
-    );
+    let mut collector = domain.collector(true);
 
     collector.trusted = trusted;
 
@@ -136,7 +125,7 @@ where
         output
     };
 
-    let mut result = match solve_fixed_point_with(graph, &domain, &request, Some(transfer)) {
+    let result = match solve_fixed_point_with(graph, &domain, &request, Some(transfer)) {
         FixedPointOutcome::Complete(result) => result,
         FixedPointOutcome::Cancelled => return CheckerOutcome::Cancelled,
         FixedPointOutcome::ConvergenceInvariantViolated => {
@@ -149,16 +138,13 @@ where
 
     let solved = profile.map(|start| start.elapsed());
     let cycle_start = profile.map(|_| std::time::Instant::now());
-    let mut cyclic_blocks = 0;
+    let cyclic = domain.take_cyclic_publications();
+    let cyclic_blocks = cyclic.len();
 
-    for block in graph.blocks().iter().filter(|block| graph.has_cyclic_input(block)) {
-        if let Some(input) = result.take_state(block.id()).filter(|input| input.states().next().is_some()) {
-            let output = publication.transfer(&mut collector, graph, block, input);
-
-            cyclic_blocks += 1;
-            reached.insert(block.id());
-            result.replace_output(block.id(), output);
-        }
+    for (id, (checks, records)) in cyclic {
+        reached.insert(id);
+        collector.merge_block_checks(checks);
+        publication.merge(records);
     }
 
     if let (Some(solved), Some(cycle_start)) = (solved, cycle_start)
@@ -305,7 +291,7 @@ where
 }
 
 #[derive(Default)]
-struct BlockPublication {
+pub(in crate::analysis::storage_flow) struct BlockPublication {
     reachable_blocks: BTreeSet<bray_bound_tree::BoundBlockId>,
     occurrences: BTreeMap<AnyBoundNodeId, crate::analysis::refinement::RefinementSet>,
     conditions: BTreeMap<BoundExpressionId, Option<bool>>,
@@ -313,7 +299,7 @@ struct BlockPublication {
 }
 
 impl BlockPublication {
-    fn transfer<C: CheckerRequestContext + ?Sized>(
+    pub(in crate::analysis::storage_flow) fn transfer<C: CheckerRequestContext + ?Sized>(
         &mut self,
         collector: &mut StorageFlowCollector<'_, C>,
         graph: &ControlFlowGraph,
@@ -367,6 +353,67 @@ impl BlockPublication {
 
         outcomes
     }
+
+    fn merge(&mut self, incoming: Self) {
+        self.reachable_blocks.extend(incoming.reachable_blocks);
+        merge_records(&mut self.occurrences, incoming.occurrences, |known, incoming| {
+            known.intersect(&incoming);
+        });
+        merge_records(&mut self.conditions, incoming.conditions, retain_common);
+    }
+}
+
+fn retain_common<T: Eq>(known: &mut Option<T>, incoming: Option<T>) {
+    if *known != incoming {
+        *known = None;
+    }
+}
+
+pub(super) fn merge_records<K: Ord, V>(
+    records: &mut BTreeMap<K, V>,
+    incoming: BTreeMap<K, V>,
+    mut merge: impl FnMut(&mut V, V),
+) {
+    use std::collections::btree_map::Entry;
+
+    for (key, value) in incoming {
+        match records.entry(key) {
+            Entry::Occupied(mut entry) => merge(entry.get_mut(), value),
+            Entry::Vacant(entry) => { entry.insert(value); }
+        }
+    }
+}
+
+fn merge_suspension(previous: &mut StorageSuspensionState, snapshot: StorageSuspensionState) {
+    if !snapshot.is_reachable() { return; }
+
+    if !previous.is_reachable() {
+        *previous = snapshot;
+        return;
+    }
+
+    // An implicit exit has multiple incoming transfers. Retain every possible owner,
+    // but promise initialization and active loans only when every path establishes them.
+    *previous =
+        StorageSuspensionState::new(
+            previous.occurrence(),
+            previous.live().iter().chain(snapshot.live()).copied(),
+            previous.initialized().iter().copied().filter(|identity| {
+                snapshot.initialized().binary_search(identity).is_ok()
+            }),
+            previous.moved().iter().chain(snapshot.moved()).cloned(),
+            previous.active_borrows().iter().copied().filter(|borrow| {
+                snapshot.active_borrows().binary_search(borrow).is_ok()
+            }),
+            previous
+                .cleanup_retention()
+                .iter()
+                .chain(snapshot.cleanup_retention())
+                .copied(),
+        ).with_execution_dependencies(
+            previous.execution_retention().iter().chain(snapshot.execution_retention()).copied(),
+            previous.unavailable_dependencies().iter().chain(snapshot.unavailable_dependencies()).copied(),
+        );
 }
 
 fn record_node_refinements(
@@ -389,7 +436,6 @@ fn record_node_refinements(
         .and_modify(|known| {
             known.intersect(refinements);
         })
-        // Each source occurrence owns its converged facts while replay advances.
         .or_insert_with(|| refinements.clone());
 }
 
@@ -641,14 +687,7 @@ where
                     expression,
                 );
 
-                conditions
-                    .entry(expression)
-                    .and_modify(|known| {
-                        if *known != value {
-                            *known = None;
-                        }
-                    })
-                    .or_insert(value);
+                conditions.entry(expression).and_modify(|known| retain_common(known, value)).or_insert(value);
             }
         }
     }
@@ -657,7 +696,7 @@ where
         clippy::too_many_arguments,
         reason = "the collector borrows separately owned checker tables for one analysis"
     )]
-    fn new(
+    pub(in crate::analysis::storage_flow) fn new(
         request: CheckerUnitView<'analysis, C>,
         storage: &'analysis StoragePlan,
         liveness: &'analysis Liveness,
@@ -672,6 +711,7 @@ where
         dependencies: &'analysis bray_bound_tree::CheckedDependencyContracts,
         values: &'analysis crate::dependency::ValueInputs,
         patterns: &'analysis bray_bound_tree::CheckedPatterns,
+        publish: bool,
     ) -> Self {
         Self {
             request,
@@ -716,47 +756,43 @@ where
             failure_outcomes: Vec::new(),
             memory_decisions: BTreeMap::new(),
             diagnostics: BlockChecks::default(),
-            publish: true,
+            publish,
             is_recovered: false,
             query_failed: false,
         }
     }
 
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "unpublished analysis borrows the same independent tables as published collection"
-    )]
-    pub(in crate::analysis::storage_flow) fn without_publication(
-        request: CheckerUnitView<'analysis, C>,
-        storage: &'analysis StoragePlan,
-        liveness: &'analysis Liveness,
-        refinements: &'analysis crate::analysis::refinement::RefinementUniverse,
-        memory: &'analysis CheckedMemoryOperations,
-        input: &'analysis StorageFlowInput,
-        execution: &'analysis crate::analysis::guarantee::ExecutionFlowDomain<
-            'analysis,
-            'analysis,
-            C,
-        >,
-        dependencies: &'analysis bray_bound_tree::CheckedDependencyContracts,
-        values: &'analysis crate::dependency::ValueInputs,
-        patterns: &'analysis bray_bound_tree::CheckedPatterns,
-    ) -> Self {
-        Self {
-            publish: false,
-            ..Self::new(
-                request,
-                storage,
-                liveness,
-                refinements,
-                memory,
-                input,
-                execution,
-                dependencies,
-                values,
-                patterns,
-            )
-        }
+    fn merge_block_checks(&mut self, incoming: Self) {
+        self.diagnostics.extend(incoming.diagnostics);
+        self.trusted.merge_block_failures(incoming.trusted);
+        self.exits.merge_block(incoming.exits);
+        self.is_recovered |= incoming.is_recovered;
+
+        self.operation_invalidations.extend(incoming.operation_invalidations);
+        self.normal_completions.extend(incoming.normal_completions);
+        self.input_observation_scopes.extend(incoming.input_observation_scopes);
+        self.outcome_mutations.extend(incoming.outcome_mutations);
+        self.completions.extend(incoming.completions);
+        self.value_captures.extend(incoming.value_captures);
+        self.value_transitions.extend(incoming.value_transitions);
+        self.state_targets.extend(incoming.state_targets);
+        self.operation_retirements.extend(incoming.operation_retirements);
+
+        self.effects.extend(incoming.effects);
+        self.report_collections.extend(incoming.report_collections);
+        self.reporting_completions.extend(incoming.reporting_completions);
+        self.synchronous_cleanup.extend(incoming.synchronous_cleanup);
+        self.receiver_cleanup.extend(incoming.receiver_cleanup);
+        merge_records(&mut self.deferred_calls, incoming.deferred_calls, BTreeSet::extend);
+        merge_records(&mut self.cleanup_remainders, incoming.cleanup_remainders, BTreeSet::extend);
+        merge_records(&mut self.capture_retirements, incoming.capture_retirements, BTreeSet::extend);
+        merge_records(&mut self.preconditions, incoming.preconditions, |known, reached| *known &= reached);
+        merge_records(&mut self.statuses, incoming.statuses, |known, reached| *known = more_conservative(*known, reached));
+        merge_records(&mut self.replacements, incoming.replacements, ReplacementState::merge);
+        merge_records(&mut self.suspensions, incoming.suspensions, merge_suspension);
+        merge_records(&mut self.memory_decisions, incoming.memory_decisions, |known, reached| {
+            *known = super::memory::conservative_memory_status(*known, reached);
+        });
     }
 
     pub(in crate::analysis::storage_flow) fn apply_operation(
@@ -2689,39 +2725,11 @@ where
         ).with_execution_dependencies(retained, unavailable);
 
         match self.suspensions.entry(occurrence) {
+            std::collections::btree_map::Entry::Occupied(mut entry) => {
+                merge_suspension(entry.get_mut(), snapshot);
+            }
             std::collections::btree_map::Entry::Vacant(entry) => {
                 entry.insert(snapshot);
-            }
-            std::collections::btree_map::Entry::Occupied(mut entry) => {
-                let previous = entry.get_mut();
-
-                if !previous.is_reachable() {
-                    *previous = snapshot;
-                    return;
-                }
-
-                // An implicit exit has multiple incoming transfers. Retain every possible owner,
-                // but promise initialization and active loans only when every path establishes them.
-                *previous =
-                    StorageSuspensionState::new(
-                        occurrence,
-                        previous.live().iter().chain(snapshot.live()).copied(),
-                        previous.initialized().iter().copied().filter(|identity| {
-                            snapshot.initialized().binary_search(identity).is_ok()
-                        }),
-                        previous.moved().iter().chain(snapshot.moved()).cloned(),
-                        previous.active_borrows().iter().copied().filter(|borrow| {
-                            snapshot.active_borrows().binary_search(borrow).is_ok()
-                        }),
-                        previous
-                            .cleanup_retention()
-                            .iter()
-                            .chain(snapshot.cleanup_retention())
-                            .copied(),
-                    ).with_execution_dependencies(
-                        previous.execution_retention().iter().chain(snapshot.execution_retention()).copied(),
-                        previous.unavailable_dependencies().iter().chain(snapshot.unavailable_dependencies()).copied(),
-                    );
             }
         }
     }

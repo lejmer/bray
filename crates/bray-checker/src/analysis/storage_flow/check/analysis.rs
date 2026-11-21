@@ -18,4 +18,5 @@ mod terminal;
 mod transfers;
 
 pub(crate) use core::{StorageFlowCollector, check_storage_flow_with_graph};
+pub(in crate::analysis::storage_flow) use core::BlockPublication;
 pub(in crate::analysis::storage_flow) use failures::FailureEdgeEffects;

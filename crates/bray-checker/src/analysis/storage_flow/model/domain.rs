@@ -6,7 +6,7 @@ use crate::analysis::guarantee::ExecutionJoin;
 use crate::analysis::id::{AnalysisBlockId, AnalysisEdgeId};
 use crate::analysis::model::{AnalysisBlock, AnalysisEdge, AnalysisEdgeKind, ControlFlowGraph};
 use crate::analysis::reachability::ReachabilityResult;
-use crate::analysis::storage_flow::check::{FailureEdgeEffects, StorageFlowCollector};
+use crate::analysis::storage_flow::check::{BlockPublication, FailureEdgeEffects, StorageFlowCollector};
 use crate::{CheckerRequestContext, CheckerUnitView};
 use bray_bound_tree::{BoundDependencySubject, CheckedMemoryOperations, Liveness, StoragePlan};
 use std::borrow::Cow;
@@ -22,6 +22,7 @@ where
     entry: RefCell<Option<StorageFlowState>>,
     failure_effects: RefCell<BTreeMap<AnalysisEdgeId, Vec<FailureEdgeEffects>>>,
     reached_cleanup_edges: RefCell<BTreeSet<AnalysisEdgeId>>,
+    cyclic_publications: RefCell<BTreeMap<AnalysisBlockId, (StorageFlowCollector<'analysis, C>, BlockPublication)>>,
     edge_lifetime_ends: &'analysis BTreeMap<AnalysisEdgeId, Vec<BoundDependencySubject>>,
     reachability: &'analysis ReachabilityResult,
     storage: &'analysis StoragePlan,
@@ -70,6 +71,7 @@ where
             entry: RefCell::new(Some(entry)),
             failure_effects: RefCell::default(),
             reached_cleanup_edges: RefCell::default(),
+            cyclic_publications: RefCell::default(),
             edge_lifetime_ends,
             reachability,
             storage,
@@ -85,8 +87,8 @@ where
         }
     }
 
-    fn collector(&self) -> StorageFlowCollector<'_, C> {
-        StorageFlowCollector::without_publication(
+    pub(in crate::analysis::storage_flow) fn collector(&self, publish: bool) -> StorageFlowCollector<'analysis, C> {
+        StorageFlowCollector::new(
             self.request,
             self.storage,
             self.liveness,
@@ -97,7 +99,14 @@ where
             self.dependencies,
             self.values,
             self.patterns,
+            publish,
         )
+    }
+
+    pub(in crate::analysis::storage_flow) fn take_cyclic_publications(
+        &mut self,
+    ) -> BTreeMap<AnalysisBlockId, (StorageFlowCollector<'analysis, C>, BlockPublication)> {
+        std::mem::take(self.cyclic_publications.get_mut())
     }
 
     pub(in crate::analysis::storage_flow) fn into_edge_outcomes(
@@ -106,24 +115,6 @@ where
         (self.failure_effects.into_inner(), self.reached_cleanup_edges.into_inner())
     }
 
-    fn transfer_block(&self, block: &AnalysisBlock, source: &StorageFlowOutcomes) -> StorageFlowOutcomes {
-        let mut state = source.clone();
-
-        let mut collector = self.collector();
-
-        collector.report_boundary = block.report_boundary();
-
-        for operation in block.operations() {
-            let operation = self
-                .graph
-                .operation(*operation)
-                .expect("storage-flow block retains its operation");
-
-            state.apply_operation(&mut collector, block.id(), operation);
-        }
-
-        state
-    }
     fn propagate_state(
         &self,
         source: Cow<'_, StorageFlowState>,
@@ -136,7 +127,7 @@ where
 
         let (mut incoming, failure_effects) = match edge.refinement() {
             Some(crate::analysis::model::AnalysisRefinement::InvocationFailure(occurrence, kind)) => {
-                let mut collector = self.collector();
+                let mut collector = self.collector(false);
 
                 collector.report_boundary = self.graph.block(edge.source()).expect("call source exists").report_boundary();
 
@@ -183,7 +174,7 @@ where
         if let Some(crate::analysis::model::AnalysisRefinement::PropagationOutcome { expression, outcome }) = edge.refinement()
             && matches!(outcome, AnalysisPropagationOutcome::Failure | AnalysisPropagationOutcome::RunFailure(_))
         {
-            let mut collector = self.collector();
+            let mut collector = self.collector(false);
 
             match outcome {
                 AnalysisPropagationOutcome::Failure => collector.propagate_reference_result(&mut incoming, expression),
@@ -218,7 +209,7 @@ where
         }
 
         if let Some((expression, outcome)) = caught {
-            self.collector().publish_caught_value(&mut incoming, expression, outcome, report);
+            self.collector(false).publish_caught_value(&mut incoming, expression, outcome, report);
         }
 
         let ends = self
@@ -366,7 +357,18 @@ where
     }
 
     fn transfer(&self, block: &AnalysisBlock, source: &Self::State) -> Self::State {
-        self.transfer_block(block, source)
+        if source.states().next().is_none() {
+            self.cyclic_publications.borrow_mut().remove(&block.id());
+            return Self::State::default();
+        }
+
+        let mut collector = self.collector(true);
+        let mut publication = BlockPublication::default();
+        let output = publication.transfer(&mut collector, self.graph, block, source.clone());
+
+        self.cyclic_publications.borrow_mut().insert(block.id(), (collector, publication));
+
+        output
     }
 
     fn propagate(&self, source: &Self::State, edge: &AnalysisEdge, target: &mut Self::State) -> bool {

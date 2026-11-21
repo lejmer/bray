@@ -252,8 +252,9 @@ block, expression, and place identities. Physical merges combine targets and con
 temporary evaluation storage and queued retirements to have been processed. A new loop iteration can retire a prior
 evaluation at the same source site. Edges carrying explicit yielded or broken results and selected call rows can retain
 distinct composite states through these joins. Loop headers and the finite alternative budget use the existing
-conservative merge. The storage publisher consumes each acyclic input during the block's sole transfer. It consumes
-cyclic inputs after convergence. Each final transfer publishes its condition facts while it owns the state.
+conservative merge. Each transfer produces its block's reached storage decisions and condition facts. Acyclic blocks
+consume their inputs. Cyclic blocks keep the input needed for convergence and replace their publication when they run
+again. The final publication combines the last records from each reached block.
 An inline field retains the data and physical capture of the selected payload. Its nullable extraction view
 can still name the containing snapshot for checks at the read site. Storing that view in the field would
 retain an obsolete parent on every loop pass.

@@ -48,6 +48,10 @@ impl<Upstream> Default for BlockChecks<Upstream> {
 }
 
 impl<Upstream> BlockChecks<Upstream> {
+    pub(super) fn extend(&mut self, incoming: Self) {
+        self.entries.extend(incoming.entries);
+    }
+
     pub(super) fn record(&mut self, subject: DiagnosticSubject, diagnostic: Diagnostic) {
         self.record_with_argument(subject, diagnostic, None);
     }

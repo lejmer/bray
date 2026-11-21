@@ -7,7 +7,7 @@ use bray_bound_tree::{
     Refinement, RefinementKind, StorageAccessPurpose, StorageOutcomeRows,
 };
 
-const fn conservative_memory_status(
+pub(in crate::analysis::storage_flow::check::analysis) const fn conservative_memory_status(
     current: MemoryOperationStatus,
     candidate: MemoryOperationStatus,
 ) -> MemoryOperationStatus {
