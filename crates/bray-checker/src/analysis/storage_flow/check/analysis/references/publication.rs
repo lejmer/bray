@@ -4,6 +4,7 @@ use bray_bound_tree::StorageProjection;
 use super::super::core::StorageFlowCollector;
 use crate::CheckerRequestContext;
 use crate::analysis::storage_flow::memory::{Origin, Place, ReferenceBounds, ReferenceExit, ReferenceExitValue};
+use crate::analysis::storage_flow::model::StorageFlowState;
 use crate::storage::{dependency_projection, dependency_projections};
 use bray_symbols::{
     ConstantBinaryOperation, ConstantTermData, ConstantUnaryOperation, DependencySubjectRoot,
@@ -14,20 +15,48 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     pub(in crate::analysis::storage_flow::check::analysis) fn result_dependencies(
         &mut self,
         diagnostics: &mut bray_diagnostics::DiagnosticBag,
+        completed: &[&StorageFlowState],
     ) -> crate::CheckerQueryResult<bray_symbols::DependencyContractTemplateData, C::UpstreamError>
     {
+        let request = self.request;
         let mut guards = BTreeMap::new();
         let mut captured_values = Vec::new();
 
-        let exits = std::mem::take(&mut self.normal_exits);
+        let exits = completed.iter().map(|&state| {
+            let Some(bray_bound_tree::StorageBinding::Identity(result)) = self.storage.binding(bray_bound_tree::StorageBindingTarget::Result) else {
+                panic!("a completed body has planned result storage");
+            };
 
-        let result_slots = exits.iter().flat_map(|exit| exit.storage.observed_slots())
+            (state, result, state.memory.exit_references(result, &state.definitely_absent))
+        }).collect::<Vec<_>>();
+
+        let result_slots = exits.iter().flat_map(|(_, _, storage)| storage.observed_slots())
             .filter(|path| self.formal_root(path.root) == Some(DependencySubjectRoot::Result))
             .cloned().collect::<BTreeSet<_>>();
 
-        for super::super::core::NormalExit {
-            storage: physical, value, returned, report, report_payloads, cell_changes, effects,
-        } in exits {
+        for (state, result, physical) in exits {
+            let execution = state.execution.as_ref().expect("reachable exit retains execution facts");
+            let value = match self.request.root() {
+                crate::CheckerUnitRoot::Expression(expression) => self.execution.value(execution, expression),
+                _ => self.execution.returned_value(execution),
+            };
+
+            self.results.merge_returns(&state.result_dependencies);
+
+            let returned = self.trusted.exit(self.execution, execution, &value, &state.written_inputs);
+            let report = state.completed_report();
+            let cell_changes = self.outcome_cell_changes(state);
+            let effects = state.effect_prefix.iter().cloned();
+
+            let report_payloads = physical.report_payloads(result).filter_map(|(slot, report, complete)| {
+                let path = dependency_projections(request, &slot.projections)?;
+
+                Some(bray_symbols::CapturedReportPayload {
+                    destination: DependencySubject::new(DependencySubjectRoot::Result, path),
+                    requirements: state.result_dependencies.closed_requirements(report.requirements.clone()).into(),
+                    complete,
+                })
+            });
             let (stored_values, embedded) = self.stored_values(&physical)?;
 
             let exit_references = self.borrow_relations(&physical)?.into_iter().chain(embedded);
@@ -42,7 +71,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 .collect::<Vec<_>>();
 
             let Some(crate::analysis::guarantee::NormalReturn { captured: outcome, carriers, transfers: ownership }) = returned else {
-                captured_values.push(bray_symbols::CapturedValueOutcome::new(None, []).with_cell_changes(cell_changes).with_report(report).with_effects(effects.iter().cloned())
+                captured_values.push(bray_symbols::CapturedValueOutcome::new(None, []).with_cell_changes(cell_changes).with_report(report).with_effects(effects)
                     .with_storage(exit_references, stored_values).with_inactive_payloads(inactive_payloads)
                     .with_report_payloads(report_payloads));
 
@@ -99,7 +128,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 ).with_support(support));
             }
 
-            captured_values.push(outcome.with_cell_changes(cell_changes).with_report(report).with_effects(effects.iter().cloned()).with_ownership(self.owned_result(ownership)?)
+            captured_values.push(outcome.with_cell_changes(cell_changes).with_report(report).with_effects(effects).with_ownership(self.owned_result(ownership)?)
                 .with_carriers(published).with_storage(exit_references, stored_values)
                 .with_report_payloads(report_payloads)
                 .with_inactive_payloads(inactive_payloads));
@@ -209,7 +238,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         None
     }
 
-    fn borrow_relations(&self, references: &ReferenceExit)
+    fn borrow_relations(&self, references: &ReferenceExit<'_>)
         -> crate::CheckerQueryResult<Vec<DependencyBorrowRelation>, C::UpstreamError>
     {
         let mut relations = Vec::new();
@@ -304,7 +333,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     }
 
     // Map storage within the producing exit while its allocation anchors are still distinct.
-    fn stored_values(&self, exit: &ReferenceExit) -> crate::CheckerQueryResult<(Vec<DependencyStoredValue>, Vec<DependencyBorrowRelation>), C::UpstreamError> {
+    fn stored_values(&self, exit: &ReferenceExit<'_>) -> crate::CheckerQueryResult<(Vec<DependencyStoredValue>, Vec<DependencyBorrowRelation>), C::UpstreamError> {
         type Paths = BTreeMap<DependencyStoredValuePath, (BTreeSet<DependencyStoredValuePath>, bool)>;
         type Physical = BTreeMap<DependencyStoredValuePath, (BTreeSet<DependencyBorrowRelation>, bool)>;
 

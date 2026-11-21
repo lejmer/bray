@@ -316,12 +316,21 @@ impl State {
         ty: TypeId,
         kind: bray_symbols::DependencyReferenceKind,
     ) -> AddressValue {
+        self.observe_addressed_target(&target, ty, kind);
+
+        AddressValue::one(target)
+    }
+
+    pub(super) fn observe_addressed_target(
+        &mut self,
+        target: &Target,
+        ty: TypeId,
+        kind: bray_symbols::DependencyReferenceKind,
+    ) {
         let contents = self.contents.entry(target.clone()).or_default();
 
         contents.storage_type.get_or_insert(ty);
         contents.exposed |= kind == bray_symbols::DependencyReferenceKind::Address;
-
-        AddressValue::one(target)
     }
 
     #[cfg(test)]

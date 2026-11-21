@@ -62,12 +62,19 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let mut proves = |operator, left, right| {
             let condition = ExecutionCondition::operation(operator, vec![left, right]);
+            let normalized = condition.with_equalities(&equalities);
 
-            condition
-                .with_equalities(&equalities)
-                .prove_ordinary(&assumptions, Some(&state.proofs))
-                == Some(true)
-                || self.integer_condition_truth(state, &condition, &mut ranges) == Some(true)
+            let proven = normalized.prove_ordinary(&assumptions, Some(&state.proofs)) == Some(true)
+                || self.integer_condition_truth(state, &normalized, &mut ranges) == Some(true)
+                || normalized != condition
+                    && self.integer_condition_truth(state, &condition, &mut ranges) == Some(true);
+
+            if self.trace_authority_site(bray_bound_tree::StorageMutation::Operation(expression.into())) {
+                eprintln!("sequence bound {expression:?} proven={proven} actual={:?} normalized={:?} known={assumptions:?}",
+                    condition.kind(), normalized.kind());
+            }
+
+            proven
         };
 
         match index.kind() {
@@ -138,6 +145,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         };
 
         if let Some(length) = self.slice_length(&self.operand_value(state, expression)) {
+            if self.trace_authority_site(bray_bound_tree::StorageMutation::Operation(expression.into())) {
+                eprintln!("produced slice extent {expression:?} length={:?} extent={:?}", length.kind(), extent.kind());
+            }
+
             ExecutionCondition::value_alias(length, extent).assume(true, &mut state.assumptions);
         }
     }

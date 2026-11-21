@@ -31,7 +31,7 @@ fn production_byte_copy_does_not_publish_its_input_addresses() {
 
 #[test]
 fn absent_buffer_cleanup_preserves_unrelated_input_facts() {
-    for value in ["none", "maybe_buffer()"] {
+    for value in ["none", "absent_buffer()"] {
         let source = format!(r#"
             trusted module probe;
 
@@ -39,7 +39,8 @@ fn absent_buffer_cleanup_preserves_unrelated_input_facts() {
 
             using std.memory;
 
-            extern trusted func maybe_buffer() -> std.memory.RawBuffer<u8>?
+            extern trusted func absent_buffer() -> std.memory.RawBuffer<u8>?
+                ensures(result matches none)
                 executes(pure, total);
 
             extern trusted func observe(pos pointer: DataPointer<u8>)

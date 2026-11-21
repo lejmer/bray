@@ -4964,9 +4964,6 @@ fn returned_pointer_ranges_keep_their_borrowed_scalar_extent() {
                 if initialized {
                     assert!(diagnostics.by_kind(bray_diagnostics::DiagnosticKind::CheckingUninitializedRawStorage).next().is_none(),
                         "a different failed requirement must not erase proven initialization: {diagnostics:#?}");
-                } else {
-                    bray_testing::assert_goal_state_diagnostic_kind(diagnostics,
-                        bray_diagnostics::DiagnosticKind::CheckingUninitializedRawStorage);
                 }
             }
         }

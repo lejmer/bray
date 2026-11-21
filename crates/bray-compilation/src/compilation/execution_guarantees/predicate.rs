@@ -243,7 +243,7 @@ mod tests {
                 if !valid {
                     bray_testing::assert_goal_state_diagnostic_kind(
                         checked.check_diagnostics(),
-                        DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+                        DiagnosticKind::CheckingPostconditionNotProven,
                     );
                 }
             }

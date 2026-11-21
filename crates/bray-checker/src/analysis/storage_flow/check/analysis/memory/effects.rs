@@ -76,7 +76,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         match *operation.kind() {
             CheckedMemoryOperationKind::Copy { .. }
-                if self.execution.empty_memory_copy(execution, expression.into()) => return Some(Vec::new()),
+                if execution.admitted_call(expression.into()).is_some_and(|entry| {
+                    entry.memory_access == Some(crate::execution_guarantees::MemoryAccessProof::EmptyCopy)
+                }) => return Some(Vec::new()),
             CheckedMemoryOperationKind::RawBufferPush { element } => {
                 return self.buffer_prefix_effects(
                     state,
@@ -180,7 +182,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             .expression(argument).expect("checked memory access retains its argument type").ty());
 
         let targets = if protected {
-            self.memory_uninit_target(state, execution, operation, argument).map(|target| vec![crate::analysis::storage_flow::memory::MutationTarget::location(target)])
+            self.memory_uninit_address(state, execution, operation, argument).and_then(|address| {
+                Some(crate::analysis::storage_flow::memory::MutationTarget::reference(Some(&address), address.regions()?))
+            })
         } else {
             self.captured_memory_operand(execution, operation, argument)
                 .and_then(bray_bound_tree::StorageCapturedValue::mutation_targets)

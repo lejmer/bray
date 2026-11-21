@@ -441,12 +441,12 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     .write_value(payload, element, operation.expression(), operand(0));
             }
             CheckedMemoryOperationKind::UninitPointer { element, .. } => {
-                let Some(payload) = self.memory_uninit_target(state, execution, operation, arguments[0]) else {
+                let Some(payload) = self.memory_uninit_address(state, execution, operation, arguments[0]) else {
                     return MemoryOperationStatus::Recovered;
                 };
 
                 if let Some(result) = result() {
-                    state.memory.point_at(
+                    state.memory.point_at_addresses(
                         payload,
                         result,
                         element,
@@ -455,12 +455,13 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 }
             }
             CheckedMemoryOperationKind::UninitWrite { element } => {
-                let Some(payload) = self.memory_uninit_target(state, execution, operation, arguments[0]) else {
+                let Some(payload) = self.memory_uninit_address(state, execution, operation, arguments[0]) else {
                     return MemoryOperationStatus::Recovered;
                 };
 
-                let status = state.memory.write_value(
-                    payload.clone(),
+                let payload = bray_bound_tree::StorageValueBinding::from(payload);
+                let status = state.memory.write_captured(
+                    Some(&payload),
                     element,
                     operation.expression(),
                     operand(1),
@@ -469,8 +470,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 if status == MemoryOperationStatus::Valid
                     && let Some(result) = result()
                 {
-                    state.memory.point_at(
-                        payload,
+                    state.memory.point_at_addresses(
+                        payload.address.expect("the projected borrow retains its address descriptor"),
                         result,
                         element,
                         bray_symbols::DependencyReferenceKind::Borrow,
@@ -481,12 +482,12 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             }
             CheckedMemoryOperationKind::UninitAssumeInitialized { element }
             | CheckedMemoryOperationKind::UninitMove { element } => {
-                let Some(payload) = self.memory_uninit_target(state, execution, operation, arguments[0]) else {
+                let Some(payload) = self.memory_uninit_address(state, execution, operation, arguments[0]) else {
                     return MemoryOperationStatus::Recovered;
                 };
 
-                return state.memory.read_value(
-                    payload,
+                return state.memory.read_captured(
+                    Some(&payload.into()),
                     element,
                     bray_bound_tree::MemoryReadKind::Move,
                     Some(operation.expression()),

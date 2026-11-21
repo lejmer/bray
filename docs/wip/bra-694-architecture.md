@@ -282,10 +282,11 @@ Published snapshots and diagnostics retain graph order.
 
 ## Summary, import, and call binding
 
-1. At a reached normal exit after cleanup, `collect_completion` reads the actual result and physical references, observes
-   proved postconditions, and collects the effect prefix and report dependencies. The summary builder packages those
-   observations with the guard, captured value graph, ownership layout, inactive payloads, and witness carriers in
-   `CapturedValueOutcome`. `CapturedValueTemplate` retains portable inputs and operations with explicit unknown nodes.
+1. At each reached normal exit after cleanup, the summary builder reads the solved `StorageFlowState` directly. It
+   borrows the physical bindings and uses the same state's result, proved postconditions, effects, and report dependencies.
+   The summary packages those observations with the guard, captured value graph, ownership layout, inactive payloads,
+   and witness carriers in `CapturedValueOutcome`. `CapturedValueTemplate` retains portable inputs and operations
+   with explicit unknown nodes.
    Reached failures capture their performed prefix, writes to caller storage, and report dependencies in
    `CapturedFailureOutcome`. A known empty prefix and an opaque prefix have distinct representations.
    [Exit producer](../../crates/bray-checker/src/analysis/storage_flow/check/analysis/core.rs)

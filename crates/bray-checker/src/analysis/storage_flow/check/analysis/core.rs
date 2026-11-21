@@ -174,14 +174,14 @@ where
         }
     }
 
-    let fallthrough = collector.collect_terminal_outcomes(graph, &result, &reached);
+    let (fallthrough, normal) = collector.collect_terminal_outcomes(graph, &result, &reached);
 
     let mut diagnostics = match std::mem::take(&mut collector.diagnostics).finish(&mut collector) {
         Ok(diagnostics) => diagnostics,
         Err(error) => return CheckerOutcome::from_query_error(error),
     };
 
-    let result_dependencies = match collector.result_dependencies(&mut diagnostics) {
+    let result_dependencies = match collector.result_dependencies(&mut diagnostics, &normal) {
         Ok(dependencies) => dependencies,
         Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
         Err(CheckerQueryError::Upstream(error)) => return CheckerOutcome::UpstreamFailure(error),
@@ -521,7 +521,6 @@ where
     block: Option<AnalysisBlockId>,
     report_collections: BTreeSet<Option<BoundExpressionId>>,
     pub(super) reporting_completions: BTreeSet<bray_bound_tree::BoundExecutionSite>,
-    pub(super) normal_exits: Vec<NormalExit>,
     pub(super) failure_outcomes: Vec<bray_symbols::CapturedFailureOutcome>,
     outcome_mutations:
         BlockRecords<bray_bound_tree::StorageMutation, bray_bound_tree::StorageInvalidation>,
@@ -534,26 +533,17 @@ where
     pub(super) query_failed: bool,
 }
 
-pub(super) struct NormalExit {
-    pub(super) storage: crate::analysis::storage_flow::memory::ReferenceExit,
-    pub(super) value: crate::ExecutionCondition,
-    pub(super) returned: Option<crate::analysis::guarantee::NormalReturn>,
-    pub(super) report: Option<std::sync::Arc<[bray_symbols::DependencyRequirement]>>,
-    pub(super) report_payloads: Vec<bray_symbols::CapturedReportPayload>,
-    pub(super) cell_changes: Option<std::sync::Arc<[bray_symbols::DependencyStorageEffect]>>,
-    pub(super) effects: crate::analysis::storage_flow::model::EffectPrefix,
-}
-
 impl<'analysis, C> StorageFlowCollector<'analysis, C>
 where
     C: CheckerRequestContext + ?Sized,
 {
-    fn collect_terminal_outcomes(
+    fn collect_terminal_outcomes<'solved>(
         &mut self,
         graph: &ControlFlowGraph,
-        result: &FixedPointResult<StorageFlowOutcomes>,
+        result: &'solved FixedPointResult<StorageFlowOutcomes>,
         reached: &BTreeSet<AnalysisBlockId>,
-    ) -> bool {
+    ) -> (bool, Vec<&'solved StorageFlowState>) {
+        let mut completed = Vec::new();
         let normal = graph.completion_exits().map(|exit| exit.block()).collect::<BTreeSet<_>>();
 
         let abnormal = graph.abnormal_exits().map(|exit| {
@@ -580,7 +570,7 @@ where
 
             for state in output.states() {
                 if normal.contains(&block.id()) {
-                    self.collect_completion(state);
+                    completed.push(state);
                 } else if let Some(kind) = abnormal.get(&block.id()) {
                     let kind = state.cleanup.as_ref().map_or(*kind, crate::analysis::outcomes::CleanupProgress::failure);
 
@@ -589,10 +579,12 @@ where
             }
         }
 
-        graph.completion_exits().any(|exit| {
+        let fallthrough = graph.completion_exits().any(|exit| {
             exit.kind() == crate::analysis::model::AnalysisExitKind::NormalFallthrough
                 && result.output(exit.block()).is_some_and(|outcomes| outcomes.states().any(|state| !state.recovered))
-        })
+        });
+
+        (fallthrough, completed)
     }
 
     fn collect_failure(&mut self, state: &StorageFlowState, kind: bray_symbols::DependencyFailureKind) {
@@ -609,56 +601,6 @@ where
         };
 
         self.failure_outcomes.push(outcome);
-    }
-
-    fn collect_completion(&mut self, state: &StorageFlowState) {
-        let Some(bray_bound_tree::StorageBinding::Identity(result)) = self.storage.binding(bray_bound_tree::StorageBindingTarget::Result) else {
-            panic!("planned body has result storage");
-        };
-
-        let execution = state.execution.as_ref().expect("reachable storage state has execution facts");
-
-        let value = match self.request.root() {
-            crate::CheckerUnitRoot::Expression(expression) => self.execution.value(execution, expression),
-            _ => self.execution.returned_value(execution),
-        };
-
-        let references = state.memory.exit_references(result, &state.definitely_absent);
-
-        let report_payloads = references.report_payloads(result).filter_map(|(slot, report, complete)| {
-            let path = crate::storage::dependency_projections(self.request, &slot.projections)?;
-
-            Some(bray_symbols::CapturedReportPayload {
-                destination: bray_symbols::DependencySubject::new(bray_symbols::DependencySubjectRoot::Result, path),
-                requirements: state.result_dependencies.closed_requirements(report.requirements.clone()).into(),
-                complete,
-            })
-        }).collect();
-
-        self.results.merge_returns(&state.result_dependencies);
-
-        let returned = self.trusted.exit(
-            self.execution,
-            execution,
-            &value,
-            &state.written_inputs,
-        );
-
-        let cell_changes = self.outcome_cell_changes(state);
-
-        if self.trace_retirement_effects() {
-            eprintln!("normal effect prefix {:?} {:?}", self.block(), state.effect_prefix);
-        }
-
-        self.normal_exits.push(NormalExit {
-            storage: references,
-            value,
-            returned,
-            report: state.completed_report(),
-            report_payloads,
-            cell_changes,
-            effects: std::sync::Arc::clone(&state.effect_prefix),
-        });
     }
 
     fn collect_conditions(
@@ -750,7 +692,6 @@ where
             block: None,
             report_collections: BTreeSet::new(),
             reporting_completions: BTreeSet::new(),
-            normal_exits: Vec::new(),
             failure_outcomes: Vec::new(),
             memory_decisions: BTreeMap::new(),
             diagnostics: BlockChecks::default(),

@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::StorageAbsence;
@@ -229,15 +230,14 @@ pub(in crate::analysis::storage_flow) enum ReferenceExitValue<'a> {
 }
 
 /// Physical values and their active payloads at one reachable unit boundary.
-#[derive(Clone, Debug, Default)]
-pub(in crate::analysis::storage_flow) struct ReferenceExit {
-    pub(super) slots: BTreeMap<Place, ValueBinding>,
-    pub(super) stored: BTreeMap<Target, ValueBinding>,
+pub(in crate::analysis::storage_flow) struct ReferenceExit<'a> {
+    pub(super) slots: BTreeMap<Place, Cow<'a, ValueBinding>>,
+    pub(super) stored: &'a BTreeMap<Target, ValueBinding>,
     pub(super) absent: BTreeSet<Place>,
     pub(super) input_regions: BTreeSet<Place>,
 }
 
-impl ReferenceExit {
+impl ReferenceExit<'_> {
     pub(in crate::analysis::storage_flow) fn observed_slots(&self) -> impl Iterator<Item = &Place> {
         self.slots.keys()
     }
@@ -266,11 +266,12 @@ impl ReferenceExit {
     }
 
     pub(in crate::analysis::storage_flow) fn whole_sources(&self) -> impl Iterator<Item = (&Target, &BTreeSet<Target>, bool)> {
-        self.stored.iter().filter_map(|(target, value)| value.whole_sources().map(|(sources, complete)| (target, sources, complete)))
+        self.stored.iter().filter(|(target, _)| !target.previous)
+            .filter_map(|(target, value)| value.whole_sources().map(|(sources, complete)| (target, sources, complete)))
     }
 
     pub(in crate::analysis::storage_flow) fn stored_bindings(&self) -> impl Iterator<Item = (&Target, ReferenceExitValue<'_>)> {
-        self.stored.iter().flat_map(|(slot, value)| {
+        self.stored.iter().filter(|(target, _)| !target.previous).flat_map(|(slot, value)| {
             value.is_no_payload().then_some((slot, ReferenceExitValue::NoPayload)).into_iter()
                 .chain(value.possible_references().map(move |references| {
                     (slot, ReferenceExitValue::Address {

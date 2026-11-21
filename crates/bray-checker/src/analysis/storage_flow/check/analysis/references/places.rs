@@ -4,7 +4,7 @@ use super::super::core::StorageFlowCollector;
 use crate::CheckerRequestContext;
 use crate::analysis::storage_flow::memory::{Place, ReachedAccess, Source, Target};
 use crate::analysis::storage_flow::model::StorageFlowState;
-use bray_bound_tree::BoundExpressionId;
+use bray_bound_tree::{BoundExpressionId, StorageAddressValue};
 
 impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     pub(in crate::analysis::storage_flow::check::analysis) fn captured_memory_operand<'entry>(
@@ -21,28 +21,36 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         execution.admitted_call(invocation)?.argument_storage(ordinal)
     }
 
-    pub(in crate::analysis::storage_flow::check::analysis) fn memory_uninit_target(
+    pub(in crate::analysis::storage_flow::check::analysis) fn memory_uninit_address(
         &self,
         state: &StorageFlowState,
         execution: &crate::analysis::guarantee::ExecutionState,
         operation: &bray_bound_tree::CheckedMemoryOperation,
         argument: BoundExpressionId,
-    ) -> Option<Target> {
+    ) -> Option<StorageAddressValue> {
         let selection = self.execution.semantics.selections().expression(operation.expression())?;
         let input = selection.inputs().find(|input| input.expression() == Some(argument))?;
         let values = self.request.semantic_values();
 
-        let target = if let bray_symbols::TypeData::Borrow { target, .. } = *values.type_data(input.ty(values)) {
-            let capture = self.captured_memory_operand(execution, operation, argument)?;
+        let address = if let bray_symbols::TypeData::Borrow { target, .. } = *values.type_data(input.ty(values)) {
+            let binding = self.captured_memory_operand(execution, operation, argument)
+                .and_then(bray_bound_tree::StorageCapturedValue::binding);
 
-            state.memory.captured_value_target(capture.binding()?, target)?
-        } else if selection.stages_inputs() {
-            self.invocation_place(operation.expression().into(), input.root()).map(Target::storage)?
+            binding.and_then(|binding| {
+                state.memory.captured_value_target(binding, target).map(StorageAddressValue::one)
+                    .or_else(|| binding.captured_reference())
+            }).unwrap_or_else(StorageAddressValue::unknown)
         } else {
-            self.expression_target(state, argument)?
+            let target = if selection.stages_inputs() {
+                self.invocation_place(operation.expression().into(), input.root()).map(Target::storage)
+            } else {
+                self.expression_target(state, argument)
+            }?;
+
+            StorageAddressValue::one(target)
         };
 
-        Some(target.project(&[bray_bound_tree::StorageProjection::UninitPayload]))
+        Some(address.project(&[bray_bound_tree::StorageProjection::UninitPayload]))
     }
 
     pub(in crate::analysis::storage_flow::check::analysis) fn nullable_is_absent(

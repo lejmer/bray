@@ -100,16 +100,16 @@ generic iterator escape, and protected sibling fields.
 
 | Area | Current evidence and next boundary |
 | --- | --- |
-| Storage and proof publication | Candidate `reached-observations-and-extents` at `d89cadff4` with source fingerprint `d6516754bbde3de5` built the Windows x86-64 standard library through emission. Grouped compilation checks passed 1,097 of 1,109. The joined index, expired returned slice, and retained incident controls now pass. Two slice-bound controls and the bounded scan regressed. All 574 checker and 139 bound-tree tests passed. |
-| Guarded authority | The host exit trace shows the correct physical loan into the selected attachment slot and lease. The guarded fact is still present before the consuming call applies its effects. Compare the exact predicate subjects from completion and admission before changing survival. The retained incident producer and corrected negative controls pass. Keep scoped callback cleanup in the same witness and retirement contract. |
-| Bounds and cells | Slice publication records the evaluated extent. Compare the normalized arithmetic at the later index, including constant and relational differences. Preserve the exact starting observation and changed counter at loop back edges. The returned raw range, protected indexed write, and nested buffer controls remain open. |
+| Storage and proof publication | Candidate `terminal-storage-and-bounds` passed 1,102 of 1,109 grouped compilation checks, plus all 574 checker and 139 bound-tree checks. Both slice bounds, returned raw ranges, the production host exit, and the absent-buffer control pass. The channel endpoint cleanup regressed. The bounded scan still lacks its ranking proof. |
+| Guarded authority | The host exit trace shows the correct physical loan into the selected attachment slot and lease. The guarded fact is still present before the consuming call applies its effects. The nullable owner trace shows that binding a `Present` output gives its payload the producer's projection, then uses that projection for the whole-result clause. The static trace shows that a returned descriptor retains its exact product-static selection while opaque invalidation revokes the fact. Keep scoped callback cleanup in the same witness and retirement contract. |
+| Bounds and cells | The current batch passes both captured slice-bound controls and the returned raw range. The protected indexed write and nested buffer remain open. The nested-buffer trace reaches the typed inner buffer descriptor through the outer view. Its backing is missing from the reached memory at the second view. |
 | Unknown cleanup | The absent-buffer test loses unrelated read authority after an unknown returned buffer. Trace the absent branch and cleanup against the reached owner. Disjointness requires established evidence about the actual allocation or effects. |
 | Native owner composition | The previous four-target comparison passed `prepare_start`. Once the refactor paths are replaced, trace `dispatch_ready`, `start_frame`, and `acquire_worker_ready` through the actual acquisition, resident task slot, callback cleanup, and backing. A retirement follows its captured allocation even if its former descriptor changes. |
-| Planning and emission | The Windows standard-library run took 32.3 s planning, 32.4 s emission, and 75.0 s wall time with summary profiling. Result dependency solving took 153.5 worker seconds for 1,698 components, compared with 156.4 in the previous run and 60.0 in the planning reference. Cleanup completion took 20.8 worker seconds. A scoped previous profile attributed 2.5 s to proof invalidation and 0.06 s to both state copies across 3,354 cleanup actions. Compare remaining proof preparation and copies of resolved terminal storage. |
+| Planning and emission | The terminal-storage batch planned the Windows standard library in 30.8 s. Emission stopped at interface export with `InvalidCompilation`. The previous run completed in 32.3 s planning, 32.4 s emission, and 75.0 s wall time. Its result dependency solving took 153.5 worker seconds against 60.0 in the planning reference. A scoped cleanup profile attributed 2.5 s to proof invalidation and 0.06 s to both state copies across 3,354 actions. Expose the interface rejection at its producing query. Trace why finite effects still visit unrelated physical observations. |
 
 The optimized compilation test binary is
-`target/audit/comparison-reached-observations-and-extents-compilation.exe`
-with SHA-256 `6EE44C7B501DFB3F34D12E6F421EA2F55E1A4BD834D5C67F30ED8682BA8F134E`.
+`target/audit/comparison-terminal-storage-and-bounds-compilation.exe`
+with SHA-256 `8A1F0C513338FB65E16A0619B89305C23D71896BEDEE63012C63B333DFE18D67`.
 
 ### Cleanup proof work
 
@@ -229,6 +229,62 @@ initialized cells, access authority, or ownership. Loop reuse and storage
 replacement must retire the corresponding old observation. Check captured
 bounds after argument evaluation, joined index controls, nested slices with
 omitted bounds, guarded access, and an out-of-bounds sibling.
+
+The current comparison passes descriptor lifetime and joined-index checks.
+Length equality resolves the later index's operand to subtraction. Check the
+resolved expression with the same integer range proof used for source
+arithmetic. A strictly ordered pair gives the exact difference a minimum of
+one. Preserve the separate precondition check of the slice itself. Loop
+ranking must first read the actual header and back-edge value before using
+equality normalization, which can erase the recorded displacement. Verify
+bounded early returns, aliased counters, and overflowing iterations.
+
+### Protected storage operand
+
+The indexed protected write admits a typed borrow whose evaluated selector
+does not identify a statically exact cell. Apply the payload projection to
+its captured address alternatives. Use the same projected descriptor for
+possible effects, the value transfer, and the returned view. Only an exact
+target can supply a strong write or move. Unknown regions remain unknown
+and do not recover the body or initialize other elements. Check protected
+writes, move-out, raw payload address formation, and source and imported
+consumers that retain independent fields.
+
+The outer buffer's view provides the bounded element slot through its actual
+backing. Prepare the demanded nested pointer through the owning input route so
+the inner view reads the stored descriptor. Keep an unknown descriptor after
+an opaque replacement and keep region bounds separate from exact addresses.
+Check nested inline and nullable buffers, transfer through a wrapper, and
+backing that could have changed through an opaque raw pointer.
+
+### Nested reference observation
+
+The attachment exit compares the same reached field, descriptor, and
+post-state data on either side of admission. The caller's restored reference
+adds an owning layer whose identity is already the reference descriptor's
+identity. Retain the reached data and its capture on that reference. Keep
+distinct owners, borrowed identities, and changed data epochs distinct. Use
+the common observation constructor so source, import, projection, witness
+checking, and mutation all see the same reference. Check the production
+attachment owner, nested borrowed witnesses, replaced descriptors, and
+crossed or stale owners.
+
+### Whole-value identity during publication
+
+A completed nullable value uses its own producing storage for whole-value
+clauses. The active payload may have separate ownership and a presence
+guard. Bind both from the produced row. Keep any admitted ownership
+transfer on the value it names. Source and imported callers must preserve
+that distinction through aggregate publication, joins, and extraction.
+Check whole nullable ownership, payload-only ownership, and forged or absent
+alternatives. A missing root must never be repaired by upgrading a payload
+witness to the whole value.
+
+A returned static descriptor retains the provider's actual selection and
+pointee type even when the caller's plan has no static access expression.
+Use its reached shared view and the existing typed preservation decision.
+Check raw exposure, mutable or unknown backing, and exact-thread lifetime
+before preserving observations. Keep the negative input-holder controls.
 
 ## Acceptance
 

@@ -6,6 +6,7 @@ use super::super::model::{
 use super::super::model::AddressValue;
 
 use bray_bound_tree::{StorageIdentityId, StorageProjection};
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 
 impl State {
@@ -355,7 +356,7 @@ impl State {
             Place,
             bray_bound_tree::StorageAbsence,
         >,
-    ) -> ReferenceExit {
+    ) -> ReferenceExit<'_> {
         let mut input_regions = BTreeSet::new();
 
         // Boundary summaries retain only observable reference values, not the body state.
@@ -372,7 +373,7 @@ impl State {
                     || !slot.projections.is_empty() && is_entry_slot(&self.contents, slot)
             })
             .map(|(slot, value)| {
-                let mut exported = value.clone();
+                let mut exported = Cow::Borrowed(value);
 
                 if value.address.is_none() && value.address_bounds.is_some() {
                     input_regions.insert(slot.clone());
@@ -382,7 +383,7 @@ impl State {
                     if let Origin::Returned { reference, .. } = &target.origin {
                         // Expand established origins without turning a region bound into
                         // exact forwarding or inventing an independent alternative.
-                        let expanded = exported.reference_mut().expect("copied reference slot");
+                        let expanded = exported.to_mut().reference_mut().expect("expanded reference slot");
 
                         expanded.bound();
 
@@ -400,7 +401,7 @@ impl State {
                     }
                 } }
 
-                (slot.clone(), exported)
+                (slot, exported)
             })
             .collect();
 
@@ -410,8 +411,7 @@ impl State {
 
         ReferenceExit {
             slots,
-            stored: self.values.iter().filter(|(target, _)| !target.previous)
-                .map(|(target, value)| (target.clone(), value.clone())).collect(),
+            stored: &self.values,
             input_regions,
             absent,
         }

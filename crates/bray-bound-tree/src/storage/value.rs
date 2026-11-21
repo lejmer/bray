@@ -288,6 +288,15 @@ impl StorageAddressValue {
             .then(|| self.targets.iter().cloned().collect())
     }
 
+    /// Projects evaluated addresses without turning a region into an actual address.
+    pub fn project(mut self, projections: &[super::StorageProjection]) -> Self {
+        if !projections.is_empty() {
+            self.targets = self.targets.iter().map(|target| target.project(projections)).collect();
+        }
+
+        self
+    }
+
     /// Returns conservative regions when their enclosing allocation boundaries are known.
     pub fn regions(&self) -> Option<Vec<Target>> {
         if self.is_unknown() {

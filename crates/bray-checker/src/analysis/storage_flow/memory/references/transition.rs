@@ -790,7 +790,21 @@ impl State {
         ty: TypeId,
         kind: bray_symbols::DependencyReferenceKind,
     ) {
-        let references = self.addressed_target(target, ty, kind);
+        self.point_at_addresses(AddressValue::one(target), destination, ty, kind);
+    }
+
+    pub(in crate::analysis::storage_flow) fn point_at_addresses(
+        &mut self,
+        references: AddressValue,
+        destination: Place,
+        ty: TypeId,
+        kind: bray_symbols::DependencyReferenceKind,
+    ) {
+        if !references.is_unknown() {
+            for target in &references.targets {
+                self.observe_addressed_target(target, ty, kind);
+            }
+        }
 
         self.replace_value(destination, references.into());
     }

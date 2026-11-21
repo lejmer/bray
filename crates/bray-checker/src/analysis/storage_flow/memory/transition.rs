@@ -253,6 +253,7 @@ impl State {
         MemoryOperationStatus::Valid
     }
 
+    #[cfg(test)]
     pub(in crate::analysis::storage_flow) fn read_value(
         &mut self,
         target: Target,

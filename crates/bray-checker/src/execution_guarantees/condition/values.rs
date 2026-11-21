@@ -458,6 +458,19 @@ impl ExecutionCondition {
 
     pub(crate) fn observation(owner: Self, contents: Self, kind: ObservationKind) -> Self {
         let owner = owner.owner_identity();
+        let contents = if kind == ObservationKind::Reference
+            && let K::Observation { owner: context, contents: reached, kind: ObservationKind::Owned } = contents.value_inside_capture().kind()
+            && context.as_ref() == owner
+        {
+            // The reference already supplies this exact context for the reached data.
+            if let K::CapturedValue { storage, .. } = contents.kind() {
+                reached.as_ref().clone().captured_value(Arc::clone(storage))
+            } else {
+                reached.as_ref().clone()
+            }
+        } else {
+            contents
+        };
 
         if kind == ObservationKind::Owned && owner == &contents
             || kind == ObservationKind::Reference && matches!(owner.kind(), K::Borrowed(referent) if referent.as_ref() == &contents)

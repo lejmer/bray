@@ -6,7 +6,7 @@ use super::super::state::ExecutionState;
 use crate::{CheckerRequestContext, ExecutionCondition};
 
 impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
-    pub(in crate::analysis) fn empty_memory_copy(
+    pub(in crate::analysis::guarantee) fn empty_memory_copy(
         &self,
         state: &ExecutionState,
         invocation: bray_bound_tree::BoundExecutionSite,
