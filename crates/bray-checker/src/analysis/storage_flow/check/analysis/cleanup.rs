@@ -88,7 +88,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         state: &mut StorageFlowState,
         execution: &mut ExecutionState,
         point: &AnalysisOperation,
-    ) {
+    ) -> std::collections::BTreeSet<bray_bound_tree::BorrowCapabilityId> {
         let operation = point.kind();
         let domain = self.execution;
         let profiling = cleanup_profile(self.storage.unit());
@@ -125,8 +125,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         });
 
         let Some(mut selected) = selected else {
-            return;
+            return Default::default();
         };
+
+        let displaced = destination.as_ref().into_iter().flat_map(|owner| state.memory.value_loans(owner)).collect();
 
         let absent = std::sync::Arc::clone(&state.definitely_absent);
         let mut trusted = std::mem::take(&mut self.trusted);
@@ -219,6 +221,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         }
 
         self.trusted = trusted;
+
+        displaced
     }
 
     fn select_replacement(

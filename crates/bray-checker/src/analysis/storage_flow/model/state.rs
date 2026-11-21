@@ -184,18 +184,15 @@ impl StorageFlowState {
     ) -> impl Fn(BorrowCapabilityId) -> bool + 'state {
         use bray_bound_tree::BoundDependencySubject::BorrowCapability;
 
-        let report_borrows = std::cell::OnceCell::<BTreeSet<BorrowCapabilityId>>::new();
+        let retained = std::cell::OnceCell::<BTreeSet<BorrowCapabilityId>>::new();
 
         move |borrow| {
-            input.cleanup_dependency_owners.get(&BorrowCapability(borrow))
-                .is_some_and(|owners| self.has_live_cleanup_owner(owners))
-                || report_borrows.get_or_init(|| {
-                    self.reachable_reports(|_| true).flat_map(|report| report.subjects.iter())
-                        .filter_map(|subject| match *subject {
-                            BorrowCapability(borrow) => Some(borrow),
-                            _ => None,
-                        }).collect()
-                }).contains(&borrow)
+            retained.get_or_init(|| self.carried_cleanup_subjects(input)
+                .chain(self.reachable_reports(|_| true).flat_map(|report| report.subjects.iter().copied()))
+                .filter_map(|subject| match subject {
+                    BorrowCapability(borrow) => Some(borrow),
+                    _ => None,
+                }).collect()).contains(&borrow)
         }
     }
 
@@ -204,10 +201,7 @@ impl StorageFlowState {
     ) -> impl Iterator<Item = &'state ReportDependencies> + 'state {
         let carried = self.memory.carried_reports(move |target| {
             target.storage_path().is_none_or(|path| {
-                self.live.contains(&path.root)
-                    && !self.fully_moved.contains(&path.root)
-                    && owner_remains(path.root)
-                    && !self.definitely_absent.keys().any(|absent| absent.contains(path))
+                self.value_is_live(path) && owner_remains(path.root)
             })
         });
 
@@ -222,9 +216,43 @@ impl StorageFlowState {
         &'a self,
         input: &'a StorageFlowInput,
     ) -> impl Iterator<Item = bray_bound_tree::BoundDependencySubject> + 'a {
-        input.cleanup_dependency_owners.iter()
-            .filter_map(|(subject, owners)| self.has_live_cleanup_owner(owners).then_some(*subject))
+        self.live.iter().copied().filter(|owner| self.live_cleanup_owner(input, *owner))
+            .map(bray_bound_tree::BoundDependencySubject::Storage)
+            .chain(self.carried_cleanup_subjects(input))
             .chain(self.reachable_reports(|_| true).flat_map(|report| report.subjects.iter().copied()))
+    }
+
+    fn carried_cleanup_subjects<'a>(&'a self, input: &'a StorageFlowInput)
+        -> impl Iterator<Item = bray_bound_tree::BoundDependencySubject> + 'a {
+        self.memory.carried_value_subjects(move |path| self.value_is_live(path)
+            && Self::owns_cleanup(input, path.root))
+    }
+
+    fn value_is_live(&self, path: &bray_bound_tree::StoragePath) -> bool {
+        self.live.contains(&path.root) && !self.fully_moved.contains(&path.root)
+            && !self.definitely_absent.keys().any(|absent| absent.contains(path))
+    }
+
+    /// A committed replacement ends displaced loans whose support has no surviving owner.
+    pub(in crate::analysis::storage_flow) fn release_displaced_loans(
+        &mut self, mut displaced: BTreeSet<BorrowCapabilityId>, storage: &StoragePlan,
+    ) {
+        if displaced.is_empty() || !self.reachable || self.recovered { return; }
+
+        displaced.retain(|loan| self.active_borrows.contains(loan)
+            && storage.borrow_capability(*loan).is_some_and(|borrow| borrow.entry_binding().is_none()));
+
+        if displaced.is_empty() { return; }
+
+        for loan in self.memory.surviving_value_loans(|path| self.value_is_live(path)) {
+            displaced.remove(&loan);
+
+            if displaced.is_empty() { return; }
+        }
+
+        displaced.retain(|loan| !self.retained_report_value_requires(bray_bound_tree::BoundDependencySubject::BorrowCapability(*loan)));
+
+        self.end_borrows(&displaced, storage);
     }
 
     pub(in crate::analysis::storage_flow) fn transfer_report_boundary(
@@ -244,10 +272,14 @@ impl StorageFlowState {
         }
     }
 
-    fn has_live_cleanup_owner(&self, owners: &BTreeSet<StorageIdentityId>) -> bool {
-        owners
-            .iter()
-            .any(|owner| self.live.contains(owner) && !self.fully_moved.contains(owner))
+    fn live_cleanup_owner(&self, input: &StorageFlowInput, owner: StorageIdentityId) -> bool {
+        self.live.contains(&owner) && !self.fully_moved.contains(&owner) && Self::owns_cleanup(input, owner)
+    }
+
+    fn owns_cleanup(input: &StorageFlowInput, owner: StorageIdentityId) -> bool {
+        input.cleanup_requirements.get(owner).is_some_and(|requirement| {
+            !requirement.transfers() && matches!(requirement.cleanup(), bray_bound_tree::AsyncStorageCleanupRequirement::Cleanup(_))
+        })
     }
 
     pub(in crate::analysis::storage_flow) fn end_borrows(

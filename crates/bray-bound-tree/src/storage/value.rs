@@ -429,7 +429,8 @@ impl StorageValueBinding {
         self.dependency_support.as_ref()
     }
 
-    pub(crate) fn include_dependency_support(&mut self, incoming: &Arc<ReportDependencies>) {
+    /// Retains checked support with the current value and its storage transfers.
+    pub fn include_dependency_support(&mut self, incoming: &Arc<ReportDependencies>) {
         if let Some(support) = &mut self.dependency_support {
             support.merge(incoming);
         } else {

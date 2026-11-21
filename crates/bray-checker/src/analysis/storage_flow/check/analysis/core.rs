@@ -890,7 +890,7 @@ where
         let first_continuation = self.cleanup_continuations.len();
 
         self.execution.trace_assignment_source(&execution, kind, "storage before cleanup");
-        self.apply_cleanup(state, &mut execution, operation);
+        let displaced = self.apply_cleanup(state, &mut execution, operation);
         self.execution.trace_assignment_source(&execution, kind, "storage after cleanup");
 
         for continued in &mut self.cleanup_continuations[first_continuation..] {
@@ -902,6 +902,7 @@ where
         }
 
         self.apply_operation_effects(state, operation, execution, refinements, task.as_ref(), accesses);
+        state.release_displaced_loans(displaced, self.storage);
     }
 
     pub(in crate::analysis::storage_flow) fn resume_cleanup(
@@ -913,12 +914,13 @@ where
         let first_continuation = self.cleanup_continuations.len();
         let accesses = self.capture_transfer_accesses(state, operation.kind());
 
-        self.apply_cleanup(state, &mut execution, operation);
+        let displaced = self.apply_cleanup(state, &mut execution, operation);
 
         if state.reachable {
             let refinements = std::mem::take(&mut state.refinements);
 
             self.apply_operation_effects(state, operation, execution, refinements, None, accesses);
+            state.release_displaced_loans(displaced, self.storage);
         }
 
         // A sibling captures the refinements already known when its action ran.
@@ -1258,6 +1260,20 @@ where
         if let Some(completion) = &mut completion {
             self.publish_captured_outputs(state, occurrence, completion);
             self.publish_frame_captures(state, occurrence);
+        }
+
+        if state.reachable && memory_status.is_none_or(|status| status == MemoryOperationStatus::Valid)
+            && matches!(kind, AnalysisOperationKind::Bound(AnyBoundNodeId::Expression(_))
+                | AnalysisOperationKind::Result { phase: crate::analysis::model::AnalysisResultPhase::Production, .. }
+                | AnalysisOperationKind::Call { phase: AnalysisCallPhase::Completion, .. })
+        {
+            let mut subjects = self.liveness.retained_by(occurrence).peekable();
+
+            if subjects.peek().is_some() && let Some(result) = self.invocation_result(occurrence) {
+                state.memory.bound_value_dependencies(result, bray_bound_tree::ReportDependencies {
+                    subjects: subjects.collect(), ..Default::default()
+                });
+            }
         }
 
         if kind.value_consumption_phase() == Some(bray_bound_tree::StorageValueConsumptionPhase::Completion)

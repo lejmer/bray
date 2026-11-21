@@ -109,9 +109,9 @@ impl StorageCapturedValue {
     }
 
     /// Visits support carried by the selected value and its inline components.
-    pub fn dependency_support(&self) -> impl Iterator<Item = &crate::ReportDependencies> + '_ {
+    pub fn dependency_support(&self) -> impl Iterator<Item = &std::sync::Arc<crate::ReportDependencies>> + '_ {
         storage_value_subtree(&self.state.values, &self.root)
-            .filter_map(|(_, value)| value.dependency_support().map(std::sync::Arc::as_ref))
+            .filter_map(|(_, value)| value.dependency_support())
     }
 
     /// Returns the captured address only when it establishes one current actual target.

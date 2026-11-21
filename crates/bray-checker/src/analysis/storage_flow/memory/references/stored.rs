@@ -2,6 +2,18 @@ use super::super::model::DependencyCompleteness;
 use super::super::model::{AddressValue, Place, Retirement, State, Target, Transfer, ValueBinding};
 use super::slots::take_subtree;
 
+fn value_subjects(value: &ValueBinding) -> impl Iterator<Item = bray_bound_tree::BoundDependencySubject> + '_ {
+    value.dependency_support().into_iter().flat_map(|support| support.subjects.iter().copied())
+        .chain(value.borrow_capability().map(bray_bound_tree::BoundDependencySubject::BorrowCapability))
+}
+
+fn loan_subject(subject: bray_bound_tree::BoundDependencySubject) -> Option<bray_bound_tree::BorrowCapabilityId> {
+    match subject {
+        bray_bound_tree::BoundDependencySubject::BorrowCapability(loan) => Some(loan),
+        _ => None,
+    }
+}
+
 impl State {
     pub(in crate::analysis::storage_flow) fn stage_report(
         &mut self,
@@ -38,6 +50,50 @@ impl State {
 
                 live(target).then_some(report.as_ref())
             })
+    }
+
+    /// Publishes dependency bounds where a produced value has no captured support.
+    pub(in crate::analysis::storage_flow) fn bound_value_dependencies(
+        &mut self, destination: Place, subjects: bray_bound_tree::ReportDependencies,
+    ) {
+        if subjects.subjects.is_empty() { return; }
+
+        let value = self.values.entry(Target::storage(destination)).or_default();
+
+        if !value.is_no_payload() && value.dependency_support().is_none() {
+            value.include_dependency_support(&std::sync::Arc::new(subjects));
+        }
+    }
+
+    /// Visits possible dependencies carried by the current initialized cleanup owners.
+    pub(in crate::analysis::storage_flow) fn carried_value_subjects<'a>(
+        &'a self, mut live: impl FnMut(&Place) -> bool + 'a,
+    ) -> impl Iterator<Item = bray_bound_tree::BoundDependencySubject> + 'a {
+        self.values.iter().filter_map(move |(target, value)| {
+            let path = target.storage_path()?;
+
+            (!target.previous && !value.is_no_payload()
+                && (value.dependency_support().is_some() || value.borrow_capability().is_some())
+                && live(path)).then_some(value)
+        }).flat_map(value_subjects)
+    }
+
+    pub(in crate::analysis::storage_flow) fn value_loans<'a>(&'a self, owner: &'a Target)
+        -> impl Iterator<Item = bray_bound_tree::BorrowCapabilityId> + 'a {
+        super::slots::storage_subtree(&self.values, owner)
+            .filter(|(target, value)| !target.previous && !value.is_no_payload())
+            .flat_map(|(_, value)| value_subjects(value).filter_map(loan_subject))
+    }
+
+    pub(in crate::analysis::storage_flow) fn surviving_value_loans<'a>(
+        &'a self, mut live: impl FnMut(&Place) -> bool + 'a,
+    ) -> impl Iterator<Item = bray_bound_tree::BorrowCapabilityId> + 'a {
+        let current = self.values.iter().filter_map(move |(target, value)| {
+            (!target.previous && !value.is_no_payload() && target.storage_path().is_none_or(&mut live)).then_some(value)
+        });
+        let pending = self.pending.values().flat_map(|transfer| transfer.values.values());
+
+        current.chain(pending).flat_map(value_subjects).filter_map(loan_subject)
     }
 
     pub(in crate::analysis::storage_flow) fn capture_evaluated_value(&self, source: &super::Source,

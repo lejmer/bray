@@ -173,13 +173,12 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         let proof = execution.ordinary_proof();
 
-        let regions = frames.into_iter().flat_map(|frame| frame.producers.values())
+        let captures = frames.into_iter().flat_map(|frame| frame.producers.values())
             .filter(|producer| crate::execution_guarantees::deferred_possible(&producer.selection, &proof))
             .flat_map(|producer| producer.entry.positional_arguments())
-            .filter_map(|(_, value)| value.inline_captured_storage())
-            .flat_map(|storage| storage.carried_regions());
+            .filter_map(|(_, value)| value.inline_captured_storage());
 
-        state.memory.capture_inputs(result, regions);
+        state.memory.capture_inputs(result, captures);
     }
 
     pub(super) fn stage_frame_storage_outputs(

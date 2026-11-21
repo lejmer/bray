@@ -32,8 +32,6 @@ pub(crate) struct StorageFlowInput {
     pub(in crate::analysis::storage_flow) graceful_types: BTreeSet<bray_symbols::TypeId>,
     pub(in crate::analysis::storage_flow) value_dependencies:
         BTreeMap<StorageIdentityId, BTreeSet<BoundDependencySubject>>,
-    pub(super) cleanup_dependency_owners:
-        BTreeMap<BoundDependencySubject, BTreeSet<StorageIdentityId>>,
     pub(in crate::analysis::storage_flow) lifecycle_storage:
         BTreeMap<bray_symbols::CallableInstanceData, bray_bound_tree::BoundCallStorage>,
     pub(in crate::analysis::storage_flow) allocation_pointer:
@@ -242,7 +240,6 @@ impl StorageFlowInput {
                 request, storage, &input,
             )?;
 
-        input.prepare_cleanup_retention(request, storage, effects, cleanup);
         input.cleanup_requirements = std::sync::Arc::clone(&cleanup.requirements);
 
         Ok((input, diagnostics))
@@ -386,61 +383,6 @@ impl StorageFlowInput {
                         .or_default()
                         .insert(payload);
                 }
-            }
-        }
-    }
-
-    fn prepare_cleanup_retention<C: CheckerRequestContext + ?Sized>(
-        &mut self,
-        request: CheckerUnitView<'_, C>,
-        storage: &StoragePlan,
-        effects: &OperationEffects,
-        cleanup: &crate::analysis::guarantee::CleanupPlan,
-    ) {
-        // Cleanup still uses retained loans after the last ordinary read of its owner.
-        // Index established value retention, never physical referents or invocation inputs.
-        let owns_cleanup = |requirement: &bray_bound_tree::AsyncStorageRequirement| {
-            !requirement.transfers()
-                && matches!(
-                    requirement.cleanup(),
-                    bray_bound_tree::AsyncStorageCleanupRequirement::Cleanup(_)
-                )
-        };
-
-        for requirement in cleanup.requirements.entries().iter().filter(|row| owns_cleanup(row)) {
-            let owner = requirement.identity();
-
-            self.cleanup_dependency_owners
-                .entry(BoundDependencySubject::Storage(owner))
-                .or_default()
-                .insert(owner);
-        }
-
-        let bindings = crate::storage::value_transfer_destinations(request, storage);
-
-        let occurrences = bindings
-            .iter()
-            .flat_map(|(initializer, bindings)| {
-                bindings.iter().map(|identity| (*identity, *initializer))
-            })
-            .chain(
-                storage
-                    .identity_entries()
-                    .filter_map(|(identity, definition)| {
-                        Some((identity, definition.definition_occurrence()?))
-                    }),
-            );
-
-        for (owner, occurrence) in occurrences {
-            if !cleanup.requirements.get(owner).is_some_and(owns_cleanup) {
-                continue;
-            }
-
-            for subject in effects.retained_by(occurrence) {
-                self.cleanup_dependency_owners
-                    .entry(subject)
-                    .or_default()
-                    .insert(owner);
             }
         }
     }

@@ -329,13 +329,23 @@ impl State {
             .merge(&AddressValue::one(target));
     }
 
-    pub(in crate::analysis::storage_flow) fn capture_inputs(
+    pub(in crate::analysis::storage_flow) fn capture_inputs<'capture>(
         &mut self,
         destination: Place,
-        captures: impl IntoIterator<Item = Target>,
+        captures: impl IntoIterator<Item = &'capture bray_bound_tree::StorageCapturedValue>,
     ) {
         // Opaque frames retain reachable inputs, without being references to those inputs.
-        self.values.entry(Target::storage(destination)).or_default().capture_inputs(captures);
+        let value = self.values.entry(Target::storage(destination)).or_default();
+
+        value.capture_inputs([]);
+
+        for capture in captures {
+            value.capture_inputs(capture.carried_regions());
+
+            for support in capture.dependency_support() {
+                value.include_dependency_support(support);
+            }
+        }
     }
 
     pub(in crate::analysis::storage_flow) fn bound_staged_reference(
@@ -835,7 +845,8 @@ impl State {
             .any(|(target, _)| retirement.contains(current, target))
             && !self.values.range(current.clone()..).take_while(|(target, _)| current.contains(target))
                 .any(|(target, value)| retirement.contains(current, target)
-                    && (value.whole_sources().is_some() || value.report_dependencies().is_some()))
+                    && (value.whole_sources().is_some() || value.report_dependencies().is_some()
+                        || value.dependency_support().is_some()))
         {
             return;
         }

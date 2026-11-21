@@ -196,6 +196,12 @@ separately from the staging slot and from the selectors used to choose the
 producer. A write can invalidate a selector or live referent while the
 frame still retains its immutable data.
 
+Cleanup liveness reads the dependency support carried by the current value
+in each live cleanup owner. The plan identifies those owners. The same
+storage binding carries support through result publication, moves, and
+replacement. A possible dependency bound can accompany an opaque output.
+Pending and carried reports retain their own support until their disposition.
+
 Storage flow publishes normal observation frames by exact CFG operation. Call and await attempts retain the set
 of portable rows that reached each frame. Certification selects the covered rows, or uses the combined frame
 for that operation. Loop certification reads that same combined frame. Checked refinements retain the facts
