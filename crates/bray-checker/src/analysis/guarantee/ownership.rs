@@ -758,7 +758,7 @@ mod tests {
 
         let unrelated = |ordinal| ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(ordinal))));
 
-        state.join_values(&crate::execution_guarantees::ExecutionSubstitution::new(&[(unrelated(1), unrelated(2))].into(), &Default::default()));
+        state.join_values(&crate::execution_guarantees::ExecutionSubstitution::new(&[(unrelated(1), unrelated(2))].into(), &Default::default()), true);
         assert_eq!(state.owned_results.get(&original), Some(&original_layout), "a changed snapshot cannot alter the original value's preservation");
         assert_eq!(state.owned_results.get(&changed), Some(&changed_layout), "a snapshot's identity does not erase its changed contents");
         assert_eq!(state.owned_result(&changed), changed_layout);

@@ -144,9 +144,30 @@ impl CurrentValues {
             })
     }
 
-    /// Publish joined observations without changing component initialization.
     pub(super) fn set_slot(&mut self, place: ExecutionPlace, value: CurrentValue) {
         self.write(place, value, None);
+    }
+
+    /// Publishes the assembled root once. Component values are already in it.
+    pub(super) fn publish_joined_slot(&mut self, place: ExecutionPlace, slot: CurrentValue) -> bool {
+        if place.projections.is_empty() {
+            let changed = self.slot(&place).as_ref() != Some(&slot);
+
+            if changed {
+                self.set_slot(place, slot);
+            }
+
+            return changed;
+        }
+
+        let changed = self.availability(&place) != slot.availability;
+        let root = self.roots.get_mut(&root_place(&place)).expect("the joined root is published before its components");
+
+        if root.components.get(&place) != Some(&slot.availability) {
+            CurrentRoot::edit(root).components.insert(place, slot.availability);
+        }
+
+        changed
     }
 
     pub(super) fn write(&mut self, place: ExecutionPlace, value: CurrentValue,
@@ -253,6 +274,14 @@ impl CurrentValues {
     pub(super) fn live_entries(&self) -> impl Iterator<Item = (ExecutionPlace, ExecutionCondition)> + '_ {
         self.roots.iter().flat_map(|(place, root)| self.live_entries_at(place, root)
             .map(|(place, value)| (place.clone(), value.clone())))
+    }
+
+    /// Reads a complete live observation already exposed by the retained root.
+    pub(super) fn live_entry(&self, place: &ExecutionPlace) -> Option<&ExecutionCondition> {
+        let (root_place, root) = self.roots.get_key_value(&root_place(place))?;
+
+        self.live_entries_at(root_place, root)
+            .find_map(|(candidate, value)| (candidate == place).then_some(value))
     }
 
     fn live_entries_at<'a>(&'a self, place: &'a ExecutionPlace, root: &'a CurrentRoot)

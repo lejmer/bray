@@ -615,6 +615,15 @@ fn collect_observations(
         // Rebuilding an opaque value from projected fields changes its snapshot.
         if role != ObservationKind::Reference {
             insert_snapshot(inputs, joined, source);
+
+            if source.ownership_identity().is_some_and(|(role, _)| role == ObservationKind::Owned) {
+                let observed = joined.clone().borrowed().predicate_observation();
+                let previous = source.clone().borrowed().predicate_observation();
+
+                if !observed.contains_unknown() {
+                    insert_snapshot(inputs, &observed, &previous);
+                }
+            }
         }
     }
 

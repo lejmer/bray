@@ -111,13 +111,13 @@ mod tests {
 
         let middle = ExecutionCondition::result();
 
-        state.join_values(&crate::execution_guarantees::ExecutionSubstitution::new(&[(owner.clone(), middle.clone())].into(), &[(owner, middle.clone())].into()));
+        state.join_values(&crate::execution_guarantees::ExecutionSubstitution::new(&[(owner.clone(), middle.clone())].into(), &[(owner, middle.clone())].into()), true);
         assert!(carried(&state).producers[&expressions[0].into()].entry.assumptions.contains(&(captured.clone(), true)));
         assert!(carried(&state).producers[&expressions[0].into()].selection.contains(&(source.clone(), true)));
 
         state.current.insert(place, ExecutionCondition::boolean(false));
 
-        state.join_values(&crate::execution_guarantees::ExecutionSubstitution::new(&[(middle.clone(), middle.clone())].into(), &[(middle.clone(), middle.clone())].into()));
+        state.join_values(&crate::execution_guarantees::ExecutionSubstitution::new(&[(middle.clone(), middle.clone())].into(), &[(middle.clone(), middle.clone())].into()), true);
 
         let unchanged = &carried(&state).producers[&expressions[0].into()];
 
@@ -125,7 +125,7 @@ mod tests {
 
         let target = ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expressions[1]));
 
-        state.join_values(&crate::execution_guarantees::ExecutionSubstitution::new(&[(middle.clone(), target.clone())].into(), &[(middle, target.clone())].into()));
+        state.join_values(&crate::execution_guarantees::ExecutionSubstitution::new(&[(middle.clone(), target.clone())].into(), &[(middle, target.clone())].into()), true);
 
         let moved = &carried(&state).producers[&expressions[0].into()];
 
@@ -238,7 +238,7 @@ mod tests {
 
         state.join_values(&crate::execution_guarantees::ExecutionSubstitution::new(
             &[(unrelated, ExecutionCondition::boolean(true))].into(),
-            &Default::default()));
+            &Default::default()), true);
 
         assert!(Arc::ptr_eq(
             &entry,
@@ -257,7 +257,7 @@ mod tests {
 
         state.join_values(&crate::execution_guarantees::ExecutionSubstitution::new(
             &[(value.clone(), renamed.clone())].into(),
-            &[(value.clone(), renamed.clone())].into()));
+            &[(value.clone(), renamed.clone())].into()), true);
 
         let completed = &carried(&state).producers[&source].entry;
 

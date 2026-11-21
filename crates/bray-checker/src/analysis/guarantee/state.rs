@@ -795,16 +795,21 @@ impl ExecutionState {
     pub(super) fn join_values(
         &mut self,
         substitution: &ExecutionSubstitution<'_>,
+        keep_storage: bool,
     ) {
         if substitution.is_empty() {
             return;
         }
 
-        self.join_frame_values(substitution);
-        self.rename_values(substitution);
+        self.join_frame_values(substitution, keep_storage);
+        self.rename_observations(substitution, keep_storage);
     }
 
     pub(super) fn rename_values(&mut self, substitution: &ExecutionSubstitution<'_>) {
+        self.rename_observations(substitution, true);
+    }
+
+    fn rename_observations(&mut self, substitution: &ExecutionSubstitution<'_>, keep_storage: bool) {
         if !substitution.has_changes() {
             return;
         }
@@ -835,6 +840,10 @@ impl ExecutionState {
             .filter(|(condition, _)| *condition != ExecutionCondition::unknown())
             .collect();
 
+        if !keep_storage {
+            return;
+        }
+
         let mut ownership = super::ownership::OwnedResults::default();
 
         for (value, result) in std::mem::take(&mut self.owned_results) {
@@ -863,7 +872,7 @@ impl ExecutionState {
         self.current.update_values(rename);
     }
 
-    fn join_frame_values(&mut self, substitution: &ExecutionSubstitution<'_>) {
+    fn join_frame_values(&mut self, substitution: &ExecutionSubstitution<'_>, keep_storage: bool) {
         // Every frame reads the same predecessor values, including when its own slot changes.
         let changed = {
             let current = &self.current;
@@ -886,11 +895,13 @@ impl ExecutionState {
                 Some(if joined == **frame { std::sync::Arc::clone(frame) } else { std::sync::Arc::new(joined) })
             });
 
-            let changed = current.iter().filter_map(|(place, value)| {
-                let updated = update(value);
+            let changed = keep_storage.then(|| {
+                current.iter().filter_map(|(place, value)| {
+                    let updated = update(value);
 
-                (!std::ptr::eq(updated.kind(), value.kind())).then(|| (place.clone(), updated))
-            }).collect::<Vec<_>>();
+                    (!std::ptr::eq(updated.kind(), value.kind())).then(|| (place.clone(), updated))
+                }).collect::<Vec<_>>()
+            });
 
             Self::update_evaluated_values(
                 self.expressions.values_mut().chain(self.pending_results.values_mut()), &mut self.entries, update,
@@ -899,7 +910,9 @@ impl ExecutionState {
             changed
         };
 
-        self.current.install_rewritten_values(changed);
+        if let Some(changed) = changed {
+            self.current.install_rewritten_values(changed);
+        }
     }
 
     pub(super) fn assign(
