@@ -1,7 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
-use super::{ExecutionCallEvidence, ExecutionCondition};
+use super::{ExecutionCallEvidence, ExecutionCondition, ExecutionInput, ExecutionObservationKind, ExecutionProof};
+use crate::{ExecutionConditionKind as Kind, ExecutionPlace};
 use bray_bound_tree::{BoundExecutionSite, StorageDeferredProducer};
 
 type Selection = BTreeSet<(ExecutionCondition, bool)>;
@@ -40,6 +41,21 @@ pub struct ExecutionDeferredValue {
 }
 
 impl ExecutionDeferredValue {
+    /// Retains captured inputs and their evidence under the reached frame owner.
+    pub(crate) fn rebase_inputs(self: &Arc<Self>, holder: ExecutionPlace, proof: Option<&ExecutionProof<'_>>) -> Arc<Self> {
+        let holder = Arc::new(holder);
+        let mut updated = Arc::clone(self);
+
+        for (source, producer) in &self.producers {
+            if let Some(entry) = rebased_frame_entry(&producer.entry, &holder, proof) {
+                Arc::make_mut(&mut updated).producers.get_mut(source)
+                    .expect("rebasing retains the actual frame producer").entry = Arc::new(entry);
+            }
+        }
+
+        updated
+    }
+
     pub(crate) fn retiring_storage(
         self: &Arc<Self>,
         retirements: &[(bray_bound_tree::StorageTarget, bray_bound_tree::StorageValueRetirement)],
@@ -89,6 +105,111 @@ impl ExecutionDeferredValue {
         }
 
         Ok(mapped)
+    }
+}
+
+fn rebased_frame_entry(
+    entry: &ExecutionCallEvidence, holder: &Arc<ExecutionPlace>, proof: Option<&ExecutionProof<'_>>,
+) -> Option<ExecutionCallEvidence> {
+    let owners = frame_input_identities(entry, holder);
+    let copies = frame_input_copies(entry, holder, proof.is_some());
+    let values = owners.iter().chain(copies.iter()).map(|(old, reached)| (old.clone(), reached.clone())).collect();
+    let substitution = super::ExecutionSubstitution::new(&values, &owners);
+    let mut rebased = entry.joined_values(&substitution)?;
+
+    if let Some(proof) = proof && !copies.is_empty() {
+        // Import only premises about the immutable data being detached here.
+        // An already retained input keeps the facts in its own capture.
+        let captured = |value: &ExecutionCondition| value.selector_place().is_some() && copies.contains_key(value);
+
+        for (condition, holds) in proof.ordinary_premises() {
+            if !condition.contains_trusted() && condition.observes_only(&captured)
+                && condition.observations().any(&captured)
+            {
+                substitution.value(condition).assume(*holds, &mut rebased.assumptions);
+            }
+        }
+    }
+
+    Some(rebased)
+}
+
+fn frame_input_identities(entry: &ExecutionCallEvidence, holder: &Arc<ExecutionPlace>) -> BTreeMap<ExecutionCondition, ExecutionCondition> {
+    let mut owners = BTreeMap::new();
+
+    for (argument, value) in entry.positional_arguments() {
+        let Some((observation, _)) = value.storage_contents() else { continue; };
+        let source = frame_input_source(observation).map(Arc::clone).or_else(|| {
+            matches!(observation.kind(), Kind::PostState(_, _) | Kind::Expression(_))
+                .then(|| Arc::new(observation.clone()))
+        });
+        let Some(source) = source else { continue; };
+
+        // A captured copy no longer observes the staging slot for the next invocation.
+        owners.insert(observation.clone(), frame_input(holder, argument, source));
+    }
+
+    for argument in entry.owned_inputs.iter().copied() {
+        let Some(value) = entry.arguments.get(&ExecutionPlace::argument(argument)) else { continue; };
+        let mut pending = vec![value];
+        let mut visited = std::collections::HashSet::new();
+
+        while let Some(value) = pending.pop() {
+            if !visited.insert(std::ptr::from_ref(value.kind())) { continue; }
+
+            let ownership = value.ownership_identity();
+
+            if matches!(ownership, Some((ExecutionObservationKind::Reference, _))) { continue; }
+
+            pending.extend(value.owned_components());
+
+            let Some((ExecutionObservationKind::Owned, owner)) = ownership else { continue; };
+            let Some((root, _)) = owner.observation_path() else { continue; };
+            let source = frame_input_source(&root).map(Arc::clone)
+                .or_else(|| matches!(root.kind(), Kind::Expression(_)).then(|| Arc::new(root.clone())));
+            let Some(source) = source else { continue; };
+            let owned = frame_input(holder, argument, source);
+
+            owners.entry(root).and_modify(|prior| {
+                if *prior != owned { *prior = ExecutionCondition::unknown(); }
+            }).or_insert(owned);
+        }
+    }
+
+    owners
+}
+
+fn frame_input_copies(entry: &ExecutionCallEvidence, holder: &Arc<ExecutionPlace>, reached: bool) -> BTreeMap<ExecutionCondition, ExecutionCondition> {
+    let mut copies = BTreeMap::new();
+
+    for (argument, value) in entry.positional_arguments().filter(|(_, value)| !value.is_reference()) {
+        for observed in value.computed_value().observations() {
+            let Kind::ScalarValue(origin) = observed.kind() else { continue; };
+            let source = frame_input_source(origin).map(Arc::clone)
+                .or_else(|| (reached && origin.selector_place().is_some()).then(|| Arc::clone(origin)));
+            let Some(source) = source else { continue; };
+
+            copies.entry(observed.clone()).or_insert_with(|| {
+                // Rebind the datum itself. It can already sit inside a scalar observation.
+                ExecutionCondition::new(Kind::ScalarValue(Arc::new(frame_input(holder, argument, source))))
+            });
+        }
+    }
+
+    copies
+}
+
+fn frame_input(holder: &Arc<ExecutionPlace>, argument: bray_symbols::SymbolOrdinal, source: Arc<ExecutionCondition>) -> ExecutionCondition {
+    ExecutionCondition::new(Kind::Input(ExecutionPlace {
+        root: ExecutionInput::FrameInput { holder: Arc::clone(holder), argument, source },
+        projections: Arc::new([]),
+    }))
+}
+
+fn frame_input_source(value: &ExecutionCondition) -> Option<&Arc<ExecutionCondition>> {
+    match value.kind() {
+        Kind::Input(ExecutionPlace { root: ExecutionInput::FrameInput { source, .. }, .. }) => Some(source),
+        _ => None,
     }
 }
 

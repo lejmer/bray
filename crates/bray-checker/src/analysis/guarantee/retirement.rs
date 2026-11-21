@@ -113,10 +113,14 @@ impl ExecutionState {
 
         let observes = memoize_observations(|observed| invalidated_observations.overlaps(observed), &retained_data);
 
-        let observes_selection = memoize_observations(|observed| {
-            invalidated_observations.overlaps(observed)
-                || observed.selector_place().is_some_and(|place| place.overlaps_any(places))
-        }, &retained_data);
+        // A stored copy can retain data after its source stops selecting a frame.
+        let observes_changed_selector = memoize_observations(|observed| {
+            observed.selector_place().is_some_and(|place| place.overlaps_any(places))
+        }, |_| false);
+
+        let observes_selection = |condition: &ExecutionCondition| {
+            observes(condition) || !places.is_empty() && observes_changed_selector(condition)
+        };
 
         let borrowed_slot_changed = memoize_observations(|observed| {
             let crate::ExecutionConditionKind::Borrowed(value) = observed.kind() else {
@@ -792,7 +796,10 @@ mod tests {
         assert_ne!(field_claim.prove_trusted(&state.trusted_assumptions, &state.assumptions), Some(true));
         assert_eq!(sibling_claim.prove_trusted(&state.trusted_assumptions, &state.assumptions), Some(true));
 
-        state.invalidate_contents(&[place].into(), [], &Default::default(), &Default::default());
+        let mut retained_data = crate::execution_guarantees::ObservationSet::default();
+
+        retained_data.preserve_copied_data([selector.clone()]);
+        state.invalidate_contents(&[place].into(), [], &Default::default(), &retained_data);
 
         let value = state.current.live_value(&ExecutionPlace::argument(SymbolOrdinal::new(2))).unwrap();
         let frame = value.deferred_value().unwrap();

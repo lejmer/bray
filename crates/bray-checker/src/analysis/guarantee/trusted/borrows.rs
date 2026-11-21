@@ -468,7 +468,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     match &mut joined {
                         None => joined = Some((branch, value)),
                         Some((previous, previous_value)) => {
-                            *previous_value = super::super::flow::merge_returned(previous, &branch, previous_value, &value, &root, match (root.owner_identity()).kind() { crate::ExecutionConditionKind::Expression(expression) => *expression, _ => invocation.expression().expect("normal result alternative retains its invocation expression") });
+                            *previous_value = super::super::flow::merge_returned(previous, &branch, previous_value, &value, &root, match (root.owner_identity()).kind() { crate::ExecutionConditionKind::Expression(expression) => *expression, _ => invocation.expression().expect("normal result alternative retains its invocation expression") }, None);
                         }
                     }
                 }

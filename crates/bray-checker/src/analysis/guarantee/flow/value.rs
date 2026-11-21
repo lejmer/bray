@@ -330,6 +330,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     {
                         self.storage.storage_type(identity)
                     }
+                    crate::execution_guarantees::ExecutionInput::FrameInput { ref source, .. }
+                        if place.projections.is_empty() => self.observation_type(source),
                     crate::execution_guarantees::ExecutionInput::Pointee { ty, .. }
                         if place.projections.is_empty() => Some(ty),
                     _ => None,

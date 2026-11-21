@@ -240,6 +240,7 @@ fn place<C: CheckerRequestContext + ?Sized>(
             }
         }
         ExecutionInput::Argument(ordinal) => Condition::Argument(ordinal.raw()),
+        ExecutionInput::FrameInput { source, .. } => condition(domain, source, budget)?,
         ExecutionInput::Constant(term) => term_value(domain, *term, budget)?,
         ExecutionInput::Static(selection) => Condition::Source(symbol_path(domain, selection.template().declaration().into())?.join(".")),
         ExecutionInput::Pointee { producer, .. } => match producer {

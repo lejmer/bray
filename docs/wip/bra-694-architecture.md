@@ -185,8 +185,16 @@ operations. [CFG operation kinds and phases](../../crates/bray-checker/src/analy
 
 Each prepared publication retains its source outcome row when several reached destinations join. Proof and storage flow use the same frame-alternative selection. Nullable and union refinements consume the checked discriminant observations, including tags whose payloads changed while the tag stayed live.
 An outcome join receives both actual result values and their current states.
+When a result already occupies its planned slot, the slot and expression
+share one joined value and owner.
 The shared join uses the result selector when preserving conditional facts
 about current writes, ownership, and witnesses.
+
+At a storage join, each held frame binds its moved inputs and copied
+observations to its reached owner. It retains the copied data and its facts
+separately from the staging slot and from the selectors used to choose the
+producer. A write can invalidate a selector or live referent while the
+frame still retains its immutable data.
 
 Storage flow publishes normal observation frames by exact CFG operation. Call and await attempts retain the set
 of portable rows that reached each frame. Certification selects the covered rows, or uses the combined frame

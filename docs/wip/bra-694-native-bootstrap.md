@@ -276,19 +276,19 @@ both slots, valid transfers, active Boolean and numeric rejections,
 inactive and independent-owner controls, genuine opacity, and source
 and imported outcomes against the fixed comparison.
 
-The private input scope preserves the witness for both same-site frame
-transfers and rejects both active Boolean extractions. A copied numeric
-input still becomes unknown before activation. The frame's captured data
-and facts about that data must survive the join independently of the
-control-flow selector and later writes to its source slot.
+The private input scope retains copied numeric data before activation.
+It binds the staging observation and copied datum separately. Reusing the
+staging slot or changing an earlier selector can expire its old observation
+while the held frame keeps the copied data and its facts.
 
 In the widened case each normal branch publishes the returned witness.
-The first composite completion merge changes the public owner to the
-actual await result and loses the witness. A completed transfer must bind
-the witness and its supporting observations to the reached output owner.
-The old frame identity cannot supply authority after the holder is reused.
-Abnormal outcomes contribute their performed effects and no normal result
-evidence. Check direct await, task join, and cancellation.
+The composite completion join uses the actual result in the planned slot
+for both current storage and the expression, so both consumers retain the
+same owner. Check private input identities through a nested frame and a
+single normal output as well. A completed transfer binds the witness and
+its supporting observations to the reached output owner. Abnormal outcomes
+contribute their performed effects and no normal result evidence. Check
+direct await, task join, and cancellation.
 
 The storage footprint records inline reference fields as descriptor slots.
 An effect on a sibling can invalidate the enclosing value while the checked
@@ -640,6 +640,9 @@ edges.
    native replacements. The comparison at `0f9f3d0cc` had 1,665 passes and
    44 failures. The two conditional absent transfers and the caught nullable
    result recovered, with no new failures since `020191205`.
+   The following capture and completion checkpoint passed 573 checker tests,
+   all 305 deferred-completion cases, and all 529 ownership cases in the
+   optimized test binaries. The full comparison is still pending for it.
    Repeat the comparison after the remaining refactor and bootstrap repairs.
 3. After the refactor, check the owner entry, dispatch, and registration paths,
    including `dispatch_ready` and `start_frame`. Trace the allocation reached

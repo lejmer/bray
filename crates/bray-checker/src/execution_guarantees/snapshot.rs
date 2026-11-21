@@ -39,12 +39,23 @@ pub(crate) fn common_components(
     if matches!(left.kind(), crate::ExecutionConditionKind::DeferredValue { .. })
         || matches!(right.kind(), crate::ExecutionConditionKind::DeferredValue { .. })
     {
+        // An extraction view keeps its nullable owner and reads its existing payload.
+        if [left, right].iter().any(|value| value.nullable_payload_snapshot()
+            .is_some_and(|payload| payload.deferred_value().is_some()))
+        {
+            return common_data_components(left, right, result, conditions, facts, budget);
+        }
+
+        let holder = result.as_ref().and_then(ExecutionCondition::selector_place);
+
         let split = |value: &ExecutionCondition, proof: &ExecutionProof<'_>, other: &ExecutionProof<'_>| {
             let guard = proof.distinguishing_facts(other);
 
             match value.kind() {
                 crate::ExecutionConditionKind::DeferredValue { value, frame } => {
-                    let mut frame = frame.as_ref().clone();
+                    let mut frame = holder.clone().map_or_else(|| frame.as_ref().clone(), |holder| {
+                        std::sync::Arc::unwrap_or_clone(frame.rebase_inputs(holder, Some(proof)))
+                    });
 
                     frame.constrain_selection(&guard);
 
@@ -256,7 +267,7 @@ fn common_data_components(
             if left_inactive != right_inactive {
                 // Only the active predecessor initializes this payload. Retain
                 // its components under the joined conditional owner.
-                let initialized = if left_inactive { right } else { left };
+                let (initialized, proof) = if left_inactive { (right, conditions.1) } else { (left, conditions.0) };
                 let payload = initialized.clone().project(projection);
 
                 // A retained physical tag selects the same existing payload.
@@ -265,10 +276,11 @@ fn common_data_components(
 
                 return (
                     projection,
-                    owned_snapshot(
+                    owned_snapshot_with_proof(
                         &payload,
                         identity.clone().project(projection),
                         budget,
+                        Some(proof),
                     ),
                 );
             }
@@ -390,6 +402,15 @@ pub(crate) fn owned_snapshot(
     identity: ExecutionCondition,
     budget: &mut usize,
 ) -> ExecutionCondition {
+    owned_snapshot_with_proof(source, identity, budget, None)
+}
+
+fn owned_snapshot_with_proof(
+    source: &ExecutionCondition,
+    identity: ExecutionCondition,
+    budget: &mut usize,
+    proof: Option<&ExecutionProof<'_>>,
+) -> ExecutionCondition {
     // A snapshot already owned by this destination keeps its nested producers.
     // Reanchoring it again would move children despite no owner transfer.
     if matches!(source.kind(), crate::ExecutionConditionKind::Observation { owner, kind: ObservationKind::Owned, .. }
@@ -404,7 +425,7 @@ pub(crate) fn owned_snapshot(
     *budget = remaining;
 
     if let Some(snapshot) = source.nullable_payload_snapshot() {
-        return owned_snapshot(snapshot, identity, budget);
+        return owned_snapshot_with_proof(snapshot, identity, budget, proof);
     }
 
     if source.ownership_identity().is_some_and(|(role, _)| role == ObservationKind::Reference) {
@@ -412,10 +433,15 @@ pub(crate) fn owned_snapshot(
     }
 
     match source.kind() {
-        crate::ExecutionConditionKind::DeferredValue { value, frame } =>
-            owned_snapshot(value, identity, budget).with_deferred_value(std::sync::Arc::clone(frame)),
+        crate::ExecutionConditionKind::DeferredValue { value, frame } => {
+            let frame = identity.selector_place().map_or_else(|| std::sync::Arc::clone(frame), |holder| {
+                frame.rebase_inputs(holder, proof)
+            });
+
+            owned_snapshot_with_proof(value, identity, budget, proof).with_deferred_value(frame)
+        }
         crate::ExecutionConditionKind::CapturedValue { value, storage } =>
-            owned_snapshot(value, identity, budget).captured_value(storage.clone()),
+            owned_snapshot_with_proof(value, identity, budget, proof).captured_value(storage.clone()),
         crate::ExecutionConditionKind::Observation { contents, kind: ObservationKind::Scalar, .. }
             if contents.ownership_identity().is_none() => {
             ExecutionCondition::scalar_observation(identity, contents.as_ref().clone())
@@ -425,12 +451,14 @@ pub(crate) fn owned_snapshot(
             ExecutionCondition::reference_value(identity, contents.as_ref().clone())
         }
         crate::ExecutionConditionKind::Observation { contents, kind: ObservationKind::Owned, .. } => {
-            let data = owned_snapshot(contents, identity.clone(), budget);
+            let data = owned_snapshot_with_proof(contents, identity.clone(), budget, proof);
 
             ExecutionCondition::owned_value(identity, data)
         }
         crate::ExecutionConditionKind::Constructed(base, fields) => {
-            let base = if **base == ExecutionCondition::unknown() { identity.clone() } else { owned_snapshot(base, identity.clone(), budget) };
+            let base = if **base == ExecutionCondition::unknown() { identity.clone() } else {
+                owned_snapshot_with_proof(base, identity.clone(), budget, proof)
+            };
 
             // A tag describes contents. Its initialized fields still belong to the supplied owner.
             let parent = base.ownership_identity().filter(|(role, _)| *role == ObservationKind::Owned)
@@ -443,10 +471,11 @@ pub(crate) fn owned_snapshot(
                 .map(|(field, value)| {
                     (
                         *field,
-                        owned_snapshot(
+                        owned_snapshot_with_proof(
                             value,
                             parent.clone().project(*field),
                             budget,
+                            proof,
                         ),
                     )
                 })
@@ -455,13 +484,15 @@ pub(crate) fn owned_snapshot(
             ExecutionCondition::constructed(base, fields)
         }
         crate::ExecutionConditionKind::Tagged(variant, value) => {
-            ExecutionCondition::new(crate::ExecutionConditionKind::Tagged(*variant, std::sync::Arc::new(owned_snapshot(value, identity, budget))))
+            ExecutionCondition::new(crate::ExecutionConditionKind::Tagged(*variant,
+                std::sync::Arc::new(owned_snapshot_with_proof(value, identity, budget, proof))))
         }
         crate::ExecutionConditionKind::Present(value) => {
-            let payload = owned_snapshot(
+            let payload = owned_snapshot_with_proof(
                 value,
                 identity.clone().project(bray_bound_tree::StorageProjection::NullableValue),
                 budget,
+                proof,
             );
 
             ExecutionCondition::owned_value(identity, ExecutionCondition::new(crate::ExecutionConditionKind::Present(std::sync::Arc::new(payload))))

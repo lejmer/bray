@@ -65,6 +65,11 @@ pub(crate) enum ExecutionInput {
     Constant(bray_symbols::ConstantTermId),
     Static(Arc<bray_symbols::StaticReferenceSelection>),
     Argument(bray_symbols::SymbolOrdinal),
+    FrameInput {
+        holder: Arc<ExecutionPlace>,
+        argument: bray_symbols::SymbolOrdinal,
+        source: Arc<super::ExecutionCondition>,
+    },
     Storage(bray_bound_tree::StorageIdentityId),
     Pointee {
         target: bray_bound_tree::StorageTarget,
@@ -197,6 +202,7 @@ impl ExecutionPlace {
             ExecutionInput::Reference(reference) => Some(*reference),
             ExecutionInput::Constant(_)
             | ExecutionInput::Argument(_)
+            | ExecutionInput::FrameInput { .. }
             | ExecutionInput::Static(_)
             | ExecutionInput::Storage(_)
             | ExecutionInput::Pointee { .. } => None,

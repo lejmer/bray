@@ -805,12 +805,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             let mut branch = state.clone();
             let incoming = complete(&mut branch, row);
 
-            value = super::merge_returned(&mut completed, &branch, &value, &incoming, result, expression);
+            value = super::merge_returned(&mut completed, &branch, &value, &incoming, result, expression, None);
         }
 
         let incoming = complete(state, last);
 
-        value = super::merge_returned(&mut completed, state, &value, &incoming, result, expression);
+        value = super::merge_returned(&mut completed, state, &value, &incoming, result, expression, None);
         *state = completed;
 
         Some(value)

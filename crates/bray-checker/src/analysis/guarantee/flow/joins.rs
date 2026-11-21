@@ -133,11 +133,13 @@ pub(in crate::analysis::guarantee) fn merge_returned(
     right_value: &ExecutionCondition,
     root: &ExecutionCondition,
     expression: bray_bound_tree::BoundExpressionId,
+    published: Option<&crate::ExecutionPlace>,
 ) -> ExecutionCondition {
     super::merge::join_states(target, incoming, super::merge::ExecutionJoin::Result {
         expression,
         sources: [left_value, right_value],
         root,
+        published,
     });
 
     target.pending_results.remove(&expression).expect("a reached outcome join publishes its result")
@@ -893,7 +895,7 @@ mod nested_guard_tests {
             let present = (0..depth).fold(input(0), |value, _| value.present());
 
             let joined = merge_returned(&mut left, &ExecutionState::default(), &present, &absent,
-                &ExecutionCondition::result(), expressions[0]);
+                &ExecutionCondition::result(), expressions[0], None);
 
             let mut selected = joined;
 
@@ -1013,7 +1015,7 @@ mod nested_guard_tests {
                 claim.assume(true, &mut present.trusted_assumptions);
 
                 let joined = merge_returned(&mut present, &missing, &value.present(), &absent,
-                    &ExecutionCondition::result(), expressions[0]);
+                    &ExecutionCondition::result(), expressions[0], None);
 
                 let required = permission(copied);
 
@@ -1072,7 +1074,7 @@ mod nested_guard_tests {
                 [(StorageProjection::NullableValue, ExecutionCondition::unknown())].into());
 
             let joined = merge_returned(&mut left, &ExecutionState::default(), &present, &inactive,
-                &ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expressions[0])), expressions[0]);
+                &ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expressions[0])), expressions[0], None);
 
             let required = held(joined.clone());
 
@@ -1148,13 +1150,13 @@ mod nested_guard_tests {
             let mut inner = states[second].clone();
 
             let inner_value = merge_returned(&mut inner, &states[third], &alternatives[second], &alternatives[third],
-                &ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expressions[0])), expressions[0]);
+                &ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expressions[0])), expressions[0], None);
 
             let mut outer = states[first].clone();
             let expression = expressions[usize::from(!same_region)];
 
             let joined = merge_returned(&mut outer, &inner, &alternatives[first], &inner_value,
-                &ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expression)), expression);
+                &ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expression)), expression, None);
 
             let (nullable, tagged, payload) = if nullable_outer {
                 let tagged = joined.clone().project(StorageProjection::NullableValue);
@@ -1218,15 +1220,30 @@ mod nested_guard_tests {
             (state, value)
         };
 
-        let (mut left, left_value) = predecessor(expressions[0]);
+        let (left, left_value) = predecessor(expressions[0]);
 
         let (right, right_value) = predecessor(expressions[1]);
 
         let result = ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expressions[2]));
-        let joined = merge_returned(&mut left, &right, &left_value, &right_value, &result, expressions[2]);
 
-        assert!(joined.inline_captured_storage().is_some());
-        assert_eq!(held(joined).prove_trusted(&left.trusted_assumptions, &left.assumptions), Some(true));
+        for published in [None, Some(ExecutionPlace::argument(SymbolOrdinal::new(0)))] {
+            let mut left = left.clone();
+            let mut right = right.clone();
+
+            if let Some(place) = &published {
+                left.current.insert(place.clone(), left_value.clone());
+                right.current.insert(place.clone(), right_value.clone());
+            }
+
+            let joined = merge_returned(&mut left, &right, &left_value, &right_value, &result, expressions[2], published.as_ref());
+
+            assert!(joined.inline_captured_storage().is_some());
+            assert_eq!(held(joined.clone()).prove_trusted(&left.trusted_assumptions, &left.assumptions), Some(true));
+
+            if let Some(place) = published {
+                assert_eq!(left.current.live_value(&place), Some(joined));
+            }
+        }
     }
 
     #[test]
@@ -1257,7 +1274,7 @@ mod nested_guard_tests {
         guard.clone().assume(true, &mut left.assumptions);
         guard.clone().assume(false, &mut right.assumptions);
 
-        let joined = merge_returned(&mut left, &right, &owner, &copied, &destination, expressions[0]);
+        let joined = merge_returned(&mut left, &right, &owner, &copied, &destination, expressions[0], None);
 
         assert_eq!(joined.ownership_identity(), Some((crate::execution_guarantees::ExecutionObservationKind::Owned, &destination)));
         assert!(!owner.is_owned_projection_of(&joined));
@@ -1314,7 +1331,7 @@ mod nested_guard_tests {
 
             let joined = merge_returned(
                 &mut left, &ExecutionState::default(), &accepted, &failure,
-                &ExecutionCondition::result(), expressions[0],
+                &ExecutionCondition::result(), expressions[0], None,
             );
 
             let active = ExecutionCondition::operation(bray_bound_tree::BoundOperator::LogicalAnd, vec![
@@ -1376,7 +1393,7 @@ mod nested_guard_tests {
         )))));
 
         let joined = merge_returned(&mut left, &right, &accepted, &rejected,
-            &ExecutionCondition::result(), expressions[0]);
+            &ExecutionCondition::result(), expressions[0], None);
 
         joined.clone().matches_variant(active).assume(true, &mut left.assumptions);
 

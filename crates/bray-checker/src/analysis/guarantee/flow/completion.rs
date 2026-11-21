@@ -408,9 +408,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         expression: BoundExpressionId,
     ) {
         let root = ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expression));
-        let left = self.value(target, expression);
-        let right = self.value(incoming, expression);
-        let value = super::merge_returned(target, incoming, &left, &right, &root, expression);
+        let (published, left, right) = self.invocation_result_place(expression.into()).and_then(|place| {
+            let left = target.current.live_value(&place)?;
+            let right = incoming.current.live_value(&place)?;
+
+            Some((Some(place), left, right))
+        }).unwrap_or_else(|| (None, self.value(target, expression), self.value(incoming, expression)));
+
+        let value = super::merge_returned(target, incoming, &left, &right, &root, expression, published.as_ref());
 
         self.publish_expression(target, expression, value);
     }

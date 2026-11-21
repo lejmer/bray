@@ -636,7 +636,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         };
 
         let merge_producer = |previous: &mut ExecutionState, previous_value: &ExecutionCondition, branch: &ExecutionState, value: &ExecutionCondition| {
-            super::super::merge_returned(previous, branch, previous_value, value, root, expression)
+            super::super::merge_returned(previous, branch, previous_value, value, root, expression, None)
         };
 
         for producer in producers.filter(feasible) {
@@ -726,7 +726,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let value = ExecutionCondition::constructed(tagged, [(projection, value)].into());
 
         let joined =
-            super::super::merge_returned(&mut normal, state, &value, &root, &root, expression);
+            super::super::merge_returned(&mut normal, state, &value, &root, &root, expression, None);
 
         *state = normal;
 

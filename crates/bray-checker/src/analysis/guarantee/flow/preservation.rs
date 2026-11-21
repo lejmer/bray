@@ -699,7 +699,7 @@ mod tests {
         assert!(current.owned_result(&value).is_empty(), "current-value join retains explicit no-transfer information");
 
         let returned = super::super::joins::merge_returned(&mut current, &states[1].0, &value, &states[1].1,
-            &ExecutionCondition::new(crate::ExecutionConditionKind::Expression(sites[2])), sites[2]);
+            &ExecutionCondition::new(crate::ExecutionConditionKind::Expression(sites[2])), sites[2], None);
 
         assert!(current.owned_result(&returned).is_empty(), "result publication retains explicit no-transfer information");
     }

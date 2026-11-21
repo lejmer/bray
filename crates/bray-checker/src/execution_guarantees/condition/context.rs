@@ -269,6 +269,10 @@ impl<'a> ExecutionProof<'a> {
             .filter(|(condition, _)| !condition.contains_trusted())
     }
 
+    pub(in crate::execution_guarantees) fn ordinary_premises(&self) -> &BTreeSet<(ExecutionCondition, bool)> {
+        self.ordinary
+    }
+
     /// Actual ordinary branch premises with opposite values on the other predecessor.
     pub(in crate::execution_guarantees) fn distinguishing_facts(&self, other: &Self) -> BTreeSet<(ExecutionCondition, bool)> {
         self.ordinary.iter().filter(|(condition, holds)| {

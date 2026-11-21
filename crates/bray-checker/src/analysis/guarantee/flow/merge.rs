@@ -22,6 +22,7 @@ pub(in crate::analysis) enum ExecutionJoin<'a> {
         expression: bray_bound_tree::BoundExpressionId,
         sources: [&'a ExecutionCondition; 2],
         root: &'a ExecutionCondition,
+        published: Option<&'a crate::ExecutionPlace>,
     },
 }
 
@@ -245,10 +246,16 @@ fn join_observations<'a>(
     let mut availability_guards = std::collections::BTreeSet::new();
     let mut availability_facts = Vec::new();
 
+    let published = match join {
+        ExecutionJoin::Result { published, .. } => published,
+        _ => None,
+    };
+
     let observed = target
         .current
         .keys()
         .chain(incoming.current.keys())
+        .chain(published)
         .collect::<std::collections::BTreeSet<_>>();
 
     let contents = super::joins::current_content_identities(target, incoming, &observed, join.observation_site());
@@ -373,14 +380,18 @@ fn join_observations<'a>(
             _ => ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expression)),
         };
 
-        let joined = common_components(
-            value,
-            other,
-            Some(root),
-            (&target.proofs.ordinary_proof(&target.assumptions), &incoming.proofs.ordinary_proof(&incoming.assumptions)),
-            &mut joined_facts,
-            &mut { ExecutionCondition::WORK_LIMIT },
-        );
+        let joined = match published {
+            Some(place) => joined_values.get(place)
+                .expect("the published result has a joined storage value").clone(),
+            _ => common_components(
+                value,
+                other,
+                Some(root),
+                (&target.proofs.ordinary_proof(&target.assumptions), &incoming.proofs.ordinary_proof(&incoming.assumptions)),
+                &mut joined_facts,
+                &mut { ExecutionCondition::WORK_LIMIT },
+            ),
+        };
 
         joins |= value != &joined || other != &joined;
 
@@ -509,6 +520,13 @@ fn join_current_value(
 ) -> CurrentValue {
     let site = join.observation_site();
     let result = || site.map(|site| {
+        if let ExecutionJoin::Result { root, published: Some(published), .. } = join
+            && published.contains(place)
+        {
+            return place.projections[published.projections.len()..].iter().copied()
+                .fold(root.clone(), ExecutionCondition::component);
+        }
+
         if let Some((_, owner)) = super::joins::common_current_owner(left.1, right.1) {
             let shared = owner.with_snapshots(contents);
 
