@@ -3,6 +3,40 @@ use bray_bound_tree::StorageProjection;
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{DependencyProjection, TypeData, TypeId};
 
+/// Tests separation of the actual backing selected from two admitted buffer owners.
+pub(crate) fn buffer_backings_disjoint(
+    values: &bray_symbols::SemanticValueStore,
+    storage: &bray_bound_tree::StoragePlan,
+    left: &bray_bound_tree::StorageTarget,
+    right: &bray_bound_tree::StorageTarget,
+) -> bool {
+    use bray_bound_tree::{StorageOrigin, StoragePath, StorageRelationship};
+    use bray_symbols::{BorrowKind, DependencyReferenceKind};
+
+    if !left.is_exact() || !right.is_exact() {
+        return false;
+    }
+
+    if left.relationship_in_slots(right, storage.identities()) == StorageRelationship::Disjoint {
+        return true;
+    }
+
+    let exclusive_input = |target: &bray_bound_tree::StorageTarget| {
+        let StorageOrigin::Entry { reference, layer: 1, kind: DependencyReferenceKind::Borrow, projections } = &target.origin
+        else { return None; };
+        let (StorageProjection::OwnedTarget, owner_path) = projections.split_last()? else { return None; };
+        let ty = storage.storage_type(reference.root)?;
+
+        (reference.projections.is_empty() && StoragePath::inline_projections(owner_path)
+            && matches!(values.type_data(ty).as_ref(), TypeData::Borrow { kind: BorrowKind::Mutable, .. }))
+            .then_some(reference.root)
+    };
+
+    // Entry permissions separate the inline owners. The selected backings belong
+    // to those linear owners and preserve that separation across the relocation.
+    matches!((exclusive_input(left), exclusive_input(right)), (Some(left), Some(right)) if left != right)
+}
+
 pub(crate) fn static_subject_type<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     root: bray_symbols::DependencySubjectRoot,

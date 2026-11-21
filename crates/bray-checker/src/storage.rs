@@ -10,6 +10,7 @@ mod scope;
 pub(crate) use plan::plan_storage;
 pub use projection::projected_storage_type;
 pub(crate) use projection::{
+    buffer_backings_disjoint,
     effect_reference_path,
     dependency_projection, dependency_projections, expression_storage_projections, nullable_wrapping, owned_storage_preservation, owned_storage_projections, projected_value_type, projected_owned_type,
     value_dependency_projection,

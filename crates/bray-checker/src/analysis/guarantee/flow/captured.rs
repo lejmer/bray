@@ -544,7 +544,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         captures: &[bray_bound_tree::StorageValueCapture],
         entry: &mut crate::ExecutionCallEvidence,
     ) {
-        use bray_bound_tree::{CheckedMemoryOperationKind, StorageRelationship};
+        use bray_bound_tree::CheckedMemoryOperationKind;
         use crate::ExecutionConditionKind as K;
 
         if !invocation.expression().and_then(|expression| self.memory.operation(expression))
@@ -567,7 +567,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let (Some(source), Some(destination)) = (source.known_address(), destination.known_address()) else { return; };
 
-        if source.relationship_in_slots(destination, self.storage.identities()) != StorageRelationship::Disjoint {
+        if !crate::storage::buffer_backings_disjoint(self.request.semantic_values(), self.storage, source, destination) {
             return;
         }
 

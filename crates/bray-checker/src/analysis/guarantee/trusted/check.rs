@@ -4,7 +4,7 @@ use super::super::flow::ExecutionFlowDomain;
 use super::super::state::ExecutionState;
 use crate::analysis::id::AnalysisBlockId;
 use crate::{CheckerRequestContext, CheckerUnitView, ExecutionCondition};
-use bray_bound_tree::{AnyBoundNodeId, BoundExpressionId, CheckedExpressionSemantics};
+use bray_bound_tree::{AnyBoundNodeId, BoundExpressionId, CheckedExpressionSemantics, MemoryOperationStatus};
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticExpressionCategory, DiagnosticKind,
     DiagnosticLabel, DiagnosticLabelKind, DiagnosticNote, DiagnosticNoteKind, SeverityKind,
@@ -279,6 +279,7 @@ impl TrustedChecks {
     pub(in crate::analysis) fn finish<C: CheckerRequestContext + ?Sized>(
         self,
         domain: &ExecutionFlowDomain<'_, '_, C>,
+        memory_decisions: &BTreeMap<BoundExpressionId, MemoryOperationStatus>,
     ) -> crate::CheckerQueryResult<DiagnosticBag, C::UpstreamError> {
         let mut diagnostics = DiagnosticBag::new();
 
@@ -331,6 +332,14 @@ impl TrustedChecks {
         }
 
         for (invocation, (_, failure)) in self.failed {
+            if let bray_bound_tree::BoundExecutionSite::Node(AnyBoundNodeId::Expression(expression)) = invocation
+                && memory_decisions.get(&expression) == Some(&MemoryOperationStatus::UninitializedRawStorage)
+                && domain.initialization_requirement()(failure.actual())
+            {
+                // The physical initialization diagnostic carries this failure and its origin.
+                continue;
+            }
+
             let kind = if matches!(invocation, bray_bound_tree::BoundExecutionSite::ScopedExit(_)) {
                 bray_diagnostics::DiagnosticContractObligationKind::CleanupRequirement
             } else {
@@ -444,26 +453,40 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let initialized = requirements.is_ok() || empty_copy || {
             // Failure of another requirement must not erase established initialization.
             // Resolve these identities only on the failing path.
-            let provider = self.request.context().available_compiler_known_symbols().provider();
-
-            let predicates = ["InitializedAs", "InitializedRangeAs"].map(|name| {
-                provider.declaration_symbol::<bray_symbols::PredicateSymbolId>(
-                    &bray_compiler_known::CompilerKnownDeclarationKey::try_new(name)
-                        .expect("closed initialization predicate key must be valid"),
-                ).map(bray_symbols::PredicateDefinitionSymbolId::from)
-            });
+            let is_initialization = self.initialization_requirement();
 
             // Conditions share their immutable operand trees with the call contract.
-            let initialization = contract.requirements.iter().filter(|condition| {
-                matches!(condition.kind(), crate::ExecutionConditionKind::Trusted(value)
-                    if matches!(value.as_ref().kind(), crate::ExecutionConditionKind::Predicate(predicate, _, _)
-                        if predicates.contains(&Some(*predicate))))
-            }).cloned().collect::<Vec<_>>();
+            let initialization = contract.requirements.iter()
+                .filter(|condition| is_initialization(condition))
+                .cloned().collect::<Vec<_>>();
 
             !initialization.is_empty() && self.prove_trusted_requirements(evidence, &initialization).is_ok()
         };
 
         Some(MemoryCallEvidence { requirements, initialized, empty_copy })
+    }
+
+    fn initialization_requirement(&self) -> impl Fn(&ExecutionCondition) -> bool {
+        use crate::ExecutionConditionKind as Kind;
+
+        let provider = self.request.context().available_compiler_known_symbols().provider();
+
+        let predicates = ["InitializedAs", "InitializedRangeAs"].map(|name| {
+            let key = bray_compiler_known::CompilerKnownDeclarationKey::try_new(name)
+                .expect("closed initialization predicate key must be valid");
+
+            provider.declaration_symbol::<bray_symbols::PredicateSymbolId>(&key)
+                .map(bray_symbols::PredicateDefinitionSymbolId::from)
+        });
+
+        move |condition| {
+            let predicate = match condition.kind() {
+                Kind::Trusted(value) => value.as_ref(),
+                _ => condition,
+            };
+
+            matches!(predicate.kind(), Kind::Predicate(predicate, _, _) if predicates.contains(&Some(*predicate)))
+        }
     }
 }
 

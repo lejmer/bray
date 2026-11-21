@@ -107,7 +107,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 .with_inactive_payloads(inactive_payloads));
         }
 
-        diagnostics.add_range(std::mem::take(&mut self.trusted).finish(self.execution)?);
+        diagnostics.add_range(std::mem::take(&mut self.trusted).finish(self.execution, &self.memory_decisions)?);
 
         let relations = bray_symbols::CapturedValueOutcome::reference_origins(&captured_values, DependencySubject::contains);
         let normal = !captured_values.is_empty();

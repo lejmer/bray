@@ -412,8 +412,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 };
 
                 if let (Some(source), Some(destination)) = (address(&source_regions), address(&destination_regions))
-                    && !source.previous && !destination.previous
-                    && source.relationship_in_slots(&destination, self.storage.identities()) == bray_bound_tree::StorageRelationship::Disjoint
+                    && crate::storage::buffer_backings_disjoint(self.request.semantic_values(), self.storage, &source, &destination)
                 {
                     state.memory.stage_value(call, &source, destination);
                     state.memory.stage_null(call, source);
