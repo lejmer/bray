@@ -64,6 +64,7 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
                     kind: bray_symbols::DependencyMutationKind::Dispose(ty), access_type: Some(ty),
                 },
             ])?;
+
             let mut subjects = std::collections::BTreeMap::new();
 
             for effect in &effects {
@@ -115,6 +116,7 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
             let paths = crate::dependency::prepare_effect_paths(request, &effects, |subject| {
                 subjects.get(subject).map(|(ty, _)| *ty)
             })?;
+
             let storage = bray_bound_tree::BoundCallStorage::new(subjects, [], Default::default()).with_effect_paths(paths);
 
             self.buffer_cleanup_effects.insert(ty, effects);

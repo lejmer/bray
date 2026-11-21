@@ -34,6 +34,7 @@ impl Compilation {
         let mut diagnostics = DiagnosticBag::new();
 
         let roots = self.declared_unit_keys()?;
+
         let root_diagnostics = self.state.fact_runtime.map_indexed(roots.len(), |index| {
             self.execution_root_diagnostics(&roots[index], cancellation)
         })?;

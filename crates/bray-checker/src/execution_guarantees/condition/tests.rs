@@ -1185,11 +1185,13 @@ fn retained_borrow_paths_do_not_retain_the_referents_ownership() {
 
     assert!(live.retains_witness_carrier(&field, |referent| referent == &field));
     assert!(!live.retains_owner(&field));
+
     let unrelated = ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(1))));
 
     assert!(!live.retains_witness_carrier(&unrelated, |_| true));
 
     let descriptor = unrelated.clone();
+
     let reached = super::RetainedSnapshots::from_iter([
         ExecutionCondition::reference_value(descriptor.clone(), field.clone()),
     ]);
@@ -1204,8 +1206,10 @@ fn predicate_observations_read_nested_reference_context_without_changing_carrier
     let input = |ordinal| ExecutionCondition::new(crate::ExecutionConditionKind::Input(
         ExecutionPlace::argument(SymbolOrdinal::new(ordinal)),
     ));
+
     let owner = input(0);
     let data = ExecutionCondition::boolean(true);
+
     let nested = |contents| ExecutionCondition::constructed(input(2), [(
         bray_bound_tree::StorageProjection::TupleElement(SymbolOrdinal::new(0)),
         ExecutionCondition::reference_value(owner.clone(), contents),

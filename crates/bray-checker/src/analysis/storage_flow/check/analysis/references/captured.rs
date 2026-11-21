@@ -438,12 +438,16 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         };
 
         let operand = awaited.operand();
+
         let Some(coordinate) = self.argument_storage(operand) else { return Arc::from([]); };
+
         let ty = self.execution.semantics.types().expression(operand).expect("checked await retains its operand type").ty();
         let coordinate = bray_bound_tree::StorageTarget::storage(coordinate);
         let source = self.expression_reference(state, operand).unwrap_or_else(|| Source::Value(coordinate.clone()));
+
         let value = state.memory.capture_evaluated_value(&source, coordinate, ty)
             .with_observations(self.input.footprint.typed_observations(ty));
+
         let value = self.capture_operand_support(state, operand.into(), ty, value);
 
         self.publish_input_captures(operation, vec![StorageValueCapture {
@@ -498,13 +502,17 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let transitions = &mut self.value_transitions;
         let query_error = std::cell::Cell::new(None);
         let resolve = memory.reached_write_resolver(values);
+
         let capture = |entry: &crate::ExecutionCallEvidence| entry.positional_arguments().filter_map(|(input, value)| {
             let mut descriptor = value.inline_captured_storage()?.clone();
+
             let ty = descriptor.observations().find_map(|(path, kind)| match kind {
                 bray_bound_tree::StorageObservationKind::Reference(ty) if path.is_empty() => Some(ty),
                 _ => None,
             })?;
+
             let ty = crate::representation::borrow_target_type(values, ty)?;
+
             let referent = match capture_input_referent(request, memory, &mut descriptor, ty, footprint.typed_observations(ty)) {
                 Ok(referent) => referent?,
                 Err(error) => {
@@ -528,6 +536,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 captures.entry(key.clone()).and_modify(|previous| {
                     bray_bound_tree::merge_storage_value_captures(previous, &inputs);
                 }).or_insert_with(|| inputs.into());
+
                 transitions.entry(key).and_modify(|previous| {
                     bray_bound_tree::merge_storage_value_transitions(previous, &values);
                 }).or_insert(values);
@@ -583,6 +592,7 @@ fn capture_input_referent<'path, C: CheckerRequestContext + ?Sized>(
     observations: impl IntoIterator<Item = (&'path [bray_bound_tree::StorageProjection], bray_bound_tree::StorageObservationKind)>,
 ) -> crate::CheckerQueryResult<Option<(bray_symbols::TypeId, Arc<bray_bound_tree::StorageCapturedValue>)>, C::UpstreamError> {
     let Some(target) = descriptor.known_address() else { return Ok(None); };
+
     let value = memory.capture_reached_value(target).with_observations(observations);
     let enclosing = memory.enclosing_typed_view(request, target, ty)?;
 

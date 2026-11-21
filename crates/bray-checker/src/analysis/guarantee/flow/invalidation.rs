@@ -249,6 +249,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 for value in state.owned_values(&snapshot).filter(|value| *value != ExecutionCondition::unknown()) {
                     // Existing loans can still observe the unchanged value.
                     observations.insert(value.clone());
+
                     let borrowed = if value.is_reference() {
                         value.predicate_observation()
                     } else {
@@ -713,6 +714,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         if !scalar_places.is_empty() || !invalidated_values.is_empty() {
             let no_predicates = BTreeSet::new();
+
             let (stable_values, _) = snapshots.get_or_insert_with(|| collect_snapshots(state));
 
             state.invalidate_contents(

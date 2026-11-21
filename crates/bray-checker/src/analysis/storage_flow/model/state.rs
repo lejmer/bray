@@ -195,6 +195,7 @@ impl StorageFlowState {
         let loans = self.memory.surviving_value_loans(
             |path| self.value_is_live(path), |path| Self::owns_cleanup(input, path.root),
         );
+
         let reports = self.reachable_reports(|_| true)
             .flat_map(|report| report.subjects.iter().copied())
             .filter_map(|subject| match subject {

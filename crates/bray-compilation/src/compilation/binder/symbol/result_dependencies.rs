@@ -133,6 +133,7 @@ fn infer_reachable_results(
 
     let effects = bray_symbols::DependencyStorageEffect::capture_free_call()
         .into_iter().filter(|_| !preserves_storage);
+
     let rows = allocation.map(|relation| bray_symbols::CapturedValueOutcome::new(None, [])
         .with_storage([relation], []).with_effects(effects.clone()));
 

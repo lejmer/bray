@@ -283,6 +283,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         self.bind_entry_values(state, invocation, &mut entry, captures);
         entry.borrow_owners = self.admitted_borrow_owners(invocation, &entry);
+
         if !entry.pending_execution && let Some(call) = self.dependencies.calls().get(&invocation) {
             entry.extracted_values = self.extracted_input_values(call.storage(), call.captured_values(), &entry);
         }

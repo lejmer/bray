@@ -101,6 +101,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         };
 
         let mutation = StorageMutation::InvocationFailure { occurrence, kind, edge, row };
+
         let write_plan = {
             let resolve = failure.memory.reached_write_resolver(self.request.semantic_values());
 

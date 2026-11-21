@@ -46,6 +46,7 @@ fn published_boolean_selects_the_initialized_extent() {
             }
         }
     "#;
+
     let compilation = compilation(source);
 
     for (name, expected) in [

@@ -21,6 +21,7 @@ impl<'contract> CompletionGuarantees<'contract> {
     ) -> (Self, Self) {
         let mut row = Self::default();
         let mut published = Self::default();
+
         let publication = |condition: &ExecutionCondition| {
             condition.contains_trusted()
                 && matches!(condition.kind(), ExecutionConditionKind::Operation(BoundOperator::LogicalOr, operands)

@@ -243,6 +243,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     let arguments = entry.positional_arguments().map(|(ordinal, value)| {
                         (ordinal, format!("{:?}", value.without_captured_storage().kind()).chars().take(1500).collect::<String>())
                     }).collect::<Vec<_>>();
+
                     let text = format!("{:?}", failed.kind());
 
                     eprintln!("authority requirement {:?}: {} available {known:?} arguments={arguments:?}",

@@ -115,6 +115,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         };
 
         let locations = memory.reference_locations(self.request.semantic_values(), reached, route, None)?;
+
         let [receiver] = locations.as_slice() else { return None; };
 
         Some(receiver.clone())
@@ -465,7 +466,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 (call.ty, receiver.clone())
             } else {
                 let (ty, path) = storage.subject(subject)?;
+
                 let locations = memory.reference_locations(self.request.semantic_values(), receiver.clone(), path, None)?;
+
                 let [target] = locations.as_slice() else { return None; };
 
                 if !target.is_exact() { return None; }

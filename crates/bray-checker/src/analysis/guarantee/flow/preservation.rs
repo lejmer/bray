@@ -113,6 +113,7 @@ impl ValuePreservation {
         moved: &RetainedSnapshots,
     ) -> ExecutionCondition {
         self.prepare_frame(source);
+
         self.frame_prepared(state, source, path, place, mutation, moved)
     }
 

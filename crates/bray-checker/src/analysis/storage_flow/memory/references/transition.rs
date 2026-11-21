@@ -772,6 +772,7 @@ impl State {
             None => self.values.get(&owner.footprint().project(&[pointer]))
                 .filter(|value| value.reference().is_some()),
         }?;
+
         let mut targets = value.mutation_targets()?;
 
         if owner.address.is_none() {

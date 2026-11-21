@@ -440,6 +440,7 @@ impl InterfaceSemantics {
                 | Term::DefinitionApplication { .. } => {}
                 Term::TraitConstant { .. } => {}
             }
+
             Ok(())
         })?;
 

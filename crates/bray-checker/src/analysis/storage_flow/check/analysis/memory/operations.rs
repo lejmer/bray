@@ -476,6 +476,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 };
 
                 let payload = bray_bound_tree::StorageValueBinding::from(payload);
+
                 let status = state.memory.write_captured(
                     Some(&payload),
                     element,

@@ -129,6 +129,7 @@ pub(super) fn join_states(target: &mut ExecutionState, incoming: &ExecutionState
     }
 
     let before = target.assumptions.clone();
+
     // A loop header widens incoming path history. The shared and independently
     // proved join facts above still describe the current iteration's values.
     let alternatives = (!matches!(join, ExecutionJoin::LoopHeader(_)))
@@ -236,7 +237,6 @@ fn join_observations<'a>(
     let mut joined_values = BTreeMap::new();
     let mut joins = join.explicit_result().is_some();
     let mut results = Vec::new();
-    let mut owned_results = super::super::ownership::OwnedResults::default();
     let mut joined_facts = Vec::new();
     let mut needs_condition_proof = false;
 
@@ -312,43 +312,7 @@ fn join_observations<'a>(
         assume_availability(incoming_joined.to_mut(), &guard, right);
     }
 
-    for (place, joined) in &joined_values {
-        if *joined == ExecutionCondition::unknown() { continue; }
-
-        let left_available = resolved_availability(target, place);
-        let right_available = resolved_availability(incoming, place);
-
-        // Retained terminal data does not publish another ownership layout for
-        // a value that may already have moved into a live result.
-        if left_available == ValueAvailability::Absent && right_available == ValueAvailability::Absent {
-            continue;
-        }
-
-        let left = place
-            .value_in(&target.current)
-            .unwrap_or_else(ExecutionCondition::unknown);
-
-        let right = place
-            .value_in(&incoming.current)
-            .unwrap_or_else(ExecutionCondition::unknown);
-
-        if published == Some(place) || left != right
-            || target.owned_results.get(&left) != incoming.owned_results.get(&right)
-        {
-            owned_results.insert(
-                joined.clone(),
-                if left_available == ValueAvailability::Absent {
-                    incoming.owned_result(&right)
-                } else if right_available == ValueAvailability::Absent {
-                    target.owned_result(&left)
-                } else { super::witnesses::owned_alternatives(
-                    (target, &left),
-                    (incoming, &right),
-                    joined,
-                ) },
-            );
-        }
-    }
+    let mut owned_results = joined_current_owners(target, incoming, published, &joined_values);
 
     for (state, values, identities) in [
         (&*target, &mut left, &mut left_identities),
@@ -382,6 +346,7 @@ fn join_observations<'a>(
 
         let [value, other] = join.result_inputs(expression, [target, incoming])
             .map(|source| source.unwrap_or(&unknown));
+
         let root = match join {
             ExecutionJoin::Result { root, .. } => root.clone(),
             _ => ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expression)),
@@ -482,6 +447,47 @@ fn join_observations<'a>(
     (incoming_joined, changed)
 }
 
+fn joined_current_owners(
+    target: &ExecutionState,
+    incoming: &ExecutionState,
+    published: Option<&crate::ExecutionPlace>,
+    joined_values: &BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
+) -> super::super::ownership::OwnedResults {
+    let mut owners = super::super::ownership::OwnedResults::default();
+
+    for (place, joined) in joined_values {
+        if *joined == ExecutionCondition::unknown() { continue; }
+
+        let left_available = resolved_availability(target, place);
+        let right_available = resolved_availability(incoming, place);
+
+        // Retained terminal data does not publish another ownership layout for
+        // a value that may already have moved into a live result.
+        if left_available == ValueAvailability::Absent && right_available == ValueAvailability::Absent {
+            continue;
+        }
+
+        let left = place.value_in(&target.current).unwrap_or_else(ExecutionCondition::unknown);
+        let right = place.value_in(&incoming.current).unwrap_or_else(ExecutionCondition::unknown);
+
+        if published == Some(place) || left != right
+            || target.owned_results.get(&left) != incoming.owned_results.get(&right)
+        {
+            let ownership = if left_available == ValueAvailability::Absent {
+                incoming.owned_result(&right)
+            } else if right_available == ValueAvailability::Absent {
+                target.owned_result(&left)
+            } else {
+                super::witnesses::owned_alternatives((target, &left), (incoming, &right), joined)
+            };
+
+            owners.insert(joined.clone(), ownership);
+        }
+    }
+
+    owners
+}
+
 fn publish_joined_values(
     target: &mut ExecutionState,
     incoming: &mut ExecutionState,
@@ -522,6 +528,7 @@ fn join_current_value(
     facts: &mut Vec<(ExecutionCondition, bool)>,
 ) -> CurrentValue {
     let site = join.observation_site();
+
     let result = || site.map(|site| {
         if let ExecutionJoin::Result { root, published: Some(published), .. } = join
             && published.contains(place)
@@ -746,6 +753,7 @@ fn common_join_conditions(
             let reached = place
                 .value_in(&state.current)
                 .unwrap_or_else(ExecutionCondition::unknown);
+
             let input = joined_proof_value(&reached);
 
             if input == value {

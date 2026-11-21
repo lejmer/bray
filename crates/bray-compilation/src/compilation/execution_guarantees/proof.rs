@@ -649,6 +649,7 @@ impl Compilation {
 
                     let mut admissions = preserving.or_else(|| candidate.dependency_evidence(site, original_callable))
                         .into_iter().flatten().map(std::sync::Arc::as_ref).peekable();
+
                     let absent = admissions.peek().is_none().then_some(None);
 
                     for evidence in absent.into_iter().chain(admissions.map(Some)) {

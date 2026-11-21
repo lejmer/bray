@@ -368,6 +368,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             } else {
                 Cow::Owned(resolve.expect("physical frame activation supplies the reached input capture").1(&producer.entry))
             };
+
             let paired = inputs.iter().filter_map(|capture| {
                 let value = producer.entry.arguments.get(&ExecutionPlace::argument(capture.input))?;
                 let target = value.inline_captured_storage()?.known_address()?;
@@ -377,6 +378,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             for (slot, value) in &producer.entry.arguments {
                 let identity = std::ptr::from_ref(value.kind());
+
                 let current = if let Some(capture) = paired.get(&identity) {
                     self.bind_captured_input(state, value.clone(), capture)
                 } else {
@@ -419,6 +421,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             }
 
             let entry = &started.producers[source].entry;
+
             let transitions = if let Some(body) = self.checked_body {
                 Cow::Borrowed(body.storage_flow().attempt_values(point.id(), Some(source.clone())).unwrap_or_default())
             } else {
@@ -574,6 +577,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let feasible = |(_, producer): &(&StorageDeferredProducer, &ExecutionDeferredInvocation)| {
             deferred::possible(&producer.selection, &proof)
         };
+
         let mut producers = deferred.producers.iter();
 
         // Reserve the last viable candidate so it can reuse the incoming state.

@@ -433,6 +433,7 @@ impl ExecutionCallEvidence {
         let mut borrow_support_changed = false;
 
         self.storage_unchanged &= other.storage_unchanged;
+
         self.memory_access = self.memory_access.zip(other.memory_access).map(|(left, right)| {
             if left == right { left } else { MemoryAccessProof::Initialized }
         });
@@ -631,11 +632,13 @@ mod tests {
         let address = ExecutionCondition::new(crate::ExecutionConditionKind::Input(argument.clone()));
         let left = ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(1));
         let right = ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(2));
+
         let entry = |owner| ExecutionCallEvidence {
             arguments: [(argument.clone(), address.clone())].into(),
             addresses: [(argument.clone(), [(address.clone(), [owner].into())].into())].into(),
             ..Default::default()
         };
+
         let cache = crate::execution_guarantees::ExecutionProofCache::default();
         let mut joined = entry(left.clone());
 

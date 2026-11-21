@@ -408,6 +408,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         expression: BoundExpressionId,
     ) {
         let root = ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expression));
+
         let (published, left, right) = self.invocation_result_place(expression.into()).and_then(|place| {
             let left = target.current.live_value(&place)?;
             let right = incoming.current.live_value(&place)?;

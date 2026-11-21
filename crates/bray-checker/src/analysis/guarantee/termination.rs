@@ -92,8 +92,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             }
 
             let mut ranges = super::integer::IntegerRanges::new();
+
             let (minimum, maximum) = self.observed_integer_range(state, base, &mut ranges, &mut { ExecutionCondition::WORK_LIMIT })?;
+
             let (value, _) = self.observed_integer_range(state, value, &mut ranges, &mut { ExecutionCondition::WORK_LIMIT })?;
+
             if value > maximum {
                 Some(Ordering::Greater)
             } else if value < minimum {

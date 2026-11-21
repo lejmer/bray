@@ -124,6 +124,7 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
 
         for (target, paths) in raw_parents {
             let owner = request.semantic_values().unborrowed_type(target);
+
             let paths = paths.into_iter().filter(|(_, path)| {
                 // Raw buffers reach elements through their checked owning region.
                 let descriptor = path[..path.len() - 1].last();
@@ -370,6 +371,7 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
 
         for (site, contracts) in dependencies.calls() {
             let invocation = contracts.storage();
+
             let actual_input = |root| {
                 let staged = site
                     .expression()
@@ -397,6 +399,7 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
 
                 staged.or(source)
             };
+
             let input_path = |subject: &bray_symbols::DependencySubject, path: &bray_bound_tree::StorageReferencePath| {
                 let base = actual_input(subject.subject_root())?;
 
@@ -444,15 +447,18 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
             .chain(dependencies.frame_callees().values().map(|frame| &frame.storage))
             .chain(self.lifecycle_storage.values())
             .chain(self.buffer_cleanup_storage.values());
+
         let mut paths = BTreeSet::<(bray_symbols::TypeId, Arc<[StorageProjection]>)>::new();
 
         for contract in contracts {
             let returned = contract.reference_target_paths().map(|(_, source, path)| (source, path, true));
+
             let effects = contract.effect_target_paths().filter(|(_, path)| !path.steps().is_empty())
                 .map(|(source, path)| (source, path, false));
 
             for (source, path, returned) in returned.chain(effects) {
                 let Some(root) = crate::representation::reference_target_type(request, source) else { continue; };
+
                 let projections = path.projections();
 
                 if returned {
@@ -464,6 +470,7 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
                 for step in path.steps() {
                     let index = step.index();
                     let prefix = &projections[..index];
+
                     let demand = match *step {
                         StorageReferenceStep::Backing { pointer: Some(pointer), .. } => prefix.iter().copied()
                             .chain([StorageProjection::ProductField(pointer)]).collect(),

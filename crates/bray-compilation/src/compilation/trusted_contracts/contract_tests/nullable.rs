@@ -340,10 +340,12 @@ fn nested_nullable_extraction_preserves_selected_entry_carrier() {
 
     let checked = |name| application.lowered_unit(source_function_body_key(&application, name))
         .expect("nullable extraction reaches lowering");
+
     let owned = checked("owned_slot");
 
     assert!(!owned.diagnostics().has_errors(), "{:#?}", owned.diagnostics());
     assert!(owned.value().is_some(), "the actual selected owner lowers");
+
     bray_testing::assert_goal_state_diagnostic_kind(
         checked("unrelated_slot").diagnostics(),
         DiagnosticKind::CheckingTrustedObligationNotProven,

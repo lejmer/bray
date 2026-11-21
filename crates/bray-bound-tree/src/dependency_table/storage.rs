@@ -153,7 +153,9 @@ impl BoundCallStorage {
     pub fn reference_target_paths(&self) -> impl Iterator<Item = (&DependencySubject, TypeId, &StorageReferencePath)> {
         self.reference_types.iter().filter_map(|(relation, route)| {
             let entry = relation.entry()?;
+
             let (ty, _) = self.subject(entry)?;
+
             let source = route.reads.as_ref().and_then(|path| path.reads().next_back())
                 .map_or(ty, |(_, _, target, _)| target);
 

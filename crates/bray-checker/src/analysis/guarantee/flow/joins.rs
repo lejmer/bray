@@ -314,11 +314,13 @@ mod tests {
         ))));
 
         let place = ExecutionPlace::argument(SymbolOrdinal::new(0));
+
         let identity = |version| {
             let join = crate::ExecutionJoinSite::Block(BoundUnitId::new(0), version);
 
             ExecutionCondition::new(crate::ExecutionConditionKind::Joined(join, place.clone()))
         };
+
         let conditions = Default::default();
         let cache = crate::execution_guarantees::ExecutionProofCache::default();
         let conditions = cache.ordinary_proof(&conditions);

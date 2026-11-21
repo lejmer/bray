@@ -226,6 +226,7 @@ fn check_operations<C: CheckerRequestContext + ?Sized>(
     let graph = reachable.domain.graph;
     let expressions = reachable.domain.semantics;
     let storage = reachable.domain.storage;
+
     let static_initializer = property == ExecutionProperty::Total
         && (predicate || internal || reachable.domain.has_bounds_checks)
         && request.unit().key().is_static_initializer();

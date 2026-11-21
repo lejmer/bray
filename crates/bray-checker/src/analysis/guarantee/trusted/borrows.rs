@@ -117,6 +117,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             let path = crate::storage::owned_storage_projections(self.dependencies, transfer.output());
             let actual = path.iter().copied().fold(result.clone(), ExecutionCondition::project);
+
             let borrowed = storage.expect("selected owned transfer retains its checked storage contract")
                 .returned_value(transfer).is_borrowed();
 

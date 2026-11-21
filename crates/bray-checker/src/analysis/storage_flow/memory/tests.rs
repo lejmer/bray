@@ -1945,6 +1945,7 @@ fn projected_entry_address_does_not_read_the_reference_held_in_that_field() {
         [StorageProjection::AddressTarget, projection].into(), [
             bray_bound_tree::StorageReferenceStep::ReadAddress { index: 0, target: aggregate },
         ].into());
+
     let operands = layered.follow_effect_path(
         values, vec![bray_bound_tree::StorageMutationTarget::location(cell.clone())], &path,
     ).unwrap();
@@ -3248,8 +3249,10 @@ fn nested_backing_survives_descriptor_moves_and_pruning() {
     let captured_bound = bounded.capture_reached_value(&descriptor);
 
     assert!(bounded.reference_locations(values, descriptor.clone(), &terminal, None).is_none());
+
     assert_eq!(bounded.reference_effect_targets(values, descriptor.clone(), Some(&terminal), false),
         Some(vec![bound.clone()]), "a terminal effect uses the existing region without obtaining an address");
+
     assert_eq!(bounded.captured_effect_targets(values, &captured_bound, &terminal, false),
         Some(vec![bound]), "captured routes preserve the same region precision");
 
@@ -3280,6 +3283,7 @@ fn nested_backing_survives_descriptor_moves_and_pruning() {
 
     let selected = StorageProjection::ElementFromStart(bray_symbols::SymbolOrdinal::new(0));
     let absent = outer.project(&[selected, StorageProjection::NullableValue]);
+
     let optional_route = bray_bound_tree::StorageReferencePath::new(
         [StorageProjection::OwnedTarget, selected, StorageProjection::NullableValue, StorageProjection::OwnedTarget].into(),
         [
@@ -3295,8 +3299,10 @@ fn nested_backing_survives_descriptor_moves_and_pruning() {
 
     assert_eq!(state.owned_mutation_targets(&bray_bound_tree::StorageMutationTarget::location(absent.clone()), buffer_pointer),
         Some(Vec::new()), "an inactive buffer contributes no effects to an intrinsic release");
+
     assert_eq!(state.reference_effect_targets(values, Target::storage(moved.clone()), Some(&optional_route), false),
         Some(Vec::new()), "an inactive owner has no current backing effect");
+
     assert_eq!(state.captured_effect_targets(values, &captured, &optional_route, false),
         Some(Vec::new()), "activation observes the explicit absence of the nested owner");
 
@@ -5729,8 +5735,10 @@ fn mutation_summaries_preserve_initialization_only_for_complete_typed_cells() {
 #[test]
 fn unresolved_deallocation_distinguishes_inline_slots_from_backing() {
     let ([owner, backing, ..], expressions) = places();
+
     let ty = error_type();
     let local = Target::storage(owner.clone());
+
     let allocation = Target {
         previous: false,
         origin: Origin::Allocation { allocation: backing, projections: Arc::from([]) },
@@ -5744,6 +5752,7 @@ fn unresolved_deallocation_distinguishes_inline_slots_from_backing() {
         }
 
         state.escape_regions([local.clone(), allocation.clone()]);
+
         state.apply_effects(Some(&[Effect::unbounded(DependencyMutationKind::Retire, access_type, ambient)]),
             &bray_bound_tree::StorageInvalidation::unknown(), expressions[0].into());
 

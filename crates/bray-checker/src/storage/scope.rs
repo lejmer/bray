@@ -33,7 +33,9 @@ where
 
     for plan in storage.access_plans().iter().filter(|plan| plan.purpose() == StorageAccessPurpose::Assignment) {
         let Some(root) = storage.root_identity(plan.access()) else { continue; };
+
         let Some(BoundExpression::Assignment(assignment)) = request.view().expression(plan.expression()) else { continue; };
+
         let [_, replacement] = assignment.operands() else { continue; };
 
         let source = if assignment.operator().binary_operator().is_some() {

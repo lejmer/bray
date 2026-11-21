@@ -87,6 +87,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         state: ExecutionState,
     ) -> bool {
         let path = edge_path(self.graph, edge, path, self.result_edges.contains(&edge.id()), row);
+
         target.merge(path, Cow::Owned(state), |current, incoming| join_states(current, incoming, join))
     }
 
@@ -134,6 +135,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         evidence: &mut BlockExecutionEvidence,
     ) {
         let operation = point.kind();
+
         let expression = operation.explicit_attempt_expression()
             .filter(|_| self.certify_predicate || self.has_bounds_checks);
 
@@ -162,6 +164,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         expression: bray_bound_tree::BoundExpressionId,
     ) -> Option<OperationDomainEvidence> {
         let mut integer_maximum = None;
+
         let proven = if self.certify_predicate {
             self.predicate_operation_is_valid(
                 state, expression, &mut super::super::integer::IntegerRanges::new(), &mut integer_maximum,
@@ -216,8 +219,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let call_rows;
 
         let attempt = matches!(operation, AnalysisOperationKind::Call { phase: AnalysisCallPhase::Attempt, .. });
+
         let rows = if attempt {
             self.prepare_replay_outputs(&mut state, point);
+
             // Certification checks the admitted invocation before a successful
             // result can supply additional knowledge about its inputs.
             evidence.record_call(&state, invocation);
@@ -242,6 +247,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     evidence.cleanup.push((point.id(), observation));
                 }
             };
+
             let completes = self.replay_cleanup_paths(&mut state, point, &mut observe, |continued| {
                 outcomes.merge(path.clone(), Cow::Owned(continued), |state, next| join_states(state, next, ExecutionJoin::Block(block)));
             });

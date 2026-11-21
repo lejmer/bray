@@ -699,6 +699,7 @@ fn collect_observations(
 
             if !matches!(active.kind(), crate::ExecutionConditionKind::Boolean(true)) {
                 let opposite = ExecutionCondition::operation(BoundOperator::LogicalNot, vec![predicate]);
+
                 insert_guard(guards, &owner, ExecutionCondition::operation(
                     BoundOperator::LogicalAnd, vec![active.clone(), opposite],
                 ));

@@ -301,6 +301,7 @@ impl ExitState {
     pub(super) fn merge(&mut self, incoming: &StorageFlowState) {
         self.merge_availability(&incoming.live, &incoming.initialized, &incoming.fully_moved,
             &incoming.active_borrows, incoming.recovered);
+
         self.moved.extend(incoming.moved.keys().cloned());
         self.definitely_absent.retain(|access| incoming.definitely_absent.contains_key(access));
     }
@@ -308,6 +309,7 @@ impl ExitState {
     fn merge_snapshot(&mut self, incoming: Self) {
         self.merge_availability(&incoming.live, &incoming.initialized, &incoming.fully_moved,
             &incoming.active_borrows, incoming.recovered);
+
         self.moved.extend(incoming.moved);
         self.definitely_absent.retain(|access| incoming.definitely_absent.contains(access));
     }

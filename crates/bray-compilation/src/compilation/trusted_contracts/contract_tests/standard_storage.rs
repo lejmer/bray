@@ -140,10 +140,12 @@ fn production_formatted_bytes_retain_the_buffer_owner() {
 fn production_formatting_checks_repeated_indexed_writes() {
     let compilation = crate::test_support::production_standard_library_compilation(
         crate::SelectedTarget::baseline(), "module app;");
+
     let key = source_function_body_key(&compilation, "real_big_decimal");
     let lowered = compilation.lowered_unit(key).expect("the decimal conversion lowers");
 
     assert!(!lowered.diagnostics().has_errors(), "{:?}", lowered.diagnostics());
+
     assert!(lowered.value().as_ref().and_then(bray_lowering::LoweredUnit::mir).is_some(),
         "the indexed loop produces a lowered body");
 }

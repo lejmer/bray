@@ -116,6 +116,7 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
         mut index: impl FnMut(bray_bound_tree::BoundExpressionId) -> Option<StorageProjection>,
     ) -> Option<ReachedAccess> {
         let (start, path, root_borrow) = self.reference_start(memory, storage, access)?;
+
         let mut bind = |projection| match projection {
             StorageProjection::Element(selector) => index(selector).unwrap_or(projection),
             _ => projection,
@@ -326,6 +327,7 @@ impl<C: CheckerRequestContext + ?Sized> super::super::core::StorageFlowCollector
         match value.kind() {
             Kind::Literal(value) => {
                 let bray_symbols::ConstantValueKind::Integer(index) = value.kind() else { return None; };
+
                 let index = u32::try_from(index.to_u64()?).ok()?;
 
                 Some(StorageProjection::ElementFromStart(bray_symbols::SymbolOrdinal::new(index)))

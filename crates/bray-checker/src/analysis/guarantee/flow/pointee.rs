@@ -87,8 +87,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         completion: &bray_bound_tree::StorageCompletion,
     ) -> ExecutionCondition {
         let mut result = self.complete_captured_references(state, mutation, result);
+
         let Some(output) = output else { return result; };
+
         let origin = producer.referent_owner_identity();
+
         let produced = matches!(origin.kind(), crate::ExecutionConditionKind::Expression(expression)
             if mutation.occurrence().expression() == Some(*expression));
 
@@ -106,8 +109,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             let ty = observation.pointee.expect("a completed reference retains its checked pointee type");
             let projections = &place.projections[output.projections.len()..];
             let reference = projections.iter().fold(result.clone(), |value, projection| value.component(*projection));
+
             let enclosing = reference.inline_captured_storage().filter(|storage| storage.known_address() == Some(target))
                 .and_then(|storage| storage.enclosing_view(ty));
+
             let reached = self.current_captured_target_value(state, target, ty, enclosing)
                 .or_else(|| self.publish_returned_pointee(state, target, ty, &reference));
 

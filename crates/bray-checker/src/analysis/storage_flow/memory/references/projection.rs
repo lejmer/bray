@@ -568,7 +568,9 @@ impl State {
             }
 
             let ancestor = target.prefix(length);
+
             let Some(contents) = self.contents.get(&ancestor) else { continue; };
+
             let Some(owner) = contents.storage_type else { continue; };
 
             if !contents.invalidations.is_empty()
@@ -586,6 +588,7 @@ impl State {
                 }
 
                 let checked = crate::storage::projected_storage_type(request, projected, *projection)?;
+
                 let Some(component) = *checked.value() else { return Ok(None); };
 
                 projected = component;

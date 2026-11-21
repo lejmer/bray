@@ -194,6 +194,7 @@ pub(crate) fn prepare_call_storage<'a, C: CheckerRequestContext + ?Sized>(
         .chain(template.failure_outcomes().into_iter().flatten().flat_map(|row| row.effects.as_deref().into_iter().flatten()))
         .chain(additional_effects)
         .collect::<std::collections::BTreeSet<_>>();
+
     let mut subjects = std::collections::BTreeMap::new();
 
     for subject in template.reference_subjects().chain(additional_subjects)
@@ -281,6 +282,7 @@ pub(crate) fn prepare_effect_paths<'a, C: CheckerRequestContext + ?Sized>(
 
     for effect in effects {
         let effect = effect.retirement_parts().0;
+
         let bray_symbols::DependencyStorageEffect::Indirect { reference, projections, reads, .. } = effect else { continue; };
 
         if (projections.is_empty() && reads.is_empty()) || paths.contains_key(effect) { continue; }
@@ -340,6 +342,7 @@ fn prepare_reference<C: CheckerRequestContext + ?Sized>(
     };
 
     let Some(mut ty) = input_type(entry) else { return Ok(None); };
+
     let mut reads = Vec::new();
 
     for _ in 0..relation.dereferences() {
@@ -355,6 +358,7 @@ fn prepare_reference<C: CheckerRequestContext + ?Sized>(
 
     let reads = (!reads.is_empty()).then(|| bray_bound_tree::StorageReferencePath::new([].into(), [].into())
         .with_terminal_borrows(&reads));
+
     let kind = crate::representation::reference_kind(request, ty);
     let mut target_path = None;
 
@@ -362,8 +366,10 @@ fn prepare_reference<C: CheckerRequestContext + ?Sized>(
         (kind.is_none() || entry.subject_root().is_static()).then_some(ty)
     } else {
         let Some(target) = crate::representation::reference_target_type(request, ty) else { return Ok(None); };
+
         let Some(projections) = crate::storage::resolve_storage_projections(request, relation.target_projections())?
         else { return Ok(None); };
+
         let Some((projected, path)) = crate::storage::effect_reference_path(request, target, projections.into(), &[])?
         else { return Ok(None); };
 
@@ -373,6 +379,7 @@ fn prepare_reference<C: CheckerRequestContext + ?Sized>(
     };
 
     let bounded = relation.provenance() == bray_symbols::DependencyReferenceProvenance::InputRegions;
+
     let addressed = if bounded {
         let Some(target) = input_type(relation.exit()).and_then(|ty| crate::representation::reference_target_type(request, ty))
         else { return Ok(None); };
@@ -455,6 +462,7 @@ fn returned_values<C: CheckerRequestContext + ?Sized>(
     };
 
     let receiver = input(&bray_symbols::DependencySubject::root(DependencySubjectRoot::Receiver))?.is_some();
+
     let mut input_type = |ordinal| {
         let root = if receiver && ordinal == 0 {
             DependencySubjectRoot::Receiver

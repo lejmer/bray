@@ -50,6 +50,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .operands()
             .first()
             .expect("checked indexing has a receiver");
+
         let extent = || self.sequence_extent(state, receiver);
 
         let equalities = state.proofs.equalities(&state.assumptions, None);
@@ -132,12 +133,15 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let Some(BoundExpression::Structured(slice)) = self.request.view().expression(expression) else {
             unreachable!("checked built-in slicing retains its operands");
         };
+
         let bounds = slice.slice_bounds().expect("checked slicing retains its bounds");
         let receiver = slice.operands()[0];
+
         let upper = match bounds.upper() {
             Some(upper) => self.operand_value(state, upper),
             None => self.sequence_extent(state, receiver).unwrap_or_else(ExecutionCondition::unknown),
         };
+
         let extent = if let Some(lower) = bounds.lower() {
             ExecutionCondition::operation(BoundOperator::Subtract, vec![upper, self.operand_value(state, lower)])
         } else {

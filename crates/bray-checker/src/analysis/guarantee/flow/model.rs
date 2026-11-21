@@ -618,6 +618,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             let reached_addresses = entry_addresses.iter().filter_map(|(path, reached)| {
                 let descriptor = crate::ExecutionPlace::storage_path(self.storage, path)?;
+
                 let target = crate::ExecutionPlace::pointee(self.storage, &reached.target,
                     reached.pointee.expect("entry address support retains its pointee type"));
 
@@ -625,10 +626,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             }).collect::<BTreeMap<_, _>>();
 
             let values = self.request.semantic_values();
+
             let normalize = |condition: &ExecutionCondition, state: &ExecutionState| {
                 condition.with_reference_origins(values, self.dependencies, &state.assumptions)
                     .pointer_observations(&self.pointer_predicates)
             };
+
             let mut admitted = Vec::with_capacity(contracts.requirements.len());
 
             for condition in &contracts.requirements {
@@ -682,14 +685,20 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         for observation in requirement.observations() {
             let ExecutionConditionKind::Trusted(predicate) = observation.kind() else { continue; };
+
             let ExecutionConditionKind::Predicate(symbol, _, arguments) = predicate.kind() else { continue; };
+
             let Some(indices) = self.pointer_predicates.get(symbol) else { continue; };
 
             for index in *indices {
                 let address = arguments[*index].descriptor_identity();
+
                 let Some((root, path)) = address.observation_path() else { continue; };
+
                 let ExecutionConditionKind::Input(formal) = root.kind() else { continue; };
+
                 let formal = path.into_iter().fold(formal.clone(), crate::ExecutionPlace::component);
+
                 let Some(target) = reached.get(&formal) else { continue; };
 
                 addresses.entry(address.clone()).or_default().insert(target.clone());

@@ -170,6 +170,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         };
 
         let (row_guarantees, published_guarantees) = CompletionGuarantees::prepare(contract, &entry);
+
         let admission = frame.is_none().then_some(invocation);
 
         let completed = self.complete_entry_outputs(state, (Some(invocation), publication), &result, &entry, |state, value, row| {
@@ -219,7 +220,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         // Binding a result guard on a single row can erase it. These declarations
         // observe the published result and current borrowed contents together.
         let mutation = bray_bound_tree::StorageMutation::Operation(publication);
+
         let (arguments, owners) = self.completed_call_observations(state, invocation, mutation, entry, !guarantees.is_empty());
+
         let instantiate = self.completion_instantiator(invocation, entry, &arguments, result);
 
         if !guarantees.is_empty() {
@@ -284,6 +287,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }));
 
         let mutation = bray_bound_tree::StorageMutation::Operation(publication);
+
         let result = match self.dependencies.calls().get(&invocation).and_then(|contract|
             contract.storage().subject(&bray_symbols::DependencySubject::root(bray_symbols::DependencySubjectRoot::Result))
                 .map(|(ty, _)| ty))
@@ -300,6 +304,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         {
             let (arguments, owners) = self.completed_call_observations(state, invocation, mutation, entry, true);
+
             let instantiate = self.completion_instantiator(invocation, entry, &arguments, &result);
             let selected = checked.map(|call| (call.storage(), ordinal));
 
@@ -315,7 +320,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         result
     }
-
 
     fn completion_instantiator<'a>(
         &'a self,
@@ -493,8 +497,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             }
 
             let (storage, input_ordinal) = selected?;
+
             let (_, route) = storage.subject(subject)?;
+
             let (StorageProjection::AddressTarget, path) = route.projections().split_last()? else { return None; };
+
             let (StorageReferenceStep::ReadAddress { index, .. }, prior) = route.steps().split_last()? else { return None; };
 
             if *index != path.len() || !prior.iter().all(|step| matches!(step, StorageReferenceStep::ReadBorrow { .. })) {

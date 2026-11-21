@@ -678,6 +678,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
             let path = storage.subject(subject).map(|(_, path)| path);
             let static_subject = subject.subject_root().is_static();
+
             let static_backing = static_subject && !addressed && !indirect
                 && subject.projections().contains(&bray_symbols::DependencyProjection::OwnedTarget)
                 && !subject.projections().contains(&bray_symbols::DependencyProjection::AddressTarget);
@@ -700,6 +701,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 if continues {
                     let path = storage.effect_path(effect)?.bind_selectors(|projection| {
                         let StorageProjection::ElementFromInput(ordinal) = projection else { return projection; };
+
                         let value = entry.and_then(|entry| entry.arguments.get(&crate::ExecutionPlace::argument(ordinal)));
 
                         value.and_then(|value| self.evaluated_element(value)).unwrap_or(StorageProjection::AnyElement)
@@ -723,6 +725,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     // addresses carried by that region. The outer loan is no new root.
                     resolved.extend(reached.into_iter().map(|target|
                         Effect::bounded(target.footprint, kind, access_type)));
+
                     continue;
                 }
 

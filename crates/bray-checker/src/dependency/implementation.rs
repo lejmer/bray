@@ -119,6 +119,7 @@ pub fn generator_result_dependencies(
     let source = DependencySubject::new(DependencySubjectRoot::Receiver, projections);
 
     let effects = DependencyStorageEffect::capture_free_call();
+
     let template = DependencyContractTemplateData::new([DependencyRequirement::direct(
         source,
         DependencyRequirementKind::ValueDependencies,

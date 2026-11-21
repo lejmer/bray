@@ -29,6 +29,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             let path = route.input_path();
             let input = path.projections();
             let mut output = crate::storage::owned_storage_projections(self.dependencies, transfer.output());
+
             let wrapping = if matches!(invocation, InvocationOutputs::Call { .. }) {
                 self.invocation_wrapping(occurrence, root)
             } else { Vec::new() };

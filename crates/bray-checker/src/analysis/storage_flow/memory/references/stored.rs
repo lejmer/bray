@@ -98,6 +98,7 @@ impl State {
             value.borrow_capability().into_iter().chain(cleanup_support.into_iter()
                 .flat_map(|support| support.subjects.iter().copied()).filter_map(loan_subject))
         });
+
         let pending = self.pending.values().flat_map(|transfer| transfer.values.values())
             .filter_map(ValueBinding::borrow_capability);
 

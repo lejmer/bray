@@ -15,6 +15,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         address: Option<&StorageAddressValue>,
     ) -> Vec<Target> {
         let Some(expression) = operation.occurrence().expression() else { return Vec::new(); };
+
         let Some(BoundExpression::Assignment(assignment)) = self.request.view().expression(expression) else {
             return Vec::new();
         };
@@ -24,8 +25,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         };
 
         let site = operation.occurrence();
+
         let operator_result = matches!(operation, AnalysisOperationKind::AssignmentInstall(_))
             .then(|| self.storage.invocation_result(site).expect("operator has its checked output slot"));
+
         let (owner, place, source) = if let Some(result) = operator_result {
             let place = self.storage.logical_path(result).expect("operator result has a complete storage path").clone();
             let source = Source::Value(Target::storage(place.clone()));

@@ -131,8 +131,10 @@ fn rebased_frame_entry(
     let mut nested_copies = BTreeMap::new();
     let owners = frame_input_identities(entry, holder, &mut nested_copies, proof.is_some());
     let copies = frame_input_copies(entry, holder, proof.is_some());
+
     let values = owners.iter().chain(&nested_copies).chain(&copies)
         .map(|(old, reached)| (old.clone(), reached.clone())).collect();
+
     let substitution = super::ExecutionSubstitution::frame_inputs(&values, &owners);
     let mut rebased = entry.joined_values(&substitution)?;
 
@@ -187,10 +189,12 @@ fn bind_frame_input_scope<'a>(
 
     for (argument, value) in entry.positional_arguments() {
         let Some((observation, _)) = value.storage_contents() else { continue; };
+
         let source = frame_input_source(observation).map(Arc::clone).or_else(|| {
             matches!(observation.kind(), Kind::PostState(_, _) | Kind::Expression(_))
                 .then(|| Arc::new(observation.clone()))
         });
+
         let Some(source) = source else { continue; };
 
         // A captured copy no longer observes the staging slot for the next invocation.
@@ -199,6 +203,7 @@ fn bind_frame_input_scope<'a>(
 
     for argument in entry.owned_inputs.iter().copied() {
         let Some(value) = entry.arguments.get(&ExecutionPlace::argument(argument)) else { continue; };
+
         let mut pending = vec![value];
         let mut visited = std::collections::HashSet::new();
 
@@ -216,13 +221,16 @@ fn bind_frame_input_scope<'a>(
             }
 
             let Some((ExecutionObservationKind::Owned, owner)) = ownership else { continue; };
+
             let Some((root, path)) = owner.observation_path() else { continue; };
+
             let source = frame_input_source(&root).map(Arc::clone)
                 .or_else(|| matches!(root.kind(), Kind::Expression(_)).then(|| Arc::new(root.clone())));
 
             if let Kind::DeferredValue { frame, .. } = value.kind() {
                 let nested = frame_input_place(holder, argument,
                     source.clone().unwrap_or_else(|| Arc::new(owner.clone())));
+
                 let nested = Arc::new(path.into_iter().fold(nested, ExecutionPlace::component));
 
                 scopes.extend(frame.producers.values().map(|producer| (producer.entry.as_ref(), Arc::clone(&nested))));
@@ -241,8 +249,10 @@ fn frame_input_copies(entry: &ExecutionCallEvidence, holder: &Arc<ExecutionPlace
     for (argument, value) in entry.positional_arguments().filter(|(_, value)| !value.is_reference()) {
         for observed in value.computed_value().observations() {
             let Kind::ScalarValue(origin) = observed.kind() else { continue; };
+
             let source = frame_input_source(origin).map(Arc::clone)
                 .or_else(|| (reached && origin.selector_place().is_some()).then(|| Arc::clone(origin)));
+
             let Some(source) = source else { continue; };
 
             copies.entry(observed.clone()).or_insert_with(|| {

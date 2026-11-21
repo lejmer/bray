@@ -268,6 +268,7 @@ fn common_data_components(
                 // Only the active predecessor initializes this payload. Retain
                 // its components under the joined conditional owner.
                 let (initialized, proof) = if left_inactive { (right, conditions.1) } else { (left, conditions.0) };
+
                 let payload = initialized.clone().project(projection);
 
                 // A retained physical tag selects the same existing payload.

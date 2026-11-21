@@ -24,7 +24,9 @@ pub(crate) fn buffer_backings_disjoint(
     let exclusive_input = |target: &bray_bound_tree::StorageTarget| {
         let StorageOrigin::Entry { reference, layer: 1, kind: DependencyReferenceKind::Borrow, projections } = &target.origin
         else { return None; };
+
         let (StorageProjection::OwnedTarget, owner_path) = projections.split_last()? else { return None; };
+
         let ty = storage.storage_type(reference.root)?;
 
         (reference.projections.is_empty() && StoragePath::inline_projections(owner_path)

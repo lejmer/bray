@@ -77,7 +77,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             };
 
             let Some((ty, path)) = storage.and_then(|storage| storage.mutable_write(subject)) else { continue; };
+
             let Some(targets) = resolve(descriptor, path) else { continue; };
+
             let first = path.steps().first().expect("a checked write follows its mutable descriptor");
             let projections = &path.projections()[..first.index()];
             let observed = projections.iter().fold(descriptor.clone(), |value, field| value.project(*field));
@@ -525,6 +527,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 self.current_captured_target_value(state, target, *ty, capture.value.enclosing_view(*ty))
             }).or_else(|| value.current_referent().cloned())
                 .unwrap_or_else(|| value.clone().into_referent());
+
             let reached = reached.captured_value(std::sync::Arc::clone(snapshot));
 
             if value.is_reference() {
@@ -969,6 +972,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         completed: Option<StorageMutation>,
     ) -> ExecutionCondition {
         let mut refreshed = value.clone();
+
         let unchanged = matches!(completed, Some(StorageMutation::Operation(site))
             if state.admitted_call(site).is_some_and(|entry| entry.storage_unchanged));
 

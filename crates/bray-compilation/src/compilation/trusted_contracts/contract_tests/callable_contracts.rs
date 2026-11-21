@@ -370,6 +370,7 @@ fn a_trust_boundary_does_not_hide_wrapper_requirements() {
         let diagnostic = diagnostics.iter().next().expect("the caller must establish its obligation");
 
         assert_eq!(diagnostic.kind(), DiagnosticKind::CheckingTrustedObligationNotProven);
+
         assert!(diagnostic.primary_span().is_some_and(|span| {
             crate::test_support::diagnostic_at_call(diagnostic, span.source_id(), &source, "observe(&value)")
         }), "{diagnostic:?}");

@@ -424,16 +424,20 @@ impl ExecutionState {
     ) {
         let private = extraction.filter(|(_, moved)| !moved.is_empty())
             .map_or_else(Vec::new, |(site, _)| self.admitted_private_witnesses(Some(site)));
+
         let is_private = |identity| private.iter().any(|witness| Arc::as_ptr(witness) == identity);
+
         let retained = memoize_condition(|condition| extraction.is_some_and(|(_, moved)| condition.observes_only(|value| {
             matches!(value.kind(), crate::ExecutionConditionKind::Borrowed(observed)
                 if moved.retains_inline_contents(observed))
         })));
+
         let clause_revoked = |pending, condition: &ExecutionCondition, support: &crate::execution_guarantees::ExecutionGuarantee, identity| {
             support.addresses.keys().any(revokes)
                 || revokes(condition) && (pending || !support.addresses.is_empty()
                     || !is_private(identity) || !retained(condition))
         };
+
         let owner_revoked = |pending, owner: &ExecutionCondition, witness: &crate::execution_guarantees::ExecutionWitness| {
             owner_revoked(owner, witness) && (pending || !is_private(std::ptr::from_ref(witness))
                 || !extraction.is_some_and(|(_, moved)| moved.retains_owner(owner)))
@@ -510,6 +514,7 @@ impl ExecutionState {
             preserved.contains(observation)
                 || matches!(observation.kind(), crate::ExecutionConditionKind::Predicate(symbol, _, _) if stable_predicates.contains(symbol))
         });
+
         let revokes_observation = |condition: &ExecutionCondition| affected_observation(condition) && !observes_only_stable(condition);
 
         self.assumptions
@@ -628,8 +633,10 @@ impl ExecutionState {
                 .then_some(())
         }, |entry, ()| {
             entry.revoke_witness_support(&owner_revoked, &clause_revoked);
+
             entry.addresses.retain(|_, addresses| {
                 addresses.retain(|_, places| !places.iter().any(expired));
+
                 !addresses.is_empty()
             });
 

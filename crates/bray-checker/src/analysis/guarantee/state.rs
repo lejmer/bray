@@ -154,11 +154,13 @@ impl ExecutionState {
         entry.extracted_values = values;
 
         let reached = entry.extracted_values.values().cloned();
+
         let witnesses = self.owned_witnesses(reached.clone()).filter(|(_, witness)| witness.available)
             .map(|(owner, witness)| (owner.clone(), std::sync::Arc::clone(witness))).collect::<BTreeMap<_, _>>();
 
         entry.witness_allocations.extend(self.allocation_owners.iter().filter(|(_, owner)| witnesses.contains_key(owner))
             .map(|(condition, owner)| (condition.clone(), owner.clone())));
+
         entry.witness_inputs.extend(witnesses);
         entry.trusted_assumptions.extend(self.call_trusted_assumptions(reached).iter().cloned());
     }
@@ -275,6 +277,7 @@ impl ExecutionState {
         use std::sync::Arc;
 
         let mut entries = hashbrown::HashMap::new();
+
         let mut update = |entry: &Arc<crate::ExecutionCallEvidence>| {
             entries.entry(Arc::as_ptr(entry)).or_insert_with(|| {
                 let replacement = prepare(entry).map(|prepared| {
@@ -756,7 +759,9 @@ impl ExecutionState {
 
                 (owners, admission)
             };
+
             let mut private = None;
+
             let needs_update = support_changes(entry) || entry.trusted_boundary
                 || entry.assumptions.iter().any(|(condition, _)| !retains_contents(condition))
                 || entry.trusted_assumptions.iter().filter(|fact| !preserves(fact)).any(|fact| {
@@ -1090,6 +1095,7 @@ mod tests {
             let mut entry = crate::ExecutionCallEvidence::default();
 
             entry.witness_inputs.insert(owner.clone(), witness);
+
             let slot = ExecutionPlace::argument(SymbolOrdinal::new(0));
             let bounds = [ExecutionPlace::argument(SymbolOrdinal::new(4))].into();
 
@@ -1101,6 +1107,7 @@ mod tests {
 
             for (argument, forwarded) in [(owner.clone(), true), (owner.clone().borrowed(), false), (input(1), false)] {
                 let observes_address = argument.computed_value() == &owner;
+
                 let mut child = crate::ExecutionCallEvidence {
                     arguments: [(slot.clone(), argument)].into(),
                     owned_inputs: [SymbolOrdinal::new(0)].into(),

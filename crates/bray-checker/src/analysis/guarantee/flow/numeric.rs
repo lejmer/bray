@@ -21,8 +21,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         use BoundOperator::{Greater, GreaterEqual, Less, LessEqual};
 
         let crate::ExecutionConditionKind::Operation(operator @ (Less | LessEqual | Greater | GreaterEqual), operands) = condition.kind() else { return; };
+
         let [left, right] = operands.as_ref() else { return; };
+
         let Some(BoundExpression::Binary(binary)) = self.request.view().expression(expression) else { return; };
+
         let [left_operand, right_operand] = binary.operands() else { return; };
 
         let representation = |operand| {
@@ -30,6 +33,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             crate::representation::type_representation(self.request, ty)?.integer_representation()
         };
+
         let (Some(left_type), Some(right_type)) = (representation(*left_operand), representation(*right_operand)) else { return; };
 
         let order = if holds { *operator } else {
@@ -44,6 +48,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             ExecutionCondition::operation(complement, vec![left.clone(), right.clone()])
                 .assume(true, &mut state.assumptions);
+
             complement
         };
 
@@ -62,6 +67,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         };
 
         let ty = self.semantics.types().expression(*left_operand).expect("checked integer has a type").ty();
+
         let (minimum, maximum) = self.integer_type_range(ty).expect("checked integer has ordered bounds");
 
         // Each evaluated value keeps its own strict bound after its peer is overwritten.
@@ -401,6 +407,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             // The checked result still has a scalar representation when its
             // arithmetic can wrap. It is distinct from the assignment's unit value.
             let identity = ExecutionCondition::new(crate::ExecutionConditionKind::Input(result));
+
             let value = ExecutionCondition::post_state(
                 bray_bound_tree::StorageMutation::Operation(expression.into()), identity,
             );

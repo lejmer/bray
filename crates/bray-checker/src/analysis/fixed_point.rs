@@ -137,9 +137,12 @@ pub(super) fn solve_fixed_point_with<D: FixedPointDomain>(
 
     let mut updates = 0_usize;
     let convergence_bound = domain.convergence_bound(graph);
+
     static TRACE_CYCLES: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+
     let trace = *TRACE_CYCLES.get_or_init(|| std::env::var_os("BRA_694_PROFILE_CYCLES").is_some())
         && graph.blocks().iter().any(|block| graph.has_cyclic_input(block));
+
     let mut traced = None;
 
     while let Some((_, block_id)) = worklist.pop_first() {
@@ -156,6 +159,7 @@ pub(super) fn solve_fixed_point_with<D: FixedPointDomain>(
         if trace && traced.is_none_or(|last: std::time::Instant| last.elapsed().as_secs() >= 2) {
             eprintln!("cyclic flow {:?} {} updates={updates} block={block_id:?}",
                 graph.unit(), std::any::type_name::<D>());
+
             traced = Some(std::time::Instant::now());
         }
 

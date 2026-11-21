@@ -177,6 +177,7 @@ impl ConditionNode {
 
         let mut contains_deferred = matches!(kind, ExecutionConditionKind::DeferredValue { .. });
         let mut contains_storage = contains_deferred || matches!(kind, ExecutionConditionKind::CapturedValue { .. });
+
         let mut contains_redundant_reference_context = match &kind {
             ExecutionConditionKind::Observation { owner, contents, kind: super::ExecutionObservationKind::Reference } =>
                 ExecutionCondition::redundant_reference_contents(owner, contents).is_some(),

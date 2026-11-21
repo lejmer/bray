@@ -306,6 +306,7 @@ impl State {
         mut bind: Option<&mut dyn FnMut(StorageProjection) -> StorageProjection>,
     ) -> Option<ReferenceRouteValue> {
         let mut selected = 0;
+
         for (step, operation) in path.steps().iter().copied().enumerate() {
             let index = operation.index();
 

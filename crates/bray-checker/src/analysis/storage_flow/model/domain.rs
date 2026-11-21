@@ -352,6 +352,7 @@ where
     fn transfer(&self, block: &AnalysisBlock, source: &Self::State) -> Self::State {
         if source.states().next().is_none() {
             self.cyclic_publications.borrow_mut().remove(&block.id());
+
             return Self::State::default();
         }
 

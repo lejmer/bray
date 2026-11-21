@@ -34,6 +34,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             | StorageInvalidation::Observed { normal_snapshots, .. } => normal_snapshots,
             StorageInvalidation::Unchanged => return,
         };
+
         let layouts = entry.outputs.reachable_rows().map(|row| &row.ownership);
         let transfers = bray_symbols::DependencyOwnedResult::common_transfers(layouts, &[]);
 
@@ -53,6 +54,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 else { continue; };
 
                 let Some(argument) = entry.arguments.get(&crate::ExecutionPlace::argument(ordinal)) else { continue; };
+
                 let prefix = route.input_path().projections();
                 let value = prefix.iter().copied().fold(argument.clone().into_referent(), crate::ExecutionCondition::project);
 
@@ -92,7 +94,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         use bray_bound_tree::{StorageSnapshotRoot, StorageValueConsumptionPhase};
 
         let Some(entry) = entry else { return; };
+
         let Some(expression) = invocation.expression() else { return; };
+
         let (stable, snapshots) = match invalidation {
             StorageInvalidation::All { stable_values, normal_snapshots, .. }
             | StorageInvalidation::Observed { stable_values, normal_snapshots, .. } => (stable_values, normal_snapshots),
@@ -102,6 +106,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         for &ordinal in entry.owned_inputs.iter() {
             let staged = self.storage.invocation_input(expression, ordinal)
                 .and_then(|access| self.storage.logical_path(access));
+
             let captured = entry.argument_storage(ordinal)
                 .and_then(bray_bound_tree::StorageCapturedValue::storage_coordinate);
 
@@ -155,9 +160,11 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         // Ordinary statics cannot be replaced while their product or exact-thread
         // owner is retained. Interior mutation cannot reach their empty markers.
         let exposed = memory.raw_exposed_regions();
+
         let protected = |target: &Target| !exposed.iter().chain(escaped).any(|raw| {
             memory.target_relationship(raw, target) != StorageRelationship::Disjoint
         });
+
         let static_observation = |kind| matches!(kind, StorageObservationKind::Identity | StorageObservationKind::Marker(_));
 
         for (root, observations) in &self.input.footprint.owned_observations {
@@ -1111,6 +1118,7 @@ fn retained_capture(
     }
 
     let Some(regions) = capture.complete_carried_regions() else { return false; };
+
     let (reached, unknown) = memory.transitive_regions(regions, |region, slot| region.contains_storage(slot));
 
     !unknown && effects.iter().filter_map(Effect::mutation).all(|(changed, _)| {

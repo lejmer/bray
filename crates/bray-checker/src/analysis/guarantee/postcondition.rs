@@ -76,6 +76,7 @@ pub(in crate::analysis::guarantee) fn check_postconditions<C: CheckerRequestCont
 
             (equalities, known)
         });
+
         let normalized_condition = condition.with_equalities(equalities);
 
         if normalized_condition != condition && reflexive_comparison(domain, state, &normalized_condition) {
@@ -93,6 +94,7 @@ pub(in crate::analysis::guarantee) fn check_postconditions<C: CheckerRequestCont
         });
 
         let proof = normalized_proof.get_or_init(|| crate::execution_guarantees::ExecutionProof::new(trusted, known));
+
         if proof.prove_mixed(&normalized_condition, &mut {
             ExecutionCondition::WORK_LIMIT
         }) == Some(true)

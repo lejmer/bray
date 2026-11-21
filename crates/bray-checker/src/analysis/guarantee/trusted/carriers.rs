@@ -222,6 +222,7 @@ fn inferred_carriers<C: crate::CheckerRequestContext + ?Sized>(
             } else {
                 path
             };
+
             let condition = return_substitution(condition);
 
             if let Some(term) = portable(request, &condition) {
@@ -415,6 +416,7 @@ fn visit_returned_components(
                         // A declared view can retain its containing owner's identity.
                         visit(&value.clone().project(*projection), &child, true);
                     }
+
                     pending.push((component, child));
                 }
             }
@@ -451,7 +453,9 @@ impl ExecutionState {
             if matches!(value.kind(), Kind::Present(_)) { return; }
 
             let Some((ObservationKind::Owned, owner)) = value.ownership_identity() else { return; };
+
             let Some((origin, _)) = owner.observation_path() else { return; };
+
             if !matches!(origin.kind(), Kind::Input(place) if matches!(place.root, ExecutionInput::FrameInput { .. })) { return; }
 
             let output = path.iter().copied().fold(root.clone(), ExecutionCondition::project);

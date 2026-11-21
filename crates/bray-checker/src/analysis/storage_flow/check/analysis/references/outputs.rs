@@ -616,6 +616,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     ) {
         let relation = reference.relation();
         let values = self.request.semantic_values();
+
         let reached = match reference.reads() {
             Some(path) => memory.follow_source_reference_reads(values, source, path),
             None => Some(vec![source]),

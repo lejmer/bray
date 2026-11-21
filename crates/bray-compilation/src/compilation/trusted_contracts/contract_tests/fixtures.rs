@@ -211,6 +211,7 @@ pub(super) fn assert_production_probes(
     let compilation = production_probe_compilation();
 
     let (first, _) = expected.first().expect("production probe test includes a callable");
+
     let caller = source_function_body_key(compilation, first).source().syntax().source_id();
     let source = compilation.sources().text(caller).expect("probe body retains its source");
 
@@ -233,6 +234,7 @@ pub(super) fn assert_production_probes(
             .expect("each declared probe has an expected outcome");
 
         let diagnostics = production_probe_diagnostics(compilation, key, expected, check_rejection);
+
         bray_testing::assert_goal_state_diagnostic_outcome(&diagnostics, expected, name);
 
         if let Some((_, site)) = expected_sites.iter().find(|(probe, _)| *probe == name) {
@@ -263,6 +265,7 @@ fn production_probe_diagnostics(
     let lowered = compilation
         .lowered_unit(key)
         .expect("accepted production probe reaches lowering");
+
     assert!(
         lowered.value().is_some() || lowered.diagnostics().has_errors(),
         "accepted production probe must produce a lowered body"
@@ -292,7 +295,7 @@ fn production_probe_compilation() -> &'static Compilation {
             "standard-library/std/src",
             "runtime/bootstrap/src",
             "xtask/fixtures/native-execution/contracts",
-            "crates/bray-compilation/src/compilation/trusted_contracts/contract_tests/fixtures",
+            "crates/bray-compilation/src/compilation/trusted_contracts/contract_tests/ownership-fixtures",
         ], "module app;");
 
         build_production_host(sources, crate::SelectedTarget::baseline(), WorkerBudget::available_parallelism())

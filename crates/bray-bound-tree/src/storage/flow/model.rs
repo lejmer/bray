@@ -1008,7 +1008,9 @@ impl StorageFlow {
     pub fn with_entry_addresses(mut self, addresses: std::collections::BTreeMap<crate::StoragePath, crate::StorageObservedTarget>) -> Self {
         assert!(addresses.iter().all(|(path, reached)| path.is_valid_for(self.unit) && reached.target.is_valid_for(self.unit)),
             "entry address support belongs to the checked body");
+
         self.entry_addresses = addresses;
+
         self
     }
 

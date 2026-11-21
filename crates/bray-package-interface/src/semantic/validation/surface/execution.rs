@@ -623,6 +623,7 @@ impl InterfaceSemantics {
                 }
                 _ => return Err(invalid()),
             }
+
             Ok(())
         })
     }

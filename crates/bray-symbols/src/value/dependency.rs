@@ -1109,6 +1109,7 @@ mod tests {
             kind: crate::DependencyMutationKind::Write,
             access_type: None,
         };
+
         let template = DependencyContractTemplateData::new([])
             .with_possible_effects([write.clone()])
             .with_captured_values([crate::CapturedValueOutcome::new(None, [])

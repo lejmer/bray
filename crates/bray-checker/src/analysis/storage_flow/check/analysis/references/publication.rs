@@ -36,6 +36,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         for (state, result, physical) in exits {
             let execution = state.execution.as_ref().expect("reachable exit retains execution facts");
+
             let value = match self.request.root() {
                 crate::CheckerUnitRoot::Expression(expression) => self.execution.value(execution, expression),
                 _ => self.execution.returned_value(execution),
@@ -57,6 +58,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     complete,
                 })
             });
+
             let (stored_values, embedded) = self.stored_values(&physical)?;
 
             let exit_references = self.borrow_relations(&physical)?.into_iter().chain(embedded);

@@ -356,9 +356,11 @@ impl BlockPublication {
 
     fn merge(&mut self, incoming: Self) {
         self.reachable_blocks.extend(incoming.reachable_blocks);
+
         merge_records(&mut self.occurrences, incoming.occurrences, |known, incoming| {
             known.intersect(&incoming);
         });
+
         merge_records(&mut self.conditions, incoming.conditions, retain_common);
     }
 }
@@ -729,6 +731,7 @@ where
         merge_records(&mut self.statuses, incoming.statuses, |known, reached| *known = more_conservative(*known, reached));
         merge_records(&mut self.replacements, incoming.replacements, ReplacementState::merge);
         merge_records(&mut self.suspensions, incoming.suspensions, merge_suspension);
+
         merge_records(&mut self.memory_decisions, incoming.memory_decisions, |known, reached| {
             *known = super::memory::conservative_memory_status(*known, reached);
         });
@@ -877,7 +880,9 @@ where
         let first_continuation = self.cleanup_continuations.len();
 
         self.execution.trace_assignment_source(&execution, kind, "storage before cleanup");
+
         let displaced = self.apply_cleanup(state, &mut execution, operation);
+
         self.execution.trace_assignment_source(&execution, kind, "storage after cleanup");
 
         for continued in &mut self.cleanup_continuations[first_continuation..] {
@@ -1168,15 +1173,8 @@ where
 
         self.apply_call_effects(state, kind, call_effects, invalidation.as_ref());
 
-        if completing
-            && self
-                .storage
-                .node_plans(kind.node())
-                .any(|plan| plan.purpose() == StorageAccessPurpose::Assignment)
-        {
-            // The operator has completed and published retained outputs. End its
-            // remaining input loans before the assignment installs that result.
-            self.end_last_use_borrows(state, occurrence);
+        if completing {
+            self.end_assignment_operator_inputs(state, kind);
         }
 
         let completion = self.finish_storage_operation(
@@ -1365,6 +1363,14 @@ where
         });
     }
 
+    fn end_assignment_operator_inputs(&self, state: &mut StorageFlowState, kind: AnalysisOperationKind) {
+        if self.storage.node_plans(kind.node()).any(|plan| plan.purpose() == StorageAccessPurpose::Assignment) {
+            // The operator has published retained outputs. End its input loans
+            // before the assignment installs the result.
+            self.end_last_use_borrows(state, kind.occurrence());
+        }
+    }
+
     fn end_operation_uses(&self, state: &mut StorageFlowState, kind: AnalysisOperationKind) {
         if let AnalysisOperationKind::AssignmentInstall(expression) = kind {
             let slot = self.storage.invocation_result(expression.into()).and_then(|access| self.storage.root_identity(access))
@@ -1457,6 +1463,7 @@ where
         }
 
         self.preserve_captured_observations(execution, occurrence, invalidation);
+
         self.preserve_returned_observations(
             occurrence, execution, &state.memory, effects, invalidation,
         );
