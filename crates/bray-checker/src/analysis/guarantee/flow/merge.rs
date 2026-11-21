@@ -856,8 +856,7 @@ pub(super) fn result_replacements(
                 insert_replacement(identities, owner, joined_owner);
             }
 
-            reference_data_replacements(&value.clone().into_referent(), &joined.clone().into_referent(),
-                stable_values, values, &mut { ExecutionCondition::WORK_LIMIT });
+            reference_data_replacements(value, joined, stable_values, values, &mut { ExecutionCondition::WORK_LIMIT });
         }
 
         return;
@@ -920,15 +919,10 @@ fn reference_data_replacements(
 
     *budget = remaining;
 
-    if let crate::ExecutionConditionKind::Observation { contents, kind: ObservationKind::Owned, .. } = source.kind() {
-        reference_data_replacements(contents, joined, stable_values, values, budget);
-        return;
-    }
-
-    if let crate::ExecutionConditionKind::Observation { contents, kind: ObservationKind::Owned, .. } = joined.kind() {
-        reference_data_replacements(source, contents, stable_values, values, budget);
-        return;
-    }
+    // Both the parent loan and a separately observed component can contribute
+    // the same datum. The descriptor has a separate identity substitution.
+    let source = source.computed_value();
+    let joined = joined.computed_value();
 
     if source == joined {
         // An unchanged datum shields itself from replacements of its changed

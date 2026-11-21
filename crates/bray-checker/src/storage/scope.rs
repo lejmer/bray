@@ -1,8 +1,8 @@
 use std::collections::BTreeMap;
 
 use bray_bound_tree::{
-    BoundExpressionId, BoundPatternId, BoundUnitView, StorageBinding,
-    StorageBindingTarget, StoragePlan,
+    BoundExpression, BoundExpressionId, BoundPatternId, BoundUnitView, StorageAccessPurpose,
+    StorageBinding, StorageBindingTarget, StoragePlan,
 };
 
 use crate::{CheckerRequestContext, CheckerUnitView};
@@ -29,6 +29,20 @@ where
             pattern,
             result.entry(source).or_default(),
         );
+    }
+
+    for plan in storage.access_plans().iter().filter(|plan| plan.purpose() == StorageAccessPurpose::Assignment) {
+        let Some(root) = storage.root_identity(plan.access()) else { continue; };
+        let Some(BoundExpression::Assignment(assignment)) = request.view().expression(plan.expression()) else { continue; };
+        let [_, replacement] = assignment.operands() else { continue; };
+
+        let source = if assignment.operator().binary_operator().is_some() {
+            plan.occurrence()
+        } else {
+            (*replacement).into()
+        };
+
+        result.entry(source).or_default().push(root);
     }
 
     result

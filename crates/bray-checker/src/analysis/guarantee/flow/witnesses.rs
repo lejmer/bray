@@ -613,9 +613,7 @@ fn collect_observations(
     }
 
     if role == ObservationKind::Reference {
-        let sources = sources.map(|source| source.map(|source| source.clone().into_referent()));
-
-        collect_reference_data([sources[0].as_ref(), sources[1].as_ref()], &joined.clone().into_referent(), inputs, budget);
+        collect_reference_data(sources, joined, inputs, budget);
         return;
     }
 
@@ -700,15 +698,8 @@ fn collect_reference_data(
 
     *budget = remaining;
 
-    if let crate::ExecutionConditionKind::Observation { contents, kind: ObservationKind::Owned, .. } = joined.kind() {
-        let sources = sources.map(|source| source.map(|source| match source.kind() {
-            crate::ExecutionConditionKind::Observation { contents, kind: ObservationKind::Owned, .. } => contents.as_ref(),
-            _ => source,
-        }));
-
-        collect_reference_data(sources, contents, inputs, budget);
-        return;
-    }
+    let joined = joined.computed_value();
+    let sources = sources.map(|source| source.map(ExecutionCondition::computed_value));
 
     if matches!(joined.kind(), crate::ExecutionConditionKind::Unknown | crate::ExecutionConditionKind::Literal(_) | crate::ExecutionConditionKind::Boolean(_)) {
         return;

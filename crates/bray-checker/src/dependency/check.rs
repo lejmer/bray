@@ -2,9 +2,9 @@ use std::collections::BTreeMap;
 
 use bray_bound_tree::{
     BoundDependencyContract, BoundDependencyRequirement, BoundDependencyRequirementKind,
-    BoundDependencySubject, BoundExecutionSite, BoundExpression, CheckedDependencyContracts,
+    BoundDependencySubject, CheckedDependencyContracts,
     CheckedSemanticSelections, DependencyContractInstantiationError, SemanticSelection,
-    StorageAccessPurpose, StorageIdentityId, StoragePlan,
+    StoragePlan,
 };
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{CallableSignatureQuery, ExactSymbolId};
@@ -285,7 +285,7 @@ where
         "checked source access plans and selected invocations define valid dependency contracts",
     )
     .with_lifecycle_dependencies(lifecycle_dependencies)
-    .with_lifecycle_dependencies_from_storage(storage, lifecycle_storage_sources(request, storage));
+    .with_lifecycle_dependencies_from_storage(storage, crate::storage::value_transfer_destinations(request, storage));
 
     let prepared = super::conditions::references(request).and_then(|references| {
         prepare_static_carriers(request, contracts.with_condition_references(references))
@@ -309,27 +309,6 @@ where
         Err(CheckerQueryError::Cancelled) => CheckerOutcome::Cancelled,
         Err(CheckerQueryError::Upstream(error)) => CheckerOutcome::UpstreamFailure(error),
     }
-}
-
-fn lifecycle_storage_sources<C: CheckerRequestContext + ?Sized>(
-    request: CheckerUnitView<'_, C>,
-    storage: &StoragePlan,
-) -> BTreeMap<BoundExecutionSite, Vec<StorageIdentityId>> {
-    let mut sources = crate::storage::value_transfer_destinations(request, storage);
-
-    for plan in storage.access_plans().iter().filter(|plan| plan.purpose() == StorageAccessPurpose::Assignment) {
-        let Some(root) = storage.root_identity(plan.access()) else { continue; };
-
-        let Some(BoundExpression::Assignment(assignment)) = request.view().expression(plan.expression()) else { continue; };
-
-        let [_, source] = assignment.operands() else { continue; };
-
-        let source = if assignment.operator().binary_operator().is_some() { plan.occurrence() } else { (*source).into() };
-
-        sources.entry(source).or_default().push(root);
-    }
-
-    sources
 }
 
 fn borrow_requirements(
