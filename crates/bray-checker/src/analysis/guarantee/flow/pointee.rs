@@ -60,11 +60,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         state: &mut ExecutionState,
         (mutation, admitted): (bray_bound_tree::StorageMutation, Option<(bray_bound_tree::BoundExecutionSite, &crate::ExecutionCallEvidence)>),
         output: Option<&ExecutionPlace>,
-        result: ExecutionCondition,
+        (producer, result): (&ExecutionCondition, ExecutionCondition),
         completion: &bray_bound_tree::StorageCompletion,
     ) -> ExecutionCondition {
         let mut result = self.complete_captured_references(state, mutation, admitted, result);
         let Some(output) = output else { return result; };
+        let origin = producer.referent_owner_identity();
+        let produced = matches!(origin.kind(), crate::ExecutionConditionKind::Expression(expression)
+            if mutation.occurrence().expression() == Some(*expression));
 
         for (path, observation) in completion.references() {
             let target = &observation.target;
@@ -84,7 +87,25 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 .or_else(|| self.publish_returned_pointee(state, target, ty, &reference));
 
             if let Some(reached) = reached {
-                let reference = if reference.is_reference() { reference.with_referent(reached) } else { reached.borrowed() };
+                let provisional = produced && target.value_observation_path().is_some()
+                    && reached.ownership_identity().is_some()
+                    && projections.iter().fold(origin.clone(), |value, field| value.component(*field))
+                        .borrowed().owner_identity() == reference.owner_identity();
+
+                let reference = if provisional {
+                    let bound = reached.borrowed();
+
+                    if let Some(storage) = reference.inline_captured_storage() {
+                        bound.captured_value(storage.clone())
+                    } else {
+                        bound
+                    }
+                } else if reference.is_reference() {
+                    reference.with_referent(reached)
+                } else {
+                    reached.borrowed()
+                };
+
                 let path = &path.projections[path.projections.len() - projections.len()..];
 
                 result = result.with_storage_component(path, reference);

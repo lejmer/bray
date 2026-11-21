@@ -170,7 +170,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let admission = frame.is_none().then_some(invocation);
 
-        let completed = self.complete_entry_outputs(state, (Some(invocation), publication), &result, &entry, |state, result, row| {
+        let completed = self.complete_entry_outputs(state, (Some(invocation), publication), &result, &entry, |state, value, row| {
             if let Some(admission) = admission {
                 let completed = state.entries.get_mut(&admission).expect("ordinary completion retains its admitted entry");
 
@@ -182,7 +182,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 }
             }
 
-            self.complete_admitted_call(state, (invocation, publication), output, result, observations, contract, &entry, row)
+            self.complete_admitted_call(state, (invocation, publication), output, (&result, value), observations, contract, &entry, row)
         });
 
         let Some(result) = completed else { return result; };
@@ -240,7 +240,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     fn complete_admitted_call(
         &self, state: &mut ExecutionState,
         (invocation, publication): (bray_bound_tree::BoundExecutionSite, bray_bound_tree::BoundExecutionSite),
-        output: Option<&crate::ExecutionPlace>, result: ExecutionCondition, observations: &bray_bound_tree::StorageCompletion,
+        output: Option<&crate::ExecutionPlace>, (producer, result): (&ExecutionCondition, ExecutionCondition),
+        observations: &bray_bound_tree::StorageCompletion,
         contract: &crate::TrustedCallContract, entry: &crate::ExecutionCallEvidence, row: Option<&ExecutionOutput>,
     ) -> ExecutionCondition {
 
@@ -293,7 +294,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             None => result,
         };
 
-        let result = self.complete_returned_references(state, (mutation, admitted), output, result, observations);
+        let result = self.complete_returned_references(state, (mutation, admitted), output, (producer, result), observations);
 
         if guarantees.is_empty() && subjects.is_empty() && address_subjects.is_empty() && carriers.is_empty() {
             return result;

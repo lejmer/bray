@@ -9,7 +9,7 @@ use bray_bound_tree::{
 use super::super::model::{
     AnalysisEdgeKind, AnalysisExitKind, AnalysisOperationKind, AnalysisRefinement,
 };
-use super::flow::analyze_execution_flow;
+use super::flow::{ExecutionFlow, prepare_execution_flow};
 use super::state::ExecutionState;
 use crate::execution_guarantees::{ExecutionCandidate, ExecutionProperty};
 use crate::{CheckerOutcome, CheckerRequestContext, CheckerUnitView};
@@ -54,7 +54,7 @@ pub fn with_execution_candidate_checker<C: CheckerRequestContext + ?Sized, R>(
 
     let checked_exclusions: BTreeSet<_> = body.storage_flow().excluded_edges().iter().copied().collect();
 
-    let mut previous = None::<super::flow::ExecutionFlow<'_, '_, C>>;
+    let mut previous = None::<ExecutionFlow<'_, '_, C>>;
 
     check(&mut |obligation, assumptions, postconditions| {
         if request.is_cancelled() {
@@ -85,13 +85,18 @@ pub fn with_execution_candidate_checker<C: CheckerRequestContext + ?Sized, R>(
         }).map(|edge| edge.id()));
 
         if previous.as_ref().is_none_or(|flow| !flow.matches_inputs(assumptions, &excluded)) {
-            // Release the old states before solving a new proof environment.
-            drop(previous.take());
+            let domain = previous.take().map(ExecutionFlow::into_domain).unwrap_or_else(|| {
+                let mut domain = prepare_execution_flow(
+                    prepared, request, expressions, std::borrow::Cow::Borrowed(&[]),
+                    storage, memory, contracts, &disposal, body.dependencies(), body.liveness(),
+                );
 
-            previous = analyze_execution_flow(
-                prepared, excluded, request, expressions, assumptions, storage, memory,
-                body, contracts, &disposal, body.dependencies(),
-            );
+                domain.checked_body = Some(body);
+
+                domain
+            });
+
+            previous = domain.solve(assumptions, excluded);
         }
 
         match &previous {

@@ -214,11 +214,15 @@ impl ExecutionCondition {
             }
             K::Observation { owner, contents, kind: super::ExecutionObservationKind::Scalar }
                 if owner == contents
-                    && matches!(contents.kind(), K::Literal(tag) if matches!(tag.kind(), bray_symbols::ConstantValueKind::NullableAbsent))
+                    && owner.ownership_identity().is_none()
                     && matches!(producer.ownership_identity(), Some((super::ExecutionObservationKind::Owned, _))) =>
             {
-                // A bound tag describes a fresh nullable value with no initialized payload.
-                Self::owned_value(producer, contents.as_ref().clone())
+                if matches!(contents.kind(), K::Literal(tag) if matches!(tag.kind(), bray_symbols::ConstantValueKind::NullableAbsent)) {
+                    // The selected tag describes the complete nullable, with no live payload.
+                    Self::owned_value(producer, contents.as_ref().clone())
+                } else {
+                    Self::scalar_observation(producer, contents.as_ref().clone())
+                }
             }
             K::Observation { owner, contents, kind } => Self::observation(
                 if owner.is_unknown() { producer.clone() } else { owner.as_ref().clone() },

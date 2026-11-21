@@ -341,7 +341,7 @@ fn named_callable_contracts_preserve_and_enforce_obligations() {
 
 #[test]
 fn a_trust_boundary_does_not_hide_wrapper_requirements() {
-    for tail in ["", "observe(&value);"] {
+    for invocation in ["trusted observe(&value);", "observe(&value);"] {
         let source = format!(
             r#"
             trusted module app;
@@ -357,8 +357,7 @@ fn a_trust_boundary_does_not_hide_wrapper_requirements() {
             func caller()
             {{
                 let value: Owner = {{ epoch = 1 }};
-                trusted {{ observe(&value); observe(&value); }};
-                {tail}
+                {invocation}
             }}
         "#
         );
@@ -366,19 +365,14 @@ fn a_trust_boundary_does_not_hide_wrapper_requirements() {
         let compilation = compilation(&source);
         let diagnostics = compilation.check_diagnostics();
 
-        if tail.is_empty() {
-            assert!(diagnostics.is_empty(), "{diagnostics:?}");
-        } else {
-            assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+        assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
 
-            let diagnostic = diagnostics.iter().next().expect("the unacknowledged call fails");
+        let diagnostic = diagnostics.iter().next().expect("the caller must establish its obligation");
 
-            assert_eq!(diagnostic.kind(), DiagnosticKind::CheckingTrustedObligationNotProven);
-
-            assert!(diagnostic.primary_span().is_some_and(|span| {
-                crate::test_support::diagnostic_at_call(diagnostic, span.source_id(), &source, "observe(&value)")
-            }), "{diagnostic:?}");
-        }
+        assert_eq!(diagnostic.kind(), DiagnosticKind::CheckingTrustedObligationNotProven);
+        assert!(diagnostic.primary_span().is_some_and(|span| {
+            crate::test_support::diagnostic_at_call(diagnostic, span.source_id(), &source, "observe(&value)")
+        }), "{diagnostic:?}");
     }
 }
 

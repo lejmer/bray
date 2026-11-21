@@ -141,22 +141,13 @@ impl<'a, 'state, C: CheckerRequestContext + ?Sized> Transfer<'a, 'state, C> {
                         .cloned()
                         .unwrap_or_default();
 
-                    let sources = self
-                        .state
-                        .sources
-                        .get(&operand)
-                        .cloned()
-                        .unwrap_or_default();
-
                     if self.request.view().expression(target).is_some_and(BoundExpression::accumulates_generator_result) {
                         if !values.is_empty() {
                             self.state.values.entry(target.into()).or_default().extend(values);
                         }
-
-                        if !sources.is_empty() {
-                            self.state.sources.entry(target).or_default().extend(sources);
-                        }
                     } else {
+                        let sources = self.state.sources.get(&operand).cloned().unwrap_or_default();
+
                         super::state::assign(&mut self.state.values, target.into(), values);
                         super::state::assign(&mut self.state.sources, target, sources);
                     }

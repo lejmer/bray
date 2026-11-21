@@ -792,6 +792,17 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let mut complete = |branch: &mut ExecutionState, (row, guard): (&crate::execution_guarantees::ExecutionOutput, ExecutionCondition)| {
             let value = self.complete_output_row(branch, source.map(|site| (site, entry)), publication, result.clone(), row, guard);
 
+            if matches!(result.kind(), crate::ExecutionConditionKind::Call(_, _, _, _, None)) {
+                let observed = value.computed_value();
+
+                if observed != result && !observed.is_unknown() && !observed.is_reference()
+                    && !result.observes_live(None) && !observed.observes_live(None)
+                {
+                    // Both observations describe the scalar on this completed row.
+                    ExecutionCondition::value_alias(result.clone(), observed.clone()).assume(true, &mut branch.assumptions);
+                }
+            }
+
             finish(branch, value, Some(row))
         };
 

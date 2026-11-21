@@ -110,6 +110,10 @@ descriptor to find the live destination. Effects still frame the full area the c
 Lifecycle completion publishes the reached receiver and its selected write destinations for proof replay.
 Reference observations retain the reached target and the checked pointee type.
 Proof uses that observation to read updated contents through the existing descriptor.
+Normal completion publishes a new borrow's current identity from its exact
+reached target. Input materialization captures the published descriptor.
+Final call admission refreshes its contents through that same loan.
+Intervening argument evaluation can change the contents or end its authority.
 Finite mutations materialize retained proof observations on demand. Rewriting
 current storage uses the published masks for the changed places.
 An admitted extraction can retain its complete private snapshot through a write to
@@ -120,6 +124,9 @@ Return publication uses one mapping from the actual result's logical observation
 to portable result paths for guards, formal transfers, and witness clauses.
 Physical snapshots still supply ownership and reachable support. Their capture
 coordinates do not form part of a portable predicate subject.
+An immutable scalar returned by a const call can publish its equality to the
+selected call term under the reached outcome. The checked reference capture
+continues to supply access authority for reference-valued calls.
 When a normal result binds an absent tag, its produced identity names the
 complete nullable. The selected outcome still leaves its payload inactive.
 At a join, a captured present value supplies its existing payload lineage.

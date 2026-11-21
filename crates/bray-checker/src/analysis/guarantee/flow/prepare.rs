@@ -9,56 +9,39 @@ use crate::{CheckerRequestContext, CheckerUnitView};
 
 use super::super::super::fixed_point::{FixedPointOutcome, solve_fixed_point};
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "flow analysis consumes tables from independent checker queries without hidden lookups"
-)]
-pub(in crate::analysis::guarantee) fn analyze_execution_flow<
-    'a,
-    'view,
-    C: CheckerRequestContext + ?Sized,
->(
-    prepared: &'a crate::PreparedBodyAnalysis,
-    excluded_edges: BTreeSet<crate::analysis::id::AnalysisEdgeId>,
-    request: CheckerUnitView<'view, C>,
-    semantics: &'a CheckedExpressionSemantics,
-    assumptions: &[ExecutionCondition],
-    storage: &'a bray_bound_tree::StoragePlan,
-    memory: &'a bray_bound_tree::CheckedMemoryOperations,
-    checked_body: &'a bray_bound_tree::CheckedBodySemantics,
-    contracts: &'a BTreeMap<BoundExpressionId, Vec<crate::ExecutionCompletionContract>>,
-    disposal: &'a super::super::cleanup::Cleanup<'a>,
-    dependencies: &'a bray_bound_tree::CheckedDependencyContracts,
-) -> Option<ExecutionFlow<'a, 'view, C>> {
-    let mut domain = prepare_execution_flow(
-        prepared,
-        request,
-        semantics,
-        Cow::Owned(assumptions.to_vec()),
-        storage,
-        memory,
-        contracts,
-        disposal,
-        dependencies,
-        checked_body.liveness(),
-    );
+impl<'a, 'view, C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'a, 'view, C> {
+    pub(in crate::analysis::guarantee) fn solve(
+        mut self,
+        assumptions: &[ExecutionCondition],
+        excluded_edges: BTreeSet<crate::analysis::id::AnalysisEdgeId>,
+    ) -> Option<ExecutionFlow<'a, 'view, C>> {
+        let entry = self.assumptions.to_mut();
+        entry.clear();
+        entry.extend_from_slice(assumptions);
+        self.excluded_edges = excluded_edges;
 
-    domain.excluded_edges = excluded_edges;
+        let states = match solve_fixed_point(self.graph, &self, &self.request) {
+            FixedPointOutcome::Complete(states) => states,
+            FixedPointOutcome::Cancelled => return None,
+            FixedPointOutcome::ConvergenceInvariantViolated => {
+                panic!("execution condition flow exceeded its finite convergence bound");
+            }
+        };
 
-    domain.checked_body = Some(checked_body);
-
-    let states = match solve_fixed_point(&prepared.graph, &domain, &request) {
-        FixedPointOutcome::Complete(states) => states,
-        FixedPointOutcome::Cancelled => return None,
-        FixedPointOutcome::ConvergenceInvariantViolated => {
-            panic!("execution condition flow exceeded its finite convergence bound");
-        }
-    };
-
-    Some(ExecutionFlow { domain, states })
+        Some(ExecutionFlow { domain: self, states })
+    }
 }
 
-impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
+impl<'a, 'view, C: CheckerRequestContext + ?Sized> ExecutionFlow<'a, 'view, C> {
+    pub(in crate::analysis::guarantee) fn into_domain(self) -> ExecutionFlowDomain<'a, 'view, C> {
+        let ExecutionFlow { mut domain, states } = self;
+
+        drop(states);
+        domain.proofs = Default::default();
+
+        domain
+    }
+
     pub(in crate::analysis::guarantee) fn matches_inputs(
         &self,
         assumptions: &[ExecutionCondition],
