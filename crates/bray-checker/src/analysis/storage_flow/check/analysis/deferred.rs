@@ -411,8 +411,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         }
 
         let (effects, rows) = selection.bind(templates, |effect| {
-            self.resolve_effects(memory, routes, (std::slice::from_ref(effect), Some(entry)), || entry.argument_regions(count), |subject, indirect| {
-                self.frame_effect_targets(memory, candidate, routes, subject, indirect)
+            self.resolve_effects(memory, routes, (std::slice::from_ref(effect), Some(entry)), || entry.argument_regions(count), |subject, path, indirect| {
+                self.frame_effect_targets(memory, candidate, subject, path, indirect)
             })
         });
 
@@ -423,14 +423,14 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         &self,
         memory: &crate::analysis::storage_flow::memory::State,
         candidate: &crate::ExecutionDeferredInvocation,
-        storage: &BoundCallStorage,
         subject: &DependencySubject,
+        path: Option<&bray_bound_tree::StorageReferencePath>,
         indirect: bool,
     ) -> Option<Vec<StorageMutationTarget>> {
         let values = self.request.semantic_values();
         let root = subject.subject_root();
 
-        let (_, path) = storage.subject(subject)?;
+        let path = path?;
 
         if root.is_static() {
             let start = self.static_location(&DependencySubject::root(root))?;
@@ -505,15 +505,15 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     .and_then(crate::ExecutionCondition::captured_input_regions)
                     .map(bray_base::sorted_unique_shared_slice),
             },
-            |subject, indirect| {
+            |subject, path, indirect| {
                 if !subject.subject_root().is_static() && !indirect
-                    && storage.subject(subject).is_some_and(|(_, path)| path.steps().is_empty())
+                    && path.is_some_and(|path| path.steps().is_empty())
                 {
                     // Inline disposal reaches caller memory through separately captured descriptors.
                     return Some(Vec::new());
                 }
 
-                self.frame_effect_targets(memory, candidate, storage, subject, indirect)
+                self.frame_effect_targets(memory, candidate, subject, path, indirect)
             },
         )
     }

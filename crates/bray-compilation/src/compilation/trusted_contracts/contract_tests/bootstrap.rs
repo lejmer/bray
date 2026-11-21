@@ -37,7 +37,7 @@ fn assert_bootstrap_contracts(target: NativeTarget) {
     let mut failures = Vec::new();
 
     for name in [
-        "owner_entry_scope", "dispatch_ready", "start_frame", "prepare_start",
+        "owner_entry_scope", "dispatch_ready", "start_frame", "prepare_start", "register_task", "commit_start",
         "origin_context", "worker_context", "owned_context", "borrow_execution", "view_context", "context",
         "pending_observation", "take_ready", "acquire_ready", "acquire_worker_ready",
         "record_worker_failure", "retire_driver", "retain_in_arena", "retention",

@@ -90,9 +90,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let values = self.request.semantic_values();
 
         self.resolve_effects(memory, storage, (effects, None),
-            || receiver.map(|target| [target.clone()].into()), |subject, indirect| {
+            || receiver.map(|target| [target.clone()].into()), |subject, path, indirect| {
             let start = self.cleanup_subject_root(receiver, subject)?;
-            let path = storage.subject(subject).map(|(_, path)| path);
 
             if path.is_none() && !subject.projections().is_empty() { return None; }
 

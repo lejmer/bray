@@ -1,5 +1,5 @@
 use crate::analysis::storage_flow::memory::{Effect, EffectOutcomes};
-use bray_bound_tree::{StorageEffectRow, StorageIdentity, StorageInvalidation, StorageObservedTarget, StoragePath, StorageProjection};
+use bray_bound_tree::{StorageEffectRow, StorageIdentity, StorageInvalidation, StorageObservedTarget, StoragePath, StorageProjection, StorageReferencePath};
 use bray_symbols::{
     DependencyFailureKind, DependencyMutationKind, DependencyStorageEffect, DependencySubject,
     TypeData,
@@ -540,10 +540,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let entry = execution.admitted_call(occurrence);
 
         let resolved = self.resolve_effects(&state.memory, storage, (effects, entry),
-            || entry?.argument_regions(contract.input_count()), |subject, indirect| {
+            || entry?.argument_regions(contract.input_count()), |subject, path, indirect| {
             let values = self.request.semantic_values();
             let root = subject.subject_root();
-            let path = storage.subject(subject).map(|(_, path)| path);
 
             if root.is_static() {
                 let start = path.map_or_else(|| self.static_location(subject), |_| {
@@ -632,7 +631,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         storage: &bray_bound_tree::BoundCallStorage,
         (effects, entry): (&[DependencyStorageEffect], Option<&crate::ExecutionCallEvidence>),
         mut input_regions: impl FnMut() -> Option<std::sync::Arc<[Target]>>,
-        mut resolve: impl FnMut(&DependencySubject, bool) -> Option<Vec<crate::analysis::storage_flow::memory::MutationTarget>>,
+        mut resolve: impl FnMut(&DependencySubject, Option<&StorageReferencePath>, bool) -> Option<Vec<crate::analysis::storage_flow::memory::MutationTarget>>,
     ) -> Vec<Effect> {
         let mut resolved = Vec::new();
 
@@ -677,6 +676,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 } => (reference, true, !projections.is_empty() || !reads.is_empty(), *kind, *access_type, *addressed),
             };
 
+            let path = storage.subject(subject).map(|(_, path)| path);
             let static_subject = subject.subject_root().is_static();
             let static_backing = static_subject && !addressed && !indirect
                 && subject.projections().contains(&bray_symbols::DependencyProjection::OwnedTarget)
@@ -693,7 +693,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     } else { Some(targets) }
                 })
             } else {
-                resolve(subject, indirect).or_else(|| {
+                resolve(subject, path, indirect).or_else(|| {
                     static_backing.then(|| self.static_effect_targets(subject, true)).flatten()
                 })
             }.and_then(|targets| {
@@ -712,6 +712,20 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             });
 
             let Some(targets) = targets else {
+                if kind == DependencyMutationKind::Escape
+                    && let Some(path) = path
+                    && let Some((step, index, _, _)) = path.reads().find(|(_, _, _, kind)| {
+                        *kind == bray_symbols::DependencyReferenceKind::Address
+                    })
+                    && let Some(reached) = resolve(subject, Some(&path.prefix(index + 1, step + 1)), false)
+                {
+                    // Unknown contents below an admitted raw address can publish
+                    // addresses carried by that region. The outer loan is no new root.
+                    resolved.extend(reached.into_iter().map(|target|
+                        Effect::bounded(target.footprint, kind, access_type)));
+                    continue;
+                }
+
                 if kind == DependencyMutationKind::Atomic {
                     resolved.push(Effect::Atomic);
                     continue;

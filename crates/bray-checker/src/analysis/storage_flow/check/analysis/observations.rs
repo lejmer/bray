@@ -1,7 +1,7 @@
 use crate::analysis::storage_flow::memory::Effect;
 use std::collections::{BTreeMap, BTreeSet};
 
-use bray_bound_tree::{StorageInvalidation, StorageObservationKind, StorageObservedTarget, StoragePath, StorageRelationship, StorageSnapshotRoot};
+use bray_bound_tree::{StorageInvalidation, StorageObservationKind, StorageObservedTarget, StoragePath, StorageProjection, StorageRelationship, StorageSnapshotRoot};
 
 use super::core::StorageFlowCollector;
 use crate::CheckerRequestContext;
@@ -1122,12 +1122,13 @@ fn observable_path(
     root: bray_bound_tree::StorageIdentityId,
     projections: impl Iterator<Item = bray_bound_tree::StorageProjection>,
 ) -> StoragePath {
-    // Protected bytes have no source field. Their Uninit owner is the narrowest observation.
+    // A region can change the enclosing observation without naming a value
+    // component. Protected bytes likewise use their Uninit owner's observation.
     StoragePath {
         root,
         projections: projections
             .take_while(|projection| {
-                *projection != bray_bound_tree::StorageProjection::UninitPayload
+                projection.is_exact() && *projection != StorageProjection::UninitPayload
             })
             .collect(),
     }

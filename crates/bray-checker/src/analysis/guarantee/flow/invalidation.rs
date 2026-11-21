@@ -643,11 +643,13 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             unreachable!("finite proof invalidation retains its checked observation frame");
         };
 
-        changed_places.extend(state.current.iter().filter_map(|(place, _)| {
-            let crate::execution_guarantees::ExecutionInput::Pointee { target, .. } = &place.root else { return None; };
+        if affected_pointees.as_ref().is_none_or(|affected| !affected.is_empty()) {
+            changed_places.extend(state.current.iter().filter_map(|(place, _)| {
+                let crate::execution_guarantees::ExecutionInput::Pointee { target, .. } = &place.root else { return None; };
 
-            affected_pointees.as_ref().is_none_or(|affected| affected.contains(target)).then(|| place.clone())
-        }));
+                affected_pointees.as_ref().is_none_or(|affected| affected.contains(target)).then(|| place.clone())
+            }));
+        }
 
         let trace_dispatch = trace.is_some() && mutation.occurrence().expression().is_some_and(|expression|
             expression.unit().raw() == 749970 && expression.ordinal() == 117);

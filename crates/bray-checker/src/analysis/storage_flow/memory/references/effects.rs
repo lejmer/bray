@@ -72,7 +72,32 @@ impl State {
             self.invalidate(invalidation, DependencyMutationKind::Retire);
         }
 
+        let unbounded_ambient = effects.contains(&Effect::Escape(None));
+        let mut previous_unbounded = None;
+
         for effect in effects {
+            let unbounded = match effect {
+                Effect::UnboundedMutation { kind, ambient, .. } if !*ambient || unbounded_ambient => Some(*kind),
+                Effect::Ambient if unbounded_ambient => Some(DependencyMutationKind::Retire),
+                _ => None,
+            };
+
+            if let Some(kind) = unbounded {
+                // Without an address, the access type still informs proof framing.
+                // Physical weakening only distinguishes atomic and allocation scope.
+                let deallocation = effect.is_unlocated_deallocation();
+                let scope = (kind == DependencyMutationKind::Atomic, deallocation);
+
+                if previous_unbounded != Some(scope) {
+                    self.invalidate_unknown_targets(invalidation, kind, deallocation);
+                    previous_unbounded = Some(scope);
+                }
+
+                continue;
+            }
+
+            previous_unbounded = None;
+
             match effect {
                 Effect::Escape(_) | Effect::Mutation { kind: DependencyMutationKind::Escape, .. } => {}
                 Effect::Mutation { address, footprint: target, kind: kind @ (DependencyMutationKind::Dispose(_) | DependencyMutationKind::Cleanup(_)), .. } => {
@@ -102,9 +127,6 @@ impl State {
                     self.invalidate_target(target, *kind, invalidation,
                         access_type.is_none() && address.as_ref() == Some(target),
                         retiring.filter(|address| *address == target).map(|_| origin), false)
-                }
-                Effect::UnboundedMutation { kind, ambient: false, .. } => {
-                    self.invalidate_unknown_targets(invalidation, *kind, effect.is_unlocated_deallocation());
                 }
                 effect if effect.is_ambient() => {
                     let kind = match effect {

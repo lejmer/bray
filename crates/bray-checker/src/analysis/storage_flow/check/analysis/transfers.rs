@@ -224,12 +224,15 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         };
 
         for (target, ty) in memory.typed_storage().filter(|(target, _)| target.value_observation_path().is_none()) {
-            let observations = self.input.footprint.typed_observations(ty)
+            let mut observations = self.input.footprint.typed_observations(ty)
                 .filter(|(path, kind)| kind.is_ordinary_inline()
                     && survives(&target.project(path), *kind, Some(ty), None))
-                .map(|(path, kind)| (std::sync::Arc::<[bray_bound_tree::StorageProjection]>::from(path), kind));
+                .map(|(path, kind)| (std::sync::Arc::<[bray_bound_tree::StorageProjection]>::from(path), kind))
+                .peekable();
 
-            pointees.entry((target.clone(), ty)).or_default().extend(observations);
+            if observations.peek().is_some() {
+                pointees.entry((target.clone(), ty)).or_default().extend(observations);
+            }
         }
 
     }

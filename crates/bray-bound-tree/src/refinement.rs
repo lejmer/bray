@@ -204,7 +204,7 @@ impl StorageInvalidation {
 
                 observations.retain(|observation| other.contains(observation));
 
-                true
+                !observations.is_empty()
             });
         }
 
