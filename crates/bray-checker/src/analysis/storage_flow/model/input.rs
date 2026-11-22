@@ -163,9 +163,8 @@ impl StorageFlowInput {
             .chain(
                 footprint
                     .discriminants
-                    .keys()
-                    .copied()
-                    .map(bray_bound_tree::StoragePath::root),
+                    .values()
+                    .flat_map(|paths| paths.iter().cloned()),
             )
             .chain(opaque_values.keys().cloned())
             .collect::<BTreeSet<_>>()

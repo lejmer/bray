@@ -129,6 +129,24 @@ impl State {
         })
     }
 
+    pub(in crate::analysis::storage_flow) fn pointer_regions_before_last_read(
+        &self,
+        values: &bray_symbols::SemanticValueStore,
+        source: super::Source,
+        path: &StorageReferencePath,
+    ) -> Option<Vec<Target>> {
+        let (step, operation) = path.steps().iter().enumerate().rev()
+            .find(|(_, operation)| matches!(**operation, StorageReferenceStep::ReadAddress { .. }))?;
+
+        let descriptor = path.prefix(operation.index(), step);
+
+        self.follow_source_reference_reads(values, source, &descriptor)?
+            .iter()
+            .map(|source| source.regions(self))
+            .collect::<Option<Vec<_>>>()
+            .map(|regions| regions.into_iter().flatten().collect())
+    }
+
     pub(in crate::analysis::storage_flow) fn reference_locations(
         &self,
         values: &bray_symbols::SemanticValueStore,

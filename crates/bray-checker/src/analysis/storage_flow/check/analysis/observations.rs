@@ -150,6 +150,14 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 stable_descriptors.insert(path.clone());
             }
 
+            if self.input.footprint.discriminants.get(&path.root)
+                .is_some_and(|paths| paths.contains(path))
+            {
+                StorageObservationKind::Discriminant.record_preservation(
+                    path.clone(), &mut stable_descriptors, &mut stable_values,
+                );
+            }
+
             if let Some(kind) = self.input.opaque_values.get(path) {
                 // Reaching one payload does not expose disjoint scalar or marker fields.
                 // Only the prepared immutable observations retain their values.

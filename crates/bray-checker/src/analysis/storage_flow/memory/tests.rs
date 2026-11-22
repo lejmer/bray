@@ -1850,6 +1850,72 @@ fn pending_payload_absence_survives_source_retirement_without_proving_unknown_or
 }
 
 #[test]
+fn opaque_frame_preserves_inactive_payload_only_while_its_tag_survives() {
+    let ([owner, ..], _) = places();
+
+    let tag = owner;
+
+    let payload = Place {
+        root: tag.root,
+        projections: [StorageProjection::NullableValue].into(),
+    };
+
+    let stable = bray_bound_tree::StorageInvalidation::All {
+        stable_descriptors: Default::default(),
+        stable_values: [(tag, bray_bound_tree::StorageObservationKind::Discriminant)].into(),
+        stable_reference_slots: Default::default(),
+        normal_snapshots: Default::default(),
+        stable_pointees: Default::default(),
+    };
+
+    let mut retained = State::default();
+
+    retained.no_payload(payload.clone());
+    retained.invalidate(&stable, DependencyMutationKind::Write);
+
+    assert_eq!(retained.no_payload_paths().collect::<Vec<_>>(), vec![&payload]);
+
+    retained.invalidate(&bray_bound_tree::StorageInvalidation::unknown(), DependencyMutationKind::Write);
+
+    assert!(retained.no_payload_paths().next().is_none());
+}
+
+#[test]
+fn unresolved_nested_pointer_output_uses_the_pointer_value_region() {
+    let ([owner, borrowed, external, local], _) = places();
+
+    let pointer = Place { root: owner.root, projections: [BUFFER_POINTER].into() };
+
+    let path = bray_bound_tree::StorageReferencePath::new(
+        [BUFFER_POINTER, StorageProjection::AddressTarget, BUFFER_POINTER].into(),
+        [
+            bray_bound_tree::StorageReferenceStep::ReadBorrow {
+                index: 0, target: error_type(), mode: BorrowKind::Shared,
+            },
+            bray_bound_tree::StorageReferenceStep::ReadAddress { index: 1, target: error_type() },
+        ].into(),
+    );
+
+    for pointee in [Target::storage(external), Target::storage(local)] {
+        let mut state = State::default();
+
+        state.point_at(Target::storage(owner.clone()), borrowed.clone(), error_type(), DependencyReferenceKind::Borrow);
+        state.point_at(pointee.clone(), pointer.clone(), error_type(), DependencyReferenceKind::Address);
+
+        state.values.get_mut(&Target::storage(pointer.clone()))
+            .expect("the pointer field has a value")
+            .produced_address().merge(&AddressValue::empty());
+
+        let captured = state.capture_reached_value(&Target::storage(borrowed.clone()));
+
+        assert!(state.captured_reference_sources(semantic_values(), &captured, &path).is_none());
+
+        assert_eq!(state.pointer_regions_before_last_read(semantic_values(), super::Source::Captured(captured), &path),
+            Some(vec![pointee]), "an opaque nested read retains the pointer field's region, not its borrowed owner");
+    }
+}
+
+#[test]
 fn exposed_entry_reference_keeps_its_origin_without_claiming_a_physical_place() {
     let ([source, pointer, _, _], origins) = places();
 

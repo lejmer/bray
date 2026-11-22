@@ -272,6 +272,11 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             None
         };
 
+        let pointer_regions = (writes && sources.is_none())
+            .then(|| relation.entry().and_then(|entry| {
+                self.output_pointer_regions(state, occurrence, invocation, entry)
+            })).flatten();
+
         if let Some((referents, path, pointee)) = observed
             && let Some([source]) = sources.as_deref()
             && let Some(targets) = source.targets(&state.memory)
@@ -320,7 +325,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 state.memory.stage_unknown(occurrence, destination);
             } else if relation.entry().is_some() {
                 self.stage_reference_sources(
-                    &mut state.memory, occurrence, destination, &logical, reference, sources.iter().flatten().cloned(),
+                    &mut state.memory, occurrence, destination, &logical, ty, reference,
+                    sources.iter().flatten().cloned(), pointer_regions.as_deref(),
                 );
             } else {
                 self.stage_independent_reference(&mut state.memory, occurrence, destination, logical.clone(), reference);
@@ -441,6 +447,35 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 state.memory.captured_reference_sources(self.request.semantic_values(), captured, path)
             }
         }
+    }
+
+    fn output_pointer_regions(
+        &self,
+        state: &StorageFlowState,
+        occurrence: BoundExecutionSite,
+        invocation: &InvocationOutputs<'_>,
+        subject: &DependencySubject,
+    ) -> Option<Vec<Target>> {
+        let root = subject.subject_root();
+
+        let (_, path) = invocation.storage().subject(subject)?;
+
+        let (captured, path) = match invocation {
+            InvocationOutputs::Call { entry, .. } => (
+                self.execution.invocation_capture((*entry)?, occurrence, root)?,
+                self.invocation_reference_path(occurrence, root, path)?,
+            ),
+            InvocationOutputs::Frame { entry, has_receiver, .. } => (
+                entry.argument_storage(root.input_ordinal(*has_receiver)?)?,
+                std::borrow::Cow::Borrowed(path),
+            ),
+            InvocationOutputs::Lifecycle { .. } => return None,
+        };
+
+        // The route takes a value while the admission retains its immutable capture.
+        state.memory.pointer_regions_before_last_read(
+            self.request.semantic_values(), Source::Captured(captured.clone()), &path,
+        )
     }
 
     fn output_root(
@@ -567,19 +602,39 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         occurrence: BoundExecutionSite,
         destination: Target,
         logical: &Place,
+        ty: bray_symbols::TypeId,
         reference: &bray_bound_tree::BoundCallReference,
         sources: impl IntoIterator<Item = crate::analysis::storage_flow::memory::Source>,
+        pointer_regions: Option<&[Target]>,
     ) {
         let mut sources = sources.into_iter().peekable();
 
         if sources.peek().is_none() {
-            memory.stage_unknown(occurrence, destination);
+            self.stage_unresolved_reference(memory, occurrence, destination, logical, ty, pointer_regions);
+
             return;
         }
 
         for source in sources {
             // Alternatives share the same destination projection.
-            self.stage_reference(memory, occurrence, source, destination.clone(), logical, reference);
+            self.stage_reference(memory, occurrence, source, destination.clone(), logical, ty, reference);
+        }
+    }
+
+    fn stage_unresolved_reference(
+        &self,
+        memory: &mut crate::analysis::storage_flow::memory::State,
+        occurrence: BoundExecutionSite,
+        destination: Target,
+        logical: &Place,
+        ty: bray_symbols::TypeId,
+        pointer_regions: Option<&[Target]>,
+    ) {
+        if let (Some(regions), Some(target)) = (pointer_regions,
+            crate::representation::reference_target_type(self.request, ty)) {
+            memory.stage_returned_reference(occurrence, destination, logical.clone(), target, regions.iter().cloned());
+        } else {
+            memory.stage_unknown(occurrence, destination);
         }
     }
 
@@ -590,19 +645,27 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         source: crate::analysis::storage_flow::memory::Source,
         destination: Target,
         logical: &Place,
+        ty: bray_symbols::TypeId,
         reference: &bray_bound_tree::BoundCallReference,
     ) {
         let relation = reference.relation();
         let values = self.request.semantic_values();
 
-        let reached = match reference.reads() {
-            Some(path) => memory.follow_source_reference_reads(values, source, path),
-            None => Some(vec![source]),
-        };
+        let reached = if let Some(path) = reference.reads() {
+            // The captured source shares its immutable snapshot while route reads use a value.
+            match memory.follow_source_reference_reads(values, source.clone(), path) {
+                Some(reached) => reached,
+                None => {
+                    let regions = (reference.target_path().is_none() && reference.addressed_type().is_none())
+                        .then(|| memory.pointer_regions_before_last_read(values, source, path)).flatten();
 
-        let Some(reached) = reached else {
-            memory.stage_unknown(occurrence, destination);
-            return;
+                    self.stage_unresolved_reference(memory, occurrence, destination, logical, ty, regions.as_deref());
+
+                    return;
+                }
+            }
+        } else {
+            vec![source]
         };
 
         if let Some(path) = reference.target_path() {

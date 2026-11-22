@@ -226,6 +226,18 @@ absence facts when selecting cleanup, retaining owners, and publishing exit or
 replacement decisions. Reference staging reads only no-payload facts. A later
 write or join updates the physical binding before the next query, so the
 caller does not copy the call's absence into a second persistent map.
+An imported or source result reference follows its prepared typed route
+through the admitted input capture. If a later descriptor is opaque, its
+possible pointees come from the reached pointer value and previously exposed
+storage. A borrow that keeps the enclosing owner alive does not by itself
+make that owner a possible pointee of the returned reference. The symbolic
+result identity retains those bounds across transfer and later escape.
+Opaque observation preparation includes each exact nullable or union tag, not
+only its enclosing root. An unexposed tag can stay stable even when a sibling
+field is reached through a borrow. Physical no-payload bindings and logical
+absence facts use that same preserved tag. If the tag can change, the physical
+binding loses its absence rather than keeping an inactive value through a
+possible write.
 An address returned from the slice retains the
 containing storage lifetime through its portable reference relationship. The fixed element selector and its backing
 lifetime remain distinct from an exact cell address in the caller.

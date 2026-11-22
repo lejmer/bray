@@ -243,19 +243,55 @@ after the arena call. The nullable allocation test with an opaque call fails.
 
 The package-backed probe checked and lowered all 13 selected bootstrap
 bodies with the routed-discharge candidate. It reported 16 diagnostics at 10
-source sites. `retire_pin` retained one E7086 site with two initialized
-origins. A later review of that site found an already typed discharge was
-being checked against its source cell after the cell had retired. The current
-candidate consumes that routed discharge directly and has a focused checker
-test. The other sites concern transported ownership through nullable and
-catch payloads, replacement cleanup, and one exposed-address write. The
-`entry_scope` contract publishes an inactive `operation` payload, but cleanup
-read only the logical absence map. The current candidate reads the committed
-physical no-payload binding alongside logical absence throughout cleanup,
-owner retention, and exit publication. These changes need a fresh package
-probe. The probe uses a standard-library bundle built with Rust 1.98.1 and
-LLVM 22.1.8. Rust 1.99.0 emits LLVM 23 bitcode that Bray's pinned LLVM 22
-symbol tool cannot inspect.
+source sites. The next route batch preserves an inactive nullable payload
+while its tag survives, and bounds an unresolved result pointer by the reached
+input descriptor instead of its safe-borrowed owner. The same 13 bodies now
+report five E7123 diagnostics at two sites: `execution/ownership.bray` and
+`execution/worker_context.bray`. `root_scope`, `retire_pin`, and the other
+previously failing sites check and lower. The remaining sites both transport
+an owned nullable value from a trusted producer through a consumed `Result`
+or catch payload, then lose the producer's predicate before the consumer.
+The probe uses a standard-library bundle built with Rust 1.98.1 and LLVM
+22.1.8. Rust 1.99.0 emits LLVM 23 bitcode that Bray's pinned LLVM 22 symbol
+tool cannot inspect.
+
+### Current reference-route contract
+
+A result pointer copied from a reached input descriptor keeps that descriptor's
+possible pointees. The input's safe borrow can keep its owner alive, but does
+not make the owner a pointee. An unknown descriptor can refer to external or
+previously exposed storage. It must not gain an exact address, initialization,
+ownership, or a new route to private sibling storage. An actual raw pointer to
+an inline owner still exposes its enclosing allocation.
+
+`current()` publishes independent or empty pointer alternatives. `entry_scope`
+transfers the selected `Current` and publishes an inactive `operation`.
+`nested_context` admits `&scope.current` and returns a `Context` whose
+reference relation reads `parent.pointer` and its typed fields. When the
+caller cannot complete that deep read, output staging reads the reached pointer
+descriptor's possible regions from the admitted capture. Its safe borrow
+remains a lifetime support only. The following result-bounds pass preserves
+the narrower symbolic pointer region. `commit_driver` then leaves the
+disjoint inactive `operation` payload intact. The same output staging serves
+ordinary calls and deferred frames. Intrinsic result bounds retain their
+distinct inputs.
+
+The positive oracle is the package-backed `root_scope` check at line 89 plus a
+small source and imported-call control that returns a pointer through an
+opaque descriptor while a disjoint nullable sibling remains empty. Negative
+oracles return an actual pointer into the owner, expose a raw address, or
+write the tag. Those paths must still invalidate the sibling, and a bounded
+region must never become an exact cell. The fixed 13-body package probe fell
+from 16 diagnostics at 10 sites to five at two sites after the route batch.
+
+Use the admitted capture, prepared `StorageReferencePath`, and existing
+`StorageAddressValue` and symbolic returned identity. The all-root fallback
+remains only where no reached pointer descriptor gives a narrower region.
+Do not retain a parallel origin map or reconstruct the caller state from the
+portable summary. Keep code growth to the route computation and its direct
+consumers. Reconsider if a known local pointer loses its local target, a raw
+exposure stays protected, or an unresolved route cannot provide a sound
+bounded alternative.
 
 The call that extracts the whole `Domain` publishes a definite typed
 discharge through the admitted domain pointer. The reached scheduler

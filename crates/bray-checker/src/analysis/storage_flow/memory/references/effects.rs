@@ -205,6 +205,9 @@ impl State {
             // reference slots that merely may alias the atomic's address.
             if kind != DependencyMutationKind::Atomic
                 && !Self::stable_reference_slot(&affected, invalidation)
+                && !self.values.get(&affected).is_some_and(|value| {
+                    value.is_no_payload() && stable_no_payload(&affected, invalidation)
+                })
             {
                 if complete_cell && target.is_exact() && *target == affected {
                     self.values.remove(&affected);
@@ -258,6 +261,9 @@ impl State {
 
         for (slot, replaces_backing) in affected {
             if !Self::stable_reference_slot(&slot, invalidation)
+                && !self.values.get(&slot).is_some_and(|value| {
+                    value.is_no_payload() && stable_no_payload(&slot, invalidation)
+                })
                 && let Some(value) = self.values.get_mut(&slot)
             {
                 invalidate_value(value, replaces_backing);
@@ -300,6 +306,7 @@ impl State {
                 || unaffected(target)
                 || unknown && Self::unaddressed_inline_slot(unaddressed, target)
                 || Self::stable_reference_slot(target, invalidation)
+                || value.is_no_payload() && stable_no_payload(target, invalidation)
                 || match target.observation_path() {
                     Some(slot) => !invalidation.invalidates_path(&slot),
                     None => !matches!(
@@ -352,10 +359,28 @@ impl State {
 }
 
 fn invalidate_value(value: &mut super::super::model::ValueBinding, replaces_backing: bool) {
+    if value.is_no_payload() {
+        value.lose_information();
+        return;
+    }
+
     value.clear_address();
     value.completeness.lose_completeness();
 
     if replaces_backing {
         value.forget_owned_backing();
     }
+}
+
+fn stable_no_payload(target: &Target, invalidation: &StorageInvalidation) -> bool {
+    let Some(path) = target.storage_path() else { return false; };
+
+    let Some(index) = path.projections.iter().rposition(|projection| matches!(projection,
+        bray_bound_tree::StorageProjection::NullableValue
+            | bray_bound_tree::StorageProjection::ActiveUnionPayloadField { .. }))
+    else { return false; };
+
+    let tag = Place { root: path.root, projections: path.projections[..index].into() };
+
+    !invalidation.invalidates_discriminant(&tag, true)
 }
