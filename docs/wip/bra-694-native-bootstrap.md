@@ -64,9 +64,9 @@ evidence. Impossible internal states fail at the violated contract.
 ## Verified checkpoint
 
 The guarded owner publication and typed pointee changes pass the audited
-inventory of 1,709 cases, 582 checker tests, and 139 bound-tree tests.
+inventory of 1,709 cases, 584 checker tests, and 139 bound-tree tests.
 The package-backed check and lowering attempt covers 41 bodies and
-leaves 22 distinct diagnostics from the 43 in the baseline. The four
+leaves 12 distinct diagnostics from the 43 in the baseline. The four
 native targets check the 32 selected owner, registration and dispatch
 bodies, including `dispatch_ready` and `start_frame`. A complete runtime
 archive and executable link must check the remaining bodies and backend.
@@ -137,6 +137,33 @@ each normal row, then its operand shape changes at the result join. Bind
 authored result clauses to the published value. Retain row-specific
 address and witness support at the row that supplied it.
 
+Repeated short-circuit and result joins can qualify the same carried trusted
+claim with different path guards. Candidate selection currently keeps only
+those whole guarded clauses, so a later join cannot recover the common claim
+even when every actual predecessor proves it for the same joined owner. Treat
+nested trusted atoms as proof candidates, not assumptions. Publish a direct
+claim only when each actual predecessor proves it from that carrier's witness
+evidence and its own ordinary path facts. A clause that is merely vacuous on a
+path with no authority must remain unavailable, an unrelated carrier cannot
+lend evidence, and an inactive nullable payload carries no authority. The
+positive oracle joins opposite guards whose carrier clauses both imply the
+same claim. The negative oracle has authority on only one predecessor and
+must not manufacture the claim. Reconsider if the joined owner substitution
+is wrong or if any negative oracle gains authority.
+
+The attachment exchange postcondition reaches the terminal state with both
+`execution != none` and `status != 0` as exact ordinary facts. Its required
+condition is `status == 0 || execution != none`. Mixed proof scans the left
+comparison's large derived relation first, exhausts its bounded work, and
+never reads the decisive exact right alternative. Boolean proof must inspect
+either direct decisive child before recursive implication work, independently
+of source order. An unknown or non-decisive child remains insufficient, and
+trusted evidence cannot establish an ordinary atom. The positive oracle puts
+an expensive unresolved comparison before an exact true alternative. Negative
+oracles keep the alternative false or unknown. Reconsider if the terminal
+state loses the exact entry fact or if a non-explicit alternative starts
+bypassing bounded proof.
+
 The link-slot proof initially establishes initialization for all three
 admitted fields. The checked move reaches just the arena field in the
 actual link slot. The physical invalidation lists the enclosing typed
@@ -151,28 +178,46 @@ field. The raw domain retirement and attachment result postcondition
 still need their own reached transitions traced.
 
 The focused comparison clears the deadline callbacks, event and arena
-creation, task-slot field moves, and host storage preparation. All 22
-remaining locations already appeared in the baseline. The remaining
-declarations still require full product checking.
+creation, task-slot field moves, host storage preparation, execution
+publication, the attachment result postcondition, the second lifetime body,
+and the host execution-owner postcondition. Twelve distinct package-backed
+diagnostics remain, all at locations already present in the baseline. They
+group into carried trusted authority across result and cleanup joins,
+allocation or address authority across owner transport, and ordered retirement
+export. The remaining declarations still require full product checking.
 
-For the remaining scoped-view failures, trace the current acquisition
-and its backing independently. In `publish_driver`, the loss is
-reported after the host thread-local context operation. Its normal rows
-distinguish the early return, protected static updates, and external
-publication of the replacement address. Check whether the selected
-row, the physical exposure, the current local marker and the
-guarantee's lifetime support describe the same surviving value. A
-possible external write or retirement must still invalidate its
-dependent view. A stored raw address alone cannot expose its enclosing
-inline owner.
+The remaining scoped-view failures share one closed escape-binding contract.
+`install_previous` publishes a structured escape rooted at parameter 1's
+nullable resource field. The caller has no concrete target for that returned
+raw address. Binding currently widens the structured miss to `Escape(None)`,
+which means every address-bearing operand, and therefore marks parameter 0's
+shared-borrow receiver as escaped. The following ambient call then frames the
+receiver's whole inline `Current`, including its independent acquisition
+marker. An unresolved structured escape can expose unknown external storage,
+but it cannot publish another argument's descriptor or inline siblings. Keep
+genuinely unscoped escape summaries conservative. A known raw target must
+still expose its allocation, and a possible external write or retirement must
+still invalidate a dependent view. The positive oracle is `publish_driver`
+retaining `view_owned` across `install_previous` and `execution_context`.
+Negative oracles cover a generic unscoped escape, a known escaped input,
+mutation of the reached backing, and retirement of that backing. Replace the
+structured-to-unscoped fallback rather than weakening allocation exposure.
+Reconsider this repair if the structured effect can resolve parameter 0, if
+the raw field is proven to designate the receiver's inline slot, or if a
+negative oracle preserves a view after backing mutation.
 
-`destroy_domain` checks and lowers by itself. Its caller has live duties
-from service release and report draining and rejects the nested raw
-retirement. The checked summary contains the consumption of the domain
-and the reached retirements, with no ordered discharge attached to them.
-Trace the exact retirement operand, the remaining duty's physical cell,
-and the consumed cells at the retirement. A possible consumption, or
-one that occurs after retirement, cannot discharge the duty.
+`destroy_domain` checks and lowers by itself. Its caller reaches raw retirement
+with three outstanding typed cells below the same execution owner, including
+two direct service fields and one nested report field. The nested summary
+contains their definite consumes and the later retirements, but the retirement
+effect has no ordered discharge attached. The performed prefix at the reached
+retirement must carry only definite earlier consumes of exact cells. A
+conditional consume, a possible alias, a consume after retirement, and a cell
+reinitialized after consumption cannot discharge the duty. The positive
+oracle consumes all three exact typed cells before raw retirement. Preserve the
+prefix on the actual reached retirement instead of reconstructing order from a
+sorted summary effect set. Reconsider if the producer has no ordered prefix or
+if attaching it changes any negative ordering oracle.
 The scheduler's own summary names both a consume and a retirement
 through the same entry pointer. A raw intrinsic reads discharges from
 its current memory. Re-export of a reached nested retirement currently

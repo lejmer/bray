@@ -114,12 +114,18 @@ pub(super) fn conditional_facts<'value>(
                     witness.conditions.keys().filter_map(|condition| {
                         (!witness.available || proof.prove_mixed(condition,
                             &mut { ExecutionCondition::WORK_LIMIT }) == Some(true))
-                        .then(|| {
-                            (
-                                substitution.owner(owner),
-                                substitution.value(condition),
-                            )
-                        })
+                        .then(|| substitution.value(condition))
+                    }).flat_map(|condition| {
+                        // Repeated joins may qualify the same underlying claim with
+                        // different path guards. Consider that claim directly, then
+                        // retain it only if both actual predecessors prove it.
+                        let claims = condition.observations()
+                            .filter(|candidate| matches!(candidate.kind(), crate::ExecutionConditionKind::Trusted(_)))
+                            .cloned().collect::<Vec<_>>();
+
+                        std::iter::once(condition).chain(claims)
+                            .map(|condition| (substitution.owner(owner), condition))
+                            .collect::<Vec<_>>()
                     }).collect::<Vec<_>>()
                 })
         })
@@ -395,6 +401,46 @@ mod tests {
             &BTreeMap::new(), [], &availability, None, &mut facts);
 
         assert!(retained.is_empty(), "an ordinary tautology establishes no carrier authority");
+    }
+
+    #[test]
+    fn opposite_join_guards_recover_a_claim_proved_by_both_carriers() {
+        let input = |ordinal| ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(ordinal))));
+        let place = ExecutionPlace::argument(SymbolOrdinal::new(0));
+        let owner = input(0);
+        let guard = input(1);
+        let trusted = ExecutionCondition::new(crate::ExecutionConditionKind::Trusted(Arc::new(input(2))));
+        let left_clause = ExecutionCondition::operation(BoundOperator::LogicalOr, vec![
+            ExecutionCondition::operation(BoundOperator::LogicalNot, vec![guard.clone()]),
+            trusted.clone(),
+        ]);
+        let right_clause = ExecutionCondition::operation(BoundOperator::LogicalOr, vec![
+            guard.clone(), trusted.clone(),
+        ]);
+        let mut left = ExecutionState::default();
+        let mut right = ExecutionState::default();
+
+        for state in [&mut left, &mut right] {
+            state.assign(place.clone(), owner.clone(), None);
+        }
+
+        guard.clone().assume(true, &mut left.assumptions);
+        guard.clone().assume(false, &mut right.assumptions);
+        left.carry_guarantee(owner.clone(), left_clause.clone());
+        right.carry_guarantee(owner.clone(), right_clause.clone());
+        left_clause.assume(true, &mut left.trusted_assumptions);
+        right_clause.assume(true, &mut right.trusted_assumptions);
+
+        let empty = BTreeMap::new();
+        let substitution = crate::execution_guarantees::ExecutionSubstitution::new(&empty, &empty);
+        let mut facts = Vec::new();
+
+        let retained = conditional_facts((&left, &substitution), (&right, &substitution),
+            &BTreeMap::new(), [], &BTreeSet::new(), None, &mut facts);
+
+        assert_eq!(retained.len(), 1);
+        assert_eq!(retained[0].owner, owner);
+        assert!(retained[0].clauses.contains(&(trusted.clone(), trusted)));
     }
 
     #[test]

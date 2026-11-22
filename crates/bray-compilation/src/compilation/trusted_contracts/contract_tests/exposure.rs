@@ -348,6 +348,94 @@ fn opaque_execution_preserves_only_unexposed_shared_carrier_references() {
 }
 
 #[test]
+fn unresolved_structured_escapes_do_not_publish_other_arguments() {
+    let source = r#"
+        trusted module app;
+
+        using core.memory;
+
+        struct Marker
+        {
+        }
+
+        struct Previous
+        {
+            resource: DataPointer<u8>;
+        }
+
+        struct Current
+        {
+            marker: Marker;
+            previous: Uninit<(Previous?)>;
+        }
+
+        trusted predicate live(marker: &Marker);
+
+        trusted func make() -> Current
+            ensures(trusted live(&result.marker))
+        {
+            return
+            {
+                marker = Marker {},
+                previous = core.memory.uninit<(Previous?)>()
+            };
+        }
+
+        extern trusted func previous() -> Previous?;
+        extern trusted func opaque();
+
+        trusted func install(pos owner: &Current, pos previous: Previous?)
+            requires(trusted live(&owner.marker))
+            ensures(trusted live(&owner.marker))
+            uses(raw_memory, unchecked_init)
+        {
+            let pointer = core.memory.uninit_pointer<(Previous?)>(&owner.previous);
+
+            let permit = trusted lambda(
+                pos owner: &Current,
+                pos pointer: DataPointer<(Previous?)>
+            )
+                requires(trusted live(&owner.marker))
+                ensures(
+                    trusted core.memory.valid_write<(Previous?)>(pointer = pointer, count = 1),
+                    trusted core.memory.aligned_for<(Previous?)>(pointer = pointer)
+                )
+                executes(pure, total) {};
+
+            trusted permit(owner, pointer);
+            trusted core.memory.write<(Previous?)>(pointer, previous);
+        }
+
+        func observe(pos owner: &Current)
+            requires(trusted live(&owner.marker))
+            executes(pure, total)
+        {
+        }
+
+        trusted func caller()
+        {
+            let owner = make();
+
+            trusted install(&owner, trusted previous());
+            trusted opaque();
+            observe(&owner);
+        }
+    "#;
+
+    let application = compilation(source);
+
+    let checked = application
+        .lowered_unit(source_function_body_key(&application, "caller"))
+        .expect("the structured escape fixture must lower successfully");
+
+    assert!(
+        !checked.diagnostics().has_errors(),
+        "{source}: {:?}",
+        checked.diagnostics()
+    );
+}
+
+#[test]
 fn opaque_calls_preserve_unexposed_scalar_values_only() {
     for (effect, valid) in [
         ("opaque();", true),

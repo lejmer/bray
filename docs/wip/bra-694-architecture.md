@@ -174,6 +174,10 @@ The physical state owns the input-region bounds of returned addresses by produce
 
 At a call attempt, escape analysis, observation invalidation, and returned-reference bounds share the reached input
 regions. The admitted operands supply possible reach through their captured descriptors and carried dependencies.
+An unresolved structured escape retains the identity of the value whose carried
+reference escapes. It can expose unknown external storage, but it does not
+publish unrelated invocation operands. Only an unscoped escape summary widens
+to every admitted input region.
 Result staging keeps an already published exact descriptor. It reads
 the input regions on demand when a remaining opaque output needs a bound.
 Entry preparation includes the backing descriptor reads named by prepared
@@ -218,7 +222,11 @@ An unresolved raw deallocation cannot retire an invocation-owned inline slot. Ph
 observation framing use the checked pointer type while still invalidating possible heap aliases. Buffer
 cleanup disposes initialized elements and retires their backing. The backing comes from the admitted
 owner's current descriptor. Reached allocation targets retire through their actual captured addresses
-and generations.
+and generations. Nested retirement binds its exact reached address and carries
+the definite typed consumes already completed in the caller prestate.
+Conditional consumes, possible aliases, and reinitialized cells remain
+outstanding. Portable export and caller binding preserve that performed prefix
+rather than deriving order from the unordered summary effect set.
 
 A static effect can name an owned backing region without supplying its address. Bind the checked route to the
 current backing when the descriptor is available. Otherwise keep the static identity and its owning path as

@@ -440,6 +440,96 @@ fn raw_retirement_distinguishes_private_descriptors_from_borrowed_storage() {
 }
 
 #[test]
+fn nested_raw_retirement_carries_only_definite_prior_consumption() {
+    for (body, capabilities, valid) in [
+        (
+            "let value = trusted core.memory.read<Value>(pointer); _ = value;",
+            "manual_alloc, raw_memory, unchecked_init",
+            true,
+        ),
+        (
+            "if should_consume { _ = trusted core.memory.read<Value>(pointer); }",
+            "manual_alloc, raw_memory, unchecked_init",
+            false,
+        ),
+        (
+            "let value = trusted core.memory.read<Value>(pointer); trusted core.memory.write<Value>(pointer, value);",
+            "manual_alloc, raw_memory, unchecked_init",
+            false,
+        ),
+    ] {
+        let source = format!(
+            r#"
+            trusted module app;
+
+            using core.memory;
+
+            struct Value
+            {{
+                payload: u64;
+
+                destruct() executes(pure, total)
+                {{
+                }}
+            }}
+
+            trusted func retire(pos pointer: DataPointer<u8>)
+                requires(trusted core.memory.owned_allocation(
+                    pointer = pointer,
+                    bytes = 1,
+                    align = 1
+                ))
+                uses(manual_alloc)
+            {{
+                trusted core.memory.deallocate(
+                    pointer,
+                    bytes = 1,
+                    align = 1
+                );
+            }}
+
+            trusted func probe(pos pointer: DataPointer<Value>, pos should_consume: bool)
+                requires(
+                    trusted core.memory.owned_allocation(
+                        pointer = core.memory.byte_address<Value>(pointer),
+                        bytes = 1,
+                        align = 1
+                    ),
+                    trusted core.memory.valid_read<Value>(pointer = pointer, count = 1),
+                    trusted core.memory.valid_write<Value>(pointer = pointer, count = 1),
+                    trusted core.memory.aligned_for<Value>(pointer = pointer)
+                )
+                uses({capabilities})
+            {{
+                trusted core.memory.write<Value>(pointer, {{ payload = 1 }});
+                {body}
+                trusted retire(core.memory.byte_address<Value>(pointer));
+            }}
+            "#
+        );
+
+        let application = compilation(&source);
+        let checked = application
+            .lowered_unit(source_function_body_key(&application, "probe"))
+            .expect("nested retirement fixture lowers");
+
+        assert_eq!(
+            !checked.diagnostics().has_errors(),
+            valid,
+            "{source}: {:?}",
+            checked.diagnostics()
+        );
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                checked.diagnostics(),
+                DiagnosticKind::CheckingDeallocationWithOutstandingObligations,
+            );
+        }
+    }
+}
+
+#[test]
 fn raw_extraction_transfers_a_complete_nullable_witness() {
     for (extra_read, use_owner, valid) in [
         ("", "observe(&complete);", true),

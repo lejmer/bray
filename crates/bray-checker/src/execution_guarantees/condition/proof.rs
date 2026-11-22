@@ -87,6 +87,19 @@ impl ExecutionCondition {
             K::Operation(operator @ (BoundOperator::LogicalAnd | BoundOperator::LogicalOr), operands)
                 if let [left, right] = operands.as_ref() =>
             {
+                let decisive = *operator == BoundOperator::LogicalOr;
+
+                // A direct decisive alternative makes recursive implication work
+                // irrelevant. Inspect both children before either can exhaust the
+                // shared bounded budget.
+                if [left, right].into_iter().any(|operand| {
+                    operand.explicit_value(trusted, Some(ordinary), Some(memo)) == Some(decisive)
+                }) {
+                    *budget = budget.checked_sub(1)?;
+
+                    return Some(decisive);
+                }
+
                 prove_boolean(*operator,
                     left.prove_mixed_with_implications(trusted, ordinary, budget, implications, Some(memo)),
                     || right.prove_mixed_with_implications(trusted, ordinary, budget, implications, Some(memo)))

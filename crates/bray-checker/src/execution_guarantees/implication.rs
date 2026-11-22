@@ -386,6 +386,8 @@ pub fn substitute_execution_condition(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
+
     use bray_bound_tree::BoundOperator;
     use bray_symbols::{CallableParameterSymbolId, SymbolId};
 
@@ -440,6 +442,52 @@ mod tests {
             assert_eq!(proof.prove_mixed(&condition, &mut insufficient), None);
             assert_eq!(insufficient, 0, "cached proof must replay its exact work budget");
         }
+    }
+
+    #[test]
+    fn mixed_boolean_proof_reads_a_direct_decisive_alternative_before_implication_work() {
+        let input = |ordinal| ExecutionCondition::new(crate::ExecutionConditionKind::Input(
+            BoundReferenceTarget::Surface(
+                CallableParameterSymbolId::from_symbol_id(SymbolId::new(ordinal)).into(),
+            )
+            .into(),
+        ));
+        let unresolved = ExecutionCondition::operation(
+            BoundOperator::Equal,
+            vec![input(0), input(1)],
+        );
+        let decisive = input(2);
+        let goal = ExecutionCondition::operation(
+            BoundOperator::LogicalOr,
+            vec![unresolved, decisive.clone()],
+        );
+        let mut trusted = BTreeSet::new();
+
+        for index in 0..ExecutionCondition::WORK_LIMIT as u32 {
+            let relation = ExecutionCondition::operation(
+                BoundOperator::Less,
+                vec![input(10 + index * 2), input(11 + index * 2)],
+            );
+
+            relation.assume(true, &mut trusted);
+        }
+
+        let ordinary = BTreeSet::from([(decisive.clone(), true)]);
+        let proof = crate::execution_guarantees::ExecutionProof::new(&trusted, &ordinary);
+
+        assert_eq!(
+            proof.prove_mixed(&goal, &mut { ExecutionCondition::WORK_LIMIT }),
+            Some(true),
+        );
+
+        let ordinary = BTreeSet::from([(decisive, false)]);
+        let empty = BTreeSet::new();
+        let proof = crate::execution_guarantees::ExecutionProof::new(&empty, &ordinary);
+
+        assert_ne!(
+            proof.prove_mixed(&goal, &mut { ExecutionCondition::WORK_LIMIT }),
+            Some(true),
+        );
     }
 
     #[test]

@@ -715,6 +715,14 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     continue;
                 }
 
+                if kind == DependencyMutationKind::Escape {
+                    // The summary still identifies the one value whose carried
+                    // reference escapes. Missing physical bounds for that value
+                    // do not publish unrelated invocation operands.
+                    resolved.push(Effect::Escape(Some([].into())));
+                    continue;
+                }
+
                 if kind == DependencyMutationKind::Atomic {
                     resolved.push(Effect::Atomic);
                     continue;
@@ -730,12 +738,21 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
                 let effects = Effect::through(target, kind, access_type);
 
-                let duties = discharged.iter().filter_map(|duty| {
+                let mut duties = discharged.iter().filter_map(|duty| {
                     let projections = storage_projections(self.request.semantic_values(), self.dependencies, &duty.projections)?;
 
                     (StorageProjection::remains_in_allocation(&projections) && projections.iter().all(|projection| projection.is_exact()))
                         .then(|| bray_symbols::StorageDischarge { projections: projections.into(), ty: duty.ty })
-                });
+                }).collect::<Vec<_>>();
+
+                if kind == DependencyMutationKind::Retire
+                    && let Effect::Mutation { address: Some(address), .. } = &effects
+                {
+                    // A nested retirement runs after the caller's already completed
+                    // exact moves. Carry that reached prestate with the retirement;
+                    // the unordered effect envelope cannot establish this order.
+                    duties.extend(memory.retirement_discharges(address));
+                }
 
                 resolved.push(effects.with_retirement_discharges(duties));
             }
