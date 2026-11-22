@@ -189,6 +189,9 @@ to project from that base. The proof pairs each corresponding projected name
 with its actual predecessor snapshot and proposes the joined name alongside
 the original predecessor claim. This mapping grants no owner by itself. Each
 candidate clause still needs the carrier evidence of both predecessors.
+Physical capture remains on the current value. Snapshot pairing reads the
+logical owned or nullable shape inside that capture and projects through the
+captured value so the proof names the actual predecessor contents.
 The join assembles current roots from the predecessors and publishes each root
 once. It rebinds evaluated frames, owned result layouts, and proof evidence
 while the predecessor roots are still readable. The fixed point compares the

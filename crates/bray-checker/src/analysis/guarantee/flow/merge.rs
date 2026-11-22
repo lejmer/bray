@@ -104,17 +104,27 @@ pub(in crate::analysis) fn merge(
 
 pub(super) fn join_states(target: &mut ExecutionState, incoming: &ExecutionState, join: ExecutionJoin) -> bool {
     let trace_marker = std::env::var_os("BRAY_BRA694_TRACE").is_some()
-        && target.witnesses.keys().any(|owner| format!("{:?}", owner.kind()).contains("BoundUnitId(2848653), slot: 46"));
+        && target.witnesses.keys().any(|owner| {
+            let owner = format!("{:?}", owner.kind());
+            owner.contains("BoundUnitId(2848653), slot: 46")
+                || owner.contains("BoundUnitId(1046592), slot: 7")
+        });
     let marker = |state: &ExecutionState| {
         let direct = state.trusted_assumptions.iter().filter(|(condition, holds)| *holds
             && matches!(condition.kind(), crate::ExecutionConditionKind::Trusted(_))
-            && format!("{:?}", condition.kind()).contains("SymbolId(5264)"))
+            && ["SymbolId(5264)", "SymbolId(2073)"].iter().any(|predicate|
+                format!("{:?}", condition.kind()).contains(predicate)))
             .take(8)
             .map(|(condition, _)| format!("{:?}", condition.kind()).chars().take(460).collect::<String>())
             .collect::<Vec<_>>();
-        let carried = state.witnesses.iter().filter(|(owner, _)| format!("{:?}", owner.kind()).contains("BoundUnitId(2848653), slot: 46"))
+        let carried = state.witnesses.iter().filter(|(owner, _)| {
+            let owner = format!("{:?}", owner.kind());
+            owner.contains("BoundUnitId(2848653), slot: 46")
+                || owner.contains("BoundUnitId(1046592), slot: 7")
+        })
             .flat_map(|(_, witness)| witness.conditions.keys())
-            .filter(|condition| format!("{:?}", condition.kind()).contains("SymbolId(5264)"))
+            .filter(|condition| ["SymbolId(5264)", "SymbolId(2073)"].iter().any(|predicate|
+                format!("{:?}", condition.kind()).contains(predicate)))
             .take(8)
             .map(|condition| format!("{:?}", condition.kind()).chars().take(460).collect::<String>())
             .collect::<Vec<_>>();
@@ -285,12 +295,17 @@ fn join_observations<'a>(
         let available = slot.availability;
 
         if std::env::var_os("BRAY_BRA694_TRACE").is_some()
-            && format!("{place:?}").contains("LocalSymbolRegionId(2848653), slot: 6")
-            && matches!(join.observation_site(), Some(ExecutionJoinSite::Block(_, 316 | 162)))
+            && (format!("{place:?}").contains("LocalSymbolRegionId(2848653), slot: 6")
+                && matches!(join.observation_site(), Some(ExecutionJoinSite::Block(_, 316 | 162)))
+                || format!("{place:?}").contains("LocalSymbolRegionId(1046592), slot: 1")
+                    && matches!(join.observation_site(), Some(ExecutionJoinSite::Block(_, 43))))
         {
             let compact = |value: &ExecutionCondition| format!("{:?}", value.kind()).chars().take(1800).collect::<String>();
             eprintln!("BRA694 JOIN ROOT site={:?} place={place:?} left={} right={} joined={} available={available:?}",
                 join.observation_site(), compact(value), compact(other), compact(&joined));
+            eprintln!("BRA694 JOIN VALUE site={:?} place={place:?} left_fields={:?} right_fields={:?} joined_fields={:?} left_data={} right_data={} joined_data={}",
+                join.observation_site(), value.component_projections(), other.component_projections(), joined.component_projections(),
+                compact(value.computed_value()), compact(other.computed_value()), compact(joined.computed_value()));
         }
 
         if left_available != right_available
@@ -1223,7 +1238,7 @@ mod tests {
         let marker = StorageProjection::TupleElement(SymbolOrdinal::new(0));
         let updated = StorageProjection::TupleElement(SymbolOrdinal::new(1));
 
-        let (_, sites) = crate::test_support::integer_expression_unit(BoundUnitId::new(0), 3);
+        let (unit, sites) = crate::test_support::integer_expression_unit(BoundUnitId::new(0), 3);
 
         let mutation = StorageMutation::Operation(sites[0].into());
         let loan = origin.clone().borrowed();
@@ -1290,7 +1305,18 @@ mod tests {
         );
         let third = loan.with_referent(third_owned.clone());
 
-        for (first, second) in [(&refreshed, &second), (&refreshed_owned, &second_owned)] {
+        let mut storage = bray_bound_tree::StoragePlanBuilder::new(unit.unit(), unit.key().kind());
+        let slot = storage.push_identity(bray_bound_tree::StorageIdentity::Temporary(sites[0]))
+            .expect("owned join has a captured storage coordinate");
+        let capture = bray_bound_tree::StorageCapturedValue::new(
+            bray_bound_tree::StorageTarget::storage(bray_bound_tree::StoragePath::root(slot)),
+            Default::default(),
+        );
+        let captured_first = refreshed_owned.clone().captured_value(capture.clone());
+        let captured_second = second_owned.clone().captured_value(capture.clone());
+        let captured_third = third_owned.clone().captured_value(capture);
+
+        for (first, second) in [(&refreshed, &second), (&refreshed_owned, &second_owned), (&captured_first, &captured_second)] {
             for valid in [false, true] {
                 let mut left = ExecutionState::default();
                 let mut right = ExecutionState::default();
@@ -1318,7 +1344,11 @@ mod tests {
 
         let next_boundary = super::ExecutionJoin::Block(crate::analysis::id::AnalysisBlockId::from_slot(BoundUnitId::new(0), 2));
 
-        for (first, second, third) in [(&refreshed, &second, &third), (&refreshed_owned, &second_owned, &third_owned)] {
+        for (first, second, third) in [
+            (&refreshed, &second, &third),
+            (&refreshed_owned, &second_owned, &third_owned),
+            (&captured_first, &captured_second, &captured_third),
+        ] {
             let mut left = ExecutionState::default();
             let mut right = ExecutionState::default();
 

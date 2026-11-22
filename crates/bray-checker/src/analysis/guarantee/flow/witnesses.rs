@@ -232,8 +232,10 @@ pub(super) fn conditional_facts<'value>(
             if matches!(condition.kind(), crate::ExecutionConditionKind::Unknown | crate::ExecutionConditionKind::Boolean(true)) { continue; }
 
             if std::env::var_os("BRAY_BRA694_TRACE").is_some()
-                && format!("{:?}", condition.kind()).contains("SymbolId(5264)")
-                && format!("{:?}", owner.kind()).contains("BoundUnitId(2848653)")
+                && [("BoundUnitId(2848653)", "SymbolId(5264)"), ("BoundUnitId(1046592)", "SymbolId(2073)")]
+                    .iter().any(|(unit, predicate)|
+                        format!("{:?}", owner.kind()).contains(unit)
+                            && format!("{:?}", condition.kind()).contains(predicate))
             {
                 let compact = |value: &ExecutionCondition| format!("{:?}", value.kind()).chars().take(800).collect::<String>();
                 eprintln!("BRA694 JOIN CANDIDATE owner={} condition={} proved={} owning={} predecessors={:?}",
@@ -241,6 +243,25 @@ pub(super) fn conditional_facts<'value>(
                     predecessors.iter().zip(&proofs).map(|((_, inputs, evidence, owning, available), proof)|
                         (compact(&inputs.apply(&condition)), proof.prove_trusted(&inputs.apply(&condition)),
                             evidence.len(), owning.len(), available)).collect::<Vec<_>>());
+                if !proved(&condition) && matches!(condition.kind(), crate::ExecutionConditionKind::Trusted(_)) {
+                    for (index, (state, inputs, _, _, _)) in predecessors.iter().enumerate() {
+                        let source = inputs.apply(&owner);
+                        let target = inputs.apply(&condition);
+                        let proof = state.proof();
+                        let witnesses = state.owned_witnesses([source.clone()]).map(|(carrier, witness)| {
+                            let matching = witness.conditions.keys().filter(|claim| {
+                                [("SymbolId(5264)", "BoundUnitId(2848653)"), ("SymbolId(2073)", "BoundUnitId(1046592)")]
+                                    .iter().any(|(predicate, unit)| format!("{:?}", claim.kind()).contains(predicate)
+                                        && format!("{:?}", carrier.kind()).contains(unit))
+                            }).map(|claim| (compact(claim), proof.prove_trusted(claim))).collect::<Vec<_>>();
+                            (compact(carrier), witness.available, matching)
+                        }).collect::<Vec<_>>();
+                        eprintln!("BRA694 JOIN EVIDENCE side={index} source={} direct={:?} raw={} uncached={:?} target={} witnesses={witnesses:?}",
+                            compact(&source), proof.prove_trusted(&target), state.trusted_assumptions.contains(&(target.clone(), true)),
+                            ExecutionProof::new(&state.trusted_assumptions, &state.assumptions).prove_trusted(&target),
+                            compact(&target));
+                    }
+                }
             }
 
             // An existing guarded claim can already hold on both paths without
@@ -740,15 +761,16 @@ fn collect_observations(
 
     if joined == &ExecutionCondition::unknown() { return; }
 
-    if let crate::ExecutionConditionKind::Present(payload) = joined.kind() {
+    if let crate::ExecutionConditionKind::Present(_) = joined.value_inside_capture().kind() {
         for (source, inputs) in sources.into_iter().zip(inputs.iter_mut()) {
             if let Some(source) = source { insert_snapshot(inputs, joined, source); }
         }
 
         let sources = sources.map(|source| source.map(|source|
             source.clone().project(bray_bound_tree::StorageProjection::NullableValue)));
+        let payload = joined.clone().project(bray_bound_tree::StorageProjection::NullableValue);
 
-        collect_observations([sources[0].as_ref(), sources[1].as_ref()], payload,
+        collect_observations([sources[0].as_ref(), sources[1].as_ref()], &payload,
             inputs, guards, absent, active, budget);
 
         return;
@@ -796,7 +818,7 @@ fn collect_observations(
         return;
     }
 
-    if let crate::ExecutionConditionKind::Observation { contents, kind: ObservationKind::Owned, .. } = joined.kind()
+    if let crate::ExecutionConditionKind::Observation { contents, kind: ObservationKind::Owned, .. } = joined.value_inside_capture().kind()
         && !matches!(contents.kind(), crate::ExecutionConditionKind::Unknown | crate::ExecutionConditionKind::Literal(_) | crate::ExecutionConditionKind::Boolean(_))
     {
         if std::env::var_os("BRAY_BRA694_TRACE").is_some()

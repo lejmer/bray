@@ -66,8 +66,8 @@ evidence. Impossible internal states fail at the violated contract.
 The guarded owner publication and typed pointee changes pass the audited
 inventory of 1,709 cases, 584 checker tests, and 139 bound-tree tests.
 The latest package-backed check and lowering covers 43 bodies and leaves
-10 diagnostic lines at eight sites: five scoped cleanup sites and three call
-sites. The raw retirement and observer initialization errors cleared. The four
+9 diagnostic lines at seven sites: five scoped cleanup sites and two call
+sites. The raw retirement and both observer errors cleared. The four
 native targets check the 32 selected owner, registration and dispatch
 bodies, including `dispatch_ready` and `start_frame`. A complete runtime
 archive and executable link must check the remaining bodies and backend.
@@ -88,25 +88,18 @@ predecessor snapshot, reads the witness ledger, and admits a clause only when
 both predecessor proofs establish it with owning carriers. Its consumers
 include direct call requirements, `Current` and `Reference` observations, and
 scoped cleanup requirements. The observer's `preparation_owned` claim is
-published after `prepare` and the mutating `reserve_*` calls, but a repeated
-join loses its direct form before `reject` and `initialize`.
+published after `prepare` and the mutating `reserve_*` calls.
 
-The current 43-body package check with lowering reports 10 diagnostic lines
-at eight source sites: five cleanup sites and three call sites. At block 316,
-the joined current owner lists `acquisition` as a projection of a joined
-snapshot. Proposing corresponding projected names from the existing snapshot
-map cleared the observer initialization write. The later creation call still
-fails because its block-162 joined claim does not map to the left predecessor.
-The left retains guarded claims; the right proves the post-call snapshot.
-Trace whether the left projected pair is absent or ambiguous before changing
-the mapping again. Prove every candidate against both actual predecessors.
-Keep the ordinary forward map and its source call and input identities
-unchanged. A candidate must never gain authority from one path, an inactive
-payload, or a borrowed or copied address. The focused positive oracle has
-the marker through sibling writes on both paths. The negative oracle omits
-it on one path. The allocation control must stay green. Reconsider if any
-control gains authority or the fixed inventory regresses. This uses the
-existing maps without reconstructing roots or adding persistent state.
+The current 43-body package check with lowering reports 9 diagnostic lines
+at seven source sites: five cleanup sites and two call sites. Both observer
+sites now pass. Snapshot pairing reads the logical owned or nullable shape
+inside a physical capture and projects through that captured value. It pairs
+implicit joined fields with actual predecessor snapshots. The focused test
+covers repeated joins with and without the marker on each path. Keep the
+two-predecessor carrier proof and the ordinary forward map unchanged. A
+candidate must never gain authority from one path, an inactive payload, or a
+borrowed or copied address. Reconsider if an allocation control gains
+authority or the fixed inventory regresses.
 
 `destroy_domain` moves the `RawAllocation` and arena owner out of the domain.
 The allocation destructor retires the domain backing, while `release_arena`
@@ -120,8 +113,15 @@ The remaining execution cases need separate producer-to-consumer proofs.
 `current()` guarantees `view_owned` for its result. In `task_entry`, the
 `dispose_reference` call at expression 52 frames that live result into a
 post-state, and some reached paths drop the witness before `Current` cleanup.
-Trace its stable storage paths and actual effect target. `root_scope` reaches
-its `reference_retained` call with no matching witness. `resolution` also
+Trace its stable storage paths and actual effect target. The `Current` view
+protects the context while `dispose_reference` can release an execution pin,
+so moving its destructor earlier is not established as safe. `root_scope`
+loses the borrowed `Reference` claim at a later loop join. Its selected
+candidate has no retained witness carrier on either predecessor, although a
+direct premise exists before the join. The join must not manufacture ownership
+for this borrow. Check whether the live counted view supplies permitted
+support, or whether the runtime source should reacquire the reference after
+the scheduler call. `resolution` also
 fails one scoped view cleanup and one task-storage call. Do not infer that
 these share a cause from the diagnostic category alone. A broad effect must
 not preserve a claim on storage it may change, and a copied address must not
