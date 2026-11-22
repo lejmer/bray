@@ -338,7 +338,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
             ty = self.owned_projection_type(
                 ty, crate::ExecutionPlace::projection_kind(projection)
-                    .expect("owned result retains an owning output projection"),
+                    .unwrap_or_else(|| panic!(
+                        "owned result retains an owning output projection: unit {:?}, path {path:?}, projection {projection:?}",
+                        self.request.unit().key(),
+                    )),
             )?;
 
             subject = subject.project(projection);

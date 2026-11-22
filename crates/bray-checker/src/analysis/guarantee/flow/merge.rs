@@ -1,4 +1,4 @@
-use crate::execution_guarantees::{ExecutionJoinSite, ExecutionSubstitution};
+use crate::execution_guarantees::{ExecutionJoinSite, ExecutionSubstitution, SnapshotSubstitution};
 use crate::execution_guarantees::ExecutionObservationKind as ObservationKind;
 use std::collections::BTreeMap;
 
@@ -743,16 +743,24 @@ fn common_join_conditions(
     // These are proposals, not renamings of established facts. A copied input may
     // still exist elsewhere, and a literal may occur in unrelated slots. Prove each
     // proposal against both predecessors before exposing it on the joined value.
-    let candidates = [(left, &left_candidates), (right, &right_candidates)]
+    let no_owners = BTreeMap::new();
+    let proposals = [left_candidates, right_candidates];
+    let substitutions = proposals.each_ref().map(|values| ExecutionSubstitution::new(values, &no_owners));
+
+    let candidates = [(left, &substitutions[0]), (right, &substitutions[1])]
         .into_iter()
-        .flat_map(|(state, replacements)| {
+        .flat_map(|(state, substitution)| {
             state
                 .assumptions
                 .iter()
-                .map(move |(condition, holds)| (condition.with_equalities(replacements), *holds))
+                .map(move |(condition, holds)| (substitution.value(condition), *holds))
         })
         .take(ExecutionCondition::WORK_LIMIT)
         .collect::<std::collections::BTreeSet<_>>();
+
+    let snapshots = [left_inputs, right_inputs];
+
+    let [left_inputs, right_inputs] = snapshots.each_ref().map(SnapshotSubstitution::new);
 
     candidates
         .into_iter()
@@ -760,7 +768,7 @@ fn common_join_conditions(
             [(left, &left_inputs), (right, &right_inputs)]
                 .into_iter()
                 .all(|(state, inputs)| {
-                    let instantiated = condition.with_equalities(inputs);
+                    let instantiated = inputs.apply(condition);
 
                     let proven = instantiated
                         .prove_ordinary(&state.assumptions, Some(&state.proofs));
@@ -1014,6 +1022,47 @@ fn insert_replacement(
 #[cfg(test)]
 mod tests {
     use super::{BTreeMap, ExecutionCondition, ExecutionState, current_replacements};
+
+    #[test]
+    fn joined_ordinary_facts_read_each_predecessor_snapshot_once() {
+        use bray_symbols::SymbolOrdinal;
+        use crate::ExecutionPlace;
+        use crate::ExecutionConditionKind::Input;
+
+        let place = |ordinal| ExecutionPlace::argument(SymbolOrdinal::new(ordinal));
+
+        let [joined, left_value, left_other, right_value, right_other] =
+            [2, 3, 4, 5, 6].map(|ordinal| ExecutionCondition::new(Input(place(ordinal))));
+
+        let predecessor = |first: &ExecutionCondition, second: &ExecutionCondition, holds| {
+            let mut state = ExecutionState::default();
+
+            state.assign(place(0), first.clone(), None);
+            state.assign(place(1), second.clone(), None);
+            first.clone().assume(holds, &mut state.assumptions);
+            second.clone().assume(false, &mut state.assumptions);
+
+            state
+        };
+
+        let left = predecessor(&left_value, &left_other, true);
+        let right = predecessor(&right_value, &right_other, true);
+
+        let published = BTreeMap::from([
+            (place(0), joined.clone()),
+            (place(1), left_value.clone()),
+        ]);
+
+        let facts = super::common_join_conditions(&left, &right, &published);
+
+        assert!(facts.contains(&(joined.clone(), true)));
+        assert!(facts.contains(&(left_value, false)));
+
+        let alternate = predecessor(&right_value, &right_other, false);
+        let facts = super::common_join_conditions(&left, &alternate, &published);
+
+        assert!(!facts.contains(&(joined, true)));
+    }
 
     #[test]
     fn a_join_reports_changed_current_storage_before_it_stabilizes() {

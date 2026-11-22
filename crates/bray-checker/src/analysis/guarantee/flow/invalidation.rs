@@ -631,7 +631,16 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             _ => None,
         };
 
-        state.extracted_input_snapshots(mutation, frame)
+        let mut moved = state.extracted_input_snapshots(mutation, frame);
+
+        if let bray_bound_tree::StorageMutation::Operation(site) = mutation
+            && let Some(entry) = state.admitted_call(site)
+            && let Some(payload) = self.protected_extraction_payload(site, entry)
+        {
+            moved.insert(payload);
+        }
+
+        moved
     }
 
     fn frame_changed_observations(

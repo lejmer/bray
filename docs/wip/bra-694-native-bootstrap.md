@@ -65,8 +65,9 @@ evidence. Impossible internal states fail at the violated contract.
 
 The guarded owner publication and typed pointee changes pass the audited
 inventory of 1,709 cases, 584 checker tests, and 139 bound-tree tests.
-The package-backed check and lowering attempt covers 41 bodies and
-leaves 12 distinct diagnostics from the 43 in the baseline. The four
+The current package-backed check and lowering covers 43 bodies and leaves
+11 diagnostics: seven scoped cleanup requirements, three call requirements,
+and one raw deallocation. The four
 native targets check the 32 selected owner, registration and dispatch
 bodies, including `dispatch_ready` and `start_frame`. A complete runtime
 archive and executable link must check the remaining bodies and backend.
@@ -387,7 +388,104 @@ and definite typed discharges before the reached retirement. The observer
 calls need the corresponding proof of the selected owner and pointer after
 transfer. Trace publication, intervening invalidation, and admission on the
 same bodies. Preserve conditional support and reject changed or possibly
-aliased owners. The 43-body lowering probe is the baseline for this batch.
+aliased owners. The current 43-body lowering result is the baseline for the
+next batch.
+
+The observer permit is present at issuance and absent after its owner enters
+`uninit_from`. The physical initializer writes the admitted owner into
+`UninitPayload`, while proof completion had only the enclosing wrapper.
+Formation must publish the same admitted contents and retain their support
+through construction. Dropping that wrapper or passing an empty one must
+give the write no authority. Validate both paths at lowering and compare the
+observer against the same packaged inventory. Extraction and protected writes
+need their own exact reached-cell transition, since an input wrapper can be
+empty and a pointed-to payload can alias.
+
+The ordinary join proof also used transitive equality closure on directional
+maps. A predecessor value can name a different joined slot. Forward proposals
+and backward validation must each insert the selected observation once. The
+overlapping-slot control checks both facts, and a conflicting predecessor
+prevents publication. Reuse the existing substitutions. Reconsider the
+changes if they preserve retired support, alter unrelated native diagnostics,
+or need another persistent representation.
+
+The current batch passes 593 checker tests, the positive and negative
+protected nullable extraction controls, the raw-write permit control, and
+the required style and format passes. The raw-write control asserts the
+obligation at the write. Observer creation and scoped cleanup publish their claims
+before guarded joins. Their consumer failures cite joined owners with
+unproved clauses, so the directional join substitution is a common candidate
+for both. Raw retirement is separate. The producer has four rows, with
+identical guards on rows that respectively include and omit a typed
+discharge. A guard alone cannot select a discharge row. Follow the produced
+effect prefix and source cell through those rows before changing retirement
+checks or publishing a definite discharge.
+
+Protected returned storage keeps its checked value and owning path together.
+The `UninitFrom` formation records the admitted payload, the normal return
+reads the reached result slot, and witness publication and callers use that
+same value. For each exit, an active projected owner can carry its witness,
+an inactive one cannot, and an unknown one needs a portable shape guard.
+`origin_context` returns a known present attachment inside `Uninit`; the
+carrier path is `Context.attachment / UninitPayload / NullableValue`. Its
+returned snapshot proves presence, while the portable term cannot name the
+protected projection. Use the existing return-path activity rule before
+constructing a guard. Cache only guards derived from formal result types,
+not the per-exit activity. The empty-wrapper control must not gain the
+owner's witness. If an unknown nullable selector under protected storage
+appears, establish how to express its guard before publishing that carrier.
+This repair reuses the current value and adds no persistent representation.
+Reconsider it if it changes a carrier on an inactive branch or regresses the
+fixed package-backed inventory.
+
+The source control then reaches `assume_initialized` and loses the marked
+owner's witness after extracting `Owner?` from `Uninit`. Physical flow reads
+the captured `UninitPayload` and moves it into the result. Logical formation
+and extraction must select that same admitted payload, without creating an
+owner for an empty or unknown wrapper. `UninitMove` is the equivalent
+borrowed-wrapper extraction. Both must resume an admitted witness only when
+the returned snapshot actually retains its owner. The positive control marks
+an owner, returns it through `Uninit<Owner?>`, extracts it, and uses its
+predicate. The negative control uses an unmarked owner and must fail at that
+predicate requirement. Reconsider if extraction retains an owner after the
+payload moves out, if the physical cell is uninitialized, or if the imported
+producer behaves differently.
+
+The borrowed `UninitMove` wrapper carries a reached payload containing the
+marked owner, but it is absent from `owned_arguments()` and ordinary
+`extracted_values`, so call admission collects no owner witness. The checked
+memory operation is the authoritative selector. At entry, select its
+`UninitPayload` from the evaluated argument and capture only witnesses of
+that value; suspend them before the physical move. The observed result reads
+the same selection. Completion resumes only owners retained by the returned
+snapshot. The same admission applies to `UninitAssumeInitialized`, whose
+owned wrapper already exposes the payload. `UninitWrite` instead moves its
+second argument into a borrowed destination and has no direct returned
+payload to resume. The bounded repair adds no stored representation and
+shares one payload selector. Positive and negative controls cover both
+extractors. If this admits a witness from an empty wrapper, leaves a moved
+owner live at its former cell, or changes unrelated calls, revisit the
+selection and suspension boundary before further native probes.
+
+A staged `CallInput` reports its parent's expression ID but is a separate
+invocation. The first focused run lost the marked witness because protected
+payload capture also ran at that staging site. Both payload admission and
+direct protected result retention apply only to `Node(Expression)`, after
+staging has finished. Input staging keeps its own evaluated value and does
+not transfer the protected cell's owner yet.
+
+The next focused run restored the owned-wrapper controls. Its mutable
+borrowed `UninitMove` admission selected a non-unknown payload and found one
+available witness retained by that payload, but no matching completion trace
+ran. Normal completion still had the entry but its witness set was empty.
+`invalidate_observations` passes moved snapshots to witness retirement and
+private-entry preservation. Its source currently includes only ordinary
+`extracted_values`, while the protected read selects its payload directly
+from the admitted argument. Add that exact payload to moved snapshots for
+the checked expression operation. This lets source-cell invalidation revoke
+the former location while retaining private evidence for the extracted owner.
+Reconsider if an unrelated mutation obtains that payload, the completed
+result fails to retain it, or the old cell keeps owner authority.
 
 ## Acceptance
 

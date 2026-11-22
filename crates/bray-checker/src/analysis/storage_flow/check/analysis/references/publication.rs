@@ -83,7 +83,15 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             let mut published = Vec::with_capacity(carriers.len());
 
             for carrier in carriers {
-                let guard = if let Some(guard) = guards.get(carrier.path()) {
+                let activity = self.execution.returned_path_activity(execution, &value, carrier.path());
+
+                if activity == Some(false) {
+                    continue;
+                }
+
+                let guard = if activity == Some(true) {
+                    None
+                } else if let Some(guard) = guards.get(carrier.path()) {
                     *guard
                 } else {
                     // Payload steps own their activity guards. A complete nullable

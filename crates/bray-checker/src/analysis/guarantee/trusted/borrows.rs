@@ -492,9 +492,22 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let returned = self.transferred_values(state, entry, &result, ownership, storage);
 
         if !entry.witness_inputs.is_empty() {
+            // Protected formation and extraction publish their admitted value
+            // directly. An ordinary result needs a checked transfer.
+            let protected_result = match invocation {
+                BoundExecutionSite::Node(bray_bound_tree::AnyBoundNodeId::Expression(expression)) => self.memory.operation(expression),
+                _ => None,
+            }
+                .filter(|operation| matches!(operation.kind(),
+                    bray_bound_tree::CheckedMemoryOperationKind::UninitFrom { .. }
+                    | bray_bound_tree::CheckedMemoryOperationKind::UninitAssumeInitialized { .. }
+                    | bray_bound_tree::CheckedMemoryOperationKind::UninitMove { .. }))
+                .map(|_| result.clone());
+
             let retained = state.witness_snapshots(returned.values()
                 .filter(|returned| !returned.value.is_reference() && !returned.source.is_reference())
-                .map(|returned| returned.value.clone()));
+                .map(|returned| returned.value.clone())
+                .chain(protected_result));
 
             state.resume_owned_witnesses(entry, &retained);
         }

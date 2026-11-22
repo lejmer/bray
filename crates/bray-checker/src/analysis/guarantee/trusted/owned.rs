@@ -161,6 +161,15 @@ fn activity(
 }
 
 impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
+    pub(in crate::analysis) fn returned_path_activity(
+        &self,
+        state: &ExecutionState,
+        result: &ExecutionCondition,
+        path: &[StorageProjection],
+    ) -> Option<bool> {
+        activity(result, path, &state.assumptions, &self.proofs)
+    }
+
     pub(in crate::analysis::guarantee) fn outcome_reachable(
         &self, assumptions: &ExecutionAssumptions, entry: &crate::ExecutionCallEvidence, result: &ExecutionCondition,
     ) -> bool {

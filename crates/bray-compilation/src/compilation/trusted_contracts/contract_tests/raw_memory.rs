@@ -311,6 +311,69 @@ trusted func caller(pos owner: &Owner)
 }
 
 #[test]
+fn raw_write_admission_retains_the_permit_of_an_initialized_payload() {
+    for (storage, retained) in [
+        ("core.memory.uninit_from<State>(state)", true),
+        ("{ _ = core.memory.uninit_from<State>(state); yield core.memory.uninit<State>(); }", false),
+    ] {
+        let source = format!(
+            r#"
+            trusted module app;
+
+            using core.memory;
+            using core.target;
+
+            struct State
+            {{
+                address: usize;
+            }}
+
+            struct Context
+            {{
+                storage: Uninit<State>;
+            }}
+
+            trusted predicate owns(state: &State);
+
+            trusted func probe(pos state: State)
+                requires(trusted owns(&state))
+                uses(intrinsic, raw_memory, unchecked_init)
+            {{
+                let pointer = trusted core.target.from_exposed_address<Context>(address = state.address);
+                let permit = trusted lambda(pos state: &State, pos pointer: DataPointer<Context>)
+                    requires(trusted owns(state))
+                    ensures(
+                        trusted core.memory.valid_write<Context>(pointer = pointer, count = 1),
+                        trusted core.memory.aligned_for<Context>(pointer = pointer)
+                    )
+                    executes(pure, total) {{}};
+
+                trusted permit(&state, pointer);
+                trusted core.memory.write<Context>(pointer, {{ storage = {storage} }});
+            }}
+        "#
+        );
+
+        let application = compilation(&source);
+
+        let lowered = application
+            .lowered_unit(source_function_body_key(&application, "probe"))
+            .expect("protected storage probe can be lowered");
+
+        let diagnostics = lowered.diagnostics();
+
+        assert_eq!(!diagnostics.has_errors(), retained, "{source}: {diagnostics:#?}");
+
+        if !retained {
+            assert!(diagnostics.by_kind(DiagnosticKind::CheckingTrustedObligationNotProven).any(|diagnostic| {
+                diagnostic.primary_span().is_some_and(|span|
+                    diagnostic_at_call(diagnostic, span.source_id(), &source, "core.memory.write<Context>"))
+            }), "{diagnostics:#?}");
+        }
+    }
+}
+
+#[test]
 fn raw_writes_invalidate_only_the_reached_witness_observations() {
     for (field, ty, value, valid) in [
         ("payload", "u64", "1", true),

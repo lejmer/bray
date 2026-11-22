@@ -285,8 +285,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             entry.extracted_values = self.extracted_input_values(call.storage(), call.captured_values(), &entry);
         }
 
+        let protected_payload = self.protected_extraction_payload(invocation, &entry);
+
         entry.witness_inputs = state
-            .owned_witnesses(entry.witness_sources())
+            .owned_witnesses(entry.witness_sources().chain(protected_payload))
             .filter(|(_, witness)| witness.available)
             .map(|(owner, witness)| (owner.clone(), std::sync::Arc::clone(witness)))
             .collect();

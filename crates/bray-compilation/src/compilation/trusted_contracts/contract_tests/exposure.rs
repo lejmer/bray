@@ -669,6 +669,105 @@ fn opaque_returned_owners_keep_their_carrier_inside_optional_result_payloads() {
 }
 
 #[test]
+fn protected_nullable_results_carry_only_their_live_owner_witness() {
+    let source = r#"
+        trusted module app;
+        using core.memory;
+
+        callable Native = @abi(c) func();
+        struct Owner
+        {
+            storage: Uninit<[u64; 16]>;
+            finish: Native;
+        }
+        struct Envelope
+        {
+            mut payload: Uninit<(Owner?)>;
+        }
+        trusted predicate held(owner: &Owner);
+        trusted func mark(pos owner: &Owner)
+            ensures(trusted held(owner)) executes(pure, total)
+        {
+        }
+        func use_owner(pos owner: Owner)
+            requires(trusted held(&owner))
+        {
+        }
+        trusted func marked(pos owner: Owner) -> Envelope
+        {
+            trusted mark(&owner);
+            return { payload = core.memory.uninit_from<(Owner?)>(owner) };
+        }
+        trusted func unmarked(pos owner: Owner) -> Envelope
+        {
+            return { payload = core.memory.uninit_from<(Owner?)>(owner) };
+        }
+        trusted func caller_marked(pos owner: Owner)
+            uses(unchecked_init)
+        {
+            let envelope = marked(owner);
+            let optional = trusted core.memory.assume_initialized<(Owner?)>(envelope.payload);
+            match consume optional
+            {
+                case ?value { use_owner(value); }
+                case none {}
+            }
+        }
+        trusted func caller_unmarked(pos owner: Owner)
+            uses(unchecked_init)
+        {
+            let envelope = unmarked(owner);
+            let optional = trusted core.memory.assume_initialized<(Owner?)>(envelope.payload);
+            match consume optional
+            {
+                case ?value { use_owner(value); }
+                case none {}
+            }
+        }
+        trusted func caller_move_marked(pos owner: Owner)
+            uses(unchecked_init)
+        {
+            let mut envelope = marked(owner);
+            let optional = trusted core.memory.move_initialized<(Owner?)>(&mut envelope.payload);
+            match consume optional
+            {
+                case ?value { use_owner(value); }
+                case none {}
+            }
+        }
+        trusted func caller_move_unmarked(pos owner: Owner)
+            uses(unchecked_init)
+        {
+            let mut envelope = unmarked(owner);
+            let optional = trusted core.memory.move_initialized<(Owner?)>(&mut envelope.payload);
+            match consume optional
+            {
+                case ?value { use_owner(value); }
+                case none {}
+            }
+        }
+    "#;
+
+    let application = compilation(source);
+
+    for (name, valid) in [
+        ("caller_marked", true), ("caller_unmarked", false),
+        ("caller_move_marked", true), ("caller_move_unmarked", false),
+    ] {
+        let checked = application.lowered_unit(source_function_body_key(&application, name))
+            .expect("protected nullable caller lowers");
+
+        assert_eq!(!checked.diagnostics().has_errors(), valid,
+            "{name}: {:#?}", checked.diagnostics());
+
+        if !valid {
+            assert!(checked.diagnostics().by_kind(DiagnosticKind::CheckingTrustedObligationNotProven).next().is_some(),
+                "{name}: {:#?}", checked.diagnostics());
+        }
+    }
+}
+
+#[test]
 fn returned_shared_views_do_not_freeze_mutable_referents() {
     for (input, subject) in [("Owner", "borrowed"), ("Holder", "&borrowed.current")] {
         let observed = subject.replace("borrowed", "result");

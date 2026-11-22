@@ -8,6 +8,27 @@ use super::model::ExecutionFlowDomain;
 use crate::{CheckerRequestContext, ExecutionCallEvidence, ExecutionCondition, ExecutionPlace};
 
 impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
+    /// The checked protected read selects the reached payload of its evaluated wrapper.
+    pub(in crate::analysis::guarantee) fn protected_extraction_payload(
+        &self,
+        invocation: BoundExecutionSite,
+        entry: &ExecutionCallEvidence,
+    ) -> Option<ExecutionCondition> {
+        let BoundExecutionSite::Node(bray_bound_tree::AnyBoundNodeId::Expression(expression)) = invocation else {
+            return None;
+        };
+
+        self.memory.operation(expression).filter(|operation| matches!(operation.kind(),
+            bray_bound_tree::CheckedMemoryOperationKind::UninitAssumeInitialized { .. }
+            | bray_bound_tree::CheckedMemoryOperationKind::UninitMove { .. }))?;
+
+        let wrapper = ExecutionPlace::argument(SymbolOrdinal::new(0))
+            .value_in(&entry.arguments)
+            .expect("protected extraction retains its evaluated storage");
+
+        Some(wrapper.argument_value(false).project(bray_bound_tree::StorageProjection::UninitPayload))
+    }
+
     pub(super) fn complete_implicit_invocation(
         &self,
         state: &mut ExecutionState,
@@ -141,15 +162,30 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         };
 
         let entry = state.entries.get(&expression.into())?;
+        let memory = self.memory.operation(expression).map(|operation| operation.kind());
+
+        if matches!(memory, Some(bray_bound_tree::CheckedMemoryOperationKind::UninitFrom { .. })) {
+            let payload = ExecutionPlace::argument(SymbolOrdinal::new(0))
+                .value_in(&entry.arguments)
+                .expect("initialized storage retains its evaluated payload");
+
+            let wrapper = ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expression));
+
+            return Some(ExecutionCondition::constructed(
+                wrapper,
+                [(bray_bound_tree::StorageProjection::UninitPayload, payload)].into(),
+            ));
+        }
+
+        if let Some(payload) = self.protected_extraction_payload(expression.into(), entry) {
+            return Some(payload);
+        }
 
         if let Some(bray_bound_tree::CheckedMemoryOperationKind::AtomicCompareExchange {
             value,
             weak: false,
             ..
-        }) = self
-            .memory
-            .operation(expression)
-            .map(|operation| operation.kind())
+        }) = memory
             && crate::representation::type_representation(self.request, *value)
                 .is_some_and(|role| role.integer_representation().is_some())
         {

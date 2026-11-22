@@ -180,7 +180,9 @@ opaque frame. Its payload claim still requires the same surviving owner and
 unchanged observed contents.
 The forward mapping inserts the complete joined observation once. Its fields
 can still name immutable data copied from the predecessor, so rewriting those
-fields again would change the observed value.
+fields again would change the observed value. Proposals about ordinary facts
+use that same forward mapping. The proof reads each predecessor snapshot once,
+even when a snapshot also names a different joined slot.
 The join assembles current roots from the predecessors and publishes each root
 once. It rebinds evaluated frames, owned result layouts, and proof evidence
 while the predecessor roots are still readable. The fixed point compares the
@@ -221,6 +223,9 @@ value shape and leaves inferred operand loans off values with no borrow fields.
 The physical memory intrinsics check initialization on the admitted operands before applying effects.
 A protected read can discharge its initialization requirement from the actual typed cell. Its admission records
 that decision for completion and keeps the remaining trusted requirements independent.
+Protected storage formation places the admitted owner under its initialized payload.
+Normal completion publishes that same payload to the proof ledger and resumes only the witnesses
+supported by a retained owner. An empty wrapper has no payload to supply.
 A staged read or copy uses that admission at completion. An assignment captures the evaluated right-hand side
 before invalidating the destination and installs that same value. A compound assignment uses the completed
 operator's private result.
@@ -335,6 +340,21 @@ Witness transfers bind the appropriate result through the same argument lookup.
 | Failure, catch, and cancellation | Calls and frames bind the selected normal and abnormal effect rows together against their admitted inputs. A failure edge applies its captured prefix and carries its report. Its completion passes the reached write bindings and surviving snapshots to certification. An opaque prefix uses the checked effect envelope. Result dependency analysis carries reports through catch boundaries. Cancellation after a child completes can own that child's already transferred result and require its cleanup. [Failure propagation](../../crates/bray-checker/src/analysis/storage_flow/model/domain.rs) · [Failure writes](../../crates/bray-checker/src/analysis/storage_flow/check/analysis/failures.rs) · [Report ownership](../../crates/bray-checker/src/analysis/storage_flow/check/analysis/reports.rs) · [Await edges](../../crates/bray-checker/src/analysis/execution.rs) |
 | Deferred execution | Formation captures the selected callable, receiver type, witnesses, evaluated arguments, and owned inputs. Immutable value nodes record whether their complete structure contains an actual frame, including retained origins and aggregate fields. Discovery and frame-only rewrites can skip subtrees without frames. Start and direct await refresh reached contents while retaining the captured address descriptors. Activation publishes bound value rows by operation and producer. `StorageDeferredTransition` keeps latent effects, typed failure prefixes, and cleanup. Scheduling accounts for possible interference. Observation selects the task's performed effects from its captured frame, then publishes its actual result and any acquired report. An outer failure while suspended has its own admitted state and possible performed prefix. [Frame discovery](../../crates/bray-checker/src/execution_guarantees/condition/traversal.rs) · [Deferred proof flow](../../crates/bray-checker/src/analysis/guarantee/flow/deferred/execution.rs) · [Deferred physical effects](../../crates/bray-checker/src/analysis/storage_flow/check/analysis/deferred.rs) · [Captured transition](../../crates/bray-bound-tree/src/storage/capture/transfer.rs) |
 | Replay and lowering | Certification reads the actual targets, invalidation, completions, and retirements of the reached CFG operation. Obligation selection borrows the admitted logical arguments, assumptions, and implementation choices. Templates and whole-body checks use a source target only when its reached operations agree. Lowering uses the plan, checked activity decisions, scope exits, suspensions, and completion presence to emit MIR. MIR carries explicit initialization guards, result and report transfers, cancellation, and cleanup edges to code generation. [Proof inputs](../../crates/bray-checker/src/execution_guarantees/call_proof.rs) · [Proof replay](../../crates/bray-checker/src/analysis/guarantee/flow/operation.rs) · [Lowerer](../../crates/bray-lowering/src/lowering/lowerer.rs) · [MIR cleanup](../../crates/bray-lowering/src/lowering/cleanup/control.rs) |
+
+`UninitFrom` records its admitted value beneath `UninitPayload`, matching the
+physical initialization. Normal return publication reads the reached result
+value and its witness path together. It checks that path's activity before
+forming a portable guard. A known active protected payload carries its witness
+without a guard, while an inactive one carries none. An unknown shape needs a
+guard that the exported contract can express. `UninitAssumeInitialized` and
+`UninitMove` read the admitted wrapper's payload as their direct result. The
+physical transition reads that same reached cell. The expression invocation
+captures a witness from that selected payload even when the wrapper is
+borrowed, then suspends it for the move. Staged call inputs retain their own
+evaluated values without transferring that witness. Ownership completion
+resumes only witnesses retained by the returned value. Invalidation includes
+the selected payload among moved snapshots, so retiring the source cell does
+not discard that admitted witness before completion. [Protected values](../../crates/bray-checker/src/analysis/guarantee/flow/inputs.rs) · [Admission](../../crates/bray-checker/src/analysis/guarantee/completion.rs) · [Invalidation](../../crates/bray-checker/src/analysis/guarantee/flow/invalidation.rs) · [Protected reads](../../crates/bray-checker/src/analysis/storage_flow/check/analysis/memory/operations.rs) · [Return activity](../../crates/bray-checker/src/analysis/guarantee/trusted/owned.rs) · [Carrier publication](../../crates/bray-checker/src/analysis/storage_flow/check/analysis/references/publication.rs)
 
 Each prepared publication retains its source outcome row when several reached destinations join. Proof and storage flow use the same frame-alternative selection. Nullable and union refinements consume the checked discriminant observations, including tags whose payloads changed while the tag stayed live.
 The template's possible-effect envelope covers execution before an outcome
