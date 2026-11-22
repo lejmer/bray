@@ -177,6 +177,9 @@ predecessor snapshot and that snapshot's owner identity. The success selector
 qualifies its witness through the join. A stable moved nullable keeps its inline
 tag through a later opaque frame, while its payload claim still requires the
 same surviving owner and unchanged observed contents.
+The forward mapping inserts the complete joined observation once. Its fields
+can still name immutable data copied from the predecessor, so rewriting those
+fields again would change the observed value.
 Direct calls and deferred bodies share the prepared input route and output type
 for each owning transfer. A deferred body reads its current typed input
 referent at activation through its retained descriptor. The operation and

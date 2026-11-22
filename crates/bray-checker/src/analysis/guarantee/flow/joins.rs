@@ -1363,17 +1363,35 @@ mod nested_guard_tests {
         };
 
         let source_place = ExecutionPlace::argument(SymbolOrdinal::new(0));
-        let source = ExecutionCondition::new(crate::ExecutionConditionKind::Input(source_place.clone()));
+
+        let (unit, expressions) = crate::test_support::integer_expression_unit(BoundUnitId::new(0), 2);
+
+        let identity = ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expressions[0]));
+        let result = ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expressions[1]));
+        let mut plan = bray_bound_tree::StoragePlanBuilder::new(BoundUnitId::new(0), unit.key().kind());
+
+        let slot = plan.push_identity(bray_bound_tree::StorageIdentity::Temporary(expressions[0]))
+            .expect("the captured call result has a storage slot");
+
+        let capture = bray_bound_tree::StorageCapturedValue::new(
+            bray_bound_tree::StorageTarget::storage(bray_bound_tree::StoragePath::root(slot)), Default::default());
+
+        let scalar_field = StorageProjection::ProductField(bray_symbols::StructFieldSymbolId::from_symbol_id(SymbolId::new(913)));
+        let payload = identity.clone().project(StorageProjection::NullableValue);
+        let observed = payload.clone().project(scalar_field);
+        let scalar = ExecutionCondition::scalar_observation(observed.clone(), observed);
+
+        let payload = ExecutionCondition::owned_value(payload.clone(),
+            ExecutionCondition::constructed(payload, [(scalar_field, scalar)].into()));
+
+        let nullable = ExecutionCondition::constructed(identity.clone(), [(StorageProjection::NullableValue, payload)].into());
+        let source = ExecutionCondition::owned_value(identity, nullable).captured_value(capture);
         let predicate = crate::test_support::compiler_known_symbol::<bray_symbols::PredicateSymbolId>("ValidWrite");
         let substitution = crate::test_support::empty_substitution(predicate.into());
 
         let held = |owner: ExecutionCondition| ExecutionCondition::new(crate::ExecutionConditionKind::Trusted(Arc::new(
             ExecutionCondition::predicate(predicate.into(), substitution, vec![owner.borrowed()]),
         )));
-
-        let (_, expressions) = expression_unit(BoundUnitId::new(0), |tree, origin| vec![
-            push_expression(tree, BoundExpression::Error(BoundErrorExpression::new(origin, error_type()))),
-        ]);
 
         let mut left = ExecutionState::default();
 
@@ -1398,13 +1416,16 @@ mod nested_guard_tests {
         )))));
 
         let joined = merge_returned(&mut left, &right, &accepted, &rejected,
-            &ExecutionCondition::result(), expressions[0], None);
+            &result, expressions[1], None);
 
-        joined.clone().matches_variant(active).assume(true, &mut left.assumptions);
+        let joined_claim = held(joined.clone().project(field));
 
-        assert_eq!(held(joined.project(field)).prove_trusted(
-            &left.trusted_assumptions, &left.assumptions,
-        ), Some(true));
+        for selected in [active, empty] {
+            let mut branch = left.assumptions.clone();
+
+            joined.clone().matches_variant(selected).assume(true, &mut branch);
+            assert_eq!(joined_claim.prove_trusted(&left.trusted_assumptions, &branch) == Some(true), selected == active);
+        }
     }
 
     #[test]

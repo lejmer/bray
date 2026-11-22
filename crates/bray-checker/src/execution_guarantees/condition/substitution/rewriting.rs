@@ -209,7 +209,7 @@ pub(super) fn snapshot_value(
         return Some(value.clone());
     }
 
-    if let crate::ExecutionConditionKind::Projection(projection, parent) = condition.kind()
+    if let K::Projection(projection, parent) = condition.kind()
         && let Some(source) = snapshots.get(parent.as_ref())
     {
         // The predecessor already holds this complete value. Follow its owner
@@ -344,7 +344,17 @@ fn rewrite_equalities_inner(
 
     *budget = next;
 
-    let value = resolve_equality(value, replacements, budget);
+    // A join map supplies complete destination observations. Their contents
+    // can still name copied data from the predecessor.
+    let value = if identities.is_some() {
+        if let Some(reached) = replacements.get(value) {
+            return reached.clone();
+        }
+
+        value.clone()
+    } else {
+        resolve_equality(value, replacements, budget)
+    };
 
     let value = match value.kind() {
         K::CapturedValue { value, storage } => rewrite_equalities(value, replacements, identities, budget, memo)
@@ -476,5 +486,5 @@ fn rewrite_equalities_inner(
         _ => value.clone(),
     };
 
-    resolve_equality(&value, replacements, budget)
+    if identities.is_some() { value } else { resolve_equality(&value, replacements, budget) }
 }

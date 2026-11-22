@@ -290,10 +290,13 @@ mod tests {
         let base = ExecutionCondition::new(Input(ExecutionPlace::argument(SymbolOrdinal::new(0))));
         let renamed = ExecutionCondition::new(Input(ExecutionPlace::argument(SymbolOrdinal::new(1))));
         let projection = bray_bound_tree::StorageProjection::TupleElement(SymbolOrdinal::new(0));
+        let source_field = base.clone().project(projection);
+        let reached_field = renamed.clone().project(projection);
         let original = ExecutionCondition::constructed(base.clone(), [(projection, ExecutionCondition::boolean(true))].into());
-        let values = BTreeMap::from([(base, renamed.clone())]);
+        let values = BTreeMap::from([(base, renamed.clone()), (reached_field.clone(), ExecutionCondition::boolean(false))]);
         let owners = BTreeMap::new();
-        let rewritten = ExecutionSubstitution::new(&values, &owners).value(&original);
+        let substitution = ExecutionSubstitution::new(&values, &owners);
+        let rewritten = substitution.value(&original);
 
         let (Constructed(_, original_fields), Constructed(actual, rewritten_fields)) = (original.kind(), rewritten.kind()) else {
             panic!("renaming the base preserves the explicit tuple field");
@@ -301,5 +304,6 @@ mod tests {
 
         assert_eq!(actual.as_ref(), &renamed);
         assert!(Arc::ptr_eq(original_fields, rewritten_fields));
+        assert_eq!(substitution.value(&source_field), reached_field, "a reached field is not a second input to the join");
     }
 }
