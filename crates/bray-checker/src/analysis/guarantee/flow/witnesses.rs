@@ -57,6 +57,30 @@ pub(super) fn conditional_facts<'value>(
         );
     }
 
+    if std::env::var_os("BRAY_BRA694_TRACE").is_some()
+        && current.values().any(|value| format!("{:?}", value.kind()).contains("Joined(Block(BoundUnitId(2848653), 162)"))
+    {
+        for (side, input) in inputs.iter().enumerate() {
+            let selected = input.iter().filter(|(joined, _)| {
+                let key = format!("{:?}", joined.kind());
+                key.contains("SymbolId(5257)") && key.contains("Joined(Block(BoundUnitId(2848653), 162)")
+            }).collect::<Vec<_>>();
+
+            eprintln!("BRA694 SNAPSHOT MAP side={side} total={} selected={}", input.len(), selected.len());
+
+            for (joined, source) in selected {
+                eprintln!("BRA694 SNAPSHOT PAIR side={side} joined={:?} source={:?}", joined.kind(), source.kind());
+            }
+        }
+    }
+
+    let proposals = if std::env::var_os("BRAY_BRA694_DISABLE_PROPOSALS").is_some() {
+        [BTreeMap::new(), BTreeMap::new()]
+    } else {
+        inputs.each_ref().map(joined_snapshot_proposals)
+    };
+    let no_owners = BTreeMap::new();
+    let [left_proposals, right_proposals] = proposals.each_ref().map(|values| ExecutionSubstitution::new(values, &no_owners));
     let [left_inputs, right_inputs] = inputs.each_ref().map(|inputs| SnapshotSubstitution::new(inputs));
 
     // Immutable branch selectors can qualify a moved carrier even when the selector
@@ -94,9 +118,9 @@ pub(super) fn conditional_facts<'value>(
         return Vec::new();
     }
 
-    let candidates = [left, right]
+    let candidates = [(left, &left_proposals), (right, &right_proposals)]
         .into_iter()
-        .flat_map(|(state, substitution)| {
+        .flat_map(|((state, substitution), proposals)| {
             state
                 .witnesses
                 .iter()
@@ -118,12 +142,19 @@ pub(super) fn conditional_facts<'value>(
                     }).flat_map(|condition| {
                         // Repeated joins may qualify the same underlying claim with
                         // different path guards. Consider that claim directly, then
-                        // retain it only if both actual predecessors prove it.
-                        let claims = condition.observations()
-                            .filter(|candidate| matches!(candidate.kind(), crate::ExecutionConditionKind::Trusted(_)))
-                            .cloned().collect::<Vec<_>>();
+                        // retain it only if both actual predecessors prove it. A joined
+                        // fallback is another proposal, never a rewrite of the source fact.
+                        let proposed = proposals.value(&condition);
 
-                        std::iter::once(condition).chain(claims)
+                        std::iter::once(condition.clone())
+                            .chain((proposed != condition && !proposed.contains_unknown()).then_some(proposed))
+                            .flat_map(|condition| {
+                                let claims = condition.observations()
+                                    .filter(|candidate| matches!(candidate.kind(), crate::ExecutionConditionKind::Trusted(_)))
+                                    .cloned().collect::<Vec<_>>();
+
+                                std::iter::once(condition).chain(claims)
+                            })
                             .map(|condition| (substitution.owner(owner), condition))
                             .collect::<Vec<_>>()
                     }).collect::<Vec<_>>()
@@ -200,6 +231,18 @@ pub(super) fn conditional_facts<'value>(
         for condition in conditions {
             if matches!(condition.kind(), crate::ExecutionConditionKind::Unknown | crate::ExecutionConditionKind::Boolean(true)) { continue; }
 
+            if std::env::var_os("BRAY_BRA694_TRACE").is_some()
+                && format!("{:?}", condition.kind()).contains("SymbolId(5264)")
+                && format!("{:?}", owner.kind()).contains("BoundUnitId(2848653)")
+            {
+                let compact = |value: &ExecutionCondition| format!("{:?}", value.kind()).chars().take(800).collect::<String>();
+                eprintln!("BRA694 JOIN CANDIDATE owner={} condition={} proved={} owning={} predecessors={:?}",
+                    compact(&owner), compact(&condition), proved(&condition), owned(&condition),
+                    predecessors.iter().zip(&proofs).map(|((_, inputs, evidence, owning, available), proof)|
+                        (compact(&inputs.apply(&condition)), proof.prove_trusted(&inputs.apply(&condition)),
+                            evidence.len(), owning.len(), available)).collect::<Vec<_>>());
+            }
+
             // An existing guarded claim can already hold on both paths without
             // discovering a new discriminant or adding a redundant outer guard.
             if proved(&condition) {
@@ -241,6 +284,53 @@ pub(super) fn conditional_facts<'value>(
     }
 
     retained
+}
+
+fn joined_snapshot_proposals(
+    inputs: &BTreeMap<ExecutionCondition, ExecutionCondition>,
+) -> BTreeMap<ExecutionCondition, ExecutionCondition> {
+    let mut proposals = BTreeMap::new();
+
+    for (joined, source) in inputs {
+        let Some(source) = corresponding_joined_source(joined, source) else { continue; };
+
+        proposals.entry(source.clone()).and_modify(|previous| {
+            if previous != joined { *previous = ExecutionCondition::unknown(); }
+        }).or_insert_with(|| joined.clone());
+    }
+
+    proposals
+}
+
+fn corresponding_joined_source<'source>(
+    joined: &ExecutionCondition,
+    source: &'source ExecutionCondition,
+) -> Option<&'source ExecutionCondition> {
+    use crate::ExecutionConditionKind as Kind;
+
+    let mut joined = joined;
+    let original_source = source.computed_value();
+    let mut source = original_source;
+    let mut projected = false;
+
+    loop {
+        match (joined.kind(), source.kind()) {
+            (Kind::Projection(joined_field, joined_base), Kind::Projection(source_field, source_base))
+                if joined_field == source_field => {
+                    joined = joined_base;
+                    source = source_base;
+                    projected = true;
+                }
+            (Kind::Joined(..), Kind::Constructed(base, _))
+                if matches!(base.kind(), Kind::PostState(..) | Kind::Joined(..)) => {
+                    return Some(if projected { original_source } else { base });
+                }
+            (Kind::Joined(..), Kind::PostState(..) | Kind::Joined(..)) => {
+                return Some(original_source);
+            }
+            _ => return None,
+        }
+    }
 }
 
 fn inactive_guards(
@@ -709,10 +799,19 @@ fn collect_observations(
     if let crate::ExecutionConditionKind::Observation { contents, kind: ObservationKind::Owned, .. } = joined.kind()
         && !matches!(contents.kind(), crate::ExecutionConditionKind::Unknown | crate::ExecutionConditionKind::Literal(_) | crate::ExecutionConditionKind::Boolean(_))
     {
+        if std::env::var_os("BRAY_BRA694_TRACE").is_some()
+            && format!("{contents:?}").contains("Joined(Block(BoundUnitId(2848653), 162)")
+        {
+            eprintln!("BRA694 OWNED JOIN contents={} sources={:?}",
+                format!("{contents:?}").chars().take(950).collect::<String>(),
+                sources.map(|source| source.map(|source| format!("{:?}", source.kind()).chars().take(1050).collect::<String>())));
+        }
         // Current contents need no independent owner. Keep this actual carrier
         // while matching its data against the corresponding predecessor data.
         for (source, inputs) in sources.into_iter().zip(inputs.iter_mut()) {
-            if let Some(source) = source { insert_snapshot(inputs, contents, source.computed_value()); }
+            if let Some(source) = source {
+                insert_reached_snapshot(inputs, contents, source.computed_value(), false);
+            }
         }
     }
 
@@ -820,15 +919,7 @@ fn collect_reached_data(
     for (source, inputs) in sources.into_iter().zip(inputs.iter_mut()) {
         let Some(source) = source else { continue; };
 
-        insert_snapshot(inputs, joined, source);
-
-        // Unlisted components project through this existing contents identity.
-        // Resolve them from the same actual predecessor as the complete snapshot.
-        if let crate::ExecutionConditionKind::Constructed(base, _) = joined.kind()
-            && base.ownership_identity().is_some()
-        {
-            insert_snapshot(inputs, base, source);
-        }
+        insert_reached_snapshot(inputs, joined, source, true);
     }
 
     if let crate::ExecutionConditionKind::Constructed(_, fields) = joined.kind() {
@@ -837,6 +928,32 @@ fn collect_reached_data(
 
             collect_reached_data([sources[0].as_ref(), sources[1].as_ref()], value, inputs, budget);
         }
+    }
+}
+
+fn insert_reached_snapshot(
+    inputs: &mut BTreeMap<ExecutionCondition, ExecutionCondition>,
+    joined: &ExecutionCondition,
+    source: &ExecutionCondition,
+    include_owner_base: bool,
+) {
+    insert_snapshot(inputs, joined, source);
+
+    // An unlisted component projects through the constructed value's base.
+    // A joined base is a data identity, so only the actual predecessor snapshot
+    // can answer that projection. This map grants no ownership on its own.
+    if let crate::ExecutionConditionKind::Constructed(base, _) = joined.kind()
+        && (include_owner_base && base.ownership_identity().is_some()
+            || matches!(base.kind(), crate::ExecutionConditionKind::Joined(..))
+                && std::env::var_os("BRAY_BRA694_DISABLE_JOINED_BASE").is_none())
+    {
+        if std::env::var_os("BRAY_BRA694_TRACE").is_some()
+            && matches!(base.kind(), crate::ExecutionConditionKind::Joined(..))
+            && ["BoundUnitId(392598)", "BoundUnitId(2848653)"].iter().any(|unit| format!("{base:?}").contains(unit))
+        {
+            eprintln!("BRA694 BASE MAP base={base:?} source={:?}", source.kind());
+        }
+        insert_snapshot(inputs, base, source);
     }
 }
 

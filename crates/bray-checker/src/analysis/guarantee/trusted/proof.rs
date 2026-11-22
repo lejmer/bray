@@ -219,6 +219,33 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             if let Err(failed) = prove_requirement(&actual, &known, &mut prove_condition, &mut {
                 ExecutionCondition::WORK_LIMIT
             }) {
+                if std::env::var_os("BRAY_BRA694_TRACE").is_some() {
+                    let describe = |condition: &ExecutionCondition| format!("{:?}", condition.kind()).chars().take(680).collect::<String>();
+                    eprintln!("BRA694 PROOF FAIL unit={:?} witnesses={} known={} required={} actual={} leaf={}",
+                        self.request.unit().key(), entry.witness_inputs.len(), known.len(),
+                        describe(required), describe(&actual), describe(failed));
+
+                    let failed_predicate = match failed.kind() {
+                        crate::ExecutionConditionKind::Trusted(inner) => match inner.kind() {
+                            crate::ExecutionConditionKind::Predicate(predicate, _, _) => Some(*predicate),
+                            _ => None,
+                        },
+                        _ => None,
+                    };
+
+                    for (condition, holds) in known.iter().filter(|(condition, holds)| {
+                        if !holds { return false; }
+
+                        match (failed_predicate, condition.kind()) {
+                            (Some(expected), crate::ExecutionConditionKind::Trusted(inner)) =>
+                                matches!(inner.kind(), crate::ExecutionConditionKind::Predicate(predicate, _, _) if *predicate == expected),
+                            _ => condition.contains_trusted(),
+                        }
+                    }).take(12) {
+                        eprintln!("BRA694 PROOF KNOWN holds={holds} value={}", describe(condition));
+                    }
+                }
+
                 return Err(crate::UnprovenExecutionCondition::new(required.clone(), failed.clone()));
             }
         }

@@ -103,6 +103,25 @@ pub(in crate::analysis) fn merge(
 }
 
 pub(super) fn join_states(target: &mut ExecutionState, incoming: &ExecutionState, join: ExecutionJoin) -> bool {
+    let trace_marker = std::env::var_os("BRAY_BRA694_TRACE").is_some()
+        && target.witnesses.keys().any(|owner| format!("{:?}", owner.kind()).contains("BoundUnitId(2848653), slot: 46"));
+    let marker = |state: &ExecutionState| {
+        let direct = state.trusted_assumptions.iter().filter(|(condition, holds)| *holds
+            && matches!(condition.kind(), crate::ExecutionConditionKind::Trusted(_))
+            && format!("{:?}", condition.kind()).contains("SymbolId(5264)"))
+            .take(8)
+            .map(|(condition, _)| format!("{:?}", condition.kind()).chars().take(460).collect::<String>())
+            .collect::<Vec<_>>();
+        let carried = state.witnesses.iter().filter(|(owner, _)| format!("{:?}", owner.kind()).contains("BoundUnitId(2848653), slot: 46"))
+            .flat_map(|(_, witness)| witness.conditions.keys())
+            .filter(|condition| format!("{:?}", condition.kind()).contains("SymbolId(5264)"))
+            .take(8)
+            .map(|condition| format!("{:?}", condition.kind()).chars().take(460).collect::<String>())
+            .collect::<Vec<_>>();
+        (direct, carried)
+    };
+    if trace_marker { eprintln!("BRA694 JOIN STATE site={:?} before={:?} incoming={:?}",
+        join.observation_site(), marker(target), marker(incoming)); }
     let (incoming_joined, mut changed) = join_observations(target, incoming, join);
 
     let incoming = &incoming_joined;
@@ -202,6 +221,8 @@ pub(super) fn join_states(target: &mut ExecutionState, incoming: &ExecutionState
         }
     }
 
+    if trace_marker { eprintln!("BRA694 JOIN STATE site={:?} after={:?}", join.observation_site(), marker(target)); }
+
     changed
 }
 
@@ -262,6 +283,15 @@ fn join_observations<'a>(
 
         let joined = slot.value;
         let available = slot.availability;
+
+        if std::env::var_os("BRAY_BRA694_TRACE").is_some()
+            && format!("{place:?}").contains("LocalSymbolRegionId(2848653), slot: 6")
+            && matches!(join.observation_site(), Some(ExecutionJoinSite::Block(_, 316 | 162)))
+        {
+            let compact = |value: &ExecutionCondition| format!("{:?}", value.kind()).chars().take(1800).collect::<String>();
+            eprintln!("BRA694 JOIN ROOT site={:?} place={place:?} left={} right={} joined={} available={available:?}",
+                join.observation_site(), compact(value), compact(other), compact(&joined));
+        }
 
         if left_available != right_available
             && let ValueAvailability::Guarded(guard) = &available
@@ -1183,7 +1213,7 @@ mod tests {
     }
 
     #[test]
-    fn joining_loan_postconditions_preserves_implicit_field_snapshots() {
+    fn joining_postconditions_preserves_implicit_field_snapshots() {
         use bray_bound_tree::{BoundUnitId, StorageMutation, StorageProjection};
         use bray_symbols::SymbolOrdinal;
         use std::sync::Arc;
@@ -1193,14 +1223,15 @@ mod tests {
         let marker = StorageProjection::TupleElement(SymbolOrdinal::new(0));
         let updated = StorageProjection::TupleElement(SymbolOrdinal::new(1));
 
-        let (_, sites) = crate::test_support::integer_expression_unit(BoundUnitId::new(0), 1);
+        let (_, sites) = crate::test_support::integer_expression_unit(BoundUnitId::new(0), 3);
 
         let mutation = StorageMutation::Operation(sites[0].into());
         let loan = origin.clone().borrowed();
 
-        let refreshed = loan.with_referent(ExecutionCondition::owned_value(origin.clone(),
-            ExecutionCondition::constructed(ExecutionCondition::post_state(mutation, origin),
-                [(updated, ExecutionCondition::boolean(false))].into())));
+        let refreshed_owned = ExecutionCondition::owned_value(origin.clone(),
+            ExecutionCondition::constructed(ExecutionCondition::post_state(mutation, origin.clone()),
+                [(updated, ExecutionCondition::boolean(false))].into()));
+        let refreshed = loan.with_referent(refreshed_owned.clone());
 
         let predicate = crate::test_support::compiler_known_symbol::<bray_symbols::PredicateSymbolId>("ValidWrite");
         let substitution = crate::test_support::empty_substitution(predicate.into());
@@ -1239,6 +1270,89 @@ mod tests {
 
             assert_eq!(value.owned_components().count(), 0, "a loan cannot acquire its pointee's ownership");
             assert!(!super::merge(&mut joined, &incoming, boundary), "the same predecessor must stabilize");
+        }
+
+        let second_owned = ExecutionCondition::owned_value(
+            origin.clone(),
+            ExecutionCondition::constructed(
+                ExecutionCondition::post_state(StorageMutation::Operation(sites[1].into()), origin.clone()),
+                [(updated, ExecutionCondition::boolean(true))].into(),
+            ),
+        );
+        let second = loan.with_referent(second_owned.clone());
+
+        let third_owned = ExecutionCondition::owned_value(
+            origin.clone(),
+            ExecutionCondition::constructed(
+                ExecutionCondition::post_state(StorageMutation::Operation(sites[2].into()), origin),
+                [(updated, ExecutionCondition::boolean(false))].into(),
+            ),
+        );
+        let third = loan.with_referent(third_owned.clone());
+
+        for (first, second) in [(&refreshed, &second), (&refreshed_owned, &second_owned)] {
+            for valid in [false, true] {
+                let mut left = ExecutionState::default();
+                let mut right = ExecutionState::default();
+
+                for (state, value, established) in [(&mut left, first, true), (&mut right, second, valid)] {
+                    state.assign(place.clone(), value.clone(), None);
+
+                    if established {
+                        let guarantee = held(value.clone());
+
+                        state.carry_guarantee(value.clone(), guarantee.clone());
+                        guarantee.assume(true, &mut state.trusted_assumptions);
+                    }
+                }
+
+                super::join_states(&mut left, &right, boundary);
+
+                let joined = place.value_in(&left.current).expect("both edges retain the value");
+
+                assert_eq!(left.proof().prove_trusted(&held(joined)) == Some(true), valid,
+                    "a sibling change must neither lose nor invent the marker");
+            }
+        }
+
+
+        let next_boundary = super::ExecutionJoin::Block(crate::analysis::id::AnalysisBlockId::from_slot(BoundUnitId::new(0), 2));
+
+        for (first, second, third) in [(&refreshed, &second, &third), (&refreshed_owned, &second_owned, &third_owned)] {
+            let mut left = ExecutionState::default();
+            let mut right = ExecutionState::default();
+
+            for (state, value) in [(&mut left, first), (&mut right, second)] {
+                state.assign(place.clone(), value.clone(), None);
+
+                let guarantee = held(value.clone());
+
+                state.carry_guarantee(value.clone(), guarantee.clone());
+                guarantee.assume(true, &mut state.trusted_assumptions);
+            }
+
+            super::join_states(&mut left, &right, boundary);
+
+            for valid in [false, true] {
+                let mut candidate = left.clone();
+                let mut incoming = ExecutionState::default();
+
+                incoming.assign(place.clone(), third.clone(), None);
+
+                if valid {
+                    let guarantee = held(third.clone());
+
+                    incoming.carry_guarantee(third.clone(), guarantee.clone());
+                    guarantee.assume(true, &mut incoming.trusted_assumptions);
+                }
+
+                super::join_states(&mut candidate, &incoming, next_boundary);
+
+                let joined = place.value_in(&candidate.current).expect("repeated join retains the value");
+
+                assert_eq!(candidate.proof().prove_trusted(&held(joined)) == Some(true), valid,
+                    "a repeated join must preserve only the marker held by both predecessors");
+            }
         }
     }
 

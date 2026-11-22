@@ -65,9 +65,9 @@ evidence. Impossible internal states fail at the violated contract.
 
 The guarded owner publication and typed pointee changes pass the audited
 inventory of 1,709 cases, 584 checker tests, and 139 bound-tree tests.
-The current package-backed check and lowering covers 43 bodies and leaves
-11 diagnostics: seven scoped cleanup requirements, three call requirements,
-and one raw deallocation. The four
+The latest package-backed check and lowering covers 43 bodies and leaves
+10 diagnostic lines at eight sites: five scoped cleanup sites and three call
+sites. The raw retirement and observer initialization errors cleared. The four
 native targets check the 32 selected owner, registration and dispatch
 bodies, including `dispatch_ready` and `start_frame`. A complete runtime
 archive and executable link must check the remaining bodies and backend.
@@ -79,413 +79,53 @@ private-root candidate planned in 23.7 s and emitted in 22.5 s. Compare
 pinned binaries with the same prepared providers and one workload at a
 time before attributing the difference to a compiler change.
 
-## Runtime archive and cleanup
+## Current repair contract
 
-The exact checkpoint reused its standard-library bundle and had no
-archive at the first seven-minute cutoff. The follow-up trace recorded
-progress through numeric bodies at the nine-minute cutoff. Complex
-division visited 609 of its 616 CFG blocks at most once. One scope exit
-took 102.7 s, spending 67.3 s in 8,439 observation joins and leaving eight
-outgoing states. Only 82 joins met the whole-state reuse check. The
-`arctangent` loop separately converges after canonicalizing empty
-ownership layouts and keeping agreed layouts when values are rekeyed.
+The checked flow publishes each reached mutation and retirement to proof and
+the current value tree. At a join, `common_components` keeps changed fields
+over a joined value. `conditional_facts` pairs that value with each actual
+predecessor snapshot, reads the witness ledger, and admits a clause only when
+both predecessor proofs establish it with owning carriers. Its consumers
+include direct call requirements, `Current` and `Reference` observations, and
+scoped cleanup requirements. The observer's `preparation_owned` claim is
+published after `prepare` and the mutating `reserve_*` calls, but a repeated
+join loses its direct form before `reject` and `initialize`.
 
-The complete Windows x64 archive run used the pinned checkpoint compiler
-and its prepared standard-library bundle, with Rust 1.98.1 and LLVM 22.1.8
-for native providers. Runtime checking returned 54 diagnostics after 18
-minutes. It reported nine capability declarations, a name collision,
-40 unmet requirements, one raw deallocation with initialized storage,
-and three unverified postconditions. The archive and link remain open.
+The current 43-body package check with lowering reports 10 diagnostic lines
+at eight source sites: five cleanup sites and three call sites. At block 316,
+the joined current owner lists `acquisition` as a projection of a joined
+snapshot. Proposing corresponding projected names from the existing snapshot
+map cleared the observer initialization write. The later creation call still
+fails because its block-162 joined claim does not map to the left predecessor.
+The left retains guarded claims; the right proves the post-call snapshot.
+Trace whether the left projected pair is absent or ambiguous before changing
+the mapping again. Prove every candidate against both actual predecessors.
+Keep the ordinary forward map and its source call and input identities
+unchanged. A candidate must never gain authority from one path, an inactive
+payload, or a borrowed or copied address. The focused positive oracle has
+the marker through sibling writes on both paths. The negative oracle omits
+it on one path. The allocation control must stay green. Reconsider if any
+control gains authority or the fixed inventory regresses. This uses the
+existing maps without reconstructing roots or adding persistent state.
 
-The selected bootstrap fixture compiles runtime and standard-library
-sources together with standard-library source authority. The archive
-uses the ordinary runtime package with the prepared standard-library
-interface. Reproduce the diagnostic families under that package boundary
-before attributing them to individual runtime callers. Trace published
-allocation and nullable owner witnesses, scoped acquisition and cleanup,
-and initialized task fields through import, admission, consumption, and
-lowering. Distinguish diagnostics on the producing body from downstream
-requirements that depend on it. Validate capability and name changes
-against the declarations and actual selected calls on the target.
+`destroy_domain` moves the `RawAllocation` and arena owner out of the domain.
+The allocation destructor retires the domain backing, while `release_arena`
+later updates dynamically registered host storage through an ambient effect.
+Ending the allocation's lexical scope before releasing the independent arena
+cleared the caller's E7086 on the fixed inventory. The strict raw retirement
+check remains. A row without a proved typed discharge must still reject
+retirement.
 
-A focused package-backed check reproduced all 40 unmet requirements,
-the raw deallocation error, the name collision, and one postcondition
-failure across 41 bodies. The complete product also checks declared
-capabilities and reports the two remaining cascading postconditions.
-Seven of those bodies reproduce the same ten diagnostics with either
-source or packaged standard-library inputs.
-The focused producer checks certify the allocation, event, deadline, and
-execution-view postconditions at their source. Follow the same values into
-the consumer before changing a producer or its callers.
-
-The reached allocation clause has the same predicate and operands at
-publication and admission. Joining the nullable alternatives replaces
-its owning association with unknown, even where only the present row
-has that association. The selected input retains the actual payload
-owner. An allocation association restricts the use of independently
-proved evidence. Keep a restriction from either predecessor, and keep
-conflicting restrictions conservative after renaming. Admission compares
-the restriction with the actual transferred owner identity. A copied
-address or borrowed input cannot meet that restriction.
-
-The deadline callback owner is present, but its portable last-element
-expression still contains an unknown backing operand. Retain the identity
-of the evaluated result when the expression cannot name an exact value.
-Carry its physical capture and possible dependencies through the same
-publication. Keep exact selected elements when the prefix supplies them.
-The event owner's authored whole-result guarantee is established on
-each normal row, then its operand shape changes at the result join. Bind
-authored result clauses to the published value. Retain row-specific
-address and witness support at the row that supplied it.
-
-Repeated short-circuit and result joins can qualify the same carried trusted
-claim with different path guards. Candidate selection currently keeps only
-those whole guarded clauses, so a later join cannot recover the common claim
-even when every actual predecessor proves it for the same joined owner. Treat
-nested trusted atoms as proof candidates, not assumptions. Publish a direct
-claim only when each actual predecessor proves it from that carrier's witness
-evidence and its own ordinary path facts. Preserve owning-witness support only
-when both predecessors separately prove the claim from owning clauses on that
-carrier. Address-only evidence cannot become ownership authority. A clause that is merely vacuous on a
-path with no authority must remain unavailable, an unrelated carrier cannot
-lend evidence, and an inactive nullable payload carries no authority. The
-positive oracle joins opposite guards whose carrier clauses both imply the
-same claim. The negative oracle has authority on only one predecessor and
-must not manufacture the claim. Reconsider if the joined owner substitution
-is wrong or if any negative oracle gains authority.
-
-A copyable raw-address promise can name its address without depending on any
-tracked storage owner. An empty owner set is no lifetime dependency. Preserve
-that promise while the same address value remains observable across cleanup,
-but do not convert it into ownership authority. Retire it when the address is
-no longer carried or an actual address effect revokes the predicate.
-
-A returned reference has a distinct identity, while its retained input bound
-may still identify one exact actual operand. Physical retirement reads prior
-discharges through that stored exact binding, and summary publication uses the
-same origin. Multiple alternatives, region-only bounds, older incarnations,
-and cycles remain footprints and cannot claim a discharge.
-
-The attachment exchange postcondition reaches the terminal state with both
-`execution != none` and `status != 0` as exact ordinary facts. Its required
-condition is `status == 0 || execution != none`. Mixed proof scans the left
-comparison's large derived relation first, exhausts its bounded work, and
-never reads the decisive exact right alternative. Boolean proof must inspect
-either direct decisive child before recursive implication work, independently
-of source order. An unknown or non-decisive child remains insufficient, and
-trusted evidence cannot establish an ordinary atom. The positive oracle puts
-an expensive unresolved comparison before an exact true alternative. Negative
-oracles keep the alternative false or unknown. Reconsider if the terminal
-state loses the exact entry fact or if a non-explicit alternative starts
-bypassing bounded proof.
-
-The link-slot proof initially establishes initialization for all three
-admitted fields. The checked move reaches just the arena field in the
-actual link slot. The physical invalidation lists the enclosing typed
-pointee and discards the changed projection. Publish changes relative
-to the typed pointee. Use those paths to invalidate and update the
-corresponding current values. Update the nearest observable enclosing
-path for an unresolved selector. A change to an enclosing path covers
-its descendants. Keep unknown overlap at the whole pointee and combine
-possible changes at row joins. The link-slot check must keep
-the other two fields initialized and reject a second move of the same
-field. The raw domain retirement and attachment result postcondition
-still need their own reached transitions traced.
-
-The focused comparison clears the deadline callbacks, event and arena
-creation, task-slot field moves, host storage preparation, execution
-publication, the attachment result postcondition, the second lifetime body,
-and the host execution-owner postcondition. Twelve distinct package-backed
-diagnostics remain, all at locations already present in the baseline. They
-group into carried trusted authority across result and cleanup joins,
-allocation or address authority across owner transport, and ordered retirement
-export. The remaining declarations still require full product checking.
-
-The structured-escape correction is present, but the remaining scoped-view
-failures occur later. Cleanup admits the reached receiver after sibling writes
-have renamed it to a post-state or joined identity. The exact `view_owned`
-clause remains attached to the producing identity. The same split appears in
-nullable catch results and native-provider or observer owners: the selected
-value and owning witness reach the call, but the carrier key and clause operand
-do not always follow the value's publication rename. Allocation facts can reach
-an admission with no allocation-owner restriction for the transferred owner. A
-safe producer proves a declared clause from one live source witness and retains
-that source support. A trusted producer does not receive a body proof obligation
-because its declaration supplies the clause. Portable witness support still
-requires checked evidence. The call binds declaration-only support against the
-actual arguments and result. Keep all declaration guarantees and
-subjects available for publication, while keeping safe-body proof obligations
-separate. Bind both through the same entry-and-result instantiation. Do not
-require the proof source itself to have already become a returned owned
-observation, reconstruct an owner at admission, or make a historical allocation
-fact unrestricted. A copied address or borrowed alias must still be unable to
-spend an owning carrier.
-
-`destroy_domain` checks and lowers by itself. Its caller reaches raw retirement
-with three outstanding typed cells below the same execution owner, including
-two direct service fields and one nested report field. The nested summary
-contains their definite consumes and the later retirements, but the retirement
-effect has no ordered discharge attached. The performed prefix at the reached
-retirement must carry only definite earlier consumes of exact cells. A
-conditional consume, a possible alias, a consume after retirement, and a cell
-reinitialized after consumption cannot discharge the duty. The positive
-oracle consumes all three exact typed cells before raw retirement. Preserve the
-discharges on the actual reached retirement. A singleton returned region
-cannot identify an exact stored binding. The portable effect set
-describes possible changes. Its sort order cannot establish a discharge.
-Deferred formation knows the operands and possible effects. Actual discharge
-facts belong to the reached execution.
-
-The three-body package probe at `cd6c582a5` checks and lowers
-`create_execution` and `destroy_domain`. The allocation reaches
-`initialize_domain` with its original owner, pointer, size, and alignment
-after the arena call. The nullable allocation test with an opaque call fails.
-`retire_pin` reproduces E7086 for three pending cells under the domain pointer.
-
-The package-backed probe uses a standard-library bundle built with Rust
-1.98.1 and LLVM 22.1.8. Rust 1.99.0 emits LLVM 23 bitcode that Bray's pinned
-LLVM 22 symbol tool cannot inspect. Run both execution certification and
-lowering. Certification can return without checking a body that declares
-no execution properties or postconditions. Lowering checks the required
-body semantics and cleanup before building MIR.
-
-### Current reference-route contract
-
-A result pointer copied from a reached input descriptor keeps that descriptor's
-possible pointees. The input's safe borrow can keep its owner alive, but does
-not make the owner a pointee. An unknown descriptor can refer to external or
-previously exposed storage. It must not gain an exact address, initialization,
-ownership, or a new route to private sibling storage. An actual raw pointer to
-an inline owner still exposes its enclosing allocation.
-
-`current()` publishes independent or empty pointer alternatives. `entry_scope`
-transfers the selected `Current` and publishes an inactive `operation`.
-`nested_context` admits `&scope.current` and returns a `Context` whose
-reference relation reads `parent.pointer` and its typed fields. When the
-caller cannot complete that deep read, output staging reads the reached pointer
-descriptor's possible regions from the admitted capture. Its safe borrow
-remains a lifetime support only. The following result-bounds pass preserves
-the narrower symbolic pointer region. `commit_driver` then leaves the
-disjoint inactive `operation` payload intact. The same output staging serves
-ordinary calls and deferred frames. Intrinsic result bounds retain their
-distinct inputs.
-
-The positive oracle is the package-backed `root_scope` check at line 89 plus a
-small source and imported-call control that returns a pointer through an
-opaque descriptor while a disjoint nullable sibling remains empty. Negative
-oracles return an actual pointer into the owner, expose a raw address, or
-write the tag. Those paths must still invalidate the sibling, and a bounded
-region must never become an exact cell. The fixed 13-body package probe fell
-from 16 diagnostics at 10 sites to five at two sites after the route batch.
-
-Use the admitted capture, prepared `StorageReferencePath`, and existing
-`StorageAddressValue` and symbolic returned identity. The all-root fallback
-remains only where no reached pointer descriptor gives a narrower region.
-Do not retain a parallel origin map or reconstruct the caller state from the
-portable summary. Keep code growth to the route computation and its direct
-consumers. Reconsider if a known local pointer loses its local target, a raw
-exposure stays protected, or an unresolved route cannot provide a sound
-bounded alternative.
-
-### Current owned-payload contract
-
-The optimized package probe checks and lowers `admit_source_task` and
-`create_worker_context` without diagnostics. The baseline had two E7123
-diagnostics in `admit_source_task`. Both bodies pass a selected owned payload
-to a trusted consumer. A producing guarantee attached to the payload must
-move with the same owner. The rejected variant must carry no authority, and
-the old storage must lose authority after consumption. A later mutation,
-retirement, or incompatible join must still revoke dependent claims.
-
-`admit` republishes its declared claims after its nullable result-row join.
-The success and panic join qualifies each claim with a guard. The `Ok` case
-discharges the guard. The fact and admitted operand both use the selected
-payload with its original captured scalar observations. In `create_worker_context`,
-provider selection retains the claim. Opaque `try_allocation` preserves the
-provider local and its nullable payload physically. Preserving that live
-nullable's inline tag keeps the already proved guarded claim through the
-frame and clears its three downstream requirements. A scalar has no such tag.
-`StoragePlan` identifies the source and target slots. `StorageFlowState`
-supplies the selected owner and its physical preservation. The forward
-replacement must insert the reached observation once, including its retained
-scalar fields. Ordinary equality resolution still follows equality chains.
-All 591 checker cases pass, including a captured call result with an inline
-scalar and a witness checked in both branches. The combined inventory checks
-and attempts to lower 43 bodies and reports 10 distinct diagnostics. The
-same compiler reports zero diagnostics on the 13-body inventory when only
-execution certification is requested. Four of those bodies still fail
-when lowering requests their checked storage and cleanup prerequisites.
-
-The backward projection lookup also needs the complete predecessor snapshot.
-The join collects actual snapshots from reached storage and result values.
-Projecting their owner coordinates discards explicit payload fields, even
-when those fields own independent values. Project the reached snapshot
-itself. Keep the forward insertion of complete joined observations and the
-existing ordinary equality solver. The predecessor projection control reads
-the actual field. The joined witness control rejects the inactive branch.
-The 43-body diagnostic inventory is unchanged by removing the shortcut.
-
-The call that extracts the whole `Domain` publishes a definite typed
-discharge through the admitted domain pointer. The reached scheduler
-retirement sees that cell but uses a different address. Later cleanup effects
-can also remove the consumption marker before the allocation record retires
-its backing. Publish typed discharge routes alongside the retirement route.
-Keep the actual transfer evidence across effects that cannot reinitialize
-the cell. Validate reinitialization, possible aliases, guarded paths, and
-package import with the same route binder.
-
-The selected `StoragePlan` order determines each cleanup action.
-`StorageFlowState` supplies its reached owner, receiver, and committed
-effects and reports. Certification reads the checked publications by
-operation and action. Both phases use the same continuation worklist.
-Lowering consumes the checked order and emits runtime activity guards
-and normal or failure transfers. Any change to the worklist must preserve
-the failed action's performed prefix, its next slot and enclosing
-continuation, pending-result abandonment, and convergence of repeated
-array regions. See the [cleanup architecture](bra-694-architecture.md#cleanup-and-resumption).
-
-The worklist currently joins registered failure and repetition states at
-the same cursor. A resumed state runs the rest of the order after it is
-taken from the queue. Determine how many joins come from that traversal,
-normal lifecycle rows, and conditional cleanup selection before changing
-the scheduler. Keep separately admitted outcomes when a later reader
-needs their distinction. Check represented-child guarantees, exact
-receiver writes, rejected conditional cleanup, replacement failures,
-pending-result abandonment, and retained reports using the fixed case
-inventory and full runtime archive.
-
-The exact compiler's archive sample spent 28.8 of 43.2 sampled thread
-seconds in execution joins. Replacements and equality rewriting used
-14.6 s, including allocations of already retained aggregate and reference
-observation nodes. During a bounded rewrite, read each retained child in
-the existing order and keep the original canonical node when the result
-has the same shape and values. Share that rule between structural walks
-and equality rewriting. Reuse unchanged field lists and input nodes.
-Constructors still normalize changed and noncanonical values. Preserve
-the work limit, capture barriers, and the distinction between data
-substitution and owner renaming. Use the existing bounded DAG,
-nullable, witness, and frame controls with the fixed case inventory.
-Compare joins and archive wall time before changing the cleanup scheduler.
-
-At a join, `CurrentValues` supplies the predecessor observations and the join
-assembles the final roots before it renames evidence. The current root rewrites
-between those steps are overwritten by publication. Witness publication reads
-its supplied owner and witness ledger. It does not read the intermediate
-roots. Keep the predecessor state readable until publication, compare the
-joined slots to the actual previous slots, and publish the assembled roots
-once. Evaluated values, admitted frames, and owned result layouts still need
-their own rebinding. Standalone frame publication still changes current roots.
-Check captured extraction, copied guards, and loop convergence before timing
-the same workload without concurrent compiler activity.
-
-The remaining lowering cases exercise three linked boundaries. `StoragePlan`
-names the scoped and ordinary input routes. `StorageFlowState` supplies
-captured receivers and checked effects, and body certification reads that
-admission before applying those effects. A nested root can carry a present
-operation, so cleanup needs the guarded acquisition witness as well as the
-inactive alternative. The raw retirement check needs the admitted address
-and definite typed discharges before the reached retirement. The observer
-calls need the corresponding proof of the selected owner and pointer after
-transfer. Trace publication, intervening invalidation, and admission on the
-same bodies. Preserve conditional support and reject changed or possibly
-aliased owners. The current 43-body lowering result is the baseline for the
-next batch.
-
-The observer permit is present at issuance and absent after its owner enters
-`uninit_from`. The physical initializer writes the admitted owner into
-`UninitPayload`, while proof completion had only the enclosing wrapper.
-Formation must publish the same admitted contents and retain their support
-through construction. Dropping that wrapper or passing an empty one must
-give the write no authority. Validate both paths at lowering and compare the
-observer against the same packaged inventory. Extraction and protected writes
-need their own exact reached-cell transition, since an input wrapper can be
-empty and a pointed-to payload can alias.
-
-The ordinary join proof also used transitive equality closure on directional
-maps. A predecessor value can name a different joined slot. Forward proposals
-and backward validation must each insert the selected observation once. The
-overlapping-slot control checks both facts, and a conflicting predecessor
-prevents publication. Reuse the existing substitutions. Reconsider the
-changes if they preserve retired support, alter unrelated native diagnostics,
-or need another persistent representation.
-
-The current batch passes 593 checker tests, the positive and negative
-protected nullable extraction controls, the raw-write permit control, and
-the required style and format passes. The raw-write control asserts the
-obligation at the write. Observer creation and scoped cleanup publish their claims
-before guarded joins. Their consumer failures cite joined owners with
-unproved clauses, so the directional join substitution is a common candidate
-for both. Raw retirement is separate. The producer has four rows, with
-identical guards on rows that respectively include and omit a typed
-discharge. A guard alone cannot select a discharge row. Follow the produced
-effect prefix and source cell through those rows before changing retirement
-checks or publishing a definite discharge.
-
-Protected returned storage keeps its checked value and owning path together.
-The `UninitFrom` formation records the admitted payload, the normal return
-reads the reached result slot, and witness publication and callers use that
-same value. For each exit, an active projected owner can carry its witness,
-an inactive one cannot, and an unknown one needs a portable shape guard.
-`origin_context` returns a known present attachment inside `Uninit`; the
-carrier path is `Context.attachment / UninitPayload / NullableValue`. Its
-returned snapshot proves presence, while the portable term cannot name the
-protected projection. Use the existing return-path activity rule before
-constructing a guard. Cache only guards derived from formal result types,
-not the per-exit activity. The empty-wrapper control must not gain the
-owner's witness. If an unknown nullable selector under protected storage
-appears, establish how to express its guard before publishing that carrier.
-This repair reuses the current value and adds no persistent representation.
-Reconsider it if it changes a carrier on an inactive branch or regresses the
-fixed package-backed inventory.
-
-The source control then reaches `assume_initialized` and loses the marked
-owner's witness after extracting `Owner?` from `Uninit`. Physical flow reads
-the captured `UninitPayload` and moves it into the result. Logical formation
-and extraction must select that same admitted payload, without creating an
-owner for an empty or unknown wrapper. `UninitMove` is the equivalent
-borrowed-wrapper extraction. Both must resume an admitted witness only when
-the returned snapshot actually retains its owner. The positive control marks
-an owner, returns it through `Uninit<Owner?>`, extracts it, and uses its
-predicate. The negative control uses an unmarked owner and must fail at that
-predicate requirement. Reconsider if extraction retains an owner after the
-payload moves out, if the physical cell is uninitialized, or if the imported
-producer behaves differently.
-
-The borrowed `UninitMove` wrapper carries a reached payload containing the
-marked owner, but it is absent from `owned_arguments()` and ordinary
-`extracted_values`, so call admission collects no owner witness. The checked
-memory operation is the authoritative selector. At entry, select its
-`UninitPayload` from the evaluated argument and capture only witnesses of
-that value; suspend them before the physical move. The observed result reads
-the same selection. Completion resumes only owners retained by the returned
-snapshot. The same admission applies to `UninitAssumeInitialized`, whose
-owned wrapper already exposes the payload. `UninitWrite` instead moves its
-second argument into a borrowed destination and has no direct returned
-payload to resume. The bounded repair adds no stored representation and
-shares one payload selector. Positive and negative controls cover both
-extractors. If this admits a witness from an empty wrapper, leaves a moved
-owner live at its former cell, or changes unrelated calls, revisit the
-selection and suspension boundary before further native probes.
-
-A staged `CallInput` reports its parent's expression ID but is a separate
-invocation. The first focused run lost the marked witness because protected
-payload capture also ran at that staging site. Both payload admission and
-direct protected result retention apply only to `Node(Expression)`, after
-staging has finished. Input staging keeps its own evaluated value and does
-not transfer the protected cell's owner yet.
-
-The next focused run restored the owned-wrapper controls. Its mutable
-borrowed `UninitMove` admission selected a non-unknown payload and found one
-available witness retained by that payload, but no matching completion trace
-ran. Normal completion still had the entry but its witness set was empty.
-`invalidate_observations` passes moved snapshots to witness retirement and
-private-entry preservation. Its source currently includes only ordinary
-`extracted_values`, while the protected read selects its payload directly
-from the admitted argument. Add that exact payload to moved snapshots for
-the checked expression operation. This lets source-cell invalidation revoke
-the former location while retaining private evidence for the extracted owner.
-Reconsider if an unrelated mutation obtains that payload, the completed
-result fails to retain it, or the old cell keeps owner authority.
+The remaining execution cases need separate producer-to-consumer proofs.
+`current()` guarantees `view_owned` for its result. In `task_entry`, the
+`dispose_reference` call at expression 52 frames that live result into a
+post-state, and some reached paths drop the witness before `Current` cleanup.
+Trace its stable storage paths and actual effect target. `root_scope` reaches
+its `reference_retained` call with no matching witness. `resolution` also
+fails one scoped view cleanup and one task-storage call. Do not infer that
+these share a cause from the diagnostic category alone. A broad effect must
+not preserve a claim on storage it may change, and a copied address must not
+gain owning authority.
 
 ## Acceptance
 

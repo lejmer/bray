@@ -182,7 +182,13 @@ The forward mapping inserts the complete joined observation once. Its fields
 can still name immutable data copied from the predecessor, so rewriting those
 fields again would change the observed value. Proposals about ordinary facts
 use that same forward mapping. The proof reads each predecessor snapshot once,
-even when a snapshot also names a different joined slot.
+even when a snapshot also names a different joined slot. Source call and
+input terms retain their independent meanings. A joined data value can carry
+a changed field explicitly as a projection of a joined base, or leave a field
+to project from that base. The proof pairs each corresponding projected name
+with its actual predecessor snapshot and proposes the joined name alongside
+the original predecessor claim. This mapping grants no owner by itself. Each
+candidate clause still needs the carrier evidence of both predecessors.
 The join assembles current roots from the predecessors and publishes each root
 once. It rebinds evaluated frames, owned result layouts, and proof evidence
 while the predecessor roots are still readable. The fixed point compares the

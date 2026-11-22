@@ -418,6 +418,16 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         call_effects: Option<&[Effect]>,
         local: &[Effect],
     ) {
+        if std::env::var_os("BRAY_BRA694_TRACE").is_some()
+            && self.storage.unit() == bray_bound_tree::BoundUnitId::new(852570)
+            && local.iter().chain(call_effects.into_iter().flatten()).any(|effect| {
+                matches!(effect, Effect::UnboundedMutation { kind: DependencyMutationKind::Replace(_), ambient: true, .. })
+                    || matches!(effect, Effect::Mutation { kind: DependencyMutationKind::Retire, address: Some(_), .. })
+                        && format!("{effect:?}").contains("SymbolId(2082)")
+            })
+        {
+            eprintln!("BRA694 SOURCE OP kind={kind:?} local={local:?} call={call_effects:?}");
+        }
         self.record_resolved_effects(&state.memory, local, Some(&mut state.effect_prefix));
 
         if let Some(effects) = call_effects {
@@ -746,6 +756,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             let duties = discharged.iter().filter_map(|duty| {
                 let reached = self.resolve_effect_routes(memory, storage, (std::slice::from_ref(duty), entry), input_regions, resolve);
 
+                if std::env::var_os("BRAY_BRA694_TRACE").is_some() {
+                    eprintln!("BRA694 DISCHARGE ROUTE duty={duty:?} reached={reached:?}");
+                }
+
                 let [effect] = reached.as_slice() else { return None; };
 
                 let (cell, DependencyMutationKind::Discharge(ty)) = effect.cell_change()? else { return None; };
@@ -755,6 +769,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             }).collect::<Vec<_>>();
 
             for target in targets {
+                if std::env::var_os("BRAY_BRA694_TRACE").is_some() && kind == DependencyMutationKind::Retire && !discharged.is_empty() {
+                    eprintln!("BRA694 RETIRE ROUTE target={target:?} duties={duties:?}");
+                }
                 let target = if addressed { target } else { bray_bound_tree::StorageMutationTarget::bounded(target.footprint) };
 
                 let effects = Effect::through(target, kind, access_type);
@@ -792,6 +809,17 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         }
 
         for effect in effects {
+            if std::env::var_os("BRAY_BRA694_TRACE").is_some()
+                && self.storage.unit() == bray_bound_tree::BoundUnitId::new(852570)
+                && (matches!(effect, Effect::UnboundedMutation { kind: DependencyMutationKind::Replace(_), ambient: true, .. })
+                    || matches!(effect, Effect::Mutation { kind: DependencyMutationKind::Retire, address: Some(_), .. })
+                        && format!("{effect:?}").contains("SymbolId(2082)"))
+            {
+                eprintln!("BRA694 SOURCE EFFECT caller={:?} effect={effect:?} prefix_len={:?} memory_discharges={:?}",
+                    std::panic::Location::caller(), prefix.as_deref().map(|prefix| prefix.len()),
+                    match effect { Effect::Mutation { address: Some(address), .. } =>
+                        Some(memory.retirement_discharges(address).count()), _ => None });
+            }
             match effect {
                 Effect::Escape(_) | Effect::Mutation { kind: DependencyMutationKind::Escape, .. } => {}
                 Effect::Mutation { address, footprint, discharged, kind, access_type } => {
@@ -837,6 +865,13 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     ) {
         if !self.publish && prefix.is_none() {
             return;
+        }
+
+        if std::env::var_os("BRAY_BRA694_TRACE").is_some()
+            && kind == DependencyMutationKind::Retire
+            && format!("{access_type:?}").contains("slot: 2194")
+        {
+            eprintln!("BRA694 SOURCE RETIRE target={target:?} addressed={addressed} discharged={discharged:?}");
         }
 
         if matches!(target.origin, Origin::Returned { .. })
