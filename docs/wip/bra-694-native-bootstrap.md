@@ -293,6 +293,37 @@ consumers. Reconsider if a known local pointer loses its local target, a raw
 exposure stays protected, or an unresolved route cannot provide a sound
 bounded alternative.
 
+### Current owned-payload contract
+
+The focused package probe now reports two E7123 diagnostics in
+`admit_source_task`. It reported five across this body and
+`create_worker_context` before the latest grouped repair. Both pass a selected owned payload to a trusted
+consumer. A producing guarantee attached to the payload must move with the
+same owner. The rejected variant must carry no authority, and the old storage
+must lose authority after consumption. A later mutation, retirement, or
+incompatible join must still revoke dependent claims.
+
+The admission probe shows the correct owner and available witness at both
+consumers, but the trusted fact is absent. `admit` republishes its declared
+claim after its nullable result-row join. The caught `Result` keeps the
+transferred payload witness, but the success and panic join cannot prove its
+guarded claim against both predecessor snapshots. In `create_worker_context`,
+provider selection retains the claim. Opaque `try_allocation` preserves the
+provider local and its nullable payload physically. Preserving that live
+nullable's inline tag keeps the already proved guarded claim through the
+frame and clears its three downstream requirements. A scalar has no such tag.
+The caught-result join still fails after projected snapshot substitution
+follows the predecessor's owner identity. Trace its complete admitted proof
+before changing the remaining join boundary. `StoragePlan` identifies
+the source and target slots. `StorageFlowState` supplies the reached selected
+owner and physical preservation. Proof must use those same identities. The
+positive package oracle is these two bodies. The current comparison is two
+E7123 diagnostics at one site. Add focused
+source and import controls for the selected owner and rejected branch. Do not
+reconstruct ownership from a condition string or add a second persistent
+owner map. Reconsider if the producer never publishes its carrier or if a
+guarded join has more than one possible owner.
+
 The call that extracts the whole `Domain` publishes a definite typed
 discharge through the admitted domain pointer. The reached scheduler
 retirement sees that cell but uses a different address. Later cleanup effects

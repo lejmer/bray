@@ -209,6 +209,14 @@ pub(super) fn snapshot_value(
         return Some(value.clone());
     }
 
+    if let crate::ExecutionConditionKind::Projection(projection, parent) = condition.kind()
+        && let Some(source) = snapshots.get(parent.as_ref())
+    {
+        // The predecessor already holds this complete value. Follow its owner
+        // identity instead of projecting over the inserted aggregate contents.
+        return Some(source.owner_identity().clone().component(*projection));
+    }
+
     let crate::ExecutionConditionKind::Input(place) = condition.kind() else { return None; };
 
     for length in (0..place.projections.len()).rev() {

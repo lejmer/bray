@@ -127,10 +127,37 @@ mod tests {
     use std::sync::Arc;
 
     use bray_bound_tree::BoundOperator::{LogicalAnd, LogicalOr};
-    use bray_symbols::SymbolOrdinal;
+    use bray_symbols::{ConstantProjectionKind, SymbolOrdinal};
 
     use super::ExecutionSubstitution;
     use crate::{ExecutionCondition, ExecutionPlace};
+
+    #[test]
+    fn predecessor_projection_uses_the_captured_owner() {
+        let result = ExecutionCondition::new(crate::ExecutionConditionKind::Result);
+
+        let owner = ExecutionCondition::new(crate::ExecutionConditionKind::Input(
+            ExecutionPlace::argument(SymbolOrdinal::new(0))));
+
+        let payload = ExecutionCondition::new(crate::ExecutionConditionKind::Input(
+            ExecutionPlace::argument(SymbolOrdinal::new(1))));
+
+        let nullable = result.clone().component(ConstantProjectionKind::NullableValue);
+        let selected = nullable.clone().component(ConstantProjectionKind::NullableValue);
+
+        let source = ExecutionCondition::constructed(owner.clone(), [
+            (bray_bound_tree::StorageProjection::NullableValue, payload.clone()),
+        ].into());
+
+        let snapshots = BTreeMap::from([(nullable, source)]);
+
+        let substitution = super::SnapshotSubstitution::new(&snapshots);
+
+        let expected = owner.component(ConstantProjectionKind::NullableValue);
+
+        assert_eq!(substitution.apply(&selected), expected);
+        assert_eq!(substitution.apply(&selected.borrowed()), expected.borrowed());
+    }
 
     #[test]
     fn snapshot_forests_preserve_capture_boundaries_and_each_original_budget() {

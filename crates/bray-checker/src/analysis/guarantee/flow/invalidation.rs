@@ -225,6 +225,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     // Existing loans can still observe the unchanged value.
                     observations.insert(value.clone());
 
+                    if !value.is_reference() && value.has_discriminant() {
+                        // A complete inline value also retains its tag after an
+                        // earlier result wrapper has left the live value tree.
+                        observations.insert_classified(value.clone(), StorageObservationKind::Discriminant);
+                    }
+
                     let borrowed = if value.is_reference() {
                         value.predicate_observation()
                     } else {

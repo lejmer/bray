@@ -172,6 +172,11 @@ A known-present nullable can carry the existing owner of its payload. The
 whole nullable observation and the payload observation keep distinct paths.
 Rebase each exact observation from the returned value. An absent alternative
 has no payload carrier.
+When a selected value enters a caught `Result`, its proof follows the complete
+predecessor snapshot and that snapshot's owner identity. The success selector
+qualifies its witness through the join. A stable moved nullable keeps its inline
+tag through a later opaque frame, while its payload claim still requires the
+same surviving owner and unchanged observed contents.
 Direct calls and deferred bodies share the prepared input route and output type
 for each owning transfer. A deferred body reads its current typed input
 referent at activation through its retained descriptor. The operation and

@@ -94,6 +94,31 @@ impl ExecutionCondition {
         }
     }
 
+    pub(crate) fn has_discriminant(&self) -> bool {
+        let mut value = self;
+        let mut tagged_layout = false;
+
+        loop {
+            match value.kind() {
+                K::Constructed(base, fields) => {
+                    tagged_layout |= fields.iter().any(|(projection, _)| matches!(*projection,
+                        bray_bound_tree::StorageProjection::NullableValue
+                            | bray_bound_tree::StorageProjection::ActiveUnionPayloadField { .. }));
+
+                    value = base;
+                }
+                K::CapturedValue { value: base, .. } | K::DeferredValue { value: base, .. }
+                | K::Observation { contents: base, .. }
+                | K::Borrowed(base) => value = base,
+                K::Discriminant(_) | K::Present(_) | K::Tagged(_, _) => return true,
+                K::Literal(literal) => return matches!(literal.kind(), bray_symbols::ConstantValueKind::NullableAbsent
+                    | bray_symbols::ConstantValueKind::Union { .. }),
+                K::Unknown => return false,
+                _ => return tagged_layout,
+            }
+        }
+    }
+
     fn tag_source(&self) -> &Self {
         let mut value = self;
 
@@ -129,4 +154,33 @@ impl ExecutionCondition {
         }
     }
 
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use bray_bound_tree::StorageProjection;
+    use bray_symbols::{ConstantValueData, ConstantValueKind, IntegerConstant, TypeData};
+
+    use super::{ExecutionCondition, K};
+
+    #[test]
+    fn only_tagged_inline_values_supply_discriminants() {
+        let integer = crate::test_support::semantic_values().intern_type(TypeData::ExactInteger {
+            bits: std::num::NonZeroU16::new(32).expect("nonzero integer width"),
+            signed: false,
+        }).expect("integer test type");
+
+        let scalar = ExecutionCondition::new(K::Literal(Arc::new(ConstantValueData::new(
+            integer, ConstantValueKind::Integer(IntegerConstant::from_u64(0)),
+        ))));
+
+        let nullable = ExecutionCondition::constructed(ExecutionCondition::new(K::Result), [
+            (StorageProjection::NullableValue, scalar.clone()),
+        ].into());
+
+        assert!(!scalar.has_discriminant());
+        assert!(nullable.has_discriminant());
+    }
 }
