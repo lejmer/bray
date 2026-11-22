@@ -1,4 +1,4 @@
-use crate::execution_guarantees::{ExecutionAssumptions, ExecutionSubstitution};
+use crate::execution_guarantees::{ExecutionAssumptions, ExecutionObservationKind, ExecutionSubstitution};
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::BoundExpressionId;
@@ -54,6 +54,28 @@ impl Default for ExecutionState {
 impl OutcomeState for ExecutionState {
     fn cleanup_progress(&self) -> Option<&CleanupProgress> {
         self.cleanup.as_ref()
+    }
+}
+
+fn merge_allocation_owner(
+    owners: &mut BTreeMap<ExecutionCondition, ExecutionCondition>,
+    condition: &ExecutionCondition,
+    owner: &ExecutionCondition,
+) -> bool {
+    use std::collections::btree_map::Entry;
+
+    match owners.entry(condition.clone()) {
+        Entry::Vacant(entry) => {
+            entry.insert(owner.clone());
+
+            true
+        }
+        Entry::Occupied(mut entry) if entry.get() != owner && !entry.get().is_unknown() => {
+            entry.insert(ExecutionCondition::unknown());
+
+            true
+        }
+        Entry::Occupied(_) => false,
     }
 }
 
@@ -482,13 +504,15 @@ impl ExecutionState {
         let mut owners = BTreeSet::new();
 
         while let Some(value) = transferred.pop() {
-            if value == ExecutionCondition::unknown() {
-                continue;
+            match value.ownership_identity() {
+                Some((ExecutionObservationKind::Owned, owner)) => {
+                    owners.insert(owner.clone());
+                }
+                Some((ExecutionObservationKind::Reference, _)) => continue,
+                _ => {}
             }
 
             transferred.extend(value.owned_components().cloned());
-
-            owners.insert(value);
         }
 
         self.trusted_assumptions
@@ -516,6 +540,18 @@ impl ExecutionState {
             })
             .cloned()
             .collect()
+    }
+
+    pub(super) fn merge_allocation_owners(&mut self, incoming: &Self) -> bool {
+        let mut changed = false;
+
+        // An association restricts existing evidence. An absent association
+        // adds no restriction, while conflicting owners deny its use.
+        for (condition, owner) in &incoming.allocation_owners {
+            changed |= merge_allocation_owner(&mut self.allocation_owners, condition, owner);
+        }
+
+        changed
     }
 
     /// An admitted contract can establish ordinary facts alongside trusted authority.
@@ -822,12 +858,13 @@ impl ExecutionState {
             &rename_identity,
         );
 
-        self.allocation_owners = self
-            .allocation_owners
-            .iter()
-            .map(|(condition, owner)| (rename(condition), rename_identity(owner)))
-            .filter(|(condition, _)| *condition != ExecutionCondition::unknown())
-            .collect();
+        for (condition, owner) in std::mem::take(&mut self.allocation_owners) {
+            let condition = rename(&condition);
+
+            if !condition.is_unknown() {
+                merge_allocation_owner(&mut self.allocation_owners, &condition, &rename_identity(&owner));
+            }
+        }
 
         if !keep_storage {
             return;
@@ -1387,6 +1424,45 @@ mod tests {
             crate::test_support::empty_substitution(symbol.into()),
             [input(ordinal), ExecutionCondition::boolean(true)].into(),
         )))))
+    }
+
+    #[test]
+    fn allocation_restrictions_survive_a_nullable_join_and_require_the_actual_owner() {
+        let symbol = crate::test_support::compiler_known_symbol::<bray_symbols::PredicateSymbolId>("OwnedAllocation");
+
+        let allocation = ExecutionCondition::new(crate::ExecutionConditionKind::Predicate(
+            symbol.into(),
+            crate::test_support::empty_substitution(symbol.into()),
+            [input(0), input(1), input(2)].into(),
+        ));
+
+        let guarded = ExecutionCondition::operation(bray_bound_tree::BoundOperator::LogicalOr, vec![
+            input(3),
+            ExecutionCondition::new(crate::ExecutionConditionKind::Trusted(Arc::new(allocation.clone()))),
+        ]);
+
+        let owner = input(4);
+        let actual = ExecutionCondition::owned_value(owner.clone(), ExecutionCondition::unknown());
+        let mut present = ExecutionState::default();
+        let absent = ExecutionState::default();
+
+        present.allocation_owners.insert(allocation.clone(), owner.clone());
+
+        for (mut joined, incoming) in [(absent.clone(), &present), (present.clone(), &absent)] {
+            joined.merge_allocation_owners(incoming);
+            joined.assume_contract_condition(guarded.clone());
+
+            assert!(joined.call_trusted_assumptions([actual.clone().present()]).contains(&(guarded.clone(), true)));
+            assert!(!joined.call_trusted_assumptions([actual.clone().borrowed()]).contains(&(guarded.clone(), true)));
+            assert!(!joined.call_trusted_assumptions([input(0)]).contains(&(guarded.clone(), true)));
+
+            let mut conflicting = ExecutionState::default();
+
+            conflicting.allocation_owners.insert(allocation.clone(), input(5));
+            joined.merge_allocation_owners(&conflicting);
+
+            assert!(!joined.call_trusted_assumptions([actual.clone()]).contains(&(guarded.clone(), true)));
+        }
     }
 
     #[test]

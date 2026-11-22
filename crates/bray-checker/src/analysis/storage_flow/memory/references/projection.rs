@@ -600,6 +600,50 @@ impl State {
         Ok(None)
     }
 
+    pub(in crate::analysis::storage_flow) fn affected_pointee_paths<'target>(
+        &self,
+        mutations: impl Iterator<Item = &'target Target> + Clone,
+    ) -> std::collections::BTreeMap<Target, bray_bound_tree::StoragePointeeChange> {
+        use bray_bound_tree::{StoragePointeeChange, StorageRelationship};
+        use std::collections::{BTreeMap, BTreeSet};
+
+        let mut changes = BTreeMap::new();
+
+        for (target, ty) in self.typed_storage() {
+            let mut paths = BTreeSet::new();
+
+            for mutation in mutations.clone().filter(|mutation| {
+                self.target_relationship(target, mutation) != StorageRelationship::Disjoint
+            }) {
+                let extent = target.projections().len();
+
+                let relative = if target.contains_storage(mutation) && mutation.prefix(extent) == *target {
+                    &mutation.projections()[extent..]
+                } else {
+                    &[]
+                };
+
+                let length = relative.iter().take_while(|projection| {
+                    projection.is_exact() && Place::inline_projections(std::slice::from_ref(*projection))
+                }).count();
+
+                if length == 0 {
+                    changes.insert(target.clone(), StoragePointeeChange::Whole);
+                    paths.clear();
+                    break;
+                }
+
+                paths.insert(relative[..length].into());
+            }
+
+            if !paths.is_empty() {
+                changes.insert(target.clone(), StoragePointeeChange::Components { ty, paths });
+            }
+        }
+
+        changes
+    }
+
     pub(in crate::analysis::storage_flow) fn typed_storage(&self) -> impl Iterator<Item = (&Target, TypeId)> {
         self.contents.iter().filter(|(target, _)| !target.previous && target.is_exact())
             .filter_map(|(target, contents)| contents.storage_type.map(|ty| (target, ty)))

@@ -19,6 +19,35 @@ pub enum StorageMutationScope {
     Unbounded,
 }
 
+/// Possible writes observed through one exact physical target.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum StoragePointeeChange {
+    /// The entire view may have changed.
+    Whole,
+    /// The changed inline components of the checked type.
+    Components {
+        /// The type of the enclosing pointee.
+        ty: bray_symbols::TypeId,
+        /// Nonempty paths relative to the enclosing pointee.
+        paths: BTreeSet<Arc<[crate::StorageProjection]>>,
+    },
+}
+
+impl StoragePointeeChange {
+    fn merge(&mut self, incoming: &Self) {
+        if let (
+            Self::Components { ty, paths },
+            Self::Components { ty: incoming_ty, paths: incoming_paths },
+        ) = (&mut *self, incoming)
+            && ty == incoming_ty
+        {
+            paths.extend(incoming_paths.iter().cloned());
+        } else {
+            *self = Self::Whole;
+        }
+    }
+}
+
 /// Storage whose previously observed contents may change at one execution site.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum StorageInvalidation {
@@ -50,9 +79,8 @@ pub enum StorageInvalidation {
         /// Keep the origin, epoch and borrow layer until the consumer interprets them.
         /// These identities preserve no entry facts and establish no guarantees.
         snapshots: BTreeMap<crate::StoragePath, crate::StorageObservedTarget>,
-        /// Physical observations the resolved writes may change. An atomic frame
-        /// without finite targets leaves this set unspecified.
-        affected_pointees: Option<BTreeSet<crate::StorageTarget>>,
+        /// Checked changes to each physical pointee. An unknown frame can affect every pointee.
+        affected_pointees: Option<BTreeMap<crate::StorageTarget, StoragePointeeChange>>,
         /// References whose reachable contents may change while their address value survives.
         referents: BTreeSet<crate::StoragePath>,
         /// Slice descriptors proven disjoint from all writes to their reachable elements.
@@ -114,7 +142,15 @@ impl StorageInvalidation {
                         access.unit() == unit && paths.iter().all(|path| path.is_valid_for(unit))
                     })
                     && snapshots.iter().all(|(path, observed)| path.is_valid_for(unit) && observed.target.is_valid_for(unit))
-                    && affected_pointees.iter().flatten().all(|target| target.is_valid_for(unit))
+                    && affected_pointees.iter().flatten().all(|(target, change)| {
+                        target.is_valid_for(unit) && match change {
+                            StoragePointeeChange::Whole => true,
+                            StoragePointeeChange::Components { paths, .. } => !paths.is_empty() && paths.iter().all(|path| {
+                                !path.is_empty() && crate::StoragePath::inline_projections(path)
+                                    && path.iter().all(|projection| projection.is_exact())
+                            }),
+                        }
+                    })
                     && referents.iter().chain(stable_descriptors).chain(stable_values.keys())
                         .all(|path| path.is_valid_for(unit))
             }
@@ -321,7 +357,9 @@ impl StorageInvalidation {
                 referents.extend(incoming_referents.iter().cloned());
 
                 if let (Some(current), Some(incoming)) = (&mut *affected_pointees, incoming_pointees) {
-                    current.extend(incoming.iter().cloned());
+                    for (target, paths) in incoming {
+                        current.entry(target.clone()).and_modify(|change| change.merge(paths)).or_insert_with(|| paths.clone());
+                    }
                 } else {
                     *affected_pointees = None;
                 }
@@ -657,7 +695,7 @@ impl CheckedRefinements {
 mod tests {
     use super::{
         CheckedRefinements, Refinement, RefinementKind, RefinementOccurrence,
-        RefinementSetBuildError,
+        RefinementSetBuildError, StoragePointeeChange,
     };
     use crate::{
         AnyBoundNodeId, BoundExpressionId, BoundUnitId, BoundUnitKind, PatternPredicate,
@@ -857,7 +895,7 @@ mod tests {
         let mut left = super::StorageInvalidation::Observed {
             transition: crate::StorageObservationTransition::Contents,
             scope: super::StorageMutationScope::Unbounded,
-            affected_pointees: Some([crate::StorageTarget::storage(first.clone())].into()),
+            affected_pointees: Some([(crate::StorageTarget::storage(first.clone()), StoragePointeeChange::Whole)].into()),
             accesses: [(access, vec![first.clone()])].into(),
             snapshots: [
                 (first.clone(), observation(first.clone())),
@@ -873,7 +911,7 @@ mod tests {
         let right = super::StorageInvalidation::Observed {
             transition: crate::StorageObservationTransition::Contents,
             scope: super::StorageMutationScope::Unbounded,
-            affected_pointees: Some([crate::StorageTarget::storage(second.clone())].into()),
+            affected_pointees: Some([(crate::StorageTarget::storage(second.clone()), StoragePointeeChange::Whole)].into()),
             accesses: [(access, vec![second.clone()])].into(),
             snapshots: [
                 (first.clone(), observation(first.clone())),
@@ -907,7 +945,10 @@ mod tests {
             super::StorageInvalidation::Observed {
                 transition: crate::StorageObservationTransition::Contents,
                 scope: super::StorageMutationScope::Unbounded,
-                affected_pointees: Some([crate::StorageTarget::storage(first.clone()), crate::StorageTarget::storage(second.clone())].into()),
+                affected_pointees: Some([
+                    (crate::StorageTarget::storage(first.clone()), StoragePointeeChange::Whole),
+                    (crate::StorageTarget::storage(second.clone()), StoragePointeeChange::Whole),
+                ].into()),
                 accesses: [(access, vec![first.clone(), second.clone()])].into(),
                 snapshots: [(first.clone(), observation(first.clone()))].into(),
                 stable_descriptors: [first.clone()].into(),

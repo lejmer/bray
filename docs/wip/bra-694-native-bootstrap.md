@@ -63,11 +63,12 @@ evidence. Impossible internal states fail at the violated contract.
 
 ## Verified checkpoint
 
-Pushed checkpoint `7f987f0af` passed the audited inventory of 1,709 cases,
-579 checker tests, and 139 bound-tree tests. It checked and lowered all 32
-selected native bootstrap bodies on Windows and Linux for x86-64 and
-AArch64, including `dispatch_ready` and `start_frame`. The selection covers
-the native owner, registration and dispatcher paths. A complete runtime
+The guarded owner publication and typed pointee changes pass the audited
+inventory of 1,709 cases, 582 checker tests, and 139 bound-tree tests.
+The package-backed check and lowering attempt covers 41 bodies and
+leaves 22 distinct diagnostics from the 43 in the baseline. The four
+native targets check the 32 selected owner, registration and dispatch
+bodies, including `dispatch_ready` and `start_frame`. A complete runtime
 archive and executable link must check the remaining bodies and backend.
 
 In an isolated optimized run with 24 workers, the Windows x64 standard
@@ -110,9 +111,75 @@ A focused package-backed check reproduced all 40 unmet requirements,
 the raw deallocation error, the name collision, and one postcondition
 failure across 41 bodies. The complete product also checks declared
 capabilities and reports the two remaining cascading postconditions.
+Seven of those bodies reproduce the same ten diagnostics with either
+source or packaged standard-library inputs.
 The focused producer checks certify the allocation, event, deadline, and
 execution-view postconditions at their source. Follow the same values into
 the consumer before changing a producer or its callers.
+
+The reached allocation clause has the same predicate and operands at
+publication and admission. Joining the nullable alternatives replaces
+its owning association with unknown, even where only the present row
+has that association. The selected input retains the actual payload
+owner. An allocation association restricts the use of independently
+proved evidence. Keep a restriction from either predecessor, and keep
+conflicting restrictions conservative after renaming. Admission compares
+the restriction with the actual transferred owner identity. A copied
+address or borrowed input cannot meet that restriction.
+
+The deadline callback owner is present, but its portable last-element
+expression still contains an unknown backing operand. Retain the identity
+of the evaluated result when the expression cannot name an exact value.
+Carry its physical capture and possible dependencies through the same
+publication. Keep exact selected elements when the prefix supplies them.
+The event owner's authored whole-result guarantee is established on
+each normal row, then its operand shape changes at the result join. Bind
+authored result clauses to the published value. Retain row-specific
+address and witness support at the row that supplied it.
+
+The link-slot proof initially establishes initialization for all three
+admitted fields. The checked move reaches just the arena field in the
+actual link slot. The physical invalidation lists the enclosing typed
+pointee and discards the changed projection. Publish changes relative
+to the typed pointee. Use those paths to invalidate and update the
+corresponding current values. Update the nearest observable enclosing
+path for an unresolved selector. A change to an enclosing path covers
+its descendants. Keep unknown overlap at the whole pointee and combine
+possible changes at row joins. The link-slot check must keep
+the other two fields initialized and reject a second move of the same
+field. The raw domain retirement and attachment result postcondition
+still need their own reached transitions traced.
+
+The focused comparison clears the deadline callbacks, event and arena
+creation, task-slot field moves, and host storage preparation. All 22
+remaining locations already appeared in the baseline. The remaining
+declarations still require full product checking.
+
+For the remaining scoped-view failures, trace the current acquisition
+and its backing independently. In `publish_driver`, the loss is
+reported after the host thread-local context operation. Its normal rows
+distinguish the early return, protected static updates, and external
+publication of the replacement address. Check whether the selected
+row, the physical exposure, the current local marker and the
+guarantee's lifetime support describe the same surviving value. A
+possible external write or retirement must still invalidate its
+dependent view. A stored raw address alone cannot expose its enclosing
+inline owner.
+
+`destroy_domain` checks and lowers by itself. Its caller has live duties
+from service release and report draining and rejects the nested raw
+retirement. The checked summary contains the consumption of the domain
+and the reached retirements, with no ordered discharge attached to them.
+Trace the exact retirement operand, the remaining duty's physical cell,
+and the consumed cells at the retirement. A possible consumption, or
+one that occurs after retirement, cannot discharge the duty.
+The scheduler's own summary names both a consume and a retirement
+through the same entry pointer. A raw intrinsic reads discharges from
+its current memory. Re-export of a reached nested retirement currently
+only forwards the attached list. Compare the producing prestate with
+the nested retirement before changing that boundary. Deferred formation
+knows the operands and possible effects, while actual discharge facts
+belong to the reached execution.
 
 The selected `StoragePlan` order determines each cleanup action.
 `StorageFlowState` supplies its reached owner, receiver, and committed
@@ -146,9 +213,6 @@ the work limit, capture barriers, and the distinction between data
 substitution and owner renaming. Use the existing bounded DAG,
 nullable, witness, and frame controls with the fixed case inventory.
 Compare joins and archive wall time before changing the cleanup scheduler.
-The retained-condition batch passed 580 checker tests, 139 bound-tree
-tests, the 1,709 fixed cases, and the selected native bodies on all four
-targets. The full archive diagnostics remain open.
 
 ## Acceptance
 

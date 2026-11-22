@@ -240,6 +240,9 @@ impl ExecutionCondition {
             K::CapturedValue { value, storage } => value.as_ref().clone().with_producer(producer).captured_value(storage.clone()),
             K::DeferredValue { value, frame } => value.as_ref().clone().with_producer(producer).with_deferred_value(std::sync::Arc::clone(frame)),
             K::Unknown => producer,
+            // A symbolic selection with unknown backing cannot identify the
+            // delivered element. Its captured storage remains on the wrapper.
+            K::StorageValue(Operation::Last, operands) if operands.contains_unknown() => producer,
             K::Constructed(base, fields) => self.map_constructed(base, fields, |field, value| {
                 let origin = field.map_or_else(|| producer.clone(), |field| producer.clone().project(field));
 

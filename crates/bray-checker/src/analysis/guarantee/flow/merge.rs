@@ -176,24 +176,7 @@ pub(super) fn join_states(target: &mut ExecutionState, incoming: &ExecutionState
 
     changed |= before != target.trusted_assumptions.len();
 
-    // Conflicting provenance cannot become an unbound allocation proof at a merge.
-    for (condition, owner) in &mut target.allocation_owners {
-        if incoming.allocation_owners.get(condition) != Some(owner)
-            && *owner != ExecutionCondition::unknown()
-        {
-            *owner = ExecutionCondition::unknown();
-            changed = true;
-        }
-    }
-
-    for condition in incoming.allocation_owners.keys() {
-        if let std::collections::btree_map::Entry::Vacant(entry) =
-            target.allocation_owners.entry(condition.clone())
-        {
-            entry.insert(ExecutionCondition::unknown());
-            changed = true;
-        }
-    }
+    changed |= target.merge_allocation_owners(incoming);
 
     changed |= merge_values(&mut target.expressions, &incoming.expressions);
     changed |= merge_values(&mut target.pending_results, &incoming.pending_results);

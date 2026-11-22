@@ -263,11 +263,7 @@ impl ExecutionPlace {
         storage: &bray_bound_tree::StoragePlan,
         path: &bray_bound_tree::StoragePath,
     ) -> Option<Self> {
-        let mut owner = Self::storage_identity(storage, path.root)?;
-
-        owner.projections = path.projections.iter().copied().map_while(Self::projection_kind).collect();
-
-        Some(owner)
+        Some(Self::storage_identity(storage, path.root)?.project_observation(&path.projections).0)
     }
 
     pub(crate) fn storage_identity(
@@ -334,31 +330,28 @@ impl ExecutionPlace {
     }
 
     pub(crate) fn project(
-        mut self,
+        self,
         projections: &[bray_bound_tree::StorageProjection],
     ) -> Option<Self> {
-        for projection in projections {
-            self = self.component(Self::projection_kind(*projection)?);
-        }
+        let (place, observed) = self.project_observation(projections);
 
-        Some(self)
+        (observed.len() == projections.len()).then_some(place)
     }
 
-    pub(crate) fn storage_observation(
-        storage: &bray_bound_tree::StoragePlan,
-        path: &bray_bound_tree::StoragePath,
-    ) -> Option<Self> {
-        let mut place = Self::storage_identity(storage, path.root)?;
-
-        for projection in path.projections.iter() {
-            let Some(projection) = Self::projection_kind(*projection) else {
-                break;
-            };
-
-            place = place.component(projection);
+    /// Selects the nearest observable prefix of a checked physical path.
+    pub(crate) fn project_observation<'path>(
+        self,
+        path: &'path [bray_bound_tree::StorageProjection],
+    ) -> (Self, &'path [bray_bound_tree::StorageProjection]) {
+        if path.is_empty() {
+            return (self, path);
         }
 
-        Some(place)
+        let mut length = 0;
+        let components = path.iter().copied().map_while(Self::projection_kind).inspect(|_| length += 1);
+        let projections = self.projections.iter().copied().chain(components).collect();
+
+        (Self { root: self.root, projections }, &path[..length])
     }
 
     pub(crate) fn projection_kind(

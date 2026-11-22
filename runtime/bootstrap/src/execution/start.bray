@@ -210,6 +210,7 @@ impl bray.runtime.bootstrap.activation.Producer
         {
             ensures(trusted bray.runtime.bootstrap.task.owned_reference(owner = reference))
         }
+        uses(intrinsic)
     {
         {
             let mut guard = trusted bray.runtime.bootstrap.task.lock_cell(reference);

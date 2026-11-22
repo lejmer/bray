@@ -161,7 +161,7 @@ trusted internal func borrow_execution(pos owner: &bray.runtime.bootstrap.host.E
         trusted view_owned(owner = &result.acquisition),
         result.status == 0
     )
-    uses(raw_memory, unchecked_alias, intrinsic)
+    uses(intrinsic)
 {
     let value = trusted owned_context(owner);
     let address = trusted core.target.expose_address<u8>(owner.resource);

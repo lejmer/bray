@@ -306,7 +306,7 @@ trusted internal func release_arena(pos owner: ArenaReference)
     }
 
     // Keep the domain acquisition until the arena's physical cleanup has finished.
-    with admission = ArenaAdmission
+    with arena_admission = ArenaAdmission
     {
         active = true
     }

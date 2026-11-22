@@ -59,7 +59,6 @@ trusted internal func owner_pointer(pos owner: &Reference) -> DataPointer<Domain
         trusted core.memory.finalization_pending<Domain>(pointer = result)
     )
     executes(total)
-    uses(intrinsic)
 {
     return owner.pointer;
 }

@@ -1,11 +1,11 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use bray_bound_tree::{BoundCallReference, BoundExecutionSite, BoundOperator};
+use bray_bound_tree::{BoundCallReference, BoundExecutionSite};
 
 use super::super::flow::ExecutionFlowDomain;
 use super::super::state::ExecutionState;
 use super::observations::GuaranteeSource;
-use crate::{CheckerRequestContext, ExecutionCallEvidence, ExecutionCondition, ExecutionConditionKind, ExecutionPlace, TrustedCallContract};
+use crate::{CheckerRequestContext, ExecutionCallEvidence, ExecutionCondition, ExecutionPlace, TrustedCallContract};
 
 #[derive(Default)]
 pub(super) struct CompletionGuarantees<'contract> {
@@ -24,10 +24,7 @@ impl<'contract> CompletionGuarantees<'contract> {
 
         let publication = |condition: &ExecutionCondition| {
             condition.contains_trusted()
-                && matches!(condition.kind(), ExecutionConditionKind::Operation(BoundOperator::LogicalOr, operands)
-                    if operands.iter().any(|operand| {
-                        !operand.contains_trusted() && operand.observes_completion_result()
-                    }))
+                && condition.observes_completion_result()
                 && !contract.address_subjects.iter().any(|(clause, _, _)| clause == condition)
         };
 

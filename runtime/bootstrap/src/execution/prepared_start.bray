@@ -180,7 +180,6 @@ trusted internal func commit_start(
         trusted bray.runtime.bootstrap.task.resolution_owner(owner = reference),
         trusted bray.runtime.bootstrap.task.retained(owner = reference)
     )
-    uses(intrinsic)
 {
     let root = trusted bray.runtime.bootstrap.activation.begin(token, initial.origin);
 

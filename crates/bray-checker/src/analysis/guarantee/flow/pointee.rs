@@ -1,4 +1,6 @@
-use bray_bound_tree::{StoragePath, StorageTarget};
+use std::collections::BTreeMap;
+
+use bray_bound_tree::{StoragePath, StoragePointeeChange, StorageProjection, StorageTarget};
 use bray_symbols::{TypeData, TypeId};
 
 use super::super::state::ExecutionState;
@@ -239,5 +241,35 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }
 
         preserved
+    }
+}
+
+pub(super) fn record_pointee_changes<'path>(
+    state: &ExecutionState,
+    affected: Option<&'path BTreeMap<StorageTarget, StoragePointeeChange>>,
+    places: &mut BTreeMap<ExecutionPlace, &'path [StorageProjection]>,
+) {
+    if affected.is_some_and(BTreeMap::is_empty) {
+        return;
+    }
+
+    for (place, _) in state.current.iter() {
+        let crate::execution_guarantees::ExecutionInput::Pointee { target, ty, .. } = &place.root else { continue; };
+
+        let Some(changes) = affected.map_or(Some(&StoragePointeeChange::Whole), |targets| targets.get(target)) else {
+            continue;
+        };
+
+        if let StoragePointeeChange::Components { ty: checked, paths } = changes
+            && checked == ty
+        {
+            for path in paths {
+                let (component, path) = place.clone().project_observation(path);
+
+                places.insert(component, path);
+            }
+        } else {
+            places.insert(place.clone(), &[]);
+        }
     }
 }

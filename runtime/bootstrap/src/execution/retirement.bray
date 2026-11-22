@@ -152,7 +152,7 @@ trusted internal func retire_driver(pos owner: bray.runtime.bootstrap.host.Execu
         trusted bray.runtime.bootstrap.host.execution_owned(owner = &owner),
         identity == 0 || trusted bray.runtime.bootstrap.host.execution_exit()
     )
-    uses(raw_memory, unchecked_alias, intrinsic)
+    uses(raw_memory, intrinsic)
 {
     let (attachment, previous) = trusted take_retiring_resources(&owner, identity);
     let incidents = trusted prepare_retirement(&owner);

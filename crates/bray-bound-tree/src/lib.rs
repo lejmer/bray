@@ -101,7 +101,7 @@ pub use pattern::{
 };
 pub use refinement::{
     CheckedRefinements, Refinement, RefinementKind, RefinementOccurrence, RefinementSetBuildError,
-    StorageInvalidation, StorageMutationScope,
+    StorageInvalidation, StorageMutationScope, StoragePointeeChange,
 };
 pub use selection::{
     CallableDeclarationTemplate, CallableParameterDefaultTemplate, CheckedSemanticSelections,
