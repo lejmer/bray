@@ -73,8 +73,8 @@ mod tests {
     use std::sync::Arc;
 
     fn carried(state: &ExecutionState) -> &DeferredValue {
-        state.current.iter().find_map(|(_, value)| value.deferred_value().map(Arc::as_ref))
-            .expect("test state retains its actual frame value")
+        state.expressions.values().find_map(|value| value.deferred_value().map(Arc::as_ref))
+            .expect("the state retains the evaluated frame")
     }
 
     #[test]
@@ -96,7 +96,7 @@ mod tests {
         state.current.insert(place.clone(), source.clone());
         state.assumptions.insert((source.clone(), true));
 
-        state.current.insert(ExecutionPlace::argument(SymbolOrdinal::new(2)), owner.clone().with_deferred_value(Arc::new(DeferredValue {
+        state.expressions.insert(expressions[0], owner.clone().with_deferred_value(Arc::new(DeferredValue {
             producers: [(expressions[0].into(), DeferredInvocation { callee: None, transition: None,
                 entry: Arc::new(ExecutionCallEvidence {
                     outputs: Default::default(),
@@ -198,7 +198,8 @@ mod tests {
             )]
         });
 
-        let source: bray_bound_tree::StorageDeferredProducer = source[0].into();
+        let expression = source[0];
+        let source: bray_bound_tree::StorageDeferredProducer = expression.into();
         let argument = ExecutionPlace::argument(SymbolOrdinal::new(0));
         let value = ExecutionCondition::new(crate::ExecutionConditionKind::Input(argument.clone()));
 
@@ -217,8 +218,8 @@ mod tests {
         let owner = ExecutionCondition::result();
         let mut state = ExecutionState::default();
 
-        state.current.insert(
-            ExecutionPlace::argument(SymbolOrdinal::new(2)),
+        state.expressions.insert(
+            expression,
             owner.clone().with_deferred_value(Arc::new(DeferredValue {
                 producers: [(
                     source.clone(),
@@ -247,12 +248,12 @@ mod tests {
 
         let renamed = ExecutionCondition::boolean(false);
 
-        let owner = state.current.live_value(&ExecutionPlace::argument(SymbolOrdinal::new(2))).unwrap();
+        let owner = &state.expressions[&expression];
 
-        assert!(!state.owned_values(&owner).any(|owned| owned == value),
+        assert!(!state.owned_values(owner).any(|owned| owned == value),
             "capturing extraction evidence does not make the future own its borrowed source");
 
-        assert!(state.witness_values(&owner).any(|source| source == value),
+        assert!(state.witness_values(owner).any(|source| source == value),
             "the future retains the existing source evidence for its checked extraction");
 
         state.join_values(&crate::execution_guarantees::ExecutionSubstitution::new(

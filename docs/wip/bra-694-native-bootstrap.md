@@ -377,6 +377,18 @@ their own rebinding. Standalone frame publication still changes current roots.
 Check captured extraction, copied guards, and loop convergence before timing
 the same workload without concurrent compiler activity.
 
+The remaining lowering cases exercise three linked boundaries. `StoragePlan`
+names the scoped and ordinary input routes. `StorageFlowState` supplies
+captured receivers and checked effects, and body certification reads that
+admission before applying those effects. A nested root can carry a present
+operation, so cleanup needs the guarded acquisition witness as well as the
+inactive alternative. The raw retirement check needs the admitted address
+and definite typed discharges before the reached retirement. The observer
+calls need the corresponding proof of the selected owner and pointer after
+transfer. Trace publication, intervening invalidation, and admission on the
+same bodies. Preserve conditional support and reject changed or possibly
+aliased owners. The 43-body lowering probe is the baseline for this batch.
+
 ## Acceptance
 
 1. Finish replacing old paths and search for their callers and equivalents.

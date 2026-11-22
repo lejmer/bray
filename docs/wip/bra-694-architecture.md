@@ -181,6 +181,10 @@ unchanged observed contents.
 The forward mapping inserts the complete joined observation once. Its fields
 can still name immutable data copied from the predecessor, so rewriting those
 fields again would change the observed value.
+The join assembles current roots from the predecessors and publishes each root
+once. It rebinds evaluated frames, owned result layouts, and proof evidence
+while the predecessor roots are still readable. The fixed point compares the
+joined slots to those predecessor slots.
 Direct calls and deferred bodies share the prepared input route and output type
 for each owning transfer. A deferred body reads its current typed input
 referent at activation through its retained descriptor. The operation and

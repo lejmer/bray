@@ -1016,6 +1016,36 @@ mod tests {
     use super::{BTreeMap, ExecutionCondition, ExecutionState, current_replacements};
 
     #[test]
+    fn a_join_reports_changed_current_storage_before_it_stabilizes() {
+        use bray_symbols::SymbolOrdinal;
+        use crate::ExecutionPlace;
+        use crate::ExecutionConditionKind::Input;
+
+        let place = ExecutionPlace::argument(SymbolOrdinal::new(0));
+
+        let predecessor = |ordinal| {
+            let mut state = ExecutionState::default();
+            let identity = ExecutionCondition::new(Input(ExecutionPlace::argument(SymbolOrdinal::new(ordinal))));
+            let value = ExecutionCondition::opaque_scalar(identity);
+
+            state.owned_results.insert(value.clone(), Default::default());
+            state.assign(place.clone(), value, None);
+
+            state
+        };
+
+        let mut left = predecessor(1);
+        let right = predecessor(2);
+        let before = left.current.live_value(&place);
+        let block = super::AnalysisBlockId::from_slot(bray_bound_tree::BoundUnitId::new(0), 1);
+        let join = super::ExecutionJoin::LoopHeader(block);
+
+        assert!(super::join_states(&mut left, &right, join));
+        assert_ne!(left.current.live_value(&place), before);
+        assert!(!super::join_states(&mut left, &right, join));
+    }
+
+    #[test]
     fn joined_owner_witnesses_observe_the_value_published_with_captures() {
         use bray_bound_tree::{BoundUnitId, StorageCapturedValue, StorageIdentity, StoragePath, StoragePlanBuilder, StorageProjection, StorageTarget};
         use bray_symbols::SymbolOrdinal;

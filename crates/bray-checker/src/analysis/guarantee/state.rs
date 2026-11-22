@@ -832,25 +832,30 @@ impl ExecutionState {
     pub(super) fn join_values(
         &mut self,
         substitution: &ExecutionSubstitution<'_>,
-        keep_storage: bool,
+        keep_owned_results: bool,
     ) {
         if substitution.is_empty() {
             return;
         }
 
-        self.join_frame_values(substitution, keep_storage);
-        self.rename_observations(substitution, keep_storage);
+        // The join publishes the assembled current roots after rebinding evidence.
+        self.join_frame_values(substitution);
+
+        if substitution.has_changes() {
+            self.rename_observations(substitution, keep_owned_results);
+        }
     }
 
     pub(super) fn rename_values(&mut self, substitution: &ExecutionSubstitution<'_>) {
-        self.rename_observations(substitution, true);
-    }
-
-    fn rename_observations(&mut self, substitution: &ExecutionSubstitution<'_>, keep_storage: bool) {
         if !substitution.has_changes() {
             return;
         }
 
+        self.rename_observations(substitution, true);
+        self.current.update_values(|value| substitution.value(value));
+    }
+
+    fn rename_observations(&mut self, substitution: &ExecutionSubstitution<'_>, keep_owned_results: bool) {
         let rename = |value: &ExecutionCondition| substitution.value(value);
         let rename_identity = |value: &ExecutionCondition| substitution.owner(value);
 
@@ -878,7 +883,7 @@ impl ExecutionState {
             }
         }
 
-        if !keep_storage {
+        if !keep_owned_results {
             return;
         }
 
@@ -906,51 +911,33 @@ impl ExecutionState {
         }
 
         self.owned_results = ownership;
-
-        self.current.update_values(rename);
     }
 
-    fn join_frame_values(&mut self, substitution: &ExecutionSubstitution<'_>, keep_storage: bool) {
+    fn join_frame_values(&mut self, substitution: &ExecutionSubstitution<'_>) {
         // Every frame reads the same predecessor values, including when its own slot changes.
-        let changed = {
-            let current = &self.current;
+        let current = &self.current;
 
-            let current_fact = crate::execution_guarantees::memoize_condition(|condition| {
-                !condition.observations().any(|observed| matches!(observed.kind(), crate::ExecutionConditionKind::ScalarValue(_))
-                    && observed.selector_place().is_some_and(|place| current.live_value(&place)
-                        .is_none_or(|value| value.copied_value() != observed)))
-            });
+        let current_fact = crate::execution_guarantees::memoize_condition(|condition| {
+            !condition.observations().any(|observed| matches!(observed.kind(), crate::ExecutionConditionKind::ScalarValue(_))
+                && observed.selector_place().is_some_and(|place| current.live_value(&place)
+                    .is_none_or(|value| value.copied_value() != observed)))
+        });
 
-            let context = std::cell::LazyCell::new(|| {
-                super::deferred::selection(self.assumptions.iter().filter(|(condition, _)| current_fact(condition)))
-            });
+        let context = std::cell::LazyCell::new(|| {
+            super::deferred::selection(self.assumptions.iter().filter(|(condition, _)| current_fact(condition)))
+        });
 
-            let mut update = ExecutionCondition::mapping_frames(|_| true, |_, frame| {
-                let mut joined = frame.as_ref().clone();
+        let update = ExecutionCondition::mapping_frames(|_| true, |_, frame| {
+            let mut joined = frame.as_ref().clone();
 
-                joined.join_values(substitution, &current_fact, &context);
+            joined.join_values(substitution, &current_fact, &context);
 
-                Some(if joined == **frame { std::sync::Arc::clone(frame) } else { std::sync::Arc::new(joined) })
-            });
+            Some(if joined == **frame { std::sync::Arc::clone(frame) } else { std::sync::Arc::new(joined) })
+        });
 
-            let changed = keep_storage.then(|| {
-                current.iter().filter_map(|(place, value)| {
-                    let updated = update(value);
-
-                    (!std::ptr::eq(updated.kind(), value.kind())).then(|| (place.clone(), updated))
-                }).collect::<Vec<_>>()
-            });
-
-            Self::update_evaluated_values(
-                self.expressions.values_mut().chain(self.pending_results.values_mut()), &mut self.entries, update,
-            );
-
-            changed
-        };
-
-        if let Some(changed) = changed {
-            self.current.install_rewritten_values(changed);
-        }
+        Self::update_evaluated_values(
+            self.expressions.values_mut().chain(self.pending_results.values_mut()), &mut self.entries, update,
+        );
     }
 
     pub(super) fn assign(
