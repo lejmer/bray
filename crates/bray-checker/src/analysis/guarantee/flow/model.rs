@@ -73,6 +73,7 @@ pub(crate) struct ExecutionFlowDomain<'a, 'view, C: CheckerRequestContext + ?Siz
     pub(in crate::analysis::guarantee) certify_predicate: bool,
     pub(in crate::analysis::guarantee) sequence_length: Option<bray_symbols::CallableInstanceData>,
     pub(super) observed_types: &'a std::sync::Arc<BTreeMap<crate::ExecutionPlace, Option<bray_symbols::TypeId>>>,
+    pub(super) absent_at_entry: &'a std::sync::Arc<BTreeSet<crate::ExecutionPlace>>,
     pub(in crate::analysis::guarantee) borrowed_inputs: &'a BTreeSet<crate::ExecutionPlace>,
     pub(in crate::analysis::guarantee) scope_places: &'a BTreeMap<
         bray_bound_tree::StorageScope,
@@ -463,8 +464,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             ..Default::default()
         };
 
-        state.current = super::super::current::CurrentValues::with_observed_types(
-            std::sync::Arc::clone(self.observed_types));
+        state.current = super::super::current::CurrentValues::with_planned_places(
+            std::sync::Arc::clone(self.observed_types), std::sync::Arc::clone(self.absent_at_entry));
 
         for place in self.observed_types.keys() {
             if place.is_callable_input()
@@ -530,14 +531,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let reached_addresses = self.seed_entry_observations(&mut state, entry_observations);
 
         for (identity, storage) in self.storage.identity_entries() {
-            if crate::ExecutionPlace::tracks_local_storage(&storage) {
-                if let Some(place) = crate::ExecutionPlace::storage_identity(self.storage, identity) {
-                    state.current.set_slot(place, super::super::current::CurrentValue {
-                        value: ExecutionCondition::unknown(),
-                        availability: super::super::current::ValueAvailability::Absent,
-                    });
-                }
-            } else if matches!(storage, bray_bound_tree::StorageIdentity::PostconditionResult(_)) {
+            if matches!(storage, bray_bound_tree::StorageIdentity::PostconditionResult(_)) {
                 let place = crate::ExecutionPlace::storage_identity(self.storage, identity)
                     .expect("a postcondition result retains its formal storage identity");
 

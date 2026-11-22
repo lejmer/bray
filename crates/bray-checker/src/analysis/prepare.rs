@@ -24,6 +24,7 @@ pub struct PreparedBodyAnalysis {
     pub(crate) cleanup: super::guarantee::CleanupPlan,
     pub(crate) has_bounds_checks: bool,
     pub(crate) observed_types: Arc<BTreeMap<crate::ExecutionPlace, Option<TypeId>>>,
+    pub(in crate::analysis) absent_at_entry: Arc<BTreeSet<crate::ExecutionPlace>>,
     pub(crate) borrowed_inputs: BTreeSet<crate::ExecutionPlace>,
     pub(crate) input_invariants: Vec<crate::ExecutionCondition>,
     pub(crate) union_variants: BTreeMap<TypeId, Arc<[bray_symbols::UnionVariantSymbolId]>>,
@@ -222,6 +223,10 @@ pub fn prepare_body_analysis<C: CheckerRequestContext + ?Sized>(
         kind: request.unit().key().kind(),
         has_bounds_checks: false,
         observed_types: Arc::default(),
+        absent_at_entry: Arc::new(storage.identity_entries()
+            .filter(|(_, identity)| crate::ExecutionPlace::tracks_local_storage(identity))
+            .filter_map(|(identity, _)| crate::ExecutionPlace::storage_identity(storage, identity))
+            .collect()),
         borrowed_inputs: BTreeSet::new(),
         input_invariants: Vec::new(),
         union_variants: BTreeMap::new(),

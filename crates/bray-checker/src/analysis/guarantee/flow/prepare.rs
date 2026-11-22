@@ -194,6 +194,7 @@ pub(crate) fn prepare_execution_flow<'a, 'view, C: CheckerRequestContext + ?Size
         has_bounds_checks: prepared.has_bounds_checks,
         certify_predicate: false,
         observed_types: &prepared.observed_types,
+        absent_at_entry: &prepared.absent_at_entry,
         pattern_conditions: &prepared.pattern_conditions,
         borrowed_inputs: &prepared.borrowed_inputs,
         values: &prepared.values,

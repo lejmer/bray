@@ -61,12 +61,16 @@ impl Eq for CurrentRoot {}
 pub(super) struct CurrentValues {
     roots: BTreeMap<ExecutionPlace, Arc<CurrentRoot>>,
     observed_types: Arc<BTreeMap<ExecutionPlace, Option<bray_symbols::TypeId>>>,
+    absent_at_entry: Arc<BTreeSet<ExecutionPlace>>,
     entry_borrows: Arc<BTreeSet<ExecutionPlace>>,
 }
 
 impl CurrentValues {
-    pub(super) fn with_observed_types(observed_types: Arc<BTreeMap<ExecutionPlace, Option<bray_symbols::TypeId>>>) -> Self {
-        Self { observed_types, ..Self::default() }
+    pub(super) fn with_planned_places(
+        observed_types: Arc<BTreeMap<ExecutionPlace, Option<bray_symbols::TypeId>>>,
+        absent_at_entry: Arc<BTreeSet<ExecutionPlace>>,
+    ) -> Self {
+        Self { observed_types, absent_at_entry, ..Self::default() }
     }
 
     fn observed_components<'a>(&'a self, place: &'a ExecutionPlace) -> impl Iterator<Item = &'a ExecutionPlace> {
@@ -81,6 +85,10 @@ impl CurrentValues {
         assert!(!place.is_pointee(), "physical contents require an actual typed value publication");
 
         let root = root_place(place);
+
+        if self.absent_at_entry.contains(&root) && !self.roots.contains_key(&root) {
+            return;
+        }
 
         let current = self.roots.entry(root.clone()).or_insert_with(|| Arc::new(CurrentRoot {
             value: ExecutionCondition::new(crate::ExecutionConditionKind::Input(root)),
@@ -139,8 +147,10 @@ impl CurrentValues {
     }
 
     pub(super) fn availability(&self, place: &ExecutionPlace) -> ValueAvailability {
-        let Some(root) = self.roots.get(&root_place(place)) else {
-            return ValueAvailability::Unknown;
+        let key = root_place(place);
+
+        let Some(root) = self.roots.get(&key) else {
+            return missing_availability(&self.absent_at_entry, &key);
         };
 
         for length in (1..=place.projections.len()).rev() {
@@ -158,7 +168,7 @@ impl CurrentValues {
 
     pub(super) fn is_subtree_absent(&self, place: &ExecutionPlace) -> bool {
         self.availability(place) == ValueAvailability::Absent
-            && self.roots.get(&root_place(place)).is_some_and(|root| {
+            && self.roots.get(&root_place(place)).is_none_or(|root| {
                 root.components.range(place.clone()..)
                     .take_while(|(component, _)| place.contains(component))
                     .all(|(_, availability)| *availability == ValueAvailability::Absent)
@@ -182,7 +192,14 @@ impl CurrentValues {
         }
 
         let changed = self.availability(&place) != slot.availability;
-        let root = self.roots.get_mut(&root_place(&place)).expect("the joined root is published before its components");
+
+        let Some(root) = self.roots.get_mut(&root_place(&place)) else {
+            if changed {
+                self.set_slot(place, slot);
+            }
+
+            return changed;
+        };
 
         if root.components.get(&place) != Some(&slot.availability) {
             CurrentRoot::edit(root).components.insert(place, slot.availability);
@@ -195,9 +212,9 @@ impl CurrentValues {
         storage: Option<&[bray_bound_tree::StorageProjection]>) {
         let root_key = root_place(&place);
 
-        let root = self.roots.entry(root_key).or_insert_with(|| Arc::new(CurrentRoot {
+        let root = self.roots.entry(root_key).or_insert_with_key(|root| Arc::new(CurrentRoot {
             value: ExecutionCondition::unknown(),
-            availability: ValueAvailability::Unknown,
+            availability: missing_availability(&self.absent_at_entry, root),
             components: BTreeMap::new(),
             observed_components: BTreeSet::new(),
             live_parts: OnceLock::new(),
@@ -254,6 +271,17 @@ impl CurrentValues {
         } else {
             root.components.insert(place.clone(), ValueAvailability::Absent);
         }
+    }
+
+    /// Removes an expired root when the plan still supplies its absence.
+    pub(super) fn forget_expired_root(&mut self, place: &ExecutionPlace) -> bool {
+        if !place.projections.is_empty() || !self.absent_at_entry.contains(place) {
+            return false;
+        }
+
+        self.roots.remove(place);
+
+        true
     }
 
     pub(super) fn retire_availability(&mut self, mutation: bray_bound_tree::StorageMutation) {
@@ -402,6 +430,13 @@ impl CurrentValues {
 
 }
 
+fn missing_availability(
+    absent_at_entry: &BTreeSet<ExecutionPlace>,
+    root: &ExecutionPlace,
+) -> ValueAvailability {
+    if absent_at_entry.contains(root) { ValueAvailability::Absent } else { ValueAvailability::Unknown }
+}
+
 fn collect_owned_places(
     value: &ExecutionCondition,
     place: &ExecutionPlace,
@@ -470,10 +505,15 @@ impl ExecutionValues for CurrentValues {
 
     fn value_at(&self, place: &ExecutionPlace) -> Option<ExecutionCondition> {
         if place.projections.is_empty() {
-            return self.get(place).cloned();
+            return self.get(place).cloned()
+                .or_else(|| self.absent_at_entry.contains(place).then(ExecutionCondition::unknown));
         }
 
-        let value = self.get(&root_place(place))?;
+        let root = root_place(place);
+
+        let Some(value) = self.get(&root) else {
+            return self.absent_at_entry.contains(&root).then(ExecutionCondition::unknown);
+        };
 
         Some(place.projections.iter().copied().fold(value.clone(), ExecutionCondition::component))
     }
@@ -505,6 +545,53 @@ mod tests {
     use bray_symbols::SymbolOrdinal;
     use bray_bound_tree::{BoundUnitId, BoundUnitKind, StorageIdentity, StorageOrigin, StoragePath, StoragePlanBuilder, StorageTarget};
     use std::sync::Arc;
+
+    #[test]
+    fn expired_private_storage_joins_its_bypass_without_materializing_an_unknown_root() {
+        let unit = BoundUnitId::new(0);
+
+        let (_, expressions) = crate::test_support::integer_expression_unit(unit, 1);
+
+        let mut storage = StoragePlanBuilder::new(unit, BoundUnitKind::CallableBody);
+        let identity = storage.push_identity(StorageIdentity::Temporary(expressions[0])).expect("planned temporary");
+        let place = ExecutionPlace::storage_identity(&storage.finish(), identity).expect("temporary root");
+        let formal = ExecutionPlace::argument(SymbolOrdinal::new(0));
+        let value = ExecutionCondition::new(crate::ExecutionConditionKind::Input(formal.clone()));
+        let mut bypass = ExecutionState::default();
+
+        bypass.current = super::CurrentValues::with_planned_places(Default::default(), Arc::new([place.clone()].into()));
+        bypass.current.insert(formal.clone(), value.clone());
+        bypass.current.retire(&formal);
+
+        let mut expired = bypass.clone();
+
+        expired.current.insert(place.clone(), value.clone());
+        assert!(expired.current.forget_expired_root(&place));
+
+        for (first, second) in [(&bypass, &expired), (&expired, &bypass)] {
+            let mut joined = Some(first.clone());
+
+            assert!(!merge_execution(&mut joined, &Some(second.clone()), super::super::flow::ExecutionJoin::Boundary));
+
+            let mut joined = joined.expect("both predecessors reach the join");
+
+            assert!(joined.current.is_subtree_absent(&place));
+            assert!(joined.current.get(&place).is_none(), "an absent slot contributes no materialized root");
+            assert_eq!(joined.current.get(&formal), Some(&value), "formal completion still reads its terminal value");
+            assert_eq!(joined.current.availability(&ExecutionPlace::argument(SymbolOrdinal::new(1))), ValueAvailability::Unknown);
+
+            joined.current.insert(place.clone(), value.clone());
+            assert_eq!(joined.current.live_value(&place), Some(value.clone()));
+
+            let mut conditional = Some(second.clone());
+
+            assert!(merge_execution(&mut conditional, &Some(joined), super::super::flow::ExecutionJoin::Boundary));
+
+            let conditional = conditional.expect("conditional initialization reaches the join");
+
+            assert!(matches!(conditional.current.availability(&place), ValueAvailability::Guarded(_)));
+        }
+    }
 
     #[test]
     fn physical_snapshots_do_not_retain_owners_or_reuse_previous_producers() {
@@ -594,9 +681,9 @@ mod tests {
         let second = root.clone().component(bray_symbols::ConstantProjectionKind::TupleElement(SymbolOrdinal::new(1)));
         let source = ExecutionPlace::argument(SymbolOrdinal::new(1));
 
-        let mut values = super::CurrentValues::with_observed_types(Arc::new(std::collections::BTreeMap::from([
+        let mut values = super::CurrentValues::with_planned_places(Arc::new(std::collections::BTreeMap::from([
             (first.clone(), None), (second.clone(), None),
-        ])));
+        ])), Default::default());
 
         assert!(values.live_values().next().is_none());
 

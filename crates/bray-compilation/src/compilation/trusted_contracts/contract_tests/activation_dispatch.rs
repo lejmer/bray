@@ -4,7 +4,7 @@ use super::fixtures::production_host_compilation;
 #[test]
 #[ignore = "tier:proof"]
 fn inactive_exit_authority_requires_the_unchanged_whole_owner() {
-    for (body, valid) in [
+    let cases = [
         ("inspect(&selected);", true),
         (r#"
             let moved = selected;
@@ -26,17 +26,19 @@ fn inactive_exit_authority_requires_the_unchanged_whole_owner() {
             "#,
             false,
         ),
-    ] {
+    ].into_iter().enumerate().map(|(case, (body, valid))| {
+        let body = body.replace("inspect(", &format!("inspect_{case}("));
+
         let caller = format!(
             r#"
             trusted internal module bray.runtime.bootstrap.host;
 
-            trusted func inspect(pos owner: &AttachmentExit)
+            trusted func inspect_{case}(pos owner: &AttachmentExit)
                 requires(trusted attachment_exit_inactive(owner = owner))
             {{
             }}
 
-            trusted func production_probe(pos mut selected: AttachmentExit)
+            trusted func production_probe_{case}(pos mut selected: AttachmentExit)
                 requires(trusted attachment_exit_inactive(owner = &selected))
             {{
                 {body}
@@ -44,8 +46,11 @@ fn inactive_exit_authority_requires_the_unchanged_whole_owner() {
         "#
         );
 
-        super::fixtures::assert_production_contract(&caller, (!valid).then_some(bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven), "inspect(", "attachment_exit_inactive");
-    }
+        (caller, (!valid).then_some(bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven),
+            "inspect_", "attachment_exit_inactive")
+    });
+
+    super::fixtures::assert_production_contracts(cases);
 }
 
 #[test]
@@ -173,7 +178,7 @@ fn activation_callback_requires_one_exact_authorized_invocation() {
     let requirement = DiagnosticKind::CheckingTrustedObligationNotProven;
     let separation = DiagnosticKind::CheckingTrustedWitnessTransferNotProven;
 
-    let cases = [
+    let contracts = [
         (String::new(), invoke, Some(requirement), invoke, "authorized"),
         (authorized.to_owned(), invoke, Some(requirement), invoke, "outputs_owned"),
         (outputs.to_owned(), invoke, Some(requirement), invoke, "authorized"),
@@ -201,7 +206,11 @@ fn activation_callback_requires_one_exact_authorized_invocation() {
             "acquisition = owner.acquisition",
             "authorized",
         ),
-    ].into_iter().enumerate().map(|(case, (requirements, body, expected, site, predicate))| {
+    ];
+
+    let double_invocation = contracts.len();
+
+    let cases = contracts.into_iter().enumerate().map(|(case, (requirements, body, expected, site, predicate))| {
         let requirements = if requirements.is_empty() {
             requirements
         } else {
@@ -229,14 +238,12 @@ fn activation_callback_requires_one_exact_authorized_invocation() {
         (caller, expected, site, predicate)
     });
 
-    super::fixtures::assert_production_contracts(cases);
-
-    let caller = r#"
+    let caller = format!(r#"
         trusted internal module bray.runtime.bootstrap;
 
         using internal bray.runtime.bootstrap.activation;
         using internal bray.runtime.bootstrap.entry;
-        trusted func production_probe(
+        trusted func production_probe_{double_invocation}(
             pos callback: bray.runtime.bootstrap.activation.callback.Invoke,
             pos owner: bray.runtime.bootstrap.activation.callback.Invocation,
         )
@@ -245,35 +252,20 @@ fn activation_callback_requires_one_exact_authorized_invocation() {
                 trusted bray.runtime.bootstrap.activation.callback.authorized(owner = &owner.acquisition),
                 trusted bray.runtime.bootstrap.activation.callback.outputs_owned(owner = &owner.acquisition),
             )
-        {
+        {{
             _ = trusted bray.runtime.bootstrap.activation.callback.invoke(callback, owner);
             _ = trusted bray.runtime.bootstrap.activation.callback.invoke(callback, owner);
-        }
-    "#;
+        }}
+    "#);
 
-    let compilation = production_host_compilation(caller);
-
-    let checked = compilation
-        .lowered_unit(source_function_body_key(&compilation, "production_probe"))
-        .expect("fixture callable must lower successfully");
-
-    bray_testing::assert_goal_state_diagnostic_kind(
-        checked.diagnostics(),
-        DiagnosticKind::CheckingUseOfMovedStorage,
+    let double_invocation = (
+        caller,
+        Some(DiagnosticKind::CheckingUseOfMovedStorage),
+        "_ = trusted bray.runtime.bootstrap.activation.callback.invoke",
+        "",
     );
 
-    let source = source_function_body_key(&compilation, "production_probe")
-        .source().syntax().source_id();
-
-    assert!(checked.diagnostics().iter().any(|diagnostic| {
-        diagnostic.kind() == bray_diagnostics::DiagnosticKind::CheckingUseOfMovedStorage
-            && super::fixtures::diagnostic_at_call(
-                diagnostic,
-                source,
-                caller,
-                "_ = trusted bray.runtime.bootstrap.activation.callback.invoke",
-            )
-    }), "the attempted second invocation must reject the moved owner: {:?}", checked.diagnostics());
+    super::fixtures::assert_production_contracts(cases.chain(std::iter::once(double_invocation)));
 }
 
 #[test]
@@ -333,9 +325,7 @@ fn active_snapshot_requires_exact_dispatch_ownership_and_retained_output() {
 #[test]
 #[ignore = "tier:proof"]
 fn activation_header_access_retains_ownership_and_excludes_overlapping_borrows() {
-    let mut failures = Vec::new();
-
-    for (body, valid) in [
+    let cases = [
         (
             "_ = trusted bray.runtime.bootstrap.activation.execution.read(cursor); _ = trusted bray.runtime.bootstrap.activation.execution.read(cursor);",
             true,
@@ -352,13 +342,13 @@ fn activation_header_access_retains_ownership_and_excludes_overlapping_borrows()
             "let left = trusted bray.runtime.bootstrap.activation.execution.access(cursor); let right = trusted bray.runtime.bootstrap.activation.execution.access(cursor); left.state = 1; right.state = 2;",
             false,
         ),
-    ] {
-        let compilation = production_host_compilation(&format!(
+    ].into_iter().enumerate().map(|(case, (body, valid))| {
+        let source = format!(
             r#"
             trusted internal module bray.runtime.bootstrap;
 
             using internal bray.runtime.bootstrap.activation;
-            trusted func production_probe(
+            trusted func production_probe_{case}(
                 pos cursor: &mut bray.runtime.bootstrap.activation.run.Cursor,
                 pos other: DataPointer<bray.runtime.bootstrap.activation.Header>,
             )
@@ -367,13 +357,21 @@ fn activation_header_access_retains_ownership_and_excludes_overlapping_borrows()
                 {body}
             }}
             "#
-        ));
+        );
 
+        (source, body, valid)
+    }).collect::<Vec<_>>();
+
+    let sources = cases.iter().map(|(source, ..)| source.as_str()).collect::<Vec<_>>();
+    let compilation = super::fixtures::production_host_compilation_with_callers(&sources);
+    let mut failures = Vec::new();
+
+    for (case, (_, body, valid)) in cases.into_iter().enumerate() {
         let checked = compilation
-            .lowered_unit(source_function_body_key(&compilation, "production_probe"))
-            .expect("fixture callable must lower successfully");
+            .lowered_unit(source_function_body_key(&compilation, &format!("production_probe_{case}")))
+            .expect("fixture callable reaches lowering");
 
-        if !checked.diagnostics().has_errors() != valid {
+        if checked.diagnostics().has_errors() == valid {
             failures.push(format!("{body}: {:?}", checked.diagnostics()));
         }
     }

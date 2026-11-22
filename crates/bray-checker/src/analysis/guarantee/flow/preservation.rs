@@ -238,14 +238,6 @@ impl ValuePreservation {
             );
         }
 
-        let reached = source.clone().into_referent();
-
-        let identity = if reached.ownership_identity().is_some() || reached.storage_contents().is_some() {
-            reached.owner_identity().clone()
-        } else {
-            place.cloned().map_or(ExecutionCondition::unknown(), |place| ExecutionCondition::new(crate::ExecutionConditionKind::Input(place)))
-        };
-
         let mut contents = if retained && in_place && source.observation_kind().is_none()
             && source.known_presence().is_some()
         {
@@ -257,7 +249,17 @@ impl ValuePreservation {
         else if self.inline { ExecutionCondition::storage_value(bray_symbols::CapturedValueOperation::Inline, vec![source.clone()].into()) }
         else if self.discriminant && !consumed {
             source.discriminant()
-        } else { ExecutionCondition::post_state(mutation, identity) };
+        } else {
+            let reached = source.clone().into_referent();
+
+            let identity = if reached.ownership_identity().is_some() || reached.storage_contents().is_some() {
+                reached.owner_identity().clone()
+            } else {
+                place.cloned().map_or(ExecutionCondition::unknown(), |place| ExecutionCondition::new(crate::ExecutionConditionKind::Input(place)))
+            };
+
+            ExecutionCondition::post_state(mutation, identity)
+        };
 
         for (projection, preservation) in &self.children {
             if source.excludes_component(*projection) { continue; }

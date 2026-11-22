@@ -107,6 +107,14 @@ own reached observation. A cleanup action's effects, report and completion
 belong to its actual receiver and the operation that reached it. A lexical
 exit names the source boundary for lowering. Several graph operations can run
 cleanup at that boundary, including a continuation after a failure.
+When lexical cleanup finishes, whole expired private roots leave the proof
+state. Prepared analysis shares the plan's initially absent root identities
+with both storage solving and proof replay. An expired or skipped private
+root stays absent at a join without a materialized value. A live predecessor
+can still make its availability conditional. An unobserved physical pointee
+has unknown contents and availability. Terminal formal values remain
+readable for completion clauses. Surviving transfers keep their own captured
+or pending values.
 
 A scoped entry can return a fallible wrapper. Its successful payload becomes the scoped capability.
 The exit's checked access names that current capability for both physical and proof admission.
@@ -134,6 +142,8 @@ Current storage applies the published masks to the affected places.
 Framing and proof retirement resolve each checked preservation path once.
 Both read the actual current roots. A type-directed storage read also keeps
 the physical path when the path has no inline execution place.
+For an observed effect, the changed places identify which roots need masks.
+Proof still reads surviving observations on independent roots.
 Consecutive unbounded effects with the same physical scope share one weakening
 of current memory. The checked effects retain their access types for proof
 framing, portable summaries, and diagnostics.

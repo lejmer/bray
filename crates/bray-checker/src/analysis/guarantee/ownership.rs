@@ -65,9 +65,6 @@ impl OwnedResults {
     pub(super) fn len(&self) -> usize { self.0.len() }
 
     #[cfg(test)]
-    pub(super) fn keys(&self) -> impl Iterator<Item = &ExecutionCondition> { self.0.keys() }
-
-    #[cfg(test)]
     pub(super) fn values(&self) -> impl Iterator<Item = &OwnedLayout> { self.0.values() }
 }
 

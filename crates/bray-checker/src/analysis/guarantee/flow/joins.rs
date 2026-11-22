@@ -752,56 +752,56 @@ mod tests {
     }
 
     #[test]
-    fn stable_owned_values_converge_across_guarded_back_edges() {
-        let place = ExecutionPlace::from(bray_bound_tree::BoundReferenceTarget::Surface(
-            bray_symbols::CallableParameterSymbolId::from_symbol_id(bray_symbols::SymbolId::new(0))
-                .into(),
+    fn an_agreed_ownership_layout_survives_rekeying_at_the_loop_header() {
+        use super::super::merge::{ExecutionJoin, merge};
+        use bray_bound_tree::{StorageCapturedValue, StorageIdentity, StoragePath, StoragePlanBuilder, StorageTarget};
+        use bray_symbols::{DependencyOwnedResult, DependencyOwnedTransfer};
+
+        let unit_id = BoundUnitId::new(0);
+
+        let (unit, expressions) = crate::test_support::integer_expression_unit(unit_id, 2);
+
+        let mut storage = StoragePlanBuilder::new(unit_id, unit.key().kind());
+        let slot = storage.push_identity(StorageIdentity::Temporary(expressions[0])).expect("a value capture has storage");
+        let value = ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expressions[0]));
+        let replacement = ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expressions[1]));
+
+        let capture = value.clone().captured_value(StorageCapturedValue::new(
+            StorageTarget::storage(StoragePath::root(slot)), Default::default(),
         ));
 
-        let value = ExecutionCondition::new(crate::ExecutionConditionKind::Input(place.clone()));
+        let stable = ExecutionPlace::argument(SymbolOrdinal::new(0));
+        let changed = ExecutionPlace::argument(SymbolOrdinal::new(1));
+        let input = ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(2))));
+        let layout = DependencyOwnedResult::Transfer(DependencyOwnedTransfer::new(input, []));
+        let mut entry = ExecutionState::default();
 
-        let guard = ExecutionCondition::new(crate::ExecutionConditionKind::Input(
-            bray_bound_tree::BoundReferenceTarget::Surface(
-                bray_symbols::CallableParameterSymbolId::from_symbol_id(
-                    bray_symbols::SymbolId::new(1),
-                )
-                .into(),
-            )
-            .into(),
-        ));
+        entry.current.insert(stable.clone(), capture.clone());
+        entry.current.insert(changed.clone(), value.clone());
+        entry.owned_results.insert(value.clone(), layout.clone());
 
-        let mut state = ExecutionState::default();
+        let mut backedge = entry.clone();
 
-        state.current.insert(place, value.clone());
+        backedge.current.insert(changed.clone(), replacement);
 
-        state.owned_results.insert(value.clone(), bray_symbols::DependencyOwnedResult::Transfer(
-            bray_symbols::DependencyOwnedTransfer::new(value.clone(), []),
-        ));
+        let backedge = Some(backedge);
+        let join = ExecutionJoin::LoopHeader(AnalysisBlockId::from_slot(unit_id, 0));
+        let mut target = Some(entry.clone());
 
-        let mut target = Some(state);
+        assert!(merge(&mut target, &backedge, join));
 
-        for _ in 0..16 {
-            let mut incoming = target.clone().expect("reachable loop header");
+        let header = target.as_ref().expect("reachable loop header");
 
-            incoming.assumptions.insert((guard.clone(), true));
+        assert_ne!(header.current.get(&changed), Some(&value), "the changed observation must be renamed");
+        assert_eq!(header.current.get(&stable), Some(&capture));
+        assert_eq!(header.owned_results.get(&capture), Some(&layout), "the unchanged capture retains its exact layout");
 
-            assert!(!super::super::merge::merge(
-                &mut target,
-                &Some(incoming),
-                Some(AnalysisBlockId::from_slot(BoundUnitId::new(0), 0)).into(),
-            ));
-        }
+        let mut next = Some(entry);
 
-        let state = target.expect("reachable loop header");
+        merge(&mut next, &backedge, join);
+        merge(&mut next, &target, join);
 
-        assert_eq!(state.owned_results.len(), 1);
-
-        assert_eq!(
-            state.owned_result(&value),
-            bray_symbols::DependencyOwnedResult::Transfer(
-                bray_symbols::DependencyOwnedTransfer::new(value, [])
-            )
-        );
+        assert_eq!(next, target, "the same predecessors and the previous header settle");
     }
 
     #[test]
@@ -828,7 +828,8 @@ mod tests {
             .insert(place.clone(), ExecutionCondition::boolean(false));
 
         let mut target = Some(state);
-        let mut previous_keys = None;
+        let mut previous_layouts = None;
+        let join = super::super::merge::ExecutionJoin::LoopHeader(AnalysisBlockId::from_slot(BoundUnitId::new(0), 0));
 
         for _ in 0..16 {
             let mut incoming = target.clone().expect("reachable loop header");
@@ -842,17 +843,19 @@ mod tests {
             super::super::merge::merge(
                 &mut target,
                 &Some(incoming),
-                Some(AnalysisBlockId::from_slot(BoundUnitId::new(0), 0)).into(),
+                join,
             );
 
             let layouts = &target.as_ref().expect("reachable loop header").owned_results;
 
-            assert!(layouts.values().all(bray_symbols::DependencyOwnedResult::is_empty));
+            assert!(layouts.values().all(|layout| layout == &Default::default()));
+            assert_ne!(layouts.len(), 0, "the join records explicit absence of lineage");
 
-            let keys = layouts.keys().cloned().collect::<std::collections::BTreeSet<_>>();
+            if let Some(previous) = &previous_layouts {
+                assert_eq!(layouts, previous, "loop ownership layouts must stabilize");
+            }
 
-            if let Some(previous) = &previous_keys { assert_eq!(&keys, previous, "loop ownership observations must stabilize"); }
-            previous_keys = Some(keys);
+            previous_layouts = Some(layouts.clone());
         }
     }
 }

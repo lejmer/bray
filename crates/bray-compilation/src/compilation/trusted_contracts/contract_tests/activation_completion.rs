@@ -1,5 +1,5 @@
 use crate::test_support::{source_function_body_key};
-use super::fixtures::{assert_production_probe, production_host_compilation};
+use super::fixtures::production_host_compilation;
 
 #[test]
 #[ignore = "tier:proof"]
@@ -205,11 +205,11 @@ fn activation_completion_requires_the_exact_admitted_destination() {
 #[test]
 #[ignore = "tier:proof"]
 fn inactive_cleanup_retains_only_its_independent_native_destination() {
-    for (authority, valid) in [
+    let cases = [
         ("", false),
         ("trusted destination(output = outcome),", true),
         ("trusted destination(output = other),", false),
-    ] {
+    ].into_iter().enumerate().map(|(case, (authority, valid))| {
         let source = format!(
             r#"
             trusted internal module bray.runtime.bootstrap.activation.inactive;
@@ -218,7 +218,7 @@ fn inactive_cleanup_retains_only_its_independent_native_destination() {
             using core.memory;
             using std.memory;
 
-            func production_probe(
+            func production_probe_{case}(
                 pos mut cursor: bray.runtime.bootstrap.activation.run.Cursor,
                 pos callback: bray.runtime.bootstrap.activation.callback.Invoke,
                 pos ready: bray.runtime.bootstrap.activation.callback.Ready,
@@ -239,6 +239,9 @@ fn inactive_cleanup_retains_only_its_independent_native_destination() {
             "#,
         );
 
-        assert_production_probe(&source, valid);
-    }
+        (source, (!valid).then_some(bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven),
+            "_ = trusted resolve", "destination")
+    });
+
+    super::fixtures::assert_production_contracts(cases);
 }

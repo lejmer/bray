@@ -58,9 +58,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         state: &mut ExecutionState,
         scope: bray_bound_tree::StorageScope,
     ) {
+        use bray_bound_tree::{StorageIdentity, StorageScope};
+
         let abandoned;
 
-        let expired = if let bray_bound_tree::StorageScope::AbandonedTransfer { value, .. } = scope {
+        let expired = if let StorageScope::AbandonedTransfer { value, .. } = scope {
             let Some(place) = crate::ExecutionPlace::storage_identity(self.storage, value) else { return; };
 
             if let Some(bray_bound_tree::AnyBoundNodeId::Expression(expression)) =
@@ -107,9 +109,18 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         state.invalidate_trusted_roots(&expired_roots);
 
-        // Terminal observations remain readable by completion clauses after the
-        // storage and its access authority end.
-        for (place, _) in expired {
+        let lexical = matches!(scope, StorageScope::Block(_) | StorageScope::Iteration(_));
+
+        for (place, identity) in expired {
+            if lexical && matches!(self.storage.identity(*identity), Some(
+                StorageIdentity::LocalOwned(_) | StorageIdentity::Temporary(_) | StorageIdentity::Evaluated(_)
+                    | StorageIdentity::InvocationInput { .. } | StorageIdentity::InvocationResult(_)
+            )) && state.current.forget_expired_root(place) {
+                continue;
+            }
+
+            // Completion can still use formal data or a retained outcome's
+            // explicit absence after the storage and its authority end.
             state.current.retire(place);
         }
 

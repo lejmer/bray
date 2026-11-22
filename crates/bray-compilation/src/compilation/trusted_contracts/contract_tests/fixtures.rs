@@ -133,16 +133,6 @@ pub(super) fn body_belongs_to(
     false
 }
 
-#[track_caller]
-pub(super) fn assert_production_probe(caller: &str, valid: bool) {
-    let compilation = production_host_compilation(caller);
-    let key = source_function_body_key(&compilation, "production_probe");
-    let expected = (!valid).then_some(DiagnosticKind::CheckingTrustedObligationNotProven);
-    let diagnostics = production_probe_diagnostics(&compilation, key, expected, check_probe_storage);
-
-    bray_testing::assert_goal_state_diagnostic_outcome(&diagnostics, expected, caller);
-}
-
 pub(super) use crate::test_support::diagnostic_at_call;
 
 fn condition_contains_predicate(condition: &bray_diagnostics::DiagnosticCondition, predicate: &str) -> bool {
@@ -179,8 +169,7 @@ pub(super) fn assert_production_contracts<'case>(
 ) {
     let cases = cases.collect::<Vec<_>>();
     let sources = cases.iter().map(|(caller, ..)| caller.as_str()).collect::<Vec<_>>();
-    let baseline = production_host_compilation("module app;");
-    let compilation = crate::test_support::with_fixture_callers(&baseline, &sources);
+    let compilation = production_host_compilation_with_callers(&sources);
 
     for (case, (caller, expected, site, predicate)) in cases.into_iter().enumerate() {
         let key = source_function_body_key(&compilation, &format!("production_probe_{case}"));
@@ -203,7 +192,13 @@ fn assert_contract_case(
     };
 
     let source = key.source().syntax().source_id();
-    let diagnostics = production_probe_diagnostics(compilation, key, expected, check_probe_storage);
+
+    let check_rejection = match expected {
+        Some(DiagnosticKind::CheckingUseOfMovedStorage) => lowered_probe_diagnostics,
+        _ => check_probe_storage,
+    };
+
+    let diagnostics = production_probe_diagnostics(compilation, key, expected, check_rejection);
 
     bray_testing::assert_goal_state_diagnostic_outcome(&diagnostics, expected, caller);
 
@@ -212,7 +207,8 @@ fn assert_contract_case(
     assert!(diagnostics.iter().any(|diagnostic| {
         diagnostic.kind() == expected
             && diagnostic_at_call(diagnostic, source, caller, site)
-            && diagnostic.args().iter().any(|argument| match argument.value() {
+            && (expected == DiagnosticKind::CheckingUseOfMovedStorage
+                || diagnostic.args().iter().any(|argument| match argument.value() {
                 DiagnosticArgValue::ContractObligation(obligation)
                     if expected == DiagnosticKind::CheckingTrustedObligationNotProven => {
                     obligation.kind == DiagnosticContractObligationKind::CallRequirement
@@ -224,12 +220,18 @@ fn assert_contract_case(
                         && condition_contains_predicate(&transfer.guarantee, predicate)
                 }
                 _ => false,
-            })
+            }))
     }), "expected {predicate} at {site}: {diagnostics:#?}");
 }
 
 pub(in crate::compilation) fn production_host_compilation(caller: &str) -> Compilation {
     production_host_compilation_for_target(caller, crate::SelectedTarget::baseline())
+}
+
+pub(super) fn production_host_compilation_with_callers(callers: &[&str]) -> Compilation {
+    let baseline = production_host_compilation("module app;");
+
+    crate::test_support::with_fixture_callers(&baseline, callers)
 }
 
 pub(super) fn assert_production_probes(
@@ -291,13 +293,17 @@ fn production_probe_diagnostics(
         return check_rejection(compilation, key);
     }
 
+    lowered_probe_diagnostics(compilation, key)
+}
+
+fn lowered_probe_diagnostics(compilation: &Compilation, key: BoundUnitKey) -> DiagnosticBag {
     let lowered = compilation
         .lowered_unit(key)
         .expect("accepted production probe reaches lowering");
 
     assert!(
         lowered.value().is_some() || lowered.diagnostics().has_errors(),
-        "accepted production probe must produce a lowered body"
+        "production probe must produce a lowered body or diagnostics"
     );
 
     lowered.diagnostics().clone()

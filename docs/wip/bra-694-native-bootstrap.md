@@ -68,14 +68,10 @@ bodies and four direct task dispatcher helpers on Windows and Linux, for both
 x64 and AArch64. The checked acquisition follows its owner across the waiter,
 dispatch, retirement, and start transitions.
 
-The expanded candidate checked and lowered all 32 selected bootstrap bodies
-on Windows and Linux for x64 and AArch64. Checkpoint `fb05ef10d` verifies raw
-owner construction at admission. Checkpoint `18ad9f166` binds entry witnesses
-to their installed storage and passes the checker and bound-tree suites.
-Checkpoint `449f3d5ec` passes all 1,709 fixed cases in one run with the shared
-cleanup worklist. The same candidate checks and lowers all 32 selected bodies
-on all four native targets. The full runtime archive and executable link
-remain open.
+Checkpoint `ce33eb970` passed all 1,709 fixed cases, 578 checker tests,
+and 139 bound-tree tests. It checked and lowered all 32 selected bootstrap
+bodies on Windows and Linux for x64 and AArch64. The full runtime archive
+and executable link remain open.
 
 The optimized 24-worker Windows x64 standard-library build planned in
 28.7 s and emitted in 26.9 s. Runtime preparation compiled the same
@@ -145,8 +141,13 @@ storage solver visited 1,245 blocks counting repeats, with at most four
 visits to any block. It took 49.9 s. The package-backed query took 124.7 s
 with its dependencies. Rerun the clean compiler before measuring throughput.
 
-Use the actual shared condition node for traversal identity. A join uses its
-checked selection guard when available. Only joins without that guard need
+The probe-free loop repair planned in 25.4 s and emitted in 23.6 s.
+Result-dependency components still consumed 152.3 worker seconds.
+
+Dependency queries can visit a shared condition node once. Observation
+iteration preserves separate handle slots. The checker suite exposed that
+distinction in the first clean candidate. A join uses its checked selection
+guard when available. Only joins without that guard need
 to derive alternatives from both sets of ordinary premises. Reuse each
 joined predicate observation across predecessor lookups. The added retirement
 memo did not improve planning in paired runs. Framing and retirement can
@@ -162,7 +163,91 @@ a reached address with a bound, keep those reads separate. Verify saved
 referents, copied values, represented cleanup, and deferred captures with the
 same native and fixed-inventory checks.
 
+For an observed effect, only the roots in the reached changed-place set are
+framed. Build masks for those roots. Proof retirement still reads the full
+set of surviving observations because an independent alias can sustain a
+fact. An opaque effect frames every potentially initialized root and uses
+the complete mask.
+Compare represented sibling fields, raw address descriptors, cleanup and
+copied referents. The native sample after the loop repair still spends most
+active time applying and merging cleanup continuations.
+
+At completed lexical and iteration cleanup, the storage plan names the
+retiring owners and storage flow ends their physical lifetime. The proof
+state can discard whole private locals and evaluated slots at that boundary.
+This includes staged call inputs and implicit call results whose scope ended.
+Keep terminal formal data for guarantees and committed writes. Keep partial
+retirement, abandonment, and replacement records where another reached path
+can still use that slot. A surviving transfer reads its admitted, pending, or
+published value. It cannot recover a value from an expired private slot.
+Read the expiring values and external loans before removing the roots. The
+existing witness retirement then uses the current retained tree and those
+actual snapshots. Compare normal and failing scope exits, scoped mutable
+postconditions, copied scalars, result moves, and source/imported witnesses.
+If a downstream reader needs a removed private slot, trace its owned result
+or capture before changing the lifetime rule.
+
+With private-root expiration, the optimized 24-worker standard-library build
+planned in 23.7 s and emitted in 22.5 s. The package took 54.4 s wall time.
+Runtime preparation measured 23.3 s planning and 22.1 s emission. The archive
+run still spent most sampled compiler time in resumed cleanup and state
+joins. It was interrupted before the bundle published. Use the package-backed
+storage solver trace to distinguish repeated visits from expensive individual
+cleanup operations before changing either mechanism.
+
+The package trace shows expensive acyclic cleanup. Complex division still
+visits each block once while some individual scope exits take over 20 s.
+A reached cleanup state held 216 roots, 148 absent. The initial proof state
+materializes absent slots even for blocks that never run. Deleting an expired
+root on one branch then joining with such a bypass can reintroduce the dead
+slot as unknown, making opaque effects frame it.
+
+Keep the checked plan's initially absent root identities once in prepared
+analysis. Proof states store materialized values and availability changes.
+A missing planned root means absent, including on a bypass or after completed
+lexical cleanup. Unknown unplanned observations, such as a pointee without
+a published snapshot, still mean unknown. A join with one live predecessor
+still derives conditional availability from both reached states. A new
+definition can install that slot again. Keep retained formal data, live or
+partially retired children, and required pending values. Check a lexical exit
+and bypass join in each predecessor order, then check redefinition and
+conditional initialization. Compare the runtime's retained root counts and
+the same fixed inventory. Stop and trace the reader if any phase needs the
+contents of an unmaterialized root.
+
+The same default applies when call setup vacates an entire planned slot
+before publishing a staged argument or result. If that call fails, cleanup
+reads exact absence directly. Whole replacement can discard an empty
+private record. A projected replacement or an unplanned pointee still
+needs its reached availability. Preserve retained component observations.
+Exercise actual entry and lexical retirement before the bypass join, and
+check vacancy both before a first publication and after reusing a slot.
+
 ## Current verification batch
+
+The fixed inventory passed on `ce33eb970`. The activation probes in its
+slowest group fork the production fixture once per caller variant. Load each
+test's independent caller sources in one revision so their bound units use
+the same runtime and standard-library facts. Keep each source separate for
+its diagnostic offset and keep each function independently named. Check all
+cases for the same acceptance, rejection kind, predicate, and call site.
+Compare the same activation inventory and compiler binary configuration before
+changing the group further.
+
+Checkpoint `96fe2d669` shares fixture revisions for the migrated activation
+groups. The validation candidate passed all 1,709 fixed cases, including
+40 activation controls, and all four selected native bootstrap checks.
+The next batch shares one revision for the remaining activation variants,
+including the second-invocation rejection. It retains the diagnostic
+subjects, call sites, and successful lowering checks. The same 40 controls,
+579 checker tests, 139 bound-tree tests, 1,709 fixed cases, and all four
+selected native bootstrap checks passed with sparse planned absence.
+
+An isolated 24-worker standard-library build planned in 29.5 s and emitted
+in 28.8 s. Building platform providers took 16.2 s, and the tool invocation
+took 80.9 s wall time. Planning still exceeds the 17–25 s target. The
+runtime archive and executable link remain open. The concurrent verification
+runs establish correctness. Measure each workload in isolation.
 
 The physical transition for a call binds the formal route to the actual
 admitted operand before traversing its descriptor. Staged conversions
