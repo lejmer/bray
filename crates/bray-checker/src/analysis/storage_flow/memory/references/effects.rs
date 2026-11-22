@@ -64,12 +64,12 @@ impl State {
         origin: BoundExecutionSite,
     ) {
         let Some(effects) = effects else {
-            self.invalidate(invalidation, DependencyMutationKind::Retire);
+            self.invalidate(invalidation, DependencyMutationKind::Write);
             return;
         };
 
         if effects.contains(&Effect::Unknown) {
-            self.invalidate(invalidation, DependencyMutationKind::Retire);
+            self.invalidate(invalidation, DependencyMutationKind::Write);
         }
 
         let unbounded_ambient = effects.contains(&Effect::Escape(None));
@@ -79,7 +79,7 @@ impl State {
         for effect in effects {
             let unbounded = match effect {
                 Effect::UnboundedMutation { kind, ambient, .. } if !*ambient || unbounded_ambient => Some(*kind),
-                Effect::Ambient if unbounded_ambient => Some(DependencyMutationKind::Retire),
+                Effect::Ambient if unbounded_ambient => Some(DependencyMutationKind::Write),
                 _ => None,
             };
 
@@ -89,7 +89,7 @@ impl State {
                 // Without an address, the access type still informs proof framing.
                 // Physical weakening only distinguishes atomic and allocation scope.
                 let deallocation = effect.is_unlocated_deallocation();
-                let scope = (kind == DependencyMutationKind::Atomic, deallocation);
+                let scope = (kind == DependencyMutationKind::Atomic, deallocation, kind.preserves_discharge());
 
                 if previous_unbounded != Some(scope) {
                     self.invalidate_unknown_targets(invalidation, kind, deallocation);
@@ -104,7 +104,7 @@ impl State {
             let bound = match effect {
                 Effect::Mutation { address: None, footprint, kind, .. }
                     if !matches!(kind, DependencyMutationKind::Atomic | DependencyMutationKind::Dispose(_)
-                        | DependencyMutationKind::Cleanup(_) | DependencyMutationKind::Escape) => Some(footprint),
+                        | DependencyMutationKind::Cleanup(_) | DependencyMutationKind::Escape) => Some((footprint, kind.preserves_discharge())),
                 _ => None,
             };
 
@@ -127,7 +127,7 @@ impl State {
 
                     self.include_unknown_targets(&mut targets, unknown);
 
-                    self.invalidate(invalidation, DependencyMutationKind::Retire);
+                    self.invalidate(invalidation, *kind);
 
                     self.invalidate_cleanup_regions(&targets, invalidation);
 
@@ -149,7 +149,7 @@ impl State {
                 effect if effect.is_ambient() => {
                     let kind = match effect {
                         Effect::UnboundedMutation { kind, .. } => *kind,
-                        _ => DependencyMutationKind::Retire,
+                        _ => DependencyMutationKind::Write,
                     };
 
                     if let Some((mut targets, unknown)) = self.ambient_regions(effects) {
@@ -220,7 +220,7 @@ impl State {
                 // only the ordinary selected cell, never a merely overlapping view.
                 let storage_type = contents.storage_type;
 
-                contents.retain_initialization(kind == DependencyMutationKind::Atomic, |ty| {
+                contents.retain_initialization(kind.preserves_discharge(), |ty| {
                     storage_type == Some(ty)
                         && (kind == DependencyMutationKind::Atomic
                             || complete_cell && target.is_exact() && *target == affected
@@ -342,7 +342,7 @@ impl State {
                 // Semantic ownership framing retains the precise transition separately.
                 let storage_type = contents.storage_type;
 
-                contents.retain_initialization(kind == DependencyMutationKind::Atomic, |ty| {
+                contents.retain_initialization(kind.preserves_discharge(), |ty| {
                     kind == DependencyMutationKind::Atomic && storage_type == Some(ty)
                 });
             }

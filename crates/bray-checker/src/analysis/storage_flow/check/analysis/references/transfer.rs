@@ -533,17 +533,15 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             return;
         }
 
-        let absent = &state.definitely_absent;
         let execution = state.execution.as_ref();
 
         let references = contained.into_iter().flat_map(|paths| paths.iter())
             .filter(|(path, _)| destination.contains_storage(path)
                 && !inactive.iter().any(|payload| payload.contains_storage(path))
-                && (path.projections.is_empty() || !absent.iter().any(|(absent, reason)| {
-                    *reason == bray_bound_tree::StorageAbsence::NoPayload && absent.contains_storage(path)
-                })))
+                && (path.projections.is_empty() || !state.no_payload_paths().any(|absent| absent.contains_storage(path))))
             .map(|(path, ty)| (path.clone(), *ty))
-            .chain(root.filter(|(path, _)| !contained.is_some_and(|paths| paths.contains_key(path))));
+            .chain(root.filter(|(path, _)| !contained.is_some_and(|paths| paths.contains_key(path))))
+            .collect::<Vec<_>>();
 
         state.memory.stage_returned_references(occurrence, references, |memory| opaque_inputs(memory, execution));
     }

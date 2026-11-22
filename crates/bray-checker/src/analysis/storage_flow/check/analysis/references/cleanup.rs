@@ -67,13 +67,7 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
 
             let mut subjects = std::collections::BTreeMap::new();
 
-            for effect in &effects {
-                let subject = match effect {
-                    bray_symbols::DependencyStorageEffect::Direct { subject, .. } => subject,
-                    bray_symbols::DependencyStorageEffect::Indirect { reference, .. } => reference,
-                    _ => continue,
-                };
-
+            for subject in effects.iter().flat_map(bray_symbols::DependencyStorageEffect::subjects) {
                 let owner = if subject.subject_root() == bray_symbols::DependencySubjectRoot::Receiver {
                     ty
                 } else if let Some(ty) = crate::storage::static_subject_type(request, subject.subject_root())? {

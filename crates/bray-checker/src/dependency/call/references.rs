@@ -198,7 +198,7 @@ pub(crate) fn prepare_call_storage<'a, C: CheckerRequestContext + ?Sized>(
     let mut subjects = std::collections::BTreeMap::new();
 
     for subject in template.reference_subjects().chain(additional_subjects)
-        .chain(effects.iter().filter_map(|effect| effect.subject()))
+        .chain(effects.iter().copied().flat_map(bray_symbols::DependencyStorageEffect::subjects))
         .collect::<std::collections::BTreeSet<_>>() {
         if let Some(prepared) = input(subject)? {
             // The prepared path is indexed by its portable subject.
@@ -280,9 +280,7 @@ pub(crate) fn prepare_effect_paths<'a, C: CheckerRequestContext + ?Sized>(
     bray_bound_tree::StorageReferencePath>, C::UpstreamError> {
     let mut paths = std::collections::BTreeMap::new();
 
-    for effect in effects {
-        let effect = effect.retirement_parts().0;
-
+    for effect in effects.into_iter().flat_map(bray_symbols::DependencyStorageEffect::routes) {
         let bray_symbols::DependencyStorageEffect::Indirect { reference, projections, reads, .. } = effect else { continue; };
 
         if (projections.is_empty() && reads.is_empty()) || paths.contains_key(effect) { continue; }

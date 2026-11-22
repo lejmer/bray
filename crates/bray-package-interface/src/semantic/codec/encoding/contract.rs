@@ -39,8 +39,7 @@ fn encode_dependency_effect(encoder: &mut WireEncoder, effect: &crate::Interface
             write_count(encoder, discharged.len());
 
             for duty in discharged.iter() {
-                encode_dependency_projections(encoder, &duty.projections);
-                encoder.write_u32(duty.ty.raw());
+                encode_dependency_effect(encoder, duty);
             }
         }
         DependencyStorageEffect::UnboundedMutation { kind, access_type, ambient } => {

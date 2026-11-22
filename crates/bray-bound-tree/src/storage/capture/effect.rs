@@ -1,7 +1,14 @@
 use std::sync::Arc;
 
-use crate::{StorageProjection, StorageTarget as Target, StorageValueRetirement as Retirement, StorageMutationTarget as MutationTarget};
-use bray_symbols::{DependencyMutationKind, StorageDischarge, TypeId};
+use crate::{StorageTarget as Target, StorageValueRetirement as Retirement, StorageMutationTarget as MutationTarget};
+use bray_symbols::{DependencyMutationKind, TypeId};
+
+/// A definite transfer of the complete value from one reached typed cell.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct StorageDischarge {
+    pub cell: Target,
+    pub ty: TypeId,
+}
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum StorageEffect {
@@ -15,7 +22,7 @@ pub enum StorageEffect {
     Mutation {
         address: Option<Target>,
         footprint: Target,
-        discharged: Option<Arc<[StorageDischarge<StorageProjection>]>>,
+        discharged: Option<Arc<[StorageDischarge]>>,
         kind: DependencyMutationKind,
         access_type: Option<TypeId>,
     },
@@ -53,7 +60,7 @@ impl StorageEffect {
         Self::Mutation { address: target.address, footprint: target.footprint, discharged: None, kind, access_type }
     }
 
-    pub fn with_retirement_discharges(mut self, duties: impl IntoIterator<Item = StorageDischarge<StorageProjection>>) -> Self {
+    pub fn with_retirement_discharges(mut self, duties: impl IntoIterator<Item = StorageDischarge>) -> Self {
         if let Self::Mutation { address: Some(_), kind: DependencyMutationKind::Retire, discharged, .. } = &mut self {
             let duties = duties.into_iter().collect::<Vec<_>>();
 
@@ -120,6 +127,13 @@ impl StorageEffect {
                 *address = None;
                 *discharged = None;
                 *kind = kind.region_kind();
+            } else if let Some(duties) = discharged
+                && duties.iter().any(|duty| retirement.contains(current, &duty.cell))
+            {
+                let retained = duties.iter().filter(|duty| !retirement.contains(current, &duty.cell))
+                    .cloned().collect::<Arc<[_]>>();
+
+                *discharged = (!retained.is_empty()).then_some(retained);
             }
         }
 
@@ -138,7 +152,8 @@ impl StorageEffect {
 
     pub fn references(&self, current: &Target, retirement: Retirement) -> bool {
         match self {
-            Self::Mutation { address, footprint, .. } => address.iter().chain(std::iter::once(footprint))
+            Self::Mutation { address, footprint, discharged, .. } => address.iter().chain(std::iter::once(footprint))
+                .chain(discharged.iter().flat_map(|duties| duties.iter().map(|duty| &duty.cell)))
                 .any(|target| retirement.contains(current, target)),
             Self::Escape(Some(targets)) => targets.iter().any(|target| retirement.contains(current, target)),
             _ => false,

@@ -475,7 +475,7 @@ pub(super) fn validate_dependency_template_data(
             tables.types.get(store, *ty);
         }
 
-        if let Some(subject) = effect.subject() {
+        for subject in effect.subjects() {
             validate_dependency_subject(tables, store, subject);
         }
 

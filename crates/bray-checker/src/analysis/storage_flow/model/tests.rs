@@ -302,6 +302,40 @@ fn reachable_state() -> StorageFlowState {
     state
 }
 
+#[test]
+fn completed_call_payload_absence_reaches_cleanup_and_is_replaced_by_a_later_output() {
+    use bray_bound_tree::{StoragePath, StorageProjection};
+
+    let (identity, expressions) = storage_and_expressions(141);
+
+    let payload = StoragePath {
+        root: identity,
+        projections: [StorageProjection::NullableValue].into(),
+    };
+
+    let mut state = reachable_state();
+
+    state.memory.stage_no_payload_alternative(
+        expressions[1].into(),
+        super::super::memory::Target::storage(payload.clone()),
+    );
+
+    state.memory.complete_transition(expressions[1].into());
+
+    assert!(state.absent_paths().any(|path| path == &payload));
+    assert!(state.no_payload_paths().any(|path| path == &payload));
+    assert!(state.definitely_absent.is_empty());
+
+    state.memory.stage_unknown(
+        expressions[2].into(),
+        super::super::memory::Target::storage(payload.clone()),
+    );
+
+    state.memory.complete_transition(expressions[2].into());
+
+    assert!(!state.absent_paths().any(|path| path == &payload));
+}
+
 fn storage_and_expressions(
     raw_unit: u32,
 ) -> (

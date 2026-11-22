@@ -201,10 +201,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     && !state.fully_moved.contains(&receiver.root)
                     && slot.observation_path().is_none_or(|path| {
                         !self.input.opaque_values.get(&path).is_some_and(|kind| kind.is_immutable_inline())
-                            && !state
-                                .definitely_absent
-                                .keys()
-                                .any(|absent| absent.contains(&path))
+                            && !state.absent_paths().any(|absent| absent.contains(&path))
                     })
             });
 

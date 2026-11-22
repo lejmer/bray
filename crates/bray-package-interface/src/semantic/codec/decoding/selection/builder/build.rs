@@ -1126,7 +1126,7 @@ impl<'bytes, 'records> SelectionBuilder<'bytes, 'records> {
                 self.enqueue(PendingRecord::Type(ty.raw()));
             }
 
-            if let Some(subject) = effect.subject() {
+            for subject in effect.subjects() {
                 self.include_dependency_subject(subject);
             }
 

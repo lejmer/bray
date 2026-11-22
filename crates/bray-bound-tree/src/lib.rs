@@ -119,7 +119,7 @@ pub use semantic::{
     SemanticSnapshotInputKind,
 };
 pub use storage::{
-    StorageOutcomeRows, StorageCapturedEffects, StorageCapturedTransition, StorageDeferredProducer, StorageDeferredTransition, StorageContents, StorageEffect, StorageEffectRow,
+    StorageOutcomeRows, StorageCapturedEffects, StorageCapturedTransition, StorageDeferredProducer, StorageDeferredTransition, StorageContents, StorageDischarge, StorageEffect, StorageEffectRow,
     StorageCapturedValue, merge_storage_bindings, merge_storage_contents,
     selected_storage_values, storage_selector_parent, storage_value_subtree,
     StorageSnapshotRoot, StorageValueBoundary, StorageValueCapture, StorageValueDestination, StorageValueInput, StorageValueTransition, merge_storage_value_captures, merge_storage_value_transitions,

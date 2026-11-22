@@ -73,7 +73,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         let displaced = destination.as_ref().into_iter().flat_map(|owner| state.memory.value_loans(owner)).collect();
 
-        let absent = std::sync::Arc::clone(&state.definitely_absent);
+        let absent = std::sync::Arc::new(state.absent_paths().cloned().collect::<std::collections::BTreeSet<_>>());
         let mut trusted = std::mem::take(&mut self.trusted);
 
         let publish = self.publish;
@@ -149,7 +149,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             execution,
             point,
             &selected,
-            absent.keys(),
+            absent.iter(),
             publish.then_some(&mut observe as &mut crate::analysis::guarantee::Observer<'_>),
             &mut mutate,
         );

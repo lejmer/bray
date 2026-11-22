@@ -360,9 +360,69 @@ fn an_exact_access_records_one_duty_visible_through_possible_aliases() {
         assert_eq!(status, MemoryOperationStatus::Valid);
         assert!(state.contents[&possible_alias].pending.is_empty());
         assert_eq!(state.retirement_obligations(&possible_alias, &[]), Some(vec![origins[0]]));
+
+        let mut caller = state.clone();
+
         assert_eq!(state.read(&pointer, ty, MemoryReadKind::Move, None, None), MemoryOperationStatus::Valid);
         assert_eq!(state.retirement_obligations(&possible_alias, &[]), None);
+
+        let prefix = state.retirement_discharges(&possible_alias).collect::<Vec<_>>();
+
+        assert_eq!(prefix, [bray_bound_tree::StorageDischarge { cell: written.clone(), ty }]);
+        assert_eq!(caller.retirement_obligations(&possible_alias, &prefix), None);
+
+        let mut retirement = Effect::at(possible_alias.clone(), DependencyMutationKind::Retire, Some(ty))
+            .with_retirement_discharges(prefix.iter().cloned());
+
+        assert!(!retirement.references(&written, Retirement::Backing),
+            "ending a backing lifetime does not erase the typed source coordinate");
+
+        retirement.retire(&written, Retirement::Backing);
+        assert!(retirement.references(&written, Retirement::Producer));
+        retirement.retire(&written, Retirement::Producer);
+
+        assert!(matches!(retirement, Effect::Mutation { address: Some(address), discharged: None, .. }
+            if address == possible_alias));
+
+        caller.contents.get_mut(&possible_alias).unwrap().pending.entry(ty).or_default().insert(origins[1]);
+
+        assert_eq!(caller.retirement_obligations(&possible_alias, &prefix), Some(vec![origins[1]]));
+
+        state.apply_effects(
+            Some(&[Effect::bounded(possible_alias.clone(), DependencyMutationKind::Consume, None)]),
+            &bray_bound_tree::StorageInvalidation::unknown(),
+            origins[1].into(),
+        );
+
+        assert_eq!(state.retirement_discharges(&possible_alias).collect::<Vec<_>>(), prefix);
+
+        let mut opaque = state.clone();
+
+        opaque.apply_effects(Some(&[Effect::Unknown]), &bray_bound_tree::StorageInvalidation::unknown(), origins[2].into());
+
+        assert!(opaque.retirement_discharges(&possible_alias).next().is_none());
+        assert_eq!(state.write(&pointer, ty, origins[2], None), MemoryOperationStatus::Valid);
+        assert!(state.retirement_discharges(&possible_alias).next().is_none());
     }
+}
+
+#[test]
+fn typed_root_discharge_covers_nested_duties_after_source_retirement() {
+    let ([root, unrelated, _, _], origins) = places();
+
+    let root = Target::storage(root);
+    let child = root.project(&[BUFFER_POINTER]);
+    let unrelated = Target::storage(unrelated);
+    let mut state = State::default();
+
+    state.contents.entry(child).or_default().pending.entry(error_type()).or_default().insert(origins[0]);
+    state.contents.entry(unrelated.clone()).or_default().pending.entry(error_type()).or_default().insert(origins[1]);
+
+    let discharge = bray_bound_tree::StorageDischarge { cell: root.clone(), ty: tuple_type([]) };
+
+    assert_eq!(state.retirement_obligations(&root, &[]), Some(vec![origins[0]]));
+    assert_eq!(state.retirement_obligations(&root, &[discharge.clone()]), None);
+    assert_eq!(state.retirement_obligations(&unrelated, &[discharge]), Some(vec![origins[1]]));
 }
 
 #[test]

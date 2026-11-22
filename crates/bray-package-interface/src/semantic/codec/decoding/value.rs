@@ -804,9 +804,11 @@ mod tests {
                 .into(),
                 kind: DependencyMutationKind::Retire,
                 access_type: None,
-            }.with_retirement_discharges([bray_symbols::StorageDischarge {
-                projections: [].into(),
-                ty: crate::InterfaceTypeId::new(0),
+            }.with_retirement_discharges([DependencyStorageEffect::Direct {
+                addressed: true,
+                subject: InterfaceDependencySubject::new(subject.subject_root().clone(), [InterfaceDependencyProjection::OwnedTarget]),
+                kind: DependencyMutationKind::Discharge(crate::InterfaceTypeId::new(0)),
+                access_type: None,
             }].into()),
         ];
 
@@ -928,10 +930,9 @@ mod tests {
         assert!(matches!(retirement, DependencyStorageEffect::Indirect { reads, projections, kind: DependencyMutationKind::Retire, .. }
             if reads.as_ref() == [0, 1, 1] && projections.as_ref() == [bray_symbols::DependencyProjection::Element(imported.constant_terms()[0])]));
 
-        assert_eq!(discharged, &[bray_symbols::StorageDischarge {
-            projections: [].into(),
-            ty: imported.types()[0],
-        }]);
+        assert!(matches!(discharged, [DependencyStorageEffect::Direct {
+            addressed: true, subject, kind: DependencyMutationKind::Discharge(ty), access_type: None,
+        }] if *ty == imported.types()[0] && subject.projections() == [bray_symbols::DependencyProjection::OwnedTarget]));
     }
 
     #[test]

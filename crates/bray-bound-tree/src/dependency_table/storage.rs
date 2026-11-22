@@ -133,7 +133,7 @@ impl BoundCallStorage {
     /// Prepared effect continuations and the descriptor that supplies their first address.
     pub fn effect_target_paths(&self) -> impl Iterator<Item = (TypeId, &StorageReferencePath)> {
         self.effect_paths.iter().filter_map(|(effect, path)| {
-            let (ty, _) = self.subject(effect.subject()?)?;
+            let (ty, _) = self.subject(effect.subjects().next()?)?;
 
             Some((ty, path))
         })

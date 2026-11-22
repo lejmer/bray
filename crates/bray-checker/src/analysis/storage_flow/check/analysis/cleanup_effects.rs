@@ -327,18 +327,11 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             );
         }
 
-        if let Some(effects) = &effects {
-            self.check_raw_retirements(state, operation.occurrence(), effects);
-            self.record_resolved_effects(&state.memory, effects, Some(&mut state.effect_prefix));
-        } else {
-            self.record_resolved_effects(
-                &state.memory,
-                &[Effect::unbounded(DependencyMutationKind::Retire, None, false)],
-                Some(&mut state.effect_prefix),
-            );
-        }
+        let performed = effects.as_deref().unwrap_or(&[Effect::Unknown]);
 
-        state.memory.apply_effects(effects.as_deref(), &invalidation, operation.occurrence());
+        self.check_raw_retirements(state, operation.occurrence(), performed);
+        self.record_resolved_effects(&state.memory, performed, Some(&mut state.effect_prefix));
+        state.memory.apply_effects(Some(performed), &invalidation, operation.occurrence());
 
         if let Some((_, rows)) = &operands.lifecycle_effects {
             apply_lifecycle_cell_changes(&mut state.memory, identity, rows, invocation.is_some_and(|call| call.completes));

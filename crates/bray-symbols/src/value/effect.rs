@@ -236,6 +236,11 @@ pub enum DependencyMutationKind<Type = super::TypeId> {
 }
 
 impl<Type> DependencyMutationKind<Type> {
+    /// These transitions cannot install a new initialized value in the cell.
+    pub fn preserves_discharge(&self) -> bool {
+        matches!(self, Self::Atomic | Self::Escape | Self::Consume | Self::Discharge(_) | Self::Retire)
+    }
+
     /// Removes the layout claim of a mutation known only through its footprint.
     pub fn region_kind(self) -> Self {
         match self {
@@ -244,15 +249,6 @@ impl<Type> DependencyMutationKind<Type> {
             other => other,
         }
     }
-}
-
-/// A typed duty discharged at a known path within a retired allocation.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct StorageDischarge<Projection, Type = super::TypeId> {
-    /// Inline selectors relative to the captured retirement address.
-    pub projections: Arc<[Projection]>,
-    /// Type of the complete value removed from that cell.
-    pub ty: Type,
 }
 
 /// A possible mutation expressed over entry values, separately from their reference targets.
@@ -266,8 +262,8 @@ pub enum DependencyStorageEffect<
     OrderedRetirement {
         /// Actual captured operand, using the same route as other effects.
         retirement: Box<Self>,
-        /// Discharges performed before this retirement.
-        discharged: Arc<[StorageDischarge<Projection, Type>]>,
+        /// Exact typed cell discharges performed before this retirement.
+        discharged: Arc<[Self]>,
     },
     /// Protected atomic payloads may change through unresolved aliases.
     Atomic,
@@ -319,7 +315,7 @@ pub enum DependencyStorageEffect<
 
 impl<Subject, Projection, Type> DependencyStorageEffect<Subject, Projection, Type> {
     /// Returns the actual mutation and any discharges established before it.
-    pub fn retirement_parts(&self) -> (&Self, &[StorageDischarge<Projection, Type>]) {
+    pub fn retirement_parts(&self) -> (&Self, &[Self]) {
         match self {
             Self::OrderedRetirement { retirement, discharged } => (retirement, discharged),
             _ => (self, &[]),
@@ -335,12 +331,13 @@ impl<Subject, Projection, Type> DependencyStorageEffect<Subject, Projection, Typ
     }
 
     /// Attaches definite discharges to the exact retirement operand.
-    pub fn with_retirement_discharges(self, discharged: Arc<[StorageDischarge<Projection, Type>]>) -> Self {
+    pub fn with_retirement_discharges(self, discharged: Arc<[Self]>) -> Self {
         if discharged.is_empty() {
             return self;
         }
 
         assert!(self.is_addressed_retirement(), "a discharge prefix requires an addressed retirement");
+        assert!(discharged.iter().all(Self::is_addressed_discharge), "a discharge prefix requires exact typed discharges");
 
         Self::OrderedRetirement { retirement: Box::new(self), discharged }
     }
@@ -354,11 +351,26 @@ impl<Subject, Projection, Type> DependencyStorageEffect<Subject, Projection, Typ
         mut ty: impl FnMut(&mut C, Type) -> Result<T, E>,
     ) -> Result<DependencyStorageEffect<S, P, T>, E>
     where Type: Copy {
-        use DependencyStorageEffect as Effect;
-
         let (effect, discharged) = self.retirement_parts();
 
-        let mapped = match effect {
+        let mut map = |effect: &Self| effect.try_map_route(context, &mut subject, &mut projections, &mut ty);
+        let mapped = map(effect)?;
+        let discharged = discharged.iter().map(map).collect::<Result<Vec<_>, E>>()?;
+
+        Ok(mapped.with_retirement_discharges(discharged.into()))
+    }
+
+    fn try_map_route<C, S, P, T, E>(
+        &self,
+        context: &mut C,
+        subject: &mut impl FnMut(&mut C, &Subject) -> Result<S, E>,
+        projections: &mut impl FnMut(&mut C, &[Projection]) -> Result<Arc<[P]>, E>,
+        ty: &mut impl FnMut(&mut C, Type) -> Result<T, E>,
+    ) -> Result<DependencyStorageEffect<S, P, T>, E>
+    where Type: Copy {
+        use DependencyStorageEffect as Effect;
+
+        Ok(match self {
             Self::OrderedRetirement { .. } => unreachable!("retirement has only one discharge prefix"),
             Self::Atomic => Effect::Atomic,
             Self::Ambient => Effect::Ambient,
@@ -383,20 +395,7 @@ impl<Subject, Projection, Type> DependencyStorageEffect<Subject, Projection, Typ
                 kind: kind.try_map_type(|value| ty(context, value))?,
                 access_type: access_type.map(|value| ty(context, value)).transpose()?,
             },
-        };
-
-        if discharged.is_empty() {
-            return Ok(mapped);
-        }
-
-        let discharged = discharged.iter().map(|discharge| {
-            Ok(StorageDischarge {
-                projections: projections(context, &discharge.projections)?,
-                ty: ty(context, discharge.ty)?,
-            })
-        }).collect::<Result<Vec<_>, E>>()?;
-
-        Ok(mapped.with_retirement_discharges(discharged.into()))
+        })
     }
 
     /// Keeps this route as a footprint after losing the actual operand.
@@ -425,6 +424,11 @@ impl<Subject, Projection, Type> DependencyStorageEffect<Subject, Projection, Typ
             | Self::UnboundedMutation { kind: DependencyMutationKind::Discharge(_), .. })
     }
 
+    /// Whether a definite discharge has a route to the actual typed cell.
+    pub fn is_addressed_discharge(&self) -> bool {
+        self.is_cell_change() && self.is_discharge()
+    }
+
     /// Whether this update names a complete typed cell.
     pub fn is_cell_change(&self) -> bool {
         matches!(self,
@@ -438,7 +442,8 @@ impl<Subject, Projection, Type> DependencyStorageEffect<Subject, Projection, Typ
         match self {
             Self::OrderedRetirement { retirement, discharged } => !discharged.is_empty()
                 && retirement.is_addressed_retirement()
-                && retirement.is_valid_route(),
+                && retirement.is_valid_route()
+                && discharged.iter().all(|effect| effect.is_addressed_discharge() && effect.is_valid_route()),
             Self::Direct { addressed: false, kind: DependencyMutationKind::Dispose(_), .. }
             | Self::Indirect { addressed: false, kind: DependencyMutationKind::Dispose(_) | DependencyMutationKind::Discharge(_), .. }
             | Self::Direct { addressed: false, kind: DependencyMutationKind::Discharge(_), .. }
@@ -449,32 +454,33 @@ impl<Subject, Projection, Type> DependencyStorageEffect<Subject, Projection, Typ
         }
     }
 
-    /// Entry slot whose value or reference bounds this effect.
-    pub fn subject(&self) -> Option<&Subject> {
-        match self.retirement_parts().0 {
+    /// The effect's route and any exact typed discharges carried with it.
+    pub fn routes(&self) -> impl Iterator<Item = &Self> {
+        let (effect, discharged) = self.retirement_parts();
+
+        std::iter::once(effect).chain(discharged)
+    }
+
+    /// Entry slots needed to bind the effect and its definite discharges.
+    pub fn subjects(&self) -> impl Iterator<Item = &Subject> {
+        self.routes().filter_map(|effect| match effect {
             Self::Direct { subject, .. } => Some(subject),
             Self::Indirect { reference, .. } => Some(reference),
             _ => None,
-        }
+        })
     }
 
     /// Projection routes carried by the mutation and its ordered discharges.
     pub fn projection_paths(&self) -> impl Iterator<Item = &[Projection]> {
-        let (effect, discharged) = self.retirement_parts();
-
-        let route = match effect {
+        self.routes().filter_map(|effect| match effect {
             Self::Indirect { projections, .. } => Some(projections.as_ref()),
             _ => None,
-        };
-
-        route.into_iter().chain(discharged.iter().map(|duty| duty.projections.as_ref()))
+        })
     }
 
     /// Types required to retain and interpret this effect across semantic boundaries.
     pub fn referenced_types(&self) -> impl Iterator<Item = &Type> {
-        let (effect, discharged) = self.retirement_parts();
-
-        match effect {
+        self.routes().flat_map(|effect| match effect {
             Self::Direct { access_type, kind, .. }
             | Self::Indirect { access_type, kind, .. }
             | Self::UnboundedMutation { access_type, kind, .. } => [
@@ -485,7 +491,7 @@ impl<Subject, Projection, Type> DependencyStorageEffect<Subject, Projection, Typ
                 },
             ],
             _ => [None, None],
-        }.into_iter().flatten().chain(discharged.iter().map(|duty| &duty.ty))
+        }.into_iter().flatten())
     }
 
     /// Conservative effects when the callable can have an unknown captured environment.

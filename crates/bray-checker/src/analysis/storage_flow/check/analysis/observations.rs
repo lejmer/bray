@@ -764,9 +764,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             for (path, ty) in self.input.footprint.references_below(&result) {
                 let Some(pointee) = crate::representation::borrow_target_type(self.request.semantic_values(), ty) else { continue; };
 
-                if state.definitely_absent.iter().any(|(absent, reason)| {
-                        *reason == bray_bound_tree::StorageAbsence::NoPayload && absent.contains(path)
-                    }) { continue; }
+                if state.no_payload_paths().any(|absent| absent.contains(path)) { continue; }
 
                 let Some(targets) = state.memory.value_targets(&Target::storage(path.clone())) else { continue; };
 

@@ -71,6 +71,16 @@ impl RetainedReports {
 }
 
 impl StorageFlowState {
+    pub(in crate::analysis) fn absent_paths(&self) -> impl Iterator<Item = &bray_bound_tree::StoragePath> + Clone {
+        self.definitely_absent.keys().chain(self.memory.no_payload_paths())
+    }
+
+    pub(in crate::analysis::storage_flow) fn no_payload_paths(&self) -> impl Iterator<Item = &bray_bound_tree::StoragePath> + Clone {
+        self.definitely_absent.iter()
+            .filter_map(|(path, reason)| (*reason == StorageAbsence::NoPayload).then_some(path))
+            .chain(self.memory.no_payload_paths())
+    }
+
     pub(in crate::analysis::storage_flow) fn failure_at(&self, occurrence: bray_bound_tree::BoundExecutionSite) -> Option<&AdmittedFailure> {
         self.failure_entry.as_ref().filter(|entry| entry.occurrence == occurrence)
     }
@@ -244,7 +254,7 @@ impl StorageFlowState {
 
     fn value_is_live(&self, path: &bray_bound_tree::StoragePath) -> bool {
         self.live.contains(&path.root) && !self.fully_moved.contains(&path.root)
-            && !self.definitely_absent.keys().any(|absent| absent.contains(path))
+            && !self.absent_paths().any(|absent| absent.contains(path))
     }
 
     /// A committed replacement ends displaced loans whose support has no surviving owner.

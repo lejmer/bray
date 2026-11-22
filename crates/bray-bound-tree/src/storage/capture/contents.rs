@@ -77,7 +77,7 @@ impl StorageContents {
 
     /// Ends the lifetime at the operation that retired this storage.
     pub fn retire(&mut self, origin: BoundExecutionSite) {
-        self.initialized.clear();
+        self.retain_initialization(true, |_| false);
         self.invalidations.insert(origin);
     }
 

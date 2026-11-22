@@ -149,7 +149,7 @@ impl InterfaceSemantics {
                     validate_index(ty.to_index(), self.types.len())?;
                 }
 
-                if let Some(subject) = effect.subject() {
+                for subject in effect.subjects() {
                     self.validate_dependency_subject(subject, symbol_count, dependency_count)?;
                 }
 

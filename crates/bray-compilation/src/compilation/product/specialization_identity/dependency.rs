@@ -452,11 +452,7 @@ impl StructuralValueEncoder<'_, '_> {
                 self.tag(10);
                 self.dependency_effect(retirement)?;
 
-                return self.dependency_set(discharged, |encoder, discharge| {
-                    encoder.dependency_projections(&discharge.projections)?;
-
-                    encoder.ty(discharge.ty)
-                });
+                return self.dependency_set(discharged, Self::dependency_effect);
             }
             DependencyStorageEffect::UnboundedMutation { kind, access_type, ambient } => {
                 self.tag(7);

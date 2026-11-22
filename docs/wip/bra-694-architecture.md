@@ -71,7 +71,7 @@ flowchart TD
 | Descriptor and possible regions | The physical memory state holds `StorageValueBinding` per target. `StorageAddressValue` distinguishes actual alternatives, region bounds, displaced offsets, and unknown addresses. Whole-value dependency bounds have their own completeness. | A finite region bounds what may change. An exact write, initialized payload, or ownership transfer needs separate evidence. Inactive payload, actual null, and unknown contents each have a distinct meaning. |
 | Allocation and access authority | Physical state tracks reached `StorageTarget` origins, initialization, and borrow capabilities. Allocation recency distinguishes a current allocation from older objects formed at the same site. | Pointer equality can establish data equality. Lifetime, initialized contents, access permission, and the cleanup duty each come from their own checked relation. |
 | Mutation and observation survival | `StorageMutationTarget` holds the resolved address and conservative footprint. Effect kind and access type accompany it. The storage collector publishes changed logical paths, changes within exact typed pointees, and phase-specific retirements. | A reached component mutation updates that part of the current value tree. Whole or unresolved overlap frames the enclosing value. Descriptor replacement, atomic payload updates, consumption, and retirement each revoke their own support. An inactive payload contributes no target. A broad footprint grants no exact write or initialization. |
-| Raw retirement | The raw pointer or the allocation record's pointer field comes from the admitted argument capture. Each retirement records its preceding typed duty discharges. | Effect binding, lifetime invalidation, and outstanding-duty diagnostics use that operand. A guarded outcome publishes exact cell changes after its performed effects. |
+| Raw retirement | The raw pointer or the allocation record's pointer field comes from the admitted argument capture. Each preceding typed discharge has its own exact reached cell. | Lifetime invalidation uses the retirement address. Outstanding-duty diagnostics compare each pending cell with the proved discharge targets. A guarded outcome publishes exact cell changes after its performed effects. |
 | Witness and report support | `ExecutionState` has ordinary facts, trusted facts, a witness ledger, and allocation-owner relations. Result dependency state tracks report values and their retained storage dependencies. | A witness belongs to an actual owner and can depend on contents, a descriptor, or a reached lifetime. An allocation-owner association restricts the use of proof to the transferred owner. A missing association at a guarded join supplies no new evidence. A report has its own ownership and may outlive a scope. |
 | Portable identity | `DependencySubject` and captured terms name formal entry values, results, captures, and statics. Packages remap those identities through checked interface records. Unary signs use the scalar term encoder. Binary captured storage arithmetic retains both evaluated operands. | Receiver-first argument ordinals, result selectors, and selected root, product-static, and thread-static identities must retain their distinct meanings after substitution and import. Scalar arithmetic supplies no ownership evidence. |
 
@@ -219,6 +219,13 @@ input descriptor. A formal access that already dereferences its input holds
 the reached observation. Reading a typed pointee removes an enclosing access
 layer and retains any descriptor stored in the selected cell.
 An input loan or active payload supplies the reached references after access or selection establishes them.
+Call output staging records a common inactive payload as a physical no-payload
+binding. Completion installs that binding with the returned value. The current
+`StorageFlowState` reads those bindings together with its logical move and tag
+absence facts when selecting cleanup, retaining owners, and publishing exit or
+replacement decisions. Reference staging reads only no-payload facts. A later
+write or join updates the physical binding before the next query, so the
+caller does not copy the call's absence into a second persistent map.
 An address returned from the slice retains the
 containing storage lifetime through its portable reference relationship. The fixed element selector and its backing
 lifetime remain distinct from an exact cell address in the caller.
@@ -232,13 +239,19 @@ An unresolved raw deallocation cannot retire an invocation-owned inline slot. Ph
 observation framing use the checked pointer type while still invalidating possible heap aliases. Buffer
 cleanup disposes initialized elements and retires their backing. The backing comes from the admitted
 owner's current descriptor. Reached allocation targets retire through their actual captured addresses
-and generations. Nested retirement binds its exact reached address and carries
-the definite typed consumes already completed in the caller prestate.
-The physical cell state drops consumption evidence when a path leaves a cell
-initialized or a later write reinitializes it. Retirement reads that state
-through the exact captured address. Export carries the resulting
-discharges with the retirement. The unordered effect envelope only bounds the
-mutations that can occur.
+and generations. A retirement carries the exact cells whose typed duties had
+already transferred at that point. The retired address and the consumed cells
+can come from different captured descriptors. The summary publishes each as
+its own typed route. Call binding resolves those routes against the admitted
+operands. The reached cell state drops discharge evidence when a joined path
+leaves the cell initialized or a later effect may reinitialize the cell. The
+caller checks a routed typed discharge directly, including descendants in
+the same allocation. It does not reread the source cell's type or initialized
+state after that cell was retired. The unordered effect envelope only bounds
+the mutations that can occur.
+Unresolved cleanup supplies the same unknown effect to the local state and
+the portable summary. Buffer cleanup prepares the descriptor routes for the
+retirement and each carried discharge.
 
 A static effect can name an owned backing region without supplying its address. Bind the checked route to the
 current backing when the descriptor is available. Otherwise keep the static identity and its owning path as

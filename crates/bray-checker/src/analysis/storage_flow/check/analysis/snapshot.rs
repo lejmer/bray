@@ -61,7 +61,7 @@ struct ScopeExitSnapshot {
 
 struct ReachedCleanup {
     orders: Option<ReachedLifecycle>,
-    absent: Arc<BTreeMap<StoragePath, StorageAbsence>>,
+    absent: Arc<BTreeSet<StoragePath>>,
     replacement: Option<StorageTarget>,
 }
 
@@ -135,7 +135,7 @@ impl CleanupSnapshots {
         &mut self,
         operation: AnalysisOperationId,
         selection: &CleanupSelection,
-        absent: &Arc<BTreeMap<StoragePath, StorageAbsence>>,
+        absent: &Arc<BTreeSet<StoragePath>>,
     ) {
         use std::collections::btree_map::Entry;
 
@@ -161,9 +161,9 @@ impl CleanupSnapshots {
                 }
 
                 if !Arc::ptr_eq(&reached.absent, absent)
-                    && reached.absent.keys().any(|path| !absent.contains_key(path))
+                    && reached.absent.iter().any(|path| !absent.contains(path))
                 {
-                    Arc::make_mut(&mut reached.absent).retain(|path, _| absent.contains_key(path));
+                    Arc::make_mut(&mut reached.absent).retain(|path| absent.contains(path));
                 }
 
                 if reached.replacement != selection.replacement {
@@ -291,7 +291,7 @@ impl ExitState {
             live: state.live.clone(),
             initialized: state.initialized.clone(),
             moved: state.moved.keys().cloned().collect(),
-            definitely_absent: state.definitely_absent.keys().cloned().collect(),
+            definitely_absent: state.absent_paths().cloned().collect(),
             fully_moved: state.fully_moved.clone(),
             active_borrows: state.active_borrows.clone(),
             recovered: state.recovered,
@@ -303,7 +303,7 @@ impl ExitState {
             &incoming.active_borrows, incoming.recovered);
 
         self.moved.extend(incoming.moved.keys().cloned());
-        self.definitely_absent.retain(|access| incoming.definitely_absent.contains_key(access));
+        self.definitely_absent.retain(|access| incoming.absent_paths().any(|path| path == access));
     }
 
     fn merge_snapshot(&mut self, incoming: Self) {
@@ -396,8 +396,7 @@ impl ReplacementState {
                 .filter_map(|path| path.rebase(reached, planned))
                 .collect(),
             definitely_absent: state
-                .definitely_absent
-                .keys()
+                .absent_paths()
                 .filter(|path| reached.contains(path) || path.contains(reached))
                 .cloned()
                 .collect(),

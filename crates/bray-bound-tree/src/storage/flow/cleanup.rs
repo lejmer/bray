@@ -20,7 +20,7 @@ pub enum StorageAbsence {
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct StorageCleanupEntry {
     orders: Arc<[Arc<[StorageAccessId]>]>,
-    absent: Arc<BTreeMap<StoragePath, StorageAbsence>>,
+    absent: Arc<BTreeSet<StoragePath>>,
     replacement: Option<StorageTarget>,
 }
 
@@ -28,7 +28,7 @@ impl StorageCleanupEntry {
     /// Retains the reached orders and the incoming absence and address facts.
     pub fn new(
         orders: Arc<[Arc<[StorageAccessId]>]>,
-        absent: Arc<BTreeMap<StoragePath, StorageAbsence>>,
+        absent: Arc<BTreeSet<StoragePath>>,
         replacement: Option<StorageTarget>,
     ) -> Self {
         Self { orders, absent, replacement }
@@ -41,7 +41,7 @@ impl StorageCleanupEntry {
 
     /// The owners or payloads absent at every reached entry.
     pub fn absent(&self) -> impl Iterator<Item = &StoragePath> + Clone {
-        self.absent.keys()
+        self.absent.iter()
     }
 
     /// The reached address of the displaced owner, when established.

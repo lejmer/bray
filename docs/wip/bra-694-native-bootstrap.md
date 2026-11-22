@@ -220,12 +220,6 @@ observation, reconstruct an owner at admission, or make a historical allocation
 fact unrestricted. A copied address or borrowed alias must still be unable to
 spend an owning carrier.
 
-The selected allocation reaches `initialize_domain` with its original owner,
-pointer, size, and alignment after the arena call frames its storage. Proof
-invalidation reads the scalar data from that framed state. The package-backed
-candidate checks and lowers `create_execution`. The other nullable and union
-carrier paths in the 13-body inventory still need verification and repair.
-
 `destroy_domain` checks and lowers by itself. Its caller reaches raw retirement
 with three outstanding typed cells below the same execution owner, including
 two direct service fields and one nested report field. The nested summary
@@ -241,11 +235,36 @@ describes possible changes. Its sort order cannot establish a discharge.
 Deferred formation knows the operands and possible effects. Actual discharge
 facts belong to the reached execution.
 
+The three-body package probe at `cd6c582a5` checks and lowers
+`create_execution` and `destroy_domain`. The allocation reaches
+`initialize_domain` with its original owner, pointer, size, and alignment
+after the arena call. The nullable allocation test with an opaque call fails.
+`retire_pin` reproduces E7086 for three pending cells under the domain pointer.
+
+The package-backed probe checked and lowered all 13 selected bootstrap
+bodies with the routed-discharge candidate. It reported 16 diagnostics at 10
+source sites. `retire_pin` retained one E7086 site with two initialized
+origins. A later review of that site found an already typed discharge was
+being checked against its source cell after the cell had retired. The current
+candidate consumes that routed discharge directly and has a focused checker
+test. The other sites concern transported ownership through nullable and
+catch payloads, replacement cleanup, and one exposed-address write. The
+`entry_scope` contract publishes an inactive `operation` payload, but cleanup
+read only the logical absence map. The current candidate reads the committed
+physical no-payload binding alongside logical absence throughout cleanup,
+owner retention, and exit publication. These changes need a fresh package
+probe. The probe uses a standard-library bundle built with Rust 1.98.1 and
+LLVM 22.1.8. Rust 1.99.0 emits LLVM 23 bitcode that Bray's pinned LLVM 22
+symbol tool cannot inspect.
+
 The call that extracts the whole `Domain` publishes a definite typed
-discharge through the admitted domain pointer. Later retirements can name
-different captured pointers. Check which exact discharged cell routes are
-still available when those retirements run. A route relative to the retired
-pointer cannot represent a consumed cell reached from a different input.
+discharge through the admitted domain pointer. The reached scheduler
+retirement sees that cell but uses a different address. Later cleanup effects
+can also remove the consumption marker before the allocation record retires
+its backing. Publish typed discharge routes alongside the retirement route.
+Keep the actual transfer evidence across effects that cannot reinitialize
+the cell. Validate reinitialization, possible aliases, guarded paths, and
+package import with the same route binder.
 
 The selected `StoragePlan` order determines each cleanup action.
 `StorageFlowState` supplies its reached owner, receiver, and committed

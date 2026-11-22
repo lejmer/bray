@@ -1,5 +1,5 @@
 mod effect;
-pub use effect::{DependencyEffectOutcomes, DependencyMutationKind, DependencyStorageEffect, StorageDischarge};
+pub use effect::{DependencyEffectOutcomes, DependencyMutationKind, DependencyStorageEffect};
 mod application;
 mod captured;
 mod constant;

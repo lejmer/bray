@@ -463,7 +463,7 @@ pub(super) fn prepare_variants<C: crate::CheckerRequestContext + ?Sized>(
             .chain(call.deferred_result_cleanup().into_iter().flatten())
             .chain(call.cell_changes())
         {
-            if let Some(subject) = effect.subject() {
+            for subject in effect.subjects() {
                 retain(subject.projections());
             }
 
@@ -503,7 +503,7 @@ pub(super) fn prepare_variants<C: crate::CheckerRequestContext + ?Sized>(
         }
 
         for effect in contract.effects().iter().chain(contract.cell_changes()) {
-            if let Some(subject) = effect.subject() {
+            for subject in effect.subjects() {
                 retain(subject.projections());
             }
 

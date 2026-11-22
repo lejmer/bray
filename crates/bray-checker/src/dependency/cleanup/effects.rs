@@ -307,10 +307,15 @@ fn append_call<E>(
 ) -> Result<(), CheckerQueryError<E>> {
     let selected = resolve(callable)?;
 
-    effects.extend(selected.iter().map(|effect| {
-        let (effect, discharged) = effect.retirement_parts();
+    effects.extend(selected.iter().map(|effect| project_call_effect(scope, effect)));
 
-        let projected = match effect {
+    Ok(())
+}
+
+fn project_call_effect(scope: &Effect, effect: &Effect) -> Effect {
+    let (effect, discharged) = effect.retirement_parts();
+
+    let projected = match effect {
         Effect::Direct { addressed, subject, kind, access_type } if cleanup_receiver(subject.subject_root()) => {
             let projected = project(scope, subject.projections(), *kind, *access_type);
 
@@ -340,16 +345,16 @@ fn append_call<E>(
         // Unknown effects keep the supplied receiver scope instead of exposing it.
         Effect::Unknown | Effect::Escape if !matches!(scope, Effect::UnboundedMutation { .. }) => scope.clone(),
         effect => effect.clone(),
-        };
+    };
 
-        if projected.is_addressed_retirement() && !discharged.is_empty() {
-            projected.with_retirement_discharges(discharged.into())
-        } else {
-            projected
-        }
-    }));
+    if projected.is_addressed_retirement() && !discharged.is_empty() {
+        let duties = discharged.iter().map(|effect| project_call_effect(scope, effect))
+            .filter(Effect::is_addressed_discharge);
 
-    Ok(())
+        projected.with_retirement_discharges(bray_base::sorted_unique_shared_slice(duties))
+    } else {
+        projected
+    }
 }
 
 fn mutation(effect: &Effect) -> Option<(Kind, Option<TypeId>)> {

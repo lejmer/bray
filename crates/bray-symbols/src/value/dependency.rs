@@ -872,7 +872,7 @@ impl DependencyContractTemplateData {
                     .into_iter()
                     .chain(std::iter::once(relation.exit()))
             })
-            .chain(self.effects().iter().chain(self.cell_changes()).filter_map(DependencyStorageEffect::subject))
+            .chain(self.effects().iter().chain(self.cell_changes()).flat_map(DependencyStorageEffect::subjects))
             .chain(self.captured_values().iter().flat_map(|row| row.stored_values.iter()).flat_map(|stored| {
                 std::iter::once(stored.destination().subject()).chain(stored.sources().iter().map(DependencyStoredValuePath::subject))
             }))

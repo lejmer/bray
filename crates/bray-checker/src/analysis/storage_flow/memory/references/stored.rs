@@ -303,6 +303,12 @@ impl State {
         self.replace_value(destination, ValueBinding::no_payload());
     }
 
+    pub(in crate::analysis::storage_flow) fn no_payload_paths(&self) -> impl Iterator<Item = &Place> + Clone {
+        self.values.iter().filter_map(|(target, value)| {
+            (!target.previous && value.is_no_payload()).then(|| target.storage_path()).flatten()
+        })
+    }
+
     pub(super) fn replace_value(&mut self, destination: Place, value: ValueBinding) {
         self.clear(&destination);
         self.values.insert(Target::storage(destination), value);

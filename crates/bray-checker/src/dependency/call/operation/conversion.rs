@@ -289,7 +289,10 @@ fn project_effect(
     };
 
     if projected.is_addressed_retirement() && !discharged.is_empty() {
-        projected.with_retirement_discharges(discharged.into())
+        let duties = discharged.iter().map(|effect| project_effect(effect, ordinal, shape))
+            .filter(DependencyStorageEffect::is_addressed_discharge);
+
+        projected.with_retirement_discharges(bray_base::sorted_unique_shared_slice(duties))
     } else {
         projected
     }

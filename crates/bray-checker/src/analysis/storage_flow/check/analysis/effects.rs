@@ -1,5 +1,5 @@
 use crate::analysis::storage_flow::memory::{Effect, EffectOutcomes};
-use bray_bound_tree::{StorageEffectRow, StorageIdentity, StorageInvalidation, StorageObservedTarget, StoragePath, StorageProjection, StorageReferencePath};
+use bray_bound_tree::{StorageDischarge, StorageEffectRow, StorageIdentity, StorageInvalidation, StorageObservedTarget, StoragePath, StorageProjection, StorageReferencePath};
 use bray_symbols::{
     DependencyFailureKind, DependencyMutationKind, DependencyStorageEffect, DependencySubject,
     TypeData,
@@ -12,7 +12,6 @@ use crate::CheckerRequestContext;
 use crate::analysis::model::{AnalysisCallPhase, AnalysisOperation, AnalysisOperationKind};
 use crate::analysis::storage_flow::memory::{Origin, Target};
 use crate::analysis::storage_flow::model::{EffectPrefix, StorageFlowState};
-use crate::storage::storage_projections;
 
 impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     pub(super) fn begin_transition(
@@ -619,6 +618,17 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         mut input_regions: impl FnMut() -> Option<std::sync::Arc<[Target]>>,
         mut resolve: impl FnMut(&DependencySubject, Option<&StorageReferencePath>, bool) -> Option<Vec<crate::analysis::storage_flow::memory::MutationTarget>>,
     ) -> Vec<Effect> {
+        self.resolve_effect_routes(memory, storage, (effects, entry), &mut input_regions, &mut resolve)
+    }
+
+    fn resolve_effect_routes(
+        &self,
+        memory: &crate::analysis::storage_flow::memory::State,
+        storage: &bray_bound_tree::BoundCallStorage,
+        (effects, entry): (&[DependencyStorageEffect], Option<&crate::ExecutionCallEvidence>),
+        input_regions: &mut impl FnMut() -> Option<std::sync::Arc<[Target]>>,
+        resolve: &mut impl FnMut(&DependencySubject, Option<&StorageReferencePath>, bool) -> Option<Vec<crate::analysis::storage_flow::memory::MutationTarget>>,
+    ) -> Vec<Effect> {
         let mut resolved = Vec::new();
 
         for effect in effects {
@@ -733,28 +743,34 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 continue;
             };
 
+            let duties = discharged.iter().filter_map(|duty| {
+                let reached = self.resolve_effect_routes(memory, storage, (std::slice::from_ref(duty), entry), input_regions, resolve);
+
+                let [effect] = reached.as_slice() else { return None; };
+
+                let (cell, DependencyMutationKind::Discharge(ty)) = effect.cell_change()? else { return None; };
+
+                // A discharged cell is a proof fact. Alternative targets contribute only bounds.
+                Some(StorageDischarge { cell: cell.clone(), ty })
+            }).collect::<Vec<_>>();
+
             for target in targets {
                 let target = if addressed { target } else { bray_bound_tree::StorageMutationTarget::bounded(target.footprint) };
 
                 let effects = Effect::through(target, kind, access_type);
 
-                let mut duties = discharged.iter().filter_map(|duty| {
-                    let projections = storage_projections(self.request.semantic_values(), self.dependencies, &duty.projections)?;
-
-                    (StorageProjection::remains_in_allocation(&projections) && projections.iter().all(|projection| projection.is_exact()))
-                        .then(|| bray_symbols::StorageDischarge { projections: projections.into(), ty: duty.ty })
-                }).collect::<Vec<_>>();
-
-                if kind == DependencyMutationKind::Retire
+                let effects = if kind == DependencyMutationKind::Retire
                     && let Effect::Mutation { address: Some(address), .. } = &effects
                 {
                     // A nested retirement runs after the caller's already completed
                     // exact moves. Carry that reached prestate with the retirement;
                     // the unordered effect envelope cannot establish this order.
-                    duties.extend(memory.retirement_discharges(address));
-                }
+                    let prefix = duties.iter().cloned().chain(memory.retirement_discharges(address)).collect::<Vec<_>>();
 
-                resolved.push(effects.with_retirement_discharges(duties));
+                    effects.with_retirement_discharges(prefix)
+                } else { effects };
+
+                resolved.push(effects);
             }
         }
 
@@ -816,7 +832,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         addressed: bool,
         kind: DependencyMutationKind,
         access_type: Option<bray_symbols::TypeId>,
-        discharged: &[bray_symbols::StorageDischarge<StorageProjection>],
+        discharged: &[StorageDischarge],
         mut prefix: Option<&mut EffectPrefix>,
     ) {
         if !self.publish && prefix.is_none() {
@@ -849,12 +865,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         if let Some(effect) = self.portable_target_effect(target, addressed, kind, access_type) {
             let effect = if effect.is_addressed_retirement() && !discharged.is_empty() {
-                let duties = discharged.iter().filter_map(|duty| {
-                    Some(bray_symbols::StorageDischarge {
-                        projections: crate::storage::dependency_projections(self.request, &duty.projections)?.into(),
-                        ty: duty.ty,
-                    })
-                });
+                let duties = discharged.iter().filter_map(|duty| self.portable_target_effect(
+                    &duty.cell, true, DependencyMutationKind::Discharge(duty.ty), None,
+                )).filter(DependencyStorageEffect::is_addressed_discharge);
 
                 effect.with_retirement_discharges(bray_base::sorted_unique_shared_slice(duties))
             } else {

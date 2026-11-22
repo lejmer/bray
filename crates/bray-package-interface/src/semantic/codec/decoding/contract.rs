@@ -187,10 +187,13 @@ fn decode_dependency_effect(
             let mut discharged = context.allocate_items(reader, count)?;
 
             for _ in 0..count {
-                discharged.push(bray_symbols::StorageDischarge {
-                    projections: decode_dependency_projections(reader, limits, context)?.into(),
-                    ty: crate::InterfaceTypeId::new(read_u32(reader)?),
-                });
+                let duty = decode_dependency_effect(reader, limits, context, false)?;
+
+                if !duty.is_addressed_discharge() || !duty.is_valid_route() {
+                    return Err(crate::semantic::codec::invalid_value(crate::InterfaceValidationField::Dependency));
+                }
+
+                discharged.push(duty);
             }
 
             retirement.with_retirement_discharges(discharged.into())

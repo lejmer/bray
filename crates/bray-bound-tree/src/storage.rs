@@ -21,7 +21,7 @@ mod transition;
 mod value;
 
 pub use value::{ReportDependencies, StorageAddressValue, StorageDependencyCompleteness, StorageMutationTarget, StorageValueBinding, StorageValueRetirement};
-pub use capture::{StorageCapturedEffects, StorageCapturedTransition, StorageDeferredProducer, StorageDeferredTransition, StorageContents, StorageEffect, StorageEffectRow,
+pub use capture::{StorageCapturedEffects, StorageCapturedTransition, StorageDeferredProducer, StorageDeferredTransition, StorageContents, StorageDischarge, StorageEffect, StorageEffectRow,
     StorageCapturedValue, merge_storage_bindings, merge_storage_contents,
     selected_storage_values, storage_selector_parent, storage_value_subtree};
 

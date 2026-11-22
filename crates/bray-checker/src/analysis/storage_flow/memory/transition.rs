@@ -2,9 +2,9 @@ use super::Source;
 use super::references::storage_subtree;
 use super::model::{Place, AddressValue, State, Target, Transfer};
 use bray_bound_tree::{
-    BoundExpressionId, MemoryOperationStatus, MemoryReadKind,
+    BoundExpressionId, MemoryOperationStatus, MemoryReadKind, StorageDischarge,
 };
-use bray_symbols::{StorageDischarge, TypeId};
+use bray_symbols::TypeId;
 
 impl State {
     pub(in crate::analysis::storage_flow) fn observe_effect_types(
@@ -444,7 +444,7 @@ impl State {
                     self.evaluated.insert(target.clone(), contents.clone());
                 }
 
-                contents.clear_initialization();
+                contents.retain_initialization(true, |_| false);
 
                 // Consumption ends initialized ownership, not the evaluated value's identity.
                 // Normal value transfer still needs its reference fields before slot retirement.
@@ -568,44 +568,32 @@ impl State {
     pub(in crate::analysis::storage_flow) fn retirement_discharges<'a>(
         &'a self,
         target: &'a Target,
-    ) -> impl Iterator<Item = StorageDischarge<bray_bound_tree::StorageProjection>> + 'a {
-        storage_subtree(&self.contents, target).filter(|(cell, _)| cell.is_exact())
-            .flat_map(move |(cell, contents)| {
-                contents.consumed_types().map(move |ty| StorageDischarge {
-                    projections: cell.projections()[target.projections().len()..].into(),
-                    ty,
-                })
-            })
+    ) -> impl Iterator<Item = StorageDischarge> + 'a {
+        self.contents.iter().flat_map(move |(cell, contents)| {
+            contents.consumed_types().filter(move |_| cell.is_exact()
+                && self.target_relationship(target, cell) != bray_bound_tree::StorageRelationship::Disjoint)
+                .map(move |ty| StorageDischarge { cell: cell.clone(), ty })
+        })
     }
 
     /// Retains the actual duties not transferred before this reached retirement.
     pub(in crate::analysis::storage_flow) fn retirement_obligations(
         &self,
         target: &Target,
-        discharged: &[StorageDischarge<bray_bound_tree::StorageProjection>],
+        discharged: &[StorageDischarge],
     ) -> Option<Vec<BoundExpressionId>> {
-        let discharged = discharged.iter().map(|duty| {
-            let cell = target.project(&duty.projections);
-
-            let complete_value = self.contents.get(&cell).is_some_and(|contents| {
-                contents.storage_type == Some(duty.ty) || contents.is_initialized(duty.ty)
-            });
-
-            (cell, duty.ty, complete_value)
-        }).collect::<Vec<_>>();
-
-        let discharged = &discharged;
-
         let mut outstanding = self.contents.iter().filter(|(candidate, contents)| {
             !contents.pending.is_empty()
                 && self.target_relationship(target, candidate) != bray_bound_tree::StorageRelationship::Disjoint
         }).flat_map(|(candidate, contents)| {
             contents.pending.iter().filter(move |(ty, _)| {
-                !(candidate.is_exact() && discharged.iter().any(|(cell, read, complete_value)| {
-                    if cell == candidate {
-                        read == *ty
+                !(candidate.is_exact() && discharged.iter().any(|duty| {
+                    // The routed discharge is the typed transfer evidence. The
+                    // source cell may already have been retired in this state.
+                    if &duty.cell == candidate {
+                        duty.ty == **ty
                     } else {
-                        *complete_value && cell.contains_storage(candidate)
+                        duty.cell.contains_storage(candidate)
                     }
                 }))
             }).map(|(_, origins)| origins)

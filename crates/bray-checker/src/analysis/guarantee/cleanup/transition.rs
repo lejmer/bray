@@ -314,7 +314,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 scope,
                 state.fully_moved.contains(&identity),
                 state.moved.keys(),
-                state.definitely_absent.keys(),
+                state.absent_paths(),
             );
 
             match disposition {
