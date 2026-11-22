@@ -365,12 +365,12 @@ fn rewrite_equalities_inner(
             rewrite_equalities(&left, replacements, identities, budget, memo),
             rewrite_equalities(&right, replacements, identities, budget, memo),
         ),
-        K::Trusted(value) if identities.is_some() => ExecutionCondition::new(crate::ExecutionConditionKind::Trusted(
-            Arc::new(rewrite_equalities(&value, replacements, identities, budget, memo)),
-        )),
-        K::Trusted(value) => {
+        K::Trusted(_) if identities.is_some() => value.map_children(|child| {
+            rewrite_equalities(child, replacements, identities, budget, memo)
+        }),
+        K::Trusted(child) => value.map_wrapped_child(child, |child| {
             // Ordinary Boolean equalities cannot rename the predicate that owns trusted authority.
-            let value = match value.kind() {
+            match child.kind() {
                 K::Predicate(predicate, substitution, operands) => {
                     ExecutionCondition::predicate(
                         *predicate,
@@ -383,39 +383,22 @@ fn rewrite_equalities_inner(
                             .collect(),
                     )
                 }
-                _ => value.as_ref().clone(),
-            };
-
-            ExecutionCondition::new(crate::ExecutionConditionKind::Trusted(Arc::new(value)))
-        }
-        K::Tagged(variant, value) => ExecutionCondition::new(crate::ExecutionConditionKind::Tagged(
-            *variant,
-            Arc::new(rewrite_equalities(&value, replacements, identities, budget, memo)),
-        )),
+                _ => child.clone(),
+            }
+        }, K::Trusted),
         K::VariantTest(variant, value) => {
             rewrite_equalities(&value, replacements, identities, budget, memo).matches_variant(*variant)
-        }
-        K::Present(value) => {
-            ExecutionCondition::new(crate::ExecutionConditionKind::Present(Arc::new(rewrite_equalities(&value, replacements, identities, budget, memo))))
         }
         K::Borrowed(value) if let Some(identities) = identities => {
             rewrite_equalities(&value, replacements, Some(identities), budget, memo).borrowed()
         }
         K::Entry { captured: true, .. } if identities.is_some() => value.clone(),
-        K::Borrowed(child) => {
+        K::Borrowed(_) => {
             // Equal contents do not equate the physical referents of borrowed observations.
-            ExecutionCondition::new(K::Borrowed(Arc::clone(child)))
+            value.clone()
         }
-        K::Entry {
-            condition,
-            captured,
-        } => ExecutionCondition::new(crate::ExecutionConditionKind::Entry {
-            condition: Arc::new(rewrite_equalities(
-                &condition,
-                replacements,
-                identities,
-                budget, memo)),
-            captured: *captured,
+        K::Entry { .. } | K::Tagged(..) | K::Present(_) | K::Constructed(..) => value.map_children(|child| {
+            rewrite_equalities(child, replacements, identities, budget, memo)
         }),
         K::Input(place) if identities.is_some() => {
             let mut rewritten = None;
@@ -442,27 +425,16 @@ fn rewrite_equalities_inner(
                 }
             }
 
-            rewritten.unwrap_or_else(|| ExecutionCondition::new(crate::ExecutionConditionKind::Input(place.clone())))
+            rewritten.unwrap_or_else(|| value.clone())
         }
         K::Projection(field, base) => {
             rewrite_equalities(&base, replacements, identities, budget, memo).component(*field)
         }
-        K::Observation { owner, contents, kind } => ExecutionCondition::observation(
+        K::Observation { owner, contents, kind } => ExecutionCondition::observe_retaining(
             rewrite_identity(&owner, identities, budget, memo),
             rewrite_equalities(&contents, replacements, identities, budget, memo),
             *kind,
-        ),
-        K::Constructed(base, fields) => ExecutionCondition::constructed(rewrite_equalities(&base, replacements, identities, budget, memo),
-            fields
-                .iter()
-                .map(|(field, value)| {
-                    (
-                        *field,
-                        rewrite_equalities(value, replacements, identities, budget, memo),
-                    )
-                })
-                .collect::<Vec<_>>()
-                .into(),
+            Some(&value),
         ),
         K::Operation(operator, operands) => ExecutionCondition::operation(
             *operator,

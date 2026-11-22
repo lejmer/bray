@@ -354,7 +354,15 @@ impl ExecutionCondition {
     /// Structural overlays retain the existing value's identity and ownership role.
     pub(crate) fn constructed(
         base: Self,
+        fields: Arc<[(bray_bound_tree::StorageProjection, Self)]>,
+    ) -> Self {
+        Self::construct_retaining(base, fields, None)
+    }
+
+    pub(super) fn construct_retaining(
+        base: Self,
         mut fields: Arc<[(bray_bound_tree::StorageProjection, Self)]>,
+        previous: Option<&Self>,
     ) -> Self {
         if fields.is_empty() { return base; }
 
@@ -408,7 +416,16 @@ impl ExecutionCondition {
                     fields = fields.iter().filter(|field| !implicit(field)).cloned().collect();
                 }
 
-                if fields.is_empty() { base } else { Self::new(K::Constructed(Arc::new(base), fields)) }
+                if fields.is_empty() {
+                    base
+                } else if let Some(previous) = previous
+                    && matches!(previous.kind(), K::Constructed(old_base, old_fields)
+                        if old_base.as_ref() == &base && Arc::ptr_eq(old_fields, &fields))
+                {
+                    previous.clone()
+                } else {
+                    Self::new(K::Constructed(Arc::new(base), fields))
+                }
             }
         }
     }
@@ -458,6 +475,15 @@ impl ExecutionCondition {
     }
 
     pub(crate) fn observation(owner: Self, contents: Self, kind: ObservationKind) -> Self {
+        Self::observe_retaining(owner, contents, kind, None)
+    }
+
+    pub(super) fn observe_retaining(
+        owner: Self,
+        contents: Self,
+        kind: ObservationKind,
+        previous: Option<&Self>,
+    ) -> Self {
         let owner = owner.owner_identity();
 
         if kind == ObservationKind::Owned && owner == &contents
@@ -475,6 +501,13 @@ impl ExecutionCondition {
 
         if matches!(observed.kind(), K::Observation { owner: current, kind: current_kind, .. } if current.as_ref() == owner && *current_kind == kind) {
             return contents;
+        }
+
+        if let Some(previous) = previous
+            && matches!(previous.kind(), K::Observation { owner: old_owner, contents: old_contents, kind: old_kind }
+                if old_owner.as_ref() == owner && old_contents.as_ref() == &contents && *old_kind == kind)
+        {
+            return previous.clone();
         }
 
         ExecutionCondition::new(K::Observation { owner: Arc::new(owner.clone()), contents: Arc::new(contents), kind })

@@ -34,8 +34,8 @@ impl ExecutionCondition {
             K::CapturedValue { value, storage } => map(value).captured_value(storage.clone()),
             K::DeferredValue { value, frame } => map(value).with_deferred_value(Arc::clone(frame)),
             K::StorageValue(operation, operands) => Self::storage_value(*operation, operands.iter().map(&mut map).collect()),
-            K::ScalarValue(value) => Self::new(K::ScalarValue(Arc::new(map(value)))),
-            K::PostState(mutation, value) => Self::new(K::PostState(*mutation, Arc::new(map(value)))),
+            K::ScalarValue(value) => self.map_wrapped_child(value, &mut map, K::ScalarValue),
+            K::PostState(mutation, value) => self.map_wrapped_child(value, &mut map, |value| K::PostState(*mutation, value)),
             K::Discriminant(value) => map(value).discriminant(),
             K::Descriptor(kind, value) => map(value).descriptor(*kind),
             K::ValueAlias(left, right) => Self::value_alias(map(left), map(right)),
@@ -48,20 +48,50 @@ impl ExecutionCondition {
             K::Predicate(predicate, substitution, operands) => Self::predicate(
                 *predicate, *substitution, operands.iter().map(&mut map).collect(),
             ),
-            K::Trusted(value) => Self::new(K::Trusted(Arc::new(map(value)))),
+            K::Trusted(value) => self.map_wrapped_child(value, &mut map, K::Trusted),
             K::Borrowed(value) => map(value).borrowed(),
-            K::Present(value) => Self::new(K::Present(Arc::new(map(value)))),
-            K::Tagged(variant, value) => Self::new(K::Tagged(*variant, Arc::new(map(value)))),
+            K::Present(value) => self.map_wrapped_child(value, &mut map, K::Present),
+            K::Tagged(variant, value) => self.map_wrapped_child(value, &mut map, |value| K::Tagged(*variant, value)),
             K::VariantTest(variant, value) => map(value).matches_variant(*variant),
-            K::Entry { condition, captured } => Self::new(K::Entry { condition: Arc::new(map(condition)), captured: *captured }),
+            K::Entry { condition, captured } => self.map_wrapped_child(condition, &mut map, |condition| K::Entry { condition, captured: *captured }),
             K::Projection(field, value) => map(value).component(*field),
-            K::Observation { owner, contents, kind } => Self::observation(map(owner), map(contents), *kind),
-            K::Constructed(base, fields) => Self::constructed(map(base), fields.iter()
-                .map(|(field, value)| (*field, map(value))).collect()),
+            K::Observation { owner, contents, kind } => Self::observe_retaining(map(owner), map(contents), *kind, Some(self)),
+            K::Constructed(base, fields) => self.map_constructed(base, fields, |_, value| map(value)),
             K::Operation(operator, operands) => Self::operation(*operator, operands.iter().map(&mut map).collect()),
             K::Boolean(_) | K::Variant(_) | K::Literal(_) | K::Input(_) | K::Result | K::Expression(_)
             | K::ScopedCapability(_) | K::Joined(..) | K::Unknown => self.clone(),
         }
+    }
+
+    pub(super) fn map_wrapped_child(
+        &self,
+        child: &Self,
+        map: impl FnOnce(&Self) -> Self,
+        wrap: impl FnOnce(Arc<Self>) -> K,
+    ) -> Self {
+        let value = map(child);
+
+        if &value == child { self.clone() } else { Self::new(wrap(Arc::new(value))) }
+    }
+
+    pub(super) fn map_constructed(
+        &self,
+        base: &Self,
+        fields: &Arc<[(bray_bound_tree::StorageProjection, Self)]>,
+        mut map: impl FnMut(Option<bray_bound_tree::StorageProjection>, &Self) -> Self,
+    ) -> Self {
+        let base = map(None, base);
+        let mut updated = Arc::clone(fields);
+
+        for (index, (field, old)) in fields.iter().enumerate() {
+            let value = map(Some(*field), old);
+
+            if &value != old {
+                Arc::make_mut(&mut updated)[index].1 = value;
+            }
+        }
+
+        Self::construct_retaining(base, updated, Some(self))
     }
 
     pub(super) fn children(&self) -> impl Iterator<Item = &Self> { self.kind().children() }

@@ -385,6 +385,9 @@ remapped proof, captures, and pending results. Only the joined state retains cur
 Stable observations read the live entries of the retained roots. Predicates use the logical observation
 of each reached borrowed value. Joins use that same observation when remapping and checking clauses
 against their predecessors. Storage transfer keeps the complete physical capture.
+Bounded condition substitution visits the retained children in the original order. If the evaluated
+aggregate or reference observation still has the same canonical form, it keeps the original node.
+An aggregate reuses its field list until a field changes.
 An inline field retains the data and physical capture of the selected payload. Its nullable extraction view
 can still name the containing snapshot for checks at the read site. Storing that view in the field would
 retain an obsolete parent on every loop pass.
@@ -487,6 +490,8 @@ at each reachable result depth alongside the normal value.
 · [Dependency failure CFG](../../crates/bray-checker/src/analysis/cleanup.rs)
 · [Failure application](../../crates/bray-checker/src/analysis/storage_flow/model/domain.rs)
 · [Cancellation and incidents](../language/async-and-concurrency/cancellation.md)
+
+### Cleanup and resumption
 
 The storage schedule owns the acquired values and cleanup order. The invocation owns
 its selected effect prefix and report. The enclosing exit owns the primary reason

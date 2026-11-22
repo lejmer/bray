@@ -240,14 +240,11 @@ impl ExecutionCondition {
             K::CapturedValue { value, storage } => value.as_ref().clone().with_producer(producer).captured_value(storage.clone()),
             K::DeferredValue { value, frame } => value.as_ref().clone().with_producer(producer).with_deferred_value(std::sync::Arc::clone(frame)),
             K::Unknown => producer,
-            K::Constructed(base, fields) => {
-                let fields = fields.iter().map(|(field, value)|
-                    (*field, value.clone().with_producer(producer.clone().project(*field)))).collect();
+            K::Constructed(base, fields) => self.map_constructed(base, fields, |field, value| {
+                let origin = field.map_or_else(|| producer.clone(), |field| producer.clone().project(field));
 
-                let base = base.as_ref().clone().with_producer(producer);
-
-                Self::constructed(base, fields)
-            }
+                value.clone().with_producer(origin)
+            }),
             K::Observation { owner, contents, kind: super::ExecutionObservationKind::Scalar }
                 if owner == contents
                     && owner.ownership_identity().is_none()
@@ -271,12 +268,14 @@ impl ExecutionCondition {
                     owner
                 };
 
-                Self::observation(identity.clone(), contents.as_ref().clone().with_producer(producer), *kind)
+                Self::observe_retaining(identity.clone(), contents.as_ref().clone().with_producer(producer), *kind, Some(&self))
             }
-            K::Present(value) => Self::new(K::Present(Arc::new(
-                value.as_ref().clone().with_producer(producer.project(StorageProjection::NullableValue)),
-            ))),
-            K::Tagged(variant, value) => Self::new(K::Tagged(*variant, std::sync::Arc::new(value.as_ref().clone().with_producer(producer)))),
+            K::Present(value) => self.map_wrapped_child(value, |value| {
+                value.clone().with_producer(producer.project(StorageProjection::NullableValue))
+            }, K::Present),
+            K::Tagged(variant, value) => self.map_wrapped_child(value, |value| {
+                value.clone().with_producer(producer)
+            }, |value| K::Tagged(*variant, value)),
             _ => self,
         }
     }

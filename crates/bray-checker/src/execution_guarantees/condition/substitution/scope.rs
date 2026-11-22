@@ -255,4 +255,24 @@ mod tests {
             assert_eq!(substitution.value(&repeated), bounded, "reusing a root preserves the original bounded rewrite result");
         }
     }
+
+    #[test]
+    fn rewriting_an_aggregate_base_retains_unchanged_fields() {
+        use crate::ExecutionConditionKind::{Constructed, Input};
+
+        let base = ExecutionCondition::new(Input(ExecutionPlace::argument(SymbolOrdinal::new(0))));
+        let renamed = ExecutionCondition::new(Input(ExecutionPlace::argument(SymbolOrdinal::new(1))));
+        let projection = bray_bound_tree::StorageProjection::TupleElement(SymbolOrdinal::new(0));
+        let original = ExecutionCondition::constructed(base.clone(), [(projection, ExecutionCondition::boolean(true))].into());
+        let values = BTreeMap::from([(base, renamed.clone())]);
+        let owners = BTreeMap::new();
+        let rewritten = ExecutionSubstitution::new(&values, &owners).value(&original);
+
+        let (Constructed(_, original_fields), Constructed(actual, rewritten_fields)) = (original.kind(), rewritten.kind()) else {
+            panic!("renaming the base preserves the explicit tuple field");
+        };
+
+        assert_eq!(actual.as_ref(), &renamed);
+        assert!(Arc::ptr_eq(original_fields, rewritten_fields));
+    }
 }

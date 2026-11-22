@@ -63,288 +63,92 @@ evidence. Impossible internal states fail at the violated contract.
 
 ## Verified checkpoint
 
-Pushed checkpoint `b02202c62` checks and lowers all 25 original bootstrap
-bodies and four direct task dispatcher helpers on Windows and Linux, for both
-x64 and AArch64. The checked acquisition follows its owner across the waiter,
-dispatch, retirement, and start transitions.
+Pushed checkpoint `7f987f0af` passed the audited inventory of 1,709 cases,
+579 checker tests, and 139 bound-tree tests. It checked and lowered all 32
+selected native bootstrap bodies on Windows and Linux for x86-64 and
+AArch64, including `dispatch_ready` and `start_frame`. The selection covers
+the native owner, registration and dispatcher paths. A complete runtime
+archive and executable link must check the remaining bodies and backend.
 
-Checkpoint `ce33eb970` passed all 1,709 fixed cases, 578 checker tests,
-and 139 bound-tree tests. It checked and lowered all 32 selected bootstrap
-bodies on Windows and Linux for x64 and AArch64. The full runtime archive
-and executable link remain open.
+In an isolated optimized run with 24 workers, the Windows x64 standard
+library took 28.3 s to plan and 26.9 s to emit. Platform providers took
+18.3 s, and the full package invocation took 80.3 s. The earlier
+private-root candidate planned in 23.7 s and emitted in 22.5 s. Compare
+pinned binaries with the same prepared providers and one workload at a
+time before attributing the difference to a compiler change.
 
-The optimized 24-worker Windows x64 standard-library build planned in
-28.7 s and emitted in 26.9 s. Runtime preparation compiled the same
-standard-library package in 62.4 s with platform providers available.
-Executable link timing remains open. The same 1,698 result-dependency
-component evaluations took 151.8 worker seconds, up from 60.0 in the
-reference profile. A sample of 202 expensive body checks repeated one
-unit. A sample of 3,354 cleanup actions spent 2.5 s on proof invalidation
-and 0.06 s on state copies, with most time in referent checks and framing
-changed roots.
+## Runtime archive and cleanup
 
-The Windows x64 runtime archive had produced no archive after 23 minutes.
-Resumed cleanup accounted for about two-thirds of a sample of active threads.
-One runtime scope exit resumed 2,047 times at 11 distinct cursors for a
-single incoming state, taking 56 s. Standard-library operations also revisit
-the same cursors in storage flow and certification.
+The exact checkpoint reused its standard-library bundle and had no
+archive at the first seven-minute cutoff. The follow-up trace recorded
+progress through numeric bodies at the nine-minute cutoff. Complex
+division visited 609 of its 616 CFG blocks at most once. One scope exit
+took 102.7 s, spending 67.3 s in 8,439 observation joins and leaving eight
+outgoing states. Only 82 joins met the whole-state reuse check. The
+`arctangent` loop separately converges after canonicalizing empty
+ownership layouts and keeping agreed layouts when values are rekeyed.
 
-Join pending continuations at the same admitted action before visiting the
-remaining suffix. Use the existing flow joins and visit cursors in schedule
-order. The cursor retains the ordered `StoragePlan` accesses, current part,
-lifecycle slot, primary failure, and enclosing continuation. Separate source
-paths, replacement storage, panic and cancellation, and distinct schedules
-keep their own frames. The joined `StorageFlowState` carries all possible
-effects and reports and only supported definite observations. Certification
-uses the same worklist with its current proof state. An abstract array still
-iterates to convergence. A failed destructor has already attempted its slot.
-Resumption can still reach the next array iteration.
+The complete Windows x64 archive run used the pinned checkpoint compiler
+and its prepared standard-library bundle, with Rust 1.98.1 and LLVM 22.1.8
+for native providers. Runtime checking returned 54 diagnostics after 18
+minutes. It reported nine capability declarations, a name collision,
+40 unmet requirements, one raw deallocation with initialized storage,
+and three unverified postconditions. The archive and link remain open.
 
-Check represented-child guarantees, exact receiver writes, conditional
-cleanup rejection, replacement failure, pending-result abandonment, and
-retained report dependencies against the same fixed inventory. Use the full
-native archive and standard-library timing to verify that duplicate suffix
-work decreases. If merging at an equal cursor loses a guard needed later,
-retain that guarded input under the cursor rather than joining other
-continuations or treating a possible address as exact.
+The selected bootstrap fixture compiles runtime and standard-library
+sources together with standard-library source authority. The archive
+uses the ordinary runtime package with the prepared standard-library
+interface. Reproduce the diagnostic families under that package boundary
+before attributing them to individual runtime callers. Trace published
+allocation and nullable owner witnesses, scoped acquisition and cleanup,
+and initialized task fields through import, admission, consumption, and
+lowering. Distinguish diagnostics on the producing body from downstream
+requirements that depend on it. Validate capability and name changes
+against the declarations and actual selected calls on the target.
 
-The shared-worklist compiler planned the standard library in 27.0 s and
-emitted it in 24.3 s. The warm-provider package took 59.65 s wall time.
-The result-dependency component still accounts for 151.3 worker seconds.
-The current runtime sample spends 7.4 of 18.1 sampled worker seconds in
-state joins and 1.7 s scanning conditions for retired evaluations.
+A focused package-backed check reproduced all 40 unmet requirements,
+the raw deallocation error, the name collision, and one postcondition
+failure across 41 bodies. The complete product also checks declared
+capabilities and reports the two remaining cascading postconditions.
+The focused producer checks certify the allocation, event, deadline, and
+execution-view postconditions at their source. Follow the same values into
+the consumer before changing a producer or its callers.
 
-The shared-worklist runtime archive still had no output when interrupted at
-25 minutes. The body trace separates two costs. Complex division visits each
-block once, with one scope exit taking 85.6 s. In `arctangent`, the same loop
-keeps 37 work items pending and repeats its hottest block over 280 times.
-Compile the source body against the archive's standard-library bundle and
-query its storage flow directly. A certificate query can complete without
-checking the body when it declares no certified properties. The package-backed
-trace shows that successive header states differ only in `owned_results`
-after the first few visits. Current values, memory, and proof assumptions
-already agree. One key alternates between absent and an empty layout with
-three guards. Another empty layout accumulated 40 guards. A layout with no
-transfers has one canonical form in the retained ledger. A joined slot that
-keeps the same value and layout keeps the original record through renaming.
-An explicit no-transfer mapping still suppresses inferred input lineage.
-A possible empty arm still constrains a mixed layout with a real transfer.
-Guarded input moves, exact transfer origin and preservation masks still follow
-the reached snapshot through framing, return publication, and imported calls.
-The change removes redundant guard work and reuses an agreed record directly.
-If a key still alternates, identify the reached reader of that key before
-changing its lifetime. The body and archive are the convergence oracles.
-Use loop-carried references, conditional guarantees, and repeated cleanup
-to check whether the repair keeps or discards the wrong information.
-The instrumented candidate checked `arctangent` without diagnostics. The
-storage solver visited 1,245 blocks counting repeats, with at most four
-visits to any block. It took 49.9 s. The package-backed query took 124.7 s
-with its dependencies. Rerun the clean compiler before measuring throughput.
+The selected `StoragePlan` order determines each cleanup action.
+`StorageFlowState` supplies its reached owner, receiver, and committed
+effects and reports. Certification reads the checked publications by
+operation and action. Both phases use the same continuation worklist.
+Lowering consumes the checked order and emits runtime activity guards
+and normal or failure transfers. Any change to the worklist must preserve
+the failed action's performed prefix, its next slot and enclosing
+continuation, pending-result abandonment, and convergence of repeated
+array regions. See the [cleanup architecture](bra-694-architecture.md#cleanup-and-resumption).
 
-The probe-free loop repair planned in 25.4 s and emitted in 23.6 s.
-Result-dependency components still consumed 152.3 worker seconds.
+The worklist currently joins registered failure and repetition states at
+the same cursor. A resumed state runs the rest of the order after it is
+taken from the queue. Determine how many joins come from that traversal,
+normal lifecycle rows, and conditional cleanup selection before changing
+the scheduler. Keep separately admitted outcomes when a later reader
+needs their distinction. Check represented-child guarantees, exact
+receiver writes, rejected conditional cleanup, replacement failures,
+pending-result abandonment, and retained reports using the fixed case
+inventory and full runtime archive.
 
-Dependency queries can visit a shared condition node once. Observation
-iteration preserves separate handle slots. The checker suite exposed that
-distinction in the first clean candidate. A join uses its checked selection
-guard when available. Only joins without that guard need
-to derive alternatives from both sets of ordinary premises. Reuse each
-joined predicate observation across predecessor lookups. The added retirement
-memo did not improve planning in paired runs. Framing and retirement can
-share the mapping of checked preservation paths into retained current roots.
-Join assembly can defer shared content identities until a changed output
-actually needs the identity of a common owner. The index must still read
-both original predecessors and choose the same owner for its aliases.
-Preserve the physical path for storage that needs its type-directed read.
-Definite absence still suppresses a change. An unknown component of an
-existing root is still a possible write target. There is no additional cache
-or retained table. If a reuse would require combining outcomes or replacing
-a reached address with a bound, keep those reads separate. Verify saved
-referents, copied values, represented cleanup, and deferred captures with the
-same native and fixed-inventory checks.
-
-For an observed effect, only the roots in the reached changed-place set are
-framed. Build masks for those roots. Proof retirement still reads the full
-set of surviving observations because an independent alias can sustain a
-fact. An opaque effect frames every potentially initialized root and uses
-the complete mask.
-Compare represented sibling fields, raw address descriptors, cleanup and
-copied referents. The native sample after the loop repair still spends most
-active time applying and merging cleanup continuations.
-
-At completed lexical and iteration cleanup, the storage plan names the
-retiring owners and storage flow ends their physical lifetime. The proof
-state can discard whole private locals and evaluated slots at that boundary.
-This includes staged call inputs and implicit call results whose scope ended.
-Keep terminal formal data for guarantees and committed writes. Keep partial
-retirement, abandonment, and replacement records where another reached path
-can still use that slot. A surviving transfer reads its admitted, pending, or
-published value. It cannot recover a value from an expired private slot.
-Read the expiring values and external loans before removing the roots. The
-existing witness retirement then uses the current retained tree and those
-actual snapshots. Compare normal and failing scope exits, scoped mutable
-postconditions, copied scalars, result moves, and source/imported witnesses.
-If a downstream reader needs a removed private slot, trace its owned result
-or capture before changing the lifetime rule.
-
-With private-root expiration, the optimized 24-worker standard-library build
-planned in 23.7 s and emitted in 22.5 s. The package took 54.4 s wall time.
-Runtime preparation measured 23.3 s planning and 22.1 s emission. The archive
-run still spent most sampled compiler time in resumed cleanup and state
-joins. It was interrupted before the bundle published. Use the package-backed
-storage solver trace to distinguish repeated visits from expensive individual
-cleanup operations before changing either mechanism.
-
-The package trace shows expensive acyclic cleanup. Complex division still
-visits each block once while some individual scope exits take over 20 s.
-A reached cleanup state held 216 roots, 148 absent. The initial proof state
-materializes absent slots even for blocks that never run. Deleting an expired
-root on one branch then joining with such a bypass can reintroduce the dead
-slot as unknown, making opaque effects frame it.
-
-Keep the checked plan's initially absent root identities once in prepared
-analysis. Proof states store materialized values and availability changes.
-A missing planned root means absent, including on a bypass or after completed
-lexical cleanup. Unknown unplanned observations, such as a pointee without
-a published snapshot, still mean unknown. A join with one live predecessor
-still derives conditional availability from both reached states. A new
-definition can install that slot again. Keep retained formal data, live or
-partially retired children, and required pending values. Check a lexical exit
-and bypass join in each predecessor order, then check redefinition and
-conditional initialization. Compare the runtime's retained root counts and
-the same fixed inventory. Stop and trace the reader if any phase needs the
-contents of an unmaterialized root.
-
-The same default applies when call setup vacates an entire planned slot
-before publishing a staged argument or result. If that call fails, cleanup
-reads exact absence directly. Whole replacement can discard an empty
-private record. A projected replacement or an unplanned pointee still
-needs its reached availability. Preserve retained component observations.
-Exercise actual entry and lexical retirement before the bypass join, and
-check vacancy both before a first publication and after reusing a slot.
-
-Trusted proof, runtime precondition checks, and normal completion bind
-formal entry conditions to the same admitted arguments. Share that binding
-and its equality rewrite. Each consumer still supplies the equality facts
-from its entry and applies its own reference normalization and proof rules.
-Witness transfers bind the actual result when they have one. Declaration
-proofs retain their additional generic and formal-input lookup rules.
-Verify rejected requirements, checked preconditions, and completion carriers.
-
-## Current verification batch
-
-The fixed inventory passed on `ce33eb970`. The activation probes in its
-slowest group fork the production fixture once per caller variant. Load each
-test's independent caller sources in one revision so their bound units use
-the same runtime and standard-library facts. Keep each source separate for
-its diagnostic offset and keep each function independently named. Check all
-cases for the same acceptance, rejection kind, predicate, and call site.
-Compare the same activation inventory and compiler binary configuration before
-changing the group further.
-
-Checkpoint `96fe2d669` shares fixture revisions for the migrated activation
-groups. The validation candidate passed all 1,709 fixed cases, including
-40 activation controls, and all four selected native bootstrap checks.
-The next batch shares one revision for the remaining activation variants,
-including the second-invocation rejection. It retains the diagnostic
-subjects, call sites, and successful lowering checks. The same 40 controls,
-579 checker tests, 139 bound-tree tests, 1,709 fixed cases, and all four
-selected native bootstrap checks passed with sparse planned absence.
-
-The binding and vacancy candidate planned the standard library in 28.3 s
-and emitted it in 26.9 s in isolation. Building platform providers took
-18.3 s, and the tool invocation took 80.3 s wall time. Planning still
-exceeds the 17–25 s target.
-The same candidate passed all 1,709 fixed cases, the 579 checker tests,
-the 139 bound-tree tests, and the selected bootstrap checks on all four
-targets.
-
-A separate isolated archive build reused that standard-library bundle and
-reached the seven-minute cutoff without publishing. In the last 90 s it
-used roughly one core. Trace the instruction block and the unit that
-still own the work. For expensive cleanup joins, measure whether the
-predecessors require a new observation or can retain their reached slots,
-and track the operation and guard that force any rebuild. The executable
-link remains open.
-
-The physical transition for a call binds the formal route to the actual
-admitted operand before traversing its descriptor. Staged conversions
-already hold their formal wrapper. Unstaged present conversions remove the
-formal wrapper's path prefix. All three consumers keep reached cells,
-explicit absence, and possible regions distinct. Verify this across
-reference outputs, effects, failure rows, and deferred frames.
-
-Join assembly publishes each completed value into its retained root before
-mapping the surviving witnesses to its predicate observation. Present and
-absent predecessors, moved owners, independent views, and frame variants
-keep their own guarded alternatives. Stable observation lookup reads
-matching live entries without copying the predecessor tree.
-
-The referent preservation query reads actual retained snapshots. Exact
-known roots can answer directly. Membership and overlap build a path index
-on demand and refresh it after insertion. The check must distinguish
-retention of a path, equal contents, and ownership of a referent. The
-comparison retains the same optimized standard-library inputs and the
-same fixed test inventory.
-
-An opaque normal effect bound comes from an applicable callable contract
-and the reached input checks. Apply that bound during effect row selection
-and publish any purity premise with the operation that relied on it.
-Certification discharges the recorded premise at the admitted call.
-Checked rows retain explicit effects. The conservative envelope,
-abnormal prefixes, and transfer of owned inputs keep their own semantics.
-Verify guarded and opaque calls alongside checked source and imported
-effects, including paths that bypass a requirement or replace a descriptor.
-
-The formation contract for a recognized storage type is a checked admission
-even when its literal invokes no callable. It must check the actual field
-operands before installing the owner. Cleanup and subsequent callers must
-observe ownership only if the formation proves it. The construction oracle
-checks a real ownership transfer, forged null fields, and copied owner fields.
-
-Bind entry clauses once against the value tree initialized from the plan and
-the flow's installed inline descriptor observations.
-Admission, cleanup, and certification must observe the same entry facts.
-Use the formal path to select each actual witness carrier in that tree.
-Its ownership role determines whether it can transfer authority. Formal
-auto-dereferenced storage holds the
-reached observation. Admission uses the typed pointee and strips inherited
-access layers without unwrapping a stored nested descriptor. Sequence
-extent uses the same reference conversion as a selected sequence call.
-Preserve the bound facts only while their original subjects survive. Verify
-the protected-write, copied data, returned loan, and loop controls alongside
-the host lifecycle cases. A write to an element can retain the descriptor.
-Selecting a different descriptor loses its prior bounds.
-
-When a checked result row produces a borrow whose portable owner is opaque,
-use the retained producer's logical identity. Preserve a row's known
-identity. Exact current storage supplies the established owner when the
-provisional producer names the same reached object. Physical address,
-reachability, and lifetime remain the completed storage transition's
-responsibility. The opaque row must never create an
-exact address, transfer ownership, or revive evidence from another
-evaluation. Check the two ABI callers and the existing positive and
-negative controls for returned references, stale predicates, and exposed
-storage. Reuse the current value tree and the existing producer
-substitution. Another observation table or a special rule at any caller
-would require reconsidering the design.
-
-Scope retirement uses the actual input loans published by storage flow.
-Retain the final reached observation of a still-caller-owned referent when
-its descriptor goes out of scope. A replacement can refer to a different
-object and cannot carry the original subject's witness. Remove the
-lifecycle plan's inferred surviving-input list. Check that a witness
-attached to an external loan survives without transferring ownership from
-its expired container. Verify independent external referents, descriptor
-replacement, and destruction of embedded owned backing.
-
-The bootstrap dispatch claim stays owned by the caller until explicit
-release. Wait-link access preserves the original host lease and slot
-address. The event marker represents a count already acquired by the same
-complete reference. Start commits the admitted token, selected registration,
-and actual metadata. Publication transfers rollback responsibility to the
-cell before wake. The runtime packager and linker still need verification
-with the resulting compiler.
+The exact compiler's archive sample spent 28.8 of 43.2 sampled thread
+seconds in execution joins. Replacements and equality rewriting used
+14.6 s, including allocations of already retained aggregate and reference
+observation nodes. During a bounded rewrite, read each retained child in
+the existing order and keep the original canonical node when the result
+has the same shape and values. Share that rule between structural walks
+and equality rewriting. Reuse unchanged field lists and input nodes.
+Constructors still normalize changed and noncanonical values. Preserve
+the work limit, capture barriers, and the distinction between data
+substitution and owner renaming. Use the existing bounded DAG,
+nullable, witness, and frame controls with the fixed case inventory.
+Compare joins and archive wall time before changing the cleanup scheduler.
+The retained-condition batch passed 580 checker tests, 139 bound-tree
+tests, the 1,709 fixed cases, and the selected native bodies on all four
+targets. The full archive diagnostics remain open.
 
 ## Acceptance
 
@@ -354,8 +158,10 @@ with the resulting compiler.
 2. Run the fixed inventory of 1,709 cases against the candidate. Use the same
    audited test inventory and reuse only exact-binary evidence.
 3. Check and lower the actual bootstrap owners, registration, and dispatch
-   on Windows and Linux for both x86-64 and AArch64. Run native toolchain
-   steps outside the sandbox. BRA-695 and BRA-696 cover execution and shutdown.
+   on Windows and Linux for both x86-64 and AArch64. Build the complete
+   native runtime archive and link an executable against it. Run native
+   toolchain steps outside the sandbox. BRA-695 and BRA-696 cover execution
+   and shutdown.
 4. Measure an optimized build on 24 cores without tracing. Planning should
    take 17–25 s. The full build must produce a finished binary within 60 s.
 5. Remove temporary probes and stale artifacts. Complete the repository

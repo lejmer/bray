@@ -68,39 +68,18 @@ impl ExecutionCondition {
             return self.clone();
         }
 
+        use crate::ExecutionConditionKind as Kind;
+
         let rewritten = match self.kind() {
-            crate::ExecutionConditionKind::DeferredValue { value, frame } =>
-                value.without_evaluation(mutation).with_deferred_value(std::sync::Arc::clone(frame)),
-            crate::ExecutionConditionKind::CapturedValue { value, storage } =>
-                value.without_evaluation(mutation).captured_value(storage.clone()),
-            crate::ExecutionConditionKind::StorageValue(operation, values) => Self::storage_value(*operation,
-                values.iter().map(|value| value.without_evaluation(mutation)).collect()),
-            crate::ExecutionConditionKind::Constructed(base, fields) => Self::constructed(
-                base.without_evaluation(mutation),
-                fields
-                    .iter()
-                    .map(|(projection, value)| {
-                        (*projection, value.without_evaluation(mutation))
-                    })
-                    .collect(),
-            ),
-            crate::ExecutionConditionKind::Observation { owner, contents, kind }
+            Kind::DeferredValue { .. } | Kind::CapturedValue { .. } | Kind::StorageValue(..)
+            | Kind::Constructed(..) | Kind::Discriminant(_) | Kind::Descriptor(..)
+            | Kind::Present(_) | Kind::Tagged(..) => self.map_children(|value| value.without_evaluation(mutation)),
+            Kind::Observation { owner, kind, .. }
                 if *kind == ObservationKind::Owned
                     || *kind == ObservationKind::Reference && !owner.depends_on(mutation) =>
             {
-                Self::observation(
-                    owner.without_evaluation(mutation),
-                    contents.without_evaluation(mutation),
-                    *kind,
-                )
+                self.map_children(|value| value.without_evaluation(mutation))
             }
-            crate::ExecutionConditionKind::Discriminant(value) => value.without_evaluation(mutation).discriminant(),
-            crate::ExecutionConditionKind::Descriptor(kind, value) => value.without_evaluation(mutation).descriptor(*kind),
-            crate::ExecutionConditionKind::Present(value) => ExecutionCondition::new(crate::ExecutionConditionKind::Present(std::sync::Arc::new(value.without_evaluation(mutation)))),
-            crate::ExecutionConditionKind::Tagged(variant, value) => ExecutionCondition::new(crate::ExecutionConditionKind::Tagged(
-                *variant,
-                std::sync::Arc::new(value.without_evaluation(mutation)),
-            )),
             // Scalar and proof terms cannot preserve their meaning after any
             // contributing evaluation expires. A retired reference also loses
             // its reached view, which never independently owned those contents.
@@ -116,8 +95,8 @@ impl ExecutionCondition {
         predicates: &std::collections::BTreeMap<bray_symbols::PredicateDefinitionSymbolId, &'static [usize]>,
     ) -> Self {
         let rewritten = match self.kind() {
-            crate::ExecutionConditionKind::Trusted(value) => {
-                ExecutionCondition::new(crate::ExecutionConditionKind::Trusted(std::sync::Arc::new(value.pointer_observations(predicates))))
+            crate::ExecutionConditionKind::Trusted(_) => {
+                self.map_children(|value| value.pointer_observations(predicates))
             }
             crate::ExecutionConditionKind::Operation(operator, operands) => ExecutionCondition::new(crate::ExecutionConditionKind::Operation(
                 *operator,
