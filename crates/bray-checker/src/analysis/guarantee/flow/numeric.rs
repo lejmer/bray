@@ -86,15 +86,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let mut ranges = IntegerRanges::new();
 
         for (condition, _) in conditions {
-            let condition = condition.substitute(
-                &|place| {
-                    place
-                        .value_in(&entry.arguments)
-                        .unwrap_or_else(ExecutionCondition::unknown)
-                },
-                &ExecutionCondition::unknown(),
-                &mut { ExecutionCondition::WORK_LIMIT },
-            );
+            let condition = entry.bind_condition(condition, &ExecutionCondition::unknown());
 
             let mut pending = vec![condition];
             let mut budget = ExecutionCondition::WORK_LIMIT;

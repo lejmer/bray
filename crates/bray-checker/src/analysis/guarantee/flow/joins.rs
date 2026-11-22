@@ -807,7 +807,7 @@ mod tests {
     #[test]
     fn empty_layouts_do_not_accumulate_in_loop_observations() {
         let place = ExecutionPlace::from(bray_bound_tree::BoundReferenceTarget::Surface(
-            bray_symbols::CallableParameterSymbolId::from_symbol_id(bray_symbols::SymbolId::new(0))
+            bray_symbols::CallableParameterSymbolId::from_symbol_id(SymbolId::new(0))
                 .into(),
         ));
 

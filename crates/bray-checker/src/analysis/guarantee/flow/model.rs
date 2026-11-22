@@ -61,7 +61,7 @@ impl OperationDomainEvidence {
 }
 
 pub(crate) struct ExecutionFlowDomain<'a, 'view, C: CheckerRequestContext + ?Sized> {
-    pub(in crate::analysis::guarantee) proofs: std::sync::Arc<crate::execution_guarantees::ExecutionProofCache>,
+    pub(in crate::analysis::guarantee) proofs: Arc<crate::execution_guarantees::ExecutionProofCache>,
     pub(in crate::analysis::guarantee) candidate_evidence: RefCell<BTreeMap<AnalysisBlockId, BlockExecutionEvidence>>,
     pub(in crate::analysis::guarantee) consumed_completion_dependencies: RefCell<BTreeSet<crate::ExecutionCompletionDependency>>,
     pub(super) values: &'a crate::analysis::liveness::ValueRetention,
@@ -72,8 +72,8 @@ pub(crate) struct ExecutionFlowDomain<'a, 'view, C: CheckerRequestContext + ?Siz
     pub(in crate::analysis::guarantee) has_bounds_checks: bool,
     pub(in crate::analysis::guarantee) certify_predicate: bool,
     pub(in crate::analysis::guarantee) sequence_length: Option<bray_symbols::CallableInstanceData>,
-    pub(super) observed_types: &'a std::sync::Arc<BTreeMap<crate::ExecutionPlace, Option<bray_symbols::TypeId>>>,
-    pub(super) absent_at_entry: &'a std::sync::Arc<BTreeSet<crate::ExecutionPlace>>,
+    pub(super) observed_types: &'a Arc<BTreeMap<crate::ExecutionPlace, Option<bray_symbols::TypeId>>>,
+    pub(super) absent_at_entry: &'a Arc<BTreeSet<crate::ExecutionPlace>>,
     pub(in crate::analysis::guarantee) borrowed_inputs: &'a BTreeSet<crate::ExecutionPlace>,
     pub(in crate::analysis::guarantee) scope_places: &'a BTreeMap<
         bray_bound_tree::StorageScope,
@@ -91,7 +91,7 @@ pub(crate) struct ExecutionFlowDomain<'a, 'view, C: CheckerRequestContext + ?Siz
     pub(in crate::analysis) semantics: &'a CheckedExpressionSemantics,
     pub(super) assumptions: Cow<'a, [ExecutionCondition]>,
     pub(super) input_invariants: &'a [ExecutionCondition],
-    pub(super) union_variants: &'a BTreeMap<bray_symbols::TypeId, std::sync::Arc<[bray_symbols::UnionVariantSymbolId]>>,
+    pub(super) union_variants: &'a BTreeMap<bray_symbols::TypeId, Arc<[bray_symbols::UnionVariantSymbolId]>>,
     pub(in crate::analysis::guarantee) literals:
         &'a BTreeMap<BoundExpressionId, ExecutionCondition>,
     pub(super) pattern_conditions: &'a BTreeMap<
@@ -194,7 +194,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let entry = state.admitted_call(occurrence);
 
-        let limit = crate::analysis::outcomes::FlowOutcomes::<ExecutionState>::MAX_ALTERNATIVES;
+        let limit = FlowOutcomes::<ExecutionState>::MAX_ALTERNATIVES;
 
         let calls = rows.into_iter().flatten().enumerate().filter_map(move |(index, row)|
             (row.covers(kind) && entry.is_none_or(|entry| entry.admits_failure(index))).then_some(Some(index))
@@ -460,7 +460,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         entry_observations: &[bray_bound_tree::StorageObservedTarget],
     ) -> Option<ExecutionState> {
         let mut state = ExecutionState {
-            proofs: std::sync::Arc::clone(&self.proofs),
+            proofs: Arc::clone(&self.proofs),
             ..Default::default()
         };
 

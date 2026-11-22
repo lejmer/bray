@@ -343,10 +343,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 continue;
             }
 
-            let candidate = std::sync::Arc::make_mut(&mut started).producers.get_mut(source)
+            let candidate = Arc::make_mut(&mut started).producers.get_mut(source)
                 .expect("execution starts the selected frame");
 
-            let transition = candidate.transition.get_or_insert_with(|| std::sync::Arc::new(
+            let transition = candidate.transition.get_or_insert_with(|| Arc::new(
                 bray_bound_tree::StorageDeferredTransition::default()
             ));
 
@@ -361,7 +361,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             }
         }
 
-        if !std::sync::Arc::ptr_eq(&started, frame) {
+        if !Arc::ptr_eq(&started, frame) {
             execution.replace_deferred_value(frame, Some(started));
         }
     }

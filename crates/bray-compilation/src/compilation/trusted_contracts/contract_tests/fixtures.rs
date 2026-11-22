@@ -95,7 +95,7 @@ fn build_production_sync(caller: &str, target: crate::SelectedTarget) -> Compila
 
 pub(super) fn body_belongs_to(
     compilation: &Compilation,
-    key: &bray_bound_tree::BoundUnitKey,
+    key: &BoundUnitKey,
     modules: &[&[&str]],
     types: &[&str],
 ) -> bool {

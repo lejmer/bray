@@ -235,6 +235,13 @@ impl CurrentValues {
     /// Checked replacement also replaces initialization of its whole subtree.
     pub(super) fn replace(&mut self, place: ExecutionPlace, value: CurrentValue,
         storage: Option<&[bray_bound_tree::StorageProjection]>) {
+        if value.availability == ValueAvailability::Absent && value.value.is_unknown()
+            && self.roots.get(&place).is_none_or(|root| root.observed_components.is_empty())
+            && self.clear_planned_root(&place)
+        {
+            return;
+        }
+
         if let Some(root) = self.roots.get_mut(&root_place(&place)) {
             CurrentRoot::edit(root).components.retain(|component, _| !place.contains(component));
         }
@@ -273,8 +280,8 @@ impl CurrentValues {
         }
     }
 
-    /// Removes an expired root when the plan still supplies its absence.
-    pub(super) fn forget_expired_root(&mut self, place: &ExecutionPlace) -> bool {
+    /// Clears a whole root when the checked plan supplies its absence.
+    pub(super) fn clear_planned_root(&mut self, place: &ExecutionPlace) -> bool {
         if !place.projections.is_empty() || !self.absent_at_entry.contains(place) {
             return false;
         }
@@ -548,25 +555,101 @@ mod tests {
 
     #[test]
     fn expired_private_storage_joins_its_bypass_without_materializing_an_unknown_root() {
+        use bray_bound_tree::{
+            BoundExpression, BoundStructuredExpression, BoundStructuredExpressionKind,
+            CheckedDependencyContracts, CheckedExpressionSemantics,
+            CheckedLiteralValues, CheckedMemoryOperations, CheckedPatterns, CheckedSemanticSelections,
+            Liveness, StorageAccess, StorageAccessRoot, StorageScope,
+        };
+
+        use crate::test_support::{
+            TestCheckerContext, callable_entry, completed_expression_check, expression_unit,
+            push_expression, semantic_values,
+        };
+
         let unit = BoundUnitId::new(0);
 
-        let (_, expressions) = crate::test_support::integer_expression_unit(unit, 1);
+        let (bound, expressions) = expression_unit(unit, |tree, origin| {
+            let operand = push_expression(tree, BoundExpression::Structured(BoundStructuredExpression::new(
+                origin, BoundStructuredExpressionKind::Unit, [], [], [], None, false,
+            )));
 
-        let mut storage = StoragePlanBuilder::new(unit, BoundUnitKind::CallableBody);
-        let identity = storage.push_identity(StorageIdentity::Temporary(expressions[0])).expect("planned temporary");
-        let place = ExecutionPlace::storage_identity(&storage.finish(), identity).expect("temporary root");
+            vec![push_expression(tree, BoundExpression::Structured(BoundStructuredExpression::new(
+                origin, BoundStructuredExpressionKind::Tuple, [operand], [], [], None, false,
+            )))]
+        });
+
+        let expression = expressions[0];
+
+        let (types, diagnostics) = completed_expression_check(&bound, &crate::ExpressionTypeInput::new()).into_parts();
+
+        assert!(!diagnostics.has_errors(), "{diagnostics:?}");
+
+        let ty = types.expression(expression).expect("the one-element tuple has a checked type").ty();
+        let kind = bound.key().kind();
+        let scope = StorageScope::Block(bound.tree().blocks().next().expect("the callable owns its body block").0);
+        let mut storage = StoragePlanBuilder::new(unit, kind);
+        let identity = storage.push_identity(StorageIdentity::Temporary(expression)).expect("planned temporary");
+
+        storage.set_identity_type(identity, ty).expect("the temporary has a checked type");
+        storage.set_value_slot(expression, identity).expect("the expression produces the temporary");
+
+        storage.push_access(StorageAccess::new(
+            StorageAccessRoot::Storage(identity), [], ty, bound.key().source(), false,
+        )).expect("the temporary has a complete root access");
+
+        let storage = storage.finish();
+        let entry = callable_entry(bound.key());
+        let context = TestCheckerContext::new(false);
+        let request = crate::CheckerUnitView::new(&bound, &entry, &context);
+
+        let selections = CheckedSemanticSelections::try_new(&bound, &types, []).expect("the tuple constructs inline");
+
+        let literals = CheckedLiteralValues::try_new(&bound, &types, semantic_values(),
+            std::num::NonZeroU16::new(64).expect("fixture target width"), []).expect("the fixture uses no scalar literal");
+
+        let semantics = CheckedExpressionSemantics::try_new(types, selections, literals).expect("the fixture uses one unit");
+        let patterns = CheckedPatterns::new(unit, kind, [], [], [], []);
+
+        let crate::CheckerOutcome::Complete(prepared) = crate::prepare_body_analysis(request, &semantics, &patterns, &storage)
+            else { panic!("the body must prepare"); };
+
+        let (prepared, diagnostics) = prepared.into_parts();
+
+        assert!(!diagnostics.has_errors(), "{diagnostics:?}");
+
+        let memory = CheckedMemoryOperations::try_new(unit, kind, [], false).expect("no memory operations");
+
+        let dependencies = CheckedDependencyContracts::try_new(&bound, &storage, [], [], [], [], false)
+            .expect("the temporary contains no dependency contract");
+
+        let liveness = Liveness::try_new(unit, kind, [], [], [], [], [], false).expect("no retained loans");
+        let contracts = Default::default();
+
+        let flow = crate::analysis::guarantee::prepare_execution_flow(
+            &prepared, request, &semantics, std::borrow::Cow::Borrowed(&[]), &storage,
+            &memory, &contracts, &dependencies, &liveness,
+        );
+
+        let place = ExecutionPlace::storage_identity(&storage, identity).expect("temporary root");
         let formal = ExecutionPlace::argument(SymbolOrdinal::new(0));
-        let value = ExecutionCondition::new(crate::ExecutionConditionKind::Input(formal.clone()));
-        let mut bypass = ExecutionState::default();
+        let formal_value = ExecutionCondition::new(crate::ExecutionConditionKind::Input(formal.clone()));
+        let value = ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expression));
+        let mut bypass = flow.entry_state(&[]).expect("the callable can enter");
 
-        bypass.current = super::CurrentValues::with_planned_places(Default::default(), Arc::new([place.clone()].into()));
-        bypass.current.insert(formal.clone(), value.clone());
+        assert!(bypass.current.is_subtree_absent(&place));
+        assert!(bypass.current.get(&place).is_none(), "planned absence needs no entry root");
+        bypass.vacate(place.clone());
+        assert!(bypass.current.get(&place).is_none(), "first call setup needs no empty root");
+
+        bypass.current.insert(formal.clone(), formal_value.clone());
         bypass.current.retire(&formal);
 
         let mut expired = bypass.clone();
 
         expired.current.insert(place.clone(), value.clone());
-        assert!(expired.current.forget_expired_root(&place));
+        flow.expire_trusted_scope(&mut expired, scope);
+        assert!(expired.current.get(&place).is_none(), "lexical retirement releases the private root");
 
         for (first, second) in [(&bypass, &expired), (&expired, &bypass)] {
             let mut joined = Some(first.clone());
@@ -577,7 +660,7 @@ mod tests {
 
             assert!(joined.current.is_subtree_absent(&place));
             assert!(joined.current.get(&place).is_none(), "an absent slot contributes no materialized root");
-            assert_eq!(joined.current.get(&formal), Some(&value), "formal completion still reads its terminal value");
+            assert_eq!(joined.current.get(&formal), Some(&formal_value), "formal completion still reads its terminal value");
             assert_eq!(joined.current.availability(&ExecutionPlace::argument(SymbolOrdinal::new(1))), ValueAvailability::Unknown);
 
             joined.current.insert(place.clone(), value.clone());
@@ -590,6 +673,12 @@ mod tests {
             let conditional = conditional.expect("conditional initialization reaches the join");
 
             assert!(matches!(conditional.current.availability(&place), ValueAvailability::Guarded(_)));
+
+            let mut vacant = conditional;
+
+            vacant.vacate(place.clone());
+            assert!(vacant.current.is_subtree_absent(&place));
+            assert!(vacant.current.get(&place).is_none(), "repeated call setup releases the previous result");
         }
     }
 

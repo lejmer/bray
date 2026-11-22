@@ -114,7 +114,8 @@ root stays absent at a join without a materialized value. A live predecessor
 can still make its availability conditional. An unobserved physical pointee
 has unknown contents and availability. Terminal formal values remain
 readable for completion clauses. Surviving transfers keep their own captured
-or pending values.
+or pending values. Call setup uses the same planned absence when it vacates
+a whole slot before a staged input or result arrives.
 
 A scoped entry can return a fallible wrapper. Its successful payload becomes the scoped capability.
 The exit's checked access names that current capability for both physical and proof admission.
@@ -261,6 +262,9 @@ operations. [CFG operation kinds and phases](../../crates/bray-checker/src/analy
 Staged input preparation consumes the operation's resolved accesses. It reads
 evaluated selectors from the logical state owned by that operation. The
 completed capture returns to the composite state for admission and effects.
+Trusted proof, the runtime precondition guard, and normal completion bind
+entry conditions through the admitted arguments and their recorded equalities.
+Witness transfers bind the appropriate result through the same argument lookup.
 
 | Boundary | What the implementation passes forward |
 | --- | --- |

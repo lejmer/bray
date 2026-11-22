@@ -223,6 +223,14 @@ needs its reached availability. Preserve retained component observations.
 Exercise actual entry and lexical retirement before the bypass join, and
 check vacancy both before a first publication and after reusing a slot.
 
+Trusted proof, runtime precondition checks, and normal completion bind
+formal entry conditions to the same admitted arguments. Share that binding
+and its equality rewrite. Each consumer still supplies the equality facts
+from its entry and applies its own reference normalization and proof rules.
+Witness transfers bind the actual result when they have one. Declaration
+proofs retain their additional generic and formal-input lookup rules.
+Verify rejected requirements, checked preconditions, and completion carriers.
+
 ## Current verification batch
 
 The fixed inventory passed on `ce33eb970`. The activation probes in its
@@ -243,11 +251,21 @@ subjects, call sites, and successful lowering checks. The same 40 controls,
 579 checker tests, 139 bound-tree tests, 1,709 fixed cases, and all four
 selected native bootstrap checks passed with sparse planned absence.
 
-An isolated 24-worker standard-library build planned in 29.5 s and emitted
-in 28.8 s. Building platform providers took 16.2 s, and the tool invocation
-took 80.9 s wall time. Planning still exceeds the 17–25 s target. The
-runtime archive and executable link remain open. The concurrent verification
-runs establish correctness. Measure each workload in isolation.
+The binding and vacancy candidate planned the standard library in 28.3 s
+and emitted it in 26.9 s in isolation. Building platform providers took
+18.3 s, and the tool invocation took 80.3 s wall time. Planning still
+exceeds the 17–25 s target.
+The same candidate passed all 1,709 fixed cases, the 579 checker tests,
+the 139 bound-tree tests, and the selected bootstrap checks on all four
+targets.
+
+A separate isolated archive build reused that standard-library bundle and
+reached the seven-minute cutoff without publishing. In the last 90 s it
+used roughly one core. Trace the instruction block and the unit that
+still own the work. For expensive cleanup joins, measure whether the
+predecessors require a new observation or can retain their reached slots,
+and track the operation and guard that force any rebuild. The executable
+link remains open.
 
 The physical transition for a call binds the formal route to the actual
 admitted operand before traversing its descriptor. Staged conversions

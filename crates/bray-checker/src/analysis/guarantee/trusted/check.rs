@@ -387,9 +387,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let conditions = contract.preconditions.iter()
             .filter(|(_, domain)| *domain == bray_symbols::PredicateDomain::Value)
-            .map(|(condition, _)| {
-                evidence.bind_condition(condition, &ExecutionCondition::unknown()).with_equalities(&equalities)
-            }).collect();
+            .map(|(condition, _)| evidence.bind_entry_condition(condition, &equalities)).collect();
 
         let guard = ExecutionCondition::operation(bray_bound_tree::BoundOperator::LogicalAnd, conditions);
         let proven = guard.prove_ordinary(&evidence.assumptions, Some(&self.proofs));

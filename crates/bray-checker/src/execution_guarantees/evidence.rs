@@ -56,7 +56,7 @@ pub struct ExecutionCallEvidence {
     pub(crate) outputs: super::ExecutionOutputs,
     /// Portable failure rows admitted against the same evaluated entry arguments.
     pub(crate) failure_rows: Option<Arc<[ExecutionFailureRow]>>,
-    pub(crate) implementation_witnesses: std::sync::Arc<[bray_symbols::ImplementationInstanceId]>,
+    pub(crate) implementation_witnesses: Arc<[bray_symbols::ImplementationInstanceId]>,
     /// Existing witnesses with their support at this value's admission.
     pub(crate) witness_inputs: std::collections::BTreeMap<Condition, Arc<super::ExecutionWitness>>,
     /// Allocations supported by those same admitted carriers.
@@ -65,7 +65,7 @@ pub struct ExecutionCallEvidence {
     /// The transfer's input term identifies the original admission at completion.
     pub(crate) extracted_values: std::collections::BTreeMap<bray_symbols::ConstantTermId, Condition>,
     /// Noncopying owned inputs, in receiver-first checked signature order.
-    pub(crate) owned_inputs: std::sync::Arc<[bray_symbols::SymbolOrdinal]>,
+    pub(crate) owned_inputs: Arc<[bray_symbols::SymbolOrdinal]>,
     /// Reached storage lifetimes retained by the evaluated loan at each ordinal.
     pub(crate) borrow_owners: std::collections::BTreeMap<bray_symbols::SymbolOrdinal, Arc<[super::ExecutionPlace]>>,
     /// Access dependencies captured before consuming inputs, without owning authority.
@@ -208,6 +208,15 @@ impl ExecutionCallEvidence {
     pub(crate) fn bind_condition(&self, formal: &Condition, result: &Condition) -> Condition {
         formal.substitute(&|place| place.value_in(&self.arguments).unwrap_or_else(Condition::unknown),
             result, &mut { Condition::WORK_LIMIT })
+    }
+
+    /// Instantiates an entry condition using the admitted values and their equalities.
+    pub(crate) fn bind_entry_condition(
+        &self,
+        formal: &Condition,
+        equalities: &std::collections::BTreeMap<Condition, Condition>,
+    ) -> Condition {
+        self.bind_condition(formal, &Condition::unknown()).with_equalities(equalities)
     }
 
     pub(crate) fn formal_condition(&self, values: &bray_symbols::SemanticValueStore, term: bray_symbols::ConstantTermId) -> Condition {
@@ -648,6 +657,7 @@ mod tests {
         let mut expired = joined.clone();
 
         expired.addresses.clear();
+
         assert!(joined.intersect(&expired, &cache));
         assert!(joined.addresses.is_empty());
     }
@@ -668,8 +678,11 @@ mod tests {
         assert!(entry.prove_requirements([&ExecutionCondition::new(crate::ExecutionConditionKind::Trusted(std::sync::Arc::new(required.clone())))]).is_err());
 
         entry.assumptions.clear();
+
         assert!(entry.prove_requirements([&required]).is_err());
+
         entry.assumptions.insert((contents, false));
+
         assert!(entry.prove_requirements([&required]).is_err());
 
         entry.arguments.insert(argument, ExecutionCondition::new(crate::ExecutionConditionKind::Input(
@@ -697,6 +710,7 @@ mod tests {
         let mut entry = ExecutionCallEvidence::default();
 
         entry.arguments.insert(input, ExecutionCondition::boolean(true));
+
         assert!(entry.prove_requirements([&required]).is_ok());
     }
 }

@@ -180,7 +180,7 @@ impl ValuePreservation {
         place: Option<&ExecutionPlace>,
         mutation: StorageMutation,
         in_place: bool,
-        moved: &crate::execution_guarantees::RetainedSnapshots,
+        moved: &RetainedSnapshots,
         budget: &mut usize,
     ) -> ExecutionCondition {
         if let crate::ExecutionConditionKind::DeferredValue { value, .. } = source.kind() {
@@ -301,7 +301,7 @@ mod tests {
         let place = ExecutionPlace::argument(SymbolOrdinal::new(0));
         let input = ExecutionCondition::new(crate::ExecutionConditionKind::Input(place.clone()));
         let layout = Layout::Transfer(Transfer::new(input.clone(), []).with_preservation(Mask::all()));
-        let source = ExecutionCondition::new(crate::ExecutionConditionKind::Present(std::sync::Arc::new(input.clone())));
+        let source = ExecutionCondition::new(crate::ExecutionConditionKind::Present(Arc::new(input.clone())));
         let mut state = ExecutionState::default();
 
         state.owned_results.insert(input.clone(), layout.clone());
@@ -602,7 +602,7 @@ mod tests {
         for (state, is_absent) in [(&mut left, true), (&mut right, false)] {
             let selected = place.value_in(&state.current).expect("current predecessor").project(scope).project(operation);
 
-            ExecutionCondition::operation(bray_bound_tree::BoundOperator::Equal, vec![selected, absent.clone()])
+            ExecutionCondition::operation(BoundOperator::Equal, vec![selected, absent.clone()])
                 .assume(is_absent, &mut state.assumptions);
         }
 
@@ -779,7 +779,7 @@ mod tests {
             assert_eq!(presence(updated.clone()), presence(source.clone()));
             assert_ne!(updated.clone().project(payload), owner);
 
-            assert!(super::super::super::state::ExecutionState::default().owned_values(&updated)
+            assert!(ExecutionState::default().owned_values(&updated)
                 .all(|value| value.ownership_identity().is_none()));
 
             assert_eq!(mask.apply(&updated, Some(&place), mutation), updated);

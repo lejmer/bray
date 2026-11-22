@@ -107,12 +107,12 @@ impl ExecutionState {
                 if before.ownership_identity().is_none()
                     || before.ownership_identity() != after.ownership_identity()
                 {
-                    return Ok::<_, std::convert::Infallible>(bray_symbols::DependencyOwnedResult::default());
+                    return Ok::<_, std::convert::Infallible>(DependencyOwnedResult::default());
                 }
 
                 let preservation = preservation(transfer.output());
 
-                Ok(bray_symbols::DependencyOwnedResult::Transfer(transfer.clone().with_preservation(
+                Ok(DependencyOwnedResult::Transfer(transfer.clone().with_preservation(
                     transfer.preservation().intersection(&preservation),
                 )))
             },
@@ -424,7 +424,7 @@ fn project_owned_result(
                     let preservation = transfer.preservation().children().iter()
                         .find(|(projection, _)| crate::ExecutionPlace::projection_kind(**projection) == Some(field))
                         .map(|(_, preservation)| preservation.clone())
-                        .unwrap_or_else(|| bray_symbols::DependencyValuePreservation::new(
+                        .unwrap_or_else(|| DependencyValuePreservation::new(
                             transfer.preservation().preserves_value(), Default::default()));
 
                     return Ok::<_, std::convert::Infallible>(

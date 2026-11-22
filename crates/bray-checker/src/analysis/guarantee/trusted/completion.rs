@@ -115,7 +115,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             if lexical && matches!(self.storage.identity(*identity), Some(
                 StorageIdentity::LocalOwned(_) | StorageIdentity::Temporary(_) | StorageIdentity::Evaluated(_)
                     | StorageIdentity::InvocationInput { .. } | StorageIdentity::InvocationResult(_)
-            )) && state.current.forget_expired_root(place) {
+            )) && state.current.clear_planned_root(place) {
                 continue;
             }
 
@@ -607,21 +607,7 @@ fn assume_normal_entry(
         .iter()
         .map(|(condition, domain)| (condition, *domain))
         .chain(requirements.iter().map(|condition| (condition, bray_symbols::PredicateDomain::Trusted)))
-        .map(|(condition, domain)| {
-            let condition = condition
-                .substitute(
-                    &|place| {
-                        place
-                            .value_in(&entry.arguments)
-                            .unwrap_or_else(ExecutionCondition::unknown)
-                    },
-                    &ExecutionCondition::unknown(),
-                    &mut { ExecutionCondition::WORK_LIMIT },
-                )
-                .with_equalities(&equalities);
-
-            (condition, domain)
-        })
+        .map(|(condition, domain)| (entry.bind_entry_condition(condition, &equalities), domain))
         .collect::<Vec<_>>();
 
     // A disproven entry cannot complete normally. Unknown ordinary requirements

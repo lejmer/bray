@@ -128,17 +128,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .iter()
             .filter(|required| !storage_initialized.as_ref().is_some_and(|initialized| initialized(required)))
             .map(|requirement| {
-                let condition = requirement
-                    .substitute(
-                        &|place| {
-                            place
-                                .value_in(&entry.arguments)
-                                .unwrap_or_else(ExecutionCondition::unknown)
-                        },
-                        &ExecutionCondition::unknown(),
-                        &mut { ExecutionCondition::WORK_LIMIT },
-                    )
-                    .with_equalities(&equalities);
+                let condition = entry.bind_entry_condition(requirement, &equalities);
 
                 (requirement, condition.with_reference_origins(self.request.semantic_values(), self.dependencies, &entry.assumptions)
                     .pointer_observations(&self.pointer_predicates))

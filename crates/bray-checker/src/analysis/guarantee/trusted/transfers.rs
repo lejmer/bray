@@ -96,10 +96,12 @@ fn collect_entry_transfers<C: CheckerRequestContext + ?Sized>(
     let input_count = entry.positional_arguments().count();
     let admission = || domain.proofs.proof(&entry.trusted_assumptions, &entry.assumptions);
 
-    let bind = |term| crate::execution_condition_from_type_term(domain.request.semantic_values(), term, input_count)
-        .expect("checked ownership condition belongs to its selected input scope")
-        .substitute(&|place| place.value_in(&entry.arguments).unwrap_or_else(crate::ExecutionCondition::unknown),
-            &crate::ExecutionCondition::result(), &mut { crate::ExecutionCondition::WORK_LIMIT });
+    let bind = |term| {
+        let formal = crate::execution_condition_from_type_term(domain.request.semantic_values(), term, input_count)
+            .expect("checked ownership condition belongs to its selected input scope");
+
+        entry.bind_condition(&formal, &crate::ExecutionCondition::result())
+    };
 
     let assumptions = state.assumptions.joined_with(&entry.assumptions);
     let proof = state.proofs.ordinary_proof(&assumptions);
@@ -233,10 +235,7 @@ pub(super) fn independent_result_owner<C: CheckerRequestContext + ?Sized>(
     for (guarantee, subject) in &subjects {
         if !subject.observes_completion_result() { continue; }
 
-        let guarantee = guarantee.substitute(
-            &|place| place.value_in(&entry.arguments).unwrap_or(crate::ExecutionCondition::unknown()),
-            result, &mut { crate::ExecutionCondition::WORK_LIMIT },
-        );
+        let guarantee = entry.bind_condition(guarantee, result);
 
         // Ignore ordinary guards when checking which trusted authority could
         // escape. A later branch can establish a guard after this transfer.
