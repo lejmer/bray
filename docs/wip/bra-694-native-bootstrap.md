@@ -143,13 +143,27 @@ those whole guarded clauses, so a later join cannot recover the common claim
 even when every actual predecessor proves it for the same joined owner. Treat
 nested trusted atoms as proof candidates, not assumptions. Publish a direct
 claim only when each actual predecessor proves it from that carrier's witness
-evidence and its own ordinary path facts. A clause that is merely vacuous on a
+evidence and its own ordinary path facts. Preserve owning-witness support only
+when both predecessors separately prove the claim from owning clauses on that
+carrier. Address-only evidence cannot become ownership authority. A clause that is merely vacuous on a
 path with no authority must remain unavailable, an unrelated carrier cannot
 lend evidence, and an inactive nullable payload carries no authority. The
 positive oracle joins opposite guards whose carrier clauses both imply the
 same claim. The negative oracle has authority on only one predecessor and
 must not manufacture the claim. Reconsider if the joined owner substitution
 is wrong or if any negative oracle gains authority.
+
+A copyable raw-address promise can name its address without depending on any
+tracked storage owner. An empty owner set is no lifetime dependency. Preserve
+that promise while the same address value remains observable across cleanup,
+but do not convert it into ownership authority. Retire it when the address is
+no longer carried or an actual address effect revokes the predicate.
+
+A returned reference has a distinct identity, while its retained input bound
+may still identify one exact actual operand. Physical retirement reads prior
+discharges through that stored exact binding, and summary publication uses the
+same origin. Multiple alternatives, region-only bounds, older incarnations,
+and cycles remain footprints and cannot claim a discharge.
 
 The attachment exchange postcondition reaches the terminal state with both
 `execution != none` and `status != 0` as exact ordinary facts. Its required
@@ -186,25 +200,31 @@ group into carried trusted authority across result and cleanup joins,
 allocation or address authority across owner transport, and ordered retirement
 export. The remaining declarations still require full product checking.
 
-The remaining scoped-view failures share one closed escape-binding contract.
-`install_previous` publishes a structured escape rooted at parameter 1's
-nullable resource field. The caller has no concrete target for that returned
-raw address. Binding currently widens the structured miss to `Escape(None)`,
-which means every address-bearing operand, and therefore marks parameter 0's
-shared-borrow receiver as escaped. The following ambient call then frames the
-receiver's whole inline `Current`, including its independent acquisition
-marker. An unresolved structured escape can expose unknown external storage,
-but it cannot publish another argument's descriptor or inline siblings. Keep
-genuinely unscoped escape summaries conservative. A known raw target must
-still expose its allocation, and a possible external write or retirement must
-still invalidate a dependent view. The positive oracle is `publish_driver`
-retaining `view_owned` across `install_previous` and `execution_context`.
-Negative oracles cover a generic unscoped escape, a known escaped input,
-mutation of the reached backing, and retirement of that backing. Replace the
-structured-to-unscoped fallback rather than weakening allocation exposure.
-Reconsider this repair if the structured effect can resolve parameter 0, if
-the raw field is proven to designate the receiver's inline slot, or if a
-negative oracle preserves a view after backing mutation.
+The structured-escape correction is present, but the remaining scoped-view
+failures occur later. Cleanup admits the reached receiver after sibling writes
+have renamed it to a post-state or joined identity. The exact `view_owned`
+clause remains attached to the producing identity. The same split appears in
+nullable catch results and native-provider or observer owners: the selected
+value and owning witness reach the call, but the carrier key and clause operand
+do not always follow the value's publication rename. Allocation facts can reach
+an admission with no allocation-owner restriction for the transferred owner. A
+safe producer proves a declared clause from one live source witness and retains
+that source support. A trusted producer does not receive a body proof obligation
+because its declaration supplies the clause. Portable witness support still
+requires checked evidence. The call binds declaration-only support against the
+actual arguments and result. Keep all declaration guarantees and
+subjects available for publication, while keeping safe-body proof obligations
+separate. Bind both through the same entry-and-result instantiation. Do not
+require the proof source itself to have already become a returned owned
+observation, reconstruct an owner at admission, or make a historical allocation
+fact unrestricted. A copied address or borrowed alias must still be unable to
+spend an owning carrier.
+
+The selected allocation reaches `initialize_domain` with its original owner,
+pointer, size, and alignment after the arena call frames its storage. Proof
+invalidation reads the scalar data from that framed state. The package-backed
+candidate checks and lowers `create_execution`. The other nullable and union
+carrier paths in the 13-body inventory still need verification and repair.
 
 `destroy_domain` checks and lowers by itself. Its caller reaches raw retirement
 with three outstanding typed cells below the same execution owner, including
@@ -215,16 +235,17 @@ retirement must carry only definite earlier consumes of exact cells. A
 conditional consume, a possible alias, a consume after retirement, and a cell
 reinitialized after consumption cannot discharge the duty. The positive
 oracle consumes all three exact typed cells before raw retirement. Preserve the
-prefix on the actual reached retirement instead of reconstructing order from a
-sorted summary effect set. Reconsider if the producer has no ordered prefix or
-if attaching it changes any negative ordering oracle.
-The scheduler's own summary names both a consume and a retirement
-through the same entry pointer. A raw intrinsic reads discharges from
-its current memory. Re-export of a reached nested retirement currently
-only forwards the attached list. Compare the producing prestate with
-the nested retirement before changing that boundary. Deferred formation
-knows the operands and possible effects, while actual discharge facts
-belong to the reached execution.
+discharges on the actual reached retirement. A singleton returned region
+cannot identify an exact stored binding. The portable effect set
+describes possible changes. Its sort order cannot establish a discharge.
+Deferred formation knows the operands and possible effects. Actual discharge
+facts belong to the reached execution.
+
+The call that extracts the whole `Domain` publishes a definite typed
+discharge through the admitted domain pointer. Later retirements can name
+different captured pointers. Check which exact discharged cell routes are
+still available when those retirements run. A route relative to the retired
+pointer cannot represent a consumed cell reached from a different input.
 
 The selected `StoragePlan` order determines each cleanup action.
 `StorageFlowState` supplies its reached owner, receiver, and committed

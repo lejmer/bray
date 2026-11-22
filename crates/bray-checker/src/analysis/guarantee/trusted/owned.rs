@@ -48,7 +48,12 @@ impl super::check::TrustedChecks {
         let guards = super::captured::exit_guards(domain, state, result, &self.owned_entry_conditions, &return_substitution);
 
         Some(NormalReturn {
-            carriers: self.exit_carriers(domain.request, state, result, &return_substitution),
+            carriers: self.exit_carriers(
+                domain,
+                state,
+                result,
+                &return_substitution,
+            ),
             captured: super::captured::captured_outcome(domain, state, result, writes, &guards),
             transfers: if inputs.infer_result_witnesses { state.owned_result(result)
             .try_map(

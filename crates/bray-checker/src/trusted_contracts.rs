@@ -25,10 +25,25 @@ pub struct TrustedContractInputs {
     pub required_witnesses: Vec<(ExecutionCondition, ExecutionCondition, bool)>,
     /// Ordinary entry conditions that guard the trusted guarantees.
     pub preconditions: Vec<ExecutionCondition>,
-    /// Guarantees a safe body must establish on every normal completion.
-    pub guarantees: Vec<(ExecutionCondition, bray_source::SourceSpan)>,
+    /// Whether the declaration itself establishes its guarantees without body proof.
+    pub declared_guarantees_are_authoritative: bool,
+    /// Guarantees published by the declaration on every normal completion.
+    pub declared_guarantees: Vec<(ExecutionCondition, bray_source::SourceSpan)>,
+    /// Declared result owners that carry each established guarantee.
+    pub guarantee_witness_subjects: Vec<(ExecutionCondition, ExecutionCondition)>,
     /// Predicate contracts on selected calls, retaining declaration identity.
     pub calls: BTreeMap<BoundExecutionSite, TrustedCallContract>,
+}
+
+impl TrustedContractInputs {
+    /// The declared guarantees that require proof from this body.
+    pub(crate) fn proof_guarantees(&self) -> &[(ExecutionCondition, bray_source::SourceSpan)] {
+        if self.declared_guarantees_are_authoritative {
+            &[]
+        } else {
+            &self.declared_guarantees
+        }
+    }
 }
 
 /// Trusted requirements and guarantees on one selected call.

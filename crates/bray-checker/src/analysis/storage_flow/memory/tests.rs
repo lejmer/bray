@@ -29,22 +29,6 @@ fn captured_frame(producer: bray_bound_tree::BoundExecutionSite, transition: Arc
     }))
 }
 
-fn observe_reference(
-    state: &mut State,
-    destination: Target,
-    reference: Place,
-    ty: bray_symbols::TypeId,
-    inputs: impl IntoIterator<Item = Target>,
-) {
-    let (unit, _) = expression_unit(reference.root.unit(), |_, _| Vec::new());
-
-    let context = TestCheckerContext::new(false);
-    let entry = callable_entry(unit.key());
-    let request = crate::CheckerUnitView::new(&unit, &entry, &context);
-
-    state.observe_reference(request, destination, reference, ty, inputs).expect("checked reference observation");
-}
-
 #[test]
 fn report_payload_dependencies_survive_publication_move_and_join() {
     let ([observed, moved, dependency, _], origins) = places();
@@ -3609,10 +3593,10 @@ fn replaced_reference_reads_retire_retained_pointer_identity() {
     let location = Target::storage(slot.clone());
     let inputs = [Target::storage(owner)];
 
-    observe_reference(&mut state, location.clone(), slot.clone(), error_type(), inputs.clone());
+    state.observe_reference(location.clone(), slot.clone(), error_type(), inputs.clone());
     state.transfer_value(&location, saved.clone());
     state.clear(&slot);
-    observe_reference(&mut state, location.clone(), slot, error_type(), inputs);
+    state.observe_reference(location.clone(), slot, error_type(), inputs);
 
     let saved = Target::storage(saved);
 
@@ -4492,7 +4476,7 @@ fn published_returned_aliases_survive_repeated_reference_reads() {
     let mut state = State::default();
     let slot = Target::storage(reference.clone());
 
-    observe_reference(&mut state, slot.clone(), reference.clone(), error_type(), []);
+    state.observe_reference(slot.clone(), reference.clone(), error_type(), []);
 
     let original = state
         .value_target(&slot, error_type())
@@ -4505,7 +4489,7 @@ fn published_returned_aliases_survive_repeated_reference_reads() {
         &addressed_reference(error_type(), bray_symbols::DependencyReferenceKind::Address),
     );
 
-    observe_reference(&mut state, slot.clone(), reference, error_type(), []);
+    state.observe_reference(slot.clone(), reference, error_type(), []);
 
     let current = state
         .value_target(&slot, error_type())
@@ -4632,7 +4616,7 @@ fn observed_pointer_fields_keep_scope_without_initialization_authority() {
 
     let inputs = state.reachable_targets([parent]);
 
-    observe_reference(&mut state, field.clone(), observed_slot, error_type(), inputs);
+    state.observe_reference(field.clone(), observed_slot, error_type(), inputs);
 
     let pointer = state
         .value_target(&field, error_type())
@@ -4652,95 +4636,43 @@ fn observed_pointer_fields_keep_scope_without_initialization_authority() {
 }
 
 #[test]
-fn borrowed_choices_read_existing_pointer_values_before_publication() {
+fn bounded_borrowed_choices_do_not_read_possible_regions_as_addresses() {
+    let ([owner, backing, result, observed], origins) = places();
 
-    for mode in ["complete", "missing", "opaque", "retyped", "retired", "inexact"] {
-        let ([owner, backing, result, observed], origins) = places();
+    let call = origins[0].into();
+    let field = StorageProjection::TupleElement(bray_symbols::SymbolOrdinal::new(0));
+    let destination = Target::storage(result.clone());
 
-        let call = origins[0].into();
-        let field = StorageProjection::TupleElement(bray_symbols::SymbolOrdinal::new(0));
+    let mut state = State {
+        owned_storage: [owner.root, backing.root, result.root, observed.root].into(),
+        ..State::default()
+    };
 
-        let candidates = [0, 1].map(|index| Target::storage(owner.clone()).project(&[
-            StorageProjection::TupleElement(bray_symbols::SymbolOrdinal::new(index)),
-        ]));
+    for index in [0, 1] {
+        let component = StorageProjection::TupleElement(bray_symbols::SymbolOrdinal::new(index));
+        let candidate = Target::storage(owner.clone()).project(&[component]);
+        let pointer = Target::storage(backing.clone()).project(&[StorageProjection::OwnedTarget, component]);
 
-        let pointers = [0, 1].map(|index| Target::storage(backing.clone()).project(&[
-            StorageProjection::OwnedTarget,
-            StorageProjection::TupleElement(bray_symbols::SymbolOrdinal::new(index)),
-        ]));
+        state.stage_address(call, candidate.clone(), destination.clone(),
+            &addressed_reference(error_type(), bray_symbols::DependencyReferenceKind::Borrow));
 
-        let mut state = State {
-            owned_storage: [owner.root, backing.root, result.root, observed.root].into(),
-            ..State::default()
-        };
-
-        for (index, candidate) in candidates.iter().enumerate() {
-            state.stage_address(call, candidate.clone(), Target::storage(result.clone()),
-                &addressed_reference(error_type(), bray_symbols::DependencyReferenceKind::Borrow));
-
-            if mode != "missing" || index == 0 {
-                state.values.insert(candidate.project(&[field]), AddressValue::one(pointers[index].clone()).into());
-            }
-        }
-
-        let view_type = if mode == "retyped" { crate::test_support::nullable_type(error_type()) } else { error_type() };
-
-        if mode == "opaque" {
-            state.begin_transition(call);
-            state.stage_returned_reference(call, Target::storage(result.clone()), result.clone(), view_type, candidates.clone());
-        } else {
-            state.bound_staged_reference(call, &Target::storage(result.clone()));
-            state.stage_returned_references(call, [(result.clone(), view_type)], |_| candidates.iter().cloned());
-        }
-
-        state.complete_transition(call);
-
-        if mode == "inexact" {
-            state.returned_inputs.get_mut(&(result.clone(), false)).expect("view retains its complete private region bound").bound();
-        }
-
-        let mut parent = state.value_target(&Target::storage(result.clone()), view_type).expect("bounded borrowed choice");
-
-        if mode == "retired" {
-            state.stage_returned_reference(call, Target::storage(result.clone()), result, view_type, candidates.clone());
-            state.complete_transition(call);
-            parent.previous = true;
-        }
-
-        let location = parent.project(&[field]);
-
-        observe_reference(&mut state, location.clone(), observed, error_type(), [Target::storage(owner.clone())]);
-
-        let read = state.value_targets(&location).expect("pointer read retains its current value");
-
-        if mode != "retired" {
-            let unexposed = state.unexposed_storage(std::slice::from_ref(&owner), []).collect::<Vec<_>>();
-
-            if mode == "opaque" {
-                assert!(unexposed.is_empty(), "an unknown bound cannot certify a private region");
-            } else {
-                assert_eq!(unexposed, vec![&owner],
-                    "{mode}: reading through a private region cannot publish its container");
-            }
-        }
-
-        if mode == "complete" {
-            assert_eq!(read.into_iter().collect::<BTreeSet<_>>(), BTreeSet::from(pointers));
-
-            state.escape_targets(state.referenced_regions(&location).expect("known pointer alternatives"));
-
-            assert!(!state.raw_exposed_regions().contains(&Target::storage(owner.clone())), "publishing nested pointers cannot publish their borrowed container");
-            assert_eq!(state.unexposed_storage(std::slice::from_ref(&owner), []).collect::<Vec<_>>(), vec![&owner]);
-
-            state.escape_targets([Target::storage(owner.clone())]);
-
-            assert!(state.unexposed_storage(std::slice::from_ref(&owner), []).next().is_none(), "publishing the actual owner ends its private backing");
-        } else {
-            assert!(read.iter().any(|target| matches!(target.origin, super::model::Origin::Returned { .. })), "{mode} retains conservative pointer provenance");
-        }
-
-        assert!(!state.initialized(&location, error_type()), "forwarding provenance grants no memory authority");
+        state.values.insert(candidate.project(&[field]), AddressValue::one(pointer).into());
     }
+
+    state.bound_staged_reference(call, &destination);
+    state.stage_returned_references(call, [(result, error_type())], |_| []);
+    state.complete_transition(call);
+
+    let parent = state.value_target(&destination, error_type()).expect("bounded borrowed choice");
+    let location = parent.project(&[field]);
+
+    state.observe_reference(location.clone(), observed, error_type(), [Target::storage(owner.clone())]);
+
+    let read = state.value_targets(&location).expect("pointer read retains its current value");
+
+    assert!(matches!(read.as_slice(), [Target { origin: Origin::Returned { .. }, .. }]));
+    assert!(!state.initialized(&location, error_type()));
+    assert_eq!(state.unexposed_storage(std::slice::from_ref(&owner), []).collect::<Vec<_>>(), vec![&owner]);
 }
 
 #[test]
@@ -5078,8 +5010,10 @@ fn bounded_forwarding_retains_a_typed_result_and_the_call_input_regions() {
     );
 
     state.bound_staged_reference(call, &destination);
-    state.stage_returned_references(call, [(result, view_type)], |_| [payload.clone()]);
+    state.stage_returned_references(call, [(result.clone(), view_type)], |_| [payload.clone()]);
     state.complete_transition(call);
+
+    assert!(state.returned_inputs[&(result, false)].is_bounded());
 
     let target = state
         .value_target(&destination, view_type)

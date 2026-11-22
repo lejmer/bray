@@ -160,6 +160,8 @@ impl State {
             }
         }
 
+        bounds.bound();
+
         bounds
     }
 
@@ -240,31 +242,19 @@ impl State {
             }
         }
 
-        let mut bounds = self.expand_returned_regions(inputs, None);
-
-        // Checked regions are closed physical bounds, not forwarded addresses.
-        bounds.bound();
+        let bounds = self.expand_returned_regions(inputs, None);
 
         self.stage_bounded_reference(call, destination, reference, ty, bounds);
     }
 
-    pub(in crate::analysis::storage_flow) fn observe_reference<C: crate::CheckerRequestContext + ?Sized>(
+    pub(in crate::analysis::storage_flow) fn observe_reference(
         &mut self,
-        request: crate::CheckerUnitView<'_, C>,
         destination: Target,
         reference: Place,
         ty: TypeId,
         inputs: impl IntoIterator<Item = Target>,
-    ) -> crate::CheckerQueryResult<(), C::UpstreamError> {
-        if self.values.get(&destination).is_some_and(ValueBinding::is_no_payload) { return Ok(()); }
-
-        // A bounded view reads its existing field values. Its container is not
-        // an origin of the pointers stored in those fields.
-        if let Some(contents) = self.bounded_reference_contents(request, &destination)? {
-            *self.values.entry(destination).or_default().produced_address() = contents;
-
-            return Ok(());
-        }
+    ) {
+        if self.values.get(&destination).is_some_and(ValueBinding::is_no_payload) { return; }
 
         let bounds = self.unbounded_reference_regions(inputs);
         let target = Self::returned_reference(reference.clone());
@@ -279,8 +269,6 @@ impl State {
             .storage_type = Some(ty);
 
         *self.values.entry(destination).or_default().produced_address() = AddressValue::one(target);
-
-        Ok(())
     }
 
     fn returned_reference(reference: Place) -> Target {

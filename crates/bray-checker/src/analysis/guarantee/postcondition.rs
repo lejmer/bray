@@ -42,15 +42,11 @@ pub(in crate::analysis::guarantee) fn check_postconditions<C: CheckerRequestCont
             continue;
         }
 
-        let condition = required.substitute(
-            &|input| {
-                input
-                    .value_in(&state.current)
-                    .unwrap_or_else(ExecutionCondition::unknown)
-            },
+        let condition = domain.completion_condition(
+            state,
+            required,
             &domain.returned_value(state),
-            &mut { ExecutionCondition::WORK_LIMIT },
-        ).with_reference_origins(domain.request.semantic_values(), domain.dependencies, &state.assumptions);
+        );
 
         if reflexive_comparison(domain, state, &condition) {
             continue;

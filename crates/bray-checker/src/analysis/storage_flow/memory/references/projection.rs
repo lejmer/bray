@@ -119,61 +119,6 @@ impl State {
         bounds
     }
 
-    pub(super) fn bounded_reference_contents<C: crate::CheckerRequestContext + ?Sized>(
-        &self,
-        request: crate::CheckerUnitView<'_, C>,
-        location: &Target,
-    ) -> crate::CheckerQueryResult<Option<AddressValue>, C::UpstreamError> {
-        if location.previous {
-            return Ok(None);
-        }
-
-        let Origin::Returned { reference, projections } = &location.origin
-        else {
-            return Ok(None);
-        };
-
-        let bounds = self.returned_reference_bounds(reference, location.previous);
-
-        if projections.is_empty() || !bounds.has_values() || bounds.targets.is_empty() {
-            return Ok(None);
-        }
-
-        let parent = Target {
-            previous: false,
-            origin: Origin::Returned {
-                reference: reference.clone(),
-                projections: [].into()
-            }
-        };
-
-        let Some(ty) = self.declared_type(&parent)
-        else {
-            return Ok(None);
-        };
-
-        let mut contents = AddressValue::default();
-
-        for target in &bounds.targets {
-            if target.previous || !target.is_exact() || self.projected_type(request, target)? != Some(ty) {
-                return Ok(None);
-            }
-
-            let Some(value) = self.values.get(&target.project(projections)).and_then(|value| value.address.as_ref())
-            else {
-                return Ok(None);
-            };
-
-            if value.is_unknown() || value.is_displaced() {
-                return Ok(None);
-            }
-
-            contents.merge(value);
-        }
-
-        Ok(Some(contents))
-    }
-
     pub(super) fn reachable_inline_roots(
         &self,
         target: &Target,

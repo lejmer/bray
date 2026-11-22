@@ -111,6 +111,30 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .unwrap_or_else(ExecutionCondition::unknown)
     }
 
+    /// Binds one declared completion condition to the reached entry snapshot and result.
+    pub(in crate::analysis::guarantee) fn completion_condition(
+        &self,
+        state: &ExecutionState,
+        condition: &ExecutionCondition,
+        result: &ExecutionCondition,
+    ) -> ExecutionCondition {
+        condition
+            .substitute(
+                &|input| {
+                    input
+                        .value_in(&state.current)
+                        .unwrap_or_else(ExecutionCondition::unknown)
+                },
+                result,
+                &mut { ExecutionCondition::WORK_LIMIT },
+            )
+            .with_reference_origins(
+                self.request.semantic_values(),
+                self.dependencies,
+                &state.assumptions,
+            )
+    }
+
     pub(in crate::analysis::guarantee) fn publish_return(&self, state: &mut ExecutionState, value: ExecutionCondition) {
         let Some(bray_bound_tree::StorageBinding::Identity(identity)) =
             self.storage.binding(bray_bound_tree::StorageBindingTarget::Result) else {

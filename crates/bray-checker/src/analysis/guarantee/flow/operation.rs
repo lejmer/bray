@@ -864,33 +864,37 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         state.expressions.insert(expression, value);
 
+        let node = self.request.view().expression(expression);
+
+        let assignment_value = if let Some(BoundExpression::Assignment(assignment)) = node
+            && let [target, source] = assignment.operands()
+            && let Some(place) = assignment_place
+        {
+            assert_eq!(assignment.operator(), BoundAssignmentOperator::Assign,
+                "a compound assignment installs the completed operator result");
+
+            let types = self.semantics.types();
+
+            let value = self.operand_value(state, *source).coerce(
+                self.request.semantic_values(),
+                types.expression(*source)
+                    .expect("assignment source retains its checked type").ty(),
+                types.expression(*target)
+                    .expect("assignment target retains its checked type").ty(),
+            );
+
+            Some((place, value))
+        } else {
+            None
+        };
+
         self.invalidate(state, expression.into(), invalidation);
 
-        match self.request.view().expression(expression) {
-            Some(BoundExpression::Assignment(assignment)) => {
-                if let [target, source] = assignment.operands()
-                    && let Some(place) = assignment_place
-                {
-                    assert_eq!(assignment.operator(), BoundAssignmentOperator::Assign,
-                        "a compound assignment installs the completed operator result");
+        if let Some((place, value)) = assignment_value {
+            state.assign(place.clone(), value, None);
+        }
 
-                    let value = self.operand_value(state, *source).coerce(
-                        self.request.semantic_values(),
-                        self.semantics
-                            .types()
-                            .expression(*source)
-                            .expect("assignment source retains its checked type")
-                            .ty(),
-                        self.semantics
-                            .types()
-                            .expression(*target)
-                            .expect("assignment target retains its checked type")
-                            .ty(),
-                    );
-
-                    state.assign(place.clone(), value, None);
-                }
-            }
+        match node {
             Some(BoundExpression::ControlTransfer(transfer))
                 if transfer.kind() == BoundControlTransferKind::Return =>
             {

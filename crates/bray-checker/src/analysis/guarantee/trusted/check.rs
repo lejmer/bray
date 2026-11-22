@@ -76,7 +76,7 @@ impl TrustedChecks {
                     .request
                     .trusted_contracts()
                     .into_iter()
-                    .flat_map(|contracts| &contracts.guarantees)
+                    .flat_map(crate::TrustedContractInputs::proof_guarantees)
                     .map(|(condition, span)| {
                         let condition = condition.capture_entry(
                             &|place| {

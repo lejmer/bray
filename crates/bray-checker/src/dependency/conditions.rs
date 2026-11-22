@@ -12,7 +12,7 @@ where C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQ
     let Some(inputs) = request.trusted_contracts() else { return Ok(references); };
 
     let conditions = inputs.requirements.iter().chain(&inputs.preconditions)
-        .chain(inputs.guarantees.iter().map(|(condition, _)| condition))
+        .chain(inputs.declared_guarantees.iter().map(|(condition, _)| condition))
         .chain(inputs.calls.values().flat_map(|call| call.requirements.iter()
             .chain(&call.execution_requirements)
             .chain(call.preconditions.iter().map(|(condition, _)| condition))

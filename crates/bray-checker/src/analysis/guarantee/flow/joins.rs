@@ -641,14 +641,14 @@ mod tests {
                 (&unknown, &crate::execution_guarantees::ExecutionSubstitution::new(&left_values, &left_owners)), (&right_state, &crate::execution_guarantees::ExecutionSubstitution::new(&right_values, &right_owners)),
                 &snapshots, [], &Default::default(), None, &mut Vec::new());
 
-            assert!(!rejected.iter().any(|witness| witness.available && witness.clauses.iter().any(|(_, condition)| *condition == whole_guarantee(joined.clone()))),
+            assert!(!rejected.iter().any(|witness| witness.available && witness.clauses.iter().any(|(_, condition, _)| *condition == whole_guarantee(joined.clone()))),
                 "a live Unknown observation cannot supply the missing whole-object evidence");
 
             if matches!(context, Context::Reference) {
                 assert!(!retained.iter().any(|witness| &witness.owner == joined.clone().into_referent().owner_identity()),
                     "a reference descriptor cannot manufacture a joined pointee owner");
             } else {
-                assert!(retained.iter().any(|witness| witness.available && witness.clauses.iter().any(|(_, condition)| *condition == whole_guarantee(joined.clone()))),
+                assert!(retained.iter().any(|witness| witness.available && witness.clauses.iter().any(|(_, condition, _)| *condition == whole_guarantee(joined.clone()))),
                     "the proof collector must ignore retired terminal views: context={context:?} retained={retained:?}");
             }
 

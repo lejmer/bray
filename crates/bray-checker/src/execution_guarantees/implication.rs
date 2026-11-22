@@ -452,15 +452,19 @@ mod tests {
             )
             .into(),
         ));
+
         let unresolved = ExecutionCondition::operation(
             BoundOperator::Equal,
             vec![input(0), input(1)],
         );
+
         let decisive = input(2);
+
         let goal = ExecutionCondition::operation(
             BoundOperator::LogicalOr,
             vec![unresolved, decisive.clone()],
         );
+
         let mut trusted = BTreeSet::new();
 
         for index in 0..ExecutionCondition::WORK_LIMIT as u32 {

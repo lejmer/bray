@@ -219,7 +219,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             if let Err(failed) = prove_requirement(&actual, &known, &mut prove_condition, &mut {
                 ExecutionCondition::WORK_LIMIT
             }) {
-
                 return Err(crate::UnprovenExecutionCondition::new(required.clone(), failed.clone()));
             }
         }

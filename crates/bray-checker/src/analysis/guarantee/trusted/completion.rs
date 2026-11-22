@@ -318,8 +318,19 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             let instantiate = self.completion_instantiator(invocation, entry, &arguments, &result);
             let selected = checked.map(|call| (call.storage(), ordinal));
 
+            let bind_declared = |condition: &ExecutionCondition| {
+                contract.guarantees.iter().flat_map(ExecutionCondition::conjuncts)
+                    .filter(|template| template.observes_completion_result())
+                    .map(|template| entry.capture_condition(template))
+                    .find(|template| instantiate(template).implies(condition))
+                    .map(|template| self.result_guarantee_owners(
+                        (invocation, &references), &entry.arguments, &template, true, &owners,
+                        &guarantees.addresses, &instantiate,
+                    ))
+            };
+
             let supported = self.complete_returned_carriers(
-                state, entry, &result, carriers, selected, output, &instantiate,
+                state, entry, &result, carriers, (selected, output), (&instantiate, &bind_declared),
             );
 
             self.publish_call_guarantees(
@@ -375,9 +386,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         entry: &crate::ExecutionCallEvidence,
         value: &ExecutionCondition,
         carriers: &[bray_symbols::DependencyWitnessCarrier<bray_bound_tree::StorageProjection>],
-        selected: Option<(&bray_bound_tree::BoundCallStorage, impl Fn(bray_symbols::DependencySubjectRoot) -> Option<bray_symbols::SymbolOrdinal>)>,
-        output: Option<&crate::ExecutionPlace>,
-        instantiate: &impl Fn(&ExecutionCondition) -> ExecutionCondition,
+        (selected, output): (
+            Option<(&bray_bound_tree::BoundCallStorage, impl Fn(bray_symbols::DependencySubjectRoot) -> Option<bray_symbols::SymbolOrdinal>)>,
+            Option<&crate::ExecutionPlace>,
+        ),
+        (instantiate, bind_declared): (
+            &impl Fn(&ExecutionCondition) -> ExecutionCondition,
+            &impl Fn(&ExecutionCondition) -> Option<(BTreeSet<crate::ExecutionPlace>, crate::execution_guarantees::AddressDependencies)>,
+        ),
     ) -> BTreeSet<ExecutionCondition> {
         use crate::execution_guarantees::ExecutionObservationKind;
 
@@ -398,8 +414,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 continue;
             }
 
-            let Some(support) = carrier.support().and_then(|support|
-                self.bind_returned_witness_support(state, entry, (value, &condition), support, selected.as_ref(), output)) else {
+            let support = match carrier.support() {
+                Some(support) => self.bind_returned_witness_support(
+                    state, entry, (value, &condition), support, selected.as_ref(), output,
+                ),
+                None => bind_declared(&condition),
+            };
+
+            let Some(support) = support else {
                 continue;
             };
 

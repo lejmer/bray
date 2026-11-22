@@ -699,10 +699,16 @@ impl ExecutionState {
             condition.observes_only(|value| stable_values.preserves(value))
         });
 
-        let retains_clause = |owner: &ExecutionCondition, condition: &ExecutionCondition, support: &crate::execution_guarantees::ExecutionGuarantee| {
+        let retains_clause = |owner: &ExecutionCondition, condition: &ExecutionCondition,
+            support: &crate::execution_guarantees::ExecutionGuarantee, independent: bool| {
             retains_contents(condition) && (retained_owner(owner)
-                || support.addresses.is_empty() && stable_owners.retains_witness_carrier(owner, |referent|
-                    observes_carried_referent(condition, referent)))
+                || support.addresses.is_empty()
+                    && stable_owners.retains_witness_carrier(owner, |referent|
+                        observes_carried_referent(condition, referent))
+                || independent && !support.witness && !support.addresses.is_empty()
+                    && support.addresses.iter().all(|(address, owners)| {
+                        owners.is_empty() && stable_values.preserves(address)
+                    }))
         };
 
         let admitted_witnesses = self.admitted_private_witnesses(admitted);
@@ -724,7 +730,9 @@ impl ExecutionState {
         let proof = self.proofs.proof(&self.trusted_assumptions, &self.assumptions);
 
         self.witnesses.retain(|carrier, witness| {
-            witness.retain_conditions(|condition, support| retains_clause(carrier, condition, support));
+            let independent = witness.dependencies.is_empty();
+
+            witness.retain_conditions(|condition, support| retains_clause(carrier, condition, support, independent));
 
             // Availability says the carrier can be used, not that every possible
             // clause was proved on this path. Preserve only established truth.
@@ -770,7 +778,9 @@ impl ExecutionState {
 
         let support_changes = |entry: &crate::ExecutionCallEvidence| entry.witness_inputs.iter().any(|(owner, witness)| {
             !keeps_private_support(witness) && (witness.conditions.is_empty() && !retained_owner(owner)
-                || witness.conditions.iter().any(|(condition, support)| !retains_clause(owner, condition, support)))
+                || witness.conditions.iter().any(|(condition, support)| {
+                    !retains_clause(owner, condition, support, witness.dependencies.is_empty())
+                }))
         });
 
         self.update_entry_snapshots(|entry| {
@@ -806,7 +816,9 @@ impl ExecutionState {
             entry.witness_inputs.retain(|owner, witness| {
                 if keeps_private_support(witness) { return true; }
 
-                witness.retain_conditions(|condition, support| retains_clause(owner, condition, support));
+                let independent = witness.dependencies.is_empty();
+
+                witness.retain_conditions(|condition, support| retains_clause(owner, condition, support, independent));
 
                 !witness.conditions.is_empty() || !witness.dependencies.is_empty() && retained_owner(owner)
             });
@@ -1361,6 +1373,38 @@ mod tests {
 
             assert!(state.witnesses.is_empty());
             assert!(!state.trusted_assumptions.contains(&(condition.clone(), true)));
+        }
+    }
+
+    #[test]
+    fn cleanup_retains_copied_address_facts_only_without_owner_dependencies() {
+        let pointer = input(0).component(ConstantProjectionKind::TupleElement(SymbolOrdinal::new(0)));
+        let access = permission(0).with_equalities(&[(input(0), pointer.clone())].into());
+        let stable = [pointer.clone()].into_iter().collect();
+
+        for (owning, dependent) in [(false, false), (true, false), (false, true)] {
+            let mut state = ExecutionState::default();
+            let witness = Arc::make_mut(state.witnesses.entry(pointer.clone()).or_default());
+            let support = witness.conditions.entry(access.clone()).or_default();
+
+            support.witness = owning;
+            support.addresses.insert(pointer.clone(), BTreeSet::new());
+
+            if dependent {
+                witness.dependencies.insert(ExecutionPlace::argument(SymbolOrdinal::new(1)));
+            }
+
+            access.clone().assume(true, &mut state.trusted_assumptions);
+            state.invalidate_cleanup(&stable, &Default::default(), None);
+
+            let survives = !owning && !dependent;
+
+            assert_eq!(state.trusted_assumptions.contains(&(access.clone(), true)), survives);
+            assert_eq!(state.witnesses.values().any(|witness| witness.conditions.contains_key(&access)), survives);
+
+            state.invalidate_cleanup(&Default::default(), &Default::default(), None);
+
+            assert!(!state.trusted_assumptions.contains(&(access.clone(), true)));
         }
     }
 

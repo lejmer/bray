@@ -621,9 +621,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     let mutation = bray_bound_tree::StorageMutation::Operation(expression.into());
                     let value = self.complete_returned_references(branch, mutation, output, (&result, value), observations);
 
-                    self.complete_returned_carriers(branch, entry, &value, carriers, selected, output, &|formal| {
+                    let instantiate = |formal: &ExecutionCondition| {
                         entry.bind_condition(formal, &value).pointer_observations(&self.pointer_predicates)
-                    });
+                    };
+
+                    // This carried frame has only its portable evidence at observation.
+                    self.complete_returned_carriers(
+                        branch, entry, &value, carriers, (selected, output), (&instantiate, &|_| None),
+                    );
 
                     value
                 }).unwrap_or(result)

@@ -11,7 +11,7 @@ use crate::{CheckerRequestContext, ExecutionCallEvidence, ExecutionCondition, Ex
 pub(super) struct CompletionGuarantees<'contract> {
     conditions: Vec<ExecutionCondition>,
     subjects: Vec<(ExecutionCondition, &'contract ExecutionCondition)>,
-    addresses: Vec<(ExecutionCondition, ExecutionCondition, bool)>,
+    pub(super) addresses: Vec<(ExecutionCondition, ExecutionCondition, bool)>,
 }
 
 impl<'contract> CompletionGuarantees<'contract> {

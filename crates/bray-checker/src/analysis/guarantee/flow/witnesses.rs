@@ -13,7 +13,7 @@ use crate::{ExecutionCondition, ExecutionPlace};
 pub(super) struct JoinedWitness {
     pub(super) owner: ExecutionCondition,
     pub(super) available: bool,
-    pub(super) clauses: Vec<(ExecutionCondition, ExecutionCondition)>,
+    pub(super) clauses: Vec<(ExecutionCondition, ExecutionCondition, bool)>,
 }
 
 /// Propose value-contract facts and prove each against both original predecessors.
@@ -152,35 +152,49 @@ pub(super) fn conditional_facts<'value>(
             [(0, (left.0, &left_inputs)), (1, (right.0, &right_inputs))].map(|(index, (state, inputs))| {
                 let source = inputs.apply(&owner);
                 let mut evidence = ExecutionAssumptions::default();
+                let mut owning = ExecutionAssumptions::default();
                 let mut available = true;
 
                 for (_, witness) in state.owned_witnesses([source]) {
                     available &= witness.available;
 
-                    for condition in witness.conditions.keys().filter(|condition| {
-                        !witness.available || source_proofs[index].prove_trusted(condition)
-                            == Some(true)
+                    for (condition, guarantee) in witness.conditions.iter().filter(|(condition, _)| {
+                        !witness.available || source_proofs[index].prove_trusted(condition) == Some(true)
                     }) {
                         condition.clone().assume(true, &mut evidence);
+
+                        if guarantee.witness {
+                            condition.clone().assume(true, &mut owning);
+                        }
                     }
                 }
 
-                (state, inputs, evidence, available)
+                (state, inputs, evidence, owning, available)
             });
 
-        let proofs = predecessors.each_ref().map(|(state, _, evidence, _)| {
+        let proofs = predecessors.each_ref().map(|(state, _, evidence, _, _)| {
+            state.proofs.proof(evidence, &state.assumptions)
+        });
+
+        let owning_proofs = predecessors.each_ref().map(|(state, _, _, evidence, _)| {
             state.proofs.proof(evidence, &state.assumptions)
         });
 
         let proved = |clause: &ExecutionCondition| {
-            predecessors.iter().zip(&proofs).all(|((_, inputs, _, _), proof)| {
+            predecessors.iter().zip(&proofs).all(|((_, inputs, _, _, _), proof)| {
+                proof.prove_trusted(&inputs.apply(clause)) == Some(true)
+            })
+        };
+
+        let owned = |clause: &ExecutionCondition| {
+            predecessors.iter().zip(&owning_proofs).all(|((_, inputs, _, _, _), proof)| {
                 proof.prove_trusted(&inputs.apply(clause)) == Some(true)
             })
         };
 
         // A join preserves validity while the child owns execution. It must not
         // make any unavailable predecessor's authority usable in the caller.
-        let available = predecessors.iter().all(|(_, _, _, available)| *available);
+        let available = predecessors.iter().all(|(_, _, _, _, available)| *available);
         let mut clauses = Vec::new();
 
         for condition in conditions {
@@ -189,7 +203,9 @@ pub(super) fn conditional_facts<'value>(
             // An existing guarded claim can already hold on both paths without
             // discovering a new discriminant or adding a redundant outer guard.
             if proved(&condition) {
-                clauses.push((condition.clone(), condition));
+                let owning = owned(&condition);
+
+                clauses.push((condition.clone(), condition, owning));
                 continue;
             }
 
@@ -214,7 +230,9 @@ pub(super) fn conditional_facts<'value>(
                 // These are actual predecessor snapshots of moved owners, not ordinary
                 // equal-content substitutions for borrowed observations.
                 if !matches!(clause.kind(), crate::ExecutionConditionKind::Boolean(true)) && proved(&clause) {
-                    clauses.push((condition.clone(), clause));
+                    let owning = owned(&clause);
+
+                    clauses.push((condition.clone(), clause, owning));
                 }
             }
         }
@@ -353,7 +371,7 @@ mod tests {
 
             super::retain_conditional_guarantees(&mut left, &mut right, &[super::JoinedWitness {
                 owner: owner.clone(), available,
-                clauses: vec![(claim.clone(), first.clone()), (first.clone(), last.clone())],
+                clauses: vec![(claim.clone(), first.clone(), true), (first.clone(), last.clone(), true)],
             }]);
 
             for state in [&left, &right] {
@@ -410,13 +428,16 @@ mod tests {
         let owner = input(0);
         let guard = input(1);
         let trusted = ExecutionCondition::new(crate::ExecutionConditionKind::Trusted(Arc::new(input(2))));
+
         let left_clause = ExecutionCondition::operation(BoundOperator::LogicalOr, vec![
             ExecutionCondition::operation(BoundOperator::LogicalNot, vec![guard.clone()]),
             trusted.clone(),
         ]);
+
         let right_clause = ExecutionCondition::operation(BoundOperator::LogicalOr, vec![
             guard.clone(), trusted.clone(),
         ]);
+
         let mut left = ExecutionState::default();
         let mut right = ExecutionState::default();
 
@@ -440,7 +461,13 @@ mod tests {
 
         assert_eq!(retained.len(), 1);
         assert_eq!(retained[0].owner, owner);
-        assert!(retained[0].clauses.contains(&(trusted.clone(), trusted)));
+        assert!(retained[0].clauses.contains(&(trusted.clone(), trusted.clone(), true)));
+
+        super::retain_conditional_guarantees(&mut left, &mut right, &retained);
+
+        for state in [&left, &right] {
+            assert!(state.witnesses[&owner].conditions[&trusted].witness);
+        }
     }
 
     #[test]
@@ -492,7 +519,7 @@ pub(super) fn retain_conditional_guarantees(
                 .cloned().collect::<BTreeSet<_>>()
         });
 
-        for (original, condition) in clauses {
+        for (original, condition, owning) in clauses {
             let mut guarantee = crate::execution_guarantees::ExecutionGuarantee::default();
             let mut dependencies = BTreeSet::new();
 
@@ -523,6 +550,8 @@ pub(super) fn retain_conditional_guarantees(
                     }
                 }
             }
+
+            guarantee.witness |= *owning;
 
             for state in [&mut *left, &mut *right] {
                 let witness = state.witnesses.entry(owner.clone()).or_default();

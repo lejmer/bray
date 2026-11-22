@@ -137,21 +137,72 @@ impl<C: crate::CheckerRequestContext + ?Sized> super::super::flow::ExecutionFlow
 }
 
 impl super::check::TrustedChecks {
-    pub(super) fn exit_carriers<C: crate::CheckerRequestContext + ?Sized>(&self, request: crate::CheckerUnitView<'_, C>,
+    pub(super) fn exit_carriers<C: crate::CheckerRequestContext + ?Sized>(&self,
+        domain: &super::super::flow::ExecutionFlowDomain<'_, '_, C>,
         state: &ExecutionState, result: &ExecutionCondition,
         return_substitution: &impl Fn(&ExecutionCondition) -> ExecutionCondition,
     ) -> BTreeSet<ReturnedCarrier> {
+        let request = domain.request;
+
         let Some(inputs) = request.trusted_contracts() else { return BTreeSet::new(); };
 
-        if state.witnesses.is_empty() { return BTreeSet::new(); }
+        assert_eq!(
+            inputs.proof_guarantees().len(),
+            self.guarantees.len(),
+            "completion retains every checked trusted guarantee"
+        );
 
         let owners = returned_owners(result);
         let mut carriers = BTreeSet::new();
 
-        for ((declared, _), (checked, _)) in inputs.guarantees.iter().zip(&self.guarantees) {
+        for (index, (declared, _)) in inputs.declared_guarantees.iter().enumerate() {
             let Some(term) = portable(request, declared) else { continue; };
 
-            for (path, support) in declared_carriers(request, state, result, &owners, checked, return_substitution) {
+            let subjects = inputs
+                .guarantee_witness_subjects
+                .iter()
+                .filter(|(guarantee, subject)| {
+                    guarantee == declared && subject.observes_completion_result()
+                })
+                .map(|(_, subject)| subject);
+
+            let declared_paths = declared_result_paths(
+                domain,
+                state,
+                result,
+                &owners,
+                subjects,
+            );
+
+            let completed = domain.completion_condition(state, declared, result);
+
+            // A false success guard creates no authority and imposes no carrier requirement.
+            if completed.prove_ordinary(&state.assumptions, Some(&state.proofs)) == Some(true) {
+                continue;
+            }
+
+            let checked = self.guarantees.get(index).map_or(declared, |(condition, _)| condition);
+
+            let mut published = checked_declared_carriers(
+                domain,
+                state,
+                result,
+                &owners,
+                checked,
+                &declared_paths,
+                return_substitution,
+            );
+
+            if inputs.declared_guarantees_are_authoritative {
+                for path in declared_paths {
+                    if !published.iter().any(|(carried, _)| *carried == path) {
+                        // Admission binds declaration-only support from the actual call.
+                        published.insert((path, None));
+                    }
+                }
+            }
+
+            for (path, support) in published {
                 carriers.insert(DependencyWitnessCarrier::new(term, path).with_support(support));
             }
         }
@@ -249,38 +300,49 @@ pub(in crate::analysis::guarantee) fn result_projection(
         })
 }
 
-fn declared_carriers<C: crate::CheckerRequestContext + ?Sized>(
-    request: crate::CheckerUnitView<'_, C>, state: &ExecutionState, result: &ExecutionCondition,
-    owners: &BTreeMap<ExecutionCondition, Vec<StorageProjection>>, guarantee: &ExecutionCondition,
+fn declared_result_paths<'a, C: crate::CheckerRequestContext + ?Sized>(
+    domain: &super::super::flow::ExecutionFlowDomain<'_, '_, C>,
+    state: &ExecutionState, result: &ExecutionCondition,
+    owners: &BTreeMap<ExecutionCondition, Vec<StorageProjection>>,
+    subjects: impl IntoIterator<Item = &'a ExecutionCondition>,
+) -> BTreeSet<Vec<StorageProjection>> {
+    subjects
+        .into_iter()
+        .filter_map(|subject| {
+            let subject = domain.completion_condition(state, subject, result);
+
+            owners
+                .get(&subject)
+                .or_else(|| owners.get(subject.owner_identity()))
+                .cloned()
+        })
+        .collect()
+}
+
+fn checked_declared_carriers<C: crate::CheckerRequestContext + ?Sized>(
+    domain: &super::super::flow::ExecutionFlowDomain<'_, '_, C>,
+    state: &ExecutionState,
+    result: &ExecutionCondition,
+    owners: &BTreeMap<ExecutionCondition, Vec<StorageProjection>>,
+    guarantee: &ExecutionCondition,
+    declared_paths: &BTreeSet<Vec<StorageProjection>>,
     return_substitution: &impl Fn(&ExecutionCondition) -> ExecutionCondition,
 ) -> BTreeSet<(Vec<StorageProjection>, Option<DependencyWitnessSupport<ExecutionPlace>>)> {
-        let proof = state.proof();
+    let proof = state.proof();
+    let guarantee = domain.completion_condition(state, guarantee, result);
 
-        let guarantee = guarantee.substitute(
-            &|input| {
-                input
-                    .value_in(&state.current)
-                    .unwrap_or_else(ExecutionCondition::unknown)
-            },
-            result,
-            &mut { ExecutionCondition::WORK_LIMIT },
-        );
+    let mut paths = BTreeSet::new();
 
-        // A false success guard creates no authority and imposes no carrier requirement.
-        if guarantee.prove_ordinary(&state.assumptions, Some(&state.proofs))
-            == Some(true)
-        {
-            return BTreeSet::new();
-        }
-
-        let mut paths = BTreeSet::new();
-
-        for (carrier, witness) in &state.witnesses {
-            let Some(path) = owners.get(carrier) else {
+    for (carrier, witness) in &state.witnesses {
+            if !witness.available {
                 continue;
-            };
+            }
 
-            if !state.directly_carries_witness(carrier) {
+            let returned_path = owners.get(carrier);
+
+            if declared_paths.is_empty()
+                && (returned_path.is_none() || !state.directly_carries_witness(carrier))
+            {
                 continue;
             }
 
@@ -292,12 +354,13 @@ fn declared_carriers<C: crate::CheckerRequestContext + ?Sized>(
                 .conditions
                 .iter()
                 .filter(|(condition, guarantee)| {
-                    guarantee.witness
+                    (guarantee.witness || !declared_paths.is_empty())
                         && proof.prove_trusted(condition)
                             == Some(true)
                 })
             {
-                // The temporary proof set owns its conditions independently of the exit state.
+                // An authored result owner can adopt a checked address fact. Without
+                // that result subject, only an existing owning witness can publish.
                 condition.clone().assume(true, &mut evidence);
                 supports.push(support);
 
@@ -320,14 +383,28 @@ fn declared_carriers<C: crate::CheckerRequestContext + ?Sized>(
                 let support = if independent {
                     Some(DependencyWitnessSupport::new([], []))
                 } else {
-                    portable_support(request, witness, supports, return_substitution)
+                    portable_support(domain.request, witness, supports, return_substitution)
                 };
 
-                paths.insert((path.clone(), support));
+                if declared_paths.is_empty() {
+                    paths.insert((
+                        returned_path
+                            .expect("a fallback declared carrier is returned")
+                            .clone(),
+                        support,
+                    ));
+                } else {
+                    paths.extend(
+                        declared_paths
+                            .iter()
+                            .cloned()
+                            .map(|path| (path, support.clone())),
+                    );
+                }
             }
         }
 
-        paths
+    paths
 }
 
 fn portable_support<'a, C: crate::CheckerRequestContext + ?Sized>(

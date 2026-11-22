@@ -390,6 +390,8 @@ impl<C: CheckerRequestContext + ?Sized> super::super::core::StorageFlowCollector
             .cloned()
             .collect::<Vec<_>>();
 
-        memory.observe_reference(self.request, location, logical, pointee, inputs)
+        memory.observe_reference(location, logical, pointee, inputs);
+
+        Ok(())
     }
 }
