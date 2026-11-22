@@ -133,7 +133,7 @@ mod tests {
     use crate::{ExecutionCondition, ExecutionPlace};
 
     #[test]
-    fn predecessor_projection_uses_the_captured_owner() {
+    fn predecessor_projection_reads_the_captured_payload() {
         let result = ExecutionCondition::new(crate::ExecutionConditionKind::Result);
 
         let owner = ExecutionCondition::new(crate::ExecutionConditionKind::Input(
@@ -145,7 +145,7 @@ mod tests {
         let nullable = result.clone().component(ConstantProjectionKind::NullableValue);
         let selected = nullable.clone().component(ConstantProjectionKind::NullableValue);
 
-        let source = ExecutionCondition::constructed(owner.clone(), [
+        let source = ExecutionCondition::constructed(owner, [
             (bray_bound_tree::StorageProjection::NullableValue, payload.clone()),
         ].into());
 
@@ -153,10 +153,8 @@ mod tests {
 
         let substitution = super::SnapshotSubstitution::new(&snapshots);
 
-        let expected = owner.component(ConstantProjectionKind::NullableValue);
-
-        assert_eq!(substitution.apply(&selected), expected);
-        assert_eq!(substitution.apply(&selected.borrowed()), expected.borrowed());
+        assert_eq!(substitution.apply(&selected).into_component_data(), payload);
+        assert_eq!(substitution.apply(&selected.borrowed()), payload.borrowed());
     }
 
     #[test]

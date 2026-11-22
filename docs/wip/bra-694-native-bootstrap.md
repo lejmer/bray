@@ -241,19 +241,12 @@ The three-body package probe at `cd6c582a5` checks and lowers
 after the arena call. The nullable allocation test with an opaque call fails.
 `retire_pin` reproduces E7086 for three pending cells under the domain pointer.
 
-The package-backed probe checked and lowered all 13 selected bootstrap
-bodies with the routed-discharge candidate. It reported 16 diagnostics at 10
-source sites. The next route batch preserves an inactive nullable payload
-while its tag survives, and bounds an unresolved result pointer by the reached
-input descriptor instead of its safe-borrowed owner. The same 13 bodies now
-report five E7123 diagnostics at two sites: `execution/ownership.bray` and
-`execution/worker_context.bray`. `root_scope`, `retire_pin`, and the other
-previously failing sites check and lower. The remaining sites both transport
-an owned nullable value from a trusted producer through a consumed `Result`
-or catch payload, then lose the producer's predicate before the consumer.
-The probe uses a standard-library bundle built with Rust 1.98.1 and LLVM
-22.1.8. Rust 1.99.0 emits LLVM 23 bitcode that Bray's pinned LLVM 22 symbol
-tool cannot inspect.
+The package-backed probe uses a standard-library bundle built with Rust
+1.98.1 and LLVM 22.1.8. Rust 1.99.0 emits LLVM 23 bitcode that Bray's pinned
+LLVM 22 symbol tool cannot inspect. Run both execution certification and
+lowering. Certification can return without checking a body that declares
+no execution properties or postconditions. Lowering checks the required
+body semantics and cleanup before building MIR.
 
 ### Current reference-route contract
 
@@ -316,9 +309,20 @@ supplies the selected owner and its physical preservation. The forward
 replacement must insert the reached observation once, including its retained
 scalar fields. Ordinary equality resolution still follows equality chains.
 All 591 checker cases pass, including a captured call result with an inline
-scalar and a witness checked in both branches. The combined package inventory
-checks for regressions beyond the two bodies. The full comparison also uses
-the existing source and import controls.
+scalar and a witness checked in both branches. The combined inventory checks
+and attempts to lower 43 bodies and reports 10 distinct diagnostics. The
+same compiler reports zero diagnostics on the 13-body inventory when only
+execution certification is requested. Four of those bodies still fail
+when lowering requests their checked storage and cleanup prerequisites.
+
+The backward projection lookup also needs the complete predecessor snapshot.
+The join collects actual snapshots from reached storage and result values.
+Projecting their owner coordinates discards explicit payload fields, even
+when those fields own independent values. Project the reached snapshot
+itself. Keep the forward insertion of complete joined observations and the
+existing ordinary equality solver. The predecessor projection control reads
+the actual field. The joined witness control rejects the inactive branch.
+The 43-body diagnostic inventory is unchanged by removing the shortcut.
 
 The call that extracts the whole `Domain` publishes a definite typed
 discharge through the admitted domain pointer. The reached scheduler
@@ -361,6 +365,17 @@ the work limit, capture barriers, and the distinction between data
 substitution and owner renaming. Use the existing bounded DAG,
 nullable, witness, and frame controls with the fixed case inventory.
 Compare joins and archive wall time before changing the cleanup scheduler.
+
+At a join, `CurrentValues` supplies the predecessor observations and the join
+assembles the final roots before it renames evidence. The current root rewrites
+between those steps are overwritten by publication. Witness publication reads
+its supplied owner and witness ledger. It does not read the intermediate
+roots. Keep the predecessor state readable until publication, compare the
+joined slots to the actual previous slots, and publish the assembled roots
+once. Evaluated values, admitted frames, and owned result layouts still need
+their own rebinding. Standalone frame publication still changes current roots.
+Check captured extraction, copied guards, and loop convergence before timing
+the same workload without concurrent compiler activity.
 
 ## Acceptance
 
