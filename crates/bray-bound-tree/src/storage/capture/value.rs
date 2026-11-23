@@ -109,6 +109,12 @@ impl StorageCapturedValue {
         self.state.values.get(&self.root)
     }
 
+    /// Binds the cleanup to the admitted contents of this value.
+    pub fn capture_cleanup(&self, ty: bray_symbols::TypeId) -> Option<crate::StorageEffect> {
+        crate::StorageEffect::capture_cleanup(ty, &self.root, self.binding(), false,
+            storage_value_subtree(&self.state.values, &self.root).map(|(_, value)| value))
+    }
+
     /// The storage coordinate of the captured inline value.
     pub fn storage_coordinate(&self) -> Option<&crate::StoragePath> {
         self.root.storage_path()
@@ -170,18 +176,8 @@ impl StorageCapturedValue {
         let mut regions = self.carried_sources().cloned().collect::<std::collections::BTreeSet<_>>();
 
         for (_, value) in storage_value_subtree(&self.state.values, &self.root) {
-            if value.is_no_payload() { continue; }
-
-            let mut references = value.carried_references().peekable();
-
-            if value.unknown_dependencies() || references.peek().is_none() && value.observations.iter().any(|kind| {
-                matches!(kind, crate::StorageObservationKind::Address | crate::StorageObservationKind::Reference(_))
-            }) {
+            if !value.collect_carried_regions(&mut regions) {
                 return None;
-            }
-
-            for reference in references {
-                regions.extend(reference.regions()?);
             }
         }
 

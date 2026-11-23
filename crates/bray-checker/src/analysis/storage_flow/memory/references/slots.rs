@@ -29,6 +29,38 @@ impl State {
         value.completeness = DependencyCompleteness::Complete;
     }
 
+    pub(in crate::analysis::storage_flow) fn capture_cleanup(&self, target: &Target, ty: bray_symbols::TypeId, include_inline: bool) -> Option<bray_bound_tree::StorageEffect> {
+        if !target.is_exact() || target.previous {
+            return Some(self.bounded_cleanup(std::slice::from_ref(target), ty, include_inline));
+        }
+
+        let projections = target.projections();
+
+        let first_inline = projections.iter().rposition(|projection| *projection == StorageProjection::OwnedTarget)
+            .map_or(0, |index| index + 1);
+
+        if (first_inline..projections.len()).any(|length| {
+            self.values.get(&target.prefix(length)).is_some_and(ValueBinding::is_no_payload)
+        }) {
+            return None;
+        }
+
+        bray_bound_tree::StorageEffect::capture_cleanup(ty, target, self.values.get(target), include_inline,
+            storage_subtree(&self.values, target).map(|(_, value)| value))
+    }
+
+    pub(in crate::analysis::storage_flow) fn bounded_cleanup(&self, bounds: &[Target], ty: bray_symbols::TypeId, include_inline: bool) -> bray_bound_tree::StorageEffect {
+        let mut regions = BTreeSet::new();
+
+        for (slot, value) in &self.values {
+            if bounds.iter().any(|bound| self.target_relationship(bound, slot) != bray_bound_tree::StorageRelationship::Disjoint) {
+                value.collect_carried_regions(&mut regions);
+            }
+        }
+
+        bray_bound_tree::StorageEffect::incomplete_cleanup(ty, regions, bounds.iter().filter(|_| include_inline).cloned())
+    }
+
     #[cfg(test)]
     pub(in crate::analysis::storage_flow) fn whole_sources(&self) -> impl Iterator<Item = (&Target, &BTreeSet<Target>, bool)> {
         self.values.iter().filter_map(|(target, value)| value.whole_sources().map(|(sources, complete)| (target, sources, complete)))
@@ -71,6 +103,12 @@ impl State {
             .filter(|(_, contents)| contents.exposed || contents.escaped)
             .map(|(target, _)| exposure_region(target))
             .collect()
+    }
+
+    /// Regions whose address has been published outside the invocation.
+    pub(in crate::analysis::storage_flow) fn escaped_storage_regions(&self) -> impl Iterator<Item = Target> + '_ {
+        self.contents.iter().filter(|(_, contents)| contents.escaped)
+            .map(|(target, _)| exposure_region(target))
     }
 
     pub(in crate::analysis::storage_flow) fn unexposed_storage<'a>(

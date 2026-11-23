@@ -517,10 +517,15 @@ impl StructuralValueEncoder<'_, '_> {
             DependencyMutationKind::Cleanup(_) => 8,
             DependencyMutationKind::Dispose(_) => 9,
             DependencyMutationKind::Discharge(_) => 10,
+            DependencyMutationKind::DisposeCaptured { include_inline: false, .. } => 11,
+            DependencyMutationKind::DisposeCaptured { include_inline: true, .. } => 12,
         });
 
-        if let DependencyMutationKind::Replace(ty) | DependencyMutationKind::Dispose(ty) | DependencyMutationKind::Cleanup(ty) | DependencyMutationKind::Discharge(ty) = kind {
-            self.ty(*ty)?;
+        if let Some(&ty) = kind.cleanup_type().or(match &kind {
+            DependencyMutationKind::Replace(ty) | DependencyMutationKind::Discharge(ty) => Some(ty),
+            _ => None,
+        }) {
+            self.ty(ty)?;
         }
 
         Ok(())

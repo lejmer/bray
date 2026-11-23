@@ -168,14 +168,15 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         // receiver address remains governed by the terminal receiver contract.
         let cleanup_references = effects.into_iter().flatten().flat_map(|effect| {
             match effect {
-                Effect::Mutation { footprint: target, kind: kind @ (DependencyMutationKind::Dispose(_) | DependencyMutationKind::Cleanup(_)), .. } => {
+                Effect::Mutation { footprint: target, kind, .. } if kind.cleanup_type().is_some() => {
                     Some(matches!(kind, DependencyMutationKind::Cleanup(_)).then_some(target).into_iter().chain(memory.contained_regions(target)))
                 }
                 _ => None,
             }.into_iter().flatten().cloned()
         });
 
-        let roots = targets.into_iter().chain(cleanup_references).collect::<Vec<_>>();
+        let roots = targets.into_iter().chain(cleanup_references)
+            .chain(Effect::captured_cleanup_regions(effects.unwrap_or_default()).cloned()).collect::<Vec<_>>();
 
         // A possible alias inside this body is not an unconditional input escape.
         // Retain the operands so callers resolve aliases using their actual storage.

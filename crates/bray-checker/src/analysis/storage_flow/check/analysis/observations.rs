@@ -132,24 +132,35 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         roots: impl IntoIterator<Item = Target>,
         backing_scope_known: bool,
     ) -> StorageInvalidation {
-        self.opaque_observations_with_escapes(memory, roots, &Default::default(), backing_scope_known)
+        self.opaque_observations_with_escapes(memory, (roots, false), &Default::default(), &[], backing_scope_known)
     }
 
     pub(super) fn opaque_observations_with_escapes(
         &self,
         memory: &crate::analysis::storage_flow::memory::State,
-        roots: impl IntoIterator<Item = Target>,
+        (roots, incomplete): (impl IntoIterator<Item = Target>, bool),
         escaped: &std::collections::BTreeSet<Target>,
+        inline_writes: &[&Target],
         backing_scope_known: bool,
     ) -> StorageInvalidation {
         let mut stable_descriptors = std::collections::BTreeSet::new();
         let mut stable_values = BTreeMap::new();
         let mut stable_allocation_addresses = std::collections::BTreeSet::new();
 
-        let reached = memory.reachable_regions(roots.into_iter().chain(escaped.iter().cloned()));
+        let mut reached = memory.reachable_regions(roots.into_iter().chain(escaped.iter().cloned()));
         let exposed = memory.raw_exposed_regions();
 
+        reached.1 |= incomplete;
+
         for path in memory.unexposed_storage_within(&self.input.opaque_candidates, &reached) {
+            if !inline_writes.is_empty() {
+                let target = Target::storage(path.clone());
+
+                if inline_writes.iter().any(|write| memory.target_relationship(write, &target) != StorageRelationship::Disjoint) {
+                    continue;
+                }
+            }
+
             if self.input.opaque_descriptors.contains(path) {
                 stable_descriptors.insert(path.clone());
             }
@@ -168,7 +179,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         // Ordinary statics cannot be replaced while their product or exact-thread
         // owner is retained. Interior mutation cannot reach their empty markers.
-        let protected = |target: &Target| !exposed.iter().chain(escaped).any(|raw| {
+        let protected = |target: &Target| !exposed.iter().chain(escaped).chain(inline_writes.iter().copied()).any(|raw| {
             memory.target_relationship(raw, target) != StorageRelationship::Disjoint
         });
 
@@ -641,7 +652,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 .expect("atomic effects prepare their observation frame");
 
             let targets = if effects.contains(&Effect::Atomic) {
-                self.opaque_observations_with_escapes(memory, roots.clone(), escaped, false)
+                self.opaque_observations_with_escapes(memory, (roots.clone(), false), escaped, &[], false)
             } else {
                 self.target_observations(memory, effects.iter()
                     .filter_map(Effect::mutation)
@@ -672,13 +683,22 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             let unbounded_escape = effects.contains(&Effect::Escape(None));
 
             // Unresolved operands do not establish a finite lifetime footprint.
-            let backing_scope_known = !unbounded_escape && !effects.iter().any(|effect| {
+            let incomplete_capture = Effect::incomplete_captured_cleanup(effects);
+
+            let backing_scope_known = !unbounded_escape && !incomplete_capture && !effects.iter().any(|effect| {
                 matches!(effect, Effect::Unknown | Effect::UnboundedMutation { ambient: false, .. })
                     && !effect.preserves_storage_lifetimes()
             });
 
-            self.opaque_observations_with_escapes(memory,
-                roots.into_iter().filter(|_| all_inputs || unbounded_escape).chain(ordinary.cloned()), escaped, backing_scope_known)
+            let roots = roots.into_iter().filter(|_| all_inputs || unbounded_escape).chain(ordinary.cloned())
+                .chain(Effect::captured_cleanup_regions(effects).cloned());
+
+            let inline = effects.iter().filter_map(|effect| match effect {
+                Effect::CapturedCleanup { inline, .. } => Some(inline.iter()),
+                _ => None,
+            }).flatten().collect::<Vec<_>>();
+
+            self.opaque_observations_with_escapes(memory, (roots, incomplete_capture), escaped, &inline, backing_scope_known)
         } else {
             self.target_observations(memory, ordinary)
         };

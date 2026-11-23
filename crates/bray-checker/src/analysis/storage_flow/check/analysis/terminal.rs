@@ -179,11 +179,13 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 Effect::Mutation { kind: DependencyMutationKind::Replace(ty), .. } | Effect::UnboundedMutation { kind: DependencyMutationKind::Replace(ty), .. } => {
                     self.input.graceful_types.contains(ty)
                 }
-                Effect::Mutation { kind: DependencyMutationKind::Write | DependencyMutationKind::Escape | DependencyMutationKind::Dispose(_) | DependencyMutationKind::Cleanup(_), .. }
-                | Effect::UnboundedMutation { kind: DependencyMutationKind::Write | DependencyMutationKind::Escape | DependencyMutationKind::Dispose(_) | DependencyMutationKind::Cleanup(_), .. }
-                | Effect::Escape(_)
+                Effect::Mutation { kind, .. } | Effect::UnboundedMutation { kind, .. } => {
+                    matches!(kind, DependencyMutationKind::Write | DependencyMutationKind::Escape) || kind.cleanup_type().is_some()
+                }
+                Effect::Escape(_)
                 | Effect::Unknown
                 | Effect::Ambient
+                | Effect::CapturedCleanup { .. }
                 => true,
                 _ => false,
             })
@@ -237,27 +239,39 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             })
         });
 
-        let inputs = effects.is_none_or(|effects| {
-            effects.iter().any(|effect| {
-                matches!(
-                    effect,
-                    Effect::Unknown | Effect::Escape(None) | Effect::UnboundedMutation { ambient: false, .. }
-                )
-            })
-        });
-
-        let (reached, unknown_inputs) = memory.reachable_regions(
-            roots.into_iter().filter(|_| inputs).chain(escaped.iter().cloned()),
-        );
+        let mut escaped_overlap = None;
 
         let unproved = effects.into_iter().flatten().any(|effect| {
+            if let Effect::CapturedCleanup { ty, regions, inline, sources, complete } = effect {
+                // Open types retain the route used to bind their carried effects at specialization.
+                // A capture with no such route still needs proof for its unknown reach.
+                let portable = || !sources.is_empty() && inline.iter().all(|target| sources.contains(target)) && sources.iter().all(|source| {
+                    self.portable_cleanup_source(source, *ty, inline.contains(source)).is_some()
+                });
+
+                let (reached, unknown_referents) = memory.transitive_regions(regions.iter().cloned(), |_, _| true);
+
+                return reached.iter().chain(inline.iter()).chain(escaped).any(overlaps)
+                    || (unknown_referents || !*complete && !portable()) && unbounded_overlap
+                    || *escaped_overlap.get_or_insert_with(|| memory.escaped_storage_regions().any(|target| overlaps(&target)));
+            }
+
             let roots = effect.escape_regions();
 
             (!roots.is_empty() && roots.iter().chain(escaped).any(overlaps))
                 || matches!(effect, Effect::Mutation { footprint: target, kind: DependencyMutationKind::Write | DependencyMutationKind::Dispose(_) | DependencyMutationKind::Cleanup(_), .. } if overlaps(target))
-        }) || opaque && (unknown || reached.iter().any(overlaps)
-            || unknown_inputs && protected.iter().any(|part| memory.unknown_reference_may_reach(part))
-            || unbounded_overlap && effects.into_iter().flatten().any(|effect| matches!(effect, Effect::UnboundedMutation { .. })));
+        }) || opaque && {
+            let inputs = effects.is_none_or(|effects| effects.iter().any(|effect|
+                effect.may_reach_all_inputs() || matches!(effect, Effect::Escape(None))));
+
+            let (reached, unknown_inputs) = memory.reachable_regions(
+                roots.into_iter().filter(|_| inputs).chain(escaped.iter().cloned()),
+            );
+
+            unknown || reached.iter().any(overlaps)
+                || unknown_inputs && protected.iter().any(|part| memory.unknown_reference_may_reach(part))
+                || unbounded_overlap && effects.into_iter().flatten().any(|effect| matches!(effect, Effect::UnboundedMutation { .. }))
+        };
 
         if introduced.is_some() || unproved {
             self.report_terminal_operation(operation, introduced);

@@ -36,13 +36,19 @@ pub(in crate::analysis::storage_flow) fn borrow_chain_from(
 }
 
 impl State {
+    fn allocation_contents(&self, target: &Target) -> Option<&bray_bound_tree::StorageContents> {
+        let backing = target.allocation_region()?;
+
+        (backing != *target).then(|| self.contents.get(&backing)).flatten()
+    }
+
     pub(in crate::analysis::storage_flow) fn reached_dependency_storage(
         &self,
         target: &Target,
         ty: TypeId,
     ) -> Option<(bool, bool)> {
         let contents = self.contents.get(target);
-        let allocation = target.allocation_region().and_then(|root| self.contents.get(&root));
+        let allocation = self.allocation_contents(target);
 
         let invalidated = contents.into_iter().chain(allocation)
             .any(|contents| !contents.invalidations.is_empty());
@@ -290,7 +296,7 @@ impl State {
     ) -> impl Iterator<Item = &'a bray_bound_tree::StorageContents> + 'a {
         value.possible_references()
             .flat_map(|references| &references.targets)
-            .filter_map(|target| self.contents.get(target))
+            .flat_map(|target| self.contents.get(target).into_iter().chain(self.allocation_contents(target)))
     }
 
     #[cfg(test)]
@@ -311,10 +317,7 @@ impl State {
             && !references.targets.is_empty()
             && references.targets.iter().all(|target| {
                 target.is_exact()
-                    && self
-                        .contents
-                        .get(target)
-                        .is_some_and(|contents| contents.invalidations.is_empty() && contents.is_initialized(ty))
+                    && matches!(self.reached_dependency_storage(target, ty), Some((_, true)))
             })
     }
 

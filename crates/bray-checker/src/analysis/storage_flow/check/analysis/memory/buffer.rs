@@ -486,7 +486,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         effects: &mut Vec<Effect>,
     ) {
         let cleanup = owner.address.as_ref().and_then(|receiver| self.buffer_cleanup_effects(memory, receiver, ty))
-            .unwrap_or_else(|| memory.cleanup_effects(owner.address.as_ref(), ty));
+            .unwrap_or_else(|| memory.cleanup_effects(self.request.semantic_values(), owner.address.as_ref(), ty));
 
         effects.extend(cleanup);
         effects.extend(buffer_backing_effects(regions, DependencyMutationKind::Retire));

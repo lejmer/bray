@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::{StorageTarget as Target, StorageValueRetirement as Retirement, StorageMutationTarget as MutationTarget};
+use crate::{StorageTarget as Target, StorageValueBinding, StorageValueRetirement as Retirement, StorageMutationTarget as MutationTarget};
 use bray_symbols::{DependencyMutationKind, TypeId};
 
 /// A definite transfer of the complete value from one reached typed cell.
@@ -31,9 +31,47 @@ pub enum StorageEffect {
         access_type: Option<TypeId>,
         ambient: bool,
     },
+    /// Cleanup whose generic type is still open. The sources remain portable
+    /// while physical effects use the regions captured before execution.
+    CapturedCleanup {
+        ty: TypeId,
+        sources: Arc<[Target]>,
+        regions: Arc<[Target]>,
+        inline: Arc<[Target]>,
+        complete: bool,
+    },
 }
 
 impl StorageEffect {
+    /// Reads a cleanup operand from its reached value tree or admitted snapshot.
+    pub fn capture_cleanup<'a>(
+        ty: TypeId, source: &Target, binding: Option<&StorageValueBinding>, include_inline: bool,
+        values: impl IntoIterator<Item = &'a StorageValueBinding>,
+    ) -> Option<Self> {
+        if source.is_exact() && !source.previous && binding.is_some_and(StorageValueBinding::is_no_payload) {
+            return None;
+        }
+
+        let mut complete = binding.is_some_and(|value| value.whole_complete() || value.reference().is_some());
+        let mut regions = std::collections::BTreeSet::new();
+
+        for value in values {
+            complete &= value.collect_carried_regions(&mut regions) && value.sources.is_empty();
+        }
+
+        let inline = if include_inline {
+            Arc::from([source.clone()])
+        } else {
+            Arc::from([])
+        };
+
+        let sources = binding.and_then(StorageValueBinding::whole_sources)
+            .filter(|(sources, complete)| *complete && !sources.is_empty())
+            .map_or_else(|| Arc::from([]), |(sources, _)| sources.iter().cloned().collect());
+
+        Some(Self::CapturedCleanup { ty, sources, regions: regions.into_iter().collect(), inline, complete })
+    }
+
     pub fn at(
         target: Target,
         kind: DependencyMutationKind,
@@ -73,7 +111,8 @@ impl StorageEffect {
     }
 
     pub fn is_ambient(&self) -> bool {
-        matches!(self, Self::Ambient | Self::UnboundedMutation { ambient: true, .. } | Self::Mutation { kind: DependencyMutationKind::Dispose(_) | DependencyMutationKind::Cleanup(_), .. })
+        matches!(self, Self::Ambient | Self::CapturedCleanup { .. } | Self::UnboundedMutation { ambient: true, .. })
+            || matches!(self, Self::Mutation { kind, .. } if kind.cleanup_type().is_some())
     }
 
     pub fn may_reach_all_inputs(&self) -> bool {
@@ -89,13 +128,11 @@ impl StorageEffect {
     /// Whether this effect leaves backing storage lifetimes intact.
     pub fn preserves_storage_lifetimes(&self) -> bool {
         match self {
-            Self::Unknown | Self::Ambient => false,
+            Self::Unknown | Self::Ambient | Self::CapturedCleanup { .. } => false,
             Self::Escape(_) | Self::Atomic => true,
-            Self::Mutation { kind, .. } | Self::UnboundedMutation { kind, .. } => !matches!(
-                kind,
-                DependencyMutationKind::Dispose(_) | DependencyMutationKind::Cleanup(_)
-                    | DependencyMutationKind::Retire
-            ),
+            Self::Mutation { kind, .. } | Self::UnboundedMutation { kind, .. } => {
+                kind.cleanup_type().is_none() && *kind != DependencyMutationKind::Retire
+            }
         }
     }
 
@@ -107,7 +144,15 @@ impl StorageEffect {
         match kind {
             DependencyMutationKind::Atomic => Self::Atomic,
             DependencyMutationKind::Escape => Self::Escape(None),
-            _ => Self::UnboundedMutation { kind, access_type, ambient },
+            _ => Self::UnboundedMutation { kind: kind.unlocated_kind(), access_type, ambient },
+        }
+    }
+
+    /// An open cleanup with a region bound and no identified value to read.
+    pub fn incomplete_cleanup(ty: TypeId, regions: std::collections::BTreeSet<Target>, inline: impl IntoIterator<Item = Target>) -> Self {
+        Self::CapturedCleanup {
+            ty, sources: [].into(), regions: regions.into_iter().collect(),
+            inline: bray_base::sorted_unique_shared_slice(inline), complete: false,
         }
     }
 
@@ -138,9 +183,9 @@ impl StorageEffect {
             }
         }
 
-        if let Self::Escape(Some(targets)) = self
-            && targets.iter().any(|target| retirement.contains(current, target))
-        {
+        let retire_regions = |targets: &mut Arc<[Target]>| {
+            if !targets.iter().any(|target| retirement.contains(current, target)) { return; }
+
             *targets = bray_base::sorted_unique_shared_slice(targets.iter().cloned().map(|mut target| {
                 if retirement.contains(current, &target) {
                     target.previous = true;
@@ -148,6 +193,16 @@ impl StorageEffect {
 
                 target
             }));
+        };
+
+        match self {
+            Self::Escape(Some(targets)) => retire_regions(targets),
+            Self::CapturedCleanup { sources, regions, inline, .. } => {
+                retire_regions(sources);
+                retire_regions(regions);
+                retire_regions(inline);
+            }
+            _ => {}
         }
     }
 
@@ -157,6 +212,8 @@ impl StorageEffect {
                 .chain(discharged.iter().flat_map(|duties| duties.iter().map(|duty| &duty.cell)))
                 .any(|target| retirement.contains(current, target)),
             Self::Escape(Some(targets)) => targets.iter().any(|target| retirement.contains(current, target)),
+            Self::CapturedCleanup { sources, regions, inline, .. } => sources.iter().chain(regions.iter()).chain(inline.iter())
+                .any(|target| retirement.contains(current, target)),
             _ => false,
         }
     }
@@ -185,8 +242,21 @@ impl StorageEffect {
         match self {
             Self::Mutation { kind: DependencyMutationKind::Escape, .. } => None,
             Self::Mutation { footprint: target, kind, .. } => Some((target, *kind)),
-            Self::Unknown | Self::Ambient | Self::Escape(_) | Self::Atomic | Self::UnboundedMutation { .. } => None,
+            Self::Unknown | Self::Ambient | Self::Escape(_) | Self::Atomic | Self::UnboundedMutation { .. }
+            | Self::CapturedCleanup { .. } => None,
         }
+    }
+
+    /// The carried regions reached by open cleanup.
+    pub fn captured_cleanup_regions(effects: &[Self]) -> impl Iterator<Item = &Target> {
+        effects.iter().filter_map(|effect| match effect {
+            Self::CapturedCleanup { regions, .. } => Some(regions.iter()),
+            _ => None,
+        }).flatten()
+    }
+
+    pub fn incomplete_captured_cleanup(effects: &[Self]) -> bool {
+        effects.iter().any(|effect| matches!(effect, Self::CapturedCleanup { complete: false, .. }))
     }
 }
 

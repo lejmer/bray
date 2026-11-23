@@ -147,7 +147,7 @@ fn expand<C: CheckerRequestContext + ?Sized>(
     resolved: &mut Vec<Effect>,
     resolve: &mut impl FnMut(bray_symbols::CallableInstanceData) -> Result<Vec<Effect>, CheckerQueryError<C::UpstreamError>>,
 ) -> Result<(), CheckerQueryError<C::UpstreamError>> {
-    let Some((kind @ (Kind::Dispose(ty) | Kind::Cleanup(ty)), _)) = mutation(effect) else {
+    let Some((kind, ty)) = mutation(effect).and_then(|(kind, _)| kind.cleanup_type().map(|&ty| (kind, ty))) else {
         // The result owns its effects while sharing immutable projection paths.
         resolved.push(effect.clone());
 
@@ -158,8 +158,10 @@ fn expand<C: CheckerRequestContext + ?Sized>(
         return Ok(());
     }
 
-    if matches!(kind, Kind::Cleanup(_)) {
-        return expand_region(request, shapes, effect, ty, active, resolved, resolve);
+    match kind {
+        Kind::Cleanup(_) => return expand_region(request, shapes, effect, ty, active, resolved, resolve),
+        Kind::DisposeCaptured { include_inline, .. } => return expand_captured(request, shapes, effect, (ty, include_inline), active, resolved, resolve),
+        _ => {}
     }
 
     if !active.insert(ty) {
@@ -242,13 +244,73 @@ fn expand_region<C: CheckerRequestContext + ?Sized>(
         };
 
         resolved.push(match kind {
-            Some(Kind::Dispose(ty)) => replace_kind(region, Kind::Cleanup(ty), None).into_region(),
+            Some(Kind::Dispose(ty) | Kind::DisposeCaptured { ty, .. }) => replace_kind(region, Kind::Cleanup(ty), None).into_region(),
             Some(kind) => replace_kind(region, kind, None).into_region(),
             None => effect,
         });
     }
 
     Ok(())
+}
+
+fn expand_captured<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
+    shapes: &mut crate::asynchronous::CleanupShapeResolver<'_, C>,
+    scope: &Effect,
+    (ty, include_inline): (TypeId, bool),
+    active: &mut BTreeSet<TypeId>,
+    resolved: &mut Vec<Effect>,
+    resolve: &mut impl FnMut(bray_symbols::CallableInstanceData) -> Result<Vec<Effect>, CheckerQueryError<C::UpstreamError>>,
+) -> Result<(), CheckerQueryError<C::UpstreamError>> {
+    // Resolve the lifecycle of the copied or moved value before binding the
+    // effects that can leave its private inline storage.
+    let value = Effect::Direct { addressed: true,
+        subject: DependencySubject::root(DependencySubjectRoot::Result),
+        kind: Kind::Dispose(ty), access_type: Some(ty),
+    };
+
+    let mut effects = Vec::new();
+
+    expand(request, shapes, &value, active, &mut effects, resolve)?;
+
+    let scope = scope.clone().into_region();
+
+    resolved.extend(effects.into_iter().filter_map(|effect| project_captured_child(&scope, effect, include_inline)));
+
+    Ok(())
+}
+
+fn project_captured_child(scope: &Effect, effect: Effect, include_inline: bool) -> Option<Effect> {
+    let captures = |root| root == DependencySubjectRoot::Result;
+    let effect_data = effect.retirement_parts().0;
+
+    let (kind, access_type, external) = match effect_data {
+        Effect::Direct { subject, kind, access_type, .. } if captures(subject.subject_root()) => {
+            let external = subject.projections().iter().any(|projection| matches!(projection, Projection::OwnedTarget | Projection::AddressTarget));
+
+            (*kind, *access_type, external)
+        }
+        Effect::Indirect { reference, kind, access_type, .. } if captures(reference.subject_root()) => (*kind, *access_type, true),
+        _ => return Some(effect),
+    };
+
+    let can_write = include_inline || external;
+
+    match kind {
+        Kind::Dispose(ty) => {
+            let effect = replace_kind(effect_data, Kind::DisposeCaptured { ty, include_inline: can_write }, access_type);
+
+            Some(project_call_effect(scope, &effect, captures))
+        }
+        Kind::DisposeCaptured { ty, include_inline } => {
+            let effect = replace_kind(effect_data, Kind::DisposeCaptured { ty, include_inline: include_inline && can_write }, access_type);
+
+            Some(project_call_effect(scope, &effect, captures))
+        }
+        Kind::Cleanup(ty) if !can_write => Some(Effect::UnboundedMutation { kind: Kind::Cleanup(ty), access_type, ambient: true }),
+        _ if can_write => Some(project_call_effect(scope, &effect, captures)),
+        _ => None,
+    }
 }
 
 fn append_part<C: CheckerRequestContext + ?Sized>(
@@ -264,7 +326,7 @@ fn append_part<C: CheckerRequestContext + ?Sized>(
         let backing = if matches!(scope, Effect::Direct { .. }) {
             project(scope, &[Projection::OwnedTarget], Kind::Retire, None)
         } else {
-            follow(scope, &[Projection::ProductField(fields.pointer)], Kind::Retire, None)
+            follow(scope, &[Projection::ProductField(fields.pointer)], Kind::Retire, None, false)
         };
 
         let elements = project(&backing, &[Projection::AnyElement], Kind::Dispose(fields.element), Some(fields.element));
@@ -307,33 +369,35 @@ fn append_call<E>(
 ) -> Result<(), CheckerQueryError<E>> {
     let selected = resolve(callable)?;
 
-    effects.extend(selected.iter().map(|effect| project_call_effect(scope, effect)));
+    effects.extend(selected.iter().map(|effect| project_call_effect(scope, effect, cleanup_receiver)));
 
     Ok(())
 }
 
-fn project_call_effect(scope: &Effect, effect: &Effect) -> Effect {
+fn project_call_effect(scope: &Effect, effect: &Effect, uses_scope: fn(DependencySubjectRoot) -> bool) -> Effect {
     let (effect, discharged) = effect.retirement_parts();
 
+    let typed_capture = matches!(mutation(scope), Some((Kind::DisposeCaptured { .. }, _)));
+
     let projected = match effect {
-        Effect::Direct { addressed, subject, kind, access_type } if cleanup_receiver(subject.subject_root()) => {
+        Effect::Direct { addressed, subject, kind, access_type } if uses_scope(subject.subject_root()) => {
             let projected = project(scope, subject.projections(), *kind, *access_type);
 
             if *addressed { projected } else { projected.into_region() }
         }
-        Effect::Indirect { addressed, reference, reads, projections, kind, access_type } if cleanup_receiver(reference.subject_root()) => {
+        Effect::Indirect { addressed, reference, reads, projections, kind, access_type } if uses_scope(reference.subject_root()) => {
             // A selected lifecycle receives the addressed object as its receiver.
             // Reading a field of that object is an additional descriptor load.
-            let mut target = if reference.projections().is_empty() {
+            let mut target = if reference.projections().is_empty() && !typed_capture {
                 scope.clone()
             } else {
-                follow(scope, reference.projections(), *kind, *access_type)
+                follow(scope, reference.projections(), *kind, *access_type, typed_capture)
             };
 
             let mut start = 0;
 
             for end in reads.iter().map(|read| *read as usize) {
-                target = follow(&target, &projections[start..end], *kind, *access_type);
+                target = follow(&target, &projections[start..end], *kind, *access_type, typed_capture);
                 start = end;
             }
 
@@ -347,8 +411,10 @@ fn project_call_effect(scope: &Effect, effect: &Effect) -> Effect {
         effect => effect.clone(),
     };
 
-    if projected.is_addressed_retirement() && !discharged.is_empty() {
-        let duties = discharged.iter().map(|effect| project_call_effect(scope, effect))
+    if matches!(projected, Effect::Direct { addressed: false, .. } | Effect::Indirect { addressed: false, .. }) {
+        projected.into_region()
+    } else if projected.is_addressed_retirement() && !discharged.is_empty() {
+        let duties = discharged.iter().map(|effect| project_call_effect(scope, effect, uses_scope))
             .filter(Effect::is_addressed_discharge);
 
         projected.with_retirement_discharges(bray_base::sorted_unique_shared_slice(duties))
@@ -371,19 +437,19 @@ fn replace_kind(scope: &Effect, kind: Kind, access_type: Option<TypeId>) -> Effe
 fn unbounded_scope(scope: &Effect, kind: Kind, access_type: Option<TypeId>) -> Effect {
     // Losing a component route does not give ambient cleanup access to private caller storage.
     Effect::UnboundedMutation {
-        kind, access_type, ambient: matches!(scope, Effect::UnboundedMutation { ambient: true, .. }),
+        kind: kind.unlocated_kind(), access_type, ambient: matches!(scope, Effect::UnboundedMutation { ambient: true, .. }),
     }
 }
 
-fn follow(scope: &Effect, fields: &[Projection], kind: Kind, access_type: Option<TypeId>) -> Effect {
+fn follow(scope: &Effect, fields: &[Projection], kind: Kind, access_type: Option<TypeId>, typed_capture: bool) -> Effect {
     match project(scope, fields, kind, access_type) {
-        Effect::Direct { addressed: true, subject, .. } => Effect::Indirect {
-            reference: subject, reads: [].into(), projections: [].into(), addressed: true, kind, access_type,
+        Effect::Direct { addressed, subject, .. } if addressed || typed_capture => Effect::Indirect {
+            reference: subject, reads: [].into(), projections: [].into(), addressed, kind, access_type,
         },
-        Effect::Indirect { addressed: true, reference, reads, projections, .. } => {
+        Effect::Indirect { addressed, reference, reads, projections, .. } if addressed || typed_capture => {
             let index = u32::try_from(projections.len()).expect("checked effect path fits the interface projection count");
 
-            Effect::Indirect { addressed: true, reference, reads: reads.iter().copied().chain([index]).collect(),
+            Effect::Indirect { addressed, reference, reads: reads.iter().copied().chain([index]).collect(),
                 projections, kind, access_type }
         }
         _ => unbounded_scope(scope, kind.region_kind(), access_type),
@@ -400,11 +466,80 @@ fn project(scope: &Effect, suffix: &[Projection], kind: Kind, access_type: Optio
             reference: reference.clone(),
             projections: projections.iter().copied().chain(suffix.iter().copied()).collect(), kind, access_type,
         },
-        Effect::UnboundedMutation { ambient, .. } => Effect::UnboundedMutation { kind, access_type, ambient: *ambient },
+        Effect::UnboundedMutation { .. } => unbounded_scope(scope, kind, access_type),
         _ => panic!("cleanup retains its mutation location: {scope:?}"),
     }
 }
 
 fn cleanup_receiver(root: DependencySubjectRoot) -> bool {
     match root { DependencySubjectRoot::Receiver => true, DependencySubjectRoot::Parameter(ordinal) => ordinal.raw() == 0, _ => false }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{DependencySubject, DependencySubjectRoot, Effect, Kind, Projection, project_call_effect, project_captured_child};
+    use bray_symbols::SymbolOrdinal;
+
+    #[test]
+    fn moved_cleanup_keeps_descriptor_reads_without_claiming_a_retirement_address() {
+        let field = |index| Projection::TupleElement(SymbolOrdinal::new(index));
+        let source = DependencySubject::new(DependencySubjectRoot::Receiver, [field(1)]);
+
+        let scope = Effect::Direct { addressed: false, subject: source,
+            kind: Kind::DisposeCaptured { ty: crate::test_support::error_type(), include_inline: false }, access_type: None,
+        };
+
+        let child = Effect::Indirect { addressed: true,
+            reference: DependencySubject::new(DependencySubjectRoot::Result, [field(2)]),
+            reads: [1].into(), projections: [field(3), Projection::OwnedTarget].into(),
+            kind: Kind::Retire, access_type: None,
+        };
+
+        let effect = project_call_effect(&scope, &child, |root| root == DependencySubjectRoot::Result);
+
+        assert_eq!(effect, Effect::Indirect { addressed: false,
+            reference: DependencySubject::new(DependencySubjectRoot::Receiver, [field(1), field(2)]),
+            reads: [1].into(), projections: [field(3), Projection::OwnedTarget].into(),
+            kind: Kind::Retire, access_type: None,
+        });
+
+        let child = Effect::Indirect { addressed: true,
+            reference: DependencySubject::root(DependencySubjectRoot::Result),
+            reads: [].into(), projections: [].into(), kind: Kind::Retire, access_type: None,
+        };
+
+        assert_eq!(project_call_effect(&scope, &child, |root| root == DependencySubjectRoot::Result), Effect::Indirect {
+            addressed: false, reference: DependencySubject::new(DependencySubjectRoot::Receiver, [field(1)]),
+            reads: [].into(), projections: [].into(), kind: Kind::Retire, access_type: None,
+        });
+    }
+
+    #[test]
+    fn specializing_captured_elements_keeps_the_nested_backing_route() {
+        let ty = crate::test_support::error_type();
+
+        let scope = Effect::Direct { addressed: false,
+            subject: DependencySubject::root(DependencySubjectRoot::Receiver),
+            kind: Kind::DisposeCaptured { ty, include_inline: false }, access_type: Some(ty),
+        };
+
+        let element = Effect::Direct { addressed: true,
+            subject: DependencySubject::new(DependencySubjectRoot::Result, [Projection::OwnedTarget, Projection::AnyElement]),
+            kind: Kind::Dispose(ty), access_type: Some(ty),
+        };
+
+        let pending = project_captured_child(&scope, element, false).expect("an open element keeps its typed cleanup");
+
+        assert!(matches!(pending, Effect::Direct { addressed: false, kind: Kind::DisposeCaptured { include_inline: true, .. }, .. }));
+
+        let release = Effect::Direct { addressed: true,
+            subject: DependencySubject::new(DependencySubjectRoot::Result, [Projection::OwnedTarget]),
+            kind: Kind::Retire, access_type: None,
+        };
+
+        assert_eq!(project_captured_child(&pending, release, true), Some(Effect::Direct { addressed: false,
+            subject: DependencySubject::new(DependencySubjectRoot::Receiver, [Projection::OwnedTarget, Projection::AnyElement, Projection::OwnedTarget]),
+            kind: Kind::Retire, access_type: None,
+        }));
+    }
 }

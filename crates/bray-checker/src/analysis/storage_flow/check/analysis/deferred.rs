@@ -413,7 +413,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let (effects, rows) = selection.bind(templates, |effect| {
             self.resolve_effects(memory, routes, (std::slice::from_ref(effect), Some(entry)), || entry.argument_regions(count), |subject, path, indirect| {
                 self.frame_effect_targets(memory, candidate, subject, path, indirect)
-            })
+            }, |subject, path, ty, include_inline| self.frame_carried_cleanup(memory, candidate, subject, path, ty, include_inline))
         });
 
         Some((effects, (!rows.is_empty()).then_some(rows)))
@@ -438,16 +438,30 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             return memory.reference_effect_targets(values, start, Some(path), indirect);
         }
 
-        let captured = if root == DependencySubjectRoot::Result {
+        let captured = Self::frame_effect_capture(candidate, root)?;
+
+        memory.captured_effect_targets(values, captured, path, indirect)
+    }
+
+    fn frame_effect_capture(candidate: &crate::ExecutionDeferredInvocation, root: DependencySubjectRoot) -> Option<&bray_bound_tree::StorageCapturedValue> {
+        if root == DependencySubjectRoot::Result {
             candidate.entry.outputs.common_value(&bray_bound_tree::StorageValueDestination::Result)?
-                .inline_captured_storage()?
+                .inline_captured_storage()
         } else {
             let ordinal = root.input_ordinal(candidate.has_receiver())?;
 
-            candidate.entry.argument_storage(ordinal)?
-        };
+            candidate.entry.argument_storage(ordinal)
+        }
+    }
 
-        memory.captured_effect_targets(values, captured, path, indirect)
+    fn frame_carried_cleanup(
+        &self, memory: &crate::analysis::storage_flow::memory::State,
+        candidate: &crate::ExecutionDeferredInvocation, subject: &DependencySubject, path: &bray_bound_tree::StorageReferencePath,
+        ty: bray_symbols::TypeId, include_inline: bool,
+    ) -> Option<Vec<Effect>> {
+        let captured = Self::frame_effect_capture(candidate, subject.subject_root())?;
+
+        memory.captured_cleanup_effects(self.request.semantic_values(), captured, path, ty, include_inline)
     }
 
     pub(super) fn inactive_frame_cleanup(
@@ -515,6 +529,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
                 self.frame_effect_targets(memory, candidate, subject, path, indirect)
             },
+            |subject, path, ty, include_inline| self.frame_carried_cleanup(memory, candidate, subject, path, ty, include_inline),
         )
     }
 

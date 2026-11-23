@@ -174,11 +174,17 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
                         writes_inside_payload || memory.target_relationship(reached, target) == StorageRelationship::Disjoint
                     }
-                    Effect::UnboundedMutation { ambient: true, .. } | Effect::Ambient => ambient
+                    effect if effect.is_ambient() => ambient
                         .get_or_init(|| memory.ambient_regions(effects.unwrap_or(&unknown)))
                         .as_ref().is_some_and(|(regions, unknown)| {
                             (!*unknown || !memory.unknown_reference_may_reach(target))
                                 && regions.iter().all(|reached| memory.target_relationship(reached, target) == StorageRelationship::Disjoint)
+                                && match effect {
+                                    Effect::CapturedCleanup { inline, .. } => inline.iter().all(|reached| {
+                                        memory.target_relationship(reached, target) == StorageRelationship::Disjoint
+                                    }),
+                                    _ => true,
+                                }
                         }),
                     _ => false,
                 };

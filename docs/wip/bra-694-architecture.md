@@ -660,7 +660,27 @@ projection. Certification observes reached cleanup during proof replay.
 A generic cleanup of a moved value needs the reference support carried by that
 value. Its portable route selects the original captured contents at admission.
 Specialization follows descriptors in those contents and applies external
-effects. The moved value's inline storage belongs to the callee.
+effects. An open cleanup keeps its portable sources and the already reached
+regions separately. It retains incomplete reachability and skips a proven
+absent value. The moved value's inline storage belongs to the callee.
+Cancellation broadcast and lifecycle resolution read the carried data of the
+reached receiver before applying effects. Snapshot and indirect selection
+both check payload activity. A bound on the source cell can reveal known
+carried regions, without becoming a retirement target. A typed child reached
+across a descriptor keeps its route while its type is open. The child's own
+inline storage can then contribute effects. Losing a route retains possible
+backing retirement and drops any claim of a definite discharge.
+Terminal ownership compares captured writes and the transitive reach of the
+carried regions with the dying receiver. Open carried data with a portable
+source route is resolved at specialization. A capture without either a finite
+bound or an exportable route must account for unknown reach. A typed cell and
+its backing share the same retirement source. Unlocated retirement can end
+the proven lifetime of an allocation or an owning backing established at
+entry. Raw input cells without an observed backing depend on their logical
+memory guarantees.
+An address formed for use within the destructor leaves no external alias.
+An actual escape records the publication in reached memory and contributes
+to terminal ownership checks.
 `StorageExitDecision` carries the reached cancellation and lifecycle orders,
 absence facts, and the selected protocol exit with its recovery status.
 The prepared cleanup requirements supply the owner's shape and phase needs.

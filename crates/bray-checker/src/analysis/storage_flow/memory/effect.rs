@@ -24,7 +24,7 @@ impl State {
             }
             Effect::UnboundedMutation { kind, .. } => kind.is_write() && *kind != DependencyMutationKind::Clear,
             Effect::Unknown | Effect::Escape(_) => true,
-            Effect::Ambient | Effect::Atomic => false,
+            Effect::Ambient | Effect::Atomic | Effect::CapturedCleanup { .. } => false,
         }
     }
 

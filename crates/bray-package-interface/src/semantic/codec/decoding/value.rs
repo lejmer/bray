@@ -749,6 +749,16 @@ mod tests {
                 kind: DependencyMutationKind::Cleanup(crate::InterfaceTypeId::new(0)),
                 access_type: None,
             },
+            DependencyStorageEffect::Direct { addressed: false,
+                subject: subject.clone(),
+                kind: DependencyMutationKind::DisposeCaptured { ty: crate::InterfaceTypeId::new(0), include_inline: false },
+                access_type: None,
+            },
+            DependencyStorageEffect::Indirect { addressed: false, reads: [].into(),
+                reference: subject.clone(), projections: [].into(),
+                kind: DependencyMutationKind::DisposeCaptured { ty: crate::InterfaceTypeId::new(0), include_inline: true },
+                access_type: Some(crate::InterfaceTypeId::new(0)),
+            },
             DependencyStorageEffect::Direct { addressed: true,
                 subject: subject.clone(),
                 kind: DependencyMutationKind::Dispose(crate::InterfaceTypeId::new(0)),
@@ -812,6 +822,8 @@ mod tests {
             }].into()),
         ];
 
+        let effect_count = effects.len();
+
         semantics.dependency_contracts = vec![
             InterfaceDependencyContract::new([])
                 .with_effects(effects)
@@ -856,7 +868,7 @@ mod tests {
 
         let template = store.dependency_contract_template_data(imported.dependency_contracts()[0]);
 
-        assert_eq!(template.effects().len(), 17);
+        assert_eq!(template.effects().len(), effect_count);
 
         assert!(template.effects().iter().any(|effect| matches!(effect,
             DependencyStorageEffect::UnboundedMutation { kind: DependencyMutationKind::Consume, access_type: Some(ty), ambient: true }
@@ -909,6 +921,14 @@ mod tests {
         assert!(template.effects().iter().any(|effect| matches!(effect,
             DependencyStorageEffect::Direct { addressed: false, kind: DependencyMutationKind::Cleanup(ty), access_type: None, .. }
                 if *ty == imported.types()[0])));
+
+        assert!(template.effects().iter().any(|effect| matches!(effect,
+            DependencyStorageEffect::Direct { addressed: false, kind: DependencyMutationKind::DisposeCaptured { ty, include_inline: false }, access_type: None, .. }
+                if *ty == imported.types()[0])));
+
+        assert!(template.effects().iter().any(|effect| matches!(effect,
+            DependencyStorageEffect::Indirect { addressed: false, kind: DependencyMutationKind::DisposeCaptured { ty, include_inline: true }, access_type: Some(access), .. }
+                if *ty == imported.types()[0] && *access == imported.types()[0])));
 
         assert!(template.effects().iter().any(|effect| matches!(effect,
             DependencyStorageEffect::Direct { kind: DependencyMutationKind::Dispose(ty), access_type: Some(access), .. }

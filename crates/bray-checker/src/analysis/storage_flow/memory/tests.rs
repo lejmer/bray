@@ -180,6 +180,8 @@ fn cleanup_retains_its_value_scope_and_follows_actual_contained_references() {
     for references_sibling in [false, true] {
         let ([owner, left_source, right_source, _], origins) = places();
 
+        let ty = tuple_type([]);
+
         let left = Place { root: owner.root, projections: [StorageProjection::TupleElement(bray_symbols::SymbolOrdinal::new(0))].into() };
         let right = Place { root: owner.root, projections: [StorageProjection::TupleElement(bray_symbols::SymbolOrdinal::new(1))].into() };
 
@@ -188,13 +190,12 @@ fn cleanup_retains_its_value_scope_and_follows_actual_contained_references() {
             ..State::default()
         };
 
-        state.address(left_source.clone(), left.clone(), error_type(), origins[0]);
-        state.address(if references_sibling { left.clone() } else { right_source.clone() }, right.clone(), error_type(), origins[1]);
+        state.address(left_source.clone(), left.clone(), ty, origins[0]);
+        state.address(if references_sibling { left.clone() } else { right_source.clone() }, right.clone(), ty, origins[1]);
 
-        let effects = state.cleanup_effects(Some(&Target::storage(right.clone())), error_type());
+        let effects = state.cleanup_effects(semantic_values(), Some(&Target::storage(right.clone())), ty);
 
-        assert!(effects.iter().filter_map(super::Effect::mutation)
-            .all(|(_, kind)| kind == DependencyMutationKind::Dispose(error_type())));
+        assert!(matches!(effects.as_slice(), [Effect::Mutation { kind: DependencyMutationKind::Dispose(disposed), .. }] if *disposed == ty));
 
         let protected = [left.clone()];
         let stable = state.unexposed_storage(&protected, [Target::storage(right.clone())]).cloned().collect();
@@ -204,8 +205,8 @@ fn cleanup_retains_its_value_scope_and_follows_actual_contained_references() {
         };
 
         state.apply_effects(Some(&effects), &invalidation, origins[2].into());
-        assert_eq!(state.referent(&left, error_type()), (!references_sibling).then_some(left_source));
-        assert_eq!(state.referent(&right, error_type()), None);
+        assert_eq!(state.referent(&left, ty), (!references_sibling).then_some(left_source));
+        assert_eq!(state.referent(&right, ty), None);
     }
 }
 
@@ -4304,6 +4305,141 @@ fn ambient_reachability_requires_raw_publication_of_an_owned_slot() {
 }
 
 #[test]
+fn captured_cleanup_keeps_known_regions_when_the_address_is_incomplete() {
+    let ([slot, allocation, ..], origins) = places();
+
+    let ty = error_type();
+    let target = Target::storage(slot.clone());
+    let mut state = State::default();
+
+    state.no_payload(slot.clone());
+    assert!(state.capture_cleanup(&target, ty, false).is_none());
+
+    let backing = state.fresh(allocation, origins[0]);
+    let mut pointer = AddressValue::one(backing.clone());
+
+    pointer.merge(&AddressValue::unknown());
+    state.values.insert(target.clone(), pointer.into());
+
+    let captured = state.capture_reached_value(&target);
+
+    let expected = Effect::CapturedCleanup {
+        ty, sources: [].into(), regions: [backing].into(), inline: [].into(), complete: false,
+    };
+
+    assert_eq!(state.capture_cleanup(&target, ty, false), Some(expected.clone()));
+
+    state.no_payload(slot);
+    assert!(state.capture_cleanup(&target, ty, false).is_none());
+    assert_eq!(captured.capture_cleanup(ty), Some(expected));
+}
+
+#[test]
+fn captured_cleanup_selects_activity_before_reading_the_payload() {
+    let ([slot, allocation, nested_allocation, ..], origins) = places();
+
+    let ty = error_type();
+    let target = Target::storage(slot.clone());
+    let mut state = State::default();
+    let payload = Place { root: slot.root, projections: [StorageProjection::NullableValue].into() };
+
+    state.no_payload(payload);
+
+    let capture = state.capture_reached_value(&target);
+    let nested = bray_bound_tree::StorageReferencePath::new([StorageProjection::NullableValue, BUFFER_POINTER].into(), [].into());
+
+    assert_eq!(state.captured_cleanup_effects(semantic_values(), &capture, &nested, ty, false), Some(Vec::new()));
+    assert_eq!(state.capture_cleanup(&target.project(nested.projections()), ty, false), None);
+
+    let backing = state.fresh(allocation, origins[0]);
+    let nested_backing = state.fresh(nested_allocation, origins[1]);
+    let mut address = AddressValue::one(backing.clone());
+
+    address.bound();
+    state.values.insert(target.clone(), address.into());
+    state.values.insert(backing, AddressValue::one(nested_backing.clone()).into());
+
+    let capture = state.capture_reached_value(&target);
+
+    let indirect = bray_bound_tree::StorageReferencePath::new([StorageProjection::AddressTarget].into(), [
+        bray_bound_tree::StorageReferenceStep::ReadAddress { index: 0, target: ty },
+    ].into());
+
+    assert_eq!(state.captured_cleanup_effects(semantic_values(), &capture, &indirect, ty, false), Some(vec![
+        Effect::CapturedCleanup { ty, sources: [].into(), regions: [nested_backing].into(), inline: [].into(), complete: false },
+    ]));
+}
+
+#[test]
+fn captured_cleanup_weakens_only_the_reached_backing() {
+    let ([pointer, unrelated, ..], origins) = places();
+
+    let mut state = State { owned_storage: [pointer.root, unrelated.root].into(), ..State::default() };
+    let backing = state.fresh(pointer.clone(), origins[0]);
+    let independent = state.fresh(unrelated.clone(), origins[1]);
+    let ty = error_type();
+
+    let effects = [Effect::CapturedCleanup {
+        ty, sources: [Target::storage(pointer)].into(), regions: [backing.clone()].into(),
+        inline: [independent.project(&[BUFFER_POINTER])].into(), complete: true,
+    }];
+
+    let _ = state.take_retirements();
+
+    let reached = state.ambient_regions(&effects).expect("the disposition has a finite footprint");
+
+    assert!(state.retains_allocation_address(&unrelated, &reached, &state.raw_exposed_regions()));
+
+    state.apply_effects(Some(&effects), &bray_bound_tree::StorageInvalidation::unknown(), origins[1].into());
+
+    assert_eq!(state.reached_dependency_storage(&backing, ty), None);
+    assert_eq!(state.reached_dependency_storage(&independent, ty), Some((true, false)), "an inline write cannot retire its enclosing backing");
+    assert!(state.take_retirements().is_empty());
+}
+
+#[test]
+fn captured_cleanup_weakens_backing_acquired_before_entry() {
+    let ([owner, ..], origins) = places();
+
+    let mut state = State::default();
+    let owner = Target::storage(owner);
+    let ty = error_type();
+
+    state.declare_entry_backing(owner.clone(), ty);
+
+    let backing = state.owned_backing(&owner).expect("the input owns its entry backing").clone();
+
+    let effect = Effect::CapturedCleanup {
+        ty, sources: [owner].into(), regions: [backing.clone()].into(), inline: [].into(), complete: true,
+    };
+
+    assert_eq!(state.reached_dependency_storage(&backing, ty), Some((true, true)));
+
+    state.apply_effects(Some(&[effect]), &bray_bound_tree::StorageInvalidation::unknown(), origins[0].into());
+
+    assert_eq!(state.reached_dependency_storage(&backing, ty), None);
+    assert!(state.take_retirements().is_empty());
+}
+
+#[test]
+fn losing_the_cleanup_route_preserves_its_possible_retirement() {
+    let ([pointer, ..], origins) = places();
+
+    let mut state = State::default();
+    let backing = state.fresh(pointer, origins[0]);
+    let ty = error_type();
+    let kind = bray_symbols::DependencyMutationKind::DisposeCaptured { ty, include_inline: false };
+    let effects = [Effect::unbounded(kind, Some(ty), false)];
+
+    let _ = state.take_retirements();
+
+    state.apply_effects(Some(&effects), &bray_bound_tree::StorageInvalidation::unknown(), origins[1].into());
+
+    assert_eq!(state.reached_dependency_storage(&backing, ty), None);
+    assert!(state.take_retirements().is_empty());
+}
+
+#[test]
 fn opaque_effect_preserves_backing_only_while_its_allocation_is_private() {
     let ([pointer, alias, ..], origins) = places();
 
@@ -6005,6 +6141,38 @@ fn address_free_retirement_weakens_backing_without_publishing_a_retirement() {
         assert_eq!(state.invalidation_origins(&slot).collect::<Vec<_>>(), [origin]);
         assert!(state.take_retirements().is_empty());
     }
+}
+
+#[test]
+fn unlocated_retirement_distinguishes_an_entry_cell_from_tracked_backing() {
+    let ([pointer, entry, projection, ..], origins) = places();
+
+    let inline = [pointer.root, entry.root, projection.root];
+    let mut state = State { owned_storage: inline.into(), unaddressed_storage: inline.into(), ..State::default() };
+    let backing = state.fresh(pointer, origins[0]);
+    let entry = Target::storage(entry);
+    let projection = Target::storage(projection);
+
+    state.entry_reference(entry.storage_path().unwrap().clone());
+
+    let entry_target = state.value_targets(&entry).unwrap().pop().unwrap();
+
+    state.values.insert(projection.clone(), AddressValue::one(backing.project(&[BUFFER_POINTER])).into());
+    state.escape_regions([backing, entry_target.clone()]);
+
+    let retire = Effect::unbounded(DependencyMutationKind::Retire, None, true);
+    let invalidation = bray_bound_tree::StorageInvalidation::unknown();
+
+    state.apply_effects(Some(&[retire]), &invalidation, origins[1].into());
+
+    assert!(!state.invalidated(&entry));
+    assert!(state.invalidated(&projection));
+
+    let reached = Effect::bounded(entry_target, DependencyMutationKind::Retire, None);
+
+    state.apply_effects(Some(&[reached]), &invalidation, origins[2].into());
+
+    assert!(state.invalidated(&entry));
 }
 
 #[test]

@@ -597,9 +597,14 @@ fn encode_mutation(
         DependencyMutationKind::Cleanup(_) => 8,
         DependencyMutationKind::Dispose(_) => 9,
         DependencyMutationKind::Discharge(_) => 10,
+        DependencyMutationKind::DisposeCaptured { include_inline: false, .. } => 11,
+        DependencyMutationKind::DisposeCaptured { include_inline: true, .. } => 12,
     });
 
-    if let DependencyMutationKind::Replace(ty) | DependencyMutationKind::Dispose(ty) | DependencyMutationKind::Cleanup(ty) | DependencyMutationKind::Discharge(ty) = kind {
+    if let Some(ty) = kind.cleanup_type().or(match &kind {
+        DependencyMutationKind::Replace(ty) | DependencyMutationKind::Discharge(ty) => Some(ty),
+        _ => None,
+    }) {
         encoder.write_u32(ty.raw());
     }
 }

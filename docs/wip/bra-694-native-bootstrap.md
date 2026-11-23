@@ -63,19 +63,17 @@ evidence. Impossible internal states fail at the violated contract.
 
 ## Verified checkpoint
 
-Checkpoint `15cded660` passes all 1,709 audited comparison cases. The
-package-backed check on that checkpoint reports 14 diagnostic entries across
-43 bootstrap bodies, including repeats between proof and lowering. The
-reviewed staged result candidate reduces this count to seven and passes all
-595 checker tests. The allocation-frame candidate passes all 1,709
-comparison cases, 139 bound-tree tests, 597 checker tests, and the nullable
-allocation regression. Its 43-body run still reports seven entries. In
-initialization the allocation requirement now passes and the spatial write
-requirement fails. The spatial-permission candidate passes both unit suites
-and the nullable allocation regression. Its 43-body check and lowering
-reports five entries across scheduler deallocation, the previous owner in
-scoped exit, and the view owner in task cleanup. The possible-retirement
-follow-up and complete native archive remain unverified.
+Pushed checkpoint `f64684d61` passes all 1,709 comparison cases, 139
+bound-tree tests, 598 checker tests, and the nullable allocation regression.
+Its 43-body check with lowering reports five diagnostic entries across
+scheduler deallocation, the previous owner in scoped exit, and the view
+owner in task cleanup. The complete native archive is still unverified.
+The captured-cleanup change builds the Windows x64 standard library and
+passes its 1,188 affected unit tests. An earlier candidate with the same
+portable cleanup effects checks and lowers all 43 bodies with four
+diagnostics. Scheduler deallocation succeeds. The previous owner and
+current view checks each still report twice. Recheck the packaged inventory
+and fixed comparison with the checkpoint compiler.
 
 ### Live owner preservation
 
@@ -122,11 +120,36 @@ route at that point. Publish the carried value's cleanup scope while the
 generic body still has the transfer. The caller must resolve effects through
 the captured value without treating its former inline slot as the disposed
 value.
+Both selected cleanup phases capture the actual receiver before applying
+effects. The summary reads the complete carried sources from that capture.
+Imported specialization expands the cleanup type and binds external effects
+through those routes. An open child reached across an indirection retains its
+typed route for further specialization. Only a reached address can establish
+a performed retirement or definite discharge.
+An unresolved cleanup keeps possible retirement. If specialization has only
+a region, a projected discharge contributes possible consumption instead of a
+typed discharge.
 The definite domain discharge and the retirement of a separate buffer backing
 cannot retire the outer allocation. An unresolved retirement carries no new
 authority and still loses proof within the region it can reach. Both raw
 deallocation and buffer backing release are deallocation. A missing access
 type does not give a backing retirement access to invocation-owned inline slots.
+
+The generic `SpinLock<T>` source row now publishes one captured disposal.
+The package build exposes two remaining consumers. Terminal checking must
+compare the captured regions and inline writes with the dying receiver. A
+complete symbolic route for an open type does not pass the receiver to an
+opaque call. A capture with neither a complete bound nor symbolic sources
+still requires proof that the terminal receiver cannot be reached. Retain
+the opaque-call controls that reject actual receiver exposure.
+
+Directory close publishes an unlocated `Retire` from the native directory
+handle. Its independently supplied raw output is a typed entry cell with
+no observed allocation of its own. Physical invalidation can mark a known
+allocation or a reached retirement footprint. An unlocated summary instead
+weakens proof for other raw cells. The output's certified `valid_write`
+applies on each normal return. Keep the controls for explicit use after
+deallocation and for possible retirement of a tracked allocation.
 
 ### Current regression contract
 

@@ -917,6 +917,9 @@ fn decode_mutation(
         8 => DependencyMutationKind::Cleanup(crate::InterfaceTypeId::new(read_u32(reader)?)),
         9 => DependencyMutationKind::Dispose(crate::InterfaceTypeId::new(read_u32(reader)?)),
         10 => DependencyMutationKind::Discharge(crate::InterfaceTypeId::new(read_u32(reader)?)),
+        tag @ (11 | 12) => DependencyMutationKind::DisposeCaptured {
+            ty: crate::InterfaceTypeId::new(read_u32(reader)?), include_inline: tag == 12,
+        },
         raw => {
             return Err(crate::semantic::codec::invalid_discriminant(
                 crate::InterfaceValidationField::Dependency,

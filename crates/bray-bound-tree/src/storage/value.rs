@@ -600,6 +600,28 @@ impl StorageValueBinding {
         self.possible_references().chain(self.owned_backing())
     }
 
+    /// Adds the available regions and reports whether the carried address bounds are complete.
+    pub fn collect_carried_regions(&self, regions: &mut BTreeSet<Target>) -> bool {
+        if self.is_no_payload() { return true; }
+
+        let mut references = self.carried_references().peekable();
+
+        let mut complete = !self.unknown_dependencies() && (references.peek().is_some()
+            || !self.observations.iter().any(|kind| matches!(kind,
+                crate::StorageObservationKind::Address | crate::StorageObservationKind::Reference(_))));
+
+        for reference in references {
+            if let Some(bounds) = reference.regions() {
+                regions.extend(bounds);
+            } else {
+                complete = false;
+                regions.extend(reference.targets.iter().cloned());
+            }
+        }
+
+        complete
+    }
+
     /// Captures descriptor knowledge while retaining its actual or bounded precision.
     pub fn captured_reference(&self) -> Option<StorageAddressValue> {
         let mut references = self.possible_references();

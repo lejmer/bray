@@ -15,6 +15,11 @@ enum ReferenceRouteValue {
     Regions(Vec<Target>),
 }
 
+enum RouteTail<'a> {
+    Access(Option<&'a mut dyn FnMut(StorageProjection) -> StorageProjection>),
+    Payload,
+}
+
 #[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
 enum ReferencePrecision {
     Region,
@@ -168,7 +173,7 @@ impl State {
         let start = ReferenceRouteValue::Locations(vec![target], None);
         let root_borrow = root_borrow.map(|(target, loan)| (target, Some(loan)));
 
-        match self.follow_reference_route(values, start, path, root_borrow, |target| self.values.get(target), Some(bind))? {
+        match self.follow_reference_route(values, start, path, root_borrow, |target| self.values.get(target), RouteTail::Access(Some(bind)))? {
             ReferenceRouteValue::Locations(locations, loan) => Some(ReachedAccess {
                 address: AddressValue::from_targets(locations), loan,
             }),
@@ -209,7 +214,7 @@ impl State {
         let lookup = |target: &Target| self.staged_binding(staged, root, target);
 
         let reached = self.follow_reference_route(values,
-            ReferenceRouteValue::Locations(vec![root.clone()], None), path, None, lookup, None)?;
+            ReferenceRouteValue::Locations(vec![root.clone()], None), path, None, lookup, RouteTail::Access(None))?;
 
         self.mutation_route(reached, indirect, lookup)
     }
@@ -226,6 +231,21 @@ impl State {
         indirect: bool,
     ) -> Option<Vec<StorageMutationTarget>> {
         self.mutation_route(self.captured_route(values, value, path)?, indirect, |target| self.values.get(target))
+    }
+
+    pub(in crate::analysis::storage_flow) fn captured_cleanup_effects(
+        &self, values: &bray_symbols::SemanticValueStore, value: &StorageCapturedValue,
+        path: &StorageReferencePath, ty: TypeId, include_inline: bool,
+    ) -> Option<Vec<bray_bound_tree::StorageEffect>> {
+        let reached = self.follow_reference_route(values, ReferenceRouteValue::Capture(value.clone()), path,
+            None, |target| self.values.get(target), RouteTail::Payload)?;
+
+        Some(match reached {
+            ReferenceRouteValue::Capture(value) if !include_inline => value.capture_cleanup(ty).into_iter().collect(),
+            ReferenceRouteValue::Capture(_) => return None,
+            ReferenceRouteValue::Locations(targets, _) => targets.iter().filter_map(|target| self.capture_cleanup(target, ty, include_inline)).collect(),
+            ReferenceRouteValue::Regions(regions) => vec![self.bounded_cleanup(&regions, ty, include_inline)],
+        })
     }
 
     /// The physical state resolves write destinations from the admitted capture.
@@ -246,7 +266,7 @@ impl State {
         let start = ReferenceRouteValue::Locations(vec![start], None);
 
         let reached = if let Some(path) = path {
-            self.follow_reference_route(values, start, path, None, |target| self.values.get(target), None)?
+            self.follow_reference_route(values, start, path, None, |target| self.values.get(target), RouteTail::Access(None))?
         } else {
             start
         };
@@ -318,7 +338,7 @@ impl State {
         value: &StorageCapturedValue,
         path: &StorageReferencePath,
     ) -> Option<ReferenceRouteValue> {
-        self.follow_reference_route(values, ReferenceRouteValue::Capture(value.clone()), path, None, |target| self.values.get(target), None)
+        self.follow_reference_route(values, ReferenceRouteValue::Capture(value.clone()), path, None, |target| self.values.get(target), RouteTail::Access(None))
     }
 
     fn reference_locations_in<'a>(
@@ -332,7 +352,7 @@ impl State {
         let start = ReferenceRouteValue::Locations(vec![target], None);
         let root_borrow = root_borrow.map(|target| (target, None));
 
-        match self.follow_reference_route(values, start, path, root_borrow, lookup, None)? {
+        match self.follow_reference_route(values, start, path, root_borrow, lookup, RouteTail::Access(None))? {
             ReferenceRouteValue::Locations(locations, _) => Some(locations),
             ReferenceRouteValue::Regions(..) => None,
             ReferenceRouteValue::Capture(_) => unreachable!("an actual storage route remains in memory"),
@@ -346,9 +366,11 @@ impl State {
         path: &StorageReferencePath,
         mut root_borrow: Option<(Target, Option<BorrowCapabilityId>)>,
         lookup: impl Fn(&Target) -> Option<&'a ValueBinding>,
-        mut bind: Option<&mut dyn FnMut(StorageProjection) -> StorageProjection>,
+        tail: RouteTail<'_>,
     ) -> Option<ReferenceRouteValue> {
         let mut selected = 0;
+        let read_payload = matches!(tail, RouteTail::Payload);
+        let mut bind = match tail { RouteTail::Access(bind) => bind, RouteTail::Payload => None };
 
         for (step, operation) in path.steps().iter().copied().enumerate() {
             let index = operation.index();
@@ -492,8 +514,13 @@ impl State {
             selected = index + usize::from(consumes);
         }
 
-        Some(if selected == path.projections().len() { reached } else {
-            reached.project_reached(&path.projections()[selected..], &mut bind)
+        let suffix = &path.projections()[selected..];
+
+        Some(match (read_payload, suffix.is_empty()) {
+            (true, true) => reached.without_inactive(&lookup),
+            (true, false) => reached.project_descriptor(suffix, &mut bind, &lookup),
+            (false, true) => reached,
+            (false, false) => reached.project_reached(suffix, &mut bind),
         })
     }
 

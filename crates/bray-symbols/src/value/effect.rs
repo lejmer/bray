@@ -227,6 +227,13 @@ pub enum DependencyMutationKind<Type = super::TypeId> {
     Dispose(Type),
     /// Conditional effects of disposing this type on a region with no corresponding layout claim.
     Cleanup(Type),
+    /// Cleanup at a typed captured route with no definite mutation operand.
+    DisposeCaptured {
+        /// Type of the selected cleanup value.
+        ty: Type,
+        /// An in-place child reached through the capture can change its own inline storage.
+        include_inline: bool,
+    },
     /// Remove initialized contents without retiring the storage.
     Consume,
     /// A selected cell update has transferred the complete stored value of this type.
@@ -236,6 +243,14 @@ pub enum DependencyMutationKind<Type = super::TypeId> {
 }
 
 impl<Type> DependencyMutationKind<Type> {
+    /// The type whose lifecycle determines the effects of this operation.
+    pub const fn cleanup_type(&self) -> Option<&Type> {
+        match self {
+            Self::Dispose(ty) | Self::Cleanup(ty) | Self::DisposeCaptured { ty, .. } => Some(ty),
+            _ => None,
+        }
+    }
+
     /// These transitions cannot install a new initialized value in the cell.
     pub fn preserves_discharge(&self) -> bool {
         matches!(self, Self::Atomic | Self::Escape | Self::Consume | Self::Discharge(_) | Self::Retire)
@@ -245,6 +260,15 @@ impl<Type> DependencyMutationKind<Type> {
     pub fn region_kind(self) -> Self {
         match self {
             Self::Dispose(ty) => Self::Cleanup(ty),
+            Self::Discharge(_) => Self::Consume,
+            other => other,
+        }
+    }
+
+    /// Removes transitions that require a typed route when no route is available.
+    pub fn unlocated_kind(self) -> Self {
+        match self {
+            Self::DisposeCaptured { ty, .. } => Self::Cleanup(ty),
             Self::Discharge(_) => Self::Consume,
             other => other,
         }
@@ -408,6 +432,9 @@ impl<Subject, Projection, Type> DependencyStorageEffect<Subject, Projection, Typ
             Self::Indirect { reference, reads, projections, kind, access_type, .. } => Self::Indirect {
                 reference, reads, projections, addressed: false, kind: kind.region_kind(), access_type,
             },
+            Self::UnboundedMutation { kind, access_type, ambient } => Self::UnboundedMutation {
+                kind: kind.region_kind().unlocated_kind(), access_type, ambient,
+            },
             effect => effect,
         }
     }
@@ -447,6 +474,9 @@ impl<Subject, Projection, Type> DependencyStorageEffect<Subject, Projection, Typ
             Self::Direct { addressed: false, kind: DependencyMutationKind::Dispose(_), .. }
             | Self::Indirect { addressed: false, kind: DependencyMutationKind::Dispose(_) | DependencyMutationKind::Discharge(_), .. }
             | Self::Direct { addressed: false, kind: DependencyMutationKind::Discharge(_), .. }
+            | Self::Direct { addressed: true, kind: DependencyMutationKind::DisposeCaptured { .. }, .. }
+            | Self::Indirect { addressed: true, kind: DependencyMutationKind::DisposeCaptured { .. }, .. }
+            | Self::UnboundedMutation { kind: DependencyMutationKind::DisposeCaptured { .. }, .. }
             | Self::UnboundedMutation { kind: DependencyMutationKind::Discharge(_), .. } => false,
             Self::Indirect { reads, projections, .. } => reads.is_sorted()
                 && reads.last().is_none_or(|index| (*index as usize) <= projections.len()),
@@ -486,8 +516,8 @@ impl<Subject, Projection, Type> DependencyStorageEffect<Subject, Projection, Typ
             | Self::UnboundedMutation { access_type, kind, .. } => [
                 access_type.as_ref(),
                 match kind {
-                    DependencyMutationKind::Replace(ty) | DependencyMutationKind::Dispose(ty) | DependencyMutationKind::Cleanup(ty) | DependencyMutationKind::Discharge(ty) => Some(ty),
-                    _ => None,
+                    DependencyMutationKind::Replace(ty) | DependencyMutationKind::Discharge(ty) => Some(ty),
+                    other => other.cleanup_type(),
                 },
             ],
             _ => [None, None],
@@ -515,16 +545,7 @@ impl<Subject, Projection, Type> DependencyStorageEffect<Subject, Projection, Typ
         match kind {
             DependencyMutationKind::Atomic => Self::Atomic,
             DependencyMutationKind::Escape => Self::Escape,
-            DependencyMutationKind::Discharge(_) => Self::UnboundedMutation {
-                kind: DependencyMutationKind::Consume, access_type, ambient: false,
-            },
-            DependencyMutationKind::Write
-            | DependencyMutationKind::Replace(_)
-            | DependencyMutationKind::Dispose(_)
-            | DependencyMutationKind::Cleanup(_)
-            | DependencyMutationKind::Clear
-            | DependencyMutationKind::Consume
-            | DependencyMutationKind::Retire => Self::UnboundedMutation { kind, access_type, ambient: false },
+            kind => Self::UnboundedMutation { kind: kind.unlocated_kind(), access_type, ambient: false },
         }
     }
 }
@@ -548,6 +569,7 @@ impl<Type> DependencyMutationKind<Type> {
             Self::Replace(ty) => DependencyMutationKind::Replace(map(ty)?),
             Self::Dispose(ty) => DependencyMutationKind::Dispose(map(ty)?),
             Self::Cleanup(ty) => DependencyMutationKind::Cleanup(map(ty)?),
+            Self::DisposeCaptured { ty, include_inline } => DependencyMutationKind::DisposeCaptured { ty: map(ty)?, include_inline },
             Self::Consume => DependencyMutationKind::Consume,
             Self::Discharge(ty) => DependencyMutationKind::Discharge(map(ty)?),
             Self::Retire => DependencyMutationKind::Retire,
@@ -683,5 +705,20 @@ mod tests {
 
             assert_eq!(Effect::unresolved(kind, Some(())), expected);
         }
+    }
+
+    #[test]
+    fn an_unbounded_cleanup_region_cannot_publish_a_typed_discharge() {
+        type Effect = DependencyStorageEffect<(), (), ()>;
+
+        let scope = Effect::UnboundedMutation {
+            kind: DependencyMutationKind::Discharge(()), access_type: Some(()), ambient: true,
+        }.into_region();
+
+        assert_eq!(scope, Effect::UnboundedMutation {
+            kind: DependencyMutationKind::Consume, access_type: Some(()), ambient: true,
+        });
+
+        assert!(scope.is_valid_route());
     }
 }

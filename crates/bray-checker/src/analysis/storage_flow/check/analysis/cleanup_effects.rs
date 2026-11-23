@@ -6,7 +6,7 @@ use bray_bound_tree::{
     StorageAccessId, StorageCleanupAction, StorageCleanupActionKind, StorageEffectRow,
     StorageInvalidation, StorageMutation, StoragePath,
 };
-use bray_symbols::{DependencyMutationKind, DependencySubjectRoot};
+use bray_symbols::DependencySubjectRoot;
 
 use super::cleanup::CleanupOperands;
 use super::core::StorageFlowCollector;
@@ -65,7 +65,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 .map(|effects| effects.possible().to_vec())
         })
         .or_else(|| self.buffer_cleanup_effects(memory, receiver?, ty))
-        .unwrap_or_else(|| memory.cleanup_effects(receiver, ty))
+        .unwrap_or_else(|| memory.cleanup_effects(self.request.semantic_values(), receiver, ty))
     }
 
     pub(in crate::analysis::storage_flow::check::analysis) fn buffer_cleanup_effects(
@@ -96,7 +96,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             if path.is_none() && !subject.projections().is_empty() { return None; }
 
             memory.reference_effect_targets(values, start, path, indirect)
-        })
+        }, |_, _, _, _| None)
     }
 
     pub(super) fn cleanup_receiver(
@@ -640,7 +640,8 @@ fn preserve_run_descriptor(
 
     if effects
         .iter()
-        .any(|effect| matches!(effect, Effect::Escape(None) | Effect::UnboundedMutation { kind: DependencyMutationKind::Dispose(_) | DependencyMutationKind::Cleanup(_), .. }))
+        .any(|effect| matches!(effect, Effect::Escape(None))
+            || matches!(effect, Effect::UnboundedMutation { kind, .. } if kind.cleanup_type().is_some()))
     {
         return;
     }

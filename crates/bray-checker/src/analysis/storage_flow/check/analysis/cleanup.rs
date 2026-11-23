@@ -4,7 +4,7 @@ use bray_bound_tree::{
     StorageAccessId, StorageAccessPlan, StorageAccessPurpose, StorageCleanupAction,
     StorageCleanupActionKind, StorageCleanupRemainder, StorageMutation, StorageReplacementState,
 };
-use bray_symbols::{DependencyFailureKind, DependencyMutationKind};
+use bray_symbols::DependencyFailureKind;
 use std::sync::Arc;
 
 use super::core::StorageFlowCollector;
@@ -463,12 +463,13 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             } else if synchronous {
                 self.synchronous_cleanup
                     .extend(effects.into_iter().flatten().filter_map(|effect| {
-                        match effect {
-                            Effect::Mutation { kind: DependencyMutationKind::Dispose(ty) | DependencyMutationKind::Cleanup(ty), .. }
-                            | Effect::UnboundedMutation { kind: DependencyMutationKind::Dispose(ty) | DependencyMutationKind::Cleanup(ty), .. } => deferred(*ty)
-                                .map(bray_symbols::DependencyRequirement::SynchronousCleanup),
+                        let ty = match effect {
+                            Effect::Mutation { kind, .. } | Effect::UnboundedMutation { kind, .. } => kind.cleanup_type(),
+                            Effect::CapturedCleanup { ty, .. } => Some(ty),
                             _ => None,
-                        }
+                        };
+
+                        ty.and_then(|&ty| deferred(ty)).map(bray_symbols::DependencyRequirement::SynchronousCleanup)
                     }));
             }
         }
