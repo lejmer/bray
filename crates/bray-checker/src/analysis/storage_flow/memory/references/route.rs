@@ -7,7 +7,7 @@ use bray_bound_tree::{
 };
 use bray_symbols::TypeId;
 
-use super::super::model::{AddressValue, ReachedAccess, State, Target, ValueBinding};
+use super::super::model::{AddressValue, ReachedAccess, State, Target, Transfer, ValueBinding};
 
 enum ReferenceRouteValue {
     Capture(StorageCapturedValue),
@@ -129,26 +129,22 @@ impl State {
         })
     }
 
-    pub(in crate::analysis::storage_flow) fn readable_pointer_prefix_regions(
+    pub(in crate::analysis::storage_flow) fn pointer_regions_before_last_read(
         &self,
         values: &bray_symbols::SemanticValueStore,
         source: super::Source,
         path: &StorageReferencePath,
     ) -> Option<Vec<Target>> {
-        // A later pointer read can be opaque even when an earlier pointer's
-        // region is known. The caller retains that region as an unknown origin,
-        // without claiming the nested pointer stays inside it.
-        path.steps().iter().enumerate().rev()
-            .filter(|(_, operation)| matches!(**operation, StorageReferenceStep::ReadAddress { .. }))
-            .find_map(|(step, operation)| {
-                let descriptor = path.prefix(operation.index(), step);
+        let (step, operation) = path.steps().iter().enumerate().rev()
+            .find(|(_, operation)| matches!(**operation, StorageReferenceStep::ReadAddress { .. }))?;
 
-                self.follow_source_reference_reads(values, source.clone(), &descriptor)?
-                    .iter()
-                    .map(|source| source.regions(self))
-                    .collect::<Option<Vec<_>>>()
-                    .map(|regions| regions.into_iter().flatten().collect())
-            })
+        let descriptor = path.prefix(operation.index(), step);
+
+        self.follow_source_reference_reads(values, source, &descriptor)?
+            .iter()
+            .map(|source| source.regions(self))
+            .collect::<Option<Vec<_>>>()
+            .map(|regions| regions.into_iter().flatten().collect())
     }
 
     pub(in crate::analysis::storage_flow) fn reference_locations(
@@ -197,9 +193,29 @@ impl State {
     ) -> Option<Vec<Target>> {
         let staged = self.pending.get(&invocation)?;
 
-        self.reference_locations_in(values, start.clone(), path, None, |target| {
-            staged.values.get(target).or_else(|| (!root.contains_storage(target)).then(|| self.values.get(target)).flatten())
-        })
+        self.reference_locations_in(values, start.clone(), path, None,
+            |target| self.staged_binding(staged, root, target))
+    }
+
+    pub(in crate::analysis::storage_flow) fn staged_effect_targets(
+        &self,
+        invocation: bray_bound_tree::BoundExecutionSite,
+        values: &bray_symbols::SemanticValueStore,
+        root: &Target,
+        path: &StorageReferencePath,
+        indirect: bool,
+    ) -> Option<Vec<StorageMutationTarget>> {
+        let staged = self.pending.get(&invocation)?;
+        let lookup = |target: &Target| self.staged_binding(staged, root, target);
+
+        let reached = self.follow_reference_route(values,
+            ReferenceRouteValue::Locations(vec![root.clone()], None), path, None, lookup, None)?;
+
+        self.mutation_route(reached, indirect, lookup)
+    }
+
+    fn staged_binding<'a>(&'a self, staged: &'a Transfer, root: &Target, target: &Target) -> Option<&'a ValueBinding> {
+        staged.values.get(target).or_else(|| (!root.contains_storage(target)).then(|| self.values.get(target)).flatten())
     }
 
     pub(in crate::analysis::storage_flow) fn captured_effect_targets(
@@ -209,7 +225,7 @@ impl State {
         path: &StorageReferencePath,
         indirect: bool,
     ) -> Option<Vec<StorageMutationTarget>> {
-        self.mutation_route(self.captured_route(values, value, path)?, indirect)
+        self.mutation_route(self.captured_route(values, value, path)?, indirect, |target| self.values.get(target))
     }
 
     /// The physical state resolves write destinations from the admitted capture.
@@ -235,7 +251,7 @@ impl State {
             start
         };
 
-        self.mutation_route(reached, indirect)
+        self.mutation_route(reached, indirect, |target| self.values.get(target))
     }
 
     pub(in crate::analysis::storage_flow) fn follow_effect_path(
@@ -266,12 +282,17 @@ impl State {
         Some(reached)
     }
 
-    fn mutation_route(&self, reached: ReferenceRouteValue, indirect: bool) -> Option<Vec<StorageMutationTarget>> {
+    fn mutation_route<'a>(
+        &'a self,
+        reached: ReferenceRouteValue,
+        indirect: bool,
+        lookup: impl Fn(&Target) -> Option<&'a ValueBinding>,
+    ) -> Option<Vec<StorageMutationTarget>> {
         match reached {
             ReferenceRouteValue::Capture(value) if indirect => value.mutation_targets(),
             ReferenceRouteValue::Capture(_) => None,
             ReferenceRouteValue::Locations(locations, _) => StorageMutationTarget::resolve_locations(
-                locations, indirect, |location| self.values.get(&location)?.mutation_targets()),
+                locations, indirect, |location| lookup(&location)?.mutation_targets()),
             ReferenceRouteValue::Regions(regions) if !indirect => {
                 Some(regions.into_iter().map(StorageMutationTarget::bounded).collect())
             }

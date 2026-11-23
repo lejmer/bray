@@ -550,12 +550,21 @@ impl<Subject: Ord + Clone, Input: Ord + Clone, Projection: Ord + Clone, Static: 
                 relations.retain(|relation| !relation.is_no_payload());
             }
 
-            let exact = relations.len() == 1;
+            let mut joined = BTreeMap::new();
 
-            relations.into_iter().map(move |relation| {
-                let exact = exact && relation.is_exact();
+            for relation in relations {
+                let provenance = relation.provenance();
+                let key = relation.with_provenance(super::DependencyReferenceProvenance::Alternatives);
 
-                relation.with_exactness(exact)
+                joined.entry(key).and_modify(|previous: &mut super::DependencyReferenceProvenance| {
+                    *previous = (*previous).max(provenance);
+                }).or_insert(provenance);
+            }
+
+            let exact = joined.len() == 1;
+
+            joined.into_iter().map(move |(relation, provenance)| {
+                relation.with_provenance(provenance).with_exactness(exact && provenance == super::DependencyReferenceProvenance::Exact)
             })
         }))
     }

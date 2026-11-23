@@ -542,6 +542,12 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 return state.memory.reference_effect_targets(values, start, path, indirect);
             }
 
+            if root == bray_symbols::DependencySubjectRoot::Result {
+                let result = Target::storage(self.invocation_result(occurrence)?);
+
+                return state.memory.staged_effect_targets(occurrence, values, &result, path?, indirect);
+            }
+
             let path = self.invocation_reference_path(occurrence, root, path?)?;
 
             if indirect || !path.steps().is_empty() {
@@ -726,10 +732,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 }
 
                 if kind == DependencyMutationKind::Escape {
-                    // The summary still identifies the one value whose carried
-                    // reference escapes. Missing physical bounds for that value
-                    // do not publish unrelated invocation operands.
-                    resolved.push(Effect::Escape(Some([].into())));
+                    // An unresolved carried address can reach outside its known
+                    // subject; absence of a route does not establish no escape.
+                    resolved.push(Effect::Escape(None));
                     continue;
                 }
 

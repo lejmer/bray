@@ -160,12 +160,6 @@ impl StorageFlowInput {
 
         let opaque_candidates = opaque_descriptors.iter().cloned()
             .chain(footprint.borrowed_observations.keys().cloned())
-            .chain(
-                footprint
-                    .discriminants
-                    .values()
-                    .flat_map(|paths| paths.iter().cloned()),
-            )
             .chain(opaque_values.keys().cloned())
             .collect::<BTreeSet<_>>()
             .into_iter()

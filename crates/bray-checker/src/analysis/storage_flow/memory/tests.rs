@@ -16,6 +16,22 @@ use std::sync::Arc;
 const BUFFER_POINTER: StorageProjection =
     StorageProjection::TupleElement(bray_symbols::SymbolOrdinal::new(0));
 
+fn observe_reference(
+    state: &mut State,
+    destination: Target,
+    reference: Place,
+    ty: bray_symbols::TypeId,
+    inputs: impl IntoIterator<Item = Target>,
+) {
+    let (unit, _) = expression_unit(reference.root.unit(), |_, _| Vec::new());
+
+    let context = TestCheckerContext::new(false);
+    let entry = callable_entry(unit.key());
+    let request = crate::CheckerUnitView::new(&unit, &entry, &context);
+
+    state.observe_reference(request, destination, reference, ty, inputs).expect("checked reference observation");
+}
+
 fn captured_frame(producer: bray_bound_tree::BoundExecutionSite, transition: Arc<bray_bound_tree::StorageDeferredTransition>)
     -> crate::ExecutionCondition
 {
@@ -1931,7 +1947,7 @@ fn opaque_frame_preserves_inactive_payload_only_while_its_tag_survives() {
 }
 
 #[test]
-fn unresolved_nested_pointer_output_uses_the_pointer_value_region() {
+fn unresolved_nested_pointer_does_not_reuse_the_outer_pointer_region() {
     let ([owner, borrowed, external, local], _) = places();
 
     let pointer = Place { root: owner.root, projections: [BUFFER_POINTER].into() };
@@ -1971,12 +1987,12 @@ fn unresolved_nested_pointer_output_uses_the_pointer_value_region() {
 
         let captured = state.capture_reached_value(&Target::storage(borrowed.clone()));
 
-        for path in &paths {
+        for (index, path) in paths.iter().enumerate() {
             assert!(state.captured_reference_sources(semantic_values(), &captured, path).is_none());
 
-            assert_eq!(state.readable_pointer_prefix_regions(semantic_values(), super::Source::Captured(captured.clone()), path),
-                Some(vec![pointee.clone()]),
-                "an opaque nested read retains the nearest readable pointer region, not its borrowed owner");
+            assert_eq!(state.pointer_regions_before_last_read(semantic_values(), super::Source::Captured(captured.clone()), path),
+                (index == 0).then(|| vec![pointee.clone()]),
+                "an opaque later pointer must not reuse an earlier pointer's pointee region");
         }
     }
 }
@@ -3785,10 +3801,10 @@ fn replaced_reference_reads_retire_retained_pointer_identity() {
     let location = Target::storage(slot.clone());
     let inputs = [Target::storage(owner)];
 
-    state.observe_reference(location.clone(), slot.clone(), error_type(), inputs.clone());
+    observe_reference(&mut state, location.clone(), slot.clone(), error_type(), inputs.clone());
     state.transfer_value(&location, saved.clone());
     state.clear(&slot);
-    state.observe_reference(location.clone(), slot, error_type(), inputs);
+    observe_reference(&mut state, location.clone(), slot, error_type(), inputs);
 
     let saved = Target::storage(saved);
 
@@ -4668,7 +4684,7 @@ fn published_returned_aliases_survive_repeated_reference_reads() {
     let mut state = State::default();
     let slot = Target::storage(reference.clone());
 
-    state.observe_reference(slot.clone(), reference.clone(), error_type(), []);
+    observe_reference(&mut state, slot.clone(), reference.clone(), error_type(), []);
 
     let original = state
         .value_target(&slot, error_type())
@@ -4681,7 +4697,7 @@ fn published_returned_aliases_survive_repeated_reference_reads() {
         &addressed_reference(error_type(), bray_symbols::DependencyReferenceKind::Address),
     );
 
-    state.observe_reference(slot.clone(), reference, error_type(), []);
+    observe_reference(&mut state, slot.clone(), reference, error_type(), []);
 
     let current = state
         .value_target(&slot, error_type())
@@ -4808,7 +4824,7 @@ fn observed_pointer_fields_keep_scope_without_initialization_authority() {
 
     let inputs = state.reachable_targets([parent]);
 
-    state.observe_reference(field.clone(), observed_slot, error_type(), inputs);
+    observe_reference(&mut state, field.clone(), observed_slot, error_type(), inputs);
 
     let pointer = state
         .value_target(&field, error_type())
@@ -4858,7 +4874,7 @@ fn bounded_borrowed_choices_do_not_read_possible_regions_as_addresses() {
     let parent = state.value_target(&destination, error_type()).expect("bounded borrowed choice");
     let location = parent.project(&[field]);
 
-    state.observe_reference(location.clone(), observed, error_type(), [Target::storage(owner.clone())]);
+    observe_reference(&mut state, location.clone(), observed, error_type(), [Target::storage(owner.clone())]);
 
     let read = state.value_targets(&location).expect("pointer read retains its current value");
 

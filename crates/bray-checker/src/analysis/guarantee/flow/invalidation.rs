@@ -385,8 +385,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         // Evaluated snapshots are not a second source of live ownership.
         let owners = state.current.live_values().collect::<crate::execution_guarantees::RetainedSnapshots>();
 
-        snapshots.preserve_copied_data(state.current.live_scalar_data().cloned());
-
         state.invalidate_cleanup(&snapshots, &owners, mutation.invocation());
 
     }

@@ -391,7 +391,7 @@ fn join_observations<'a>(
             }
         }
 
-        if needs_condition_proof {
+        if needs_condition_proof && !matches!(join, ExecutionJoin::LoopHeader(_)) {
             joined_facts.extend(common_join_conditions(target, incoming, &joined_values));
         }
 

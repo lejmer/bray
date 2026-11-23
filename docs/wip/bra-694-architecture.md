@@ -140,10 +140,12 @@ The lifetime owner of a borrowed result can differ from its physical pointee.
 Reference publication carries the reached pointer origin separately from the
 owner witness. A typed route that loses its address at an intermediate read
 cannot claim the owner marker as an exact physical origin.
-An unresolved nested pointer keeps the nearest readable pointer prefix as an
-unknown origin. The prefix excludes private inline slots that did not escape
-before the result was introduced, while the unknown alternative still covers
-other external storage and already published inline slots.
+An unresolved nested pointer does not use an earlier pointer's pointee region
+as the nested pointee bound. The earlier pointer can identify where the next
+descriptor is read, but a contained pointer can reach outside that region.
+The physical result must retain every reachable origin, including external
+storage and inline storage published before result introduction. A readable
+descriptor or a complete relation can narrow that set.
 Input materialization captures the published descriptor.
 Predicates read the reached value without duplicating the reference's own context.
 Ownership and cleanup continue to read the original current value tree.
@@ -156,8 +158,12 @@ Finite mutations publish which typed pointees can change using the reached
 memory's alias relation. Proof materializes retained observations on demand.
 Current storage applies the published masks to the affected places.
 Framing and proof retirement resolve each checked preservation path once.
-After opaque invalidation frames the current values, surviving scalar copies
-still supply their data to proof. Ownership still follows the live owner tree.
+After opaque invalidation frames the current values, only physically preserved
+observations supply copied data to proof. A live copy of pointer bits does not
+preserve authority over its referent. Ownership follows the live owner tree.
+The storage path selected for a preserved observation must read the same live
+field that carries the producer's proof identity after a transfer. Proof retains
+that reached field without inferring authority from a detached scalar copy.
 Both read the actual current roots. A type-directed storage read also keeps
 the physical path when the path has no inline execution place.
 For an observed effect, the changed places identify which roots need masks.
@@ -197,9 +203,16 @@ to project from that base. The proof pairs each corresponding projected name
 with its actual predecessor snapshot and proposes the joined name alongside
 the original predecessor claim. This mapping grants no owner by itself. Each
 candidate clause still needs the carrier evidence of both predecessors.
+At a loop header, a fact shared by the finite iterations seen so far is not
+an invariant. The header widens path history and does not publish newly
+derived ordinary conditions from those iterations. Ordinary joins can still
+prove shared conditions against their predecessor snapshots. The loop's
+current value and its carried witnesses remain separate from those facts.
 When a joined observation names a current place, that place supplies its
 predecessor snapshot. Another current local may retain an older capture of the
-same place but cannot replace that snapshot. An ordinary returned value has no
+same place. Keep that alias's independent identity and proof obligations while
+preventing it from overwriting the named snapshot. A conflicting alias cannot
+be discarded merely to preserve a clause. An ordinary returned value has no
 current-place origin and uses its own selected predecessor value.
 Physical capture remains on the current value. Snapshot pairing reads the
 logical owned or nullable shape inside that capture and projects through the
@@ -225,6 +238,11 @@ The physical state owns the input-region bounds of returned addresses by produce
 
 At a call attempt, escape analysis, observation invalidation, and returned-reference bounds share the reached input
 regions. The admitted operands supply possible reach through their captured descriptors and carried dependencies.
+Effects naming a synchronous call result read that result's already staged
+physical value tree. An indirect result-field escape reads the reached field
+descriptor there. Deferred effects read the captured frame result, while
+lifecycle cleanup reads its receiver. If a carried escape route cannot be
+resolved, it has unknown reach rather than an empty footprint.
 An unresolved structured escape retains the identity of the value whose carried
 reference escapes. It can expose unknown external storage, but it does not
 publish unrelated invocation operands. Only an unscoped escape summary widens
@@ -277,12 +295,22 @@ possible pointees come from the reached pointer value and previously exposed
 storage. A borrow that keeps the enclosing owner alive does not by itself
 make that owner a possible pointee of the returned reference. The symbolic
 result identity retains those bounds across transfer and later escape.
-Opaque observation preparation includes each exact nullable or union tag, not
-only its enclosing root. An unexposed tag can stay stable even when a sibling
-field is reached through a borrow. Physical no-payload bindings and logical
-absence facts use that same preserved tag. If the tag can change, the physical
-binding loses its absence rather than keeping an inactive value through a
-possible write.
+When the returned container has complete exact bounds, observing one of its
+stored pointer fields reads that field from each reached current target in
+`StorageFlowState`. A region for the container is not a substitute for the
+field's pointer contents. An unreadable field remains an opaque reference
+with conservative origins.
+When a caller cannot select a normal outcome, the shared reference summary
+combines relations for the same input and output under their weakest reached
+provenance. Selected rows keep their own exactness. An empty address remains
+a separate origin.
+Opaque observation preparation retains exact nullable and union tags through
+their owning value observations. A borrowed tag is checked through the active
+borrow and its physical referent. Its logical slot is a descriptor, so
+disjointness from that slot cannot prove the borrowed tag stable. An
+unexposed owned tag can stay stable when a sibling field is reached. Physical
+no-payload bindings and logical absence facts use the preserved tag. If the
+tag can change, the physical binding loses its absence.
 An address returned from the slice retains the
 containing storage lifetime through its portable reference relationship. The fixed element selector and its backing
 lifetime remain distinct from an exact cell address in the caller.
