@@ -78,11 +78,16 @@ impl State {
         candidates: &'a [Place],
         roots: impl IntoIterator<Item = Target>,
     ) -> impl Iterator<Item = &'a Place> + 'a {
-        let (reached, unknown) = self.reachable_regions(roots);
+        self.unexposed_storage_within(candidates, &self.reachable_regions(roots)).into_iter()
+    }
+
+    pub(in crate::analysis::storage_flow) fn unexposed_storage_within<'a>(
+        &self, candidates: &'a [Place], (reached, unknown): &(BTreeSet<Target>, bool),
+    ) -> Vec<&'a Place> {
 
         let mut inline = BTreeMap::<StorageIdentityId, Vec<&Target>>::new();
 
-        for target in &reached {
+        for target in reached {
             for root in self.reachable_inline_roots(target) {
                 inline.entry(root).or_default().push(target);
             }
@@ -98,7 +103,7 @@ impl State {
                         == bray_bound_tree::StorageRelationship::Disjoint
                 };
 
-                if unknown && self.unknown_reference_may_reach(&candidate) {
+                if *unknown && self.unknown_reference_may_reach(&candidate) {
                     return false;
                 }
 
@@ -114,8 +119,42 @@ impl State {
                     reached.iter().all(disjoint)
                 }
             })
-            .collect::<Vec<_>>()
-            .into_iter()
+            .collect()
+    }
+
+    /// Whether the unchanged descriptor names only live allocations outside this effect.
+    pub(in crate::analysis::storage_flow) fn retains_allocation_address(
+        &self, path: &Place, (reached, unknown): &(BTreeSet<Target>, bool), exposed: &BTreeSet<Target>,
+    ) -> bool {
+        if *unknown { return false; }
+
+        let Some(slot) = self.values.get(&Target::storage(path.clone())) else { return false; };
+
+        let mut has_backing = false;
+
+        for address in slot.possible_references() {
+            if address.is_unknown() { return false; }
+
+            for region in &address.targets {
+                if region.previous || !matches!(region.origin, Origin::Allocation { .. }) { return false; }
+
+                let backing = region.allocation_region().expect("allocation target retains its backing region");
+
+                let live = self.contents.get(&backing).is_some_and(|contents| {
+                    !contents.allocations.is_empty() && contents.invalidations.is_empty()
+                });
+
+                if !live || reached.iter().chain(exposed).any(|target| {
+                    self.target_relationship(target, &backing) != bray_bound_tree::StorageRelationship::Disjoint
+                }) {
+                    return false;
+                }
+
+                has_backing = true;
+            }
+        }
+
+        has_backing
     }
 
     #[cfg(test)]

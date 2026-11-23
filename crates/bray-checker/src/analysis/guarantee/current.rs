@@ -854,7 +854,7 @@ mod tests {
         stable.insert(owner.clone());
         stable.insert(owner.clone().borrowed());
         state.trusted_assumptions.clear();
-        state.invalidate_cleanup(&stable, &[owner.clone()].into_iter().collect(), None);
+        state.invalidate_cleanup(&stable, &[owner.clone()].into_iter().collect(), None, |_| None);
         assert!(state.witnesses.contains_key(&owner), "the carrier is still a possible owner");
 
         assert_eq!(claim.prove_trusted(&state.trusted_assumptions, &state.assumptions), None,

@@ -207,7 +207,7 @@ impl Footprint {
         dependencies: &bray_bound_tree::CheckedDependencyContracts,
     ) -> BTreeMap<bray_bound_tree::StorageIdentityId, BTreeSet<TypeId>> {
         self.atomic = Some(StorageInvalidation::Observed {
-            transition: Default::default(),
+            transition: bray_bound_tree::StorageObservationTransition::Contents,
             scope: bray_bound_tree::StorageMutationScope::Unbounded,
             affected_pointees: None,
             accesses: BTreeMap::new(),
@@ -1057,9 +1057,8 @@ pub(crate) fn restrict(
     invalidation: StorageInvalidation,
     frame: &StorageInvalidation,
 ) -> StorageInvalidation {
-    let transition = invalidation.observation_transition();
-
     let StorageInvalidation::Observed {
+        transition,
         accesses: frame_paths,
         stable_descriptors: descriptors,
         ..
@@ -1098,6 +1097,7 @@ pub(crate) fn restrict(
                 stable_reference_slots,
                 normal_snapshots,
                 stable_pointees,
+                ..
             } => {
                 let mut accesses = frame_paths.clone();
 
@@ -1110,7 +1110,7 @@ pub(crate) fn restrict(
                 stable_descriptors.extend(descriptors.iter().cloned());
 
                 return StorageInvalidation::Observed {
-                    transition,
+                    transition: *transition,
                     scope: bray_bound_tree::StorageMutationScope::Unbounded,
                     accesses,
                     referents: BTreeSet::new(),
@@ -1158,7 +1158,7 @@ pub(crate) fn restrict(
     stable_descriptors.extend(descriptors.iter().cloned());
 
     StorageInvalidation::Observed {
-        transition,
+        transition: *transition,
         scope: bray_bound_tree::StorageMutationScope::Unbounded,
         accesses,
         referents,

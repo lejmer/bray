@@ -80,9 +80,10 @@ impl StorageEffect {
         matches!(self, Self::Unknown | Self::UnboundedMutation { ambient: false, .. })
     }
 
-    /// Both raw deallocation intrinsics retain the checked pointer type even if its address is lost.
+    /// Raw deallocation and owning-buffer release both end a backing lifetime.
     pub fn is_unlocated_deallocation(&self) -> bool {
-        matches!(self, Self::UnboundedMutation { kind: DependencyMutationKind::Retire, access_type: Some(_), .. })
+        matches!(self, Self::UnboundedMutation { kind: DependencyMutationKind::Retire, .. }
+            | Self::Mutation { address: None, kind: DependencyMutationKind::Retire, .. })
     }
 
     /// Whether this effect leaves backing storage lifetimes intact.

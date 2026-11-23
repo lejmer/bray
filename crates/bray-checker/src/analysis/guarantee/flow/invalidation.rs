@@ -341,7 +341,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         invalidation: &StorageInvalidation,
         moved: &crate::execution_guarantees::RetainedSnapshots,
     ) {
-        let StorageInvalidation::All { stable_descriptors: descriptors, stable_values, normal_snapshots, .. } = invalidation else {
+        let StorageInvalidation::All { stable_descriptors: descriptors, stable_values, stable_allocation_addresses, normal_snapshots, .. } = invalidation else {
             unreachable!("global observation invalidation has an opaque frame");
         };
 
@@ -352,6 +352,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let values = self.storage_preservations(stable_values);
         let mut snapshots = self.preserved_storage_values(state, &values);
+
+        for preservation in values.iter().filter(|value| stable_allocation_addresses.contains(value.path)) {
+            if let Some(value) = preservation.place.as_ref().and_then(|place| state.current.live_value(place)) {
+                snapshots.retain_allocation_address(&value);
+            }
+        }
 
         self.preserve_normal_snapshots(state, mutation, normal_snapshots, &mut snapshots);
 
@@ -385,7 +391,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         // Evaluated snapshots are not a second source of live ownership.
         let owners = state.current.live_values().collect::<crate::execution_guarantees::RetainedSnapshots>();
 
-        state.invalidate_cleanup(&snapshots, &owners, mutation.invocation());
+        state.invalidate_cleanup(&snapshots, &owners, mutation.invocation(), |predicate| {
+            self.pointer_predicates.get(&predicate).copied()
+                .filter(|_| self.content_predicates.contains(&predicate))
+        });
 
     }
 

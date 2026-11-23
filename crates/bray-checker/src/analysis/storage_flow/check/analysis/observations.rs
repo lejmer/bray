@@ -130,8 +130,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         &self,
         memory: &crate::analysis::storage_flow::memory::State,
         roots: impl IntoIterator<Item = Target>,
+        backing_scope_known: bool,
     ) -> StorageInvalidation {
-        self.opaque_observations_with_escapes(memory, roots, &Default::default())
+        self.opaque_observations_with_escapes(memory, roots, &Default::default(), backing_scope_known)
     }
 
     pub(super) fn opaque_observations_with_escapes(
@@ -139,13 +140,16 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         memory: &crate::analysis::storage_flow::memory::State,
         roots: impl IntoIterator<Item = Target>,
         escaped: &std::collections::BTreeSet<Target>,
+        backing_scope_known: bool,
     ) -> StorageInvalidation {
         let mut stable_descriptors = std::collections::BTreeSet::new();
         let mut stable_values = BTreeMap::new();
+        let mut stable_allocation_addresses = std::collections::BTreeSet::new();
 
-        let roots = roots.into_iter().chain(escaped.iter().cloned());
+        let reached = memory.reachable_regions(roots.into_iter().chain(escaped.iter().cloned()));
+        let exposed = memory.raw_exposed_regions();
 
-        for path in memory.unexposed_storage(&self.input.opaque_candidates, roots) {
+        for path in memory.unexposed_storage_within(&self.input.opaque_candidates, &reached) {
             if self.input.opaque_descriptors.contains(path) {
                 stable_descriptors.insert(path.clone());
             }
@@ -154,13 +158,16 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 // Reaching one payload does not expose disjoint scalar or marker fields.
                 // Only the prepared immutable observations retain their values.
                 kind.record_preservation(path.clone(), &mut stable_descriptors, &mut stable_values);
+
+                if backing_scope_known && *kind == StorageObservationKind::Address
+                    && memory.retains_allocation_address(path, &reached, &exposed) {
+                    stable_allocation_addresses.insert(path.clone());
+                }
             }
         }
 
         // Ordinary statics cannot be replaced while their product or exact-thread
         // owner is retained. Interior mutation cannot reach their empty markers.
-        let exposed = memory.raw_exposed_regions();
-
         let protected = |target: &Target| !exposed.iter().chain(escaped).any(|raw| {
             memory.target_relationship(raw, target) != StorageRelationship::Disjoint
         });
@@ -200,6 +207,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         StorageInvalidation::All {
             stable_descriptors,
             stable_values,
+            stable_allocation_addresses,
             stable_reference_slots: Default::default(), normal_snapshots: Default::default(), stable_pointees,
         }
     }
@@ -625,17 +633,15 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             StorageObservationTransition::Unknown
         };
 
-        if effects.iter().any(Effect::may_reach_all_inputs) {
-            return self.opaque_observations_with_escapes(memory, roots, escaped)
-                .with_observation_transition(transition);
-        }
+        let all_inputs = effects.iter().any(Effect::may_reach_all_inputs);
+        let ambient = effects.iter().any(Effect::is_ambient);
 
-        let atomic = if effects.iter().any(Effect::is_atomic) {
+        let atomic = if !all_inputs && effects.iter().any(Effect::is_atomic) {
             let frame = self.input.footprint.atomic.as_ref()
                 .expect("atomic effects prepare their observation frame");
 
             let targets = if effects.contains(&Effect::Atomic) {
-                self.opaque_observations_with_escapes(memory, roots.clone(), escaped)
+                self.opaque_observations_with_escapes(memory, roots.clone(), escaped, false)
             } else {
                 self.target_observations(memory, effects.iter()
                     .filter_map(Effect::mutation)
@@ -652,9 +658,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             .filter(|(_, kind)| *kind != bray_symbols::DependencyMutationKind::Atomic)
             .map(|(target, _)| target);
 
-        let ambient = effects.iter().any(Effect::is_ambient);
-
-        if !ambient && ordinary.clone().next().is_none() {
+        if !all_inputs && !ambient && ordinary.clone().next().is_none() {
             return match atomic {
                 Some(invalidation) => invalidation.with_observation_transition(transition),
                 None => self.target_observations(memory, ordinary)
@@ -662,13 +666,19 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             };
         }
 
-        let mut invalidation = if ambient {
+        let mut invalidation = if all_inputs || ambient {
             // Atomic access does not expose ordinary input storage. Keep its
             // protected write domain separate from ambient and ordinary writes.
-            let inputs = effects.contains(&Effect::Escape(None));
+            let unbounded_escape = effects.contains(&Effect::Escape(None));
 
-            self.opaque_observations_with_escapes(memory, roots.into_iter().filter(|_| inputs)
-                .chain(ordinary.cloned()), escaped)
+            // Unresolved operands do not establish a finite lifetime footprint.
+            let backing_scope_known = !unbounded_escape && !effects.iter().any(|effect| {
+                matches!(effect, Effect::Unknown | Effect::UnboundedMutation { ambient: false, .. })
+                    && !effect.preserves_storage_lifetimes()
+            });
+
+            self.opaque_observations_with_escapes(memory,
+                roots.into_iter().filter(|_| all_inputs || unbounded_escape).chain(ordinary.cloned()), escaped, backing_scope_known)
         } else {
             self.target_observations(memory, ordinary)
         };
@@ -698,7 +708,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         match effects {
             Some(effects) => self.resolved_observations(memory, effects, receiver.cloned(), &Default::default()),
-            None => self.opaque_observations(memory, receiver.cloned()),
+            None => self.opaque_observations(memory, receiver.cloned(), false),
         }
     }
 
@@ -1012,7 +1022,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 stable_reference_slots: Default::default(), normal_snapshots: Default::default(), stable_pointees: Default::default(),
             }
         } else {
-            self.opaque_observations(memory, mutations.cloned())
+            self.opaque_observations(memory, mutations.cloned(), true)
         }
     }
 

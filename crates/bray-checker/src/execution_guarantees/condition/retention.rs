@@ -14,12 +14,25 @@ pub(crate) struct Set {
     preserved: ConditionMemo,
     contained: ConditionMemo,
     discriminants: BTreeSet<ExecutionCondition>,
+    allocation_addresses: BTreeSet<ExecutionCondition>,
     copies: RetainedSnapshots,
     values: RetainedSnapshots,
     paths: OnceLock<ObservationPaths>,
 }
 
 impl Set {
+    pub(crate) fn retain_allocation_address(&mut self, value: &ExecutionCondition) {
+        self.allocation_addresses.insert(value.descriptor_identity().clone());
+    }
+
+    pub(crate) fn retains_allocation_address(&self, value: &ExecutionCondition) -> bool {
+        self.allocation_addresses.contains(value.descriptor_identity())
+    }
+
+    pub(crate) fn has_allocation_addresses(&self) -> bool {
+        !self.allocation_addresses.is_empty()
+    }
+
     pub(crate) fn insert_classified(&mut self, value: ExecutionCondition, kind: bray_bound_tree::StorageObservationKind) {
         if kind == bray_bound_tree::StorageObservationKind::Discriminant {
             if self.discriminants.insert(value.discriminant()) { self.clear_preserved(); }

@@ -3,6 +3,12 @@ use super::super::Effect;
 use bray_bound_tree::{BoundExecutionSite, StorageInvalidation};
 use bray_symbols::DependencyMutationKind;
 
+#[derive(Clone, Copy)]
+enum BackingRetirement {
+    Possible(BoundExecutionSite),
+    Performed(BoundExecutionSite),
+}
+
 impl State {
     pub(in crate::analysis::storage_flow) fn stable_reference_slot(
         target: &Target,
@@ -92,7 +98,7 @@ impl State {
                 let scope = (kind == DependencyMutationKind::Atomic, deallocation, kind.preserves_discharge());
 
                 if previous_unbounded != Some(scope) {
-                    self.invalidate_unknown_targets(invalidation, kind, deallocation);
+                    self.invalidate_unknown_targets(invalidation, kind, deallocation.then_some(origin));
                     previous_unbounded = Some(scope);
                 }
 
@@ -104,7 +110,9 @@ impl State {
             let bound = match effect {
                 Effect::Mutation { address: None, footprint, kind, .. }
                     if !matches!(kind, DependencyMutationKind::Atomic | DependencyMutationKind::Dispose(_)
-                        | DependencyMutationKind::Cleanup(_) | DependencyMutationKind::Escape) => Some((footprint, kind.preserves_discharge())),
+                        | DependencyMutationKind::Cleanup(_) | DependencyMutationKind::Escape) => {
+                    Some((footprint, kind.preserves_discharge(), *kind == DependencyMutationKind::Retire))
+                }
                 _ => None,
             };
 
@@ -132,19 +140,24 @@ impl State {
                     self.invalidate_cleanup_regions(&targets, invalidation);
 
                     if let Some(backing) = backing {
-                        self.invalidate_target(&backing, DependencyMutationKind::Retire, invalidation, true, Some(origin), false);
+                        self.invalidate_target(&backing, DependencyMutationKind::Retire, invalidation, true,
+                            Some(BackingRetirement::Performed(origin)));
                     }
                 }
                 Effect::Mutation { address, footprint: target, kind, access_type, .. } => {
                     let retiring = (*kind == DependencyMutationKind::Retire).then_some(address.as_ref()).flatten();
 
                     if let Some(address) = retiring.filter(|address| *address != target) {
-                        self.invalidate_target(address, *kind, invalidation, true, Some(origin), false);
+                        self.invalidate_target(address, *kind, invalidation, true, Some(BackingRetirement::Performed(origin)));
                     }
 
+                    let retirement = (*kind == DependencyMutationKind::Retire).then(|| {
+                        if retiring == Some(target) { BackingRetirement::Performed(origin) }
+                        else { BackingRetirement::Possible(origin) }
+                    });
+
                     self.invalidate_target(target, *kind, invalidation,
-                        access_type.is_none() && address.as_ref() == Some(target),
-                        retiring.filter(|address| *address == target).map(|_| origin), false)
+                        access_type.is_none() && address.as_ref() == Some(target), retirement)
                 }
                 effect if effect.is_ambient() => {
                     let kind = match effect {
@@ -152,11 +165,13 @@ impl State {
                         _ => DependencyMutationKind::Write,
                     };
 
+                    let retirement = effect.is_unlocated_deallocation().then_some(origin);
+
                     if let Some((mut targets, unknown)) = self.ambient_regions(effects) {
                         self.include_unknown_targets(&mut targets, unknown);
 
                         for target in targets {
-                            if effect.is_unlocated_deallocation() && !self.unlocated_deallocation_may_reach(&target) {
+                            if retirement.is_some() && !self.unlocated_deallocation_may_reach(&target) {
                                 continue;
                             }
 
@@ -165,12 +180,11 @@ impl State {
                                 kind,
                                 invalidation,
                                 false,
-                                None,
-                                effect.is_unlocated_deallocation(),
+                                retirement.map(BackingRetirement::Possible),
                             );
                         }
                     } else {
-                        self.invalidate_unknown_targets(invalidation, kind, effect.is_unlocated_deallocation());
+                        self.invalidate_unknown_targets(invalidation, kind, retirement);
                     }
                 }
                 effect if effect.is_atomic() => self.invalidate(
@@ -191,13 +205,12 @@ impl State {
         kind: DependencyMutationKind,
         invalidation: &StorageInvalidation,
         complete_cell: bool,
-        retirement: Option<BoundExecutionSite>,
-        deallocation: bool,
+        retirement: Option<BackingRetirement>,
     ) {
         let references = AddressValue::one(target.clone());
 
         for affected in self.affected_targets(&references) {
-            if deallocation && !self.unlocated_deallocation_may_reach(&affected) {
+            if matches!(retirement, Some(BackingRetirement::Possible(_))) && !self.unlocated_deallocation_may_reach(&affected) {
                 continue;
             }
 
@@ -216,9 +229,14 @@ impl State {
                 }
             }
 
-            if let Some(origin) = retirement {
+            if let Some(BackingRetirement::Performed(origin)) = retirement {
                 self.retire_backing(affected, origin);
             } else if let Some(contents) = self.contents.get_mut(&affected) {
+                if let Some(BackingRetirement::Possible(origin)) = retirement {
+                    contents.retire(origin);
+                    continue;
+                }
+
                 // An alias bound does not prove a complete typed update. Preserve
                 // only the ordinary selected cell, never a merely overlapping view.
                 let storage_type = contents.storage_type;
@@ -280,21 +298,21 @@ impl State {
         invalidation: &StorageInvalidation,
         kind: DependencyMutationKind,
     ) {
-        self.invalidate_unknown_targets(invalidation, kind, false);
+        self.invalidate_unknown_targets(invalidation, kind, None);
     }
 
     fn invalidate_unknown_targets(
         &mut self,
         invalidation: &StorageInvalidation,
         kind: DependencyMutationKind,
-        deallocation: bool,
+        retirement: Option<BoundExecutionSite>,
     ) {
         // An opaque operation can change the referent without replacing a reference
         // stored in an unexposed owner or reached through a protected shared entry borrow.
         // The established observation identifies the slot independently of its referent.
         let unaddressed = &self.unaddressed_storage;
         let owned = &self.owned_storage;
-        let unaffected = |target: &Target| deallocation && !Self::deallocation_may_reach(owned, target);
+        let unaffected = |target: &Target| retirement.is_some() && !Self::deallocation_may_reach(owned, target);
 
         let unknown = matches!(
             invalidation,
@@ -345,6 +363,11 @@ impl State {
             };
 
             if affected {
+                if let Some(origin) = retirement {
+                    contents.retire(origin);
+                    continue;
+                }
+
                 // Unbounded mutations establish no complete type-correct cell update.
                 // Semantic ownership framing retains the precise transition separately.
                 let storage_type = contents.storage_type;

@@ -14,6 +14,62 @@ struct RetirementQueries {
 }
 
 impl ExecutionState {
+    pub(super) fn preserved_allocation_clauses(
+        &self,
+        stable_values: &crate::execution_guarantees::ObservationSet,
+        stable_owners: &RetainedSnapshots,
+        spatial_arguments: impl Fn(bray_symbols::PredicateDefinitionSymbolId) -> Option<&'static [usize]>,
+    ) -> BTreeSet<ExecutionCondition> {
+        use crate::ExecutionConditionKind as Condition;
+
+        let mut clauses = BTreeSet::new();
+
+        if !stable_values.has_allocation_addresses() { return clauses; }
+
+        let stable = |value: &ExecutionCondition| value.observes_only(|part| stable_values.preserves(part));
+        let mut backed = BTreeMap::<_, BTreeSet<_>>::new();
+
+        for (condition, owner) in &self.allocation_owners {
+            let Condition::Predicate(_, _, arguments) = condition.kind() else {
+                unreachable!("allocation ownership records the actual allocation predicate");
+            };
+
+            let [address, bytes, align] = arguments.as_ref() else {
+                unreachable!("allocation ownership records its address, size, and alignment");
+            };
+
+            if stable_owners.retains_owner(owner) && stable_values.retains_allocation_address(address)
+                && stable(bytes) && stable(align)
+            {
+                clauses.insert(condition.clone());
+                backed.entry(owner).or_default().insert(address.descriptor_identity());
+            }
+        }
+
+        for (owner, addresses) in backed {
+            let Some(witness) = self.witnesses.get(owner) else { continue; };
+
+            // Keep established address permissions carried by this allocation owner.
+            // A live backing supplies no permission by itself.
+            for observation in witness.conditions.keys().flat_map(ExecutionCondition::observations) {
+                let Condition::Trusted(predicate) = observation.kind() else { continue; };
+
+                let Condition::Predicate(symbol, _, arguments) = predicate.kind() else { continue; };
+
+                let Some(pointers) = spatial_arguments(*symbol) else { continue; };
+
+                if arguments.iter().enumerate().all(|(index, value)| {
+                    if pointers.contains(&index) { addresses.contains(value.descriptor_identity()) }
+                    else { stable(value) }
+                }) {
+                    clauses.insert(predicate.as_ref().clone());
+                }
+            }
+        }
+
+        clauses
+    }
+
     pub(in crate::analysis) fn retire_captured_storage(&mut self,
         retirements: &[(bray_bound_tree::StorageTarget, bray_bound_tree::StorageValueRetirement)],
     ) {

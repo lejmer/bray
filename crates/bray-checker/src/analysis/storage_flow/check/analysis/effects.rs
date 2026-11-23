@@ -454,7 +454,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
             invalidation
         }).or_else(|| {
-            roots.map(|roots| self.opaque_observations_with_escapes(&state.memory, roots.iter().cloned(), escaped))
+            roots.map(|roots| self.opaque_observations_with_escapes(&state.memory, roots.iter().cloned(), escaped, false))
         }).or_else(|| {
             kind.explicit_attempt_expression().is_some_and(|expression| self.memory.operation(expression).is_some())
                 .then(StorageInvalidation::unknown)

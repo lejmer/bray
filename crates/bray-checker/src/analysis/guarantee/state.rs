@@ -690,13 +690,15 @@ impl ExecutionState {
         stable_values: &crate::execution_guarantees::ObservationSet,
         stable_owners: &crate::execution_guarantees::RetainedSnapshots,
         admitted: Option<bray_bound_tree::BoundExecutionSite>,
+        spatial_arguments: impl Fn(bray_symbols::PredicateDefinitionSymbolId) -> Option<&'static [usize]>,
     ) {
         self.refine_witnesses();
 
         let retained_owner = |value: &ExecutionCondition| stable_owners.retains_owner(value);
+        let allocations = self.preserved_allocation_clauses(stable_values, stable_owners, spatial_arguments);
 
         let retains_contents = crate::execution_guarantees::memoize_condition(|condition| {
-            condition.observes_only(|value| stable_values.preserves(value))
+            condition.observes_only(|value| stable_values.preserves(value) || allocations.contains(value))
         });
 
         let retains_clause = |owner: &ExecutionCondition, condition: &ExecutionCondition,
@@ -1317,7 +1319,7 @@ mod tests {
             } else { BTreeSet::new() };
 
             state.invalidate_cleanup(
-                &stable.iter().cloned().collect(), &Default::default(), None);
+                &stable.iter().cloned().collect(), &Default::default(), None, |_| None);
 
             assert!(state.trusted_assumptions.contains(&(independent.clone(), true)));
             assert_eq!(state.trusted_assumptions.contains(&(guarded.clone(), true)), unchanged);
@@ -1351,6 +1353,7 @@ mod tests {
                 &[marker.clone(), marker.clone().borrowed()].into_iter().collect(),
                 &[if complete { owner.clone() } else { marker.clone() }].into_iter().collect(),
                 None,
+                |_| None,
             );
 
             assert_eq!(state.witnesses.contains_key(&owner), complete);
@@ -1382,14 +1385,14 @@ mod tests {
             }
 
             access.clone().assume(true, &mut state.trusted_assumptions);
-            state.invalidate_cleanup(&stable, &Default::default(), None);
+            state.invalidate_cleanup(&stable, &Default::default(), None, |_| None);
 
             let survives = !owning && !dependent;
 
             assert_eq!(state.trusted_assumptions.contains(&(access.clone(), true)), survives);
             assert_eq!(state.witnesses.values().any(|witness| witness.conditions.contains_key(&access)), survives);
 
-            state.invalidate_cleanup(&Default::default(), &Default::default(), None);
+            state.invalidate_cleanup(&Default::default(), &Default::default(), None, |_| None);
 
             assert!(!state.trusted_assumptions.contains(&(access.clone(), true)));
         }
@@ -1435,7 +1438,7 @@ mod tests {
             assert_eq!(state.owned_witnesses([actual.clone()]).map(|(owner, _)| owner.clone()).collect::<BTreeSet<_>>(),
                 BTreeSet::from([parent.clone(), right.clone()]));
 
-            state.invalidate_cleanup(&stable, &[actual].into_iter().collect(), None);
+            state.invalidate_cleanup(&stable, &[actual].into_iter().collect(), None, |_| None);
 
             assert!(state.directly_carries_witness(&parent));
             assert!(state.directly_carries_witness(&right));
@@ -1497,6 +1500,65 @@ mod tests {
     }
 
     #[test]
+    fn opaque_effect_requires_the_live_owner_of_a_retained_allocation_address() {
+        let symbol = crate::test_support::compiler_known_symbol::<bray_symbols::PredicateSymbolId>("OwnedAllocation");
+        let valid_write = crate::test_support::compiler_known_symbol::<bray_symbols::PredicateSymbolId>("ValidWrite");
+        let initialized = crate::test_support::compiler_known_symbol::<bray_symbols::PredicateSymbolId>("InitializedAs");
+        let address = input(0);
+        let owner = input(1);
+        let bytes = input(3);
+        let align = input(4);
+
+        let allocation = ExecutionCondition::new(crate::ExecutionConditionKind::Predicate(
+            symbol.into(),
+            crate::test_support::empty_substitution(symbol.into()),
+            [address.clone(), bytes.clone(), align.clone()].into(),
+        ));
+
+        let trusted = |condition| ExecutionCondition::new(crate::ExecutionConditionKind::Trusted(Arc::new(condition)));
+        let clause = trusted(allocation.clone());
+
+        let permission = trusted(ExecutionCondition::new(crate::ExecutionConditionKind::Predicate(
+            valid_write.into(), crate::test_support::empty_substitution(valid_write.into()),
+            [address.clone(), bytes.clone()].into(),
+        )));
+
+        let contents = trusted(ExecutionCondition::new(crate::ExecutionConditionKind::Predicate(
+            initialized.into(), crate::test_support::empty_substitution(initialized.into()),
+            [address.clone()].into(),
+        )));
+
+        let mut state = ExecutionState::default();
+
+        for condition in [&clause, &permission, &contents] {
+            state.carry_guarantee(owner.clone(), condition.clone());
+            condition.clone().assume(true, &mut state.trusted_assumptions);
+        }
+
+        state.allocation_owners.insert(allocation.clone(), owner.clone());
+
+        let mut observations = crate::execution_guarantees::ObservationSet::default();
+
+        observations.insert(bytes);
+        observations.insert(align);
+        observations.retain_allocation_address(&address);
+
+        for (carrier, survives) in [(owner.clone(), true), (address, false), (input(2), false)] {
+            let mut framed = state.clone();
+            let owners = [carrier].into_iter().collect();
+
+            framed.invalidate_cleanup(&observations, &owners, None, |predicate| {
+                (predicate == bray_symbols::PredicateDefinitionSymbolId::from(valid_write)).then_some(&[0])
+            });
+
+            assert_eq!(framed.allocation_owners.contains_key(&allocation), survives);
+            assert_eq!(framed.trusted_assumptions.contains(&(clause.clone(), true)), survives);
+            assert_eq!(framed.trusted_assumptions.contains(&(permission.clone(), true)), survives);
+            assert!(!framed.trusted_assumptions.contains(&(contents.clone(), true)));
+        }
+    }
+
+    #[test]
     fn only_recorded_admitted_owners_keep_unavailable_entry_authority() {
         use bray_bound_tree::{BoundErrorExpression, BoundExpression, BoundUnitId};
         use crate::test_support::{error_type, expression_unit, push_expression};
@@ -1547,7 +1609,7 @@ mod tests {
 
             assert!(!state.trusted_assumptions.contains(&(condition.clone(), true)));
 
-            state.invalidate_cleanup(&Default::default(), &Default::default(), own_context.then_some(invocation));
+            state.invalidate_cleanup(&Default::default(), &Default::default(), own_context.then_some(invocation), |_| None);
 
             assert!(!state.witnesses.contains_key(&owner));
             assert!(!state.allocation_owners.contains_key(&condition));

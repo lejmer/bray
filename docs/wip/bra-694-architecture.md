@@ -166,9 +166,19 @@ field that carries the producer's proof identity after a transfer. Proof retains
 that reached field without inferring authority from a detached scalar copy.
 The survival of an address field and of its backing are separate facts.
 An allocation clause needs the live owner, its unchanged address, and backing
-whose lifetime survives the resolved effect.
-Both read the actual current roots. A type-directed storage read also keeps
-the physical path when the path has no inline execution place.
+whose lifetime survives the resolved effect. The opaque frame records stable
+address fields whose known allocations are still private and disjoint from
+the effect. Certification reads the live field and checks the allocation
+owner it already recorded. The same owner can retain its established spatial
+permissions when their operands survive. Both outcomes must retain that
+evidence at a join.
+The prepared atomic frame carries its contents-only classification through
+restriction and merge. Backing preservation needs a lifetime footprint.
+An unavailable effect summary or an unlocated lifetime effect supplies none.
+A possible retirement records invalidation in the reached backing's contents.
+The addressed transition records the performed retirement and its discharges.
+Use the current roots for framing and proof. A type-directed storage read keeps
+its physical path when there is no inline execution place.
 For an observed effect, the changed places identify which roots need masks.
 Proof still reads surviving observations on independent roots.
 Consecutive unbounded effects with the same physical scope share one weakening
@@ -647,6 +657,10 @@ schedules. A represented cleanup part keeps the nearest inline owner and
 the known tag restrictions. Ownership or absence of that slot can exclude the
 part. Addressing a child across that boundary still requires its typed
 projection. Certification observes reached cleanup during proof replay.
+A generic cleanup of a moved value needs the reference support carried by that
+value. Its portable route selects the original captured contents at admission.
+Specialization follows descriptors in those contents and applies external
+effects. The moved value's inline storage belongs to the callee.
 `StorageExitDecision` carries the reached cancellation and lifecycle orders,
 absence facts, and the selected protocol exit with its recovery status.
 The prepared cleanup requirements supply the owner's shape and phase needs.

@@ -162,6 +162,7 @@ fn retained_address_bits_keep_their_targets_without_preserving_pointee_state() {
     let invalidation = bray_bound_tree::StorageInvalidation::All {
         stable_descriptors: Default::default(),
         stable_values: [(pointer.clone(), bray_bound_tree::StorageObservationKind::Address)].into(),
+        stable_allocation_addresses: Default::default(),
         stable_reference_slots: Default::default(),
         normal_snapshots: Default::default(), stable_pointees: Default::default(),
     };
@@ -199,7 +200,7 @@ fn cleanup_retains_its_value_scope_and_follows_actual_contained_references() {
         let stable = state.unexposed_storage(&protected, [Target::storage(right.clone())]).cloned().collect();
 
         let invalidation = bray_bound_tree::StorageInvalidation::All {
-            stable_descriptors: stable, stable_values: Default::default(), stable_reference_slots: Default::default(), normal_snapshots: Default::default(), stable_pointees: Default::default(),
+            stable_descriptors: stable, stable_values: Default::default(), stable_allocation_addresses: Default::default(), stable_reference_slots: Default::default(), normal_snapshots: Default::default(), stable_pointees: Default::default(),
         };
 
         state.apply_effects(Some(&effects), &invalidation, origins[2].into());
@@ -1929,6 +1930,7 @@ fn opaque_frame_preserves_inactive_payload_only_while_its_tag_survives() {
     let stable = bray_bound_tree::StorageInvalidation::All {
         stable_descriptors: Default::default(),
         stable_values: [(tag, bray_bound_tree::StorageObservationKind::Discriminant)].into(),
+        stable_allocation_addresses: Default::default(),
         stable_reference_slots: Default::default(),
         normal_snapshots: Default::default(),
         stable_pointees: Default::default(),
@@ -3779,6 +3781,7 @@ fn opaque_effects_preserve_unexposed_reference_slots_but_revoke_contents() {
             &bray_bound_tree::StorageInvalidation::All {
                 stable_descriptors,
                 stable_values: Default::default(),
+                stable_allocation_addresses: Default::default(),
                 stable_reference_slots: Default::default(), normal_snapshots: Default::default(), stable_pointees: Default::default(),
             },
             bray_symbols::DependencyMutationKind::Retire,
@@ -3854,6 +3857,7 @@ fn typed_writes_keep_protected_reference_slots_until_exact_replacement() {
     let invalidation = bray_bound_tree::StorageInvalidation::All {
         stable_descriptors: [parameter].into(),
         stable_values: Default::default(),
+        stable_allocation_addresses: Default::default(),
         stable_reference_slots: Default::default(), normal_snapshots: Default::default(), stable_pointees: Default::default(),
     };
 
@@ -3910,6 +3914,7 @@ fn effects_preserve_protected_entry_reference_slots_without_referent_authority()
         let mut invalidation = bray_bound_tree::StorageInvalidation::All {
             stable_descriptors: protected.then_some(parameter).into_iter().collect(),
             stable_values: Default::default(),
+            stable_allocation_addresses: Default::default(),
             stable_reference_slots: Default::default(), normal_snapshots: Default::default(), stable_pointees: Default::default(),
         };
 
@@ -4296,6 +4301,43 @@ fn ambient_reachability_requires_raw_publication_of_an_owned_slot() {
 
     assert_ne!(state.target_relationship(&alias, &borrowed), StorageRelationship::Disjoint,
         "an actual raw input can still invalidate a borrowed owner");
+}
+
+#[test]
+fn opaque_effect_preserves_backing_only_while_its_allocation_is_private() {
+    let ([pointer, alias, ..], origins) = places();
+
+    let mut state = State { owned_storage: [pointer.root, alias.root].into(), ..State::default() };
+    let backing = state.fresh(pointer.clone(), origins[0]);
+
+    let survives = |state: &State, roots| state.retains_allocation_address(
+        &pointer, &state.reachable_regions(roots), &state.raw_exposed_regions(),
+    );
+
+    assert!(survives(&state, None));
+    assert!(!survives(&state, Some(backing.clone())));
+
+    let mut exposed = state.clone();
+    let field = backing.project(&[BUFFER_POINTER]);
+
+    exposed.contents.entry(field).or_default().exposed = true;
+    assert!(!survives(&exposed, None));
+
+    let mut carried = state.clone();
+    let destination = Target::storage(alias.clone());
+    let call = origins[1].into();
+
+    carried.stage_reference_regions(call, destination.clone(), alias, error_type(), [backing.clone()]);
+    carried.complete_transition(call);
+
+    let returned = carried.value_target(&destination, error_type()).expect("returned alias retains a region bound");
+
+    assert!(survives(&carried, None));
+    carried.contents.entry(returned).or_default().exposed = true;
+    assert!(!survives(&carried, None));
+
+    state.escape_targets([backing]);
+    assert!(!survives(&state, None));
 }
 
 #[test]
@@ -5917,7 +5959,7 @@ fn unresolved_deallocation_distinguishes_inline_slots_from_backing() {
         origin: Origin::Allocation { allocation: backing, projections: Arc::from([]) },
     };
 
-    for (access_type, ambient, retains_local) in [(Some(ty), false, true), (Some(ty), true, true), (None, false, false)] {
+    for (access_type, ambient) in [(Some(ty), false), (Some(ty), true), (None, false), (None, true)] {
         let mut state = State { owned_storage: [owner.root].into(), ..State::default() };
 
         for target in [&local, &allocation] {
@@ -5929,8 +5971,39 @@ fn unresolved_deallocation_distinguishes_inline_slots_from_backing() {
         state.apply_effects(Some(&[Effect::unbounded(DependencyMutationKind::Retire, access_type, ambient)]),
             &bray_bound_tree::StorageInvalidation::unknown(), expressions[0].into());
 
-        assert_eq!(state.contents[&local].is_initialized(ty), retains_local);
+        assert!(state.contents[&local].is_initialized(ty));
         assert!(!state.contents[&allocation].is_initialized(ty));
+    }
+}
+
+#[test]
+fn address_free_retirement_weakens_backing_without_publishing_a_retirement() {
+    let ([pointer, ..], expressions) = places();
+
+    let origin = expressions[1].into();
+    let mut initial = State { owned_storage: [pointer.root].into(), ..State::default() };
+    let backing = initial.fresh(pointer.clone(), expressions[0]);
+    let slot = Target::storage(pointer.clone());
+
+    let _ = initial.take_retirements();
+
+    let survives = |state: &State| state.retains_allocation_address(
+        &pointer, &state.reachable_regions([]), &state.raw_exposed_regions(),
+    );
+
+    assert!(survives(&initial));
+
+    for retirement in [Effect::bounded(backing.clone(), DependencyMutationKind::Retire, None),
+        Effect::unbounded(DependencyMutationKind::Retire, None, false),
+    ] {
+        let mut state = initial.clone();
+        let effects = [Effect::bounded(backing.clone(), DependencyMutationKind::Consume, None), retirement];
+
+        state.apply_effects(Some(&effects), &bray_bound_tree::StorageInvalidation::unknown(), origin);
+
+        assert!(!survives(&state));
+        assert_eq!(state.invalidation_origins(&slot).collect::<Vec<_>>(), [origin]);
+        assert!(state.take_retirements().is_empty());
     }
 }
 

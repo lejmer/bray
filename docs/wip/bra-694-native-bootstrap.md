@@ -67,10 +67,15 @@ Checkpoint `15cded660` passes all 1,709 audited comparison cases. The
 package-backed check on that checkpoint reports 14 diagnostic entries across
 43 bootstrap bodies, including repeats between proof and lowering. The
 reviewed staged result candidate reduces this count to seven and passes all
-595 checker tests. The remaining obligations concern allocation in
-initialization and scheduler deallocation, the previous owner in scoped
-exit, and the view owner in task cleanup. The fixed comparison on the
-reviewed candidate and the complete native archive remain unverified.
+595 checker tests. The allocation-frame candidate passes all 1,709
+comparison cases, 139 bound-tree tests, 597 checker tests, and the nullable
+allocation regression. Its 43-body run still reports seven entries. In
+initialization the allocation requirement now passes and the spatial write
+requirement fails. The spatial-permission candidate passes both unit suites
+and the nullable allocation regression. Its 43-body check and lowering
+reports five entries across scheduler deallocation, the previous owner in
+scoped exit, and the view owner in task cleanup. The possible-retirement
+follow-up and complete native archive remain unverified.
 
 ### Live owner preservation
 
@@ -87,18 +92,41 @@ unrelated acquisition loan. A lifecycle receiver write can have an older
 descriptor in its slot, so it assembles its checked writes with the receiver
 binding instead of treating the receiver as a staged result.
 
-The initialization and scheduler allocation cases and the scoped cleanup
-cases have no whole-input escape in the targeted trace. Initialization
-receives an ambient effect and keeps the allocation pointer field as a stable
-address. Proof drops its clause while the pointer still belongs to the live
-owner. Establish which physical backing survives each effect, including
-ambient cleanup and the discharged cell in scheduler storage. Address identity
-alone does not establish this. Call and cleanup requirements exercise survival.
-The opaque and moved raw-read controls exercise revocation.
-`nullable_allocation_publication_uses_its_declared_result_owner` fails on
-the pushed checkpoint and gives a focused positive control outside the
-1,709-case inventory. `moving_raw_contents_preserves_allocation_ownership_until_deallocation`
+An opaque frame must independently establish the survival of a stable
+address field and its allocation. The physical memory state has the reached
+address alternatives, allocation incarnations, and reachable effect regions.
+Use those records to publish the surviving allocation addresses with the
+frame. Proof reads the corresponding live fields and retains only clauses
+already attached to a surviving allocation owner. An unknown target, a
+possibly retired allocation, or a copied pointer with no owner supplies no
+authority. Effect-frame joins keep only evidence valid for both paths.
+The arena creation call combines ambient and atomic effects. The atomic
+frame must carry its contents-only classification into that merge.
+The same surviving owner and backing can keep established spatial access
+clauses carried by that owner. Use the existing pointer-argument and
+contents-only predicate classification. The other operands must also survive.
+The frame supplies no new permission and a copied address supplies no owner.
+
+`nullable_allocation_publication_uses_its_declared_result_owner` exercises
+the complete owner through an opaque call, outside the 1,709-case inventory.
+The checker-state control distinguishes the live owner from a retained pointer
+copy. `moving_raw_contents_preserves_allocation_ownership_until_deallocation`
 covers a typed move followed by deallocation and rejects a second deallocation.
+
+The scheduler's checked `take` row transfers the whole domain and its two
+nested buffer references. The selected `SpinLock` destructor has the reached
+receiver, but its resolved effect is ambient retirement on normal and abnormal
+rows. Its generic source summary already contains ambient `Dispose(T)` for
+the value moved from `Uninit<T>`. Specialization cannot recover the source
+route at that point. Publish the carried value's cleanup scope while the
+generic body still has the transfer. The caller must resolve effects through
+the captured value without treating its former inline slot as the disposed
+value.
+The definite domain discharge and the retirement of a separate buffer backing
+cannot retire the outer allocation. An unresolved retirement carries no new
+authority and still loses proof within the region it can reach. Both raw
+deallocation and buffer backing release are deallocation. A missing access
+type does not give a backing retirement access to invocation-owned inline slots.
 
 ### Current regression contract
 

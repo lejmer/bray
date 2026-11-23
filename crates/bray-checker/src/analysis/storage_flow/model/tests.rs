@@ -428,12 +428,14 @@ fn payload_absence_survives_contents_changes_but_not_discriminant_replacement() 
     let opaque = StorageInvalidation::All {
         stable_descriptors: [parent.clone()].into(),
         stable_values: BTreeMap::new(),
+        stable_allocation_addresses: Default::default(),
         stable_reference_slots: Default::default(), normal_snapshots: Default::default(), stable_pointees: Default::default(),
     };
 
     let opaque_value = |kind| StorageInvalidation::All {
         stable_descriptors: Default::default(),
         stable_values: [(parent.clone(), kind)].into(),
+        stable_allocation_addresses: Default::default(),
         stable_reference_slots: Default::default(), normal_snapshots: Default::default(), stable_pointees: Default::default(),
     };
 
