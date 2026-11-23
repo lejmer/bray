@@ -14,6 +14,7 @@ mod model;
 mod normalize;
 mod place;
 mod portable;
+mod proof_inputs;
 mod references;
 mod snapshot;
 mod trusted_implication;
@@ -28,6 +29,7 @@ pub(crate) use snapshot::owned_snapshot;
 pub use bray_symbols::ExecutionProperty;
 pub use condition::{ExecutionCondition, ExecutionConditionKind, ExecutionDescriptorKind, ExecutionJoinSite, ExecutionOperands, ExecutionObservationKind};
 pub(crate) use condition::{ ExecutionProof, ExecutionProofCache, ExecutionSubstitution, GuardSubstitution, SnapshotSubstitution, ObservationSet, RetainedSnapshots, memoize_condition, memoize_observations};
+pub(crate) use proof_inputs::{ExecutionProofInputDomain, NormalizedProofInputs};
 pub use declaration::declared_execution_properties;
 pub use implication::{
     execution_condition_is_implied, map_execution_condition_references,

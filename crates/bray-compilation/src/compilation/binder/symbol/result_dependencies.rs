@@ -371,9 +371,15 @@ fn infer_component(
         .map(|callable| (callable.clone(), empty))
         .collect::<BTreeMap<_, _>>();
 
-    for callee in callees {
-        let result = summary(&context, &callee).map_err(binding_query_error)?;
+    let summaries = compilation.state.fact_runtime.complete_batch(
+        callees,
+        cancellation,
+        |callee| summary(&context, callee)
+            .map(crate::fact::BatchWork::leaf)
+            .map_err(binding_query_error),
+    ).map_err(crate::fact::BatchCompletionError::into_fact_query_error)?;
 
+    for (callee, result) in summaries {
         templates.insert(callee, *result.value());
         diagnostics = diagnostics.merged(result.diagnostics());
     }

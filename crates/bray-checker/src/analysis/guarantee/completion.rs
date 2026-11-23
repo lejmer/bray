@@ -577,7 +577,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .get(&expression)
             .into_iter()
             .flatten()
-            .filter(|contract| entry.prove_requirements(&contract.entry).is_ok())
+            .filter(|contract| entry.prove_requirements_with_cache(&self.proofs, &contract.entry).is_ok())
             .collect::<Vec<_>>();
 
         if contracts.is_empty() {

@@ -618,12 +618,15 @@ fn recursive_witness_parameters_follow_the_selected_implementation() {
 
 #[test]
 fn recursive_reference_summaries_require_a_normal_base_and_agreeing_targets() {
-    let application = compilation(
+    let application = crate::test_support::compilation_with_sources_and_worker_budget(
+        &[
         r#"
         module app;
+        func left(pos value: &bool) -> &bool { return value; }
+        func right(pos value: &bool) -> &bool { return value; }
         func direct(pos value: &bool, pos repeat: bool) -> &bool {
-            if repeat { return direct(value, false); }
-            return value;
+            if repeat { return direct(left(value), false); }
+            return right(value);
         }
         func first(pos value: &bool, pos repeat: bool) -> &bool {
             if repeat { return second(value, false); }
@@ -638,6 +641,8 @@ fn recursive_reference_summaries_require_a_normal_base_and_agreeing_targets() {
         }
         func forever(pos value: &bool) -> &bool { return forever(value); }
         "#,
+        ],
+        crate::WorkerBudget::new(4).expect("fixture has a positive worker budget"),
     );
 
     for name in ["direct", "first", "second", "different", "forever"] {

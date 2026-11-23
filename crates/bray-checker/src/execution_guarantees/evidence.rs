@@ -604,7 +604,14 @@ impl ExecutionCallEvidence {
 
     /// Borrows the inputs that obligation selection reads.
     pub fn proof_inputs(&self) -> super::ExecutionCallProof<'_> {
-        super::ExecutionCallProof::new(self)
+        super::ExecutionCallProof::new(self, None)
+    }
+
+    pub(crate) fn proof_inputs_with_cache<'a>(
+        &'a self,
+        cache: &'a super::ExecutionProofCache,
+    ) -> super::ExecutionCallProof<'a> {
+        super::ExecutionCallProof::new(self, Some(cache))
     }
 
     /// Proves every entry condition, retaining the first condition and its actual arguments on failure.
@@ -613,6 +620,14 @@ impl ExecutionCallEvidence {
         conditions: impl IntoIterator<Item = &'a super::ExecutionCondition>,
     ) -> Result<(), UnprovenExecutionCondition> {
         self.proof_inputs().prove_requirements(conditions)
+    }
+
+    pub(crate) fn prove_requirements_with_cache<'a>(
+        &self,
+        cache: &super::ExecutionProofCache,
+        conditions: impl IntoIterator<Item = &'a super::ExecutionCondition>,
+    ) -> Result<(), UnprovenExecutionCondition> {
+        self.proof_inputs_with_cache(cache).prove_requirements(conditions)
     }
 
     /// Proves every trusted obligation from the captured live evidence.
@@ -670,25 +685,30 @@ mod tests {
         let required = ExecutionCondition::new(crate::ExecutionConditionKind::Input(argument.clone().component(field)));
         let contents = ExecutionCondition::new(crate::ExecutionConditionKind::Input(owner.clone().component(field)));
         let mut entry = ExecutionCallEvidence::default();
+        let cache = crate::execution_guarantees::ExecutionProofCache::default();
 
         entry.arguments.insert(argument.clone(), ExecutionCondition::new(crate::ExecutionConditionKind::Input(owner)).borrowed());
         entry.assumptions.insert((contents.clone(), true));
 
         assert!(entry.prove_requirements([&required]).is_ok());
+        assert!(entry.prove_requirements_with_cache(&cache, [&required]).is_ok());
         assert!(entry.prove_requirements([&ExecutionCondition::new(crate::ExecutionConditionKind::Trusted(std::sync::Arc::new(required.clone())))]).is_err());
 
         entry.assumptions.clear();
 
         assert!(entry.prove_requirements([&required]).is_err());
+        assert!(entry.prove_requirements_with_cache(&cache, [&required]).is_err());
 
         entry.assumptions.insert((contents, false));
 
         assert!(entry.prove_requirements([&required]).is_err());
+        assert!(entry.prove_requirements_with_cache(&cache, [&required]).is_err());
 
         entry.arguments.insert(argument, ExecutionCondition::new(crate::ExecutionConditionKind::Input(
             ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(2)))).borrowed());
 
         assert!(entry.prove_requirements([&required]).is_err());
+        assert!(entry.prove_requirements_with_cache(&cache, [&required]).is_err());
     }
 
     #[test]

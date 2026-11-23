@@ -112,12 +112,19 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 .collect::<BTreeSet<_>>()
         };
 
-        let ordinary = normalize(&entry.assumptions);
-
-        let known = crate::execution_guarantees::trusted_condition_closure(
-            normalize(&entry.trusted_assumptions),
-            &ordinary,
+        let normalized = self.proofs.normalized_inputs(
+            crate::execution_guarantees::ExecutionProofInputDomain::TrustedCall,
+            &entry.trusted_assumptions,
+            &entry.assumptions,
+            || crate::execution_guarantees::NormalizedProofInputs::prepare(
+                normalize(&entry.trusted_assumptions),
+                normalize(&entry.assumptions).into(),
+            ),
         );
+
+        let proof = self.proofs.proof(&normalized.trusted, &normalized.ordinary);
+        let known = &normalized.trusted;
+        let ordinary = &normalized.ordinary;
 
         let mut ranges = None;
 
@@ -133,8 +140,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 (requirement, condition.with_reference_origins(self.request.semantic_values(), self.dependencies, &entry.assumptions)
                     .pointer_observations(&self.pointer_predicates))
             });
-
-        let proof = crate::execution_guarantees::ExecutionProof::new(&known, &ordinary);
 
         let mut prove_condition = |condition: &ExecutionCondition| {
             if proof.prove_mixed(condition, &mut { ExecutionCondition::WORK_LIMIT })
@@ -201,14 +206,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     }
                 }
 
-                (ranges, constant_extent_lower_bounds(&ordinary))
+                (ranges, constant_extent_lower_bounds(ordinary))
             });
 
             ranges
                 .get(&(predicate, substitution, pointer))
                 .is_some_and(|extents| {
                     extents.iter().any(|extent| {
-                        range_count_follows(count, extent, &ordinary, lower_bounds, &|value| {
+                        range_count_follows(count, extent, ordinary, lower_bounds, &|value| {
                             self.unsigned_value(value)
                         })
                     })
@@ -216,7 +221,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         };
 
         for (required, actual) in instantiated {
-            if let Err(failed) = prove_requirement(&actual, &known, &mut prove_condition, &mut {
+            if let Err(failed) = prove_requirement(&actual, known, &mut prove_condition, &mut {
                 ExecutionCondition::WORK_LIMIT
             }) {
                 return Err(crate::UnprovenExecutionCondition::new(required.clone(), failed.clone()));

@@ -61,62 +61,55 @@ evidence. Impossible internal states fail at the violated contract.
   represents a required invariant across phases. Remove superseded branches
   and conversion layers without using an arbitrary growth ceiling.
 
-## Verification
+## Verification and current trace
 
-Checkpoint `a262dd85f` passed all 1,709 fixed comparison cases and all 1,192
-bound-tree, checker, package-interface, and symbols unit tests. It checked
-and lowered all 43 packaged bootstrap bodies with zero diagnostics on Windows
-x64 and ARM64. A later Windows x64 standard-library build took 24.3 s to
-plan, 23.0 s to emit, and 53.0 s overall. Full archive planning slows inside
-numeric dependency checks reached by real power and complex division.
-Within numeric bodies, the long transfers include lifecycle resolution
-even with a single reached state. Checkpoint `a71fda5de` uses direct root
-lookup and skips by-value conditions that have no live observations.
-It still needs an uncontended timing run.
-The archive and executable link remain unverified.
+- `a262dd85f` checked and lowered the 43-body packaged inventory with zero
+  diagnostics on Windows x64 and ARM64. `00b7dfdb4` passed all 1,709 fixed
+  comparison cases. These runs are controls for the final candidate.
+- `c639d9330` passed the local and imported predicate product regressions,
+  222 package-interface tests, 615 checker tests, and the style gate.
+- The optimized Windows x64 reference took 24.3 s to plan, 23.0 s to emit,
+  and 53.0 s overall for the standard library. Native providers use Rust
+  1.98.1 because the pinned LLVM cannot link Rust 1.99 provider bitcode.
+- The numeric probe must open the target-qualified bundle produced by the
+  native workflow. The parent directory contains an older manifest. It led
+  to unresolved standard-library names and a compound-assignment panic.
+  The correct x64 bundle selects all 264 compound operators. The corrected
+  numeric probe remains in the first body's dependency closure after several
+  minutes. The full native archive and executable link remain unverified.
 
-Linux x64 standard-library planning reports one missing read guarantee at
-the `copy_spare_raw_bytes` call in `copy_native_text_entry`. The producer
-returns both the address and the length. The guard and extent must refer to
-the same published result and retain the pointer's underlying support.
-The null test reads the admitted descriptor. This removed the branch that
-treated a definitely null pointer as non-null. The producer still combined
-a non-null physical descriptor with the zero-length return when the check
-knew the pointer was null only in its logical facts. The taken edge must
-refine the observed inline descriptor before the pair is transferred.
-The timing target remains 17–25 s for planning and 60 s to produce the binary.
+The timed numeric trace uses a 24-worker budget and a single root demand.
+One `logarithm` storage solve took 80 s. The instrumented candidate with
+parallel outgoing dependencies checked and lowered `square_root` in 65 s.
+Its three body solves accounted for 53 s. Most slow operations are lifecycle
+exits with multiple states, including resumed suffixes. Some slow exits have
+one incoming state. No measured individual cleanup application reached
+100 ms. Measure cumulative continuation and retirement work before changing
+how states are kept. Preserve selected row contents through physical effects
+and private publication. Rows and cleanup cursors with different obligations
+require distinct state.
 
-The null-edge refinement checks and lowers the Linux source regression.
-The subsequent Windows build planned the x64 standard library in 25.9 s and
-emitted it in 23.3 s. The 67.6 s total included a Rust provider rebuild.
-The ARM64 run took 26.3 s to plan, 23.8 s to emit, and 60.1 s overall.
-Both package runs used Rust 1.98.1 for the native providers because the
-pinned LLVM could not link Rust 1.99 provider bitcode.
-The publication candidate passed 615 checker tests, 139 bound-tree tests,
-and six selected compiler checks. The optimized Ubuntu host compiler built
-from the same source changes. The packaged bootstrap matrix and fixed
-comparison are still required for this candidate.
-Checkpoint `e5a62e742` planned the Windows x64 standard library in 24.0 s
-and emitted it in 22.1 s. Its 62.0 s total included 12.5 s for providers.
-The ARM64 build took 24.3 s to plan, 22.5 s to emit, and 55.9 s overall.
-The allocation-incarnation batch passed all 615 checker tests and all 221
-package-interface tests. Its source and imported forwarding regression both
-retain separate historical and current allocation subjects and lower without
-diagnostics. The private retirement test reads duties and discharges from the
-same staged payload map as the performed effect.
-The direct-bounds batch passed all 615 checker tests and both allocation and
-escaping-lifetime compiler regressions. Its exact optimized binary passed all
-1,709 fixed comparison cases with no failures or missing cases. The packaged
-bootstrap matrix and native archive remain to be verified for this candidate.
-The native archive then exposed a predicate-category boundary after its
-embedded standard library completed. Trusted opaque predicates have no body.
-Execution normalization must carry their trusted authority directly instead
-of treating a missing local body as either an ordinary value predicate or an
-import. Only defined ordinary predicates can become runtime helpers.
-The predicate-authority batch retains that domain through package export and
-import. Its local and imported product regressions, all 222 package-interface
-tests, all 615 checker tests, and the repository style gate pass. The native
-archive remains to be rerun from this candidate.
+Cleanup selection and exit publication use reached absence from two sources.
+The move ledger records absent paths. The physical binding records inactive
+payloads. Exact membership needs one lookup in each source. For a scope
+candidate or replacement, visit the corresponding root's paths. Keep parent
+absence, explicit inactive payloads, and unknown contents distinct. A
+historical binding cannot establish absence in the current allocation.
+
+Independent outgoing dependency components can run on the existing fact
+scheduler. The prerequisite walk decides membership before the component
+query. Evaluate only outgoing dependencies together and merge their
+diagnostics and templates in stable dependency order. Each body still consumes
+the complete inputs for its round. Keep recursive approximations inside the
+owning component and use the existing deterministic iteration. Use the
+recursive source/import regressions, 43-body lowering check, and fixed
+comparison to check that scheduling preserves the publication.
+
+Memoize preparation of the exact ordinary and authoritative snapshots that
+each proof path uses. Keep the existing equality basis, ordinary scope, and
+established trusted premises for call, lifecycle, and postcondition proofs.
+Test both a live borrowed-field fact and the same admission after that fact
+or its authority changes. Reuse the resulting proof only inside its body.
 
 ### Current storage contract
 

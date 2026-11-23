@@ -39,7 +39,10 @@ pub(super) fn panic_requirement<C: CheckerRequestContext + ?Sized>(
         let state = flow.output(edge.source()).expect("reachable entry failure has a source state");
         let entry = state.entries.get(&invocation).expect("entry failure retains its captured input values before retirement");
 
-        if let Err(failed) = entry.prove_requirements(contract.preconditions.iter().map(|(condition, _)| condition)) {
+        if let Err(failed) = entry.prove_requirements_with_cache(
+            &flow.domain.proofs,
+            contract.preconditions.iter().map(|(condition, _)| condition),
+        ) {
             return obligation(&flow.domain, bray_diagnostics::DiagnosticContractObligationKind::CallRequirement, &failed).map(Some);
         }
     }

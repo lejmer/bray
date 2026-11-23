@@ -14,15 +14,20 @@ pub struct ExecutionCallProof<'entry> {
     assumptions: Cow<'entry, ExecutionAssumptions>,
     trusted_assumptions: Cow<'entry, ExecutionAssumptions>,
     implementation_witnesses: &'entry [bray_symbols::ImplementationInstanceId],
+    cache: Option<&'entry super::ExecutionProofCache>,
 }
 
 impl<'entry> ExecutionCallProof<'entry> {
-    pub(super) fn new(entry: &'entry ExecutionCallEvidence) -> Self {
+    pub(super) fn new(
+        entry: &'entry ExecutionCallEvidence,
+        cache: Option<&'entry super::ExecutionProofCache>,
+    ) -> Self {
         Self {
             arguments: Cow::Borrowed(&entry.arguments),
             assumptions: Cow::Borrowed(&entry.assumptions),
             trusted_assumptions: Cow::Borrowed(&entry.trusted_assumptions),
             implementation_witnesses: entry.implementation_witnesses(),
+            cache,
         }
     }
 
@@ -41,36 +46,37 @@ impl<'entry> ExecutionCallProof<'entry> {
             assumptions: Cow::Owned(map_assumptions(&self.assumptions, &mut map)?),
             trusted_assumptions: Cow::Owned(map_assumptions(&self.trusted_assumptions, &mut map)?),
             implementation_witnesses: self.implementation_witnesses,
+            cache: self.cache,
         })
     }
 
     /// Proves every entry condition, retaining the first condition and its actual arguments on failure.
     pub(super) fn prove_requirements<'a>(
         &self,
-        conditions: impl IntoIterator<Item = &'a super::ExecutionCondition>,
+        conditions: impl IntoIterator<Item = &'a ExecutionCondition>,
     ) -> Result<(), UnprovenExecutionCondition> {
-        self.prove_from(conditions, &self.assumptions, &[])
+        self.prove_from(conditions, self.assumptions.as_ref(), &[])
     }
 
     /// Proves every trusted obligation from the captured live evidence.
-    pub fn prove_trusted_requirements(&self, conditions: &[super::ExecutionCondition]) -> Result<(), UnprovenExecutionCondition> {
-        self.prove_from(conditions, &self.trusted_assumptions, &[])
+    pub fn prove_trusted_requirements(&self, conditions: &[ExecutionCondition]) -> Result<(), UnprovenExecutionCondition> {
+        self.prove_from(conditions, self.trusted_assumptions.as_ref(), &[])
     }
 
     /// Checks a declaration's own inputs against captured receiver-first arguments.
     pub fn prove_trusted_with_inputs(
         &self,
-        conditions: &[super::ExecutionCondition],
+        conditions: &[ExecutionCondition],
         inputs: &[bray_bound_tree::BoundReferenceTarget],
     ) -> Result<(), UnprovenExecutionCondition> {
-        self.prove_from(conditions, &self.trusted_assumptions, inputs)
+        self.prove_from(conditions, self.trusted_assumptions.as_ref(), inputs)
     }
 
     fn prove_from<'a>(
         &self,
-        conditions: impl IntoIterator<Item = &'a super::ExecutionCondition>,
-        assumptions: &std::collections::BTreeSet<(super::ExecutionCondition, bool)>,
-        inputs: &[bray_bound_tree::BoundReferenceTarget],
+        conditions: impl IntoIterator<Item = &'a ExecutionCondition>,
+        authority: &ExecutionAssumptions,
+        references: &[bray_bound_tree::BoundReferenceTarget],
     ) -> Result<(), UnprovenExecutionCondition> {
         let mut conditions = conditions.into_iter().peekable();
 
@@ -78,14 +84,37 @@ impl<'entry> ExecutionCallProof<'entry> {
             return Ok(());
         }
 
-        let equalities = super::ExecutionCondition::equalities(&self.assumptions, None);
+        let ordinary = self.assumptions.as_ref();
 
-        let known = ExecutionCallEvidence::proof_facts(assumptions)
-            .map(|(condition, value)| (condition.with_equalities(&equalities), value))
-            .collect();
+        let equalities = self.cache.map_or_else(
+            || Arc::new(ExecutionCondition::equalities(ordinary, None)),
+            |cache| cache.equalities(ordinary, None),
+        );
 
-        let known = super::trusted_condition_closure(known, &self.assumptions);
-        let proof = super::ExecutionProof::new(&known, &self.assumptions);
+        let normalize = || {
+            let trusted = ExecutionCallEvidence::proof_facts(authority)
+                .map(|(condition, value)| (condition.with_equalities(&equalities), value))
+                .collect();
+
+            super::NormalizedProofInputs::prepare(trusted, ordinary.clone())
+        };
+
+        let normalized = self.cache.map_or_else(
+            || normalize().into(),
+            |cache| {
+                cache.normalized_inputs(
+                    super::ExecutionProofInputDomain::Call,
+                    authority,
+                    ordinary,
+                    normalize,
+                )
+            },
+        );
+
+        let proof = self.cache.map_or_else(
+            || super::ExecutionProof::new(&normalized.trusted, &normalized.ordinary),
+            |cache| cache.proof(&normalized.trusted, &normalized.ordinary),
+        );
 
         for required in conditions {
             let condition = required.substitute(
@@ -93,12 +122,12 @@ impl<'entry> ExecutionCallProof<'entry> {
                     input
                         .value_in(self.arguments.as_ref())
                         .or_else(|| {
-                            let ordinal = inputs
+                            let ordinal = references
                                 .iter()
                                 .position(|reference| Some(*reference) == input.reference())?;
 
                             let mut argument =
-                                super::ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(
+                                ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(
                                     u32::try_from(ordinal)
                                         .expect("callable parameter ordinal fits"),
                                 ));
@@ -111,27 +140,27 @@ impl<'entry> ExecutionCallProof<'entry> {
                         .or_else(|| {
                             input
                                 .constant_term()
-                                .map(|_| super::ExecutionCondition::new(crate::ExecutionConditionKind::Input(input.clone())))
+                                .map(|_| ExecutionCondition::new(crate::ExecutionConditionKind::Input(input.clone())))
                         })
                         .or_else(|| match input.reference() {
                             Some(bray_bound_tree::BoundReferenceTarget::Surface(
                                 bray_symbols::AnySymbolId::GenericConstParameter(_),
                             )) => {
                                 // Generic substitution has already mapped this immutable compile-time input into the caller.
-                                Some(super::ExecutionCondition::new(crate::ExecutionConditionKind::Input(input.clone())))
+                                Some(ExecutionCondition::new(crate::ExecutionConditionKind::Input(input.clone())))
                             }
                             _ => None,
                         })
-                        .unwrap_or_else(super::ExecutionCondition::unknown)
+                        .unwrap_or_else(ExecutionCondition::unknown)
                 },
-                &super::ExecutionCondition::unknown(),
-                &mut { crate::ExecutionCondition::WORK_LIMIT },
+                &ExecutionCondition::unknown(),
+                &mut { ExecutionCondition::WORK_LIMIT },
             );
 
             let condition = condition.with_equalities(&equalities);
 
             if proof.prove_mixed(&condition, &mut {
-                super::ExecutionCondition::WORK_LIMIT
+                ExecutionCondition::WORK_LIMIT
             }) != Some(true) {
                 return Err(UnprovenExecutionCondition::new(required.clone(), condition));
             }

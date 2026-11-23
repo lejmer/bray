@@ -257,7 +257,7 @@ impl TrustedChecks {
         kind: bray_symbols::DependencyFailureKind,
         writes: &BTreeSet<bray_bound_tree::StoragePath>,
     ) -> bray_symbols::CapturedFailureOutcome {
-        let result = crate::ExecutionCondition::unknown();
+        let result = ExecutionCondition::unknown();
         let return_substitution = super::super::flow::return_substitution(&result);
         let guards = super::captured::exit_guards(domain, state, &result, &self.owned_entry_conditions, &return_substitution);
 
@@ -362,7 +362,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let contract = self.request.trusted_contracts().and_then(|contracts| contracts.calls.get(&invocation));
 
         contract.is_none_or(|contract| {
-            entry.prove_requirements(contract.preconditions.iter().map(|(condition, _)| condition)).is_ok()
+            entry.prove_requirements_with_cache(&self.proofs, contract.preconditions.iter().map(|(condition, _)| condition)).is_ok()
                 && (entry.trusted_boundary || self.prove_trusted_requirements(entry, &contract.requirements).is_ok())
         })
     }
@@ -437,7 +437,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }
 
         let evidence = state.entries.get(&invocation)?;
-        let execution_requirements = evidence.prove_requirements(&contract.execution_requirements);
+        let execution_requirements = evidence.prove_requirements_with_cache(&self.proofs, &contract.execution_requirements);
         let requirements = self.prove_trusted_requirements(evidence, &contract.requirements);
 
         if !matches!(invocation, bray_bound_tree::BoundExecutionSite::Node(AnyBoundNodeId::Expression(expression))

@@ -471,7 +471,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             );
 
             let requirements = self.prove_trusted_requirements(&evidence, &lifecycle.contract.requirements)
-                .and_then(|()| evidence.prove_requirements(lifecycle.contract.preconditions.iter()
+                .and_then(|()| evidence.prove_requirements_with_cache(&self.proofs, lifecycle.contract.preconditions.iter()
                     .map(|(condition, _)| condition)));
 
             let established = requirements.is_ok();

@@ -31,9 +31,8 @@ pub(in crate::analysis::guarantee) fn check_postconditions<C: CheckerRequestCont
     failed: &mut [Option<crate::UnprovenExecutionCondition>],
 ) {
     // Replay each exit once, sharing any implication closure across its clauses.
-    let trusted = std::cell::OnceCell::new();
+    let equalities = std::cell::OnceCell::new();
     let normalized = std::cell::OnceCell::new();
-    let normalized_proof = std::cell::OnceCell::new();
     let proof = state.proof();
     let mut integer_ranges = super::integer::IntegerRanges::new();
 
@@ -63,33 +62,34 @@ pub(in crate::analysis::guarantee) fn check_postconditions<C: CheckerRequestCont
             continue;
         }
 
-        let (equalities, known) = normalized.get_or_init(|| {
-            let equalities = state.proofs.equalities(&state.assumptions, None);
-
-            let known = state.assumptions.iter()
-                .map(|(condition, holds)| (condition.with_equalities(&equalities), *holds))
-                .collect();
-
-            (equalities, known)
-        });
-
+        let equalities = equalities.get_or_init(|| state.proofs.equalities(&state.assumptions, None));
         let normalized_condition = condition.with_equalities(equalities);
 
         if normalized_condition != condition && reflexive_comparison(domain, state, &normalized_condition) {
             continue;
         }
 
-        let trusted = trusted.get_or_init(|| {
-            crate::execution_guarantees::trusted_condition_closure(
-                state.trusted_assumptions.iter().map(|(condition, holds)| (
-                    condition.with_reference_origins(domain.request.semantic_values(), domain.dependencies, &state.assumptions)
-                        .with_equalities(equalities), *holds,
-                )).collect(),
-                known,
+        let inputs = normalized.get_or_init(|| {
+            state.proofs.normalized_inputs(
+                crate::execution_guarantees::ExecutionProofInputDomain::Postcondition,
+                &state.trusted_assumptions,
+                &state.assumptions,
+                || {
+                    let ordinary = state.assumptions.iter()
+                        .map(|(condition, holds)| (condition.with_equalities(equalities), *holds))
+                        .collect();
+
+                    let trusted = state.trusted_assumptions.iter().map(|(condition, holds)| (
+                        condition.with_reference_origins(domain.request.semantic_values(), domain.dependencies, &state.assumptions)
+                            .with_equalities(equalities), *holds,
+                    )).collect();
+
+                    crate::execution_guarantees::NormalizedProofInputs::prepare(trusted, ordinary)
+                },
             )
         });
 
-        let proof = normalized_proof.get_or_init(|| crate::execution_guarantees::ExecutionProof::new(trusted, known));
+        let proof = state.proofs.proof(&inputs.trusted, &inputs.ordinary);
 
         if proof.prove_mixed(&normalized_condition, &mut {
             ExecutionCondition::WORK_LIMIT
@@ -99,7 +99,7 @@ pub(in crate::analysis::guarantee) fn check_postconditions<C: CheckerRequestCont
         }
 
         if !super::integer::unsigned_arithmetic_is_bounded(
-            &normalized_condition, known, &|value| domain.unsigned_value(value),
+            &normalized_condition, &inputs.ordinary, &|value| domain.unsigned_value(value),
         ) {
 
             *failed = Some(crate::UnprovenExecutionCondition::new(required.clone(), condition));

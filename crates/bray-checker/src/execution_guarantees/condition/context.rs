@@ -134,6 +134,7 @@ pub(crate) struct ExecutionProofCache {
     facts: Mutex<HashMap<[usize; 2], Arc<PreparedFacts>>>,
     inputs: Mutex<HashMap<ExecutionAssumptions, Arc<ProofMemo>>>,
     aliases: Mutex<HashMap<usize, (std::sync::Weak<BTreeSet<(ExecutionCondition, bool)>>, Arc<ProofMemo>)>>,
+    normalized_inputs: crate::execution_guarantees::proof_inputs::NormalizedProofInputCache,
 }
 
 impl std::fmt::Debug for ExecutionProofCache {
@@ -206,6 +207,18 @@ impl ExecutionProofCache {
             .insert(key, (Arc::clone(witness), Arc::clone(&result)));
 
         result
+    }
+
+    pub(crate) fn normalized_inputs(
+        &self,
+        domain: crate::execution_guarantees::ExecutionProofInputDomain,
+        trusted: &ExecutionAssumptions,
+        ordinary: &ExecutionAssumptions,
+        normalize: impl FnOnce() -> crate::execution_guarantees::NormalizedProofInputs,
+    ) -> Arc<crate::execution_guarantees::NormalizedProofInputs> {
+        let inputs = [trusted, ordinary].map(|input| self.prepare_input(input));
+
+        self.normalized_inputs.get_or_insert(domain, &inputs, normalize)
     }
 
     fn prepare_input(&self, input: &ExecutionAssumptions) -> Arc<ProofMemo> {
@@ -458,6 +471,7 @@ mod tests {
     use bray_symbols::SymbolOrdinal;
 
     use super::{ExecutionCondition, ExecutionProofCache};
+    use crate::execution_guarantees::{ExecutionProofInputDomain, NormalizedProofInputs};
     use crate::ExecutionPlace;
 
     #[test]
@@ -608,6 +622,55 @@ mod tests {
         ordinary.retain(|(condition, _)| matches!(condition.kind(), crate::ExecutionConditionKind::Operation(LogicalOr, _)));
 
         assert!(cache.equalities(&ordinary, None).is_empty(), "removed guard truth cannot reuse active bindings");
+    }
+
+    #[test]
+    fn normalized_inputs_reuse_equal_source_snapshots_only_within_their_domain() {
+        use std::cell::Cell;
+
+        let input = ExecutionCondition::new(crate::ExecutionConditionKind::Input(
+            ExecutionPlace::argument(SymbolOrdinal::new(0)),
+        ));
+
+        let trusted = super::ExecutionAssumptions::from([(input.clone(), true)]);
+        let ordinary = super::ExecutionAssumptions::from([(input, false)]);
+        let cache = ExecutionProofCache::default();
+        let normalizations = Cell::new(0);
+
+        let normalize = || {
+            normalizations.set(normalizations.get() + 1);
+
+            NormalizedProofInputs::prepare(trusted.iter().cloned().collect(), ordinary.clone())
+        };
+
+        let first = cache.normalized_inputs(
+            ExecutionProofInputDomain::Call,
+            &trusted,
+            &ordinary,
+            normalize,
+        );
+
+        let rebuilt = trusted.iter().cloned().collect();
+
+        let same = cache.normalized_inputs(
+            ExecutionProofInputDomain::Call,
+            &rebuilt,
+            &ordinary,
+            || panic!("equal source inputs must reuse their normalized record"),
+        );
+
+        assert!(Arc::ptr_eq(&first, &same));
+        assert_eq!(normalizations.get(), 1);
+
+        let other = cache.normalized_inputs(
+            ExecutionProofInputDomain::TrustedCall,
+            &trusted,
+            &ordinary,
+            normalize,
+        );
+
+        assert!(!Arc::ptr_eq(&first, &other));
+        assert_eq!(normalizations.get(), 2);
     }
 
     #[test]
