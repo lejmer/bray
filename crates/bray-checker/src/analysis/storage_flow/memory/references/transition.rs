@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use super::super::model::{Contents, DependencyCompleteness, Origin, Place, AddressValue, ReachedAccess, Retirement, State, Target, Transfer, ValueBinding};
 use super::slots::take_subtree;
 use bray_bound_tree::{BorrowCapabilityId, BoundExpressionId, StorageIdentityId};
@@ -296,7 +297,7 @@ impl State {
         if self.values.get(&destination).is_some_and(ValueBinding::is_no_payload) { return; }
 
         if let Some(contents) = self.forwarded_reference_contents(&destination, None) {
-            *self.values.entry(destination).or_default().produced_address() = contents;
+            *Arc::make_mut(&mut self.values).entry(destination).or_default().produced_address() = contents;
 
             return;
         }
@@ -313,7 +314,7 @@ impl State {
             .or_default()
             .storage_type = Some(ty);
 
-        *self.values.entry(destination).or_default().produced_address() = AddressValue::one(target);
+        *Arc::make_mut(&mut self.values).entry(destination).or_default().produced_address() = AddressValue::one(target);
     }
 
     fn returned_reference(reference: Place, staged: bool) -> Target {
@@ -321,7 +322,7 @@ impl State {
             previous: false,
             origin: Origin::Returned {
                 reference,
-                projections: std::sync::Arc::from([]),
+                projections: Arc::from([]),
                 staged,
             },
         }
@@ -378,7 +379,7 @@ impl State {
         captures: impl IntoIterator<Item = &'capture bray_bound_tree::StorageCapturedValue>,
     ) {
         // Opaque frames retain reachable inputs, without being references to those inputs.
-        let value = self.values.entry(Target::storage(destination)).or_default();
+        let value = Arc::make_mut(&mut self.values).entry(Target::storage(destination)).or_default();
 
         value.capture_inputs([]);
 
@@ -606,7 +607,7 @@ impl State {
         &mut self,
         call: bray_bound_tree::BoundExecutionSite,
         outcome: (bray_symbols::DependencyFailureKind, Option<usize>),
-        effects: std::sync::Arc<super::super::CapturedEffects>,
+        effects: Arc<super::super::CapturedEffects>,
     ) {
         self.pending.entry(call).or_default().failure_effects.insert(outcome, effects);
     }
@@ -616,7 +617,7 @@ impl State {
         call: bray_bound_tree::BoundExecutionSite,
         outcome: (bray_symbols::DependencyFailureKind, Option<usize>),
         keep_outputs: bool,
-    ) -> Option<std::sync::Arc<super::super::CapturedEffects>> {
+    ) -> Option<Arc<super::super::CapturedEffects>> {
         let mut effects = if keep_outputs {
             std::mem::take(&mut self.pending.get_mut(&call)?.failure_effects)
         } else {
@@ -634,7 +635,7 @@ impl State {
 
         for prefix in prefixes {
             if possible != prefix {
-                std::sync::Arc::make_mut(&mut possible).merge(&prefix);
+                Arc::make_mut(&mut possible).merge(&prefix);
             }
         }
 
@@ -700,7 +701,7 @@ impl State {
     ) -> Target {
         let current = self.allocate_current(&slot, allocation);
 
-        self.values.insert(Target::storage(slot), AddressValue::one(current.clone()).into());
+        Arc::make_mut(&mut self.values).insert(Target::storage(slot), AddressValue::one(current.clone()).into());
 
         current
     }
@@ -708,7 +709,7 @@ impl State {
     pub(in crate::analysis::storage_flow) fn acquire_owned_backing(&mut self, owner: Place, producer: BoundExpressionId) {
         let backing = self.allocate_current(&owner, producer);
 
-        self.values.entry(Target::storage(owner)).or_default().attach_owned_backing(AddressValue::one(backing));
+        Arc::make_mut(&mut self.values).entry(Target::storage(owner)).or_default().attach_owned_backing(AddressValue::one(backing));
     }
 
     pub(in crate::analysis::storage_flow) fn declare_entry_backing(&mut self, owner: Target, ty: TypeId) {
@@ -723,7 +724,7 @@ impl State {
             contents.observe_initialized(ty);
         }
 
-        self.values.entry(owner).or_default().attach_owned_backing(AddressValue::one(backing));
+        Arc::make_mut(&mut self.values).entry(owner).or_default().attach_owned_backing(AddressValue::one(backing));
     }
 
     pub(in crate::analysis::storage_flow) fn owned_backing(&self, owner: &Target) -> Option<&Target> {
@@ -868,7 +869,7 @@ impl State {
 
         assert_eq!(*declared, element, "an owned buffer keeps its declared backing element type");
 
-        *self.values.entry(pointer).or_default().produced_address() = AddressValue::one(backing);
+        *Arc::make_mut(&mut self.values).entry(pointer).or_default().produced_address() = AddressValue::one(backing);
     }
 
     pub(in crate::analysis::storage_flow) fn owned_regions(
@@ -934,7 +935,7 @@ impl State {
                 .get_or_insert(ty);
         }
 
-        self.values.insert(destination, references.into());
+        Arc::make_mut(&mut self.values).insert(destination, references.into());
     }
 
     pub(in crate::analysis::storage_flow) fn point_at(
@@ -1019,7 +1020,7 @@ impl State {
             return;
         }
 
-        for value in self.values.values_mut() {
+        for value in Arc::make_mut(&mut self.values).values_mut() {
             value.retire_references(current, retirement);
         }
 
@@ -1031,7 +1032,7 @@ impl State {
             transfer.retire_dependencies(current, retirement);
         }
 
-        let values = take_subtree(&mut self.values, current, retirement).collect::<Vec<_>>();
+        let values = take_subtree(Arc::make_mut(&mut self.values), current, retirement).collect::<Vec<_>>();
 
         for (target, value) in values {
             self.remember_retired_value(target, value);

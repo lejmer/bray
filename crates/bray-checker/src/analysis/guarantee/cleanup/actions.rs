@@ -182,11 +182,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     }
 
     #[expect(clippy::too_many_arguments, reason = "cancellation uses the checked part and its reached replacement place")]
-    pub(super) fn cancel_cleanup<'path>(
+    pub(super) fn cancel_cleanup(
         &self,
         state: &mut ExecutionState,
         access: StorageAccessId,
-        definitely_absent: impl Iterator<Item = &'path bray_bound_tree::StoragePath> + Clone,
+        definitely_absent: &impl Fn(&bray_bound_tree::StoragePath) -> bool,
         observe: &mut Option<&mut Observer<'_>>,
         point: &AnalysisOperation,
         replacement: Option<ReplacementPath<'_>>,
@@ -208,7 +208,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 continue;
             }
 
-            let condition = self.cleanup_part_condition(state, step.selection(), definitely_absent.clone(), replacement);
+            let condition = self.cleanup_part_condition(state, step.selection(), definitely_absent, replacement);
 
             let ty = match step {
                 Step::Opaque { ty, .. } | Step::Lifecycle { ty, .. } => *ty,
@@ -237,11 +237,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     }
 
     #[expect(clippy::too_many_arguments, reason = "cleanup resumes the checked action at its reached replacement place")]
-    pub(super) fn dispose<'path>(
+    pub(super) fn dispose(
         &self,
         state: &mut ExecutionState,
         remaining: &[StorageAccessId],
-        definitely_absent: impl Iterator<Item = &'path bray_bound_tree::StoragePath> + Clone,
+        definitely_absent: &impl Fn(&bray_bound_tree::StoragePath) -> bool,
         observe: &mut Option<&mut Observer<'_>>,
         point: &AnalysisOperation,
         after: Option<StorageCleanupAction>,
@@ -277,7 +277,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             let after = (part == start).then_some(after_slot).flatten();
 
             if step.phases().includes_lifecycle() && after != Some(TypeAssociatedLifecycleSlot::Destructor) {
-                let condition = self.cleanup_part_condition(state, step.selection(), definitely_absent.clone(), replacement);
+                let condition = self.cleanup_part_condition(state, step.selection(), definitely_absent, replacement);
 
                 if !super::selection::select_cleanup(state, condition, |state, conditional| {
                     self.dispose_part(state, remaining, part, step, observe, point, (after, replacement), conditional, mutate)

@@ -322,9 +322,25 @@ fn completed_call_payload_absence_reaches_cleanup_and_is_replaced_by_a_later_out
 
     state.memory.complete_transition(expressions[1].into());
 
-    assert!(state.absent_paths().any(|path| path == &payload));
-    assert!(state.no_payload_paths().any(|path| path == &payload));
+    assert!(state.has_absent_path(&payload));
+    assert!(state.absent_paths(Some(identity)).any(|path| path == &payload));
+    assert!(!state.has_absent_path(&StoragePath::root(identity)));
+    assert!(state.no_payload_paths(identity).any(|path| path == &payload));
     assert!(state.definitely_absent.is_empty());
+
+    let roots = [identity].into_iter().collect();
+    let cleanup_entry = state.cleanup_entry_absence(&roots);
+
+    let field = StoragePath {
+        root: identity,
+        projections: [
+            StorageProjection::NullableValue,
+            StorageProjection::TupleElement(bray_symbols::SymbolOrdinal::new(0)),
+        ].into(),
+    };
+
+    assert!(cleanup_entry(&field));
+    assert!(!cleanup_entry(&StoragePath::root(identity)));
 
     state.memory.stage_unknown(
         expressions[2].into(),
@@ -333,7 +349,10 @@ fn completed_call_payload_absence_reaches_cleanup_and_is_replaced_by_a_later_out
 
     state.memory.complete_transition(expressions[2].into());
 
-    assert!(!state.absent_paths().any(|path| path == &payload));
+    assert!(!state.has_absent_path(&payload));
+    assert!(!state.absent_paths(Some(identity)).any(|path| path == &payload));
+    assert!(!state.cleanup_entry_absence(&roots)(&payload));
+    assert!(cleanup_entry(&payload));
 }
 
 fn storage_and_expressions(

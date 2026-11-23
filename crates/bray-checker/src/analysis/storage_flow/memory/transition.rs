@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use super::Source;
 use super::references::{storage_subtree, take_subtree};
 use super::model::{Place, AddressValue, Contents, Retirement, State, Target, Transfer, ValueBinding};
@@ -104,7 +105,7 @@ impl State {
 
     pub(in crate::analysis::storage_flow) fn write_captured(
         &mut self,
-        pointer: Option<&super::model::ValueBinding>,
+        pointer: Option<&ValueBinding>,
         ty: TypeId,
         origin: BoundExpressionId,
         value: Option<Source>,
@@ -130,7 +131,7 @@ impl State {
             // possible references instead of inventing a subtree at every possible address.
             let affected = self.affected_targets(references);
 
-            let mut incoming = super::model::ValueBinding::from(AddressValue::unknown());
+            let mut incoming = ValueBinding::from(AddressValue::unknown());
 
             if let (Some(source), Some(destination)) = (source.as_ref(), affected.first()) {
                 for value in self
@@ -145,7 +146,7 @@ impl State {
             self.write_references(references, ty, origin, None);
 
             for target in affected {
-                let value = self.values.entry(target).or_default();
+                let value = Arc::make_mut(&mut self.values).entry(target).or_default();
 
                 value.merge(&incoming);
 
@@ -188,7 +189,7 @@ impl State {
 
             value.completeness.lose_completeness();
 
-            self.values.entry(slot).and_modify(|previous| { previous.merge(&value); }).or_insert(value);
+            Arc::make_mut(&mut self.values).entry(slot).and_modify(|previous| { previous.merge(&value); }).or_insert(value);
         }
 
         for (slot, mut contents) in transfer.payloads {
@@ -247,7 +248,7 @@ impl State {
 
         let reported = &mut self.may_have_report_values;
 
-        self.values.extend(transfer.values.into_iter().inspect(|(_, value)| {
+        Arc::make_mut(&mut self.values).extend(transfer.values.into_iter().inspect(|(_, value)| {
             *reported = *reported || value.report_dependencies().is_some();
         }));
 
@@ -310,7 +311,8 @@ impl State {
         value.completeness.lose_completeness();
 
         self.may_have_report_values |= value.report_dependencies().is_some();
-        self.values.entry(Target { previous: true, ..target }).or_default().merge(&value);
+
+        Arc::make_mut(&mut self.values).entry(Target { previous: true, ..target }).or_default().merge(&value);
     }
 
     pub(super) fn remember_retired_contents(&mut self, target: Target, mut contents: Contents) {
@@ -340,10 +342,10 @@ impl State {
             if exact && selected {
                 contents.record_write(ty);
 
-                self.values.remove(&target);
+                Arc::make_mut(&mut self.values).remove(&target);
             } else if !invalidation
                 .is_some_and(|invalidation| Self::stable_reference_slot(&target, invalidation))
-                && let Some(stored) = self.values.get_mut(&target)
+                && let Some(stored) = Arc::make_mut(&mut self.values).get_mut(&target)
             {
                 for references in stored.references_mut() {
                     references.forget_value();
@@ -402,7 +404,7 @@ impl State {
 
     pub(in crate::analysis::storage_flow) fn read_captured(
         &mut self,
-        source: Option<&super::model::ValueBinding>,
+        source: Option<&ValueBinding>,
         ty: TypeId,
         kind: MemoryReadKind,
         proven: Option<BoundExpressionId>,
@@ -520,7 +522,7 @@ impl State {
     pub(in crate::analysis::storage_flow) fn apply_cell_changes(
         &mut self,
         changes: impl IntoIterator<Item = (Target, bray_symbols::DependencyMutationKind)>,
-        occurrence: bray_bound_tree::BoundExecutionSite,
+        occurrence: BoundExecutionSite,
     ) {
         use bray_symbols::DependencyMutationKind as Mutation;
 
@@ -606,8 +608,8 @@ impl State {
 
     pub(in crate::analysis::storage_flow) fn copy_captured(
         &mut self,
-        source: Option<&super::model::ValueBinding>,
-        destination: Option<&super::model::ValueBinding>,
+        source: Option<&ValueBinding>,
+        destination: Option<&ValueBinding>,
         ty: TypeId,
         origin: BoundExpressionId,
         proven: Option<bool>,
@@ -630,7 +632,7 @@ impl State {
 
     pub(in crate::analysis::storage_flow) fn deallocate(
         &mut self,
-        pointer: Option<&super::model::ValueBinding>,
+        pointer: Option<&ValueBinding>,
         origin: BoundExpressionId,
     ) -> MemoryOperationStatus {
         if pointer.is_some_and(|pointer| self.invalidated_capture(pointer)) {
@@ -652,7 +654,7 @@ impl State {
     }
 
     pub(in crate::analysis::storage_flow::memory) fn retire_backing(&mut self, target: Target,
-        origin: bray_bound_tree::BoundExecutionSite,
+        origin: BoundExecutionSite,
     ) {
         self.contents.entry(target.clone()).or_default().retire(origin);
         self.retirements.insert((target, bray_bound_tree::StorageValueRetirement::Backing));
@@ -667,7 +669,7 @@ impl State {
 
     pub(in crate::analysis::storage_flow) fn deallocation_duty_origins(
         &self,
-        pointer: Option<&super::model::ValueBinding>,
+        pointer: Option<&ValueBinding>,
     ) -> Vec<BoundExpressionId> {
         let references = captured_address(pointer);
 
@@ -679,7 +681,7 @@ impl State {
     fn outstanding_storage<'a>(
         &'a self,
         targets: &'a std::collections::BTreeSet<Target>,
-    ) -> impl Iterator<Item = &'a super::model::Contents> + 'a {
+    ) -> impl Iterator<Item = &'a Contents> + 'a {
         targets.iter().filter_map(|target| self.contents.get(target))
             .filter(|contents| !contents.pending.is_empty())
     }
@@ -738,7 +740,7 @@ impl State {
     }
 }
 
-fn captured_address(pointer: Option<&super::model::ValueBinding>) -> AddressValue {
-    pointer.and_then(super::model::ValueBinding::captured_reference)
+fn captured_address(pointer: Option<&ValueBinding>) -> AddressValue {
+    pointer.and_then(ValueBinding::captured_reference)
         .unwrap_or_else(AddressValue::unknown)
 }

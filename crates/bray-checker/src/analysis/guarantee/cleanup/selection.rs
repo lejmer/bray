@@ -82,16 +82,16 @@ fn visit_cleanup_group<E>(
 }
 
 impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
-    pub(super) fn cleanup_part_condition<'path>(
+    pub(super) fn cleanup_part_condition(
         &self,
         state: &ExecutionState,
         selection: &Selection,
-        mut definitely_absent: impl Iterator<Item = &'path bray_bound_tree::StoragePath>,
+        definitely_absent: &impl Fn(&bray_bound_tree::StoragePath) -> bool,
         replacement: Option<ReplacementPath<'_>>,
     ) -> ExecutionCondition {
         let owner = selection.owner.as_ref().and_then(|path| cleanup_path(path, replacement));
 
-        if owner.as_deref().is_some_and(|path| definitely_absent.any(|absent| absent.contains(path))) {
+        if owner.as_deref().is_some_and(definitely_absent) {
             return ExecutionCondition::boolean(false);
         }
 

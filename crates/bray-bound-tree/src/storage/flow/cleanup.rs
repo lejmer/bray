@@ -39,9 +39,11 @@ impl StorageCleanupEntry {
         &self.orders
     }
 
-    /// The owners or payloads absent at every reached entry.
-    pub fn absent(&self) -> impl Iterator<Item = &StoragePath> + Clone {
-        self.absent.iter()
+    /// Whether the reached owner or one of its enclosing slots was absent at entry.
+    pub fn is_absent(&self, place: &StoragePath) -> bool {
+        self.absent.range(StoragePath::root(place.root)..)
+            .take_while(|path| path.root == place.root)
+            .any(|path| path.contains(place))
     }
 
     /// The reached address of the displaced owner, when established.
@@ -119,7 +121,7 @@ impl StorageFlow {
             operation.unit() == self.unit()
                 && after.is_none_or(|action| action.operation.unit() == self.unit())
                 && entry.orders().iter().flat_map(|order| order.iter()).all(|access| access.unit() == self.unit())
-                && entry.absent().all(|path| path.is_valid_for(self.unit()))
+                && entry.absent.iter().all(|path| path.is_valid_for(self.unit()))
                 && entry.replacement().is_none_or(|target| target.is_valid_for(self.unit()))
         }), "cleanup entries belong to their checked unit");
 

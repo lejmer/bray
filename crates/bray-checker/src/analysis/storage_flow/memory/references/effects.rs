@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use super::super::model::{Origin, Place, AddressValue, State, Target};
 use super::super::Effect;
 use bray_bound_tree::{BoundExecutionSite, StorageInvalidation, StorageProjection};
@@ -313,8 +314,8 @@ impl State {
                 })
             {
                 if complete_cell && target.is_exact() && *target == affected {
-                    self.values.remove(&affected);
-                } else if let Some(value) = self.values.get_mut(&affected) {
+                    Arc::make_mut(&mut self.values).remove(&affected);
+                } else if let Some(value) = Arc::make_mut(&mut self.values).get_mut(&affected) {
                     invalidate_value(value, affected == *target || !affected.contains_storage(target));
                 }
             }
@@ -371,7 +372,7 @@ impl State {
                 && !self.values.get(&slot).is_some_and(|value| {
                     value.is_no_payload() && stable_no_payload(&slot, invalidation)
                 })
-                && let Some(value) = self.values.get_mut(&slot)
+                && let Some(value) = Arc::make_mut(&mut self.values).get_mut(&slot)
             {
                 invalidate_value(value, replaces_backing);
             }
@@ -410,7 +411,7 @@ impl State {
             StorageInvalidation::All { .. }
         );
 
-        self.values.retain(|target, value| {
+        Arc::make_mut(&mut self.values).retain(|target, value| {
             let retained = kind == DependencyMutationKind::Atomic
                 || unaffected(target)
                 || unknown && Self::unaddressed_inline_slot(unaddressed, target)

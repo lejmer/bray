@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use super::super::model::{AddressValue, Contents, Origin, Place, RetainedBorrow, State, Target, Transfer, ValueBinding};
 use super::slots::storage_subtree;
 use bray_bound_tree::{BorrowCapabilityId, StorageIdentityId, StorageProjection};
@@ -565,7 +566,7 @@ impl State {
             .or_default()
             .storage_type = ty;
 
-        self.values.insert(location, AddressValue::one(target).into());
+        Arc::make_mut(&mut self.values).insert(location, AddressValue::one(target).into());
     }
 
     pub(in crate::analysis::storage_flow) fn has_value(&self, target: &Target) -> bool {
@@ -595,7 +596,7 @@ impl State {
             .or_default()
             .storage_type = Some(ty);
 
-        self.values.insert(Target::storage(reference),
+        Arc::make_mut(&mut self.values).insert(Target::storage(reference),
             super::super::model::ValueBinding::borrowed(AddressValue::one(target.clone()), capability));
 
         self.borrows.insert(capability, RetainedBorrow { address: AddressValue::one(target), ancestors: Default::default() });

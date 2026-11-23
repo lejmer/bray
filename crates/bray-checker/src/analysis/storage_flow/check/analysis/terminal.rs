@@ -121,7 +121,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         mutation: Option<DependencyMutationKind>,
         effects: Option<&[Effect]>,
         roots: &[Target],
-        escaped: &std::collections::BTreeSet<Target>,
+        escaped: &BTreeSet<Target>,
     ) {
         if !self.publish || state.recovered || self.input.terminal_receiver.is_none() {
             return;
@@ -161,7 +161,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         operation: AnalysisOperationKind,
         effects: Option<&[Effect]>,
         roots: impl IntoIterator<Item = Target>,
-        escaped: &std::collections::BTreeSet<Target>,
+        escaped: &BTreeSet<Target>,
     ) {
         let Some(receiver) = self
             .input
@@ -203,7 +203,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     && !state.fully_moved.contains(&receiver.root)
                     && slot.observation_path().is_none_or(|path| {
                         !self.input.opaque_values.get(&path).is_some_and(|kind| kind.is_immutable_inline())
-                            && !state.absent_paths().any(|absent| absent.contains(&path))
+                            && !state.absent_paths(Some(path.root)).any(|absent| absent.contains(&path))
                     })
             });
 

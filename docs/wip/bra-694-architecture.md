@@ -307,6 +307,10 @@ absence facts when selecting cleanup, retaining owners, and publishing exit or
 replacement decisions. Reference staging reads only no-payload facts. A later
 write or join updates the physical binding before the next query, so the
 caller does not copy the call's absence into a second persistent map.
+Cleanup holds the incoming move ledger and captures inactive physical paths
+under the scheduled owners and the reached replacement while individual actions
+edit current memory. Proof reads absence published at the cleanup entry,
+intersected across the reached paths.
 An imported or source result reference follows its prepared typed route
 through the admitted input capture. If a later descriptor is opaque, its
 possible pointees come from the reached pointer value and previously exposed
@@ -438,6 +442,9 @@ if another reached descriptor supplied no definite result.
 When the branch directly observes an inline descriptor, the same edge
 refines that descriptor's physical null alternative. Copies made after the
 branch then publish the narrowed descriptor with the reached scalar values.
+Cleanup and observation checks read inactive paths from the move ledger and
+the current physical value map. A known root limits the lookup to its own
+paths. An exit intersection checks exact path membership in both sources.
 
 | Boundary | What the implementation passes forward |
 | --- | --- |

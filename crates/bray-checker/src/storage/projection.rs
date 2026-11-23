@@ -3,6 +3,20 @@ use bray_bound_tree::StorageProjection;
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{DependencyProjection, TypeData, TypeId};
 
+pub(crate) fn paths_at_root<V>(
+    paths: &std::collections::BTreeMap<bray_bound_tree::StoragePath, V>,
+    root: Option<bray_bound_tree::StorageIdentityId>,
+) -> impl Iterator<Item = (&bray_bound_tree::StoragePath, &V)> + Clone {
+    use std::ops::Bound;
+
+    let start = root.map_or(Bound::Unbounded, |root| {
+        Bound::Included(bray_bound_tree::StoragePath::root(root))
+    });
+
+    paths.range((start, Bound::Unbounded))
+        .take_while(move |(path, _)| root.is_none_or(|root| path.root == root))
+}
+
 /// Tests separation of the actual backing selected from two admitted buffer owners.
 pub(crate) fn buffer_backings_disjoint(
     values: &bray_symbols::SemanticValueStore,

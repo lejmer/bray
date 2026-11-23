@@ -13,7 +13,7 @@ pub(crate) use projection::{
     buffer_backings_disjoint,
     effect_reference_path,
     dependency_projection, dependency_projections, expression_storage_projections, nullable_wrapping, owned_storage_preservation, owned_storage_projections, projected_value_type, projected_owned_type,
-    reference_path, unadapted_projections, resolve_effect_projections, resolve_owned_storage_projections, resolve_storage_projections, storage_projections,
+    paths_at_root, reference_path, unadapted_projections, resolve_effect_projections, resolve_owned_storage_projections, resolve_storage_projections, storage_projections,
     static_subject_type,
 };
 pub(crate) use protocol::{implicit_input_type, selected_storage_protocol_call};

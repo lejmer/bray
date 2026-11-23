@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use super::super::model::DependencyCompleteness;
 use super::super::model::{AddressValue, Origin, Place, Retirement, State, Target, Transfer, ValueBinding};
 use super::slots::take_subtree;
@@ -40,7 +41,7 @@ impl State {
         &'a self,
         mut live: impl FnMut(&Target) -> bool + 'a,
     ) -> impl Iterator<Item = &'a bray_bound_tree::ReportDependencies> + 'a {
-        self.may_have_report_values.then_some(&self.values).into_iter().flatten()
+        self.may_have_report_values.then_some(self.values.as_ref()).into_iter().flatten()
             .filter_map(move |(target, value)| {
                 if target.previous && matches!(&target.origin, super::super::model::Origin::Storage(path) if path.is_inline()) {
                     return None;
@@ -58,7 +59,7 @@ impl State {
     ) {
         if subjects.subjects.is_empty() { return; }
 
-        let value = self.values.entry(Target::storage(destination)).or_default();
+        let value = Arc::make_mut(&mut self.values).entry(Target::storage(destination)).or_default();
 
         if !value.is_no_payload() && value.dependency_support().is_none() {
             value.include_dependency_support(&std::sync::Arc::new(subjects));
@@ -207,7 +208,7 @@ impl State {
         let reported = &mut self.may_have_report_values;
 
         additional.values.retain(|slot, value| {
-            let Some(current) = self.values.get_mut(slot) else { return true; };
+            let Some(current) = Arc::make_mut(&mut self.values).get_mut(slot) else { return true; };
 
             if staged_result {
                 current.complete_published_value(value);
@@ -236,7 +237,7 @@ impl State {
 
             self.may_have_report_values = self.may_have_report_values || bounds.report_dependencies().is_some();
 
-            self.values.entry(slot).and_modify(|value| value.include_carried(&bounds)).or_insert(bounds);
+            Arc::make_mut(&mut self.values).entry(slot).and_modify(|value| value.include_carried(&bounds)).or_insert(bounds);
         }
 
         for (slot, contents) in captured.payloads {
@@ -252,7 +253,7 @@ impl State {
     }
 
     pub(in crate::analysis::storage_flow) fn lose_captured_information(&mut self, destination: &Target) {
-        let value = self.values.entry(destination.clone()).or_default();
+        let value = Arc::make_mut(&mut self.values).entry(destination.clone()).or_default();
 
         value.lose_information();
         value.completeness = DependencyCompleteness::Partial;
@@ -359,7 +360,7 @@ impl State {
     }
 
     pub(in crate::analysis::storage_flow) fn refine_nullness(&mut self, source: &Target, is_null: bool) {
-        let Some(value) = self.values.get_mut(source) else { return; };
+        let Some(value) = Arc::make_mut(&mut self.values).get_mut(source) else { return; };
 
         if is_null {
             value.clear_address();
@@ -373,15 +374,20 @@ impl State {
         self.replace_value(destination, ValueBinding::no_payload());
     }
 
-    pub(in crate::analysis::storage_flow) fn no_payload_paths(&self) -> impl Iterator<Item = &Place> + Clone {
-        self.values.iter().filter_map(|(target, value)| {
-            (!target.previous && value.is_no_payload()).then(|| target.storage_path()).flatten()
-        })
+    pub(in crate::analysis::storage_flow) fn no_payload_paths(
+        &self,
+        root: Option<bray_bound_tree::StorageIdentityId>,
+    ) -> impl Iterator<Item = &Place> + Clone {
+        self.current_value_slots(root).filter_map(|(path, value)| value.is_no_payload().then_some(path))
+    }
+
+    pub(in crate::analysis::storage_flow) fn has_no_payload(&self, path: &Place) -> bool {
+        self.values.get(&Target::storage(path.clone())).is_some_and(ValueBinding::is_no_payload)
     }
 
     pub(super) fn replace_value(&mut self, destination: Place, value: ValueBinding) {
         self.clear(&destination);
-        self.values.insert(Target::storage(destination), value);
+        Arc::make_mut(&mut self.values).insert(Target::storage(destination), value);
     }
 
     pub(in crate::analysis::storage_flow) fn stage_null(

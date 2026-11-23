@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use super::super::model::{Origin, Place, AddressValue, ReachedAccess, State, Target, ValueBinding};
 use bray_bound_tree::{BorrowCapabilityId, BoundExpressionId};
 use bray_symbols::TypeId;
@@ -136,7 +137,7 @@ impl State {
 
         if let Some(references) = self.borrow_address(capability).cloned() {
             // The destination owns a reference value after the expression's capability expires.
-            self.values
+            Arc::make_mut(&mut self.values)
                 .insert(Target::storage(destination), super::super::model::ValueBinding::borrowed(references, capability));
         }
     }
@@ -206,7 +207,7 @@ impl State {
 
         self.observe_address_exposure(&value, ty, origin);
         self.clear(slot);
-        self.values.insert(Target::storage(slot.clone()), value);
+        Arc::make_mut(&mut self.values).insert(Target::storage(slot.clone()), value);
     }
 
     #[cfg(test)]
@@ -248,7 +249,7 @@ impl State {
     }
 
     pub(in crate::analysis::storage_flow) fn borrow_view(&mut self, slot: &Place, ty: TypeId) {
-        let Some(references) = self.values.get_mut(&Target::storage(slot.clone())).and_then(|value| value.address.as_mut()) else {
+        let Some(references) = Arc::make_mut(&mut self.values).get_mut(&Target::storage(slot.clone())).and_then(|value| value.address.as_mut()) else {
             return;
         };
 

@@ -183,7 +183,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             && let Some(bray_bound_tree::BoundExpression::Structured(operation)) =
                 self.request.view().expression(expression)
             && let Some(result) = self.expression_result_storage(expression)
-            && let Some(crate::analysis::storage_flow::memory::Source::Value(source)) = self
+            && let Some(Source::Value(source)) = self
                 .expression_reference(
                     state,
                     *operation
@@ -338,7 +338,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             _ => return,
         }
 
-        if let Some(crate::analysis::storage_flow::memory::Source::Value(source)) =
+        if let Some(Source::Value(source)) =
             self.expression_reference(state, operand)
         {
             let destination = Place {
@@ -361,7 +361,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         &self,
         expression: bray_bound_tree::BoundExpressionId,
         target: bray_symbols::TypeId,
-    ) -> Option<Vec<bray_bound_tree::StorageProjection>> {
+    ) -> Option<Vec<StorageProjection>> {
         let source_type = self
             .execution
             .semantics
@@ -389,7 +389,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 .into_iter()
                 .flatten()
             {
-                if let Some(bray_bound_tree::StorageProjection::ActiveUnionPayloadField {
+                if let Some(StorageProjection::ActiveUnionPayloadField {
                     variant,
                     ..
                 }) = payload.projections.last()
@@ -413,7 +413,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                         .projections
                         .iter()
                         .copied()
-                        .chain([bray_bound_tree::StorageProjection::NullableValue])
+                        .chain([StorageProjection::NullableValue])
                         .collect(),
                 },
             );
@@ -460,7 +460,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let source = match producer {
             BoundExecutionSite::Node(bray_bound_tree::AnyBoundNodeId::Expression(expression)) => self.expression_reference(state, expression),
             BoundExecutionSite::CallInput { .. } => self.invocation_result(producer)
-                .map(|place| crate::analysis::storage_flow::memory::Source::Value(Target::storage(place))),
+                .map(|place| Source::Value(Target::storage(place))),
             _ => unreachable!("reference construction retains an evaluated value producer"),
         };
 
@@ -538,7 +538,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let references = contained.into_iter().flat_map(|paths| paths.iter())
             .filter(|(path, _)| destination.contains_storage(path)
                 && !inactive.iter().any(|payload| payload.contains_storage(path))
-                && (path.projections.is_empty() || !state.no_payload_paths().any(|absent| absent.contains_storage(path))))
+                && (path.projections.is_empty() || !state.no_payload_paths(path.root).any(|absent| absent.contains_storage(path))))
             .map(|(path, ty)| (path.clone(), *ty))
             .chain(root.filter(|(path, _)| !contained.is_some_and(|paths| paths.contains_key(path))))
             .collect::<Vec<_>>();

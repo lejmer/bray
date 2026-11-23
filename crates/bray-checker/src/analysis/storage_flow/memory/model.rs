@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -95,7 +96,8 @@ pub(in crate::analysis::storage_flow) struct State {
     pub(super) unaddressed_storage: std::sync::Arc<[bray_bound_tree::StorageIdentityId]>,
     // Bounds retain the producing slot and whether its evaluation has retired.
     pub(super) returned_inputs: BTreeMap<(Place, bool), AddressValue>,
-    pub(super) values: BTreeMap<Target, ValueBinding>,
+    // Competing outcomes share the admitted value bindings until they write.
+    pub(super) values: Arc<BTreeMap<Target, ValueBinding>>,
     // Addresses retained between destination evaluation and its assignment.
     pub(super) assignment_destinations: BTreeMap<bray_bound_tree::BoundExpressionId, ReachedAccess>,
     // A current value can carry report subjects only after one was published.
@@ -124,7 +126,7 @@ impl State {
 
         let no_payload = |absence: &BTreeMap<Place, StorageAbsence>, slot: &Target| {
             slot.storage_path().is_some_and(|slot| {
-                absence.iter().any(|(path, reason)| {
+                crate::storage::paths_at_root(absence, Some(slot.root)).any(|(path, reason)| {
                     *reason == StorageAbsence::NoPayload && path.contains_storage(slot)
                 })
             })
@@ -133,12 +135,13 @@ impl State {
         let left_absent = |slot: &Target| no_payload(absent, slot);
         let right_absent = |slot: &Target| no_payload(incoming_absent, slot);
 
-        let mut changed = merge_stored(
-            &mut self.values,
-            &incoming.values,
-            left_absent,
-            right_absent,
-        );
+        let mut changed = !Arc::ptr_eq(&self.values, &incoming.values)
+            && merge_stored(
+                Arc::make_mut(&mut self.values),
+                &incoming.values,
+                left_absent,
+                right_absent,
+            );
 
         let destination_count = self.assignment_destinations.len();
 
@@ -257,7 +260,7 @@ impl ReferenceExit<'_> {
 
     pub(in crate::analysis::storage_flow) fn report_payloads(&self, result: bray_bound_tree::StorageIdentityId)
         -> impl Iterator<Item = (&Place, &bray_bound_tree::ReportDependencies, bool)> {
-        self.slots.range(Place::root(result)..).take_while(move |(slot, _)| slot.root == result).filter_map(|(slot, value)| {
+        crate::storage::paths_at_root(&self.slots, Some(result)).filter_map(|(slot, value)| {
             let (report, complete) = value.report_dependencies()?;
 
             (!self.absent.iter().any(|absent| absent.contains_storage(slot)))

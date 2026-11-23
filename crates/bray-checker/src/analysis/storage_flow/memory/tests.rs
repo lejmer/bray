@@ -332,7 +332,7 @@ fn a_checked_move_leaves_only_duties_that_already_existed_at_possible_aliases() 
     for has_existing_duty in [false, true] {
         let mut state = State::default();
 
-        state.values.insert(pointer.clone(), AddressValue::one(first.clone()).into());
+        Arc::make_mut(&mut state.values).insert(pointer.clone(), AddressValue::one(first.clone()).into());
 
         let contents = state.contents.entry(other.clone()).or_default();
 
@@ -361,7 +361,7 @@ fn an_exact_access_records_one_duty_visible_through_possible_aliases() {
     for write in [false, true] {
         let mut state = State { owned_storage: owned_storage.clone(), ..Default::default() };
 
-        state.values.insert(pointer.clone(), AddressValue::one(written.clone()).into());
+        Arc::make_mut(&mut state.values).insert(pointer.clone(), AddressValue::one(written.clone()).into());
         state.contents.entry(possible_alias.clone()).or_default();
 
         assert_eq!(state.target_relationship(&written, &possible_alias), StorageRelationship::PotentiallyOverlapping);
@@ -1838,7 +1838,7 @@ fn joined_parent_absence_preserves_a_present_child_reference() {
             if staged { joined.complete_transition(call); }
 
             assert_eq!(joined.exact_references(&pointer).count(), 1);
-            assert!(joined.no_payload_paths().all(|path| path != &payload));
+            assert!(!joined.has_no_payload(&payload));
         }
     }
 
@@ -1939,11 +1939,11 @@ fn opaque_frame_preserves_inactive_payload_only_while_its_tag_survives() {
     retained.no_payload(payload.clone());
     retained.invalidate(&stable, DependencyMutationKind::Write);
 
-    assert_eq!(retained.no_payload_paths().collect::<Vec<_>>(), vec![&payload]);
+    assert_eq!(retained.no_payload_paths(Some(payload.root)).collect::<Vec<_>>(), vec![&payload]);
 
     retained.invalidate(&bray_bound_tree::StorageInvalidation::unknown(), DependencyMutationKind::Write);
 
-    assert!(retained.no_payload_paths().next().is_none());
+    assert!(!retained.has_no_payload(&payload));
 }
 
 #[test]
@@ -1981,7 +1981,7 @@ fn unresolved_nested_pointer_does_not_reuse_the_outer_pointer_region() {
         state.point_at(Target::storage(owner.clone()), borrowed.clone(), error_type(), DependencyReferenceKind::Borrow);
         state.point_at(pointee.clone(), pointer.clone(), error_type(), DependencyReferenceKind::Address);
 
-        state.values.get_mut(&Target::storage(pointer.clone()))
+        Arc::make_mut(&mut state.values).get_mut(&Target::storage(pointer.clone()))
             .expect("the pointer field has a value")
             .produced_address().merge(&AddressValue::empty());
 
@@ -2234,7 +2234,7 @@ fn previous_epoch_cells_do_not_interrupt_current_subtree_transfers() {
     state.entry_reference(field.clone());
     state.entry_reference(source.clone());
 
-    state.values.insert(
+    Arc::make_mut(&mut state.values).insert(
         super::model::Target {
             previous: true,
             origin: super::model::Origin::Storage(source.clone()),
@@ -2568,7 +2568,7 @@ fn stored_whole_sources_follow_transfers_and_weak_replay() {
         let mut state = State::default();
         let carried = copied.clone();
 
-        state.values.insert(incoming_target.clone(), AddressValue::one(carried.clone()).into());
+        Arc::make_mut(&mut state.values).insert(incoming_target.clone(), AddressValue::one(carried.clone()).into());
         state.seed_whole_source(incoming_target.clone(), incoming_target.clone());
         state.begin_transition(call);
 
@@ -2606,10 +2606,10 @@ fn stored_whole_sources_follow_transfers_and_weak_replay() {
     let second_target = destination.clone();
     let mut state = State::default();
 
-    state.values.insert(exact.project(&[element(0), first]),
+    Arc::make_mut(&mut state.values).insert(exact.project(&[element(0), first]),
         super::model::AddressValue::one(first_target.clone()).into());
 
-    state.values.insert(exact.project(&[element(1), second]),
+    Arc::make_mut(&mut state.values).insert(exact.project(&[element(1), second]),
         super::model::AddressValue::one(second_target.clone()).into());
 
     state.begin_transition(call);
@@ -2642,9 +2642,9 @@ fn stored_whole_sources_follow_transfers_and_weak_replay() {
 
     let mut state = State::default();
 
-    state.values.insert(exact.clone(), super::model::AddressValue::one(exact.clone()).into());
+    Arc::make_mut(&mut state.values).insert(exact.clone(), super::model::AddressValue::one(exact.clone()).into());
 
-    state.values.insert(exact.project(&[element(0), first]),
+    Arc::make_mut(&mut state.values).insert(exact.project(&[element(0), first]),
         super::model::AddressValue::one(destination.clone()).into());
 
     let source = state.capture_reached_value(&exact);
@@ -2670,10 +2670,10 @@ fn stored_whole_sources_follow_transfers_and_weak_replay() {
 
     let mut state = State::default();
 
-    state.values.insert(exact.project(&[element(0), first]),
+    Arc::make_mut(&mut state.values).insert(exact.project(&[element(0), first]),
         super::model::AddressValue::one(exact.clone()).into());
 
-    state.values.insert(exact.project(&[StorageProjection::AnyElement, first]),
+    Arc::make_mut(&mut state.values).insert(exact.project(&[StorageProjection::AnyElement, first]),
         super::model::AddressValue::one(destination.clone()).into());
 
     state.begin_transition(call);
@@ -2892,7 +2892,7 @@ fn ending_inline_storage_lifetime_expires_its_exposed_payload_address() {
     let field = payload.project(&[BUFFER_POINTER]);
     let referent = Target::storage(referent);
 
-    state.values.insert(field.clone(), AddressValue::one(referent.clone()).into());
+    Arc::make_mut(&mut state.values).insert(field.clone(), AddressValue::one(referent.clone()).into());
 
     state.point_at(
         payload,
@@ -3071,7 +3071,7 @@ fn slice_projection_retains_the_element_allocation_without_retyping_it() {
 
     let mut region_only = state.clone();
 
-    region_only.values.get_mut(&admitted).unwrap().address.as_mut().unwrap().bound();
+    Arc::make_mut(&mut region_only.values).get_mut(&admitted).unwrap().address.as_mut().unwrap().bound();
 
     assert!(region_only.value_target(&admitted, element).is_none(),
         "a region bound alone supplies no typed layout");
@@ -3098,11 +3098,11 @@ fn slice_projection_retains_the_element_allocation_without_retyping_it() {
 
     assert!(state.reference_location(values, view.clone(), &wrong, None).is_none());
 
-    state.values.get_mut(&view).unwrap().address.as_mut().unwrap().bound();
+    Arc::make_mut(&mut state.values).get_mut(&view).unwrap().address.as_mut().unwrap().bound();
 
     assert!(state.reference_location(values, view.clone(), &path, None).is_none());
 
-    let reference = state.values.get_mut(&view).unwrap().address.as_mut().unwrap();
+    let reference = Arc::make_mut(&mut state.values).get_mut(&view).unwrap().address.as_mut().unwrap();
 
         reference.forget_value();
 
@@ -3114,8 +3114,8 @@ fn slice_projection_retains_the_element_allocation_without_retyping_it() {
     ] {
         let pointer = selected.project(&[BUFFER_POINTER]);
 
-        state.values.insert(selected.clone(), super::model::AddressValue::one(selected.clone()).into());
-        state.values.insert(pointer.clone(), recorded.clone().into());
+        Arc::make_mut(&mut state.values).insert(selected.clone(), super::model::AddressValue::one(selected.clone()).into());
+        Arc::make_mut(&mut state.values).insert(pointer.clone(), recorded.clone().into());
         state.declare_owned_buffer(selected.clone(), pointer.clone(), element);
 
         assert_eq!(state.values[&pointer].address.as_ref(), Some(&recorded), "a declaration cannot reconstruct or overwrite pointer provenance");
@@ -3429,7 +3429,7 @@ fn nested_backing_survives_descriptor_moves_and_pruning() {
     state.contents.get_mut(&outer).unwrap().storage_type = Some(error_type());
 
     let mut bounded = state.clone();
-    let pointer_binding = bounded.values.get_mut(&descriptor.project(&[buffer_pointer])).unwrap();
+    let pointer_binding = Arc::make_mut(&mut bounded.values).get_mut(&descriptor.project(&[buffer_pointer])).unwrap();
 
     pointer_binding.address_bounds = pointer_binding.address.take();
 
@@ -3449,7 +3449,7 @@ fn nested_backing_survives_descriptor_moves_and_pruning() {
         Some(vec![bound]), "captured routes preserve the same region precision");
 
     state.contents.get_mut(&inner).unwrap().observe_initialized(error_type());
-    state.values.insert(Target::storage(alias.clone()), AddressValue::one(inner.clone()).into());
+    Arc::make_mut(&mut state.values).insert(Target::storage(alias.clone()), AddressValue::one(inner.clone()).into());
     state.transfer_value(&descriptor, moved.clone());
     state.forget(owner.root);
     state.retain_live(&BTreeSet::from([moved.root, alias.root]));
@@ -3487,7 +3487,7 @@ fn nested_backing_survives_descriptor_moves_and_pruning() {
     assert!(state.captured_effect_targets(values, &captured, &optional_route, false).is_none(),
         "a missing pointer is unresolved while the selected owner may be active");
 
-    state.values.insert(absent.clone(), super::model::ValueBinding::no_payload());
+    Arc::make_mut(&mut state.values).insert(absent.clone(), super::model::ValueBinding::no_payload());
 
     assert_eq!(state.owned_mutation_targets(&bray_bound_tree::StorageMutationTarget::location(absent.clone()), buffer_pointer),
         Some(Vec::new()), "an inactive buffer contributes no effects to an intrinsic release");
@@ -3498,7 +3498,7 @@ fn nested_backing_survives_descriptor_moves_and_pruning() {
     assert_eq!(state.captured_effect_targets(values, &captured, &optional_route, false),
         Some(Vec::new()), "activation observes the explicit absence of the nested owner");
 
-    state.values.remove(&absent);
+    Arc::make_mut(&mut state.values).remove(&absent);
 
     state.null(Place { root: moved.root, projections: [buffer_pointer].into() });
 
@@ -4219,7 +4219,7 @@ fn ambient_reachability_requires_raw_publication_of_an_owned_slot() {
 
     state.stage_returned_reference(call, Target::storage(view.clone()), view.clone(), error_type(), [target.clone()]);
     state.complete_transition(call);
-    state.values.insert(Target::storage(opaque.clone()), AddressValue::unknown().into());
+    Arc::make_mut(&mut state.values).insert(Target::storage(opaque.clone()), AddressValue::unknown().into());
 
     let returned = state.value_target(&Target::storage(view), error_type()).expect("returned view retains its bounded identity");
 
@@ -4274,7 +4274,7 @@ fn ambient_reachability_requires_raw_publication_of_an_owned_slot() {
 
     let forwarded = state.value_targets(&Target::storage(view)).expect("bounded forwarded view")[0].clone();
 
-    state.values.insert(forwarded, AddressValue::one(borrowed.clone()).into());
+    Arc::make_mut(&mut state.values).insert(forwarded, AddressValue::one(borrowed.clone()).into());
 
     assert_eq!(state.ambient_regions(&[Effect::Ambient], None), Some((BTreeSet::new(), false)),
         "forwarding a borrow cannot publish its private input bound");
@@ -4316,7 +4316,7 @@ fn captured_cleanup_keeps_known_regions_when_the_address_is_incomplete() {
     let mut pointer = AddressValue::one(backing.clone());
 
     pointer.merge(&AddressValue::unknown());
-    state.values.insert(target.clone(), pointer.into());
+    Arc::make_mut(&mut state.values).insert(target.clone(), pointer.into());
 
     let captured = state.capture_reached_value(&target);
 
@@ -4363,7 +4363,7 @@ fn generic_cleanup_retains_original_and_transferred_sources_after_join() {
     assert!(matches!(effects.as_slice(), [Effect::CapturedCleanup { sources, .. }]
         if sources.len() == 2 && sources.contains(&owner) && sources.contains(&source)));
 
-    original.values.get_mut(&owner).expect("joined operand").completeness.lose_completeness();
+    Arc::make_mut(&mut original.values).get_mut(&owner).expect("joined operand").completeness.lose_completeness();
 
     let effects = original.cleanup_effects(values, Some(&owner), ty);
 
@@ -4393,8 +4393,8 @@ fn captured_cleanup_selects_activity_before_reading_the_payload() {
     let mut address = AddressValue::one(backing.clone());
 
     address.bound();
-    state.values.insert(target.clone(), address.into());
-    state.values.insert(backing, AddressValue::one(nested_backing.clone()).into());
+    Arc::make_mut(&mut state.values).insert(target.clone(), address.into());
+    Arc::make_mut(&mut state.values).insert(backing, AddressValue::one(nested_backing.clone()).into());
 
     let capture = state.capture_reached_value(&target);
 
@@ -4531,15 +4531,15 @@ fn unknown_references_cannot_reach_unaddressed_inline_storage() {
 
     let retained = super::model::AddressValue::one(Target::storage(backing));
 
-    state
-        .values
+    let values = Arc::make_mut(&mut state.values);
+
+    values
         .insert(Target::storage(local.clone()), retained.clone().into());
 
-    state
-        .values
+    values
         .insert(Target::storage(borrowed.clone()), retained.clone().into());
 
-    state.values.insert(
+    values.insert(
         Target::storage(pointer.clone()),
         AddressValue::unknown().into(),
     );
@@ -4571,7 +4571,7 @@ fn unknown_references_cannot_reach_unaddressed_inline_storage() {
         Some(&retained)
     );
 
-    state.values.insert(
+    Arc::make_mut(&mut state.values).insert(
         Target::storage(pointer.clone()),
         { let mut address = AddressValue::one(Target::storage(local.clone())); address.forget_value(); address }.into(),
     );
@@ -4723,7 +4723,7 @@ fn captured_failure_targets_follow_storage_retirement() {
     let mut bounds = AddressValue::one(Target::storage(source.clone()));
 
     bounds.bound();
-    state.values.insert(Target::storage(slot.clone()), bounds.into());
+    Arc::make_mut(&mut state.values).insert(Target::storage(slot.clone()), bounds.into());
 
     let operand = super::Source::Value(Target::storage(slot.clone())).mutation_targets(&state)
         .expect("the same finite bound has an effect operand").into_iter().next().expect("one bound");
@@ -5082,7 +5082,7 @@ fn forwarded_borrow_choices_read_current_descriptors_without_claiming_one_addres
         let pointer = Target::storage(backing.clone()).project(&[component]);
         let descriptor = candidate.project(&[field]);
 
-        state.values.insert(descriptor.clone(), AddressValue::one(pointer.clone()).into());
+        Arc::make_mut(&mut state.values).insert(descriptor.clone(), AddressValue::one(pointer.clone()).into());
 
         if index == 0 {
             state.stage_address(call, candidate, destination.clone(), &reference);
@@ -5117,11 +5117,11 @@ fn forwarded_borrow_choices_read_current_descriptors_without_claiming_one_addres
         },
     ].into());
 
-    state.values.insert(old_field.clone(), AddressValue::one(Target::storage(forwarded)).into());
+    Arc::make_mut(&mut state.values).insert(old_field.clone(), AddressValue::one(Target::storage(forwarded)).into());
     state.contents.entry(old_parent.clone()).or_default().retire(call);
 
     assert_eq!(state.staged_effect_targets(call, semantic_values(), &destination, (&descriptor, Some(&continuation)), true), Some(regions.clone()));
-    state.values.remove(&old_field);
+    Arc::make_mut(&mut state.values).remove(&old_field);
     state.contents.remove(&old_parent);
 
     let earlier = state.pending[&call].returned_inputs[&result].targets.clone();
@@ -5136,7 +5136,7 @@ fn forwarded_borrow_choices_read_current_descriptors_without_claiming_one_addres
 
     assert_eq!(state.captured_effect_targets(semantic_values(), &capture, &route, true), Some(regions));
 
-    state.values.remove(&descriptors[0]);
+    Arc::make_mut(&mut state.values).remove(&descriptors[0]);
 
     assert_eq!(state.captured_effect_targets(semantic_values(), &capture, &route, true), None);
 
@@ -5427,7 +5427,7 @@ fn bounded_borrowed_choices_do_not_read_possible_regions_as_addresses() {
         state.stage_address(call, candidate.clone(), destination.clone(),
             &addressed_reference(error_type(), bray_symbols::DependencyReferenceKind::Borrow));
 
-        state.values.insert(candidate.project(&[field]), AddressValue::one(pointer).into());
+        Arc::make_mut(&mut state.values).insert(candidate.project(&[field]), AddressValue::one(pointer).into());
         regions.push(bray_bound_tree::StorageMutationTarget::bounded(candidate));
     }
 
@@ -6221,8 +6221,8 @@ fn completing_staged_result_keeps_its_published_descriptor() {
 
     addresses.merge(&AddressValue::one(alternative.clone()));
     published.attach_owned_backing(AddressValue::one(owner.clone()));
-    state.values.insert(result.clone(), published);
-    state.values.insert(result.project(&[BUFFER_POINTER]), addresses.into());
+    Arc::make_mut(&mut state.values).insert(result.clone(), published);
+    Arc::make_mut(&mut state.values).insert(result.project(&[BUFFER_POINTER]), addresses.into());
 
     let capture = state.capture_reached_value(&result).with_unknown_alternative();
 
@@ -6601,7 +6601,7 @@ fn unlocated_retirement_distinguishes_an_entry_cell_from_tracked_backing() {
 
     let entry_target = state.value_targets(&entry).unwrap().pop().unwrap();
 
-    state.values.insert(projection.clone(), AddressValue::one(backing.project(&[BUFFER_POINTER])).into());
+    Arc::make_mut(&mut state.values).insert(projection.clone(), AddressValue::one(backing.project(&[BUFFER_POINTER])).into());
     state.escape_regions([backing, entry_target.clone()], None);
 
     let retire = Effect::unbounded(DependencyMutationKind::Retire, None, true);
@@ -6679,7 +6679,7 @@ fn escape_roots_keep_stored_values_without_exporting_possible_aliases() {
     let pointer = Target { previous: false, origin: super::Origin::entry(Place { root: parameter.root, projections: [pointer_field].into() }, bray_symbols::DependencyReferenceKind::Address) };
     let mut state = State { owned_storage: [local.root].into(), ..State::default() };
 
-    state.values.insert(owner.project(&[field]), super::model::AddressValue::one(stored.clone()).into());
+    Arc::make_mut(&mut state.values).insert(owner.project(&[field]), super::model::AddressValue::one(stored.clone()).into());
     assert!(state.escaped_regions([pointer.clone()], None).contains(&stored), "body-local checks retain possible aliases");
     assert_eq!(state.escape_roots([pointer.clone()], None), BTreeSet::from([pointer.clone()]), "possible aliases are resolved again at the caller");
 
@@ -6687,7 +6687,7 @@ fn escape_roots_keep_stored_values_without_exporting_possible_aliases() {
         Place { root: parameter.root, projections: [pointer_field, StorageProjection::AddressTarget, field].into() },
         bray_symbols::DependencyReferenceKind::Address) };
 
-    state.values.insert(pointer.project(&[field]), super::model::AddressValue::one(incoming_field.clone()).into());
+    Arc::make_mut(&mut state.values).insert(pointer.project(&[field]), super::model::AddressValue::one(incoming_field.clone()).into());
 
     assert_eq!(state.escape_roots([pointer.clone()], None), BTreeSet::from([pointer.clone()]),
         "an unchanged incoming pointee field is already reachable from its escaped raw-address root");
@@ -6695,17 +6695,17 @@ fn escape_roots_keep_stored_values_without_exporting_possible_aliases() {
     assert!(state.escape_roots([incoming_field.clone()], None).contains(&incoming_field),
         "an explicitly escaped field pointer remains an operand");
 
-    state.values.insert(Target::storage(local.clone()).project(&[pointer_field]), super::model::AddressValue::one(incoming_field.clone()).into());
+    Arc::make_mut(&mut state.values).insert(Target::storage(local.clone()).project(&[pointer_field]), super::model::AddressValue::one(incoming_field.clone()).into());
 
     let slot = pointer.project(&[field]);
-    let bounds = state.values.remove(&slot).unwrap().into_dependency_bounds();
+    let bounds = Arc::make_mut(&mut state.values).remove(&slot).unwrap().into_dependency_bounds();
 
-    state.values.insert(slot, bounds);
+    Arc::make_mut(&mut state.values).insert(slot, bounds);
 
     assert!(state.escape_roots([pointer.clone(), Target::storage(local.clone())], None).contains(&incoming_field),
         "possible origins do not prove the source field still holds its evaluated entry value");
 
-    state.values.insert(pointer.project(&[field]), super::model::AddressValue::one(stored.clone()).into());
+    Arc::make_mut(&mut state.values).insert(pointer.project(&[field]), super::model::AddressValue::one(stored.clone()).into());
 
     let escaped = state.escape_roots([pointer.clone(), Target::storage(local.clone())], None);
 
@@ -6714,7 +6714,7 @@ fn escape_roots_keep_stored_values_without_exporting_possible_aliases() {
 
     let local = Target::storage(local);
 
-    state.values.insert(local.project(&[field]), super::model::AddressValue::one(stored.clone()).into());
+    Arc::make_mut(&mut state.values).insert(local.project(&[field]), super::model::AddressValue::one(stored.clone()).into());
 
     assert!(state.escape_roots([local.project(&[pointer_field])], None).contains(&stored),
         "an escaped local allocation retains its actual stored references even through a field address");

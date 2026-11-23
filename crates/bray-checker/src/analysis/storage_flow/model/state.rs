@@ -71,14 +71,43 @@ impl RetainedReports {
 }
 
 impl StorageFlowState {
-    pub(in crate::analysis) fn absent_paths(&self) -> impl Iterator<Item = &bray_bound_tree::StoragePath> + Clone {
-        self.definitely_absent.keys().chain(self.memory.no_payload_paths())
+    pub(in crate::analysis) fn absent_paths(
+        &self,
+        root: Option<StorageIdentityId>,
+    ) -> impl Iterator<Item = &bray_bound_tree::StoragePath> + Clone {
+        crate::storage::paths_at_root(&self.definitely_absent, root).map(|(path, _)| path)
+            .chain(self.memory.no_payload_paths(root))
     }
 
-    pub(in crate::analysis::storage_flow) fn no_payload_paths(&self) -> impl Iterator<Item = &bray_bound_tree::StoragePath> + Clone {
-        self.definitely_absent.iter()
+    pub(in crate::analysis::storage_flow) fn has_absent_path(
+        &self,
+        path: &bray_bound_tree::StoragePath,
+    ) -> bool {
+        self.definitely_absent.contains_key(path) || self.memory.has_no_payload(path)
+    }
+
+    /// Retains the entry facts used by cleanup even after earlier parts mutate storage.
+    pub(in crate::analysis::storage_flow) fn cleanup_entry_absence(
+        &self,
+        roots: &BTreeSet<StorageIdentityId>,
+    ) -> impl Fn(&bray_bound_tree::StoragePath) -> bool + use<> {
+        let logical = Arc::clone(&self.definitely_absent);
+
+        let physical = roots.iter().filter_map(|&root| {
+            let paths = self.memory.no_payload_paths(Some(root)).cloned().collect::<Vec<_>>();
+
+            (!paths.is_empty()).then_some((root, paths))
+        }).collect::<BTreeMap<_, _>>();
+
+        move |place| crate::storage::paths_at_root(&logical, Some(place.root))
+            .any(|(path, _)| path.contains(place))
+            || physical.get(&place.root).is_some_and(|paths| paths.iter().any(|path| path.contains(place)))
+    }
+
+    pub(in crate::analysis::storage_flow) fn no_payload_paths(&self, root: StorageIdentityId) -> impl Iterator<Item = &bray_bound_tree::StoragePath> + Clone {
+        crate::storage::paths_at_root(&self.definitely_absent, Some(root))
             .filter_map(|(path, reason)| (*reason == StorageAbsence::NoPayload).then_some(path))
-            .chain(self.memory.no_payload_paths())
+            .chain(self.memory.no_payload_paths(Some(root)))
     }
 
     pub(in crate::analysis::storage_flow) fn failure_at(&self, occurrence: bray_bound_tree::BoundExecutionSite) -> Option<&AdmittedFailure> {
@@ -221,7 +250,7 @@ impl StorageFlowState {
     }
 
     pub(in crate::analysis::storage_flow) fn reachable_reports<'state>(&'state self,
-        owner_remains: impl Fn(bray_bound_tree::StorageIdentityId) -> bool + 'state,
+        owner_remains: impl Fn(StorageIdentityId) -> bool + 'state,
     ) -> impl Iterator<Item = &'state ReportDependencies> + 'state {
         let carried = self.memory.carried_reports(move |target| {
             target.storage_path().is_none_or(|path| {
@@ -254,7 +283,7 @@ impl StorageFlowState {
 
     fn value_is_live(&self, path: &bray_bound_tree::StoragePath) -> bool {
         self.live.contains(&path.root) && !self.fully_moved.contains(&path.root)
-            && !self.absent_paths().any(|absent| absent.contains(path))
+            && !self.absent_paths(Some(path.root)).any(|absent| absent.contains(path))
     }
 
     /// A committed replacement ends displaced loans whose support has no surviving owner.

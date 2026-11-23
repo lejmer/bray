@@ -223,8 +223,6 @@ fn join_observations<'a>(
     let mut joined_facts = Vec::new();
     let mut needs_condition_proof = false;
 
-    let (stable_values, stable_identities) = stable_observations(target, incoming);
-
     let mut availability = BTreeMap::new();
     let mut availability_guards = std::collections::BTreeSet::new();
     let mut availability_facts = Vec::new();
@@ -290,6 +288,24 @@ fn join_observations<'a>(
         joined_values.insert(place.clone(), joined);
     }
 
+    let pending_results = target
+        .pending_results
+        .keys()
+        .chain(incoming.pending_results.keys())
+        .copied()
+        .filter(|expression| join.joins_private_result(*expression))
+        .chain(join.explicit_result())
+        .collect::<std::collections::BTreeSet<_>>();
+
+    // A join that leaves current and private values in place has no rewrite to prepare.
+    let rewrite = joins || !pending_results.is_empty();
+
+    let (stable_values, stable_identities) = if rewrite {
+        stable_observations(target, incoming)
+    } else {
+        Default::default()
+    };
+
     // Availability is evidence about the predecessor's actual initialized storage,
     // independent of the contents or any authority carried by that storage.
     for (guard, left, right) in availability_facts {
@@ -299,29 +315,23 @@ fn join_observations<'a>(
 
     let mut owned_results = joined_current_owners(target, incoming, published, &joined_values);
 
-    for (state, values, identities) in [
-        (&*target, &mut left, &mut left_identities),
-        (incoming, &mut right, &mut right_identities),
-    ] {
-        needs_condition_proof |= current_replacements(
-            state,
-            &joined_values,
-            &stable_values,
-            &stable_identities,
-            values,
-            identities,
-        );
+    if rewrite {
+        for (state, values, identities) in [
+            (&*target, &mut left, &mut left_identities),
+            (incoming, &mut right, &mut right_identities),
+        ] {
+            needs_condition_proof |= current_replacements(
+                state,
+                &joined_values,
+                &stable_values,
+                &stable_identities,
+                values,
+                identities,
+            );
+        }
     }
 
-    for expression in target
-        .pending_results
-        .keys()
-        .chain(incoming.pending_results.keys())
-        .copied()
-        .filter(|expression| join.joins_private_result(*expression))
-        .chain(join.explicit_result())
-        .collect::<std::collections::BTreeSet<_>>()
-    {
+    for expression in pending_results {
         if let Some(place) = published {
             let joined = joined_values.get(place).expect("the published result has a joined storage value");
 

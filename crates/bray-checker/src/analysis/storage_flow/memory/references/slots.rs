@@ -1,3 +1,4 @@
+use std::sync::Arc;
 pub(in crate::analysis::storage_flow::memory) use bray_bound_tree::{selected_storage_values as selected_subtree, storage_selector_parent as selector_parent, storage_value_subtree as storage_subtree};
 use super::super::model::{
     Contents, DependencyCompleteness, Origin, Place, ReferenceExit, Retirement, State, ValueBinding, Target, Transfer,
@@ -11,7 +12,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 impl State {
     pub(in crate::analysis::storage_flow) fn seed_empty_whole(&mut self, destination: Target) {
-        let value = self.values.entry(destination).or_default();
+        let value = Arc::make_mut(&mut self.values).entry(destination).or_default();
 
         if value.is_no_payload() { return; }
 
@@ -20,7 +21,7 @@ impl State {
     }
 
     pub(in crate::analysis::storage_flow) fn seed_whole_source(&mut self, destination: Target, source: Target) {
-        let value = self.values.entry(destination).or_default();
+        let value = Arc::make_mut(&mut self.values).entry(destination).or_default();
 
         if value.is_no_payload() { return; }
 
@@ -52,7 +53,7 @@ impl State {
     pub(in crate::analysis::storage_flow) fn bounded_cleanup(&self, bounds: &[Target], ty: bray_symbols::TypeId, include_inline: bool) -> bray_bound_tree::StorageEffect {
         let mut regions = BTreeSet::new();
 
-        for (slot, value) in &self.values {
+        for (slot, value) in self.values.iter() {
             if bounds.iter().any(|bound| self.target_relationship(bound, slot) != bray_bound_tree::StorageRelationship::Disjoint) {
                 value.collect_carried_regions(&mut regions);
             }
@@ -427,7 +428,7 @@ impl State {
 
                 (&staged.values, &staged.payloads)
             } else {
-                (&self.values, &self.contents)
+                (self.values.as_ref(), &self.contents)
             };
 
             let reference_free = contents.get(&target).is_some_and(|contents| {
@@ -560,10 +561,7 @@ impl State {
         &self,
         root: StorageIdentityId,
     ) -> impl Iterator<Item = (&Place, &Origin)> {
-        self.values
-            .range(Target::storage(Place::root(root))..)
-            .map_while(|(target, value)| target.storage_path().map(|path| (path, value)))
-            .take_while(move |(slot, _)| slot.root == root)
+        self.current_value_slots(Some(root))
             .filter_map(|(slot, value)| Some((slot, value.reference()?)))
             .flat_map(|(slot, references)| {
                 references
@@ -571,6 +569,23 @@ impl State {
                     .iter()
                     .map(move |target| (slot, &target.origin))
             })
+    }
+
+    pub(super) fn current_value_slots(
+        &self,
+        root: Option<StorageIdentityId>,
+    ) -> impl Iterator<Item = (&Place, &ValueBinding)> + Clone {
+        use std::ops::Bound;
+
+        let start = root.map_or(Bound::Unbounded, |root| {
+            Bound::Included(Target::storage(Place::root(root)))
+        });
+
+        self.values.range((start, Bound::Unbounded))
+            .take_while(move |(slot, _)| root.is_none_or(|root| {
+                slot.storage_path().is_some_and(|path| path.root == root)
+            }))
+            .filter_map(|(slot, value)| Some((slot.storage_path()?, value)))
     }
 
     #[cfg(test)]
@@ -683,7 +698,13 @@ impl State {
 
     pub(in crate::analysis::storage_flow) fn clear_value(&mut self, target: &Target) {
         // Only the replaced subtree is visited, even when the function has many live values.
-        take_subtree(&mut self.values, target, Retirement::Storage).for_each(drop);
+        if Arc::get_mut(&mut self.values).is_none()
+            && storage_subtree(&self.values, target).next().is_none()
+        {
+            return;
+        }
+
+        take_subtree(Arc::make_mut(&mut self.values), target, Retirement::Storage).for_each(drop);
     }
 
     pub(in crate::analysis::storage_flow) fn offset(
@@ -694,7 +715,7 @@ impl State {
         let mut references = self.references(source);
 
         references.displace();
-        self.values.insert(Target::storage(destination), references.into());
+        Arc::make_mut(&mut self.values).insert(Target::storage(destination), references.into());
     }
 
     pub(in crate::analysis::storage_flow) fn forget(&mut self, identity: StorageIdentityId) {
@@ -710,7 +731,7 @@ impl State {
                 .map(|(target, _)| target.clone()).collect::<Vec<_>>();
 
             for target in removed {
-                self.values.remove(&target);
+                Arc::make_mut(&mut self.values).remove(&target);
             }
         }
     }

@@ -73,19 +73,25 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         let displaced = destination.as_ref().into_iter().flat_map(|owner| state.memory.value_loans(owner)).collect();
 
-        let absent = std::sync::Arc::new(state.absent_paths().cloned().collect::<std::collections::BTreeSet<_>>());
+        let reached = destination.as_ref().filter(|target| target.is_exact())
+            .and_then(Target::value_observation_path);
+
+        let roots = selected.accesses.iter().flat_map(|order| order.iter())
+            .filter_map(|&access| self.storage.root_identity(access))
+            .chain(reached.map(|path| path.root))
+            .collect();
+
+        let absent = state.cleanup_entry_absence(&roots);
         let mut trusted = std::mem::take(&mut self.trusted);
 
         let publish = self.publish;
-
         let lifecycle = scope_exit.filter(|_| operation.is_normal_cleanup() || state.cleanup.is_some());
-
         let replacement = replacement.map(|(expression, plan)| (expression, plan.access()));
 
         selected.replacement = destination;
 
         if publish {
-            self.exits.record_entry(point.id(), &selected, &absent);
+            self.exits.record_entry(point.id(), &selected, state);
         }
 
         let mut observe = |observation: CleanupObservation<'_>| {
@@ -96,8 +102,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         let mut mutate =
             |execution: &mut ExecutionState,
-             identity: bray_bound_tree::StorageMutation,
-             mutation: crate::analysis::guarantee::CleanupMutation<'_>,
+             identity: StorageMutation,
+             mutation: CleanupMutation<'_>,
              conditional: bool| {
                 if let CleanupMutation::Repeat(remaining) = mutation {
                     let mut continued = state.clone();
@@ -110,7 +116,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 }
 
                 let mut operands = self.cleanup_operands(&state.memory, execution, &mutation, replacement);
-
                 let skipped = conditional.then(|| state.memory.clone());
 
                 if let CleanupMutation::Lifecycle(call) = &mutation {
@@ -149,7 +154,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             execution,
             point,
             &selected,
-            absent.iter(),
+            &absent,
             publish.then_some(&mut observe as &mut crate::analysis::guarantee::Observer<'_>),
             &mut mutate,
         );
@@ -173,7 +178,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     ) -> Option<CleanupSelection> {
         let required = self.execution.replacement_cleanup_required(plan.access());
 
-        if !required && !self.publish { return None; }
+        if !required && !self.publish {
+            return None;
+        }
 
         let reached = ReplacementState::new(state, plan, self.storage, destination);
         let selected = required && !reached.recovered && reached.state() != StorageReplacementState::Absent;
@@ -355,6 +362,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
                 failure.cleanup = Some(CleanupProgress::during(state.cleanup.as_ref(), kind, remainder.clone()));
                 failure.execution = Some(execution);
+
                 self.cleanup_continuations.push(failure);
             }
         }
@@ -398,7 +406,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     pub(super) fn record_cleanup_obligations(
         &mut self,
         operation: AnalysisOperationKind,
-        mutation: &crate::analysis::guarantee::CleanupMutation<'_>,
+        mutation: &CleanupMutation<'_>,
         effects: Option<&[Effect]>,
     ) -> bool {
 
@@ -456,7 +464,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
             if inherited_tail {
                 if !matches!(operation, AnalysisOperationKind::ScopeExit {
-                    phase: crate::analysis::model::AnalysisScopeExitPhase::TaskCancellationBroadcast, ..
+                    phase: AnalysisScopeExitPhase::TaskCancellationBroadcast, ..
                 }) {
                     self.receiver_cleanup.insert(ty);
                 }

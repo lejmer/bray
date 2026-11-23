@@ -61,7 +61,7 @@ struct ScopeExitSnapshot {
 
 struct ReachedCleanup {
     orders: Option<ReachedLifecycle>,
-    absent: Arc<BTreeSet<StoragePath>>,
+    absent: BTreeSet<StoragePath>,
     replacement: Option<StorageTarget>,
 }
 
@@ -135,7 +135,7 @@ impl CleanupSnapshots {
         &mut self,
         operation: AnalysisOperationId,
         selection: &CleanupSelection,
-        absent: &Arc<BTreeSet<StoragePath>>,
+        state: &StorageFlowState,
     ) {
         use std::collections::btree_map::Entry;
 
@@ -145,7 +145,7 @@ impl CleanupSnapshots {
             Entry::Vacant(entry) => {
                 entry.insert(ReachedCleanup {
                     orders: order.map(|order| ReachedLifecycle::Ordered(Arc::clone(order))),
-                    absent: Arc::clone(absent),
+                    absent: state.absent_paths(None).cloned().collect(),
                     // The cleanup transition also uses this reached address.
                     replacement: selection.replacement.clone(),
                 });
@@ -160,11 +160,7 @@ impl CleanupSnapshots {
                     }
                 }
 
-                if !Arc::ptr_eq(&reached.absent, absent)
-                    && reached.absent.iter().any(|path| !absent.contains(path))
-                {
-                    Arc::make_mut(&mut reached.absent).retain(|path| absent.contains(path));
-                }
+                reached.absent.retain(|path| state.has_absent_path(path));
 
                 if reached.replacement != selection.replacement {
                     reached.replacement = None;
@@ -268,7 +264,7 @@ impl CleanupSnapshots {
                 Some(ReachedLifecycle::Multiple(orders)) => orders.into_iter().collect(),
             };
 
-            (point, StorageCleanupEntry::new(orders, entry.absent, entry.replacement))
+            (point, StorageCleanupEntry::new(orders, Arc::new(entry.absent), entry.replacement))
         }).collect()
     }
 }
@@ -277,8 +273,8 @@ impl CleanupSnapshots {
 pub(super) struct ExitState {
     pub(super) live: BTreeSet<StorageIdentityId>,
     pub(super) initialized: BTreeSet<StorageIdentityId>,
-    pub(super) moved: BTreeSet<bray_bound_tree::StoragePath>,
-    pub(super) definitely_absent: BTreeSet<bray_bound_tree::StoragePath>,
+    pub(super) moved: BTreeSet<StoragePath>,
+    pub(super) definitely_absent: BTreeSet<StoragePath>,
     pub(super) fully_moved: BTreeSet<StorageIdentityId>,
     pub(super) active_borrows: BTreeSet<BorrowCapabilityId>,
     pub(super) recovered: bool,
@@ -291,7 +287,7 @@ impl ExitState {
             live: state.live.clone(),
             initialized: state.initialized.clone(),
             moved: state.moved.keys().cloned().collect(),
-            definitely_absent: state.absent_paths().cloned().collect(),
+            definitely_absent: state.absent_paths(None).cloned().collect(),
             fully_moved: state.fully_moved.clone(),
             active_borrows: state.active_borrows.clone(),
             recovered: state.recovered,
@@ -303,7 +299,7 @@ impl ExitState {
             &incoming.active_borrows, incoming.recovered);
 
         self.moved.extend(incoming.moved.keys().cloned());
-        self.definitely_absent.retain(|access| incoming.absent_paths().any(|path| path == access));
+        self.definitely_absent.retain(|access| incoming.has_absent_path(access));
     }
 
     fn merge_snapshot(&mut self, incoming: Self) {
@@ -342,7 +338,7 @@ pub(in crate::analysis) struct ReplacementState {
     pub(in crate::analysis) initialized: bool,
     pub(in crate::analysis) fully_moved: bool,
     pub(in crate::analysis) overlapping_move: bool,
-    pub(in crate::analysis) moved: BTreeSet<bray_bound_tree::StoragePath>,
+    pub(in crate::analysis) moved: BTreeSet<StoragePath>,
     pub(in crate::analysis) definitely_absent: BTreeSet<bray_bound_tree::StoragePath>,
     pub(in crate::analysis) recovered: bool,
 }
@@ -352,7 +348,7 @@ impl ReplacementState {
         state: &StorageFlowState,
         plan: StorageAccessPlan,
         storage: &StoragePlan,
-        destination: Option<&bray_bound_tree::StorageTarget>,
+        destination: Option<&StorageTarget>,
     ) -> Self {
         use bray_bound_tree::{StorageRelationship, StorageTarget};
 
@@ -371,7 +367,7 @@ impl ReplacementState {
             };
         };
 
-        let aliases_move = |path: &bray_bound_tree::StoragePath| {
+        let aliases_move = |path: &StoragePath| {
             if path.root == reached.root {
                 reached.relationship(path) != StorageRelationship::Disjoint
             } else {
@@ -380,8 +376,9 @@ impl ReplacementState {
             }
         };
 
-        let fully_moved = state.fully_moved.contains(&reached.root) || state.definitely_absent.iter()
-            .any(|(path, absence)| *absence == StorageAbsence::Moved && path.contains_storage(reached));
+        let fully_moved = state.fully_moved.contains(&reached.root)
+            || crate::storage::paths_at_root(&state.definitely_absent, Some(reached.root))
+                .any(|(path, absence)| *absence == StorageAbsence::Moved && path.contains_storage(reached));
 
         Self {
             live: state.live.contains(&reached.root),
@@ -396,7 +393,7 @@ impl ReplacementState {
                 .filter_map(|path| path.rebase(reached, planned))
                 .collect(),
             definitely_absent: state
-                .absent_paths()
+                .absent_paths(Some(reached.root))
                 .filter(|path| reached.contains(path) || path.contains(reached))
                 .cloned()
                 .collect(),
@@ -512,7 +509,7 @@ mod tests {
 
         let capability = builder
             .push_borrow_capability(PlannedBorrowCapability::new(
-                BorrowCapabilityOrigin::Operation((expressions[1]).into()),
+                BorrowCapabilityOrigin::Operation(expressions[1].into()),
                 BorrowKind::Shared,
                 destination,
                 None,
@@ -556,7 +553,7 @@ mod tests {
         state.record_move(
             storage.logical_path(moved).cloned().expect("alias path"),
             expressions[1],
-            crate::test_support::error_type(),
+            error_type(),
             false,
         );
 
