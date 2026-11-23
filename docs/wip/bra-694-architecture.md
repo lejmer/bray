@@ -136,6 +136,14 @@ Proof uses that observation to read updated contents through the existing descri
 Normal completion publishes the reached borrow's known identity, or the
 evaluated producer's logical identity when a portable row leaves its origin
 opaque. The checked storage transition supplies address and lifetime support.
+The lifetime owner of a borrowed result can differ from its physical pointee.
+Reference publication carries the reached pointer origin separately from the
+owner witness. A typed route that loses its address at an intermediate read
+cannot claim the owner marker as an exact physical origin.
+An unresolved nested pointer keeps the nearest readable pointer prefix as an
+unknown origin. The prefix excludes private inline slots that did not escape
+before the result was introduced, while the unknown alternative still covers
+other external storage and already published inline slots.
 Input materialization captures the published descriptor.
 Predicates read the reached value without duplicating the reference's own context.
 Ownership and cleanup continue to read the original current value tree.
@@ -189,9 +197,19 @@ to project from that base. The proof pairs each corresponding projected name
 with its actual predecessor snapshot and proposes the joined name alongside
 the original predecessor claim. This mapping grants no owner by itself. Each
 candidate clause still needs the carrier evidence of both predecessors.
+When a joined observation names a current place, that place supplies its
+predecessor snapshot. Another current local may retain an older capture of the
+same place but cannot replace that snapshot. An ordinary returned value has no
+current-place origin and uses its own selected predecessor value.
 Physical capture remains on the current value. Snapshot pairing reads the
 logical owned or nullable shape inside that capture and projects through the
 captured value so the proof names the actual predecessor contents.
+Physical joins treat a missing child beneath an explicit no-payload parent as
+absent. A present child on the other path keeps its established pointer bounds;
+a missing child beneath an unknown parent still weakens those bounds. The join
+weakens the parent no-payload marker when a present alternative exists. This
+rule applies before admitted call captures and output alias effects read the
+joined storage.
 The join assembles current roots from the predecessors and publishes each root
 once. It rebinds evaluated frames, owned result layouts, and proof evidence
 while the predecessor roots are still readable. The fixed point compares the

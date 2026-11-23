@@ -63,77 +63,41 @@ evidence. Impossible internal states fail at the violated contract.
 
 ## Verified checkpoint
 
-The guarded owner publication and typed pointee changes pass the audited
-inventory of 1,709 cases, 584 checker tests, and 139 bound-tree tests.
-The latest package-backed check and lowering covers 43 bodies and leaves
-7 diagnostic lines at five cleanup sites. Both call sites, the raw
-retirement, and the observer errors cleared. The four
-native targets check the 32 selected owner, registration and dispatch
-bodies, including `dispatch_ready` and `start_frame`. A complete runtime
-archive and executable link must check the remaining bodies and backend.
+The earlier guarded-owner checkpoint passed the audited 1,709-case inventory,
+584 checker tests, and 139 bound-tree tests. The current optimized candidate
+passed the fixed package-backed 43-body bootstrap check with lowering and zero
+diagnostics. The two focused Rust regressions for physical parent absence and
+nested pointer prefixes also pass. The broader inventory and complete native
+archive have not yet been rerun on this candidate.
 
-In an isolated optimized run with 24 workers, the Windows x64 standard
-library took 28.3 s to plan and 26.9 s to emit. Platform providers took
-18.3 s, and the full package invocation took 80.3 s. The earlier
-private-root candidate planned in 23.7 s and emitted in 22.5 s. Compare
-pinned binaries with the same prepared providers and one workload at a
-time before attributing the difference to a compiler change.
+The current repair follows three shared boundaries. At a conditional proof join,
+only the named current place supplies the predecessor snapshot for its joined
+identity. Another value can contain an older capture of that place, but cannot
+replace its snapshot. At a physical binding join, an explicit no-payload parent
+makes its unlisted children absent on that predecessor. The join retains a
+present child from the other predecessor, while a missing child under an unknown
+parent still loses precision. At an output route, the last readable raw pointer
+prefix supplies an unknown result origin when a later address read is opaque.
+An unresolved nested pointer does not gain an exact target or owning authority.
+The existing result staging keeps an unknown alternative and falls back to all
+inputs if no prefix can be read.
 
-## Current repair contract
+These boundaries meet at `admit_source_task`. Its present rows publish the
+context pointer relation. Field `2027` is `Current.pointer`; field `2026` is
+`Current.acquisition`. The first raw address read has a physical region but
+cannot resolve the later context and arena reads. Using that region keeps the
+caller-local `Current` out of the result bound unless it was actually escaped.
+The 43-body check now retains both `task_entry` cleanup proofs and the
+`start_frame` path. The controls must continue to reject a genuinely unknown
+pointer, an actual escaped local, and unsupported authority on copied or
+borrowed addresses. No runtime contract was relaxed.
 
-The checked flow publishes each reached mutation and retirement to proof and
-the current value tree. At a join, `common_components` keeps changed fields
-over a joined value. `conditional_facts` pairs that value with each actual
-predecessor snapshot, reads the witness ledger, and admits a clause only when
-both predecessor proofs establish it with owning carriers. Its consumers
-include direct call requirements, `Current` and `Reference` observations, and
-scoped cleanup requirements. The observer's `preparation_owned` claim is
-published after `prepare` and the mutating `reserve_*` calls.
-
-The current 43-body package check with lowering reports 7 diagnostic lines
-at five cleanup sites. The observer and call sites now pass. Snapshot
-pairing reads the logical owned or nullable shape
-inside a physical capture and projects through that captured value. It pairs
-implicit joined fields with actual predecessor snapshots. The focused test
-covers repeated joins with and without the marker on each path. Keep the
-two-predecessor carrier proof and the ordinary forward map unchanged. A
-candidate must never gain authority from one path, an inactive payload, or a
-borrowed or copied address. Reconsider if an allocation control gains
-authority or the fixed inventory regresses.
-
-`destroy_domain` moves the `RawAllocation` and arena owner out of the domain.
-The allocation destructor retires the domain backing, while `release_arena`
-later updates dynamically registered host storage through an ambient effect.
-Ending the allocation's lexical scope before releasing the independent arena
-cleared the caller's E7086 on the fixed inventory. The strict raw retirement
-check remains. A row without a proved typed discharge must still reject
-retirement.
-
-The remaining execution cases need separate producer-to-consumer proofs.
-`current()` guarantees `view_owned` for its result. In `task_entry`, the
-`dispose_reference` call at expression 52 frames that live result into a
-post-state, and some reached paths drop the witness before `Current` cleanup.
-The selected storage is initially disjoint from opaque call roots. After
-`admit_source_task` publishes its nullable task reference, its returned
-reference and the selected storage appear together in the reached and raw
-exposed sets. Later escape analysis at `take_retained` and
-`dispose_reference` reaches the selected storage transitively. Trace the
-first published escape and its result route. The `Current` view protects the
-context while `dispose_reference` can release an execution pin, so moving
-its destructor earlier is not established as safe. The scheduler loop now
-reborrows its execution reference from the live counted view after
-`acquire_slot`. `transfer_task_result` now preserves its input's conditional
-`owned_reference` guarantee, as both calls inside it already do. These two
-source contract changes cleared the call sites on the 43-body inventory.
-At the scoped cleanup, a joined nullable operation can
-pair with a retained owned payload under either a symbolic tag or a
-known-present tag. The whole nullable snapshot map treats those wrappers as
-conflicting and becomes `Unknown` on both predecessors, even when the payload
-observation matches. A direct witness-to-snapshot overlay failed this gate:
-the 43-body inventory gained four `task.admit` errors and did not clear the
-scoped cleanup family. It was removed. A broad effect must not preserve a
-claim on storage it may change, and a copied address must not gain owning
-authority.
+An isolated 24-worker Windows x64 standard-library run of an earlier candidate
+took 28.3 s planning and 26.9 s emission, with 80.3 s for the package
+invocation. The previous private-root candidate took 23.7 s and 22.5 s.
+Compare pinned binaries with the same providers and no competing workload
+before attributing that difference to the compiler. The target remains
+17–25 s planning and a complete binary within 60 s.
 
 ## Acceptance
 

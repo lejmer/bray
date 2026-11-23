@@ -45,6 +45,7 @@ pub(super) fn conditional_facts<'value>(
         collect_observations(
             [source[0].as_ref(), source[1].as_ref()], joined, &mut inputs, &mut guards,
             [&absent[0], &absent[1]], &ExecutionCondition::boolean(true),
+            Some(place),
             &mut { ExecutionCondition::WORK_LIMIT },
         );
     }
@@ -53,34 +54,16 @@ pub(super) fn conditional_facts<'value>(
         collect_observations(
             source, joined, &mut inputs, &mut guards,
             [&absent[0], &absent[1]], &ExecutionCondition::boolean(true),
+            None,
             &mut { ExecutionCondition::WORK_LIMIT },
         );
     }
 
-    if std::env::var_os("BRAY_BRA694_TRACE").is_some()
-        && current.values().any(|value| format!("{:?}", value.kind()).contains("Joined(Block(BoundUnitId(2848653), 162)"))
-    {
-        for (side, input) in inputs.iter().enumerate() {
-            let selected = input.iter().filter(|(joined, _)| {
-                let key = format!("{:?}", joined.kind());
-                key.contains("SymbolId(5257)") && key.contains("Joined(Block(BoundUnitId(2848653), 162)")
-            }).collect::<Vec<_>>();
-
-            eprintln!("BRA694 SNAPSHOT MAP side={side} total={} selected={}", input.len(), selected.len());
-
-            for (joined, source) in selected {
-                eprintln!("BRA694 SNAPSHOT PAIR side={side} joined={:?} source={:?}", joined.kind(), source.kind());
-            }
-        }
-    }
-
-    let proposals = if std::env::var_os("BRAY_BRA694_DISABLE_PROPOSALS").is_some() {
-        [BTreeMap::new(), BTreeMap::new()]
-    } else {
-        inputs.each_ref().map(joined_snapshot_proposals)
-    };
+    let proposals = inputs.each_ref().map(joined_snapshot_proposals);
     let no_owners = BTreeMap::new();
+
     let [left_proposals, right_proposals] = proposals.each_ref().map(|values| ExecutionSubstitution::new(values, &no_owners));
+
     let [left_inputs, right_inputs] = inputs.each_ref().map(|inputs| SnapshotSubstitution::new(inputs));
 
     // Immutable branch selectors can qualify a moved carrier even when the selector
@@ -230,39 +213,6 @@ pub(super) fn conditional_facts<'value>(
 
         for condition in conditions {
             if matches!(condition.kind(), crate::ExecutionConditionKind::Unknown | crate::ExecutionConditionKind::Boolean(true)) { continue; }
-
-            if std::env::var_os("BRAY_BRA694_TRACE").is_some()
-                && [("BoundUnitId(2848653)", "SymbolId(5264)"), ("BoundUnitId(1046592)", "SymbolId(2073)")]
-                    .iter().any(|(unit, predicate)|
-                        format!("{:?}", owner.kind()).contains(unit)
-                            && format!("{:?}", condition.kind()).contains(predicate))
-            {
-                let compact = |value: &ExecutionCondition| format!("{:?}", value.kind()).chars().take(800).collect::<String>();
-                eprintln!("BRA694 JOIN CANDIDATE owner={} condition={} proved={} owning={} predecessors={:?}",
-                    compact(&owner), compact(&condition), proved(&condition), owned(&condition),
-                    predecessors.iter().zip(&proofs).map(|((_, inputs, evidence, owning, available), proof)|
-                        (compact(&inputs.apply(&condition)), proof.prove_trusted(&inputs.apply(&condition)),
-                            evidence.len(), owning.len(), available)).collect::<Vec<_>>());
-                if !proved(&condition) && matches!(condition.kind(), crate::ExecutionConditionKind::Trusted(_)) {
-                    for (index, (state, inputs, _, _, _)) in predecessors.iter().enumerate() {
-                        let source = inputs.apply(&owner);
-                        let target = inputs.apply(&condition);
-                        let proof = state.proof();
-                        let witnesses = state.owned_witnesses([source.clone()]).map(|(carrier, witness)| {
-                            let matching = witness.conditions.keys().filter(|claim| {
-                                [("SymbolId(5264)", "BoundUnitId(2848653)"), ("SymbolId(2073)", "BoundUnitId(1046592)")]
-                                    .iter().any(|(predicate, unit)| format!("{:?}", claim.kind()).contains(predicate)
-                                        && format!("{:?}", carrier.kind()).contains(unit))
-                            }).map(|claim| (compact(claim), proof.prove_trusted(claim))).collect::<Vec<_>>();
-                            (compact(carrier), witness.available, matching)
-                        }).collect::<Vec<_>>();
-                        eprintln!("BRA694 JOIN EVIDENCE side={index} source={} direct={:?} raw={} uncached={:?} target={} witnesses={witnesses:?}",
-                            compact(&source), proof.prove_trusted(&target), state.trusted_assumptions.contains(&(target.clone(), true)),
-                            ExecutionProof::new(&state.trusted_assumptions, &state.assumptions).prove_trusted(&target),
-                            compact(&target));
-                    }
-                }
-            }
 
             // An existing guarded claim can already hold on both paths without
             // discovering a new discriminant or adding a redundant outer guard.
@@ -705,6 +655,7 @@ pub(in crate::analysis::guarantee) fn owned_alternatives(
     collect_observations(
         [Some(left.1), Some(right.1)], joined, &mut inputs, &mut guards,
         [&absent[0], &absent[1]], &ExecutionCondition::boolean(true),
+        None,
         &mut { ExecutionCondition::WORK_LIMIT },
     );
 
@@ -751,6 +702,7 @@ fn collect_observations(
     guards: &mut BTreeSet<(ExecutionCondition, ExecutionCondition)>,
     absent: [&BTreeMap<ExecutionCondition, std::sync::Arc<bray_symbols::ConstantValueData>>; 2],
     active: &ExecutionCondition,
+    origin: Option<&ExecutionPlace>,
     budget: &mut usize,
 ) {
     if sources.iter().all(Option::is_none) { return; }
@@ -763,22 +715,23 @@ fn collect_observations(
 
     if let crate::ExecutionConditionKind::Present(_) = joined.value_inside_capture().kind() {
         for (source, inputs) in sources.into_iter().zip(inputs.iter_mut()) {
-            if let Some(source) = source { insert_snapshot(inputs, joined, source); }
+            if let Some(source) = source { insert_snapshot(inputs, joined, source, origin); }
         }
 
         let sources = sources.map(|source| source.map(|source|
             source.clone().project(bray_bound_tree::StorageProjection::NullableValue)));
+
         let payload = joined.clone().project(bray_bound_tree::StorageProjection::NullableValue);
 
         collect_observations([sources[0].as_ref(), sources[1].as_ref()], &payload,
-            inputs, guards, absent, active, budget);
+            inputs, guards, absent, active, origin, budget);
 
         return;
     }
 
     let Some((role, owner)) = joined.ownership_identity() else {
         if joined.observation_kind() == Some(ObservationKind::Scalar) {
-            collect_reached_data(sources, joined, inputs, budget);
+            collect_reached_data(sources, joined, inputs, origin, budget);
         }
 
         return;
@@ -793,13 +746,13 @@ fn collect_observations(
         // A retained phi owner can still have different predecessor contents.
         // Proof inserts that existing snapshot once, without rewriting identity.
         if !matches!(owner.kind(), crate::ExecutionConditionKind::Unknown | crate::ExecutionConditionKind::Boolean(_) | crate::ExecutionConditionKind::Literal(_)) {
-            insert_snapshot(inputs, &owner, source);
+            insert_snapshot(inputs, &owner, source, origin);
         }
 
         // Proof needs the complete predecessor value as well as its identity.
         // Rebuilding an opaque value from projected fields changes its snapshot.
         if role != ObservationKind::Reference {
-            insert_snapshot(inputs, joined, source);
+            insert_snapshot(inputs, joined, source, origin);
 
             if source.ownership_identity().is_some_and(|(role, _)| role == ObservationKind::Owned) {
                 let observed = observed.get_or_init(|| joined.clone().borrowed().predicate_observation());
@@ -807,32 +760,25 @@ fn collect_observations(
                 if !observed.contains_unknown() {
                     let previous = source.clone().borrowed().predicate_observation();
 
-                    insert_snapshot(inputs, observed, &previous);
+                    insert_snapshot(inputs, observed, &previous, origin);
                 }
             }
         }
     }
 
     if role == ObservationKind::Reference {
-        collect_reached_data(sources, joined, inputs, budget);
+        collect_reached_data(sources, joined, inputs, origin, budget);
         return;
     }
 
     if let crate::ExecutionConditionKind::Observation { contents, kind: ObservationKind::Owned, .. } = joined.value_inside_capture().kind()
         && !matches!(contents.kind(), crate::ExecutionConditionKind::Unknown | crate::ExecutionConditionKind::Literal(_) | crate::ExecutionConditionKind::Boolean(_))
     {
-        if std::env::var_os("BRAY_BRA694_TRACE").is_some()
-            && format!("{contents:?}").contains("Joined(Block(BoundUnitId(2848653), 162)")
-        {
-            eprintln!("BRA694 OWNED JOIN contents={} sources={:?}",
-                format!("{contents:?}").chars().take(950).collect::<String>(),
-                sources.map(|source| source.map(|source| format!("{:?}", source.kind()).chars().take(1050).collect::<String>())));
-        }
         // Current contents need no independent owner. Keep this actual carrier
         // while matching its data against the corresponding predecessor data.
         for (source, inputs) in sources.into_iter().zip(inputs.iter_mut()) {
             if let Some(source) = source {
-                insert_reached_snapshot(inputs, contents, source.computed_value(), false);
+                insert_reached_snapshot(inputs, contents, source.computed_value(), false, origin);
             }
         }
     }
@@ -912,7 +858,7 @@ fn collect_observations(
 
         collect_observations(
             [values[0].as_ref(), values[1].as_ref()], &selected, inputs, guards, absent,
-            &active, budget,
+            &active, origin, budget,
         );
     }
 }
@@ -921,6 +867,7 @@ fn collect_reached_data(
     sources: [Option<&ExecutionCondition>; 2],
     joined: &ExecutionCondition,
     inputs: &mut [BTreeMap<ExecutionCondition, ExecutionCondition>; 2],
+    origin: Option<&ExecutionPlace>,
     budget: &mut usize,
 ) {
     if sources.iter().all(Option::is_none) { return; }
@@ -941,14 +888,14 @@ fn collect_reached_data(
     for (source, inputs) in sources.into_iter().zip(inputs.iter_mut()) {
         let Some(source) = source else { continue; };
 
-        insert_reached_snapshot(inputs, joined, source, true);
+        insert_reached_snapshot(inputs, joined, source, true, origin);
     }
 
     if let crate::ExecutionConditionKind::Constructed(_, fields) = joined.kind() {
         for (field, value) in fields.iter() {
             let sources = sources.map(|source| source.map(|source| source.clone().project(*field)));
 
-            collect_reached_data([sources[0].as_ref(), sources[1].as_ref()], value, inputs, budget);
+            collect_reached_data([sources[0].as_ref(), sources[1].as_ref()], value, inputs, origin, budget);
         }
     }
 }
@@ -958,31 +905,36 @@ fn insert_reached_snapshot(
     joined: &ExecutionCondition,
     source: &ExecutionCondition,
     include_owner_base: bool,
+    origin: Option<&ExecutionPlace>,
 ) {
-    insert_snapshot(inputs, joined, source);
+    insert_snapshot(inputs, joined, source, origin);
 
     // An unlisted component projects through the constructed value's base.
     // A joined base is a data identity, so only the actual predecessor snapshot
     // can answer that projection. This map grants no ownership on its own.
     if let crate::ExecutionConditionKind::Constructed(base, _) = joined.kind()
         && (include_owner_base && base.ownership_identity().is_some()
-            || matches!(base.kind(), crate::ExecutionConditionKind::Joined(..))
-                && std::env::var_os("BRAY_BRA694_DISABLE_JOINED_BASE").is_none())
+            || matches!(base.kind(), crate::ExecutionConditionKind::Joined(..)))
     {
-        if std::env::var_os("BRAY_BRA694_TRACE").is_some()
-            && matches!(base.kind(), crate::ExecutionConditionKind::Joined(..))
-            && ["BoundUnitId(392598)", "BoundUnitId(2848653)"].iter().any(|unit| format!("{base:?}").contains(unit))
-        {
-            eprintln!("BRA694 BASE MAP base={base:?} source={:?}", source.kind());
-        }
-        insert_snapshot(inputs, base, source);
+        insert_snapshot(inputs, base, source, origin);
     }
 }
 
 fn insert_snapshot(
     inputs: &mut BTreeMap<ExecutionCondition, ExecutionCondition>,
     joined: &ExecutionCondition, source: &ExecutionCondition,
+    origin: Option<&ExecutionPlace>,
 ) {
+    // A stored join is read from its own place. Aliases can retain older captures
+    // of that place and cannot replace its predecessor snapshot.
+    if let Some(origin) = origin
+        && let Some((root, _)) = joined.observation_path()
+        && let crate::ExecutionConditionKind::Joined(_, place) = root.kind()
+        && !origin.contains(place) && !place.contains(origin)
+    {
+        return;
+    }
+
     // Predicates already observe the logical value. Physical capture coordinates
     // belong to storage transport and cannot make two proof operands disagree.
     let joined = joined.without_captured_storage();

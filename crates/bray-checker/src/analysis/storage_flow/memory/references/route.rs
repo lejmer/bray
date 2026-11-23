@@ -129,22 +129,26 @@ impl State {
         })
     }
 
-    pub(in crate::analysis::storage_flow) fn pointer_regions_before_last_read(
+    pub(in crate::analysis::storage_flow) fn readable_pointer_prefix_regions(
         &self,
         values: &bray_symbols::SemanticValueStore,
         source: super::Source,
         path: &StorageReferencePath,
     ) -> Option<Vec<Target>> {
-        let (step, operation) = path.steps().iter().enumerate().rev()
-            .find(|(_, operation)| matches!(**operation, StorageReferenceStep::ReadAddress { .. }))?;
+        // A later pointer read can be opaque even when an earlier pointer's
+        // region is known. The caller retains that region as an unknown origin,
+        // without claiming the nested pointer stays inside it.
+        path.steps().iter().enumerate().rev()
+            .filter(|(_, operation)| matches!(**operation, StorageReferenceStep::ReadAddress { .. }))
+            .find_map(|(step, operation)| {
+                let descriptor = path.prefix(operation.index(), step);
 
-        let descriptor = path.prefix(operation.index(), step);
-
-        self.follow_source_reference_reads(values, source, &descriptor)?
-            .iter()
-            .map(|source| source.regions(self))
-            .collect::<Option<Vec<_>>>()
-            .map(|regions| regions.into_iter().flatten().collect())
+                self.follow_source_reference_reads(values, source.clone(), &descriptor)?
+                    .iter()
+                    .map(|source| source.regions(self))
+                    .collect::<Option<Vec<_>>>()
+                    .map(|regions| regions.into_iter().flatten().collect())
+            })
     }
 
     pub(in crate::analysis::storage_flow) fn reference_locations(

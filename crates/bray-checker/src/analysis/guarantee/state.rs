@@ -701,24 +701,14 @@ impl ExecutionState {
 
         let retains_clause = |owner: &ExecutionCondition, condition: &ExecutionCondition,
             support: &crate::execution_guarantees::ExecutionGuarantee, independent: bool| {
-            let kept = retains_contents(condition) && (retained_owner(owner)
+            retains_contents(condition) && (retained_owner(owner)
                 || support.addresses.is_empty()
                     && stable_owners.retains_witness_carrier(owner, |referent|
                         observes_carried_referent(condition, referent))
                 || independent && !support.witness && !support.addresses.is_empty()
                     && support.addresses.iter().all(|(address, owners)| {
                         owners.is_empty() && stable_values.preserves(address)
-                    }));
-
-            if std::env::var_os("BRAY_BRA694_TRACE").is_some()
-                && ["SymbolId(5713)", "SymbolId(2031)", "SymbolId(5264)", "SymbolId(2073)"].iter()
-                    .any(|predicate| format!("{:?}", condition.kind()).contains(predicate))
-            {
-                eprintln!("BRA694 CLEANUP RETAIN admitted={admitted:?} kept={kept} contents={} owner={} independent={independent} witness={} owner_value={:?} condition={:?}",
-                    retains_contents(condition), retained_owner(owner), support.witness, owner.kind(), condition.kind());
-            }
-
-            kept
+                    }))
         };
 
         let admitted_witnesses = self.admitted_private_witnesses(admitted);

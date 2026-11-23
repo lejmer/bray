@@ -540,11 +540,6 @@ where
 
             for state in output.states() {
                 if normal.contains(&block.id()) {
-                    if std::env::var_os("BRAY_BRA694_TRACE").is_some()
-                        && self.storage.unit() == bray_bound_tree::BoundUnitId::new(852570)
-                    {
-                        eprintln!("BRA694 SOURCE EXIT block={:?} effects={:?}", block.id(), state.effect_prefix);
-                    }
                     completed.push(state);
                 } else if let Some(kind) = abnormal.get(&block.id()) {
                     let kind = state.cleanup.as_ref().map_or(*kind, crate::analysis::outcomes::CleanupProgress::failure);

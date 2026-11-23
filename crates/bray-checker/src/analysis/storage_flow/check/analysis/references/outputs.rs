@@ -473,7 +473,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         };
 
         // The route takes a value while the admission retains its immutable capture.
-        state.memory.pointer_regions_before_last_read(
+        state.memory.readable_pointer_prefix_regions(
             self.request.semantic_values(), Source::Captured(captured.clone()), &path,
         )
     }
@@ -657,7 +657,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 Some(reached) => reached,
                 None => {
                     let regions = (reference.target_path().is_none() && reference.addressed_type().is_none())
-                        .then(|| memory.pointer_regions_before_last_read(values, source, path)).flatten();
+                        .then(|| memory.readable_pointer_prefix_regions(values, source, path)).flatten();
 
                     self.stage_unresolved_reference(memory, occurrence, destination, logical, ty, regions.as_deref());
 

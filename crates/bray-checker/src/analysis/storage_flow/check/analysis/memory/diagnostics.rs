@@ -113,12 +113,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             }
 
             if let Some(pending) = state.memory.retirement_obligations(address, discharged.as_deref().unwrap_or_default()) {
-                if std::env::var_os("BRAY_BRA694_TRACE").is_some() {
-                    eprintln!("BRA694 RAW RETIRE address={} discharges={} pending={:?}",
-                        format!("{address:?}").chars().take(900).collect::<String>(),
-                        discharged.as_deref().unwrap_or_default().len(), pending);
-                }
-
                 failed = true;
                 origins.extend(pending.into_iter().map(BoundExecutionSite::from));
             }

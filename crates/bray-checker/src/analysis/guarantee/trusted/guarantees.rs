@@ -106,14 +106,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             let guarantee = instantiate(template);
             let condition = instantiate(subject);
 
-            if std::env::var_os("BRAY_BRA694_TRACE").is_some()
-                && ["SymbolId(5264)", "SymbolId(2031)", "SymbolId(5713)", "SymbolId(2073)"].iter()
-                    .any(|predicate| format!("{:?}", guarantee.kind()).contains(predicate))
-            {
-                eprintln!("BRA694 GUARANTEE SUBJECT invocation={invocation:?} guarantee={:?} subject={:?} reached={:?}",
-                    guarantee.kind(), subject.kind(), condition.kind());
-            }
-
             if subject.observes_completion_result() && supported.iter().any(|proof| proof.implies(&guarantee)) {
                 continue;
             }
@@ -135,14 +127,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             let carriers = self.input_witness_owners(
                 state, template, subject, &condition, arguments, &guarantees.addresses,
             );
-
-            if std::env::var_os("BRAY_BRA694_TRACE").is_some()
-                && ["SymbolId(5264)", "SymbolId(2031)", "SymbolId(5713)", "SymbolId(2073)"].iter()
-                    .any(|predicate| format!("{:?}", guarantee.kind()).contains(predicate))
-            {
-                eprintln!("BRA694 GUARANTEE INPUT invocation={invocation:?} carriers={} witnesses={} carrier={:?}",
-                    carriers.len(), state.witnesses.len(), carriers.first().map(ExecutionCondition::kind));
-            }
 
             if carriers.is_empty() { continue; }
 

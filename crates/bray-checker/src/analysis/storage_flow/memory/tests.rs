@@ -1789,6 +1789,56 @@ fn absent_payload_is_ignored_but_unknown_or_moved_payload_blocks_exact_identity(
 }
 
 #[test]
+fn joined_parent_absence_preserves_a_present_child_reference() {
+    let ([source, payload, _, _], origins) = places();
+
+    let pointer = Place { root: payload.root, projections: [BUFFER_POINTER].into() };
+    let call = origins[0].into();
+
+    for staged in [false, true] {
+        let mut present = State::default();
+
+        present.entry_reference(source.clone());
+
+        if staged {
+            present.stage_slot(call, &source, pointer.clone());
+        } else {
+            present.transfer_value(&Target::storage(source.clone()), pointer.clone());
+        }
+
+        for present_first in [false, true] {
+            let mut absent = State::default();
+
+            if staged {
+                absent.stage_no_payload_alternative(call, Target::storage(payload.clone()));
+            } else {
+                absent.no_payload(payload.clone());
+            }
+
+            let mut joined = if present_first { present.clone() } else { absent.clone() };
+            let other = if present_first { &absent } else { &present };
+
+            joined.merge(other, &Default::default(), &Default::default());
+
+            if staged { joined.complete_transition(call); }
+
+            assert_eq!(joined.exact_references(&pointer).count(), 1);
+            assert!(joined.no_payload_paths().all(|path| path != &payload));
+        }
+    }
+
+    let mut unknown = State::default();
+
+    unknown.entry_reference(source.clone());
+    unknown.transfer_value(&Target::storage(source), pointer.clone());
+
+    unknown.merge(&State::default(), &Default::default(), &Default::default());
+
+    assert_eq!(unknown.exact_references(&pointer).count(), 0,
+        "a missing child under an unknown parent cannot retain its reference identity");
+}
+
+#[test]
 fn pending_payload_absence_survives_source_retirement_without_proving_unknown_origins() {
     let ([source, payload, _, _], origins) = places();
 
@@ -1886,15 +1936,28 @@ fn unresolved_nested_pointer_output_uses_the_pointer_value_region() {
 
     let pointer = Place { root: owner.root, projections: [BUFFER_POINTER].into() };
 
-    let path = bray_bound_tree::StorageReferencePath::new(
-        [BUFFER_POINTER, StorageProjection::AddressTarget, BUFFER_POINTER].into(),
-        [
-            bray_bound_tree::StorageReferenceStep::ReadBorrow {
-                index: 0, target: error_type(), mode: BorrowKind::Shared,
-            },
-            bray_bound_tree::StorageReferenceStep::ReadAddress { index: 1, target: error_type() },
-        ].into(),
-    );
+    let paths = [
+        bray_bound_tree::StorageReferencePath::new(
+            [BUFFER_POINTER, StorageProjection::AddressTarget, BUFFER_POINTER].into(),
+            [
+                bray_bound_tree::StorageReferenceStep::ReadBorrow {
+                    index: 0, target: error_type(), mode: BorrowKind::Shared,
+                },
+                bray_bound_tree::StorageReferenceStep::ReadAddress { index: 1, target: error_type() },
+            ].into(),
+        ),
+        bray_bound_tree::StorageReferencePath::new(
+            [BUFFER_POINTER, StorageProjection::AddressTarget, BUFFER_POINTER,
+                StorageProjection::AddressTarget, BUFFER_POINTER].into(),
+            [
+                bray_bound_tree::StorageReferenceStep::ReadBorrow {
+                    index: 0, target: error_type(), mode: BorrowKind::Shared,
+                },
+                bray_bound_tree::StorageReferenceStep::ReadAddress { index: 1, target: error_type() },
+                bray_bound_tree::StorageReferenceStep::ReadAddress { index: 3, target: error_type() },
+            ].into(),
+        ),
+    ];
 
     for pointee in [Target::storage(external), Target::storage(local)] {
         let mut state = State::default();
@@ -1908,10 +1971,13 @@ fn unresolved_nested_pointer_output_uses_the_pointer_value_region() {
 
         let captured = state.capture_reached_value(&Target::storage(borrowed.clone()));
 
-        assert!(state.captured_reference_sources(semantic_values(), &captured, &path).is_none());
+        for path in &paths {
+            assert!(state.captured_reference_sources(semantic_values(), &captured, path).is_none());
 
-        assert_eq!(state.pointer_regions_before_last_read(semantic_values(), super::Source::Captured(captured), &path),
-            Some(vec![pointee]), "an opaque nested read retains the pointer field's region, not its borrowed owner");
+            assert_eq!(state.readable_pointer_prefix_regions(semantic_values(), super::Source::Captured(captured.clone()), path),
+                Some(vec![pointee.clone()]),
+                "an opaque nested read retains the nearest readable pointer region, not its borrowed owner");
+        }
     }
 }
 

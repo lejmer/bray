@@ -366,23 +366,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             super::merge::resolve_availability(state, availability) != super::super::current::ValueAvailability::Absent
         }).map(|(place, value, _)| (place.clone(), value.clone())).collect::<Vec<_>>();
 
-        if std::env::var_os("BRAY_BRA694_TRACE").is_some()
-            && format!("{mutation:?}").contains("BoundUnitId(1111194), slot: 52")
-        {
-            eprintln!("BRA694 FRAME INPUT mutation={mutation:?} stable_paths={} mapped_paths={} roots={}", stable_values.len(), values.len(), current.len());
-
-            for value in &values {
-                eprintln!("BRA694 FRAME PATH place={:?} path={:?} kind={:?}", value.place, value.path, value.kind);
-            }
-
-            for (place, source) in &current {
-                if format!("{:?}", source.kind()).contains("BoundUnitId(1111194), slot: 1") {
-                    eprintln!("BRA694 FRAME ROOT place={place:?} source={:?} mask={:?}",
-                        source.kind(), masks.get(place).map(|_| "present"));
-                }
-            }
-        }
-
         for (place, source) in current {
             let mut mask = masks.remove(&place).unwrap_or_default();
 
