@@ -704,9 +704,12 @@ impl ExecutionState {
             return;
         }
 
-        self.assumptions.retain(|(condition, _)| !condition.observes_live_where(|value| {
-            value.observations().any(|observed| matches!(observed.kind(), crate::ExecutionConditionKind::Input(place) if roots.contains(&place.root)))
-        }, |_| false));
+        let observes_root = memoize_observations(
+            |value| matches!(value.kind(), crate::ExecutionConditionKind::Input(place) if roots.contains(&place.root)),
+            |_| false,
+        );
+
+        self.assumptions.retain(|(condition, _)| !condition.observes_live_where(&observes_root, |_| false));
 
         self.retire_witness_dependencies(&|place| roots.contains(&place.root));
 

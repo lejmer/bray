@@ -549,10 +549,14 @@ impl ExecutionCondition {
 
     /// Inspect live borrowed observations and uncaptured entry guards, retaining excluded contexts.
     pub(crate) fn observes_live_where(&self, observes: impl Fn(&Self) -> bool, exclude: impl Fn(&Self) -> bool) -> bool {
+        if !self.may_observe_live_value() { return false; }
+
         let mut pending = vec![(self, false)];
         let mut visited = HashSet::new();
 
         while let Some((condition, live)) = pending.pop() {
+            if !live && !condition.may_observe_live_value() { continue; }
+
             // A shared node reached through a loan must still be inspected as live.
             if !visit_once(&mut visited, (NodeIdentity(condition), live), !pending.is_empty()) { continue; }
 

@@ -100,6 +100,16 @@ impl ExecutionCondition {
 }
 
 impl super::ExecutionConditionKind {
+    pub(super) fn may_observe_live_value(&self) -> bool {
+        // These are the places a by-value observation can enter a live view.
+        match self {
+            K::Borrowed(_) | K::Entry { captured: false, .. }
+            | K::Observation { kind: super::ExecutionObservationKind::Reference, .. } => true,
+            K::Descriptor(..) | K::Entry { captured: true, .. } => false,
+            _ => self.children().any(ExecutionCondition::may_observe_live_value),
+        }
+    }
+
     fn children(&self) -> impl Iterator<Item = &ExecutionCondition> {
         let (first, second, operands, fields) = match self {
             K::ValueAlias(left, right) | K::InitializedSnapshot(_, left, right) =>

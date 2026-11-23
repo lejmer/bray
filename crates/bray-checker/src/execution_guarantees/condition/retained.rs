@@ -73,6 +73,8 @@ impl RetainedSnapshots {
 
     /// Checks the actual retained tree for an unchanged snapshot without following loans.
     pub(crate) fn retains_owned_snapshot(&self, value: &ExecutionCondition) -> bool {
+        if self.roots.contains(value) { return true; }
+
         let (borrowed, owner) = value.owner_match_key();
 
         let index = self.index();

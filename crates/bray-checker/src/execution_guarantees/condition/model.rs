@@ -161,6 +161,7 @@ pub(in crate::execution_guarantees) struct ConditionNode {
     contains_deferred: bool,
     contains_storage: bool,
     contains_redundant_reference_context: bool,
+    may_observe_live_value: bool,
     prefix_starts_empty: bool,
     comparisons: OnceLock<Box<ComparisonForms>>,
 }
@@ -174,6 +175,7 @@ impl std::fmt::Debug for ConditionNode {
 impl ConditionNode {
     fn new(kind: ExecutionConditionKind) -> Self {
         let hash = super::hashing::structural_hash(&kind);
+        let may_observe_live_value = kind.may_observe_live_value();
 
         let mut contains_deferred = matches!(kind, ExecutionConditionKind::DeferredValue { .. });
         let mut contains_storage = contains_deferred || matches!(kind, ExecutionConditionKind::CapturedValue { .. });
@@ -203,7 +205,7 @@ impl ConditionNode {
             _ => false,
         };
 
-        Self { kind, hash, contains_deferred, contains_storage, contains_redundant_reference_context, prefix_starts_empty, comparisons: OnceLock::new() }
+        Self { kind, hash, contains_deferred, contains_storage, contains_redundant_reference_context, may_observe_live_value, prefix_starts_empty, comparisons: OnceLock::new() }
     }
 
     #[cfg(test)]
@@ -269,6 +271,7 @@ impl ExecutionCondition {
     pub(super) fn contains_storage(&self) -> bool { self.0.contains_storage }
 
     pub(super) fn contains_redundant_reference_context(&self) -> bool { self.0.contains_redundant_reference_context }
+    pub(super) fn may_observe_live_value(&self) -> bool { self.0.may_observe_live_value }
 
     /// The prefix was built from an empty buffer, so it covers all initialized elements.
     pub(crate) fn prefix_starts_empty(&self) -> bool { self.computed_value().0.prefix_starts_empty }
