@@ -660,9 +660,12 @@ projection. Certification observes reached cleanup during proof replay.
 A generic cleanup of a moved value needs the reference support carried by that
 value. Its portable route selects the original captured contents at admission.
 Specialization follows descriptors in those contents and applies external
-effects. An open cleanup keeps its portable sources and the already reached
-regions separately. It retains incomplete reachability and skips a proven
-absent value. The moved value's inline storage belongs to the callee.
+effects. Disposal of the original generic operand keeps that operand's typed
+location through specialization. An open cleanup keeps its portable sources
+and the already reached regions separately. It retains incomplete reachability
+and skips a proven absent value. The moved value's inline storage belongs to
+the callee. Entry preparation of owning buffer elements records the original
+element and its typed inline dependency paths.
 Cancellation broadcast and lifecycle resolution read the carried data of the
 reached receiver before applying effects. Snapshot and indirect selection
 both check payload activity. A bound on the source cell can reveal known

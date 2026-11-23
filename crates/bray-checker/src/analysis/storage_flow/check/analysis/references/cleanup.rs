@@ -20,6 +20,8 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
                 continue;
             };
 
+            self.footprint.prepare_type(request, fields.element)?;
+
             let pointer_type = crate::storage::projected_value_type(
                 request,
                 ty,

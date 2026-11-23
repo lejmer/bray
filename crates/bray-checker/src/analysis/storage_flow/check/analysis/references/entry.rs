@@ -236,7 +236,14 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
                         for region in memory.owned_regions(&owner, pointer).into_iter().flatten() {
                             let element = region.project(&[bray_bound_tree::StorageProjection::AnyElement]);
 
-                            memory.seed_whole_source(element.clone(), element);
+                            memory.seed_whole_source(element.clone(), element.clone());
+
+                            for projections in self.footprint.whole_source_projections(fields.element)
+                                .filter(|path| !path.is_empty() && Place::inline_projections(path)) {
+                                let component = element.project(projections);
+
+                                memory.seed_whole_source(component.clone(), component);
+                            }
                         }
                     }
                 }

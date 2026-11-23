@@ -68,12 +68,12 @@ bound-tree tests, 598 checker tests, and the nullable allocation regression.
 Its 43-body check with lowering reports five diagnostic entries across
 scheduler deallocation, the previous owner in scoped exit, and the view
 owner in task cleanup. The complete native archive is still unverified.
-The captured-cleanup change builds the Windows x64 standard library and
-passes its 1,188 affected unit tests. An earlier candidate with the same
-portable cleanup effects checks and lowers all 43 bodies with four
-diagnostics. Scheduler deallocation succeeds. The previous owner and
-current view checks each still report twice. Recheck the packaged inventory
-and fixed comparison with the checkpoint compiler.
+Checkpoint `5c41737ba` builds the Windows x64 standard library and passes
+its 1,188 affected unit tests. It checks and lowers all 43 packaged
+bootstrap bodies with four diagnostics. Scheduler deallocation succeeds.
+The previous owner and current view checks each still report twice. The
+fixed comparison found one widened collection cleanup and one recursive
+generic cleanup test that exceeded its time limit.
 
 ### Live owner preservation
 
@@ -142,6 +142,37 @@ complete symbolic route for an open type does not pass the receiver to an
 opaque call. A capture with neither a complete bound nor symbolic sources
 still requires proof that the terminal receiver cannot be reached. Retain
 the opaque-call controls that reject actual receiver exposure.
+
+The remaining cleanup obligations name the acquisition in the scoped previous
+owner and the local current view. The normal task-disposal frame retains the
+acquisition. Some panic frames omit it. In the start call the storage frame
+omits the acquisition from the normal and exceptional transitions. Both
+calls bind an escape through the returned task pointer and reach the inline
+view owner. The admission summary already places that pointer in regions
+reached through the view's stored context address. Locate the first read
+that drops this descriptor between the admitted argument and the nested
+backing. A possible region cannot substitute for a later unreadable pointer.
+Keep the controls for opaque nested pointers and bounded borrow choices.
+
+The selected `entry_current` rows publish exact borrows of two different
+inline fields. Their combined row forwards either of those addresses.
+Staging currently puts the forwarded choices in the same region form used
+by merely possible pointees. The planned descriptor read needs the reached
+choices when they are exhaustive and still current. Effects may use a
+common operand or the union of their possible regions. A mutation needs
+one agreed actual location before it can establish an ordered discharge.
+This is independent of a pointer whose origin was only ever a region.
+
+Collection storage prepares whole-value lineage for its generic element.
+The stored-value transfer in `take_nullable` reads the payload component,
+so entry preparation must install the same checked inline paths as ordinary
+product and nullable storage. Cleanup of a moved value publishes its carried
+source when the reached binding has complete provenance. Disposal without a
+complete moved source uses the typed operand, including through recursive
+calls. The collection probe confirms that the result carries its payload
+source and that cleanup remains ambient if coverage is incomplete. The
+two fixed regression cases and all 745 checker and bound-tree tests pass
+with those changes.
 
 Directory close publishes an unlocated `Retire` from the native directory
 handle. Its independently supplied raw output is a typed entry cell with

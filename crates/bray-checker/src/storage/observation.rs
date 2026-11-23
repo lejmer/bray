@@ -179,6 +179,22 @@ impl Footprint {
             .map(|(path, kind)| (path.as_slice(), *kind))
     }
 
+    pub(crate) fn prepare_type<C: CheckerRequestContext + ?Sized>(
+        &mut self, request: CheckerUnitView<'_, C>, ty: TypeId,
+    ) -> Result<(), CheckerQueryError<C::UpstreamError>> {
+        let complete = std::sync::Arc::get_mut(&mut self.complete_reference_types)
+            .expect("entry type preparation precedes storage-state initialization");
+
+        cached_shape(request, ty, &mut self.shapes, complete)?;
+
+        Ok(())
+    }
+
+    pub(crate) fn whole_source_projections(&self, ty: TypeId) -> impl Iterator<Item = &[StorageProjection]> {
+        self.shapes.get(&ty).into_iter().flat_map(|shape| shape.whole_sources.iter())
+            .map(|(path, _)| path.as_slice())
+    }
+
     pub(crate) fn carries_no_borrows(&self, values: &bray_symbols::SemanticValueStore, ty: TypeId) -> bool {
         self.shapes.get(&ty).is_some_and(|shape| shape.carries_no_borrows(values))
     }

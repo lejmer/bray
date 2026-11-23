@@ -70,11 +70,12 @@ impl State {
         receiver: Option<&Target>,
         ty: bray_symbols::TypeId,
     ) -> Vec<Effect> {
-        if !values.type_is_concrete(ty) {
-            return match receiver {
-                Some(receiver) => self.capture_cleanup(receiver, ty, false).into_iter().collect(),
-                None => vec![Effect::unbounded(DependencyMutationKind::Cleanup(ty), Some(ty), false)],
-            };
+        if !values.type_is_concrete(ty)
+            && let Some(receiver) = receiver
+            && self.values.get(receiver).and_then(super::super::model::ValueBinding::whole_sources)
+                .is_some_and(|(sources, complete)| complete && !sources.is_empty() && !sources.contains(receiver))
+        {
+            return self.capture_cleanup(receiver, ty, false).into_iter().collect();
         }
 
         let kind = DependencyMutationKind::Dispose(ty);
