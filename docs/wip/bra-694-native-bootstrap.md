@@ -66,8 +66,8 @@ evidence. Impossible internal states fail at the violated contract.
 The guarded owner publication and typed pointee changes pass the audited
 inventory of 1,709 cases, 584 checker tests, and 139 bound-tree tests.
 The latest package-backed check and lowering covers 43 bodies and leaves
-9 diagnostic lines at seven sites: five scoped cleanup sites and two call
-sites. The raw retirement and both observer errors cleared. The four
+7 diagnostic lines at five cleanup sites. Both call sites, the raw
+retirement, and the observer errors cleared. The four
 native targets check the 32 selected owner, registration and dispatch
 bodies, including `dispatch_ready` and `start_frame`. A complete runtime
 archive and executable link must check the remaining bodies and backend.
@@ -90,9 +90,9 @@ include direct call requirements, `Current` and `Reference` observations, and
 scoped cleanup requirements. The observer's `preparation_owned` claim is
 published after `prepare` and the mutating `reserve_*` calls.
 
-The current 43-body package check with lowering reports 9 diagnostic lines
-at seven source sites: five cleanup sites and two call sites. Both observer
-sites now pass. Snapshot pairing reads the logical owned or nullable shape
+The current 43-body package check with lowering reports 7 diagnostic lines
+at five cleanup sites. The observer and call sites now pass. Snapshot
+pairing reads the logical owned or nullable shape
 inside a physical capture and projects through that captured value. It pairs
 implicit joined fields with actual predecessor snapshots. The focused test
 covers repeated joins with and without the marker on each path. Keep the
@@ -113,19 +113,27 @@ The remaining execution cases need separate producer-to-consumer proofs.
 `current()` guarantees `view_owned` for its result. In `task_entry`, the
 `dispose_reference` call at expression 52 frames that live result into a
 post-state, and some reached paths drop the witness before `Current` cleanup.
-Trace its stable storage paths and actual effect target. The `Current` view
-protects the context while `dispose_reference` can release an execution pin,
-so moving its destructor earlier is not established as safe. `root_scope`
-loses the borrowed `Reference` claim at a later loop join. Its selected
-candidate has no retained witness carrier on either predecessor, although a
-direct premise exists before the join. The join must not manufacture ownership
-for this borrow. Check whether the live counted view supplies permitted
-support, or whether the runtime source should reacquire the reference after
-the scheduler call. `resolution` also
-fails one scoped view cleanup and one task-storage call. Do not infer that
-these share a cause from the diagnostic category alone. A broad effect must
-not preserve a claim on storage it may change, and a copied address must not
-gain owning authority.
+The selected storage is initially disjoint from opaque call roots. After
+`admit_source_task` publishes its nullable task reference, its returned
+reference and the selected storage appear together in the reached and raw
+exposed sets. Later escape analysis at `take_retained` and
+`dispose_reference` reaches the selected storage transitively. Trace the
+first published escape and its result route. The `Current` view protects the
+context while `dispose_reference` can release an execution pin, so moving
+its destructor earlier is not established as safe. The scheduler loop now
+reborrows its execution reference from the live counted view after
+`acquire_slot`. `transfer_task_result` now preserves its input's conditional
+`owned_reference` guarantee, as both calls inside it already do. These two
+source contract changes cleared the call sites on the 43-body inventory.
+At the scoped cleanup, a joined nullable operation can
+pair with a retained owned payload under either a symbolic tag or a
+known-present tag. The whole nullable snapshot map treats those wrappers as
+conflicting and becomes `Unknown` on both predecessors, even when the payload
+observation matches. A direct witness-to-snapshot overlay failed this gate:
+the 43-body inventory gained four `task.admit` errors and did not clear the
+scoped cleanup family. It was removed. A broad effect must not preserve a
+claim on storage it may change, and a copied address must not gain owning
+authority.
 
 ## Acceptance
 

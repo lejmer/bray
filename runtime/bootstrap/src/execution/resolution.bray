@@ -112,6 +112,10 @@ trusted internal func transfer_task_result(
         trusted bray.runtime.bootstrap.task.retained(owner = reference),
         trusted bray.runtime.bootstrap.task.resolution_owner(owner = reference)
     )
+    when(trusted bray.runtime.bootstrap.task.owned_reference(owner = reference))
+    {
+        ensures(trusted bray.runtime.bootstrap.task.owned_reference(owner = reference))
+    }
 {
     let mut outcome = trusted observe_reference(selected, reference);
     let status = trusted bray.runtime.bootstrap.task.result.transfer_resolution(output, &mut outcome);
