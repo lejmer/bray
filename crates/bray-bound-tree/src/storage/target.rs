@@ -21,6 +21,8 @@ pub enum StorageOrigin {
         /// Components reached within the returned referent.
         projections: std::sync::Arc<[crate::StorageProjection]>,
     },
+    /// Possible storage in separately owned backing with no reached address.
+    BackingRegion,
     /// An external selected static or declaration-wide footprint.
     Static {
         /// The exact selection or declaration region and its ownership domain.
@@ -52,6 +54,11 @@ pub struct StorageTarget {
 }
 
 impl StorageOrigin {
+    /// Whether this origin identifies a backing region without a reached cell.
+    pub const fn is_backing_region(&self) -> bool {
+        matches!(self, Self::BackingRegion)
+    }
+
     /// Creates the first referent supplied through this entry reference.
     pub fn entry(reference: StoragePath, kind: bray_symbols::DependencyReferenceKind) -> Self {
         Self::Entry {
@@ -66,6 +73,7 @@ impl StorageOrigin {
 impl StorageTarget {
     pub(crate) fn is_valid_for(&self, unit: crate::BoundUnitId) -> bool {
         match &self.origin {
+            StorageOrigin::BackingRegion => true,
             StorageOrigin::Static { root, projections, selection } => {
                 !self.previous
                     && root.is_static()
@@ -87,6 +95,7 @@ impl StorageTarget {
             | StorageOrigin::Returned {
                 reference,
                 projections,
+                ..
             } => {
                 reference.is_valid_for(unit)
                     && projections
@@ -230,6 +239,7 @@ impl StorageTarget {
                     reference.is_exact()
                         && projections.iter().all(|projection| projection.is_exact())
                 }
+                StorageOrigin::BackingRegion => false,
                 StorageOrigin::Storage(place) => {
                     place.is_exact()
                 }
@@ -290,6 +300,7 @@ impl StorageTarget {
             | StorageOrigin::Static { projections, .. }
             | StorageOrigin::Allocation { projections, .. } => projections,
             StorageOrigin::Storage(place) => &place.projections,
+            StorageOrigin::BackingRegion => &[],
         }
     }
 
@@ -305,6 +316,7 @@ impl StorageTarget {
         let mut region = self.clone();
 
         match &mut region.origin {
+            StorageOrigin::BackingRegion => return None,
             StorageOrigin::Returned {
                 projections: path, ..
             } | StorageOrigin::Allocation { projections: path, .. } => *path = projections[..boundary.unwrap_or(0)].into(),
@@ -327,6 +339,10 @@ impl StorageTarget {
 
     fn structural_relationship(&self, other: &Self) -> crate::StorageRelationship {
         use crate::StorageRelationship;
+
+        if self.origin.is_backing_region() || other.origin.is_backing_region() {
+            return StorageRelationship::PotentiallyOverlapping;
+        }
 
         if self.previous || other.previous {
             if matches!(self.origin, StorageOrigin::Returned { .. })
@@ -479,15 +495,10 @@ impl StorageTarget {
                 },
             ) => left == right && left_layer == right_layer && projections.starts_with(prefix),
             (
-                StorageOrigin::Returned {
-                    reference: left,
-                    projections: prefix,
-                },
-                StorageOrigin::Returned {
-                    reference: right,
-                    projections,
-                },
+                StorageOrigin::Returned { reference: left, projections: prefix },
+                StorageOrigin::Returned { reference: right, projections },
             ) => left == right && projections.starts_with(prefix),
+            (StorageOrigin::BackingRegion, StorageOrigin::BackingRegion) => true,
             (StorageOrigin::Allocation { allocation: left, projections: prefix },
                 StorageOrigin::Allocation { allocation: right, projections }) => left == right && projections.starts_with(prefix),
             (StorageOrigin::Storage(left), StorageOrigin::Storage(right)) => {
@@ -520,6 +531,7 @@ impl StorageTarget {
         let mut prefix = self.clone();
 
         match &mut prefix.origin {
+            StorageOrigin::BackingRegion => {},
             StorageOrigin::Storage(path) => path.projections = path.projections[..length].into(),
             StorageOrigin::Entry { projections, .. } | StorageOrigin::Returned { projections, .. }
             | StorageOrigin::Allocation { projections, .. } | StorageOrigin::Static { projections, .. } => {
@@ -560,6 +572,7 @@ impl StorageTarget {
                 reference: reference.clone(),
                 projections: append(prefix),
             },
+            StorageOrigin::BackingRegion => StorageOrigin::BackingRegion,
             StorageOrigin::Storage(place) => StorageOrigin::Storage(path(place)),
             StorageOrigin::Allocation { allocation, projections: prefix } => StorageOrigin::Allocation {
                 allocation: allocation.clone(), projections: append(prefix),

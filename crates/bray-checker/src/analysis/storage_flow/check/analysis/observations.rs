@@ -1060,7 +1060,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     self.storage.identity(path.root), Some(bray_bound_tree::StorageIdentity::Static(_))
                 ) => { roots.insert(path.root); }
                 Origin::Allocation { .. } => {}
-                Origin::Storage(_) | Origin::Static { .. } | Origin::Entry { .. } | Origin::Returned { .. } => return None,
+                Origin::Storage(_) | Origin::Static { .. } | Origin::Entry { .. } | Origin::Returned { .. }
+                | Origin::BackingRegion => return None,
             }
         }
 

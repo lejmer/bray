@@ -406,8 +406,9 @@ fn project_call_effect(scope: &Effect, effect: &Effect, uses_scope: fn(Dependenc
             if *addressed { target } else { target.into_region() }
         }
         // A selected destructor cannot retain its own terminal receiver address.
-        // Unknown effects keep the supplied receiver scope instead of exposing it.
-        Effect::Unknown | Effect::Escape if !matches!(scope, Effect::UnboundedMutation { .. }) => scope.clone(),
+        // An unresolved escape retains the cleanup scope. An unknown performed
+        // effect has no typed disposal to specialize again.
+        Effect::Escape if !matches!(scope, Effect::UnboundedMutation { .. }) => scope.clone(),
         effect => effect.clone(),
     };
 

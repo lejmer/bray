@@ -1,4 +1,4 @@
-use super::super::model::{Origin, Place, AddressValue, RetainedBorrow, State, Target};
+use super::super::model::{AddressValue, Contents, Origin, Place, RetainedBorrow, State, Target, Transfer, ValueBinding};
 use super::slots::storage_subtree;
 use bray_bound_tree::{BorrowCapabilityId, StorageIdentityId, StorageProjection};
 use bray_symbols::TypeId;
@@ -119,23 +119,39 @@ impl State {
         bounds
     }
 
-    pub(super) fn bounded_reference_contents<C: crate::CheckerRequestContext + ?Sized>(
-        &self,
-        request: crate::CheckerUnitView<'_, C>,
-        location: &Target,
-    ) -> crate::CheckerQueryResult<Option<AddressValue>, C::UpstreamError> {
-        if location.previous {
-            return Ok(None);
-        }
+    pub(super) fn actual_borrow_choices(&self, target: &Target, staged: Option<(&Transfer, &Target)>) -> Option<Vec<Target>> {
+        if !self.current_route_target(target, staged) { return None; }
 
-        let Origin::Returned { reference, projections } = &location.origin else {
-            return Ok(None);
+        let Origin::Returned { reference, projections, .. } = &target.origin else {
+            return Some(vec![target.clone()]);
         };
 
-        let bounds = self.returned_reference_bounds(reference, location.previous);
+        let bounds = staged.and_then(|(transfer, _)| transfer.returned_inputs.get(reference))
+            .or_else(|| self.returned_inputs.get(&(reference.clone(), false)))?;
 
-        if projections.is_empty() || !bounds.has_values() || bounds.targets.is_empty() {
-            return Ok(None);
+        if !Place::inline_projections(projections) || !bounds.has_values() || bounds.targets.is_empty() {
+            return None;
+        }
+
+        bounds.targets.iter().map(|choice| {
+            (self.current_route_target(choice, staged)
+                && !matches!(choice.origin, Origin::Returned { .. })).then(|| choice.project(projections))
+        }).collect()
+    }
+
+    pub(super) fn forwarded_reference_contents(
+        &self,
+        location: &Target,
+        staged: Option<(&Transfer, &Target)>,
+    ) -> Option<AddressValue> {
+        if location.previous || !location.is_exact() { return None; }
+
+        let Origin::Returned { reference, projections, .. } = &location.origin else {
+            return None;
+        };
+
+        if projections.is_empty() || !Place::inline_projections(projections) {
+            return None;
         }
 
         let parent = Target {
@@ -143,29 +159,86 @@ impl State {
             origin: Origin::Returned { reference: reference.clone(), projections: [].into() },
         };
 
-        let Some(ty) = self.declared_type(&parent) else {
-            return Ok(None);
-        };
+        let bounds = staged.and_then(|(transfer, _)| transfer.returned_inputs.get(reference))
+            .or_else(|| self.returned_inputs.get(&(reference.clone(), false)))?;
 
-        let mut contents = AddressValue::default();
+        if !bounds.has_values() || bounds.targets.is_empty() { return None; }
 
-        for target in &bounds.targets {
-            if target.previous || !target.is_exact() || self.projected_type(request, target)? != Some(ty) {
-                return Ok(None);
+        let ty = self.route_declared_type(&parent, staged)?;
+
+        let mut addresses = bounds.targets.iter().map(|target| {
+            if !self.current_route_target(target, staged) || self.route_declared_type(target, staged) != Some(ty) {
+                return None;
             }
 
-            let Some(value) = self.values.get(&target.project(projections)).and_then(|value| value.address.as_ref()) else {
-                return Ok(None);
-            };
+            self.direct_route_binding(&target.project(projections), staged)?.address.as_ref()
+                .filter(|value| !value.is_unknown() && !value.is_displaced())
+        });
 
-            if value.is_unknown() || value.is_displaced() {
-                return Ok(None);
+        let first = addresses.next().flatten()?;
+        let mut contents = first.clone();
+
+        for address in addresses {
+            let address = address?;
+
+            if address != first {
+                contents.merge(address);
+                contents.bound();
             }
-
-            contents.merge(value);
         }
 
-        Ok(Some(contents))
+        Some(contents)
+    }
+
+    fn direct_route_binding<'a>(
+        &'a self, target: &Target, staged: Option<(&'a Transfer, &Target)>,
+    ) -> Option<&'a ValueBinding> {
+        if let Some((transfer, root)) = staged {
+            transfer.values.get(target).or_else(|| {
+                (!Self::staged_target(transfer, root, target)).then(|| self.values.get(target)).flatten()
+            })
+        } else {
+            self.values.get(target)
+        }
+    }
+
+    pub(super) fn route_declared_type(&self, target: &Target, staged: Option<(&Transfer, &Target)>) -> Option<TypeId> {
+        self.route_contents(target, staged)?.storage_type
+    }
+
+    fn route_contents<'a>(&'a self, target: &Target, staged: Option<(&'a Transfer, &Target)>) -> Option<&'a Contents> {
+        if let Some((transfer, root)) = staged {
+            if let Some(contents) = transfer.payloads.get(target) {
+                return Some(contents);
+            }
+
+            if Self::staged_target(transfer, root, target) {
+                return None;
+            }
+        }
+
+        self.contents.get(target)
+    }
+
+    fn current_route_target(&self, target: &Target, staged: Option<(&Transfer, &Target)>) -> bool {
+        !target.previous && target.is_exact()
+            && self.route_contents(target, staged).is_none_or(|contents| contents.invalidations.is_empty())
+            && target.allocation_region().is_none_or(|allocation| {
+                self.route_contents(&allocation, staged).is_none_or(|contents| contents.invalidations.is_empty())
+            })
+    }
+
+    fn staged_target(transfer: &Transfer, root: &Target, target: &Target) -> bool {
+        root.contains_storage(target) || !target.previous
+            && matches!(&target.origin, Origin::Returned { reference, .. } if transfer.returned_inputs.contains_key(reference))
+    }
+
+    pub(super) fn reached_route_binding<'a>(
+        &'a self, target: &Target, staged: Option<(&'a Transfer, &Target)>,
+    ) -> Option<std::borrow::Cow<'a, ValueBinding>> {
+        self.direct_route_binding(target, staged).map(std::borrow::Cow::Borrowed).or_else(|| {
+            self.forwarded_reference_contents(target, staged).map(|address| std::borrow::Cow::Owned(address.into()))
+        })
     }
 
     pub(super) fn reachable_inline_roots(
@@ -177,7 +250,7 @@ impl State {
             Origin::Returned { reference, .. } => {
                 (None, Some(self.returned_reference_bounds(reference, target.previous)))
             }
-            Origin::Entry { .. } | Origin::Allocation { .. } | Origin::Static { .. } => (None, None),
+            Origin::Entry { .. } | Origin::Allocation { .. } | Origin::Static { .. } | Origin::BackingRegion => (None, None),
         };
 
         storage.into_iter().chain(
@@ -205,7 +278,7 @@ impl State {
         target: &'a Target,
         returned: Option<&'a AddressValue>,
     ) -> (impl Iterator<Item = &'a Target>, bool) {
-        let unbounded = returned.is_some_and(|bounds| bounds.is_unknown() || target.previous
+        let unbounded = target.origin.is_backing_region() || returned.is_some_and(|bounds| bounds.is_unknown() || target.previous
             || target.projections().contains(&StorageProjection::OwnedTarget));
 
         let origins = std::iter::once(target)
@@ -220,6 +293,13 @@ impl State {
         left: &Target,
         right: &Target,
     ) -> bray_bound_tree::StorageRelationship {
+        if [(left, right), (right, left)].iter().any(|(backing, other)| {
+            backing.origin.is_backing_region()
+                && other.storage_path().is_some_and(|path| self.is_owned_inline_storage(path))
+        }) {
+            return bray_bound_tree::StorageRelationship::Disjoint;
+        }
+
         if !left.previous && !right.previous {
             for (returned, other) in [(left, right), (right, left)] {
                 if let Origin::Returned { reference, projections } = &returned.origin
@@ -359,14 +439,15 @@ impl State {
         &self,
         location: &Target,
     ) -> Option<Vec<Target>> {
-        self.values.get(location)?.reference_regions()
+        self.reached_route_binding(location, None)?.reference_regions()
     }
 
     pub(in crate::analysis::storage_flow) fn value_targets(
         &self,
         location: &Target,
     ) -> Option<Vec<Target>> {
-        let references = self.values.get(location)?.address.as_ref()?;
+        let binding = self.reached_route_binding(location, None)?;
+        let references = binding.address.as_ref()?;
 
         references.actual_targets()
     }
@@ -734,9 +815,15 @@ impl State {
     }
 
     pub(super) fn typed_targets<'a>(&self, references: &'a AddressValue, ty: TypeId) -> Option<&'a std::collections::BTreeSet<Target>> {
+        self.typed_route_targets(references, ty, None)
+    }
+
+    pub(super) fn typed_route_targets<'a>(
+        &self, references: &'a AddressValue, ty: TypeId, staged: Option<(&Transfer, &Target)>,
+    ) -> Option<&'a std::collections::BTreeSet<Target>> {
         (references.has_values() && !references.targets.is_empty()
             && references.targets.iter().all(|target| !target.previous
-                && self.contents.get(target).and_then(|contents| contents.storage_type) == Some(ty)))
+                && self.route_declared_type(target, staged) == Some(ty)))
             .then_some(&references.targets)
     }
 

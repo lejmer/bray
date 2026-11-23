@@ -4,7 +4,7 @@ use super::bundle::section;
 use super::model::EncodedSemanticSection;
 use super::value::write_tagged_id;
 use crate::semantic::codec::common::{
-    REFERENCE_ALLOCATION, REFERENCE_EMPTY, REFERENCE_EXACT, REFERENCE_INPUT_ABSENT, REFERENCE_INPUT_REGIONS, REFERENCE_KIND_SHIFT, REFERENCE_NO_PAYLOAD,
+    REFERENCE_ALLOCATION, REFERENCE_BACKING_REGION, REFERENCE_EMPTY, REFERENCE_EXACT, REFERENCE_INPUT_ABSENT, REFERENCE_INPUT_REGIONS, REFERENCE_KIND_SHIFT, REFERENCE_NO_PAYLOAD,
     write_count, write_optional_u32, write_symbol_reference, write_symbol_references,
 };
 use crate::semantic::codec::record::encode_record_table;
@@ -435,6 +435,7 @@ pub(in crate::semantic::codec) fn encode_dependency_storage(
         if relation.allocation().is_some() { attributes |= REFERENCE_ALLOCATION; }
         if relation.is_empty_reference() { attributes |= REFERENCE_EMPTY; }
         if relation.is_no_payload() { attributes |= REFERENCE_NO_PAYLOAD; }
+        if relation.is_backing_region() { attributes |= REFERENCE_BACKING_REGION; }
 
         encoder.write_u32(attributes);
 

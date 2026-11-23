@@ -238,8 +238,7 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
 
                             memory.seed_whole_source(element.clone(), element.clone());
 
-                            for projections in self.footprint.whole_source_projections(fields.element)
-                                .filter(|path| !path.is_empty() && Place::inline_projections(path)) {
+                            for projections in &self.buffer_element_sources[&fields.element] {
                                 let component = element.project(projections);
 
                                 memory.seed_whole_source(component.clone(), component);

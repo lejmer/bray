@@ -528,8 +528,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let contract = &self.dependencies.calls()[&occurrence];
         let storage = contract.storage();
         let entry = execution.admitted_call(occurrence);
+        let result = self.invocation_result(occurrence).map(Target::storage);
 
-        self.resolve_effects(&state.memory, storage, (effects, entry),
+        self.resolve_effects(&state.memory, storage, (effects, entry, result.as_ref().map(|result| (occurrence, result))),
             || entry?.argument_regions(contract.input_count()), |subject, path, indirect| {
             let values = self.request.semantic_values();
             let root = subject.subject_root();
@@ -543,9 +544,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             }
 
             if root == bray_symbols::DependencySubjectRoot::Result {
-                let result = Target::storage(self.invocation_result(occurrence)?);
-
-                return state.memory.staged_effect_targets(occurrence, values, &result, path?, indirect);
+                return None;
             }
 
             let path = self.invocation_reference_path(occurrence, root, path?)?;
@@ -626,19 +625,19 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         &self,
         memory: &crate::analysis::storage_flow::memory::State,
         storage: &bray_bound_tree::BoundCallStorage,
-        (effects, entry): (&[DependencyStorageEffect], Option<&crate::ExecutionCallEvidence>),
+        selection: (&[DependencyStorageEffect], Option<&crate::ExecutionCallEvidence>, Option<(bray_bound_tree::BoundExecutionSite, &Target)>),
         mut input_regions: impl FnMut() -> Option<std::sync::Arc<[Target]>>,
         mut resolve: impl FnMut(&DependencySubject, Option<&StorageReferencePath>, bool) -> Option<Vec<crate::analysis::storage_flow::memory::MutationTarget>>,
         mut carried: impl FnMut(&DependencySubject, &StorageReferencePath, bray_symbols::TypeId, bool) -> Option<Vec<Effect>>,
     ) -> Vec<Effect> {
-        self.resolve_effect_routes(memory, storage, (effects, entry), &mut input_regions, &mut resolve, &mut carried)
+        self.resolve_effect_routes(memory, storage, selection, &mut input_regions, &mut resolve, &mut carried)
     }
 
     fn resolve_effect_routes(
         &self,
         memory: &crate::analysis::storage_flow::memory::State,
         storage: &bray_bound_tree::BoundCallStorage,
-        (effects, entry): (&[DependencyStorageEffect], Option<&crate::ExecutionCallEvidence>),
+        (effects, entry, staged): (&[DependencyStorageEffect], Option<&crate::ExecutionCallEvidence>, Option<(bray_bound_tree::BoundExecutionSite, &Target)>),
         input_regions: &mut impl FnMut() -> Option<std::sync::Arc<[Target]>>,
         resolve: &mut impl FnMut(&DependencySubject, Option<&StorageReferencePath>, bool) -> Option<Vec<crate::analysis::storage_flow::memory::MutationTarget>>,
         carried: &mut impl FnMut(&DependencySubject, &StorageReferencePath, bray_symbols::TypeId, bool) -> Option<Vec<Effect>>,
@@ -703,35 +702,57 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 && subject.projections().contains(&bray_symbols::DependencyProjection::OwnedTarget)
                 && !subject.projections().contains(&bray_symbols::DependencyProjection::AddressTarget);
 
-            let targets = if static_subject && !matches!(subject.subject_root(), bray_symbols::DependencySubjectRoot::StaticInstance(..)) {
-                self.static_effect_targets(subject, static_backing).and_then(|targets| {
-                    if indirect {
-                        targets.into_iter().try_fold(Vec::new(), |mut reached, target| {
-                            reached.extend(crate::analysis::storage_flow::memory::Source::Value(target.address?).mutation_targets(memory)?);
+            let values = self.request.semantic_values();
 
-                            Some(reached)
-                        })
-                    } else { Some(targets) }
-                })
-            } else {
-                resolve(subject, path, indirect).or_else(|| {
+            let finish_route = |targets, continuation: Option<&StorageReferencePath>| {
+                if let Some(continuation) = continuation {
+                    memory.follow_effect_path(values, targets, continuation)
+                } else { Some(targets) }
+            };
+
+            let mut resolve_subject = |path: Option<&StorageReferencePath>, indirect, continuation: Option<&StorageReferencePath>| {
+                if subject.subject_root() == bray_symbols::DependencySubjectRoot::Result
+                    && let Some((site, result)) = staged
+                {
+                    return memory.staged_effect_targets(site, values, result, (path?, continuation), indirect);
+                }
+
+                let targets = resolve(subject, path, indirect).or_else(|| {
                     static_backing.then(|| self.static_effect_targets(subject, true)).flatten()
-                })
-            }.and_then(|targets| {
-                if continues {
-                    let path = storage.effect_path(effect)?.bind_selectors(|projection| {
+                })?;
+
+                finish_route(targets, continuation)
+            };
+
+            let targets = (|| {
+                let continuation = if continues {
+                    Some(storage.effect_path(effect)?.bind_selectors(|projection| {
                         let StorageProjection::ElementFromInput(ordinal) = projection else { return projection; };
 
                         let value = entry.and_then(|entry| entry.arguments.get(&crate::ExecutionPlace::argument(ordinal)));
 
                         value.and_then(|value| self.evaluated_element(value)).unwrap_or(StorageProjection::AnyElement)
-                    });
+                    }))
+                } else { None };
 
-                    memory.follow_effect_path(self.request.semantic_values(), targets, &path)
+                let continuation = continuation.as_deref();
+
+                if static_subject && !matches!(subject.subject_root(), bray_symbols::DependencySubjectRoot::StaticInstance(..)) {
+                    let targets = self.static_effect_targets(subject, static_backing)?;
+
+                    let targets = if indirect {
+                        targets.into_iter().try_fold(Vec::new(), |mut reached, target| {
+                            reached.extend(crate::analysis::storage_flow::memory::Source::Value(target.address?).mutation_targets(memory)?);
+
+                            Some(reached)
+                        })?
+                    } else { targets };
+
+                    finish_route(targets, continuation)
                 } else {
-                    Some(targets)
+                    resolve_subject(path, indirect, continuation)
                 }
-            });
+            })();
 
             let Some(targets) = targets else {
                 if kind == DependencyMutationKind::Escape
@@ -739,7 +760,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     && let Some((step, index, _, _)) = path.reads().find(|(_, _, _, kind)| {
                         *kind == bray_symbols::DependencyReferenceKind::Address
                     })
-                    && let Some(reached) = resolve(subject, Some(&path.prefix(index + 1, step + 1)), false)
+                    && let Some(reached) = resolve_subject(Some(&path.prefix(index + 1, step + 1)), false, None)
                 {
                     // Unknown contents below an admitted raw address can publish
                     // addresses carried by that region. The outer loan is no new root.
@@ -776,7 +797,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             }
 
             let duties = discharged.iter().filter_map(|duty| {
-                let reached = self.resolve_effect_routes(memory, storage, (std::slice::from_ref(duty), entry), input_regions, resolve, carried);
+                let reached = self.resolve_effect_routes(memory, storage, (std::slice::from_ref(duty), entry, staged), input_regions, resolve, carried);
 
                 let [effect] = reached.as_slice() else { return None; };
 
@@ -997,7 +1018,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     _ => Some(DependencyStorageEffect::Unknown),
                 }
             }
-            Origin::Returned { .. } => {
+            Origin::Returned { .. } | Origin::BackingRegion => {
                 Some(DependencyStorageEffect::Unknown)
             }
             Origin::Storage(path) => self.formal_effect(path, kind),

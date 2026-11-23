@@ -361,10 +361,10 @@ impl<C: CheckerRequestContext + ?Sized> super::super::core::StorageFlowCollector
         location: crate::analysis::storage_flow::memory::Target,
         logical: Place,
         pointee: bray_symbols::TypeId,
-    ) -> crate::CheckerQueryResult<(), C::UpstreamError> {
+    ) {
 
         if !location.is_exact() || memory.referenced_regions(&location).is_some() {
-            return Ok(());
+            return;
         }
 
         let container = location.allocation_region().unwrap_or_else(|| {
@@ -379,6 +379,7 @@ impl<C: CheckerRequestContext + ?Sized> super::super::core::StorageFlowCollector
                 Origin::Storage(place) => {
                     place.projections = std::sync::Arc::from([]);
                 }
+                Origin::BackingRegion => unreachable!("an opaque backing region has no exact descriptor"),
             }
 
             container
@@ -390,8 +391,6 @@ impl<C: CheckerRequestContext + ?Sized> super::super::core::StorageFlowCollector
             .cloned()
             .collect::<Vec<_>>();
 
-        memory.observe_reference(self.request, location, logical, pointee, inputs)?;
-
-        Ok(())
+        memory.observe_reference(location, logical, pointee, inputs);
     }
 }

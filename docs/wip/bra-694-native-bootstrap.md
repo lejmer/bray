@@ -61,126 +61,41 @@ evidence. Impossible internal states fail at the violated contract.
   represents a required invariant across phases. Remove superseded branches
   and conversion layers without using an arbitrary growth ceiling.
 
-## Verified checkpoint
+## Verification
 
-Pushed checkpoint `f64684d61` passes all 1,709 comparison cases, 139
-bound-tree tests, 598 checker tests, and the nullable allocation regression.
-Its 43-body check with lowering reports five diagnostic entries across
-scheduler deallocation, the previous owner in scoped exit, and the view
-owner in task cleanup. The complete native archive is still unverified.
-Checkpoint `5c41737ba` builds the Windows x64 standard library and passes
-its 1,188 affected unit tests. It checks and lowers all 43 packaged
-bootstrap bodies with four diagnostics. Scheduler deallocation succeeds.
-The previous owner and current view checks each still report twice. The
-fixed comparison found one widened collection cleanup and one recursive
-generic cleanup test that exceeded its time limit.
+The candidate before the latest review fixes checked and lowered all 43
+packaged bootstrap bodies with zero diagnostics. It passed all 1,709 fixed
+comparison cases and all 1,192 bound-tree, checker, package-interface, and
+symbols unit tests. Its isolated Windows x64 standard-library build took
+23.3 s to plan, 22.6 s to emit, and 51.3 s overall. The complete native archive
+and executable link remain unverified.
+The timing target remains 17–25 s for planning and 60 s to produce the binary.
 
-### Live owner preservation
+### Current storage contract
 
-The physical state resolves performed effects from admitted operands and
-publishes the observations that survive. Framing the logical value and keeping
-its witness must consume the same observations. A transferred or ended slot
-supplies no live evidence. A separate copied address can preserve its bits,
-but only a live owner with unaffected support can preserve allocation authority.
+The task admission output's checked result route ends in owning backing.
+When its captured descriptor cannot supply an address, the route still
+excludes invocation-owned inline storage. Carry that region through result
+staging, ordinary forwarding, and package summaries, including descriptors
+stored inside another allocation. The region may overlap other external
+storage and needs no logical slot. Only a reached address provides a
+definite mutation target. Unresolved ordinary pointer reads retain their
+conservative fallback.
 
-Result completion now preserves the staged descriptor and backing. The
-logical capture fills unstaged data and adds support. This keeps the address
-bound in `publish_driver` intact and prevents an escape from widening to the
-unrelated acquisition loan. A lifecycle receiver write can have an older
-descriptor in its slot, so it assembles its checked writes with the receiver
-binding instead of treating the receiver as a staged result.
+Complete borrowed alternatives keep actual addresses in the returned-input
+record. Read each projected descriptor from its current, type-matched
+target. A common descriptor can supply its address. Divergent reads keep
+their regions. A missing alternative leaves the read opaque. A staged result
+uses its own type, values, and liveness through the entire effect route.
+An earlier operand already admitted at that call site uses its committed
+capture. Their finite region bounds remain available to effect binding.
 
-An opaque frame must independently establish the survival of a stable
-address field and its allocation. The physical memory state has the reached
-address alternatives, allocation incarnations, and reachable effect regions.
-Use those records to publish the surviving allocation addresses with the
-frame. Proof reads the corresponding live fields and retains only clauses
-already attached to a surviving allocation owner. An unknown target, a
-possibly retired allocation, or a copied pointer with no owner supplies no
-authority. Effect-frame joins keep only evidence valid for both paths.
-The arena creation call combines ambient and atomic effects. The atomic
-frame must carry its contents-only classification into that merge.
-The same surviving owner and backing can keep established spatial access
-clauses carried by that owner. Use the existing pointer-argument and
-contents-only predicate classification. The other operands must also survive.
-The frame supplies no new permission and a copied address supplies no owner.
-
-`nullable_allocation_publication_uses_its_declared_result_owner` exercises
-the complete owner through an opaque call, outside the 1,709-case inventory.
-The checker-state control distinguishes the live owner from a retained pointer
-copy. `moving_raw_contents_preserves_allocation_ownership_until_deallocation`
-covers a typed move followed by deallocation and rejects a second deallocation.
-
-The scheduler's checked `take` row transfers the whole domain and its two
-nested buffer references. The selected `SpinLock` destructor has the reached
-receiver, but its resolved effect is ambient retirement on normal and abnormal
-rows. Its generic source summary already contains ambient `Dispose(T)` for
-the value moved from `Uninit<T>`. Specialization cannot recover the source
-route at that point. Publish the carried value's cleanup scope while the
-generic body still has the transfer. The caller must resolve effects through
-the captured value without treating its former inline slot as the disposed
-value.
-Both selected cleanup phases capture the actual receiver before applying
-effects. The summary reads the complete carried sources from that capture.
-Imported specialization expands the cleanup type and binds external effects
-through those routes. An open child reached across an indirection retains its
-typed route for further specialization. Only a reached address can establish
-a performed retirement or definite discharge.
-An unresolved cleanup keeps possible retirement. If specialization has only
-a region, a projected discharge contributes possible consumption instead of a
-typed discharge.
-The definite domain discharge and the retirement of a separate buffer backing
-cannot retire the outer allocation. An unresolved retirement carries no new
-authority and still loses proof within the region it can reach. Both raw
-deallocation and buffer backing release are deallocation. A missing access
-type does not give a backing retirement access to invocation-owned inline slots.
-
-The generic `SpinLock<T>` source row now publishes one captured disposal.
-The package build exposes two remaining consumers. Terminal checking must
-compare the captured regions and inline writes with the dying receiver. A
-complete symbolic route for an open type does not pass the receiver to an
-opaque call. A capture with neither a complete bound nor symbolic sources
-still requires proof that the terminal receiver cannot be reached. Retain
-the opaque-call controls that reject actual receiver exposure.
-
-The remaining cleanup obligations name the acquisition in the scoped previous
-owner and the local current view. The normal task-disposal frame retains the
-acquisition. Some panic frames omit it. In the start call the storage frame
-omits the acquisition from the normal and exceptional transitions. Both
-calls bind an escape through the returned task pointer and reach the inline
-view owner. The admission summary already places that pointer in regions
-reached through the view's stored context address. Locate the first read
-that drops this descriptor between the admitted argument and the nested
-backing. A possible region cannot substitute for a later unreadable pointer.
-Keep the controls for opaque nested pointers and bounded borrow choices.
-
-The selected `entry_current` rows publish exact borrows of two different
-inline fields. Their combined row forwards either of those addresses.
-Staging currently puts the forwarded choices in the same region form used
-by merely possible pointees. The planned descriptor read needs the reached
-choices when they are exhaustive and still current. Effects may use a
-common operand or the union of their possible regions. A mutation needs
-one agreed actual location before it can establish an ordered discharge.
-This is independent of a pointer whose origin was only ever a region.
-
-Collection storage prepares whole-value lineage for its generic element.
-The stored-value transfer in `take_nullable` reads the payload component,
-so entry preparation must install the same checked inline paths as ordinary
-product and nullable storage. Cleanup of a moved value publishes its carried
-source when the reached binding has complete provenance. Disposal without a
-complete moved source uses the typed operand, including through recursive
-calls. The collection probe confirms that the result carries its payload
-source and that cleanup remains ambient if coverage is incomplete. The
-two fixed regression cases and all 745 checker and bound-tree tests pass
-with those changes.
-
-Directory close publishes an unlocated `Retire` from the native directory
-handle. Its independently supplied raw output is a typed entry cell with
-no observed allocation of its own. Physical invalidation can mark a known
-allocation or a reached retirement footprint. An unlocated summary instead
-weakens proof for other raw cells. The output's certified `valid_write`
-applies on each normal return. Keep the controls for explicit use after
-deallocation and for possible retirement of a tracked allocation.
+Generic cleanup uses complete carried lineage through all feasible transfers.
+Incomplete caller-visible sources retain conservative effects. Typed entry
+preparation seeds inline buffer element paths only when they read no
+descriptor and cross no backing or inactive payload. Unknown recursively
+selected effects stay unknown, so expanding a generic cleanup cannot add
+another layer of its own typed disposal on each fixed-point pass.
 
 ### Current regression contract
 
@@ -210,13 +125,6 @@ caller-local `Current` view. A sound bound retains every feasible input and
 ambient source. The fixed comparison and the bootstrap inventory exercise
 both requirements. Reconsider the design if the reached values and effects
 cannot distinguish those controls without maintaining another value tree.
-
-An isolated 24-worker Windows x64 standard-library run of an earlier candidate
-took 28.3 s planning and 26.9 s emission, with 80.3 s for the package
-invocation. The previous private-root candidate took 23.7 s and 22.5 s.
-Compare pinned binaries with the same providers and no competing workload
-before attributing that difference to the compiler. The target remains
-17–25 s planning and a complete binary within 60 s.
 
 ## Acceptance
 

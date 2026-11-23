@@ -8,12 +8,16 @@ pub(in crate::analysis::storage_flow) enum Source {
 
 impl Source {
     pub(in crate::analysis::storage_flow) fn is_exact(&self, state: &State) -> bool {
+        let exact = |address: Option<&super::super::model::AddressValue>| {
+            address.is_some_and(super::super::model::AddressValue::is_exact)
+        };
+
         match self {
-            Self::Value(source) => state.values.get(source).and_then(|value| value.address.as_ref()),
-            Self::Borrow(capability) => state.borrow_address(*capability),
-            Self::Captured(source) => source.binding().and_then(|value| value.address.as_ref()),
+            Self::Value(source) => state.reached_route_binding(source, None)
+                .is_some_and(|value| exact(value.address.as_ref())),
+            Self::Borrow(capability) => exact(state.borrow_address(*capability)),
+            Self::Captured(source) => exact(source.binding().and_then(|value| value.address.as_ref())),
         }
-        .is_some_and(super::super::model::AddressValue::is_exact)
     }
 
     pub(in crate::analysis::storage_flow) fn stage(
@@ -54,7 +58,7 @@ impl Source {
         state: &State,
     ) -> Option<Vec<super::super::MutationTarget>> {
         match self {
-            Self::Value(source) => state.values.get(source)?.mutation_targets(),
+            Self::Value(source) => state.reached_route_binding(source, None)?.mutation_targets(),
             Self::Captured(source) => source.mutation_targets(),
             Self::Borrow(capability) => {
                 let address = state.borrow_address(*capability)?;

@@ -70,19 +70,31 @@ impl State {
         receiver: Option<&Target>,
         ty: bray_symbols::TypeId,
     ) -> Vec<Effect> {
-        if !values.type_is_concrete(ty)
-            && let Some(receiver) = receiver
-            && self.values.get(receiver).and_then(super::super::model::ValueBinding::whole_sources)
-                .is_some_and(|(sources, complete)| complete && !sources.is_empty() && !sources.contains(receiver))
-        {
-            return self.capture_cleanup(receiver, ty, false).into_iter().collect();
-        }
-
         let kind = DependencyMutationKind::Dispose(ty);
 
         let Some(receiver) = receiver else {
             return vec![Effect::unbounded(kind, None, false)];
         };
+
+        if !values.type_is_concrete(ty)
+            && let Some((sources, complete)) = self.values.get(receiver).and_then(super::super::model::ValueBinding::whole_sources)
+        {
+            let uses_captured_value = if complete {
+                sources.iter().any(|source| source != receiver)
+            } else {
+                match &receiver.origin {
+                    Origin::Storage(path) => usize::try_from(path.root.ordinal()).ok()
+                        .and_then(|index| self.storage_slots.get(index))
+                        .is_some_and(bray_bound_tree::StorageIdentity::is_initialized_at_entry),
+                    Origin::Allocation { .. } => false,
+                    Origin::Entry { .. } | Origin::Returned { .. } | Origin::Static { .. } | Origin::BackingRegion => true,
+                }
+            };
+
+            if uses_captured_value {
+                return self.capture_cleanup(receiver, ty, false).into_iter().collect();
+            }
+        }
 
         // The target is the disposed value, not each differently typed referent.
         // Consumers follow its stored references while the value is still live.
@@ -400,6 +412,7 @@ impl State {
                 Origin::Entry { .. }
                 | Origin::Returned { .. }
                 | Origin::Allocation { .. }
+                | Origin::BackingRegion
                 | Origin::Static { .. } => {
                     matches!(
                         invalidation,

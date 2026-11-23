@@ -308,11 +308,24 @@ possible pointees come from the reached pointer value and previously exposed
 storage. A borrow that keeps the enclosing owner alive does not by itself
 make that owner a possible pointee of the returned reference. The symbolic
 result identity retains those bounds across transfer and later escape.
-When the returned container has complete exact bounds, observing one of its
-stored pointer fields reads that field from each reached current target in
-`StorageFlowState`. A region for the container is not a substitute for the
-field's pointer contents. An unreadable field remains an opaque reference
-with conservative origins.
+An unreadable route ending in checked owning backing retains that allocation
+boundary as a region in `StorageFlowState`. The region can overlap external
+storage and is disjoint from storage owned inline by the caller. Result
+staging and the portable storage contract preserve the region when the
+descriptor is forwarded or imported, including descriptors inside another
+allocation. A checked physical destination can hold this region without a
+logical slot or returned address identity. Only a reached address can
+identify an exact cell or supply a backing witness.
+When a return forwards a complete set of actual borrow alternatives, the
+returned-input record retains those addresses. Observation and effect routes
+read a stored pointer field from each current, type-matched target in
+`StorageFlowState`. An agreed descriptor retains its address. Disagreement
+retains the possible regions. An unreadable alternative keeps the descriptor
+opaque. Region-only bounds supply no descriptor reads. The entire staged
+effect route, including any indirect continuation, uses the type, binding,
+and liveness of that publication before binding the final mutation footprint.
+A projected borrow carries each active inline projection when it crosses
+another callable boundary.
 When a caller cannot select a normal outcome, the shared reference summary
 combines relations for the same input and output under their weakest reached
 provenance. Selected rows keep their own exactness. An empty address remains
@@ -660,12 +673,13 @@ projection. Certification observes reached cleanup during proof replay.
 A generic cleanup of a moved value needs the reference support carried by that
 value. Its portable route selects the original captured contents at admission.
 Specialization follows descriptors in those contents and applies external
-effects. Disposal of the original generic operand keeps that operand's typed
-location through specialization. An open cleanup keeps its portable sources
-and the already reached regions separately. It retains incomplete reachability
-and skips a proven absent value. The moved value's inline storage belongs to
-the callee. Entry preparation of owning buffer elements records the original
-element and its typed inline dependency paths.
+effects. Disposal of an unchanged generic operand keeps that operand's typed
+location through specialization. A joined operand retains every complete
+source alternative. Partial lineage on caller-visible storage has unresolved
+reachability. An open cleanup keeps its portable sources and reached regions
+separately and skips a proven absent value. The moved value's inline storage
+belongs to the callee. Entry preparation of owning buffer elements records the
+original element and uses checked routes to seed its inline dependency paths.
 Cancellation broadcast and lifecycle resolution read the carried data of the
 reached receiver before applying effects. Snapshot and indirect selection
 both check payload activity. A bound on the source cell can reveal known

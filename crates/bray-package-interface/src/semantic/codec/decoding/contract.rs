@@ -2,7 +2,7 @@ use bray_symbols::DependencyMutationKind;
 use bray_symbols::DependencyStorageEffect;
 use super::common::{decode_tag, validate_record_count};
 use crate::semantic::codec::common::{
-    REFERENCE_ALLOCATION, REFERENCE_EMPTY, REFERENCE_EXACT, REFERENCE_INPUT_ABSENT, REFERENCE_INPUT_REGIONS, REFERENCE_KIND_SHIFT, REFERENCE_NO_PAYLOAD,
+    REFERENCE_ALLOCATION, REFERENCE_BACKING_REGION, REFERENCE_EMPTY, REFERENCE_EXACT, REFERENCE_INPUT_ABSENT, REFERENCE_INPUT_REGIONS, REFERENCE_KIND_SHIFT, REFERENCE_NO_PAYLOAD,
     SemanticDecodeContext, map_wire_error, read_count, read_optional_u32, read_symbol_reference,
     read_symbol_references, read_u32,
 };
@@ -262,17 +262,19 @@ pub(in crate::semantic::codec) fn decode_dependency_storage(
         let allocation = attributes & REFERENCE_ALLOCATION != 0;
         let empty = attributes & REFERENCE_EMPTY != 0;
         let no_payload = attributes & REFERENCE_NO_PAYLOAD != 0;
+        let backing_region = attributes & REFERENCE_BACKING_REGION != 0;
 
         if exact && (independent || regions) || allocation && (independent || exact || regions)
             || empty && (!independent || exact || regions || allocation)
-            || no_payload && (!independent || exact || regions || allocation || empty) {
+            || no_payload && (!independent || exact || regions || allocation || empty)
+            || backing_region && (!independent || exact || allocation || empty || no_payload) {
             return Err(crate::semantic::codec::invalid_discriminant(
                 crate::InterfaceValidationField::Discriminant,
                 attributes,
             ));
         }
 
-        let kind = decode_tag(attributes >> REFERENCE_KIND_SHIFT)?;
+        let kind = decode_tag((attributes & !REFERENCE_BACKING_REGION) >> REFERENCE_KIND_SHIFT)?;
 
         let entry = if independent {
             None
@@ -284,6 +286,8 @@ pub(in crate::semantic::codec) fn decode_dependency_storage(
 
         let mut relation = if no_payload {
             bray_symbols::DependencyBorrowRelation::new_no_payload(exit, kind)
+        } else if backing_region {
+            bray_symbols::DependencyBorrowRelation::new_backing_region(exit, kind)
         } else if empty {
             bray_symbols::DependencyBorrowRelation::new_empty(exit, kind)
         } else if allocation {
@@ -1008,6 +1012,45 @@ mod tests {
 
             assert!(decode_storage_words(&words, limits).is_err(), "inactive slots have no address or input origin");
         }
+    }
+
+    #[test]
+    fn backing_region_origin_round_trips_without_an_input_address() {
+        use crate::semantic::codec::common::{REFERENCE_ALLOCATION, REFERENCE_BACKING_REGION, REFERENCE_EMPTY, REFERENCE_NO_PAYLOAD};
+        use bray_symbols::{DependencyBorrowRelation, DependencyReferenceKind};
+
+        let relation = DependencyBorrowRelation::new_backing_region(
+            InterfaceDependencySubject::new(InterfaceDependencySubjectRoot::Result, []),
+            DependencyReferenceKind::Borrow,
+        );
+
+        let mut encoder = crate::wire::WireEncoder::new();
+
+        crate::semantic::codec::encoding::contract::encode_dependency_storage(&mut encoder, std::slice::from_ref(&relation), &[]);
+
+        let mut words = encoder.bytes().chunks_exact(4)
+            .map(|bytes| u32::from_le_bytes(bytes.try_into().expect("the format encodes words")))
+            .collect::<Vec<_>>();
+
+        let limits = InterfaceValidationLimits::default();
+        let decoded = decode_storage_words(&words, limits).expect("a backing region must survive import");
+
+        assert_eq!(decoded.0, vec![relation]);
+        assert!(decoded.1.is_empty());
+
+        let attributes = words[1];
+
+        assert_ne!(attributes & REFERENCE_BACKING_REGION, 0);
+
+        for invalid in [REFERENCE_EXACT, REFERENCE_ALLOCATION, REFERENCE_EMPTY, REFERENCE_NO_PAYLOAD] {
+            words[1] = attributes | invalid;
+
+            assert!(decode_storage_words(&words, limits).is_err());
+        }
+
+        words[1] = attributes & !REFERENCE_INPUT_ABSENT;
+
+        assert!(decode_storage_words(&words, limits).is_err());
     }
 
     #[test]

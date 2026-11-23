@@ -85,9 +85,13 @@ impl State {
                 let forwarded = binding.and_then(|value| value.address.as_ref());
 
                 if forwarded.is_some_and(|references| {
+                    let owning_region = references.is_bounded() && references.targets.iter().any(|target| {
+                        target.origin.is_backing_region()
+                    });
+
                     !references.is_unknown()
                         && (references.is_displaced()
-                            || !references.is_bounded())
+                            || !references.is_bounded() || owning_region)
                 }) {
                     return None;
                 }
@@ -104,7 +108,11 @@ impl State {
 
         for (destination, ty, forwarded, nullable) in references {
             let bounds = match forwarded {
-                Some(regions) => self.expand_returned_regions(regions, self.pending.get(&call)),
+                Some(regions) => {
+                    let root = Target::storage(Place::root(destination.root));
+
+                    self.expand_returned_regions(regions, self.pending.get(&call).map(|transfer| (transfer, &root)))
+                }
                 None => {
                     // Each output retains independent bounds across later joins and retirement.
                     opaque_bounds
@@ -135,7 +143,7 @@ impl State {
     fn expand_returned_regions(
         &self,
         regions: impl IntoIterator<Item = Target>,
-        staged: Option<&Transfer>,
+        staged: Option<(&Transfer, &Target)>,
     ) -> AddressValue {
         let mut bounds = AddressValue::default();
 
@@ -145,10 +153,19 @@ impl State {
                     // Output alternatives belong to their pending producer. Ordinary
                     // inputs and historical aliases retain their committed bounds.
                     let returned = staged.filter(|_| !target.previous)
-                        .and_then(|transfer| transfer.returned_inputs.get(reference))
+                        .and_then(|(transfer, _)| transfer.returned_inputs.get(reference))
                         .unwrap_or_else(|| self.returned_reference_bounds(reference, target.previous));
 
-                    bounds.merge(returned);
+                    if returned.has_values() {
+                        if let Some(choices) = self.actual_borrow_choices(&target, staged) {
+                            bounds.targets.extend(choices);
+                        } else {
+                            bounds.merge(returned);
+                            bounds.forget_value();
+                        }
+                    } else {
+                        bounds.merge(returned);
+                    }
 
                     if target.previous || projections.contains(&bray_bound_tree::StorageProjection::OwnedTarget) {
                         bounds.forget_value();
@@ -192,11 +209,26 @@ impl State {
         ty: TypeId,
         inputs: impl IntoIterator<Item = Target>,
     ) {
-        // Store the established input regions, never another returned identity.
+        // Expand symbolic addresses before storing their established input regions.
         // Repeated writes can otherwise make an output its own region bound.
         let bounds = self.unbounded_reference_regions(inputs);
 
         self.stage_bounded_reference(call, destination, reference, ty, bounds);
+    }
+
+    pub(in crate::analysis::storage_flow) fn stage_unresolved_backing_reference(
+        &mut self, call: bray_bound_tree::BoundExecutionSite, destination: Target,
+    ) {
+        let mut backing = AddressValue::one(Target {
+            previous: false,
+            origin: Origin::BackingRegion,
+        });
+
+        // The route identifies the backing domain. There is no reached cell.
+        backing.bound();
+
+        self.pending.entry(call).or_default().values.entry(destination).or_default()
+            .produced_address().merge(&backing);
     }
 
     pub(in crate::analysis::storage_flow) fn stage_reference_regions(
@@ -247,20 +279,19 @@ impl State {
         self.stage_bounded_reference(call, destination, reference, ty, bounds);
     }
 
-    pub(in crate::analysis::storage_flow) fn observe_reference<C: crate::CheckerRequestContext + ?Sized>(
+    pub(in crate::analysis::storage_flow) fn observe_reference(
         &mut self,
-        request: crate::CheckerUnitView<'_, C>,
         destination: Target,
         reference: Place,
         ty: TypeId,
         inputs: impl IntoIterator<Item = Target>,
-    ) -> crate::CheckerQueryResult<(), C::UpstreamError> {
-        if self.values.get(&destination).is_some_and(ValueBinding::is_no_payload) { return Ok(()); }
+    ) {
+        if self.values.get(&destination).is_some_and(ValueBinding::is_no_payload) { return; }
 
-        if let Some(contents) = self.bounded_reference_contents(request, &destination)? {
+        if let Some(contents) = self.forwarded_reference_contents(&destination, None) {
             *self.values.entry(destination).or_default().produced_address() = contents;
 
-            return Ok(());
+            return;
         }
 
         let bounds = self.unbounded_reference_regions(inputs);
@@ -276,8 +307,6 @@ impl State {
             .storage_type = Some(ty);
 
         *self.values.entry(destination).or_default().produced_address() = AddressValue::one(target);
-
-        Ok(())
     }
 
     fn returned_reference(reference: Place) -> Target {
@@ -298,13 +327,29 @@ impl State {
         ty: TypeId,
         bounds: AddressValue,
     ) {
+        let target = self.stage_returned_origin(call, reference, ty, bounds);
+
+        self.pending
+            .entry(call)
+            .or_default()
+            .values
+            .entry(destination)
+            .or_default()
+            .produced_address()
+            .merge(&AddressValue::one(target));
+    }
+
+    fn stage_returned_origin(
+        &mut self, call: bray_bound_tree::BoundExecutionSite, reference: Place,
+        ty: TypeId, bounds: AddressValue,
+    ) -> Target {
         let target = Self::returned_reference(reference.clone());
 
         self.pending
             .entry(call)
             .or_default()
             .returned_inputs
-            .entry(reference.clone())
+            .entry(reference)
             .or_default()
             .merge(&bounds);
 
@@ -316,14 +361,7 @@ impl State {
             .or_default()
             .storage_type = Some(ty);
 
-        self.pending
-            .entry(call)
-            .or_default()
-            .values
-            .entry(destination)
-            .or_default()
-            .produced_address()
-            .merge(&AddressValue::one(target));
+        target
     }
 
     pub(in crate::analysis::storage_flow) fn capture_inputs<'capture>(
@@ -441,6 +479,18 @@ impl State {
         let relation = reference.relation();
         let ty = reference.addressed_type().expect("address formation retains its checked target type");
 
+        if relation.kind() == bray_symbols::DependencyReferenceKind::Borrow
+            && relation.provenance() == bray_symbols::DependencyReferenceProvenance::Alternatives
+            && let Some(logical) = destination.storage_path().filter(|path| path.is_inline()).cloned()
+            && let Some(choices) = self.actual_borrow_choices(&source, None)
+        {
+            let choices = self.register_borrow_choices(choices, ty);
+
+            self.stage_bounded_reference(call, destination, logical, ty, choices);
+
+            return;
+        }
+
         let mut references = if relation.is_exact() {
             self.addressed_target(source, ty, relation.kind())
         } else {
@@ -464,6 +514,49 @@ impl State {
             .merge(&references);
     }
 
+    pub(in crate::analysis::storage_flow) fn stage_forwarded_borrow(
+        &mut self, call: bray_bound_tree::BoundExecutionSite, destination: &Target,
+        source: &super::Source, ty: TypeId,
+    ) -> bool {
+        let Some(logical) = destination.storage_path().filter(|path| path.is_inline()).cloned() else {
+            return false;
+        };
+
+        let mut captured = self.capture_source(source, destination);
+
+        let Some(binding) = captured.values.get_mut(destination) else { return false; };
+
+        let Some(address) = binding.address.as_ref().filter(|address| address.has_values() && !address.targets.is_empty()) else {
+            return false;
+        };
+
+        let mut choices = Vec::new();
+
+        for candidate in &address.targets {
+            let Some(reached) = self.actual_borrow_choices(candidate, None) else {
+                return false;
+            };
+
+            choices.extend(reached);
+        }
+
+        let choices = self.register_borrow_choices(choices, ty);
+        let forwarded = self.stage_returned_origin(call, logical, ty, choices);
+
+        binding.address = Some(AddressValue::one(forwarded));
+        self.stage_captured_value(call, destination.clone(), captured);
+
+        true
+    }
+
+    fn register_borrow_choices(&mut self, choices: Vec<Target>, ty: TypeId) -> AddressValue {
+        for choice in &choices {
+            self.observe_addressed_target(choice, ty, bray_symbols::DependencyReferenceKind::Borrow);
+        }
+
+        AddressValue::from_targets(choices)
+    }
+
     pub(in crate::analysis::storage_flow) fn stage_exposed_borrow(
         &mut self,
         call: bray_bound_tree::BoundExecutionSite,
@@ -471,7 +564,7 @@ impl State {
         destination: Target,
     ) {
         let reached = match source {
-            super::Source::Value(slot) => self.values.get(&slot).map(ValueBinding::exposed_address),
+            super::Source::Value(slot) => self.reached_route_binding(&slot, None).map(|value| value.exposed_address()),
             super::Source::Borrow(loan) => self.borrow_address(loan)
                 .map(|address| ValueBinding::from(address.clone()).exposed_address()),
             super::Source::Captured(value) => value.binding().map(ValueBinding::exposed_address),
@@ -714,11 +807,12 @@ impl State {
         &self,
         owner: &Target,
         pointer: bray_bound_tree::StorageProjection,
-    ) -> Option<&ValueBinding> {
+    ) -> Option<std::borrow::Cow<'_, ValueBinding>> {
         self.values
             .get(owner)
             .filter(|value| owner.is_exact() && !owner.previous && value.is_no_payload())
-            .or_else(|| self.values.get(&owner.project(&[pointer])))
+            .map(std::borrow::Cow::Borrowed)
+            .or_else(|| self.reached_route_binding(&owner.project(&[pointer]), None))
     }
 
     pub(in crate::analysis::storage_flow) fn declare_owned_buffer(
@@ -767,7 +861,7 @@ impl State {
         let value = match &owner.address {
             Some(address) => self.owned_value(address, pointer),
             None => self.values.get(&owner.footprint().project(&[pointer]))
-                .filter(|value| value.reference().is_some()),
+                .filter(|value| value.reference().is_some()).map(std::borrow::Cow::Borrowed),
         }?;
 
         let mut targets = value.mutation_targets()?;
@@ -793,6 +887,7 @@ impl State {
 
         for owner in owners {
             let value = self.owned_value(owner, pointer);
+            let value = value.as_deref();
 
             if value.is_some_and(ValueBinding::is_no_payload) { continue; }
 

@@ -110,7 +110,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         .peekable();
 
                     let independent = origins.peek().is_some()
-                        && origins.all(|relation| relation.entry().is_none());
+                        && origins.all(|relation| relation.entry().is_none() && !relation.is_backing_region());
 
                     if let Some(owners) = sources.get(&address) {
                         addresses

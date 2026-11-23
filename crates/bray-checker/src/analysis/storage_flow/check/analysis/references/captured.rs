@@ -602,11 +602,11 @@ fn capture_input_referent<'path, C: CheckerRequestContext + ?Sized>(
     memory: &crate::analysis::storage_flow::memory::State,
     descriptor: &mut bray_bound_tree::StorageCapturedValue,
     ty: bray_symbols::TypeId,
-    observations: impl IntoIterator<Item = (&'path [bray_bound_tree::StorageProjection], bray_bound_tree::StorageObservationKind)>,
+    observations: impl Iterator<Item = (&'path [bray_bound_tree::StorageProjection], bray_bound_tree::StorageObservationKind)>,
 ) -> crate::CheckerQueryResult<Option<(bray_symbols::TypeId, Arc<bray_bound_tree::StorageCapturedValue>)>, C::UpstreamError> {
     let Some(target) = descriptor.known_address() else { return Ok(None); };
 
-    let value = memory.capture_reached_value(target).with_observations(observations);
+    let value = memory.capture_observed_referent(target, observations);
     let enclosing = memory.enclosing_typed_view(request, target, ty)?;
 
     descriptor.set_enclosing_view(ty, enclosing);

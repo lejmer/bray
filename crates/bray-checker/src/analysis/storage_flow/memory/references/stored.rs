@@ -1,5 +1,5 @@
 use super::super::model::DependencyCompleteness;
-use super::super::model::{AddressValue, Place, Retirement, State, Target, Transfer, ValueBinding};
+use super::super::model::{AddressValue, Origin, Place, Retirement, State, Target, Transfer, ValueBinding};
 use super::slots::take_subtree;
 
 fn value_subjects(value: &ValueBinding) -> impl Iterator<Item = bray_bound_tree::BoundDependencySubject> + '_ {
@@ -140,9 +140,41 @@ impl State {
         bray_bound_tree::StorageCapturedValue::new(source.clone(), self.capture_value(source, source))
     }
 
+    pub(in crate::analysis::storage_flow) fn capture_observed_referent<'path>(
+        &self, source: &Target,
+        observations: impl Iterator<Item = (&'path [bray_bound_tree::StorageProjection], bray_bound_tree::StorageObservationKind)>,
+    ) -> bray_bound_tree::StorageCapturedValue {
+        use bray_bound_tree::StorageObservationKind;
+
+        let Origin::Returned { reference, .. } = &source.origin else {
+            return self.capture_reached_value(source).with_observations(observations);
+        };
+
+        if !self.returned_reference_bounds(reference, source.previous).has_values() {
+            return self.capture_reached_value(source).with_observations(observations);
+        }
+
+        let mut captured = self.capture_value(source, source);
+
+        let observations = observations.inspect(|(path, kind)| {
+            if matches!(kind, StorageObservationKind::Address | StorageObservationKind::Reference(_)) {
+                let target = source.project(path);
+
+                if let std::collections::btree_map::Entry::Vacant(entry) = captured.values.entry(target.clone())
+                    && let Some(address) = self.forwarded_reference_contents(&target, None)
+                {
+                    entry.insert(address.into());
+                }
+            }
+        }).collect::<Vec<_>>();
+
+        bray_bound_tree::StorageCapturedValue::new(source.clone(), captured).with_observations(observations)
+    }
+
     /// Shares an already produced descriptor with the logical value and replay.
     pub(in crate::analysis::storage_flow) fn capture_produced_reference(&self, slot: &Target) -> Option<bray_bound_tree::StorageCapturedValue> {
-        let reference = self.values.get(slot)?.reference()?;
+        let binding = self.reached_route_binding(slot, None)?;
+        let reference = binding.reference()?;
 
         if !reference.is_exact() { return None; }
 

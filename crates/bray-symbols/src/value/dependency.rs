@@ -474,6 +474,7 @@ pub enum DependencyReferenceProvenance {
 enum ReferenceSource<Subject> {
     Input(Subject),
     Independent,
+    BackingRegion,
     Allocation(Subject),
     Empty,
     NoPayload,
@@ -522,6 +523,16 @@ impl<Subject, Projection> DependencyBorrowRelation<Subject, Projection> {
             source: ReferenceSource::Allocation(allocation),
             ..Self::new(None, exit, kind)
         }
+    }
+
+    /// Records a possible address in owning backing, including backing carried by an input.
+    pub fn new_backing_region(exit: Subject, kind: DependencyReferenceKind) -> Self {
+        Self { source: ReferenceSource::BackingRegion, ..Self::new(None, exit, kind) }
+    }
+
+    /// Whether the output identifies a backing region without an actual address.
+    pub const fn is_backing_region(&self) -> bool {
+        matches!(self.source, ReferenceSource::BackingRegion)
     }
 
     /// Records a live reference with a null address.
@@ -631,7 +642,7 @@ impl<Subject, Projection> DependencyBorrowRelation<Subject, Projection> {
     pub const fn entry(&self) -> Option<&Subject> {
         match &self.source {
             ReferenceSource::Input(subject) => Some(subject),
-            ReferenceSource::Independent | ReferenceSource::Allocation(_) | ReferenceSource::Empty | ReferenceSource::NoPayload => None,
+            ReferenceSource::Independent | ReferenceSource::BackingRegion | ReferenceSource::Allocation(_) | ReferenceSource::Empty | ReferenceSource::NoPayload => None,
         }
     }
 
@@ -639,7 +650,7 @@ impl<Subject, Projection> DependencyBorrowRelation<Subject, Projection> {
     pub const fn allocation(&self) -> Option<&Subject> {
         match &self.source {
             ReferenceSource::Allocation(subject) => Some(subject),
-            ReferenceSource::Independent | ReferenceSource::Input(_) | ReferenceSource::Empty | ReferenceSource::NoPayload => None,
+            ReferenceSource::Independent | ReferenceSource::BackingRegion | ReferenceSource::Input(_) | ReferenceSource::Empty | ReferenceSource::NoPayload => None,
         }
     }
 
@@ -647,7 +658,7 @@ impl<Subject, Projection> DependencyBorrowRelation<Subject, Projection> {
     pub const fn source_subject(&self) -> Option<&Subject> {
         match &self.source {
             ReferenceSource::Allocation(subject) | ReferenceSource::Input(subject) => Some(subject),
-            ReferenceSource::Independent | ReferenceSource::Empty | ReferenceSource::NoPayload => None,
+            ReferenceSource::Independent | ReferenceSource::BackingRegion | ReferenceSource::Empty | ReferenceSource::NoPayload => None,
         }
     }
 
@@ -660,6 +671,11 @@ impl<Subject, Projection> DependencyBorrowRelation<Subject, Projection> {
                 assert!(source.is_none(), "independent origin has no source subject");
 
                 ReferenceSource::Independent
+            }
+            ReferenceSource::BackingRegion => {
+                assert!(source.is_none(), "an unresolved backing region has no source subject");
+
+                ReferenceSource::BackingRegion
             }
             ReferenceSource::Empty => {
                 assert!(source.is_none(), "empty reference has no source subject");

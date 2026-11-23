@@ -1,5 +1,4 @@
 use crate::test_support::{source_function_body_key};
-use super::fixtures::production_host_compilation;
 
 #[test]
 #[ignore = "tier:proof"]

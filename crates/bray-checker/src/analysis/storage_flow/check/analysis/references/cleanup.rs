@@ -20,7 +20,9 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
                 continue;
             };
 
-            self.footprint.prepare_type(request, fields.element)?;
+            if let std::collections::btree_map::Entry::Vacant(entry) = self.buffer_element_sources.entry(fields.element) {
+                entry.insert(self.footprint.prepare_inline_whole_sources(request, fields.element)?);
+            }
 
             let pointer_type = crate::storage::projected_value_type(
                 request,

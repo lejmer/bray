@@ -471,10 +471,12 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     continue;
                 };
 
-                if relation.entry().is_none() {
-                    entry.1 = false;
-                } else {
+                if relation.is_backing_region() {
+                    entry.0.insert(relation);
+                } else if relation.entry().is_some() {
                     entry.0.insert(relation.with_provenance(DependencyReferenceProvenance::InputRegions));
+                } else {
+                    entry.1 = false;
                 }
             }
         }
@@ -709,6 +711,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             Origin::Storage(path) => Some((path, false)),
             Origin::Allocation { .. }
             | Origin::Returned { .. }
+            | Origin::BackingRegion
             | Origin::Static { .. } => None,
         };
 
@@ -727,15 +730,15 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                         || !matches!(origin, Origin::Allocation { .. })
                 })
                 .map(|kind| {
-                    bray_symbols::DependencyBorrowRelation::new(
-                        None,
-                        bray_symbols::DependencySubject::new(
-                            self.formal_root(slot.root)
-                                .expect("reference exit has a formal root"),
-                            exit,
-                        ),
-                        kind,
-                    )
+                    let exit = bray_symbols::DependencySubject::new(
+                        self.formal_root(slot.root).expect("reference exit has a formal root"), exit,
+                    );
+
+                    if origin.is_backing_region() {
+                        bray_symbols::DependencyBorrowRelation::new_backing_region(exit, kind)
+                    } else {
+                        bray_symbols::DependencyBorrowRelation::new(None, exit, kind)
+                    }
                 }));
         };
 

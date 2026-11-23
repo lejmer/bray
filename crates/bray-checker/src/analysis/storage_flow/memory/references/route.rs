@@ -62,7 +62,7 @@ impl ReferenceRouteValue {
         mut self,
         projections: &[StorageProjection],
         bind: &mut Option<&mut dyn FnMut(StorageProjection) -> StorageProjection>,
-        lookup: &impl Fn(&Target) -> Option<&'a ValueBinding>,
+        lookup: &impl Fn(&Target) -> Option<Cow<'a, ValueBinding>>,
     ) -> Self {
         let mut start = 0;
 
@@ -82,13 +82,13 @@ impl ReferenceRouteValue {
         } else { self }
     }
 
-    fn without_inactive<'a>(self, lookup: &impl Fn(&Target) -> Option<&'a ValueBinding>) -> Self {
+    fn without_inactive<'a>(self, lookup: &impl Fn(&Target) -> Option<Cow<'a, ValueBinding>>) -> Self {
         match self {
             Self::Capture(value) if value.binding().is_some_and(ValueBinding::is_no_payload) =>
                 Self::Locations(Vec::new(), None),
             Self::Locations(mut targets, loan) => {
                 targets.retain(|target| target.previous || !target.is_exact()
-                    || !lookup(target).is_some_and(ValueBinding::is_no_payload));
+                    || !lookup(target).is_some_and(|value| value.is_no_payload()));
 
                 Self::Locations(targets, loan)
             }
@@ -159,7 +159,7 @@ impl State {
         path: &bray_bound_tree::StorageReferencePath,
         root_borrow: Option<Target>,
     ) -> Option<Vec<Target>> {
-        self.reference_locations_in(values, target, path, root_borrow, |target| self.values.get(target))
+        self.reference_locations_in(values, target, path, root_borrow, None)
     }
 
     pub(in crate::analysis::storage_flow) fn reached_access(
@@ -173,7 +173,7 @@ impl State {
         let start = ReferenceRouteValue::Locations(vec![target], None);
         let root_borrow = root_borrow.map(|(target, loan)| (target, Some(loan)));
 
-        match self.follow_reference_route(values, start, path, root_borrow, |target| self.values.get(target), RouteTail::Access(Some(bind)))? {
+        match self.follow_reference_route(values, start, path, root_borrow, None, RouteTail::Access(Some(bind)))? {
             ReferenceRouteValue::Locations(locations, loan) => Some(ReachedAccess {
                 address: AddressValue::from_targets(locations), loan,
             }),
@@ -198,8 +198,7 @@ impl State {
     ) -> Option<Vec<Target>> {
         let staged = self.pending.get(&invocation)?;
 
-        self.reference_locations_in(values, start.clone(), path, None,
-            |target| self.staged_binding(staged, root, target))
+        self.reference_locations_in(values, start.clone(), path, None, Some((staged, root)))
     }
 
     pub(in crate::analysis::storage_flow) fn staged_effect_targets(
@@ -207,20 +206,41 @@ impl State {
         invocation: bray_bound_tree::BoundExecutionSite,
         values: &bray_symbols::SemanticValueStore,
         root: &Target,
-        path: &StorageReferencePath,
+        (path, continuation): (&StorageReferencePath, Option<&StorageReferencePath>),
         indirect: bool,
     ) -> Option<Vec<StorageMutationTarget>> {
         let staged = self.pending.get(&invocation)?;
-        let lookup = |target: &Target| self.staged_binding(staged, root, target);
+        let stage = Some((staged, root));
 
         let reached = self.follow_reference_route(values,
-            ReferenceRouteValue::Locations(vec![root.clone()], None), path, None, lookup, RouteTail::Access(None))?;
+            ReferenceRouteValue::Locations(vec![root.clone()], None), path, None, stage, RouteTail::Access(None))?;
 
-        self.mutation_route(reached, indirect, lookup)
-    }
+        let targets = self.mutation_route(reached, indirect, stage)?;
 
-    fn staged_binding<'a>(&'a self, staged: &'a Transfer, root: &Target, target: &Target) -> Option<&'a ValueBinding> {
-        staged.values.get(target).or_else(|| (!root.contains_storage(target)).then(|| self.values.get(target)).flatten())
+        let targets = if let Some(continuation) = continuation {
+            self.follow_effect_path_in(values, targets, continuation, stage)?
+        } else { targets };
+
+        let mut physical = Vec::new();
+
+        for target in targets {
+            if let super::super::model::Origin::Returned { reference, .. } = &target.footprint.origin
+                && !target.footprint.previous && let Some(bounds) = staged.returned_inputs.get(reference)
+            {
+                let projections = target.footprint.projections();
+
+                let regions = self.actual_borrow_choices(&target.footprint, stage).or_else(|| {
+                    (!bounds.is_unknown() && !bounds.is_displaced() && super::super::model::Place::inline_projections(projections))
+                        .then(|| bounds.targets.iter().map(|region| region.project(projections)).collect())
+                })?;
+
+                physical.extend(regions.into_iter().map(StorageMutationTarget::bounded));
+            } else {
+                physical.push(target);
+            }
+        }
+
+        Some(physical)
     }
 
     pub(in crate::analysis::storage_flow) fn captured_effect_targets(
@@ -230,7 +250,7 @@ impl State {
         path: &StorageReferencePath,
         indirect: bool,
     ) -> Option<Vec<StorageMutationTarget>> {
-        self.mutation_route(self.captured_route(values, value, path)?, indirect, |target| self.values.get(target))
+        self.mutation_route(self.captured_route(values, value, path)?, indirect, None)
     }
 
     pub(in crate::analysis::storage_flow) fn captured_cleanup_effects(
@@ -238,7 +258,7 @@ impl State {
         path: &StorageReferencePath, ty: TypeId, include_inline: bool,
     ) -> Option<Vec<bray_bound_tree::StorageEffect>> {
         let reached = self.follow_reference_route(values, ReferenceRouteValue::Capture(value.clone()), path,
-            None, |target| self.values.get(target), RouteTail::Payload)?;
+            None, None, RouteTail::Payload)?;
 
         Some(match reached {
             ReferenceRouteValue::Capture(value) if !include_inline => value.capture_cleanup(ty).into_iter().collect(),
@@ -263,15 +283,22 @@ impl State {
         path: Option<&StorageReferencePath>,
         indirect: bool,
     ) -> Option<Vec<StorageMutationTarget>> {
+        self.reference_effect_targets_in(values, start, path, indirect, None)
+    }
+
+    fn reference_effect_targets_in(
+        &self, values: &bray_symbols::SemanticValueStore, start: Target,
+        path: Option<&StorageReferencePath>, indirect: bool, staged: Option<(&Transfer, &Target)>,
+    ) -> Option<Vec<StorageMutationTarget>> {
         let start = ReferenceRouteValue::Locations(vec![start], None);
 
         let reached = if let Some(path) = path {
-            self.follow_reference_route(values, start, path, None, |target| self.values.get(target), RouteTail::Access(None))?
+            self.follow_reference_route(values, start, path, None, staged, RouteTail::Access(None))?
         } else {
             start
         };
 
-        self.mutation_route(reached, indirect, |target| self.values.get(target))
+        self.mutation_route(reached, indirect, staged)
     }
 
     pub(in crate::analysis::storage_flow) fn follow_effect_path(
@@ -279,6 +306,13 @@ impl State {
         values: &bray_symbols::SemanticValueStore,
         targets: Vec<StorageMutationTarget>,
         path: &StorageReferencePath,
+    ) -> Option<Vec<StorageMutationTarget>> {
+        self.follow_effect_path_in(values, targets, path, None)
+    }
+
+    fn follow_effect_path_in(
+        &self, values: &bray_symbols::SemanticValueStore, targets: Vec<StorageMutationTarget>,
+        path: &StorageReferencePath, staged: Option<(&Transfer, &Target)>,
     ) -> Option<Vec<StorageMutationTarget>> {
         if path.steps().is_empty() {
             return Some(targets.into_iter().map(|target| target.project(path.projections())).collect());
@@ -288,7 +322,7 @@ impl State {
         let mut reached = Vec::new();
 
         for target in targets {
-            if let Some(actual) = target.address.and_then(|address| self.reference_effect_targets(values, address, Some(path), false)) {
+            if let Some(actual) = target.address.and_then(|address| self.reference_effect_targets_in(values, address, Some(path), false, staged)) {
                 reached.extend(actual);
             } else if owning {
                 // Owning storage bounds its backing even when activation cannot
@@ -306,13 +340,13 @@ impl State {
         &'a self,
         reached: ReferenceRouteValue,
         indirect: bool,
-        lookup: impl Fn(&Target) -> Option<&'a ValueBinding>,
+        staged: Option<(&'a Transfer, &Target)>,
     ) -> Option<Vec<StorageMutationTarget>> {
         match reached {
             ReferenceRouteValue::Capture(value) if indirect => value.mutation_targets(),
             ReferenceRouteValue::Capture(_) => None,
             ReferenceRouteValue::Locations(locations, _) => StorageMutationTarget::resolve_locations(
-                locations, indirect, |location| lookup(&location)?.mutation_targets()),
+                locations, indirect, |location| self.reached_route_binding(&location, staged)?.mutation_targets()),
             ReferenceRouteValue::Regions(regions) if !indirect => {
                 Some(regions.into_iter().map(StorageMutationTarget::bounded).collect())
             }
@@ -338,7 +372,7 @@ impl State {
         value: &StorageCapturedValue,
         path: &StorageReferencePath,
     ) -> Option<ReferenceRouteValue> {
-        self.follow_reference_route(values, ReferenceRouteValue::Capture(value.clone()), path, None, |target| self.values.get(target), RouteTail::Access(None))
+        self.follow_reference_route(values, ReferenceRouteValue::Capture(value.clone()), path, None, None, RouteTail::Access(None))
     }
 
     fn reference_locations_in<'a>(
@@ -347,12 +381,12 @@ impl State {
         target: Target,
         path: &StorageReferencePath,
         root_borrow: Option<Target>,
-        lookup: impl Fn(&Target) -> Option<&'a ValueBinding>,
+        staged: Option<(&'a Transfer, &Target)>,
     ) -> Option<Vec<Target>> {
         let start = ReferenceRouteValue::Locations(vec![target], None);
         let root_borrow = root_borrow.map(|target| (target, None));
 
-        match self.follow_reference_route(values, start, path, root_borrow, lookup, RouteTail::Access(None))? {
+        match self.follow_reference_route(values, start, path, root_borrow, staged, RouteTail::Access(None))? {
             ReferenceRouteValue::Locations(locations, _) => Some(locations),
             ReferenceRouteValue::Regions(..) => None,
             ReferenceRouteValue::Capture(_) => unreachable!("an actual storage route remains in memory"),
@@ -365,9 +399,10 @@ impl State {
         mut reached: ReferenceRouteValue,
         path: &StorageReferencePath,
         mut root_borrow: Option<(Target, Option<BorrowCapabilityId>)>,
-        lookup: impl Fn(&Target) -> Option<&'a ValueBinding>,
+        staged: Option<(&'a Transfer, &Target)>,
         tail: RouteTail<'_>,
     ) -> Option<ReferenceRouteValue> {
+        let lookup = |target: &Target| self.reached_route_binding(target, staged);
         let mut selected = 0;
         let read_payload = matches!(tail, RouteTail::Payload);
         let mut bind = match tail { RouteTail::Access(bind) => bind, RouteTail::Payload => None };
@@ -452,7 +487,7 @@ impl State {
                             return Some(ReferenceRouteValue::Locations(Vec::new(), None));
                         }
 
-                        let (targets, precision) = self.reference_step_targets(values, operation, binding)?;
+                        let (targets, precision) = self.reference_step_targets(values, operation, binding, staged)?;
 
                         (targets.iter().cloned().collect::<Vec<_>>(), if borrow_read { binding.borrow_capability() } else { None }, precision)
                     }
@@ -470,7 +505,7 @@ impl State {
 
                             let loan = binding.borrow_capability();
 
-                            let (reached, reached_precision) = self.reference_step_targets(values, operation, binding)?;
+                            let (reached, reached_precision) = self.reference_step_targets(values, operation, &binding, staged)?;
 
                             targets.extend(reached.iter().cloned());
                             precision = precision.min(reached_precision);
@@ -529,6 +564,7 @@ impl State {
         values: &bray_symbols::SemanticValueStore,
         operation: StorageReferenceStep,
         binding: &'a ValueBinding,
+        staged: Option<(&Transfer, &Target)>,
     ) -> Option<(Cow<'a, BTreeSet<Target>>, ReferencePrecision)> {
         let Some(reference) = &binding.address else {
             return Some((Cow::Owned(binding.reference_regions()?.into_iter().collect()), ReferencePrecision::Region));
@@ -536,7 +572,7 @@ impl State {
 
         match operation {
             StorageReferenceStep::ReadBorrow { target, .. } | StorageReferenceStep::ReadAddress { target, .. } => {
-                if let Some(targets) = self.route_pointer_targets(values, reference, target) {
+                if let Some(targets) = self.route_pointer_targets(values, reference, target, staged) {
                     let precision = if reference.has_values() {
                         ReferencePrecision::Location
                     } else {
@@ -571,8 +607,9 @@ impl State {
         values: &bray_symbols::SemanticValueStore,
         reference: &'a AddressValue,
         ty: TypeId,
+        staged: Option<(&Transfer, &Target)>,
     ) -> Option<&'a std::collections::BTreeSet<Target>> {
-        self.typed_targets(reference, ty).or_else(|| {
+        self.typed_route_targets(reference, ty, staged).or_else(|| {
             let data = values.type_data(ty);
 
             let bray_symbols::TypeData::Slice(element) = data.as_ref() else { return None; };
@@ -581,7 +618,7 @@ impl State {
             // supply a layout or turn a dynamic selector into one cell.
             (!reference.is_unknown() && !reference.is_displaced() && !reference.nullable && !reference.targets.is_empty()
                 && reference.targets.iter().all(|reached| {
-                    let declared = self.contents.get(reached).and_then(|contents| contents.storage_type);
+                    let declared = self.route_declared_type(reached, staged);
 
                     !reached.previous && (!reference.is_bounded() || !reached.is_exact())
                         && (declared == Some(ty) || declared == Some(*element))

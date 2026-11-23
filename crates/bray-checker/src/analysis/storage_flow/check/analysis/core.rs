@@ -2246,7 +2246,7 @@ where
                 {
                     // Keep the value read from a reference field separate from its slot.
                     for target in targets.targets {
-                        self.observe_stored_reference(&mut state.memory, target, logical.clone(), pointee)?;
+                        self.observe_stored_reference(&mut state.memory, target, logical.clone(), pointee);
                     }
                 }
             }

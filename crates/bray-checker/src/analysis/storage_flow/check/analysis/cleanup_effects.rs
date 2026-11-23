@@ -89,7 +89,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     ) -> Vec<Effect> {
         let values = self.request.semantic_values();
 
-        self.resolve_effects(memory, storage, (effects, None),
+        self.resolve_effects(memory, storage, (effects, None, None),
             || receiver.map(|target| [target.clone()].into()), |subject, path, indirect| {
             let start = self.cleanup_subject_root(receiver, subject)?;
 

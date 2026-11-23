@@ -38,6 +38,8 @@ pub(crate) struct StorageFlowInput {
         Option<(bray_symbols::StructFieldSymbolId, bray_symbols::TypeId)>,
     pub(in crate::analysis::storage_flow) raw_buffers:
         BTreeMap<bray_symbols::TypeId, crate::representation::RawBufferFields>,
+    pub(in crate::analysis::storage_flow) buffer_element_sources:
+        BTreeMap<bray_symbols::TypeId, Vec<std::sync::Arc<[bray_bound_tree::StorageProjection]>>>,
     pub(in crate::analysis::storage_flow) buffer_cleanup_effects:
         BTreeMap<bray_symbols::TypeId, Vec<bray_symbols::DependencyStorageEffect>>,
     pub(in crate::analysis::storage_flow) buffer_cleanup_storage:

@@ -179,20 +179,28 @@ impl Footprint {
             .map(|(path, kind)| (path.as_slice(), *kind))
     }
 
-    pub(crate) fn prepare_type<C: CheckerRequestContext + ?Sized>(
+    pub(crate) fn prepare_inline_whole_sources<C: CheckerRequestContext + ?Sized>(
         &mut self, request: CheckerUnitView<'_, C>, ty: TypeId,
-    ) -> Result<(), CheckerQueryError<C::UpstreamError>> {
+    ) -> Result<Vec<std::sync::Arc<[StorageProjection]>>, CheckerQueryError<C::UpstreamError>> {
         let complete = std::sync::Arc::get_mut(&mut self.complete_reference_types)
             .expect("entry type preparation precedes storage-state initialization");
 
-        cached_shape(request, ty, &mut self.shapes, complete)?;
+        let shape = cached_shape(request, ty, &mut self.shapes, complete)?;
+        let mut sources = Vec::new();
 
-        Ok(())
-    }
+        for (path, reached) in shape.whole_sources.iter()
+            .filter(|(path, _)| !path.is_empty() && StoragePath::inline_projections(path))
+        {
+            let projections = std::sync::Arc::from(path.as_slice());
 
-    pub(crate) fn whole_source_projections(&self, ty: TypeId) -> impl Iterator<Item = &[StorageProjection]> {
-        self.shapes.get(&ty).into_iter().flat_map(|shape| shape.whole_sources.iter())
-            .map(|(path, _)| path.as_slice())
+            if let Some((_, route)) = super::reference_path(request, ty, std::sync::Arc::clone(&projections), Some(*reached))?
+                && route.steps().is_empty()
+            {
+                sources.push(projections);
+            }
+        }
+
+        Ok(sources)
     }
 
     pub(crate) fn carries_no_borrows(&self, values: &bray_symbols::SemanticValueStore, ty: TypeId) -> bool {

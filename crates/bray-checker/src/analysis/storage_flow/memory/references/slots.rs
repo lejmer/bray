@@ -466,6 +466,21 @@ impl State {
 
                         let bounds = self.returned_reference_bounds(reference, target.previous);
 
+                        if bounds.has_values() {
+                            if let Some(choices) = self.actual_borrow_choices(target, None) {
+                                expanded.targets.remove(target);
+                                expanded.targets.extend(choices);
+
+                                if !references.has_values() {
+                                    input_regions.insert(slot.clone());
+                                }
+                            } else {
+                                expanded.forget_value();
+                            }
+
+                            continue;
+                        }
+
                         if (bounds.is_unknown() || bounds.is_bounded()) && !bounds.targets.is_empty() {
                             input_regions.insert(slot.clone());
                         }
@@ -579,7 +594,15 @@ impl State {
     }
 
     pub(in crate::analysis::storage_flow::memory) fn capture_value(&self, source: &Target, destination: &Target) -> Transfer {
-        Transfer::capture(&self.values, &self.contents, &self.evaluated, source, destination)
+        let mut captured = Transfer::capture(&self.values, &self.contents, &self.evaluated, source, destination);
+
+        if matches!(source.origin, Origin::Returned { .. }) && !captured.values.contains_key(destination)
+            && let Some(address) = self.forwarded_reference_contents(source, None)
+        {
+            captured.values.insert(destination.clone(), address.into());
+        }
+
+        captured
     }
 
     /// Select the element directly addressed by a buffer's base pointer.

@@ -93,7 +93,8 @@ impl State {
         let mut common_loan = None;
 
         for slot in &source.address.targets {
-            let value = self.values.get(slot);
+            let value = self.reached_route_binding(slot, None);
+            let value = value.as_deref();
             let loan = value.and_then(super::super::model::ValueBinding::borrow_capability).or(source.loan);
 
             let incoming = value.and_then(|value| value.address.as_ref())
@@ -274,7 +275,7 @@ impl State {
     ) -> AddressValue {
         // Transfers and mutations need an owned snapshot while changing their reached targets.
         if slot.is_exact() {
-            self.values.get(slot).and_then(|value| value.captured_reference()).unwrap_or_else(AddressValue::unknown)
+            self.reached_route_binding(slot, None).and_then(|value| value.captured_reference()).unwrap_or_else(AddressValue::unknown)
         } else {
             AddressValue::unknown()
         }
