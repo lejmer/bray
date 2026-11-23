@@ -176,7 +176,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             let Some(value) = writes.common_value(destination) else { continue; };
 
             if !*installed {
-                self.publish_value_graph(state, target.clone(), value.clone(), false);
+                self.publish_value_graph(state, target.clone(), value.clone(), super::references::ValuePublication::Replacement);
             }
 
             let snapshot = state.memory.capture_reached_value(target)

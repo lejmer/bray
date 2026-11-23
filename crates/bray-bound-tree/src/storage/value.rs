@@ -737,6 +737,7 @@ impl StorageValueBinding {
         self.observations.retain(|kind| incoming.observations.contains(kind));
 
         self.merge_backing(incoming, false);
+        self.merge_descriptor(incoming);
         self.merge_contents(incoming, self.completeness.join(incoming.completeness));
 
         if missing_address && let Some(address) = &mut self.address {
@@ -781,6 +782,7 @@ impl StorageValueBinding {
             if self.borrow_capability != incoming.borrow_capability { self.borrow_capability = None; }
             self.observations.retain(|kind| incoming.observations.contains(kind));
             self.merge_backing(incoming, self.completeness.tracked() || incoming.completeness.tracked());
+            self.merge_descriptor(incoming);
             self.merge_contents(incoming, self.completeness.join(incoming.completeness));
         }
     }
@@ -788,18 +790,37 @@ impl StorageValueBinding {
     /// Assemble captured contents whose explicit reference slots supplement opaque lineage.
     pub fn include_value(&mut self, incoming: &Self) {
         if self.merge_presence(incoming) {
-            self.merge_report_dependencies(incoming, false);
+            self.include_present_value(incoming, false);
+        }
+    }
 
+    /// Supplement a published result with another capture of the same value.
+    pub fn complete_published_value(&mut self, capture: &Self) {
+        if self.no_payload || capture.no_payload { return; }
+
+        self.include_present_value(capture, true);
+    }
+
+    fn include_present_value(&mut self, incoming: &Self, published: bool) {
+        self.merge_report_dependencies(incoming, false);
+
+        // Physical staging already selected the result's descriptor and backing alternatives.
+        if !published || self.address.as_ref().is_none_or(StorageAddressValue::is_unknown) {
             if self.address.is_none() {
                 self.borrow_capability = incoming.borrow_capability;
             } else if incoming.address.is_some() && self.borrow_capability != incoming.borrow_capability {
                 self.borrow_capability = None;
             }
 
-            if self.observations.is_empty() { self.observations.clone_from(&incoming.observations); }
-            self.merge_backing(incoming, false);
-            self.merge_contents(incoming, self.completeness.include(incoming.completeness));
+            self.merge_descriptor(incoming);
         }
+
+        if !published || self.owned_backing.as_ref().is_none_or(|backing| backing.is_unknown()) {
+            self.merge_backing(incoming, false);
+        }
+
+        if self.observations.is_empty() { self.observations.clone_from(&incoming.observations); }
+        self.merge_contents(incoming, self.completeness.include(incoming.completeness));
     }
 
     fn merge_presence(&mut self, incoming: &Self) -> bool {
@@ -817,7 +838,7 @@ impl StorageValueBinding {
         !incoming.no_payload
     }
 
-    fn merge_contents(&mut self, incoming: &Self, completeness: StorageDependencyCompleteness) {
+    fn merge_descriptor(&mut self, incoming: &Self) {
         match (&mut self.address, &incoming.address) {
             (Some(current), Some(incoming)) => { current.merge(incoming); }
             (None, Some(incoming)) => {
@@ -834,6 +855,12 @@ impl StorageValueBinding {
             _ => {}
         }
 
+        if let Some(bounds) = &incoming.address_bounds {
+            self.include_address_bound(bounds);
+        }
+    }
+
+    fn merge_contents(&mut self, incoming: &Self, completeness: StorageDependencyCompleteness) {
         self.sources.extend(incoming.sources.iter().cloned());
 
         if let Some(support) = incoming.dependency_support() {
@@ -841,10 +868,6 @@ impl StorageValueBinding {
         }
 
         self.completeness = completeness;
-
-        if let Some(bounds) = &incoming.address_bounds {
-            self.include_address_bound(bounds);
-        }
     }
 
     fn merge_backing(&mut self, incoming: &Self, conservative: bool) {

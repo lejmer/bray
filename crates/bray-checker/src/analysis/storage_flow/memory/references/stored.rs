@@ -162,11 +162,12 @@ impl State {
         }
     }
 
-    /// Completes a fresh result whose physical output rows are already installed.
-    pub(in crate::analysis::storage_flow) fn complete_result_capture(
+    /// Completes a capture in a slot whose transition may have published physical data.
+    pub(in crate::analysis::storage_flow) fn complete_value_capture(
         &mut self,
         destination: &Target,
         value: &bray_bound_tree::StorageCapturedValue,
+        staged_result: bool,
     ) {
         assert!(destination.is_exact(), "a produced result has an exact storage coordinate");
 
@@ -176,7 +177,9 @@ impl State {
         additional.values.retain(|slot, value| {
             let Some(current) = self.values.get_mut(slot) else { return true; };
 
-            if !current.is_no_payload() {
+            if staged_result {
+                current.complete_published_value(value);
+            } else if !current.is_no_payload() {
                 current.include_value(value);
             }
 

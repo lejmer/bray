@@ -1,6 +1,7 @@
 mod assignment;
 mod cleanup;
 mod captured;
+pub(super) use captured::ValuePublication;
 mod entry;
 mod invocation;
 mod places;

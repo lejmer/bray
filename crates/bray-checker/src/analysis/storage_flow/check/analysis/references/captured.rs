@@ -8,6 +8,13 @@ use crate::analysis::storage_flow::memory::Source;
 use crate::analysis::storage_flow::model::StorageFlowState;
 use crate::CheckerRequestContext;
 
+#[derive(Clone, Copy)]
+pub(in crate::analysis::storage_flow::check::analysis) enum ValuePublication {
+    Replacement,
+    StagedResult,
+    ReceiverWrite,
+}
+
 impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     pub(in crate::analysis::storage_flow::check::analysis) fn record_current_write(&self, state: &mut StorageFlowState, target: &bray_bound_tree::StorageTarget) {
         if target.is_exact()
@@ -83,7 +90,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             let mut snapshot = produced.unwrap_or_else(|| {
                 // Install the actual component captures before reading the new
                 // destination. The preceding contents do not describe this value.
-                self.publish_value_graph(state, target.clone(), value.clone(), destination == StorageValueDestination::Result);
+                let publication = if destination == StorageValueDestination::Result { ValuePublication::StagedResult }
+                    else { ValuePublication::Replacement };
+
+                self.publish_value_graph(state, target.clone(), value.clone(), publication);
 
                 state.memory.capture_reached_value(&target)
             });
@@ -123,20 +133,21 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     }
 
     pub(in crate::analysis::storage_flow::check::analysis) fn publish_value_graph(&self, state: &mut StorageFlowState, target: bray_bound_tree::StorageTarget,
-        value: crate::ExecutionCondition, result: bool,
+        value: crate::ExecutionCondition, publication: ValuePublication,
     ) {
         use crate::ExecutionConditionKind as K;
         use bray_bound_tree::StorageProjection;
         use bray_symbols::CapturedValueOperation as Op;
 
-        let mut pending = vec![(target, value, false, result)];
+        let mut pending = vec![(target, value, false, publication)];
 
-        while let Some((target, value, mut covered, result)) = pending.pop() {
+        while let Some((target, value, mut covered, publication)) = pending.pop() {
             if !covered && let Some(storage) = value.inline_captured_storage() {
-                if result && target.is_exact() {
-                    state.memory.complete_result_capture(&target, storage);
-                } else {
-                    state.memory.publish_captured_value(&target, storage);
+                match publication {
+                    ValuePublication::StagedResult | ValuePublication::ReceiverWrite if target.is_exact() => {
+                        state.memory.complete_value_capture(&target, storage, matches!(publication, ValuePublication::StagedResult));
+                    }
+                    _ => state.memory.publish_captured_value(&target, storage),
                 }
 
                 covered = true;
@@ -150,20 +161,22 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 if projection == StorageProjection::OwnedTarget {
                     let K::StorageValue(Op::OwningStorage(pointer), contents) = child.computed_value().kind() else { continue; };
 
-                    let descriptor = value.inline_captured_storage().map(|storage| storage.project(*pointer));
+                    if !covered && !matches!(publication, ValuePublication::StagedResult) { continue; }
 
-                    let Some(descriptor) = descriptor else { continue; };
+                    let owner = crate::analysis::storage_flow::memory::MutationTarget::location(target.clone());
 
-                    let Some(regions) = descriptor.address_regions() else { continue; };
+                    let Some(regions) = state.memory.owned_mutation_targets(&owner, *pointer) else { continue; };
+
+                    let exact = matches!(regions.as_slice(), [region] if region.address.as_ref() == Some(region.footprint()));
 
                     for region in regions {
-                        let elements = region.project(&[StorageProjection::AnyElement]);
+                        let elements = region.footprint().project(&[StorageProjection::AnyElement]);
                         let mut values = Vec::new();
                         let mut prefix = &contents[0];
 
                         loop {
                             if let Some(captured) = prefix.inline_captured_storage() {
-                                if prefix.prefix_starts_empty() && descriptor.known_address() == Some(&region) {
+                                if prefix.prefix_starts_empty() && exact {
                                     state.memory.clear_value(&elements);
                                 }
 
@@ -179,7 +192,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                                     prefix = &operands[0];
                                 }
                                 K::StorageValue(Op::EmptyPrefix, _) => {
-                                    if descriptor.known_address() == Some(&region) { state.memory.clear_value(&elements); }
+                                    if exact { state.memory.clear_value(&elements); }
                                     break;
                                 }
                                 _ => {
@@ -189,10 +202,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                             }
                         }
 
-                        pending.extend(values.into_iter().map(|value| (elements.clone(), value, false, false)));
+                        pending.extend(values.into_iter().map(|value| (elements.clone(), value, false, ValuePublication::Replacement)));
                     }
                 } else {
-                    pending.push((target.project(&[projection]), child, covered, result));
+                    pending.push((target.project(&[projection]), child, covered, publication));
                 }
             }
         }

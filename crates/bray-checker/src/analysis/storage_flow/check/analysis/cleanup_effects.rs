@@ -467,7 +467,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             let value = self.execution.complete_captured_references(execution, mutation, value);
 
             self.record_current_write(state, target);
-            self.publish_value_graph(state, target.clone(), value.clone(), true);
+            self.publish_value_graph(state, target.clone(), value.clone(), super::references::ValuePublication::ReceiverWrite);
 
             let snapshot = Arc::new(state.memory.capture_reached_value(target)
                 .with_observations(self.input.footprint.typed_observations(*ty)));

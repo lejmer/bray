@@ -5586,6 +5586,33 @@ fn deferred_input_references_survive_frame_moves_without_following_replaced_inpu
 }
 
 #[test]
+fn completing_staged_result_keeps_its_published_descriptor() {
+    let ([result, owner, alternative, ..], _) = places();
+
+    let result = Target::storage(result);
+    let owner = Target::storage(owner);
+    let alternative = Target::storage(alternative);
+    let mut state = State::default();
+
+    let mut published = super::model::ValueBinding::default();
+    let mut addresses = AddressValue::one(owner.clone());
+
+    addresses.merge(&AddressValue::one(alternative.clone()));
+    published.attach_owned_backing(AddressValue::one(owner.clone()));
+    state.values.insert(result.clone(), published);
+    state.values.insert(result.project(&[BUFFER_POINTER]), addresses.into());
+
+    let capture = state.capture_reached_value(&result).with_unknown_alternative();
+
+    state.complete_value_capture(&result, &capture, true);
+
+    assert_eq!(state.owned_backing(&result), Some(&owner));
+
+    assert_eq!(state.owned_mutation_targets(&super::MutationTarget::location(result), BUFFER_POINTER),
+        Some(vec![super::MutationTarget::location(owner), super::MutationTarget::location(alternative)]));
+}
+
+#[test]
 fn staged_future_moves_retain_completion_effects_and_references() {
     let ([frame, moved, payload, output], expressions) = places();
 

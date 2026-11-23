@@ -63,42 +63,42 @@ evidence. Impossible internal states fail at the violated contract.
 
 ## Verified checkpoint
 
-The earlier guarded-owner checkpoint passed the audited 1,709-case inventory,
-584 checker tests, and 139 bound-tree tests. The current optimized candidate
-passed the fixed package-backed 43-body bootstrap check with lowering and zero
-diagnostics. The two focused Rust regressions for physical parent absence and
-nested pointer prefixes also pass. The complete native archive has not yet been
-rerun on this candidate.
+Checkpoint `15cded660` passes all 1,709 audited comparison cases. The
+package-backed check on that checkpoint reports 14 diagnostic entries across
+43 bootstrap bodies, including repeats between proof and lowering. The
+reviewed staged result candidate reduces this count to seven and passes all
+595 checker tests. The remaining obligations concern allocation in
+initialization and scheduler deallocation, the previous owner in scoped
+exit, and the view owner in task cleanup. The fixed comparison on the
+reviewed candidate and the complete native archive remain unverified.
 
-The exact-binary 1,709-case run on checkpoint `f7039e981` completed with
-seven failing cases and none missing. Removing the three latest repairs
-together leaves all seven failures, so they predate the checkpoint. All pass
-at `d7f12fb8a`. The first failing revisions are `477a945c9` for retained
-task cleanup authority, `cd6c582a5` for recursive pointer bounds and two
-raw-memory authority controls, `c2d3b0c6f` for nullable-owner extraction,
-and `9d9486481` for both same-site deferred authority controls. The 43-body
-success alone is insufficient to close the contract.
-The batched candidate passed all 594 checker tests and 1,708 of the 1,709
-exact-binary comparison cases, with none missing. The remaining recursive
-nullable-pointer case exposed duplicate exact and `InputRegions` relations
-for the same inputs in the unselected summary. The shared summary join now
-retains the weaker region-only relation for each input; its next exact-binary
-comparison is pending. A newly built standard-library bundle and the full
-43-body bootstrap check with lowering report 14 proof diagnostics. They are
-`owned_allocation` and `view_owned` obligations across initialization, call
-admission, and cleanup. The previous 41-body probe omitted two owners, and
-its older bundle was not a valid current comparison. A targeted storage-flow
-trace is checking which retained owners and physical observations reach proof.
-The focused trace shows the allocation pointer's producer value still in the
-live owner tree when its trusted fact is dropped. For the execution view,
-storage flow marks the acquisition field stable in the producer, temporary,
-and local owner paths, but proof does not match any of them to the borrowed
-producer-expression observation. A copied scalar cannot repair that gap:
-the negative raw-memory controls require authority to expire when its
-referent may change. Trace only the mapped owner and field paths through
-`preserved_storage_values`, current-value framing, witness retention, and
-cleanup. The broad transitive trace was discarded; the temporary source
-probe has been removed.
+### Live owner preservation
+
+The physical state resolves performed effects from admitted operands and
+publishes the observations that survive. Framing the logical value and keeping
+its witness must consume the same observations. A transferred or ended slot
+supplies no live evidence. A separate copied address can preserve its bits,
+but only a live owner with unaffected support can preserve allocation authority.
+
+Result completion now preserves the staged descriptor and backing. The
+logical capture fills unstaged data and adds support. This keeps the address
+bound in `publish_driver` intact and prevents an escape from widening to the
+unrelated acquisition loan. A lifecycle receiver write can have an older
+descriptor in its slot, so it assembles its checked writes with the receiver
+binding instead of treating the receiver as a staged result.
+
+The initialization and scheduler allocation cases and the scoped cleanup
+cases have no whole-input escape in the targeted trace. Initialization
+receives an ambient effect and keeps the allocation pointer field as a stable
+address. Proof drops its clause while the pointer still belongs to the live
+owner. Establish which physical backing survives each effect, including
+ambient cleanup and the discharged cell in scheduler storage. Address identity
+alone does not establish this. Call and cleanup requirements exercise survival.
+The opaque and moved raw-read controls exercise revocation.
+`nullable_allocation_publication_uses_its_declared_result_owner` fails on
+the pushed checkpoint and gives a focused positive control outside the
+1,709-case inventory. `moving_raw_contents_preserves_allocation_ownership_until_deallocation`
+covers a typed move followed by deallocation and rejects a second deallocation.
 
 ### Current regression contract
 
@@ -109,71 +109,25 @@ probe has been removed.
 | Nullable payload | The planned discriminant and reached mutation determine whether a payload exists. Physical value merging, ownership transfer, postcondition proof, and call admission consume that result. | A promised mutation of `owner` must carry its optional-owner evidence through direct extraction. No promise or extraction from `other` must fail. The same rule applies to deferred and inactive cleanup routes. |
 | Repeated producer site | Each reached frame and joined current value owns its actual producer and witness identity. Ordinary join facts, carrier publication, frame completion, and import consume those identities. | The first task from the loop can carry `held`. The independent second task cannot inherit it, in source or imported form. An index bound can survive only while its joined value represents the reached iterations. The loop exit at `index == 2` must remain reachable. |
 
-The repair hypothesis is to use existing reached state and admitted captures
-at these four producer boundaries and preserve their identity through the
-listed consumers. Remove any fallback that asserts a known empty region when
-resolution failed, any replay of pointer contents from a container region,
-and any join rewrite that equates independent captured producers. Do not add
-a parallel state representation or grow production code merely to encode
-another copy of the same fact. Reconsider the hypothesis if a complete
-direct read cannot distinguish the positive and negative controls, or if a
-join still fabricates authority after the frame identities are kept separate.
-The nullable producer is identified: `opaque_observations_with_escapes`
-added discriminant preservation for every prepared logical path. A borrowed
-input's logical slot was judged disjoint from its reached `Entry` referent,
-so `mutate(owner)` incorrectly preserved the borrowed tag. Owned tags already
-enter `opaque_values`; active borrowed tags use `preserve_active_borrows` with
-physical targets. Remove the redundant generic tag block and its now unused
-candidate expansion. The `cd6c582a5` pointer-summary producer is the removed
-direct field read from complete returned-container bounds. Restoring it
-removes the extra recursive input-region relations without affecting the two
-raw-memory controls. Those controls fail because the opaque cleanup path
-injected every live scalar copy into physically preserved snapshots. Removing
-that injection while retaining the copied-address clause rule passes both the
-disjoint write and the opaque or moved-read controls. The 477 escape route is
-now traced: all unresolved effects in the failing owned-computation case name
-fields of `Result`. Output staging precedes effect binding, but `call_effects`
-routes every non-static indirect subject through an admitted input capture.
-A `Result` has no such capture, so the fallback publishes an empty escape.
-Resolve result effects against the staged output value tree, using its reached
-descriptor and physical bounds. If that direct route is unavailable, the
-escape remains unknown. Check deferred and cleanup effect producers for the
-same result-root routing. The consumer that turns valid loop bounds into
-same-site authority remains unresolved. A probe at the first failing commit
-found no trusted admission proof at the negative `observe` call. The join
-makes the post-loop branch unreachable. The predecessor trace shows that
-`index <= 1` is correctly rejected when the incoming value is 2, then
-reintroduced on later joins using assumptions already attached to the reused
-loop-header identity. Suppressing only unchanged-name candidate republication
-does not restore the path. Test the structural rule that a loop header cannot
-promote an ordinary fact observed in finitely many iterations into an
-invariant. The isolated candidate passes the source and imported positive
-first-task and negative second-task controls. Ordinary joins and carrier
-transport still retain their facts. Validate this rule with the other repair
-boundaries on one release candidate.
+Result effects read the staged output tree. Input effects read admitted
+captures. Keep the same rule across deferred activation and cleanup.
+Preserved discriminants belong to the reached value. For a borrowed value,
+the reached referent determines whether its tag survives. A preserved
+inline tag can coexist with a changed payload.
 
-The current repair follows three shared boundaries. At a conditional proof join,
-the named current place supplies the predecessor snapshot for its joined
-identity. Another value can contain an older capture of that place and must
-retain its own identity and proof obligations. At a physical binding join,
-an explicit no-payload parent
-makes its unlisted children absent on that predecessor. The join retains a
-present child from the other predecessor, while a missing child under an unknown
-parent still loses precision. At an output route, a readable raw pointer prefix
-identifies where a later descriptor is read. It does not by itself bound that
-descriptor's pointee. An unresolved nested pointer does not gain an exact
-target or owning authority. Result staging must retain every feasible origin.
+A joined slot takes the predecessor value at that named place. An older
+capture inside another value keeps its own identity. At a loop header only
+evidence that survives the fixed point can establish an invariant. At a
+physical join a definitely absent parent makes its unlisted children absent.
+An unknown parent supplies no such information.
 
-These boundaries meet at `admit_source_task`. Its present rows publish the
-context pointer relation. Field `2027` is `Current.pointer`; field `2026` is
-`Current.acquisition`. The first raw address read has a physical region but
-cannot resolve the later context and arena reads. Using only that region in
-the current candidate keeps the caller-local `Current` out of the result
-bound, but the broad controls show that this narrowing is not generally valid.
-The 43-body check retains both `task_entry` cleanup proofs and the
-`start_frame` path. The controls must continue to reject a genuinely unknown
-pointer, an actual escaped local, and unsupported authority on copied or
-borrowed addresses. No runtime contract was relaxed.
+A readable raw pointer prefix identifies a place where a later descriptor
+can be read. The later descriptor carries its own origin bounds. This is
+required in `admit_source_task`, where an opaque arena read can outlive the
+caller-local `Current` view. A sound bound retains every feasible input and
+ambient source. The fixed comparison and the bootstrap inventory exercise
+both requirements. Reconsider the design if the reached values and effects
+cannot distinguish those controls without maintaining another value tree.
 
 An isolated 24-worker Windows x64 standard-library run of an earlier candidate
 took 28.3 s planning and 26.9 s emission, with 80.3 s for the package

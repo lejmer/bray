@@ -164,6 +164,9 @@ preserve authority over its referent. Ownership follows the live owner tree.
 The storage path selected for a preserved observation must read the same live
 field that carries the producer's proof identity after a transfer. Proof retains
 that reached field without inferring authority from a detached scalar copy.
+The survival of an address field and of its backing are separate facts.
+An allocation clause needs the live owner, its unchanged address, and backing
+whose lifetime survives the resolved effect.
 Both read the actual current roots. A type-directed storage read also keeps
 the physical path when the path has no inline execution place.
 For an observed effect, the changed places identify which roots need masks.
@@ -422,6 +425,11 @@ The shared join uses the result selector when preserving conditional facts
 about current writes, ownership, and witnesses.
 Publication installs the assembled root with its captured components.
 Component records publish their initialization and use the root for data.
+Physical output staging installs the descriptors and backing of the selected
+rows. A paired logical capture can fill unstaged components and add support
+to that publication. The owning prefix reads the current physical descriptor
+before publishing its elements. Joining different reached values can widen a
+descriptor.
 
 At a storage join, each held frame binds its moved inputs and copied
 observations to its reached owner. It retains the copied data and its facts
