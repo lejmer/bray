@@ -104,6 +104,10 @@ package-interface tests. Its source and imported forwarding regression both
 retain separate historical and current allocation subjects and lower without
 diagnostics. The private retirement test reads duties and discharges from the
 same staged payload map as the performed effect.
+The direct-bounds batch passed all 615 checker tests and both allocation and
+escaping-lifetime compiler regressions. Its exact optimized binary passed all
+1,709 fixed comparison cases with no failures or missing cases. The packaged
+bootstrap matrix and native archive remain to be verified for this candidate.
 
 ### Current storage contract
 
@@ -131,6 +135,9 @@ Keep exposure and lifetime effects on the private result until publication.
 Writes through an input can reach a previous allocation at the same producer
 slot. Retain their possible contents on the historical allocation without
 letting their typed updates affect the new allocation.
+Imported historical allocations use the dependency-bound channel. A bounded
+ordinary borrow still carries its lifetime relation and cannot escape its
+source storage.
 
 Generic cleanup uses complete carried lineage through all feasible transfers.
 Incomplete caller-visible sources retain conservative effects. Typed entry

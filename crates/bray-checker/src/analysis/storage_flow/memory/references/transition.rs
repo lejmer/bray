@@ -84,7 +84,12 @@ impl State {
 
                 let forwarded = binding.and_then(|value| value.address.as_ref());
 
-                if forwarded.is_some_and(|references| {
+                let bounded_allocation = binding.and_then(|value| value.address_bounds.as_ref())
+                    .is_some_and(|bounds| bounds.targets.iter().any(|target| {
+                        target.origin.is_backing_region() || matches!(target.origin, Origin::Allocation { .. })
+                    }));
+
+                if bounded_allocation || forwarded.is_some_and(|references| {
                     let owning_region = references.is_bounded() && references.targets.iter().any(|target| {
                         target.origin.is_backing_region() || matches!(target.origin, Origin::Allocation { .. })
                     });
@@ -408,8 +413,13 @@ impl State {
         destination: Target,
     ) {
         // Empty alternatives contribute no target and cannot erase another origin.
-        self.pending.entry(call).or_default().values.entry(destination).or_default()
-            .produced_address().nullable = true;
+        let binding = self.pending.entry(call).or_default().values.entry(destination).or_default();
+
+        if binding.address.is_none() && let Some(bounds) = &mut binding.address_bounds {
+            bounds.nullable = true;
+        } else {
+            binding.produced_address().nullable = true;
+        }
     }
 
     pub(in crate::analysis::storage_flow) fn stage_unresolved_value<'a>(
@@ -796,12 +806,19 @@ impl State {
         pending.payloads.entry(target.clone()).or_default().allocations.extend(call.expression());
 
         let mut address = AddressValue::one(target.project(projections));
+        let binding = pending.values.entry(destination).or_default();
 
         if provenance == bray_symbols::DependencyReferenceProvenance::InputRegions {
-            address.bound();
-        }
+            if let Some(actual) = binding.address.take() {
+                address.merge(&actual);
+            }
 
-        pending.values.entry(destination).or_default().produced_address().merge(&address);
+            address.bound();
+
+            binding.address_bounds.get_or_insert_with(AddressValue::default).merge(&address);
+        } else {
+            binding.produced_address().merge(&address);
+        }
     }
 
     pub(in crate::analysis::storage_flow) fn uninit(&mut self, target: Target, element: TypeId) {

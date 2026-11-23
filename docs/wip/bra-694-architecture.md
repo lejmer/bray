@@ -342,7 +342,8 @@ hold if the write reached another destination.
 Export identifies each producing region by an output that reaches only that
 region. The current and historical incarnations of a site have separate
 anchors. A historical or displaced reference publishes a region bound.
-Import uses that provenance when it binds the output's physical reference.
+Import keeps that provenance in the output's dependency-bound channel.
+Actual descriptor identity and borrow lifetime remain separate.
 When a caller cannot select a normal outcome, the shared reference summary
 combines relations for the same input and output under their weakest reached
 provenance. Selected rows keep their own exactness. An empty address remains

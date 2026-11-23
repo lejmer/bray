@@ -276,8 +276,9 @@ impl ReferenceExit<'_> {
                 .chain(value.possible_references().map(move |references| {
                     (slot, ReferenceExitValue::Address {
                         targets: &references.targets,
-                        nullable: value.address.as_ref().is_some_and(AddressValue::has_empty_alternative),
+                        nullable: references.has_empty_alternative(),
                         bounds: if references.is_unknown() { ReferenceBounds::Unknown }
+                            else if references.is_bounded() { ReferenceBounds::InputRegions }
                             else if references.is_displaced() { ReferenceBounds::Displaced }
                             else { ReferenceBounds::Known },
                     })
@@ -287,9 +288,7 @@ impl ReferenceExit<'_> {
 
     pub(in crate::analysis::storage_flow) fn empty_slots(&self) -> impl Iterator<Item = &Place> {
         self.slots.iter().filter_map(|(slot, value)| {
-            let references = value.address.as_ref()?;
-
-            references.has_empty_alternative().then_some(slot)
+            value.possible_references().any(AddressValue::has_empty_alternative).then_some(slot)
         })
     }
 
@@ -302,20 +301,23 @@ impl ReferenceExit<'_> {
     pub(in crate::analysis::storage_flow) fn addresses(
         &self,
     ) -> impl Iterator<Item = (&Place, &AddressValue, ReferenceBounds)> {
-        self.slots.iter().filter_map(|(slot, value)| {
-            let references = value.reference()?;
+        self.slots.iter().flat_map(move |(slot, value)| {
+            value.possible_references().map(move |references| {
+                let carried_bound = value.address_bounds.as_ref()
+                    .is_some_and(|bounds| std::ptr::eq(bounds, references));
 
-            let bounds = if references.is_unknown() {
-                ReferenceBounds::Unknown
-            } else if self.input_regions.contains(slot) || references.is_bounded() {
-                ReferenceBounds::InputRegions
-            } else if references.is_displaced() {
-                ReferenceBounds::Displaced
-            } else {
-                ReferenceBounds::Known
-            };
+                let bounds = if references.is_unknown() && !carried_bound {
+                    ReferenceBounds::Unknown
+                } else if self.input_regions.contains(slot) || carried_bound {
+                    ReferenceBounds::InputRegions
+                } else if references.is_displaced() {
+                    ReferenceBounds::Displaced
+                } else {
+                    ReferenceBounds::Known
+                };
 
-            Some((slot, references, bounds))
+                (slot, references, bounds)
+            })
         })
     }
 
