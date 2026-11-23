@@ -264,7 +264,7 @@ pub(in crate::semantic::codec) fn decode_dependency_storage(
         let no_payload = attributes & REFERENCE_NO_PAYLOAD != 0;
         let backing_region = attributes & REFERENCE_BACKING_REGION != 0;
 
-        if exact && (independent || regions) || allocation && (independent || exact || regions)
+        if exact && (independent || regions) || allocation && (independent || exact)
             || empty && (!independent || exact || regions || allocation)
             || no_payload && (!independent || exact || regions || allocation || empty)
             || backing_region && (!independent || exact || allocation || empty || no_payload) {
@@ -1051,6 +1051,39 @@ mod tests {
         words[1] = attributes & !REFERENCE_INPUT_ABSENT;
 
         assert!(decode_storage_words(&words, limits).is_err());
+    }
+
+    #[test]
+    fn allocation_region_origin_round_trips_without_address_authority() {
+        use crate::semantic::codec::common::{REFERENCE_ALLOCATION, REFERENCE_INPUT_REGIONS};
+        use bray_symbols::{DependencyBorrowRelation, DependencyReferenceKind, DependencyReferenceProvenance};
+
+        let subject = InterfaceDependencySubject::new(InterfaceDependencySubjectRoot::Result, []);
+
+        let relation = DependencyBorrowRelation::new_allocation(
+            subject.clone(), subject, DependencyReferenceKind::Address,
+        ).with_provenance(DependencyReferenceProvenance::InputRegions);
+
+        let mut encoder = crate::wire::WireEncoder::new();
+
+        crate::semantic::codec::encoding::contract::encode_dependency_storage(
+            &mut encoder, std::slice::from_ref(&relation), &[],
+        );
+
+        let words = encoder.bytes().chunks_exact(4)
+            .map(|bytes| u32::from_le_bytes(bytes.try_into().expect("the format encodes words")))
+            .collect::<Vec<_>>();
+
+        let attributes = words[1];
+
+        assert_ne!(attributes & REFERENCE_ALLOCATION, 0);
+        assert_ne!(attributes & REFERENCE_INPUT_REGIONS, 0);
+
+        let decoded = decode_storage_words(&words, InterfaceValidationLimits::default())
+            .expect("an allocation region must survive import without becoming an address");
+
+        assert_eq!(decoded.0, vec![relation]);
+        assert!(decoded.1.is_empty());
     }
 
     #[test]

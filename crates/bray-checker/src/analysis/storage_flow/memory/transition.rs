@@ -687,8 +687,9 @@ impl State {
     pub(in crate::analysis::storage_flow) fn retirement_discharges<'a>(
         &'a self,
         target: &'a Target,
+        occurrence: Option<BoundExecutionSite>,
     ) -> impl Iterator<Item = StorageDischarge> + 'a {
-        self.contents.iter().flat_map(move |(cell, contents)| {
+        self.retirement_payloads(target, occurrence).iter().flat_map(move |(cell, contents)| {
             contents.consumed_types().filter(move |_| cell.is_exact()
                 && self.target_relationship(target, cell) != bray_bound_tree::StorageRelationship::Disjoint)
                 .map(move |ty| StorageDischarge { cell: cell.clone(), ty })
@@ -700,8 +701,9 @@ impl State {
         &self,
         target: &Target,
         discharged: &[StorageDischarge],
+        occurrence: Option<BoundExecutionSite>,
     ) -> Option<Vec<BoundExpressionId>> {
-        let mut outstanding = self.contents.iter().filter(|(candidate, contents)| {
+        let mut outstanding = self.retirement_payloads(target, occurrence).iter().filter(|(candidate, contents)| {
             !contents.pending.is_empty()
                 && self.target_relationship(target, candidate) != bray_bound_tree::StorageRelationship::Disjoint
         }).flat_map(|(candidate, contents)| {
@@ -721,6 +723,18 @@ impl State {
         outstanding.peek()?;
 
         Some(outstanding.flatten().copied().collect())
+    }
+
+    fn retirement_payloads(&self, target: &Target, occurrence: Option<BoundExecutionSite>)
+        -> &std::collections::BTreeMap<Target, Contents>
+    {
+        if target.is_staged() {
+            let occurrence = occurrence.expect("a private retirement retains its producing operation");
+
+            &self.pending[&occurrence].payloads
+        } else {
+            &self.contents
+        }
     }
 }
 

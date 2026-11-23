@@ -84,9 +84,9 @@ fn returned_allocations_publish_once_and_keep_alias_groups_across_replay() {
     let other_allocation = Place { root: allocation.root, projections: [BUFFER_POINTER].into() };
 
     state.begin_transition(call);
-    state.stage_allocation_reference(call, Target::storage(first.clone()), allocation.clone(), &[]);
-    state.stage_allocation_reference(call, Target::storage(second.clone()), allocation.clone(), &[]);
-    state.stage_allocation_reference(call, Target::storage(other.clone()), other_allocation, &[]);
+    state.stage_allocation_reference(call, Target::storage(first.clone()), allocation.clone(), &[], bray_symbols::DependencyReferenceProvenance::Alternatives);
+    state.stage_allocation_reference(call, Target::storage(second.clone()), allocation.clone(), &[], bray_symbols::DependencyReferenceProvenance::Alternatives);
+    state.stage_allocation_reference(call, Target::storage(other.clone()), other_allocation, &[], bray_symbols::DependencyReferenceProvenance::Alternatives);
 
     assert!(state.referenced_regions(&Target::storage(first.clone())).is_none());
     state.complete_transition(call);
@@ -104,10 +104,23 @@ fn returned_allocations_publish_once_and_keep_alias_groups_across_replay() {
     state.stage_slot(call, &second, stale.clone());
     state.complete_transition(call);
     state.begin_transition(call);
-    state.stage_allocation_reference(call, Target::storage(first.clone()), allocation, &[]);
+    state.stage_allocation_reference(call, Target::storage(first.clone()), allocation, &[], bray_symbols::DependencyReferenceProvenance::Alternatives);
     state.complete_transition(call);
 
-    assert!(!state.value_targets(&Target::storage(first)).expect("new allocation")[0].previous);
+    let fresh = state.value_targets(&Target::storage(first)).expect("new allocation")[0].clone();
+
+    let earlier = state.referenced_regions(&Target::storage(stale.clone()))
+        .expect("old allocation has a finite region")[0].clone();
+
+    assert!(!fresh.previous);
+    assert!(earlier.previous);
+
+    state.write_target(fresh.clone(), error_type(), origins[1], None);
+
+    assert!(state.contents.get(&fresh).is_some_and(|contents| contents.is_initialized(error_type())));
+
+    assert!(!state.contents.get(&earlier).is_some_and(|contents| contents.is_initialized(error_type())),
+        "initializing the fresh allocation cannot initialize its earlier incarnation");
 
     assert!(state.referenced_regions(&Target::storage(stale)).expect("old raw address remains stored")
         .iter().all(|target| target.previous), "replay cannot revive earlier allocations");
@@ -331,7 +344,7 @@ fn a_checked_move_leaves_only_duties_that_already_existed_at_possible_aliases() 
         assert_eq!(state.target_relationship(&first, &other), StorageRelationship::PotentiallyOverlapping);
         assert_eq!(state.read(&pointer, ty, MemoryReadKind::Move, Some(origins[1]), None), MemoryOperationStatus::Valid);
         assert_eq!(state.contents[&first].consumed_types().collect::<Vec<_>>(), vec![ty]);
-        assert_eq!(state.retirement_obligations(&other, &[]), has_existing_duty.then_some(vec![origins[0]]));
+        assert_eq!(state.retirement_obligations(&other, &[], None), has_existing_duty.then_some(vec![origins[0]]));
     }
 }
 
@@ -361,17 +374,17 @@ fn an_exact_access_records_one_duty_visible_through_possible_aliases() {
 
         assert_eq!(status, MemoryOperationStatus::Valid);
         assert!(state.contents[&possible_alias].pending.is_empty());
-        assert_eq!(state.retirement_obligations(&possible_alias, &[]), Some(vec![origins[0]]));
+        assert_eq!(state.retirement_obligations(&possible_alias, &[], None), Some(vec![origins[0]]));
 
         let mut caller = state.clone();
 
         assert_eq!(state.read(&pointer, ty, MemoryReadKind::Move, None, None), MemoryOperationStatus::Valid);
-        assert_eq!(state.retirement_obligations(&possible_alias, &[]), None);
+        assert_eq!(state.retirement_obligations(&possible_alias, &[], None), None);
 
-        let prefix = state.retirement_discharges(&possible_alias).collect::<Vec<_>>();
+        let prefix = state.retirement_discharges(&possible_alias, None).collect::<Vec<_>>();
 
         assert_eq!(prefix, [bray_bound_tree::StorageDischarge { cell: written.clone(), ty }]);
-        assert_eq!(caller.retirement_obligations(&possible_alias, &prefix), None);
+        assert_eq!(caller.retirement_obligations(&possible_alias, &prefix, None), None);
 
         let mut retirement = Effect::at(possible_alias.clone(), DependencyMutationKind::Retire, Some(ty))
             .with_retirement_discharges(prefix.iter().cloned());
@@ -388,7 +401,7 @@ fn an_exact_access_records_one_duty_visible_through_possible_aliases() {
 
         caller.contents.get_mut(&possible_alias).unwrap().pending.entry(ty).or_default().insert(origins[1]);
 
-        assert_eq!(caller.retirement_obligations(&possible_alias, &prefix), Some(vec![origins[1]]));
+        assert_eq!(caller.retirement_obligations(&possible_alias, &prefix, None), Some(vec![origins[1]]));
 
         state.apply_effects(
             Some(&[Effect::bounded(possible_alias.clone(), DependencyMutationKind::Consume, None)]),
@@ -396,15 +409,15 @@ fn an_exact_access_records_one_duty_visible_through_possible_aliases() {
             origins[1].into(),
         );
 
-        assert_eq!(state.retirement_discharges(&possible_alias).collect::<Vec<_>>(), prefix);
+        assert_eq!(state.retirement_discharges(&possible_alias, None).collect::<Vec<_>>(), prefix);
 
         let mut opaque = state.clone();
 
         opaque.apply_effects(Some(&[Effect::Unknown]), &bray_bound_tree::StorageInvalidation::unknown(), origins[2].into());
 
-        assert!(opaque.retirement_discharges(&possible_alias).next().is_none());
+        assert!(opaque.retirement_discharges(&possible_alias, None).next().is_none());
         assert_eq!(state.write(&pointer, ty, origins[2], None), MemoryOperationStatus::Valid);
-        assert!(state.retirement_discharges(&possible_alias).next().is_none());
+        assert!(state.retirement_discharges(&possible_alias, None).next().is_none());
     }
 }
 
@@ -422,9 +435,9 @@ fn typed_root_discharge_covers_nested_duties_after_source_retirement() {
 
     let discharge = bray_bound_tree::StorageDischarge { cell: root.clone(), ty: tuple_type([]) };
 
-    assert_eq!(state.retirement_obligations(&root, &[]), Some(vec![origins[0]]));
-    assert_eq!(state.retirement_obligations(&root, &[discharge.clone()]), None);
-    assert_eq!(state.retirement_obligations(&unrelated, &[discharge]), Some(vec![origins[1]]));
+    assert_eq!(state.retirement_obligations(&root, &[], None), Some(vec![origins[0]]));
+    assert_eq!(state.retirement_obligations(&root, &[discharge.clone()], None), None);
+    assert_eq!(state.retirement_obligations(&unrelated, &[discharge], None), Some(vec![origins[1]]));
 }
 
 #[test]
@@ -492,17 +505,17 @@ fn consuming_and_deallocating_through_an_alias_updates_the_original_target() {
         MemoryOperationStatus::UninitializedRawStorage
     );
 
-    let discharged = state.retirement_discharges(&allocation).collect::<Vec<_>>();
+    let discharged = state.retirement_discharges(&allocation, None).collect::<Vec<_>>();
 
-    assert!(caller.retirement_obligations(&allocation, &discharged).is_none());
+    assert!(caller.retirement_obligations(&allocation, &discharged, None).is_none());
 
     let mut conditional = state.clone();
 
     conditional.merge(&caller, &Default::default(), &Default::default());
 
-    let maybe_discharged = conditional.retirement_discharges(&allocation).collect::<Vec<_>>();
+    let maybe_discharged = conditional.retirement_discharges(&allocation, None).collect::<Vec<_>>();
 
-    assert_eq!(caller.retirement_obligations(&allocation, &maybe_discharged), Some(vec![origins[1]]));
+    assert_eq!(caller.retirement_obligations(&allocation, &maybe_discharged, None), Some(vec![origins[1]]));
 
     assert_eq!(
         state.deallocate_slot(&Target::storage(source.clone()), origins[2]),
@@ -5271,6 +5284,23 @@ fn effects_on_private_result_backing_are_published_with_that_backing() {
 
     state.stage_address(call, input.clone(), field, &addressed_reference(ty, DependencyReferenceKind::Address));
 
+    state.pending.get_mut(&call).unwrap().payloads.get_mut(&fresh).unwrap()
+        .pending.insert(ty, [origins[0]].into());
+
+    assert_eq!(state.retirement_obligations(&fresh, &[], Some(call)), Some(vec![origins[0]]));
+    assert_eq!(state.retirement_obligations(&earlier.clone().commit_producer(), &[], Some(call)), None);
+
+    let mut completed = state.clone();
+
+    completed.pending.get_mut(&call).unwrap().payloads.get_mut(&fresh).unwrap()
+        .record_consumption(ty);
+
+    let discharges = completed.retirement_discharges(&fresh, Some(call)).collect::<Vec<_>>();
+
+    assert_eq!(discharges, [bray_bound_tree::StorageDischarge { cell: fresh.clone(), ty }]);
+
+    assert_eq!(state.retirement_obligations(&fresh, &discharges, Some(call)), None);
+
     let escaped = state.escaped_regions([fresh.project(&[StorageProjection::AnyElement])], Some(call));
 
     assert!(escaped.contains(&input));
@@ -5905,7 +5935,7 @@ fn unresolved_owning_backing_cannot_alias_published_inline_storage() {
 
     let exported = state.exit_references(returned.root, &Default::default());
 
-    assert!(matches!(exported.targets().collect::<Vec<_>>().as_slice(), [(_, origin, false, _)] if origin.is_backing_region()));
+    assert!(matches!(exported.targets().collect::<Vec<_>>().as_slice(), [(_, target, false, _)] if target.origin.is_backing_region()));
 
     assert!(exported.stored_bindings().any(|(slot, value)| slot == &embedded
         && matches!(value, super::ReferenceExitValue::Address { targets, .. } if targets.contains(backing))));
@@ -6598,7 +6628,7 @@ fn produced_buffer_allocation_survives_transport_without_publishing_early() {
     let mut state = State { owned_storage: [owner.root, moved.root, exposed.root, raw.root].into(), ..State::default() };
 
     state.escape_regions([Target::storage(exposed.clone())], None);
-    state.stage_allocation_reference(call, Target::storage(pointer.clone()), owner.clone(), &[]);
+    state.stage_allocation_reference(call, Target::storage(pointer.clone()), owner.clone(), &[], bray_symbols::DependencyReferenceProvenance::Alternatives);
     assert!(state.referenced_regions(&Target::storage(pointer.clone())).is_none(), "preparation publishes no result");
     state.complete_transition(call);
     state.stage_slot(call, &owner, moved.clone());
@@ -6618,7 +6648,7 @@ fn produced_buffer_allocation_survives_transport_without_publishing_early() {
     let backing = state.owned_regions(&nested, BUFFER_POINTER).unwrap().remove(0);
     let produced_pointer = Place { root: owner.root, projections: [BUFFER_POINTER].into() };
 
-    state.stage_allocation_reference(call, Target::storage(produced_pointer.clone()), owner, &[]);
+    state.stage_allocation_reference(call, Target::storage(produced_pointer.clone()), owner, &[], bray_symbols::DependencyReferenceProvenance::Alternatives);
     state.complete_transition(call);
 
     assert!(state.referenced_regions(&Target::storage(Place { root: moved.root, projections: [BUFFER_POINTER].into() }))

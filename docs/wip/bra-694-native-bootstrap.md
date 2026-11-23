@@ -96,6 +96,14 @@ The publication candidate passed 615 checker tests, 139 bound-tree tests,
 and six selected compiler checks. The optimized Ubuntu host compiler built
 from the same source changes. The packaged bootstrap matrix and fixed
 comparison are still required for this candidate.
+Checkpoint `e5a62e742` planned the Windows x64 standard library in 24.0 s
+and emitted it in 22.1 s. Its 62.0 s total included 12.5 s for providers.
+The ARM64 build took 24.3 s to plan, 22.5 s to emit, and 55.9 s overall.
+The allocation-incarnation batch passed all 615 checker tests and all 221
+package-interface tests. Its source and imported forwarding regression both
+retain separate historical and current allocation subjects and lower without
+diagnostics. The private retirement test reads duties and discharges from the
+same staged payload map as the performed effect.
 
 ### Current storage contract
 
@@ -139,6 +147,7 @@ another layer of its own typed disposal on each fixed-point pass.
 | Stored pointer observation | The reached memory value tree owns the exact field contents and returned-reference bounds. Raw read, effect targets, invalidation, and borrow summary consume its address. | Read exact current pointer contents directly when every possible container target has a compatible exact field. Otherwise retain every feasible input or ambient origin without inventing a single address. The recursive nullable result has two input origins and one empty origin. Opaque interference and raw reads after moves must reject unsupported authority. |
 | Nullable payload | The planned discriminant and reached mutation determine whether a payload exists. Physical value merging, ownership transfer, postcondition proof, and call admission consume that result. | A promised mutation of `owner` must carry its optional-owner evidence through direct extraction. No promise or extraction from `other` must fail. The same rule applies to deferred and inactive cleanup routes. |
 | Repeated producer site | Each reached frame and joined current value owns its actual producer and witness identity. Ordinary join facts, carrier publication, frame completion, and import consume those identities. | The first task from the loop can carry `held`. The independent second task cannot inherit it, in source or imported form. An index bound can survive only while its joined value represents the reached iterations. The loop exit at `index == 2` must remain reachable. |
+| Repeated allocation site | The physical exit owns current and historical allocation incarnations. Summary export, package encoding, import staging, forwarding, and raw-memory checks consume their portable identities. | Outputs that reach different incarnations use different allocation subjects. A historical output carries only a region bound. Initializing the fresh allocation cannot initialize the historical allocation. Source and imported forwarding must retain the same distinction. |
 
 Result effects read the staged output tree. Input effects read admitted
 captures. Keep the same rule across deferred activation and cleanup.

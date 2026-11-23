@@ -215,7 +215,7 @@ fn merge_borrows(
 pub(in crate::analysis::storage_flow) enum ReferenceBounds {
     Known,
     Displaced,
-    /// Possible call-input regions, without established borrow provenance.
+    /// Possible input or allocation regions, without established address provenance.
     InputRegions,
     Unknown,
 }
@@ -299,26 +299,33 @@ impl ReferenceExit<'_> {
         })
     }
 
+    pub(in crate::analysis::storage_flow) fn addresses(
+        &self,
+    ) -> impl Iterator<Item = (&Place, &AddressValue, ReferenceBounds)> {
+        self.slots.iter().filter_map(|(slot, value)| {
+            let references = value.reference()?;
+
+            let bounds = if references.is_unknown() {
+                ReferenceBounds::Unknown
+            } else if self.input_regions.contains(slot) || references.is_bounded() {
+                ReferenceBounds::InputRegions
+            } else if references.is_displaced() {
+                ReferenceBounds::Displaced
+            } else {
+                ReferenceBounds::Known
+            };
+
+            Some((slot, references, bounds))
+        })
+    }
+
     pub(in crate::analysis::storage_flow) fn targets(
         &self,
-    ) -> impl Iterator<Item = (&Place, &Origin, bool, ReferenceBounds)> {
-        self.slots.iter().filter_map(|(slot, value)| Some((slot, value.reference()?))).flat_map(move |(slot, references)| {
-            references.targets.iter().map(move |target| {
-                (
-                    slot,
-                    &target.origin,
-                    references.is_exact(),
-                    if references.is_unknown() {
-                        ReferenceBounds::Unknown
-                    } else if self.input_regions.contains(slot) {
-                        ReferenceBounds::InputRegions
-                    } else if references.is_displaced() {
-                        ReferenceBounds::Displaced
-                    } else {
-                        ReferenceBounds::Known
-                    },
-                )
-            })
+    ) -> impl Iterator<Item = (&Place, &Target, bool, ReferenceBounds)> {
+        self.addresses().flat_map(|(slot, references, bounds)| {
+            let exact = references.is_exact();
+
+            references.targets.iter().map(move |target| (slot, target, exact, bounds))
         })
     }
 }

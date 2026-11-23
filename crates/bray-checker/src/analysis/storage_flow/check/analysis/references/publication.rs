@@ -255,6 +255,27 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let mut unbounded = std::collections::BTreeSet::new();
         let mut allocations = std::collections::BTreeMap::new();
 
+        // A portable anchor denotes one producing region. A mixed slot cannot
+        // name two regions, even if both came from the same source site.
+        for (slot, address, bounds) in references.addresses() {
+            if bounds == ReferenceBounds::Unknown || address.targets.len() != 1 { continue; }
+
+            let target = address.targets.first().expect("one region identifies its producer");
+
+            let Origin::Allocation { allocation, projections, .. } = &target.origin else { continue; };
+
+            let Some(root) = self.formal_root(slot.root) else { continue; };
+
+            let Some(ty) = self.storage.identity_type(slot.root) else { continue; };
+
+            if !projections.contains(&StorageProjection::OwnedTarget)
+                && self.reference_kind(slot, ty)? == Some(bray_symbols::DependencyReferenceKind::Address)
+                && let Some(exit) = dependency_projections(self.request, &slot.projections)
+            {
+                allocations.entry((allocation, target.previous)).or_insert_with(|| DependencySubject::new(root, exit));
+            }
+        }
+
         for (slot, target, exact, bounds) in references.targets() {
             if self.formal_root(slot.root).is_none() {
                 continue;
@@ -264,25 +285,24 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 continue;
             };
 
-            let allocation_relation = if let Origin::Allocation { allocation, projections, .. } = target
-                && bounds != ReferenceBounds::InputRegions && bounds != ReferenceBounds::Unknown
-                && !projections.contains(&bray_bound_tree::StorageProjection::OwnedTarget)
-                && self.reference_kind(slot, ty)? == Some(bray_symbols::DependencyReferenceKind::Address)
+            let allocation_relation = if let Origin::Allocation { allocation, projections, .. } = &target.origin
+                && bounds != ReferenceBounds::Unknown
+                && !projections.contains(&StorageProjection::OwnedTarget)
+                && let Some(anchor) = allocations.get(&(allocation, target.previous))
                 && let Some(exit) = dependency_projections(self.request, &slot.projections)
                 && let Some(target_projections) = dependency_projections(self.request, projections)
+                && self.reference_kind(slot, ty)? == Some(bray_symbols::DependencyReferenceKind::Address)
             {
-                let exit = bray_symbols::DependencySubject::new(
+                let exit = DependencySubject::new(
                     self.formal_root(slot.root).expect("allocation output has a formal root"), exit);
 
-                let anchor = allocations.entry(allocation.clone()).or_insert_with(|| exit.clone());
-
-                Some(bray_symbols::DependencyBorrowRelation::new_allocation(
+                Some(DependencyBorrowRelation::new_allocation(
                     anchor.clone(), exit, bray_symbols::DependencyReferenceKind::Address)
                     .with_target_projections(target_projections))
             } else { None };
 
             let relation = if allocation_relation.is_some() { allocation_relation }
-                else { self.result_reference(slot, target, ty, exact, false)? };
+                else { self.result_reference(slot, &target.origin, ty, exact, false)? };
 
             if let Some(relation) = relation {
                 let bounded = match bounds {
@@ -300,6 +320,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     let relation = relation.with_exactness(exact);
 
                     let relation = if bounds == ReferenceBounds::InputRegions
+                        || relation.allocation().is_some() && (target.previous || bounds == ReferenceBounds::Displaced)
                         || relation.target_projections().contains(&bray_symbols::DependencyProjection::AnyElement) {
                         relation.with_provenance(
                             bray_symbols::DependencyReferenceProvenance::InputRegions,
@@ -361,8 +382,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             anchors.entry((producer.clone(), allocated)).or_default().push((owner.clone(), projections.to_vec(), true));
         }
 
-        for (slot, origin, exact, bounds) in exit.targets() {
-            let Origin::Allocation { allocation, projections, .. } = origin else { continue; };
+        for (slot, target, exact, bounds) in exit.targets() {
+            let Origin::Allocation { allocation, projections, .. } = &target.origin else { continue; };
 
             if !exact || bounds != ReferenceBounds::Known { continue; }
 
@@ -734,7 +755,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                         self.formal_root(slot.root).expect("reference exit has a formal root"), exit,
                     );
 
-                    if origin.is_backing_region() {
+                    if origin.is_backing_region() || matches!(origin, Origin::Allocation { .. }) {
                         bray_symbols::DependencyBorrowRelation::new_backing_region(exit, kind)
                     } else {
                         bray_symbols::DependencyBorrowRelation::new(None, exit, kind)

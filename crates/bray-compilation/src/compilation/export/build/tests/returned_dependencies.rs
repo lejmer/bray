@@ -138,6 +138,91 @@ fn allocation_producers_preserve_freshness_in_source_and_imported_calls() {
 }
 
 #[test]
+fn repeated_allocation_site_preserves_incarnations_in_source_and_imported_calls() {
+    use bray_symbols::{DependencyProjection, DependencyReferenceProvenance, SymbolOrdinal};
+
+    let api = r#"
+        trusted module api;
+
+        using core.memory;
+
+        trusted func allocate_pair() -> (DataPointer<u8>, DataPointer<u8>)
+            uses(manual_alloc)
+        {
+            let mut first = core.memory.null<u8>();
+            let mut repeated: bool = false;
+
+            loop
+            {
+                let pointer = core.memory.allocate(bytes = 1, align = 1);
+
+                if repeated
+                {
+                    return (first, pointer);
+                }
+
+                first = pointer;
+                repeated = true;
+            }
+        }
+    "#;
+
+    let component = |ordinal| DependencyProjection::TupleElement(SymbolOrdinal::new(ordinal));
+
+    let assert_distinct_incarnations = |compilation: &crate::Compilation, function| {
+        let flow = compilation.storage_flow(source_function_body_key(compilation, function))
+            .expect("allocation forwarding has checked storage flow");
+
+        assert!(!flow.diagnostics().has_errors(), "{function}: {:?}", flow.diagnostics());
+
+        let rows = flow.value().dependencies().captured_values();
+
+        assert!(rows.iter().any(|row| {
+            let allocation = |ordinal| row.references.iter().find(|relation| {
+                relation.exit().projections() == [component(ordinal)] && relation.allocation().is_some()
+            });
+
+            let (Some(earlier), Some(fresh)) = (allocation(0), allocation(1)) else { return false; };
+
+            earlier.provenance() == DependencyReferenceProvenance::InputRegions
+                && fresh.provenance() == DependencyReferenceProvenance::Alternatives
+                && earlier.allocation() != fresh.allocation()
+        }), "{function}: {rows:#?}");
+    };
+
+    let provider = compilation(api);
+
+    assert_distinct_incarnations(&provider, "allocate_pair");
+
+    for imported in [false, true] {
+        let module = if imported { "example.package.api" } else { "api" };
+
+        let caller = format!(r#"
+            trusted module app;
+
+            using core.memory;
+            using {module};
+
+            trusted func forward() -> (DataPointer<u8>, DataPointer<u8>)
+                uses(manual_alloc)
+            {{
+                return {module}.allocate_pair();
+            }}
+        "#);
+
+        let consumer = if imported { execution_consumer(&provider, &caller) }
+            else { compilation_from_sources([api, &caller]) };
+
+        assert_distinct_incarnations(&consumer, "forward");
+
+        let lowered = consumer.lowered_unit(source_function_body_key(&consumer, "forward"))
+            .expect("allocation forwarding lowers");
+
+        assert!(!lowered.diagnostics().has_errors(), "imported={imported}: {:?}", lowered.diagnostics());
+    }
+}
+
+#[test]
 fn retiring_a_saved_pointer_preserves_the_replacement_in_source_and_imported_calls() {
     let api = r#"
         trusted module api;

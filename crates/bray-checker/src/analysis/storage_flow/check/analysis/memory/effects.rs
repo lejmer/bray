@@ -125,7 +125,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                         let address = target.address.clone();
 
                         Effect::through(target, kind, Some(ty)).with_retirement_discharges(
-                            address.as_ref().into_iter().flat_map(|address| state.memory.retirement_discharges(address)),
+                            address.as_ref().into_iter().flat_map(|address| state.memory.retirement_discharges(address, None)),
                         )
                     }).collect(),
                     None => vec![Effect::unbounded(kind, Some(ty), false)],

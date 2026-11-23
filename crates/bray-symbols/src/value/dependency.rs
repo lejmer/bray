@@ -466,7 +466,7 @@ pub enum DependencyReferenceProvenance {
     Exact,
     /// The output forwards one of the established input origins.
     Alternatives,
-    /// The output may reach these input regions without forwarding their authority.
+    /// The output may reach these input or allocation regions without forwarding address authority.
     InputRegions,
 }
 

@@ -86,7 +86,7 @@ impl State {
 
                 if forwarded.is_some_and(|references| {
                     let owning_region = references.is_bounded() && references.targets.iter().any(|target| {
-                        target.origin.is_backing_region()
+                        target.origin.is_backing_region() || matches!(target.origin, Origin::Allocation { .. })
                     });
 
                     !references.is_unknown()
@@ -786,6 +786,7 @@ impl State {
         destination: Target,
         allocation: Place,
         projections: &[bray_bound_tree::StorageProjection],
+        provenance: bray_symbols::DependencyReferenceProvenance,
     ) {
         let target = Target { previous: false,
             origin: Origin::Allocation { allocation, projections: [].into(), staged: true } };
@@ -794,9 +795,13 @@ impl State {
 
         pending.payloads.entry(target.clone()).or_default().allocations.extend(call.expression());
 
-        pending.values.entry(destination).or_default()
-            .produced_address()
-            .merge(&AddressValue::one(target.project(projections)));
+        let mut address = AddressValue::one(target.project(projections));
+
+        if provenance == bray_symbols::DependencyReferenceProvenance::InputRegions {
+            address.bound();
+        }
+
+        pending.values.entry(destination).or_default().produced_address().merge(&address);
     }
 
     pub(in crate::analysis::storage_flow) fn uninit(&mut self, target: Target, element: TypeId) {

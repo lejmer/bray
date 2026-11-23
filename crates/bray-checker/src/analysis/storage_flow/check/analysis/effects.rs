@@ -818,7 +818,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     // A nested retirement runs after the caller's already completed
                     // exact moves. Carry that reached prestate with the retirement;
                     // the unordered effect envelope cannot establish this order.
-                    let prefix = duties.iter().cloned().chain(memory.retirement_discharges(address)).collect::<Vec<_>>();
+                    let prefix = duties.iter().cloned()
+                        .chain(memory.retirement_discharges(address, staged.map(|(site, _)| site)))
+                        .collect::<Vec<_>>();
 
                     effects.with_retirement_discharges(prefix)
                 } else { effects };

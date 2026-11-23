@@ -319,7 +319,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             if relation.source_subject().is_none() {
                 self.stage_independent_reference(&mut state.memory, occurrence, destination.clone(), logical, reference);
             } else if let Some((allocation, projections)) = &allocation {
-                state.memory.stage_allocation_reference(occurrence, destination.clone(), allocation.clone(), projections);
+                state.memory.stage_allocation_reference(
+                    occurrence, destination.clone(), allocation.clone(), projections, relation.provenance(),
+                );
             } else if relation.allocation().is_some() {
                 state.memory.stage_unknown(occurrence, destination.clone());
             } else {

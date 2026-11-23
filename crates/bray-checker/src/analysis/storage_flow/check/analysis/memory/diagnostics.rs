@@ -112,7 +112,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 continue;
             }
 
-            if let Some(pending) = state.memory.retirement_obligations(address, discharged.as_deref().unwrap_or_default()) {
+            if let Some(pending) = state.memory.retirement_obligations(address, discharged.as_deref().unwrap_or_default(), Some(occurrence)) {
                 failed = true;
                 origins.extend(pending.into_iter().map(BoundExecutionSite::from));
             }
