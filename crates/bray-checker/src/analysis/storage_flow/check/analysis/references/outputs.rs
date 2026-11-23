@@ -311,28 +311,26 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             Some((allocation, projections))
         });
 
+        let definite = matches!(destinations.as_slice(), [destination] if destination.is_exact());
+
         for destination in destinations {
             let logical = logical.clone().or_else(|| destination.inline_state_path());
 
             if relation.source_subject().is_none() {
-                self.stage_independent_reference(&mut state.memory, occurrence, destination, logical, reference);
-                continue;
-            }
-
-            let Some(logical) = logical else {
-                state.memory.stage_unknown(occurrence, destination);
-                continue;
-            };
-
-            if let Some((allocation, projections)) = &allocation {
-                state.memory.stage_allocation_reference(occurrence, destination, allocation.clone(), projections);
+                self.stage_independent_reference(&mut state.memory, occurrence, destination.clone(), logical, reference);
+            } else if let Some((allocation, projections)) = &allocation {
+                state.memory.stage_allocation_reference(occurrence, destination.clone(), allocation.clone(), projections);
             } else if relation.allocation().is_some() {
-                state.memory.stage_unknown(occurrence, destination);
+                state.memory.stage_unknown(occurrence, destination.clone());
             } else {
                 self.stage_reference_sources(
-                    &mut state.memory, occurrence, destination, &logical, ty, reference,
+                    &mut state.memory, occurrence, destination.clone(), logical.as_ref(), ty, reference,
                     sources.iter().flatten().cloned(), pointer_regions.as_deref(),
                 );
+            }
+
+            if !definite {
+                state.memory.include_unwritten_reference(occurrence, &destination);
             }
         }
     }
@@ -608,7 +606,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         memory: &mut crate::analysis::storage_flow::memory::State,
         occurrence: BoundExecutionSite,
         destination: Target,
-        logical: &Place,
+        logical: Option<&Place>,
         ty: bray_symbols::TypeId,
         reference: &bray_bound_tree::BoundCallReference,
         sources: impl IntoIterator<Item = crate::analysis::storage_flow::memory::Source>,
@@ -633,7 +631,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         memory: &mut crate::analysis::storage_flow::memory::State,
         occurrence: BoundExecutionSite,
         destination: Target,
-        logical: &Place,
+        logical: Option<&Place>,
         ty: bray_symbols::TypeId,
         reference: &bray_bound_tree::BoundCallReference,
         pointer_regions: Option<&[Target]>,
@@ -644,7 +642,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             return;
         }
 
-        if let (Some(regions), Some(target)) = (pointer_regions,
+        if let (Some(logical), Some(regions), Some(target)) = (logical, pointer_regions,
             crate::representation::reference_target_type(self.request, ty)) {
             memory.stage_returned_reference(occurrence, destination, logical.clone(), target, regions.iter().cloned());
         } else {
@@ -658,7 +656,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         occurrence: BoundExecutionSite,
         source: crate::analysis::storage_flow::memory::Source,
         destination: Target,
-        logical: &Place,
+        logical: Option<&Place>,
         ty: bray_symbols::TypeId,
         reference: &bray_bound_tree::BoundCallReference,
     ) {
@@ -708,7 +706,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             if !regions.is_empty() {
                 let ty = reference.addressed_type().expect("projected reference retains its reached type");
 
-                memory.stage_reference_regions(occurrence, destination, logical.clone(), ty, regions);
+                memory.stage_reference_regions(occurrence, destination, logical, ty, regions);
             }
         } else if relation.provenance() == bray_symbols::DependencyReferenceProvenance::InputRegions {
             let Some(regions) = reached.iter().map(|source| source.regions(memory)).collect::<Option<Vec<_>>>()
@@ -719,7 +717,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
             let ty = reference.addressed_type().expect("reference regions retain their output type");
 
-            memory.stage_reference_regions(occurrence, destination, logical.clone(), ty, regions.into_iter().flatten());
+            memory.stage_reference_regions(occurrence, destination, logical, ty, regions.into_iter().flatten());
         } else {
             for source in reached {
                 self.stage_reference_value(memory, occurrence, source, destination.clone(), ty, reference);
@@ -739,11 +737,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let relation = reference.relation();
 
         if reference.exposes_borrow() {
-            memory.stage_exposed_borrow(occurrence, source, destination.clone());
-
-            if !relation.is_exact() {
-                memory.bound_staged_reference(occurrence, &destination);
-            }
+            memory.stage_exposed_borrow(occurrence, source, destination, relation.is_exact());
         } else if reference.addressed_type().is_some() {
             let Source::Value(target) = source else {
                 memory.stage_unknown(occurrence, destination);
@@ -751,20 +745,14 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             };
 
             memory.stage_address(occurrence, target, destination.clone(), reference);
+        } else if relation.is_exact() {
+            source.stage(memory, occurrence, destination);
         } else {
-            if relation.kind() == bray_symbols::DependencyReferenceKind::Borrow
-                && relation.provenance() == bray_symbols::DependencyReferenceProvenance::Alternatives
-                && let Some(pointee) = crate::representation::borrow_target_type(self.request.semantic_values(), ty)
-                && memory.stage_forwarded_borrow(occurrence, &destination, &source, pointee)
-            {
-                return;
-            }
+            let borrow = (relation.kind() == bray_symbols::DependencyReferenceKind::Borrow
+                && relation.provenance() == bray_symbols::DependencyReferenceProvenance::Alternatives)
+                .then(|| crate::representation::borrow_target_type(self.request.semantic_values(), ty)).flatten();
 
-            source.stage(memory, occurrence, destination.clone());
-
-            if !relation.is_exact() {
-                memory.bound_staged_reference(occurrence, &destination);
-            }
+            memory.stage_forwarded_reference(occurrence, destination, &source, borrow);
         }
     }
 

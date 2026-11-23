@@ -139,7 +139,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         Some(effects)
     }
 
-    pub(in crate::analysis::storage_flow::check::analysis) fn resolve_memory_values(
+    pub(super) fn resolve_buffer_values(
         &self, execution: &crate::analysis::guarantee::ExecutionState,
         operation: &bray_bound_tree::CheckedMemoryOperation, effects: &[Effect],
     ) -> std::sync::Arc<[bray_bound_tree::StorageValueTransition]> {

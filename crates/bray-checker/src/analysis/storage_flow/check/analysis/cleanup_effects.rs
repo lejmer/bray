@@ -273,7 +273,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             effects.as_deref(),
             operands.receiver.as_slice(),
             false,
-            Some(&mut state.effect_prefix),
+            (operation.occurrence(), Some(&mut state.effect_prefix)),
         );
 
         // Remaining receiver parts use the selected tail disposition. Their
@@ -288,7 +288,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             );
         }
 
-        state.memory.escape_regions(escaped);
+        state.memory.escape_regions(escaped, Some(operation.occurrence()));
 
         let mut invalidation =
             self.cleanup_invalidation(&state.memory, effects.as_deref(), receiver);
@@ -311,7 +311,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             preserve_run_descriptor(&state.memory, frame, &[], true, &mut invalidation);
         }
 
-        self.preserve_storage_values(state, None, effects.as_deref(), &mut invalidation);
+        self.preserve_storage_values(state, (operation.occurrence(), None), effects.as_deref(), &mut invalidation);
 
         if let Some(call) = &invocation
             && call.completes

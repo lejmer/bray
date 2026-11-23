@@ -215,11 +215,11 @@ fn projected_region_types_keep_array_elements_distinct_from_array_valued_cells()
 
     let backing = owner.project(&[StorageProjection::OwnedTarget]);
 
-    state.observe_effect_types(&[Effect::bounded(backing.clone(), DependencyMutationKind::Replace(array), None)]);
+    state.observe_effect_types(&[Effect::bounded(backing.clone(), DependencyMutationKind::Replace(array), None)], None);
 
     assert_eq!(state.declared_type(&backing), None, "a possible typed write grants no backing layout");
 
-    state.observe_effect_types(&[super::Effect::at(backing.clone(), bray_symbols::DependencyMutationKind::Replace(array), None)]);
+    state.observe_effect_types(&[super::Effect::at(backing.clone(), bray_symbols::DependencyMutationKind::Replace(array), None)], None);
 
     let cell = backing.project(&[StorageProjection::ElementFromStart(
         bray_symbols::SymbolOrdinal::new(0),
@@ -2616,7 +2616,7 @@ fn stored_whole_sources_follow_transfers_and_weak_replay() {
     state.begin_transition(call);
 
     state.stage_reference_regions(call, exact.project(&[StorageProjection::AnyElement]),
-        copied.storage_path().unwrap().clone(), error_type(), [destination.clone()]);
+        copied.storage_path(), error_type(), [destination.clone()]);
 
     state.clear_value(&exact);
     state.complete_transition(call);
@@ -3178,7 +3178,7 @@ fn returned_references_snapshot_previously_published_inline_storage() {
         .expect("returned reference has its origin")[0]
         .clone();
 
-    state.escape_regions(BTreeSet::from([allocation.clone()]));
+    state.escape_regions(BTreeSet::from([allocation.clone()]), None);
 
     state.stage_returned_reference(
         calls[1].into(),
@@ -4210,17 +4210,17 @@ fn ambient_reachability_requires_raw_publication_of_an_owned_slot() {
 
     let returned = state.value_target(&Target::storage(view), error_type()).expect("returned view retains its bounded identity");
 
-    assert!(!state.escaped_regions([Target::storage(opaque.clone())]).contains(&target),
+    assert!(!state.escaped_regions([Target::storage(opaque.clone())], None).contains(&target),
         "an unknown external pointer cannot publish a private alternative of another returned view");
 
-    assert!(state.escaped_regions([returned]).contains(&target),
+    assert!(state.escaped_regions([returned], None).contains(&target),
         "explicitly publishing a returned pointer exposes each possible input region");
 
     state.address(owner, pointer, error_type(), origins[0]);
 
     assert!(state.unknown_reference_may_reach(&target));
 
-    assert!(state.escaped_regions([Target::storage(opaque)]).contains(&target),
+    assert!(state.escaped_regions([Target::storage(opaque)], None).contains(&target),
         "unknown pointers can reach actually exposed local storage");
 
     let ([parameter, raw, view, _], origins, capability) = borrowed_places();
@@ -4235,14 +4235,14 @@ fn ambient_reachability_requires_raw_publication_of_an_owned_slot() {
 
     let borrowed = state.borrow_target(capability, error_type()).expect("entry borrow retains its referent");
 
-    assert_eq!(state.ambient_regions(&[Effect::Ambient]), Some((BTreeSet::new(), false)),
+    assert_eq!(state.ambient_regions(&[Effect::Ambient], None), Some((BTreeSet::new(), false)),
         "receiving a language borrow does not publish its inline owner");
 
-    assert!(state.ambient_regions(&[Effect::Ambient, Effect::Escape(None)]).is_none(),
+    assert!(state.ambient_regions(&[Effect::Ambient, Effect::Escape(None)], None).is_none(),
         "an opaque invocation still has unbounded input reachability");
 
     assert_eq!(
-        state.ambient_regions(&[Effect::Ambient, Effect::Escape(Some([borrowed.clone()].into()))]),
+        state.ambient_regions(&[Effect::Ambient, Effect::Escape(Some([borrowed.clone()].into()))], None),
         Some((BTreeSet::from([borrowed.clone()]), false)),
         "a bounded escape supplies the evaluated invocation region",
     );
@@ -4251,38 +4251,38 @@ fn ambient_reachability_requires_raw_publication_of_an_owned_slot() {
 
     shared.entry_borrows = Arc::new([(parameter.root, BorrowKind::Shared)].into());
 
-    assert!(shared.ambient_regions(&[Effect::Ambient]).expect("shared external region").0.contains(&borrowed),
+    assert!(shared.ambient_regions(&[Effect::Ambient], None).expect("shared external region").0.contains(&borrowed),
         "shared interior state remains externally reachable");
 
     let call = origins[0].into();
 
-    state.stage_reference_regions(call, Target::storage(view.clone()), view.clone(), error_type(), [borrowed.clone()]);
+    state.stage_reference_regions(call, Target::storage(view.clone()), Some(&view), error_type(), [borrowed.clone()]);
     state.complete_transition(call);
 
     let forwarded = state.value_targets(&Target::storage(view)).expect("bounded forwarded view")[0].clone();
 
     state.values.insert(forwarded, AddressValue::one(borrowed.clone()).into());
 
-    assert_eq!(state.ambient_regions(&[Effect::Ambient]), Some((BTreeSet::new(), false)),
+    assert_eq!(state.ambient_regions(&[Effect::Ambient], None), Some((BTreeSet::new(), false)),
         "forwarding a borrow cannot publish its private input bound");
 
     let mut escaped = state.clone();
 
     escaped.escape_targets([borrowed.clone()]);
-    assert!(escaped.ambient_regions(&[Effect::Ambient]).expect("finite escaped region").0.contains(&borrowed));
+    assert!(escaped.ambient_regions(&[Effect::Ambient], None).expect("finite escaped region").0.contains(&borrowed));
 
     state.declare_owned_buffer(borrowed.clone(), borrowed.project(&[BUFFER_POINTER]), error_type());
 
     let backing = borrowed.project(&[StorageProjection::OwnedTarget]);
 
-    assert!(state.ambient_regions(&[Effect::Ambient]).expect("finite backing region").0.contains(&backing),
+    assert!(state.ambient_regions(&[Effect::Ambient], None).expect("finite backing region").0.contains(&backing),
         "a raw buffer keeps its separate backing reachable through its stored pointer");
 
     state.entry_reference(raw.clone());
 
     let alias = state.value_targets(&Target::storage(raw)).expect("incoming raw alias")[0].clone();
 
-    assert!(state.ambient_regions(&[Effect::Ambient]).expect("finite raw region").0.contains(&alias));
+    assert!(state.ambient_regions(&[Effect::Ambient], None).expect("finite raw region").0.contains(&alias));
 
     assert_ne!(state.target_relationship(&alias, &borrowed), StorageRelationship::Disjoint,
         "an actual raw input can still invalidate a borrowed owner");
@@ -4410,7 +4410,7 @@ fn captured_cleanup_weakens_only_the_reached_backing() {
 
     let _ = state.take_retirements();
 
-    let reached = state.ambient_regions(&effects).expect("the disposition has a finite footprint");
+    let reached = state.ambient_regions(&effects, None).expect("the disposition has a finite footprint");
 
     assert!(state.retains_allocation_address(&unrelated, &reached, &state.raw_exposed_regions()));
 
@@ -4487,7 +4487,7 @@ fn opaque_effect_preserves_backing_only_while_its_allocation_is_private() {
     let destination = Target::storage(alias.clone());
     let call = origins[1].into();
 
-    carried.stage_reference_regions(call, destination.clone(), alias, error_type(), [backing.clone()]);
+    carried.stage_reference_regions(call, destination.clone(), Some(&alias), error_type(), [backing.clone()]);
     carried.complete_transition(call);
 
     let returned = carried.value_target(&destination, error_type()).expect("returned alias retains a region bound");
@@ -5078,7 +5078,7 @@ fn forwarded_borrow_choices_read_current_descriptors_without_claiming_one_addres
 
             let source = super::Source::Value(Target::storage(forwarded.clone()));
 
-            assert!(state.stage_forwarded_borrow(call, &destination, &source, error_type()));
+            state.stage_forwarded_reference(call, destination.clone(), &source, Some(error_type()));
         }
 
         regions.push(bray_bound_tree::StorageMutationTarget::bounded(pointer));
@@ -5092,7 +5092,7 @@ fn forwarded_borrow_choices_read_current_descriptors_without_claiming_one_addres
     ].into());
 
     let old_field = Target { previous: false, origin: Origin::Returned {
-        reference: result.clone(), projections: [field].into(),
+        reference: result.clone(), projections: [field].into(), staged: false,
     } };
 
     let old_parent = old_field.prefix(0);
@@ -5131,12 +5131,247 @@ fn forwarded_borrow_choices_read_current_descriptors_without_claiming_one_addres
 
     state.stage_address(call, next.clone(), destination.clone(), &reference);
 
-    assert!(state.stage_forwarded_borrow(call, &destination, &super::Source::Captured(capture), error_type()));
+    state.stage_forwarded_reference(call, destination, &super::Source::Captured(capture), Some(error_type()));
 
     let pending = &state.pending[&call].returned_inputs[&result];
 
     assert!(pending.has_values());
     assert_eq!(pending.targets, earlier.into_iter().chain([next]).collect::<BTreeSet<_>>());
+}
+
+#[test]
+fn exact_sibling_forward_retains_the_admitted_incarnation_through_publication() {
+    let ([result, admitted, fresh, _], origins) = places();
+
+    let call = origins[0].into();
+    let root = Target::storage(result.clone());
+    let component = |index| StorageProjection::TupleElement(bray_symbols::SymbolOrdinal::new(index));
+    let source = root.project(&[component(0)]);
+    let sibling = root.project(&[component(1)]);
+    let reference = source.storage_path().expect("inline result field").clone();
+
+    let [admitted, fresh] = [admitted, fresh].map(Target::storage);
+
+    let ty = error_type();
+
+    let mut state = State::default();
+
+    state.stage_reference_regions(call, source.clone(), Some(&reference), ty, [admitted.clone()]);
+    state.complete_transition(call);
+
+    let captured = super::Source::Captured(state.capture_reached_value(&source));
+    let old = state.value_target(&source, ty).expect("first publication retains its symbolic target");
+
+    captured.stage(&mut state, call, sibling.clone());
+    state.stage_reference_regions(call, source.clone(), Some(&reference), ty, [fresh.clone()]);
+
+    let route = bray_bound_tree::StorageReferencePath::new([component(1)].into(), [].into());
+
+    let selected = state.staged_effect_targets(call, semantic_values(), &root, (&route, None), true)
+        .expect("the sibling has a reached address");
+
+    assert_eq!(selected, [bray_bound_tree::StorageMutationTarget::location(old.clone())]);
+
+    state.complete_transition(call);
+
+    assert_eq!(state.values[&sibling].address.as_ref().and_then(AddressValue::single_location),
+        Some(&Target { previous: true, ..old }));
+
+    assert_eq!(state.returned_inputs[&(reference.clone(), true)].targets, [admitted].into());
+    assert_eq!(state.returned_inputs[&(reference, false)].targets, [fresh].into());
+}
+
+#[test]
+fn typed_cell_updates_follow_the_producing_incarnation() {
+    let ([slot, ..], origins) = places();
+
+    let call = origins[0].into();
+    let owner = Target::storage(slot.clone());
+    let ty = error_type();
+    let mut state = State::default();
+
+    let earlier = state.stage_owned_backing(call, owner.clone(), slot.clone(), Some(ty), true)
+        .expect("the first transition produces backing").commit_producer();
+
+    state.complete_transition(call);
+
+    for update_fresh in [false, true] {
+        let mut branch = state.clone();
+
+        let fresh = branch.stage_owned_backing(call, owner.clone(), slot.clone(), Some(ty), true)
+            .expect("the repeated transition produces private backing");
+
+        let target = if update_fresh { fresh.clone() } else { earlier.clone() };
+
+        branch.stage_cell_changes(call, &[Effect::at(target, DependencyMutationKind::Discharge(ty), None)]);
+        branch.complete_transition(call);
+
+        assert_eq!(branch.reached_dependency_storage(&fresh.commit_producer(), ty), Some((true, !update_fresh)));
+    }
+
+    let fresh = state.stage_owned_backing(call, owner, slot, None, true).unwrap();
+
+    state.stage_cell_changes(call, &[Effect::at(earlier.clone(), DependencyMutationKind::Replace(ty), None)]);
+    state.complete_transition(call);
+
+    assert!(state.contents[&fresh.commit_producer()].pending.is_empty());
+    assert_eq!(state.contents[&Target { previous: true, ..earlier }].pending[&ty], [origins[0]].into());
+}
+
+#[test]
+fn input_writes_stay_with_the_retiring_allocation_when_the_same_call_produces_another() {
+    let ([slot, admitted, pointee, ..], origins) = places();
+
+    let call = origins[0].into();
+    let owner = Target::storage(slot.clone());
+    let admitted = Target::storage(admitted);
+    let pointee = Target::storage(pointee);
+    let ty = error_type();
+
+    let mut state = State::default();
+    let old = state.stage_owned_backing(call, owner.clone(), slot.clone(), None, true).unwrap();
+
+    state.complete_transition(call);
+    state.point_at(pointee.clone(), admitted.storage_path().unwrap().clone(), ty, DependencyReferenceKind::Address);
+
+    let field = old.commit_producer().project(&[BUFFER_POINTER]);
+    let fresh = state.stage_owned_backing(call, owner, slot, None, true).unwrap();
+
+    state.stage_value(call, &admitted, field.clone());
+    state.pending.get_mut(&call).unwrap().payloads.entry(field.clone()).or_default().record_write(ty);
+    state.complete_transition(call);
+
+    assert!(!state.values.contains_key(&field));
+    assert_eq!(state.reached_dependency_storage(&fresh.commit_producer().project(&[BUFFER_POINTER]), ty), Some((true, false)));
+
+    let previous = Target { previous: true, ..field };
+    let retained = state.values[&previous].address.as_ref().unwrap();
+
+    assert_eq!(retained.targets, [pointee].into());
+    assert!(!retained.is_exact());
+    assert!(!state.contents[&previous].has_initialization());
+}
+
+#[test]
+fn effects_on_private_result_backing_are_published_with_that_backing() {
+    let ([slot, input, ..], origins) = places();
+
+    let call = origins[0].into();
+    let owner = Target::storage(slot.clone());
+    let input = Target::storage(input);
+    let ty = error_type();
+    let mut state = State::default();
+
+    let earlier = state.stage_owned_backing(call, owner.clone(), slot.clone(), Some(ty), true).unwrap();
+
+    state.complete_transition(call);
+
+    let fresh = state.stage_owned_backing(call, owner, slot, Some(ty), true).unwrap();
+    let field = fresh.project(&[StorageProjection::ElementFromStart(bray_symbols::SymbolOrdinal::new(0)), BUFFER_POINTER]);
+
+    state.stage_address(call, input.clone(), field, &addressed_reference(ty, DependencyReferenceKind::Address));
+
+    let escaped = state.escaped_regions([fresh.project(&[StorageProjection::AnyElement])], Some(call));
+
+    assert!(escaped.contains(&input));
+    state.escape_regions(escaped, Some(call));
+
+    state.apply_effects(Some(&[Effect::at(fresh.clone(), DependencyMutationKind::Retire, None)]),
+        &bray_bound_tree::StorageInvalidation::unknown(), call);
+
+    assert!(state.contents[&earlier.commit_producer()].has_initialization());
+    assert!(!state.contents.contains_key(&fresh));
+
+    state.complete_transition(call);
+
+    assert!(state.contents[&input].escaped);
+
+    let fresh = fresh.commit_producer();
+
+    assert!(state.contents[&fresh].escaped);
+    assert!(state.contents[&fresh].invalidations.contains(&call));
+    assert!(!state.contents[&fresh].has_initialization());
+    assert!(!state.contents[&Target { previous: true, ..fresh }].escaped);
+}
+
+#[test]
+fn possible_reference_outputs_keep_the_unwritten_descriptor_at_each_destination() {
+    let ([first, second, old, fresh], origins) = places();
+
+    let call = origins[0].into();
+
+    let [old, fresh] = [old, fresh].map(Target::storage);
+
+    let ty = error_type();
+    let mut state = State::default();
+
+    for slot in [first.clone(), second.clone()] {
+        state.point_at(old.clone(), slot.clone(), ty, DependencyReferenceKind::Address);
+
+        let destination = Target::storage(slot);
+
+        state.stage_address(call, fresh.clone(), destination.clone(), &addressed_reference(ty, DependencyReferenceKind::Address));
+        state.include_unwritten_reference(call, &destination);
+    }
+
+    state.complete_transition(call);
+
+    for slot in [first, second] {
+        let references = state.references(&Target::storage(slot));
+
+        assert!(references.single_location().is_none());
+        assert_eq!(references.targets, [old.clone(), fresh.clone()].into());
+    }
+}
+
+#[test]
+fn same_site_reference_alternatives_keep_the_admitted_bounds() {
+    let ([result, first, second, fresh], origins) = places();
+
+    let call = origins[0].into();
+    let destination = Target::storage(result.clone());
+
+    let [first, second, fresh] = [first, second, fresh].map(Target::storage);
+
+    let ty = error_type();
+    let reference = addressed_reference(ty, DependencyReferenceKind::Borrow);
+
+    let reference = bray_bound_tree::BoundCallReference::new(
+        reference.relation().clone().with_provenance(bray_symbols::DependencyReferenceProvenance::Alternatives),
+        false, Some(ty),
+    );
+
+    let mut state = State::default();
+
+    state.stage_reference_regions(call, destination.clone(), Some(&result), ty, [first.clone(), second.clone()]);
+    state.complete_transition(call);
+
+    let captured = super::Source::Captured(state.capture_reached_value(&destination));
+    let previous = state.value_target(&destination, ty).expect("the earlier completion recorded a bounded referent");
+    let bound = [first, second, fresh.clone()].into_iter().collect::<BTreeSet<_>>();
+
+    for projected in [false, true] {
+        let mut state = state.clone();
+
+        state.stage_address(call, fresh.clone(), destination.clone(), &reference);
+
+        if projected {
+            let component = previous.project(&[StorageProjection::TupleElement(bray_symbols::SymbolOrdinal::new(0))]);
+
+            state.stage_address(call, component, destination.clone(), &reference);
+        } else {
+            state.stage_forwarded_reference(call, destination.clone(), &captured, Some(ty));
+        }
+
+        state.stage_returned_references(call, [(result.clone(), ty)], |_| -> [Target; 0] {
+            panic!("both alternatives have established regions")
+        });
+
+        let pending = &state.pending[&call].returned_inputs[&result];
+
+        assert!(pending.is_bounded());
+        assert_eq!(pending.targets, bound);
+    }
 }
 
 #[test]
@@ -5582,7 +5817,7 @@ fn bounded_forwarding_retains_a_typed_result_and_the_call_input_regions() {
 
     let mut checked = State { owned_storage: state.owned_storage.clone(), ..State::default() };
 
-    checked.stage_reference_regions(call, destination.clone(), destination.storage_path().unwrap().clone(),
+    checked.stage_reference_regions(call, destination.clone(), destination.storage_path(),
         view_type, [nested.clone()]);
 
     checked.complete_transition(call);
@@ -5614,7 +5849,7 @@ fn bounded_forwarding_retains_a_typed_result_and_the_call_input_regions() {
     assert!(opaque.effect_origins(&opaque.value_target(&destination, view_type).unwrap()).1,
         "an independent alternative cannot be narrowed to the checked input bound");
 
-    checked.stage_reference_regions(call, destination.clone(), destination.storage_path().unwrap().clone(),
+    checked.stage_reference_regions(call, destination.clone(), destination.storage_path(),
         view_type, [returned.project(&[StorageProjection::OwnedTarget])]);
 
     checked.complete_transition(call);
@@ -5633,7 +5868,7 @@ fn unresolved_owning_backing_cannot_alias_published_inline_storage() {
     let destination = Target::storage(returned.clone());
 
     let embedded = Target { previous: false, origin: Origin::Allocation {
-        allocation: returned.clone(), projections: [BUFFER_POINTER].into(),
+        allocation: returned.clone(), projections: [BUFFER_POINTER].into(), staged: false,
     } };
 
     let external = Target { previous: false, origin: Origin::entry(external, DependencyReferenceKind::Address) };
@@ -5900,7 +6135,7 @@ fn deferred_input_references_survive_frame_moves_without_following_replaced_inpu
         Target::storage(frame.clone()).project(&[StorageProjection::OwnedTarget]),
         Target {
             previous: false,
-            origin: Origin::Returned { reference: frame.clone(), projections: [].into() },
+            origin: Origin::Returned { reference: frame.clone(), projections: [].into(), staged: false },
         },
     ] {
         let mut state = State::default();
@@ -6076,7 +6311,7 @@ fn fresh_allocation_publication_follows_only_the_references_stored_in_it() {
     );
 
     assert_eq!(
-        memory.escaped_regions([allocation.clone()]),
+        memory.escaped_regions([allocation.clone()], None),
         BTreeSet::from([allocation.clone()])
     );
 
@@ -6093,7 +6328,7 @@ fn fresh_allocation_publication_follows_only_the_references_stored_in_it() {
     memory.complete_transition(call);
 
     assert_eq!(
-        memory.escaped_regions([allocation.clone()]),
+        memory.escaped_regions([allocation.clone()], None),
         BTreeSet::from([allocation, entry])
     );
 }
@@ -6140,7 +6375,7 @@ fn typed_scalar_publication_does_not_load_aliased_pointer_slots() {
     // Aliased pointer-containing inputs still expose newly stored allocations.
     assert!(
         memory
-            .escaped_regions([right.clone()])
+            .escaped_regions([right.clone()], None)
             .contains(&allocation)
     );
 
@@ -6155,7 +6390,7 @@ fn typed_scalar_publication_does_not_load_aliased_pointer_slots() {
         .storage_type = Some(scalar);
 
     assert_eq!(
-        memory.escaped_regions([word.clone()]),
+        memory.escaped_regions([word.clone()], None),
         BTreeSet::from([word.clone()])
     );
 
@@ -6171,7 +6406,7 @@ fn typed_scalar_publication_does_not_load_aliased_pointer_slots() {
         .or_default()
         .storage_type = Some(scalar);
 
-    assert!(memory.escaped_regions([word]).contains(&allocation));
+    assert!(memory.escaped_regions([word], None).contains(&allocation));
 
     // Explicit raw exposure retains conservative allocation reachability.
     let other = right.project(&[StorageProjection::TupleElement(
@@ -6185,7 +6420,7 @@ fn typed_scalar_publication_does_not_load_aliased_pointer_slots() {
         .storage_type = Some(scalar);
 
     assert_eq!(
-        memory.escaped_regions([other.clone()]),
+        memory.escaped_regions([other.clone()], None),
         BTreeSet::from([other.clone()])
     );
 
@@ -6196,7 +6431,7 @@ fn typed_scalar_publication_does_not_load_aliased_pointer_slots() {
         bray_symbols::DependencyReferenceKind::Address,
     );
 
-    assert!(memory.escaped_regions([other]).contains(&allocation));
+    assert!(memory.escaped_regions([other], None).contains(&allocation));
 }
 
 #[test]
@@ -6246,7 +6481,7 @@ fn mutation_summaries_preserve_initialization_only_for_complete_typed_cells() {
 
         contents.storage_type = Some(ty);
         contents.observe_initialized(ty);
-        state.escape_regions([target.clone()]);
+        state.escape_regions([target.clone()], None);
 
         assert_eq!(state.target_relationship(&target, &alias), bray_bound_tree::StorageRelationship::PotentiallyOverlapping);
         state.apply_effects(Some(&[effect.clone()]), &invalidation, origins[0].into());
@@ -6271,7 +6506,7 @@ fn unresolved_deallocation_distinguishes_inline_slots_from_backing() {
 
     let allocation = Target {
         previous: false,
-        origin: Origin::Allocation { allocation: backing, projections: Arc::from([]) },
+        origin: Origin::Allocation { allocation: backing, projections: Arc::from([]), staged: false },
     };
 
     for (access_type, ambient) in [(Some(ty), false), (Some(ty), true), (None, false), (None, true)] {
@@ -6281,7 +6516,7 @@ fn unresolved_deallocation_distinguishes_inline_slots_from_backing() {
             state.contents.entry(target.clone()).or_default().record_write(ty);
         }
 
-        state.escape_regions([local.clone(), allocation.clone()]);
+        state.escape_regions([local.clone(), allocation.clone()], None);
 
         state.apply_effects(Some(&[Effect::unbounded(DependencyMutationKind::Retire, access_type, ambient)]),
             &bray_bound_tree::StorageInvalidation::unknown(), expressions[0].into());
@@ -6337,7 +6572,7 @@ fn unlocated_retirement_distinguishes_an_entry_cell_from_tracked_backing() {
     let entry_target = state.value_targets(&entry).unwrap().pop().unwrap();
 
     state.values.insert(projection.clone(), AddressValue::one(backing.project(&[BUFFER_POINTER])).into());
-    state.escape_regions([backing, entry_target.clone()]);
+    state.escape_regions([backing, entry_target.clone()], None);
 
     let retire = Effect::unbounded(DependencyMutationKind::Retire, None, true);
     let invalidation = bray_bound_tree::StorageInvalidation::unknown();
@@ -6362,7 +6597,7 @@ fn produced_buffer_allocation_survives_transport_without_publishing_early() {
     let pointer = Place { root: owner.root, projections: [BUFFER_POINTER].into() };
     let mut state = State { owned_storage: [owner.root, moved.root, exposed.root, raw.root].into(), ..State::default() };
 
-    state.escape_regions([Target::storage(exposed.clone())]);
+    state.escape_regions([Target::storage(exposed.clone())], None);
     state.stage_allocation_reference(call, Target::storage(pointer.clone()), owner.clone(), &[]);
     assert!(state.referenced_regions(&Target::storage(pointer.clone())).is_none(), "preparation publishes no result");
     state.complete_transition(call);
@@ -6415,8 +6650,8 @@ fn escape_roots_keep_stored_values_without_exporting_possible_aliases() {
     let mut state = State { owned_storage: [local.root].into(), ..State::default() };
 
     state.values.insert(owner.project(&[field]), super::model::AddressValue::one(stored.clone()).into());
-    assert!(state.escaped_regions([pointer.clone()]).contains(&stored), "body-local checks retain possible aliases");
-    assert_eq!(state.escape_roots([pointer.clone()]), BTreeSet::from([pointer.clone()]), "possible aliases are resolved again at the caller");
+    assert!(state.escaped_regions([pointer.clone()], None).contains(&stored), "body-local checks retain possible aliases");
+    assert_eq!(state.escape_roots([pointer.clone()], None), BTreeSet::from([pointer.clone()]), "possible aliases are resolved again at the caller");
 
     let incoming_field = Target { previous: false, origin: super::Origin::entry(
         Place { root: parameter.root, projections: [pointer_field, StorageProjection::AddressTarget, field].into() },
@@ -6424,10 +6659,10 @@ fn escape_roots_keep_stored_values_without_exporting_possible_aliases() {
 
     state.values.insert(pointer.project(&[field]), super::model::AddressValue::one(incoming_field.clone()).into());
 
-    assert_eq!(state.escape_roots([pointer.clone()]), BTreeSet::from([pointer.clone()]),
+    assert_eq!(state.escape_roots([pointer.clone()], None), BTreeSet::from([pointer.clone()]),
         "an unchanged incoming pointee field is already reachable from its escaped raw-address root");
 
-    assert!(state.escape_roots([incoming_field.clone()]).contains(&incoming_field),
+    assert!(state.escape_roots([incoming_field.clone()], None).contains(&incoming_field),
         "an explicitly escaped field pointer remains an operand");
 
     state.values.insert(Target::storage(local.clone()).project(&[pointer_field]), super::model::AddressValue::one(incoming_field.clone()).into());
@@ -6437,12 +6672,12 @@ fn escape_roots_keep_stored_values_without_exporting_possible_aliases() {
 
     state.values.insert(slot, bounds);
 
-    assert!(state.escape_roots([pointer.clone(), Target::storage(local.clone())]).contains(&incoming_field),
+    assert!(state.escape_roots([pointer.clone(), Target::storage(local.clone())], None).contains(&incoming_field),
         "possible origins do not prove the source field still holds its evaluated entry value");
 
     state.values.insert(pointer.project(&[field]), super::model::AddressValue::one(stored.clone()).into());
 
-    let escaped = state.escape_roots([pointer.clone(), Target::storage(local.clone())]);
+    let escaped = state.escape_roots([pointer.clone(), Target::storage(local.clone())], None);
 
     assert!(escaped.contains(&incoming_field), "a captured old field pointer survives replacement of its original slot");
     assert!(escaped.contains(&stored), "a replacement's actual incoming pointer remains an escape root");
@@ -6451,6 +6686,6 @@ fn escape_roots_keep_stored_values_without_exporting_possible_aliases() {
 
     state.values.insert(local.project(&[field]), super::model::AddressValue::one(stored.clone()).into());
 
-    assert!(state.escape_roots([local.project(&[pointer_field])]).contains(&stored),
+    assert!(state.escape_roots([local.project(&[pointer_field])], None).contains(&stored),
         "an escaped local allocation retains its actual stored references even through a field address");
 }

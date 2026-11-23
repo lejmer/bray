@@ -813,7 +813,7 @@ mod tests {
 
         let target = StorageTarget {
             previous: false,
-            origin: StorageOrigin::Returned { reference: StoragePath::root(reference), projections: [].into() },
+            origin: StorageOrigin::Returned { reference: StoragePath::root(reference), projections: [].into(), staged: false },
         };
 
         let element = crate::test_support::semantic_values().intern_type(bray_symbols::TypeData::ExactInteger {

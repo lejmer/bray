@@ -699,6 +699,7 @@ mod tests {
             origin: StorageOrigin::Returned {
                 reference: StoragePath::root(reference),
                 projections: Arc::new([]),
+                staged: false,
             },
         };
 

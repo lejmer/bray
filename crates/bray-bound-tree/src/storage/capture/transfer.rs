@@ -29,6 +29,32 @@ impl StorageCapturedTransition {
         }
     }
 
+    /// Publishes private producer coordinates after older targets have retired.
+    pub fn commit_producers(&mut self) {
+        if self.values.keys().any(Target::is_staged) {
+            self.values = std::mem::take(&mut self.values).into_iter()
+                .map(|(target, value)| (target.commit_producer(), value)).collect();
+        }
+
+        if self.payloads.keys().any(Target::is_staged) {
+            self.payloads = std::mem::take(&mut self.payloads).into_iter()
+                .map(|(target, contents)| (target.commit_producer(), contents)).collect();
+        }
+
+        if self.cell_changes.keys().any(Target::is_staged) {
+            self.cell_changes = std::mem::take(&mut self.cell_changes).into_iter()
+                .map(|(target, change)| (target.commit_producer(), change)).collect();
+        }
+
+        for binding in self.values.values_mut() {
+            binding.commit_referenced_producers();
+        }
+
+        for bounds in self.returned_inputs.values_mut() {
+            bounds.commit_producers();
+        }
+    }
+
     pub fn merge(&mut self, incoming: &Self) -> bool {
         let changed = merge_storage_bindings(&mut self.values, &incoming.values, |_| false, |_| false);
 

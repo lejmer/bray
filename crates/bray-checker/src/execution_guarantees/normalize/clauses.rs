@@ -270,6 +270,7 @@ fn reference_conditions(
             bray_bound_tree::StorageOrigin::Returned {
                 reference,
                 projections,
+                ..
             } => crate::ExecutionPlace::storage_path(storage, reference)
                 .and_then(|place| place.project(projections)),
             _ => observation.target.value_observation_path()

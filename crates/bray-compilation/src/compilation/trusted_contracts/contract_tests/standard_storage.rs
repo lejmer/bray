@@ -103,7 +103,12 @@ fn production_native_paths_preserve_their_admitted_input_contracts() {
         let compilation = crate::test_support::production_standard_library_compilation(
             crate::SelectedTarget::for_native(target), "module app;");
 
-        for name in ["prepare_native_path", "prepare_file_open", "prepare_dynamic_library_open_path", "platform_path_rename"] {
+        let posix_text = (target == bray_target::NativeTarget::X86_64LinuxGnu)
+            .then_some("copy_native_text_entry");
+
+        for name in ["prepare_native_path", "prepare_file_open", "prepare_dynamic_library_open_path", "platform_path_rename"]
+            .into_iter().chain(posix_text)
+        {
             let key = source_function_body_key(&compilation, name);
 
             let lowered = compilation.lowered_unit(key.clone())

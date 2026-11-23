@@ -253,7 +253,10 @@ At a call attempt, escape analysis, observation invalidation, and returned-refer
 regions. The admitted operands supply possible reach through their captured descriptors and carried dependencies.
 Effects naming a synchronous call result read that result's already staged
 physical value tree. An indirect result-field escape reads the reached field
-descriptor there. Deferred effects read the captured frame result, while
+descriptor there and follows the staged backing to any carried references.
+A bounded selector reaches each overlapping staged field.
+The private transfer retains exposure, observed types, and lifetime changes
+for that backing. Deferred effects read the captured frame result, while
 lifecycle cleanup reads its receiver. If a carried escape route cannot be
 resolved, it has unknown reach rather than an empty footprint.
 An unresolved structured escape retains the identity of the value whose carried
@@ -326,6 +329,16 @@ effect route, including any indirect continuation, uses the type, binding,
 and liveness of that publication before binding the final mutation footprint.
 A projected borrow carries each active inline projection when it crosses
 another callable boundary.
+An admitted reference keeps its committed incarnation while a new producer
+uses its private incarnation. A direct forward, projection, and staged effect
+therefore consult the intended bounds even when the two incarnations share a
+producer slot. Publication retires the old incarnation before promoting the
+new one. Output writes through an input can still target the old incarnation.
+Those writes retain possible contents in the historical region. Typed updates
+publish only for the incarnation reached by the operation. An exact physical
+destination can hold a bounded reference without
+a logical slot. Each possible destination also retains the value it would
+hold if the write reached another destination.
 When a caller cannot select a normal outcome, the shared reference summary
 combines relations for the same input and output under their weakest reached
 provenance. Selected rows keep their own exactness. An empty address remains
@@ -409,6 +422,15 @@ completed capture returns to the composite state for admission and effects.
 Trusted proof, the runtime precondition guard, and normal completion bind
 entry conditions through the admitted arguments and their recorded equalities.
 Witness transfers bind the appropriate result through the same argument lookup.
+An address observation uses the admitted descriptor. A null test of an
+explicitly empty address produces a Boolean value through the checked value
+transition. A bound on a possible target region does not decide the test.
+Branch refinement uses the reached Boolean, including when the address and
+its extent were published together. Replay preserves an opaque alternative
+if another reached descriptor supplied no definite result.
+When the branch directly observes an inline descriptor, the same edge
+refines that descriptor's physical null alternative. Copies made after the
+branch then publish the narrowed descriptor with the reached scalar values.
 
 | Boundary | What the implementation passes forward |
 | --- | --- |
@@ -555,7 +577,10 @@ An aggregate reuses its field list until a field changes.
 An inline field retains the data and physical capture of the selected payload. Its nullable extraction view
 can still name the containing snapshot for checks at the read site. Storing that view in the field would
 retain an obsolete parent on every loop pass.
-Ownership and retirement traversals follow the payload in that view. The containing snapshot supplies
+Ownership and retirement traversals follow the payload in that view. A scope
+checks an exact surviving snapshot at its retained root before descending.
+Immutable by-value conditions without a live observation do not need a
+lifetime walk. The containing snapshot supplies
 read-site provenance.
 An unresolved element or range changes the enclosing logical observation.
 The checked transition keeps the physical bound and publishes the enclosing

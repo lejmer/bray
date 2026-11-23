@@ -45,10 +45,11 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         roots: &[Target],
         prefix: &mut EffectPrefix,
     ) -> BTreeSet<Target> {
-        let memory = matches!(operation.occurrence(), BoundExecutionSite::Node(_))
+        let occurrence = operation.occurrence();
+
+        let memory = matches!(occurrence, BoundExecutionSite::Node(_))
             .then(|| {
-                operation
-                    .occurrence()
+                occurrence
                     .expression()
                     .and_then(|expression| self.memory.operation(expression))
             })
@@ -92,7 +93,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 | bray_bound_tree::CheckedMemoryOperationKind::RawBufferRelease { .. }
         )) {
             // The owning primitive supplies the stored payload's exact escape roots.
-            return self.escape_effects(&state.memory, effects, &[], false, Some(prefix));
+            return self.escape_effects(&state.memory, effects, &[], false, (occurrence, Some(prefix)));
         }
 
         let direct_write = memory.is_some()
@@ -128,14 +129,14 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 stored.extend(capture.carried_sources().cloned());
             }
 
-            self.escape_effects(&state.memory, Some(&[]), &stored, may_store, Some(prefix))
+            self.escape_effects(&state.memory, Some(&[]), &stored, may_store, (occurrence, Some(prefix)))
         } else {
             self.escape_effects(
                 &state.memory,
                 effects,
                 roots,
                 exposed_integer || may_store,
-                Some(prefix),
+                (occurrence, Some(prefix)),
             )
         }
     }
@@ -146,7 +147,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         effects: Option<&[crate::analysis::storage_flow::memory::Effect]>,
         roots: &[Target],
         retain_inputs: bool,
-        mut prefix: Option<&mut EffectPrefix>,
+        (occurrence, mut prefix): (BoundExecutionSite, Option<&mut EffectPrefix>),
     ) -> BTreeSet<Target> {
 
         let all_inputs = retain_inputs
@@ -180,7 +181,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         // A possible alias inside this body is not an unconditional input escape.
         // Retain the operands so callers resolve aliases using their actual storage.
-        for target in memory.escape_roots(roots.iter().cloned()) {
+        for target in memory.escape_roots(roots.iter().cloned(), Some(occurrence)) {
             self.record_target_effect(
                 memory,
                 &target,
@@ -192,7 +193,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             );
         }
 
-        memory.escaped_regions(roots)
+        memory.escaped_regions(roots, Some(occurrence))
     }
 
     pub(in crate::analysis::storage_flow::check::analysis) fn invocation_roots(

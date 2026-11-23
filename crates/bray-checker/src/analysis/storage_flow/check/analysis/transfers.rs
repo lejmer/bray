@@ -65,7 +65,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     pub(super) fn preserve_storage_values(
         &mut self,
         state: &StorageFlowState,
-        operation: Option<&bray_bound_tree::CheckedMemoryOperation>,
+        (occurrence, operation): (bray_bound_tree::BoundExecutionSite, Option<&bray_bound_tree::CheckedMemoryOperation>),
         effects: Option<&[Effect]>,
         invalidation: &mut StorageInvalidation,
     ) {
@@ -175,7 +175,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                         writes_inside_payload || memory.target_relationship(reached, target) == StorageRelationship::Disjoint
                     }
                     effect if effect.is_ambient() => ambient
-                        .get_or_init(|| memory.ambient_regions(effects.unwrap_or(&unknown)))
+                        .get_or_init(|| memory.ambient_regions(effects.unwrap_or(&unknown), Some(occurrence)))
                         .as_ref().is_some_and(|(regions, unknown)| {
                             (!*unknown || !memory.unknown_reference_may_reach(target))
                                 && regions.iter().all(|reached| memory.target_relationship(reached, target) == StorageRelationship::Disjoint)

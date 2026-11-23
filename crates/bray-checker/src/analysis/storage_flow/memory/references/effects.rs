@@ -103,12 +103,14 @@ impl State {
 
     /// Normal ambient effects share external roots and this call's escaped inputs.
     /// A whole invocation escape has no finite reachability bound.
-    pub(in crate::analysis::storage_flow) fn ambient_regions(&self, effects: &[Effect]) -> Option<(std::collections::BTreeSet<Target>, bool)> {
+    pub(in crate::analysis::storage_flow) fn ambient_regions(
+        &self, effects: &[Effect], occurrence: Option<BoundExecutionSite>,
+    ) -> Option<(std::collections::BTreeSet<Target>, bool)> {
         if effects.contains(&Effect::Escape(None)) { return None; }
 
         let escaped = effects.iter().flat_map(Effect::escape_regions).cloned();
 
-        let (targets, unknown) = self.reachable_regions(self.escaped_regions(escaped).into_iter()
+        let (targets, unknown) = self.reachable_regions(self.escaped_regions(escaped, occurrence).into_iter()
             .chain(Effect::captured_cleanup_regions(effects).cloned()));
 
         Some((targets, unknown || Effect::incomplete_captured_cleanup(effects)))
@@ -224,7 +226,7 @@ impl State {
                         }
                     }
 
-                    if let Some((mut targets, unknown)) = self.ambient_regions(effects) {
+                    if let Some((mut targets, unknown)) = self.ambient_regions(effects, Some(origin)) {
                         self.include_unknown_targets(&mut targets, unknown);
 
                         for target in targets {
@@ -264,6 +266,37 @@ impl State {
         complete_cell: bool,
         retirement: Option<BackingRetirement>,
     ) {
+        if target.is_staged() {
+            // Private outputs already describe the resulting values. A backing
+            // retirement still ends the lifetime of the affected result regions.
+            if let Some(retirement) = retirement {
+                let occurrence = match retirement {
+                    BackingRetirement::Performed(origin) | BackingRetirement::DuringCleanup(origin)
+                    | BackingRetirement::Possible { origin, .. } => origin,
+                };
+
+                let slots = &self.storage_slots;
+                let staged = &mut self.pending.get_mut(&occurrence).expect("private retirement retains its output").payloads;
+
+                if matches!(retirement, BackingRetirement::Performed(_)) {
+                    staged.entry(target.clone()).or_default();
+                }
+
+                for (reached, contents) in staged.iter_mut().filter(|(reached, _)| {
+                    target.relationship_in_slots(reached, slots) != bray_bound_tree::StorageRelationship::Disjoint
+                }) {
+                    if let Some(origin) = match retirement {
+                        BackingRetirement::Performed(origin) => Some(origin),
+                        _ => retirement.possible_origin(reached, contents),
+                    } {
+                        contents.retire(origin);
+                    }
+                }
+            }
+
+            return;
+        }
+
         let references = AddressValue::one(target.clone());
 
         for affected in self.affected_targets(&references) {

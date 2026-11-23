@@ -1,8 +1,8 @@
 use super::Source;
-use super::references::storage_subtree;
-use super::model::{Place, AddressValue, State, Target, Transfer};
+use super::references::{storage_subtree, take_subtree};
+use super::model::{Place, AddressValue, Contents, Retirement, State, Target, Transfer, ValueBinding};
 use bray_bound_tree::{
-    BoundExpressionId, MemoryOperationStatus, MemoryReadKind, StorageDischarge,
+    BoundExecutionSite, BoundExpressionId, MemoryOperationStatus, MemoryReadKind, StorageDischarge,
 };
 use bray_symbols::TypeId;
 
@@ -10,6 +10,7 @@ impl State {
     pub(in crate::analysis::storage_flow) fn observe_effect_types(
         &mut self,
         effects: &[super::Effect],
+        occurrence: Option<BoundExecutionSite>,
     ) {
         for effect in effects {
             if let super::Effect::Mutation { address: Some(target), kind: bray_symbols::DependencyMutationKind::Replace(ty), .. } = effect
@@ -19,7 +20,7 @@ impl State {
             {
                 // A checked owning-region write retains its backing element type,
                 // without establishing initialized contents or retyping known storage.
-                self.contents
+                self.effect_payloads(target, occurrence)
                     .entry(target.clone())
                     .or_default()
                     .storage_type
@@ -168,14 +169,18 @@ impl State {
         for (target, transfer) in transfers {
             if references.is_exact() {
                 self.clear_value(&target);
-                self.commit_value(transfer);
+                self.commit_value(transfer, None);
             } else {
                 self.commit_weak_value(transfer);
             }
         }
     }
 
-    pub(in crate::analysis::storage_flow::memory) fn commit_weak_value(&mut self, transfer: Transfer) {
+    pub(in crate::analysis::storage_flow::memory) fn commit_weak_value(&mut self, mut transfer: Transfer) {
+        if self.retire_value_producers(&mut transfer, None) {
+            transfer.commit_producers();
+        }
+
         for (slot, mut value) in transfer.values {
             for references in value.references_mut() {
                 references.forget_value();
@@ -201,6 +206,120 @@ impl State {
                 .or_default()
                 .merge(&bounds);
         }
+    }
+
+    pub(in crate::analysis::storage_flow::memory) fn commit_value(
+        &mut self,
+        mut transfer: Transfer,
+        occurrence: Option<BoundExecutionSite>,
+    ) {
+        let produced = self.retire_value_producers(&mut transfer, occurrence);
+
+        if occurrence.is_some() {
+            for slot in transfer.values.keys().filter(|target| !target.is_staged()) {
+                self.clear_value(slot);
+            }
+        }
+
+        let mut enclosing: Option<&Target> = None;
+
+        for target in transfer.payloads.keys() {
+            if target.is_staged() || enclosing.is_some_and(|owner| owner.contains_storage(target)) {
+                continue;
+            }
+
+            // Inline replacement can leave an evaluated address to the old contents.
+            self.retire_region(target, Retirement::Storage);
+            enclosing = Some(target);
+
+            for value in transfer.values.values_mut() {
+                value.retire_references(target, Retirement::Storage);
+            }
+
+            for references in transfer.returned_inputs.values_mut() {
+                references.retire(target, Retirement::Storage);
+            }
+        }
+
+        if produced {
+            transfer.commit_producers();
+        }
+
+        let reported = &mut self.may_have_report_values;
+
+        self.values.extend(transfer.values.into_iter().inspect(|(_, value)| {
+            *reported = *reported || value.report_dependencies().is_some();
+        }));
+
+        self.contents.extend(transfer.payloads);
+
+        // Retired bounds stay in their historical epoch. This completion publishes
+        // only the regions of the newly produced reference.
+        for (reference, bounds) in transfer.returned_inputs {
+            self.returned_inputs
+                .entry((reference, false))
+                .or_default()
+                .merge(&bounds);
+        }
+
+        if !transfer.cell_changes.is_empty() {
+            let occurrence = occurrence.expect("checked cell updates retain their producing operation");
+
+            self.apply_cell_changes(transfer.cell_changes, occurrence);
+        }
+
+    }
+
+    fn retire_value_producers(&mut self, transfer: &mut Transfer, occurrence: Option<BoundExecutionSite>) -> bool {
+        let producers = transfer.payloads.keys()
+            .filter(|target| target.is_staged() && target.projections().is_empty())
+            .map(|target| target.clone().commit_producer()).collect::<Vec<_>>();
+
+        for producer in &producers {
+            if let Some(occurrence) = occurrence {
+                // A definite write to the departing cell can change its
+                // outstanding duties before they become historical bounds.
+                let changes = take_subtree(&mut transfer.cell_changes, producer, Retirement::Producer);
+
+                self.apply_cell_changes(changes, occurrence);
+            }
+
+            // Captures still name the previously admitted incarnation.
+            self.retire_region(producer, Retirement::Producer);
+            transfer.retire_dependencies(producer, Retirement::Producer);
+
+            // Call outputs can also write into storage reached through an input.
+            // Those writes belong to the old allocation, even at the same site.
+            for (target, value) in take_subtree(&mut transfer.values, producer, Retirement::Producer) {
+                self.remember_retired_value(target, value);
+            }
+
+            for (target, contents) in take_subtree(&mut transfer.payloads, producer, Retirement::Producer) {
+                self.remember_retired_contents(target, contents);
+            }
+        }
+
+        !producers.is_empty()
+    }
+
+    pub(super) fn remember_retired_value(&mut self, target: Target, mut value: ValueBinding) {
+        for references in value.references_mut() {
+            references.forget_value();
+        }
+
+        value.completeness.lose_completeness();
+
+        self.may_have_report_values |= value.report_dependencies().is_some();
+        self.values.entry(Target { previous: true, ..target }).or_default().merge(&value);
+    }
+
+    pub(super) fn remember_retired_contents(&mut self, target: Target, mut contents: Contents) {
+        // Older instances share a summary target, so no definite contents survive.
+        contents.clear_initialization();
+
+        let previous = Target { previous: true, ..target };
+
+        self.contents.entry(previous.clone()).or_default().merge(&contents, &previous);
     }
 
     fn write_references(
@@ -377,7 +496,7 @@ impl State {
 
         if let (Some(result), Some(transfer)) = (result, transferred) {
             self.clear(&result);
-            self.commit_value(transfer);
+            self.commit_value(transfer, None);
         }
 
         MemoryOperationStatus::Valid

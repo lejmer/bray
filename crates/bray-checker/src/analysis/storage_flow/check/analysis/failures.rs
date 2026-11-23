@@ -245,7 +245,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         if !observes_running_task && let Some(invalidation) = &mut invalidation {
             let memory = occurrence.expression().and_then(|expression| self.memory.operation(expression));
 
-            self.preserve_storage_values(state, memory, effects, invalidation);
+            self.preserve_storage_values(state, (occurrence, memory), effects, invalidation);
         }
 
         Some(crate::analysis::storage_flow::memory::CapturedEffects {
@@ -265,7 +265,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     ) -> (EffectPrefix, Vec<(Target, bray_bound_tree::StorageValueRetirement)>) {
         // The addresses belong to the admitted transition.
         self.check_raw_retirements(state, mutation.occurrence(), &effects.mutations);
-        state.memory.escape_regions(effects.escaped.iter().cloned());
+        state.memory.escape_regions(effects.escaped.iter().cloned(), Some(mutation.occurrence()));
 
         let mut performed = EffectPrefix::default();
 

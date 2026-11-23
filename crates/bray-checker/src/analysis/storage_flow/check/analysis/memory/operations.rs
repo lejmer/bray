@@ -1,11 +1,15 @@
 use super::super::core::StorageFlowCollector;
 use crate::CheckerRequestContext;
-use crate::analysis::storage_flow::memory::Target;
+use crate::analysis::guarantee::ExecutionState;
+use crate::analysis::storage_flow::memory::{Effect, Target};
 use crate::analysis::storage_flow::model::StorageFlowState;
 use bray_bound_tree::{
     AnyBoundNodeId, CheckedMemoryOperationKind, MemoryOperationDecision, MemoryOperationStatus,
-    Refinement, RefinementKind, StorageAccessPurpose, StorageOutcomeRows,
+    Refinement, RefinementKind, StorageAccessPurpose, StorageAddressValue, StorageOutcomeRows,
+    StorageValueDestination, StorageValueInput, StorageValueTransition,
 };
+use bray_symbols::CapturedValueTemplate;
+use std::sync::Arc;
 
 pub(in crate::analysis::storage_flow::check::analysis) const fn conservative_memory_status(
     current: MemoryOperationStatus,
@@ -31,6 +35,39 @@ const fn memory_status_rank(status: MemoryOperationStatus) -> u8 {
 }
 
 impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
+    pub(in crate::analysis::storage_flow::check::analysis) fn resolve_memory_values(
+        &self,
+        execution: &ExecutionState,
+        operation: &bray_bound_tree::CheckedMemoryOperation,
+        effects: &[Effect],
+    ) -> Arc<[StorageValueTransition]> {
+        if !matches!(operation.kind(), CheckedMemoryOperationKind::IsNull { .. }) {
+            return self.resolve_buffer_values(execution, operation, effects);
+        }
+
+        let address = self.captured_memory_operand(execution, operation, operation.arguments()[0])
+            .and_then(bray_bound_tree::StorageCapturedValue::binding)
+            .and_then(|binding| binding.address.as_ref());
+
+        if address != Some(&StorageAddressValue::empty()) {
+            return Arc::new([]);
+        }
+
+        let ty = self.execution.semantics.types().expression(operation.expression())
+            .expect("checked null observation retains its Boolean result type").ty();
+
+        let value = crate::execution_condition_term(
+            self.request.semantic_values(),
+            &crate::ExecutionCondition::boolean(true),
+            &[],
+            ty,
+        ).expect("checked null observation belongs to its semantic store")
+            .expect("Boolean literals have a portable value");
+
+        [StorageValueTransition::new(None, [(StorageValueDestination::Result,
+            CapturedValueTemplate::Data(StorageValueInput::Term(value)))])].into()
+    }
+
     pub(in crate::analysis::storage_flow::check::analysis) fn protected_input_initialized(
         &self,
         memory: &crate::analysis::storage_flow::memory::State,

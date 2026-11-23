@@ -224,8 +224,8 @@ impl State {
         let mut physical = Vec::new();
 
         for target in targets {
-            if let super::super::model::Origin::Returned { reference, .. } = &target.footprint.origin
-                && !target.footprint.previous && let Some(bounds) = staged.returned_inputs.get(reference)
+            if target.footprint.is_staged()
+                && let Some(bounds) = self.route_returned_bounds(&target.footprint, stage)
             {
                 let projections = target.footprint.projections();
 

@@ -5,7 +5,7 @@ use super::super::model::{
 #[cfg(test)]
 use super::super::model::AddressValue;
 
-use bray_bound_tree::{StorageIdentityId, StorageProjection};
+use bray_bound_tree::{BoundExecutionSite, StorageIdentityId, StorageProjection};
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -268,7 +268,7 @@ impl State {
                 // Shared/nested borrows, separate backing and raw origins stay external.
                 !Place::inline_projections(projections)
             }
-            Origin::Returned { reference, projections }
+            Origin::Returned { reference, projections, .. }
             if !projections.contains(&StorageProjection::OwnedTarget) => {
                 let bounds = self.returned_reference_bounds(reference, target.previous);
 
@@ -285,12 +285,17 @@ impl State {
     pub(in crate::analysis::storage_flow) fn escape_roots(
         &self,
         roots: impl IntoIterator<Item = Target>,
+        occurrence: Option<BoundExecutionSite>,
     ) -> BTreeSet<Target> {
         let roots = roots.into_iter().map(|root| exposure_region(&root)).collect::<BTreeSet<_>>();
-        let reached = self.walk_regions(roots.iter().cloned(), true, |region, slot| region.contains_storage(slot)).0;
 
-        reached.iter().filter(|target| roots.contains(*target)
-            || !reached.iter().any(|region| self.entry_field_is_reachable(region, target)))
+        let reached = self.walk_regions(roots.iter().cloned(), occurrence.and_then(|site| self.pending.get(&site)), true,
+            |region, slot| region.contains_storage(slot)).0;
+
+        reached.iter().filter(|target| {
+            !matches!(target.origin, Origin::Returned { staged: true, .. })
+                && (roots.contains(*target) || !reached.iter().any(|region| self.entry_field_is_reachable(region, target)))
+        })
             .cloned().collect()
     }
 
@@ -327,8 +332,11 @@ impl State {
     pub(in crate::analysis::storage_flow) fn escaped_regions(
         &self,
         roots: impl IntoIterator<Item = Target>,
+        occurrence: Option<BoundExecutionSite>,
     ) -> BTreeSet<Target> {
-        let (targets, unknown) = self.transitive_regions(roots, |_, _| true);
+        let staged = occurrence.and_then(|site| self.pending.get(&site));
+
+        let (targets, unknown) = self.walk_regions(roots, staged, false, |_, _| true);
 
         let mut implicit = BTreeSet::new();
 
@@ -338,7 +346,9 @@ impl State {
         // Keep its own identity for backing produced independently of those inputs.
         targets
             .iter()
-            .flat_map(|target| std::iter::once(target).chain(self.effect_origins(target).0))
+            .flat_map(|target| std::iter::once(target).chain(
+                (!target.is_staged()).then(|| self.effect_origins(target).0).into_iter().flatten(),
+            ))
             .chain(implicit.iter().flat_map(|target| self.effect_origins(target).0)
                 .filter(|target| self.unknown_reference_may_reach(target)))
             .map(exposure_region)
@@ -350,15 +360,30 @@ impl State {
         &mut self,
         roots: impl IntoIterator<Item = Target>,
     ) {
-        self.escape_regions(self.escaped_regions(roots));
+        self.escape_regions(self.escaped_regions(roots, None), None);
     }
 
     pub(in crate::analysis::storage_flow) fn escape_regions(
         &mut self,
         regions: impl IntoIterator<Item = Target>,
+        occurrence: Option<BoundExecutionSite>,
     ) {
         for target in regions {
-            self.contents.entry(target).or_default().escaped = true;
+            self.effect_payloads(&target, occurrence).entry(target).or_default().escaped = true;
+        }
+    }
+
+    pub(in crate::analysis::storage_flow::memory) fn effect_payloads(
+        &mut self,
+        target: &Target,
+        occurrence: Option<BoundExecutionSite>,
+    ) -> &mut BTreeMap<Target, Contents> {
+        if target.is_staged() {
+            let occurrence = occurrence.expect("a private effect retains its producing operation");
+
+            &mut self.pending.get_mut(&occurrence).expect("a private effect reaches the staged output").payloads
+        } else {
+            &mut self.contents
         }
     }
 
@@ -367,12 +392,13 @@ impl State {
         roots: impl IntoIterator<Item = Target>,
         follow: impl Fn(&Target, &Target) -> bool,
     ) -> (BTreeSet<Target>, bool) {
-        self.walk_regions(roots, false, follow)
+        self.walk_regions(roots, None, false, follow)
     }
 
     fn walk_regions(
         &self,
         roots: impl IntoIterator<Item = Target>,
+        staged: Option<&Transfer>,
         contained_only: bool,
         follow: impl Fn(&Target, &Target) -> bool,
     ) -> (BTreeSet<Target>, bool) {
@@ -385,7 +411,26 @@ impl State {
                 continue;
             }
 
-            let reference_free = self.contents.get(&target).is_some_and(|contents| {
+            let private = target.is_staged();
+
+            let (values, contents) = if private {
+                let Some(staged) = staged else { continue; };
+
+                if let Origin::Returned { reference, .. } = &target.origin {
+                    let bounds = &staged.returned_inputs[reference];
+
+                    let (origins, unbounded) = Self::effect_origins_from(&target, Some(bounds));
+
+                    pending.extend(origins.cloned());
+                    unknown |= unbounded || bounds.is_displaced();
+                }
+
+                (&staged.values, &staged.payloads)
+            } else {
+                (&self.values, &self.contents)
+            };
+
+            let reference_free = contents.get(&target).is_some_and(|contents| {
                 !contents.exposed
                     && contents
                         .storage_type
@@ -397,11 +442,13 @@ impl State {
             let ranged = reference_free || contained_only
                 && matches!(target.origin, Origin::Storage(_) | Origin::Allocation { .. } | Origin::Returned { .. });
 
-            let contained = ranged.then(|| storage_subtree(&self.values, &target));
-            let all = (!ranged).then_some(&self.values);
+            let contained = ranged.then(|| storage_subtree(values, &target));
+            let all = (!ranged).then_some(values);
+            let producer = private.then(|| target.prefix(0));
 
             for (slot, value) in contained.into_iter().flatten().chain(all.into_iter().flatten()) {
                 if follow(&target, slot)
+                    && producer.as_ref().is_none_or(|producer| producer.contains(slot))
                     // Typed scalars cannot load unrelated pointer slots. Explicit
                     // stored references and raw allocation views remain authoritative.
                     && (!reference_free || target.contains_storage(slot))
@@ -567,7 +614,7 @@ impl State {
         let transfer = self.capture_value(source, &Target::storage(destination.clone()));
 
         self.clear(&destination);
-        self.commit_value(transfer);
+        self.commit_value(transfer, None);
     }
 
     pub(in crate::analysis::storage_flow::memory) fn capture_source(
@@ -628,56 +675,6 @@ impl State {
 
     pub(in crate::analysis::storage_flow) fn take_retirements(&mut self) -> Vec<(Target, Retirement)> {
         std::mem::take(&mut self.retirements).into_iter().collect()
-    }
-
-    pub(in crate::analysis::storage_flow::memory) fn commit_value(
-        &mut self,
-        mut transfer: Transfer,
-    ) {
-        let mut enclosing: Option<(&Target, Retirement)> = None;
-
-        for target in transfer.payloads.keys() {
-            if enclosing.is_some_and(|(owner, scope)| scope.contains(owner, target)) {
-                continue;
-            }
-
-            // Installing an inline owner starts a new storage incarnation. Incoming
-            // raw pointers can still name the destination's previous contents.
-            let retirement = Retirement::for_payload(target);
-
-            self.retire_region(target, retirement);
-            enclosing = Some((target, retirement));
-
-            if matches!(retirement, Retirement::Producer) {
-                continue;
-            }
-
-            for value in transfer.values.values_mut() {
-                value.retire_references(target, Retirement::Storage);
-            }
-
-            for references in transfer.returned_inputs.values_mut() {
-                references.retire(target, Retirement::Storage);
-            }
-
-        }
-
-        let reported = &mut self.may_have_report_values;
-
-        self.values.extend(transfer.values.into_iter().inspect(|(_, value)| {
-            *reported = *reported || value.report_dependencies().is_some();
-        }));
-
-        self.contents.extend(transfer.payloads);
-
-        // Retired bounds stay in their historical epoch. This completion publishes
-        // only the regions of the newly produced reference.
-        for (reference, bounds) in transfer.returned_inputs {
-            self.returned_inputs
-                .entry((reference, false))
-                .or_default()
-                .merge(&bounds);
-        }
     }
 
     pub(in crate::analysis::storage_flow) fn clear(&mut self, place: &Place) {
@@ -756,7 +753,7 @@ fn is_entry_slot(contents: &BTreeMap<Target, Contents>, slot: &Place) -> bool {
         }))
 }
 
-pub(super) fn take_subtree<'a, V>(
+pub(in crate::analysis::storage_flow::memory) fn take_subtree<'a, V>(
     values: &'a mut BTreeMap<Target, V>,
     root: &Target,
     retirement: Retirement,

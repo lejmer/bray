@@ -4,11 +4,11 @@ use crate::analysis::outcomes::{cleanup_successor, edge_path};
 use crate::analysis::fixed_point::{FixedPointDomain, FlowDirection};
 use crate::analysis::guarantee::ExecutionJoin;
 use crate::analysis::id::{AnalysisBlockId, AnalysisEdgeId};
-use crate::analysis::model::{AnalysisBlock, AnalysisEdge, AnalysisEdgeKind, ControlFlowGraph};
+use crate::analysis::model::{AnalysisBlock, AnalysisEdge, AnalysisEdgeKind, AnalysisRefinement, ControlFlowGraph};
 use crate::analysis::reachability::ReachabilityResult;
 use crate::analysis::storage_flow::check::{BlockPublication, FailureEdgeEffects, StorageFlowCollector};
 use crate::{CheckerRequestContext, CheckerUnitView};
-use bray_bound_tree::{BoundDependencySubject, CheckedMemoryOperations, Liveness, StoragePlan};
+use bray_bound_tree::{BoundDependencySubject, CheckedMemoryOperationKind, CheckedMemoryOperations, Liveness, StorageAccessPurpose, StoragePlan};
 use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
@@ -157,6 +157,8 @@ where
             incoming.recovered = true;
             incoming.refinements.clear();
         } else if let Some(refinement) = edge.refinement() {
+            self.refine_pointer_observation(&mut incoming, refinement);
+
             self.refinements
                 .insert_refinement(&mut incoming.refinements, refinement);
 
@@ -246,6 +248,23 @@ where
         }
 
         Some((incoming, failure_effects))
+    }
+
+    fn refine_pointer_observation(&self, state: &mut StorageFlowState, refinement: AnalysisRefinement) {
+        let AnalysisRefinement::Condition { expression, value } = refinement else { return; };
+
+        let Some(operation) = self.memory.operation(expression) else { return; };
+
+        if !matches!(operation.kind(), CheckedMemoryOperationKind::IsNull { .. }) { return; }
+
+        // The unary observation reads one inline place without changing it.
+        // A dynamic route needs its admitted storage coordinate to refine the source.
+        let Some(target) = self.storage.node_plans(operation.arguments()[0].into())
+            .find(|plan| plan.purpose() == StorageAccessPurpose::Read)
+            .and_then(|plan| self.input.direct_reference_target(self.storage, plan.access()))
+        else { return; };
+
+        state.memory.refine_nullness(&target, value);
     }
 
     fn propagate_states<'state, Path: std::borrow::Borrow<crate::analysis::outcomes::OutcomePath>>(

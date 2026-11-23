@@ -1020,7 +1020,7 @@ where
         let possible_effects = outcomes.as_ref().map(bray_symbols::DependencyEffectOutcomes::possible);
 
         if let Some(effects) = possible_effects {
-            state.memory.observe_effect_types(effects);
+            state.memory.observe_effect_types(effects, Some(occurrence));
         }
 
         let (escaped, escape_prefix) = self.operation_escapes(
@@ -1135,7 +1135,7 @@ where
         self.record_entry_check(&mut execution, kind);
 
         state.execution = Some(execution);
-        state.memory.escape_regions(escaped);
+        state.memory.escape_regions(escaped, Some(occurrence));
 
         self.apply_call_effects(state, kind, call_effects, invalidation.as_ref());
 
@@ -1421,7 +1421,7 @@ where
             *transition = bray_bound_tree::StorageObservationTransition::CellContents(pointee);
         }
 
-        self.preserve_storage_values(state, operation, effects, invalidation);
+        self.preserve_storage_values(state, (occurrence, operation), effects, invalidation);
 
         if let Some(contents) = self.input.tag_preserving_assignments.get(&occurrence) {
             self.preserve_store_values(&state.memory, invalidation, true, *contents);

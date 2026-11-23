@@ -122,12 +122,11 @@ impl State {
     pub(super) fn actual_borrow_choices(&self, target: &Target, staged: Option<(&Transfer, &Target)>) -> Option<Vec<Target>> {
         if !self.current_route_target(target, staged) { return None; }
 
-        let Origin::Returned { reference, projections, .. } = &target.origin else {
+        let Origin::Returned { projections, .. } = &target.origin else {
             return Some(vec![target.clone()]);
         };
 
-        let bounds = staged.and_then(|(transfer, _)| transfer.returned_inputs.get(reference))
-            .or_else(|| self.returned_inputs.get(&(reference.clone(), false)))?;
+        let bounds = self.route_returned_bounds(target, staged)?;
 
         if !Place::inline_projections(projections) || !bounds.has_values() || bounds.targets.is_empty() {
             return None;
@@ -139,6 +138,16 @@ impl State {
         }).collect()
     }
 
+    pub(super) fn route_returned_bounds<'a>(&'a self, target: &Target, staged: Option<(&'a Transfer, &Target)>) -> Option<&'a AddressValue> {
+        let Origin::Returned { reference, staged: private, .. } = &target.origin else { return None; };
+
+        if *private {
+            staged?.0.returned_inputs.get(reference)
+        } else {
+            self.returned_inputs.get(&(reference.clone(), target.previous))
+        }
+    }
+
     pub(super) fn forwarded_reference_contents(
         &self,
         location: &Target,
@@ -146,7 +155,7 @@ impl State {
     ) -> Option<AddressValue> {
         if location.previous || !location.is_exact() { return None; }
 
-        let Origin::Returned { reference, projections, .. } = &location.origin else {
+        let Origin::Returned { projections, .. } = &location.origin else {
             return None;
         };
 
@@ -154,13 +163,9 @@ impl State {
             return None;
         }
 
-        let parent = Target {
-            previous: false,
-            origin: Origin::Returned { reference: reference.clone(), projections: [].into() },
-        };
+        let parent = location.prefix(0);
 
-        let bounds = staged.and_then(|(transfer, _)| transfer.returned_inputs.get(reference))
-            .or_else(|| self.returned_inputs.get(&(reference.clone(), false)))?;
+        let bounds = self.route_returned_bounds(location, staged)?;
 
         if !bounds.has_values() || bounds.targets.is_empty() { return None; }
 
@@ -195,7 +200,7 @@ impl State {
     ) -> Option<&'a ValueBinding> {
         if let Some((transfer, root)) = staged {
             transfer.values.get(target).or_else(|| {
-                (!Self::staged_target(transfer, root, target)).then(|| self.values.get(target)).flatten()
+                (!Self::staged_target(root, target)).then(|| self.values.get(target)).flatten()
             })
         } else {
             self.values.get(target)
@@ -212,7 +217,7 @@ impl State {
                 return Some(contents);
             }
 
-            if Self::staged_target(transfer, root, target) {
+            if Self::staged_target(root, target) {
                 return None;
             }
         }
@@ -228,9 +233,8 @@ impl State {
             })
     }
 
-    fn staged_target(transfer: &Transfer, root: &Target, target: &Target) -> bool {
-        root.contains_storage(target) || !target.previous
-            && matches!(&target.origin, Origin::Returned { reference, .. } if transfer.returned_inputs.contains_key(reference))
+    fn staged_target(root: &Target, target: &Target) -> bool {
+        root.contains_storage(target) || target.is_staged()
     }
 
     pub(super) fn reached_route_binding<'a>(
@@ -293,6 +297,10 @@ impl State {
         left: &Target,
         right: &Target,
     ) -> bray_bound_tree::StorageRelationship {
+        if left.is_staged() || right.is_staged() {
+            return left.relationship_in_slots(right, &self.storage_slots);
+        }
+
         if [(left, right), (right, left)].iter().any(|(backing, other)| {
             backing.origin.is_backing_region()
                 && other.storage_path().is_some_and(|path| self.is_owned_inline_storage(path))
@@ -302,7 +310,7 @@ impl State {
 
         if !left.previous && !right.previous {
             for (returned, other) in [(left, right), (right, left)] {
-                if let Origin::Returned { reference, projections } = &returned.origin
+                if let Origin::Returned { reference, projections, .. } = &returned.origin
                     && !projections.contains(&StorageProjection::OwnedTarget)
                 {
                     let bounds = self.returned_reference_bounds(reference, returned.previous);

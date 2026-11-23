@@ -16,6 +16,8 @@ pub enum StorageOrigin {
     },
     /// A returned referent whose identity is independent of its lifetime anchor.
     Returned {
+        /// Whether this incarnation belongs to a private output awaiting publication.
+        staged: bool,
         /// The slot that received the reference.
         reference: StoragePath,
         /// Components reached within the returned referent.
@@ -36,6 +38,8 @@ pub enum StorageOrigin {
     Storage(StoragePath),
     /// An allocation created by one checked operation.
     Allocation {
+        /// Whether this incarnation belongs to a private output awaiting publication.
+        staged: bool,
         /// The checked producer slot identifying this allocation.
         allocation: StoragePath,
         /// Components within the allocation, independently of its producer slot.
@@ -71,6 +75,22 @@ impl StorageOrigin {
 }
 
 impl StorageTarget {
+    /// Whether the referent belongs to a private output awaiting publication.
+    pub fn is_staged(&self) -> bool {
+        matches!(self.origin, StorageOrigin::Returned { staged: true, .. }
+            | StorageOrigin::Allocation { staged: true, .. })
+    }
+
+    /// Promotes a private producer target to its committed incarnation.
+    pub fn commit_producer(mut self) -> Self {
+        match &mut self.origin {
+            StorageOrigin::Returned { staged, .. } | StorageOrigin::Allocation { staged, .. } => *staged = false,
+            _ => {}
+        }
+
+        self
+    }
+
     pub(crate) fn is_valid_for(&self, unit: crate::BoundUnitId) -> bool {
         match &self.origin {
             StorageOrigin::BackingRegion => true,
@@ -85,7 +105,7 @@ impl StorageTarget {
             StorageOrigin::Storage(path) => {
                 path.is_valid_for(unit)
             }
-            StorageOrigin::Allocation { allocation, projections } => allocation.is_valid_for(unit)
+            StorageOrigin::Allocation { allocation, projections, .. } => allocation.is_valid_for(unit)
                 && projections.iter().all(|projection| projection.is_valid_for(unit)),
             StorageOrigin::Entry {
                 reference,
@@ -235,6 +255,7 @@ impl StorageTarget {
                 StorageOrigin::Returned {
                     reference,
                     projections,
+                    ..
                 } => {
                     reference.is_exact()
                         && projections.iter().all(|projection| projection.is_exact())
@@ -243,7 +264,7 @@ impl StorageTarget {
                 StorageOrigin::Storage(place) => {
                     place.is_exact()
                 }
-                StorageOrigin::Allocation { allocation, projections } => allocation.is_exact()
+                StorageOrigin::Allocation { allocation, projections, .. } => allocation.is_exact()
                     && projections.iter().all(|projection| projection.is_exact()),
                 StorageOrigin::Static { root, projections, .. } => matches!(root, bray_symbols::DependencySubjectRoot::StaticInstance(..))
                     && projections.iter().all(|projection| projection.is_exact()),
@@ -379,12 +400,14 @@ impl StorageTarget {
                 StorageOrigin::Returned {
                     reference: left,
                     projections: left_path,
+                    staged: left_stage,
                 },
                 StorageOrigin::Returned {
                     reference: right,
                     projections: right_path,
+                    staged: right_stage,
                 },
-            ) if left == right => region_relationship(left_path, right_path),
+            ) if left == right && left_stage == right_stage => region_relationship(left_path, right_path),
             (StorageOrigin::Returned { .. }, _) | (_, StorageOrigin::Returned { .. }) => {
                 StorageRelationship::PotentiallyOverlapping
             }
@@ -409,9 +432,9 @@ impl StorageTarget {
                     ..
                 },
             ) if left == right => region_relationship(left_path, right_path),
-            (StorageOrigin::Allocation { allocation: left, projections: left_path },
-                StorageOrigin::Allocation { allocation: right, projections: right_path }) => {
-                if left == right { region_relationship(left_path, right_path) }
+            (StorageOrigin::Allocation { allocation: left, projections: left_path, staged: left_stage },
+                StorageOrigin::Allocation { allocation: right, projections: right_path, staged: right_stage }) => {
+                if left == right && left_stage == right_stage { region_relationship(left_path, right_path) }
                 else { StorageRelationship::Disjoint }
             }
             (StorageOrigin::Storage(left), StorageOrigin::Storage(right)) => {
@@ -475,7 +498,7 @@ impl StorageTarget {
 
     /// Whether this target contains the other target in the same origin and epoch.
     pub fn contains(&self, other: &Self) -> bool {
-        if self.previous != other.previous {
+        if self.previous != other.previous || self.is_staged() != other.is_staged() {
             return false;
         }
 
@@ -495,12 +518,12 @@ impl StorageTarget {
                 },
             ) => left == right && left_layer == right_layer && projections.starts_with(prefix),
             (
-                StorageOrigin::Returned { reference: left, projections: prefix },
-                StorageOrigin::Returned { reference: right, projections },
+                StorageOrigin::Returned { reference: left, projections: prefix, .. },
+                StorageOrigin::Returned { reference: right, projections, .. },
             ) => left == right && projections.starts_with(prefix),
             (StorageOrigin::BackingRegion, StorageOrigin::BackingRegion) => true,
-            (StorageOrigin::Allocation { allocation: left, projections: prefix },
-                StorageOrigin::Allocation { allocation: right, projections }) => left == right && projections.starts_with(prefix),
+            (StorageOrigin::Allocation { allocation: left, projections: prefix, .. },
+                StorageOrigin::Allocation { allocation: right, projections, .. }) => left == right && projections.starts_with(prefix),
             (StorageOrigin::Storage(left), StorageOrigin::Storage(right)) => {
                 left.contains(right)
             }
@@ -568,14 +591,16 @@ impl StorageTarget {
             StorageOrigin::Returned {
                 reference,
                 projections: prefix,
+                staged,
             } => StorageOrigin::Returned {
                 reference: reference.clone(),
                 projections: append(prefix),
+                staged: *staged,
             },
             StorageOrigin::BackingRegion => StorageOrigin::BackingRegion,
             StorageOrigin::Storage(place) => StorageOrigin::Storage(path(place)),
-            StorageOrigin::Allocation { allocation, projections: prefix } => StorageOrigin::Allocation {
-                allocation: allocation.clone(), projections: append(prefix),
+            StorageOrigin::Allocation { allocation, projections: prefix, staged } => StorageOrigin::Allocation {
+                allocation: allocation.clone(), projections: append(prefix), staged: *staged,
             },
             StorageOrigin::Static {
                 root,
@@ -734,6 +759,7 @@ mod tests {
             origin: StorageOrigin::Returned {
                 reference: slot(0),
                 projections: [].into(),
+                staged: false,
             },
         };
 
@@ -806,11 +832,12 @@ mod tests {
 
         let origins = [
             StorageOrigin::Storage(path.clone()),
-            StorageOrigin::Allocation { allocation: path.clone(), projections: [].into() },
+            StorageOrigin::Allocation { allocation: path.clone(), projections: [].into(), staged: false },
             StorageOrigin::entry(path.clone(), bray_symbols::DependencyReferenceKind::Address),
             StorageOrigin::Returned {
                 reference: path,
                 projections: [].into(),
+                staged: false,
             },
         ];
 

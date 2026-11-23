@@ -188,7 +188,7 @@ impl State {
     ) {
         if destination.is_exact() {
             self.clear_value(destination);
-            self.commit_value(value.materialize(destination));
+            self.commit_value(value.materialize(destination), None);
         } else {
             self.include_captured_bounds(destination, value);
         }
@@ -223,7 +223,7 @@ impl State {
         // The first publication already installed these payload incarnations.
         additional.payloads.retain(|slot, _| !self.contents.contains_key(slot));
 
-        self.commit_value(additional);
+        self.commit_value(additional, None);
     }
 
     pub(in crate::analysis::storage_flow) fn include_captured_bounds(&mut self, region: &Target,
@@ -332,6 +332,41 @@ impl State {
 
     pub(in crate::analysis::storage_flow) fn null(&mut self, destination: Place) {
         self.replace_value(destination, AddressValue::empty().into());
+    }
+
+    pub(in crate::analysis::storage_flow) fn include_unwritten_reference(
+        &mut self,
+        call: bray_bound_tree::BoundExecutionSite,
+        destination: &Target,
+    ) {
+        let Some(value) = self.pending.get_mut(&call).and_then(|transfer| transfer.values.get_mut(destination)) else {
+            return;
+        };
+
+        if let Some(previous) = self.values.get(destination) {
+            value.merge(previous);
+
+            if previous.address.is_none() && !value.is_no_payload() {
+                value.produced_address().forget_value();
+            }
+        } else {
+            value.produced_address().forget_value();
+        }
+
+        if !destination.is_exact() && let Some(address) = &mut value.address {
+            address.bound();
+        }
+    }
+
+    pub(in crate::analysis::storage_flow) fn refine_nullness(&mut self, source: &Target, is_null: bool) {
+        let Some(value) = self.values.get_mut(source) else { return; };
+
+        if is_null {
+            value.clear_address();
+            value.address = Some(AddressValue::empty());
+        } else if let Some(address) = &mut value.address {
+            address.nullable = false;
+        }
     }
 
     pub(in crate::analysis::storage_flow) fn no_payload(&mut self, destination: Place) {

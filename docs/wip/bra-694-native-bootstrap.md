@@ -63,13 +63,39 @@ evidence. Impossible internal states fail at the violated contract.
 
 ## Verification
 
-The candidate before the latest review fixes checked and lowered all 43
-packaged bootstrap bodies with zero diagnostics. It passed all 1,709 fixed
-comparison cases and all 1,192 bound-tree, checker, package-interface, and
-symbols unit tests. Its isolated Windows x64 standard-library build took
-23.3 s to plan, 22.6 s to emit, and 51.3 s overall. The complete native archive
-and executable link remain unverified.
+Checkpoint `a262dd85f` passed all 1,709 fixed comparison cases and all 1,192
+bound-tree, checker, package-interface, and symbols unit tests. It checked
+and lowered all 43 packaged bootstrap bodies with zero diagnostics on Windows
+x64 and ARM64. A later Windows x64 standard-library build took 24.3 s to
+plan, 23.0 s to emit, and 53.0 s overall. Full archive planning slows inside
+numeric dependency checks reached by real power and complex division.
+Within numeric bodies, the long transfers include lifecycle resolution
+even with a single reached state. Checkpoint `a71fda5de` uses direct root
+lookup and skips by-value conditions that have no live observations.
+It still needs an uncontended timing run.
+The archive and executable link remain unverified.
+
+Linux x64 standard-library planning reports one missing read guarantee at
+the `copy_spare_raw_bytes` call in `copy_native_text_entry`. The producer
+returns both the address and the length. The guard and extent must refer to
+the same published result and retain the pointer's underlying support.
+The null test reads the admitted descriptor. This removed the branch that
+treated a definitely null pointer as non-null. The producer still combined
+a non-null physical descriptor with the zero-length return when the check
+knew the pointer was null only in its logical facts. The taken edge must
+refine the observed inline descriptor before the pair is transferred.
 The timing target remains 17–25 s for planning and 60 s to produce the binary.
+
+The null-edge refinement checks and lowers the Linux source regression.
+The subsequent Windows build planned the x64 standard library in 25.9 s and
+emitted it in 23.3 s. The 67.6 s total included a Rust provider rebuild.
+The ARM64 run took 26.3 s to plan, 23.8 s to emit, and 60.1 s overall.
+Both package runs used Rust 1.98.1 for the native providers because the
+pinned LLVM could not link Rust 1.99 provider bitcode.
+The publication candidate passed 615 checker tests, 139 bound-tree tests,
+and six selected compiler checks. The optimized Ubuntu host compiler built
+from the same source changes. The packaged bootstrap matrix and fixed
+comparison are still required for this candidate.
 
 ### Current storage contract
 
@@ -87,8 +113,16 @@ record. Read each projected descriptor from its current, type-matched
 target. A common descriptor can supply its address. Divergent reads keep
 their regions. A missing alternative leaves the read opaque. A staged result
 uses its own type, values, and liveness through the entire effect route.
-An earlier operand already admitted at that call site uses its committed
-capture. Their finite region bounds remain available to effect binding.
+An admitted operand keeps its committed incarnation while a repeated call
+stages another producer at the same slot. Direct forwarding, projected reads,
+effects, and commit must resolve the corresponding incarnation. A reached
+physical destination can hold the backing region without a logical slot.
+A write with several possible locations must retain the prior contents at
+each location alongside the new alternative.
+Keep exposure and lifetime effects on the private result until publication.
+Writes through an input can reach a previous allocation at the same producer
+slot. Retain their possible contents on the historical allocation without
+letting their typed updates affect the new allocation.
 
 Generic cleanup uses complete carried lineage through all feasible transfers.
 Incomplete caller-visible sources retain conservative effects. Typed entry

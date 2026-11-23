@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
-use super::target::{StorageOrigin as Origin, StorageTarget as Target};
+use super::target::StorageTarget as Target;
 
 /// Which storage incarnation or lifetime a checked transition retires.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -15,17 +15,6 @@ pub enum StorageValueRetirement {
 }
 
 impl StorageValueRetirement {
-    /// Selects the descriptor retirement scope of one produced payload.
-    pub fn for_payload(target: &Target) -> Self {
-        if target.projections().is_empty()
-            && matches!(target.origin, Origin::Returned { .. } | Origin::Allocation { .. })
-        {
-            Self::Producer
-        } else {
-            Self::Storage
-        }
-    }
-
     /// Whether the target's stored descriptor belongs to the retired incarnation.
     pub fn contains(self, current: &Target, target: &Target) -> bool {
         match self {
@@ -266,6 +255,13 @@ impl StorageAddressValue {
             .range(current.clone()..)
             .take_while(|target| current.contains(target))
             .any(|target| retirement.contains(current, target))
+    }
+
+    /// Installs the new incarnation in a descriptor's reached alternatives.
+    pub(super) fn commit_producers(&mut self) {
+        if self.targets.iter().any(Target::is_staged) {
+            self.targets = std::mem::take(&mut self.targets).into_iter().map(Target::commit_producer).collect();
+        }
     }
 
     /// Whether one current, undisplaced, nonempty address is established.
@@ -675,6 +671,16 @@ impl StorageValueBinding {
             && backing.reaches_incarnation(current, retirement)
         {
             Arc::make_mut(backing).retire(current, retirement);
+        }
+    }
+
+    pub(super) fn commit_referenced_producers(&mut self) {
+        for address in self.address.iter_mut().chain(self.address_bounds.iter_mut()) {
+            address.commit_producers();
+        }
+
+        if let Some(backing) = &mut self.owned_backing && backing.targets.iter().any(Target::is_staged) {
+            Arc::make_mut(backing).commit_producers();
         }
     }
 

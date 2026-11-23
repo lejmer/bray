@@ -264,7 +264,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 continue;
             };
 
-            let allocation_relation = if let Origin::Allocation { allocation, projections } = target
+            let allocation_relation = if let Origin::Allocation { allocation, projections, .. } = target
                 && bounds != ReferenceBounds::InputRegions && bounds != ReferenceBounds::Unknown
                 && !projections.contains(&bray_bound_tree::StorageProjection::OwnedTarget)
                 && self.reference_kind(slot, ty)? == Some(bray_symbols::DependencyReferenceKind::Address)
@@ -353,8 +353,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             if self.formal_root(owner.root).is_none() { continue; }
 
             let (producer, projections, allocated) = match &backing.origin {
-                Origin::Allocation { allocation, projections } => (allocation, projections, true),
-                Origin::Returned { reference, projections } => (reference, projections, false),
+                Origin::Allocation { allocation, projections, .. } => (allocation, projections, true),
+                Origin::Returned { reference, projections, .. } => (reference, projections, false),
                 _ => continue,
             };
 
@@ -362,7 +362,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         }
 
         for (slot, origin, exact, bounds) in exit.targets() {
-            let Origin::Allocation { allocation, projections } = origin else { continue; };
+            let Origin::Allocation { allocation, projections, .. } = origin else { continue; };
 
             if !exact || bounds != ReferenceBounds::Known { continue; }
 
@@ -545,7 +545,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
                 (Place { root: reference.root, projections: combined.into() }, terminal)
             }
-            Origin::Allocation { allocation, projections } | Origin::Returned { reference: allocation, projections } if !source => {
+            Origin::Allocation { allocation, projections, .. } | Origin::Returned { reference: allocation, projections, .. } if !source => {
                 let allocated = matches!(&target.origin, Origin::Allocation { .. });
 
                 let Some((anchor, prefix, owned)) = anchors.get(&(allocation.clone(), allocated)).into_iter().flatten()
