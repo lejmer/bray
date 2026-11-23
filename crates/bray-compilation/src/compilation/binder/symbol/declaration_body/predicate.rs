@@ -168,7 +168,7 @@ fn imported_predicate_definition(
 
             let definition = PredicateDefinition::new(
                 PredicateSemanticSummary::new(template.template().behavior().dependency_contract())
-                    .with_condition(state.value().1, bray_symbols::PredicateDomain::Value),
+                    .with_condition(state.value().1, state.value().2),
             );
 
             Ok(DiagnosticResult::new(

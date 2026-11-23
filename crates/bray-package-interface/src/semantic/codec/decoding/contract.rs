@@ -890,17 +890,10 @@ fn decode_predicate_summary(
     let dependency = InterfaceDependencyContractId::new(read_u32(reader)?);
     let condition = read_optional_u32(reader)?.map(InterfaceConstantTermId::new);
 
-    let domain = match read_u32(reader)? {
-        0 => bray_symbols::PredicateDomain::Value,
-        1 => bray_symbols::PredicateDomain::Trusted,
-        2 => bray_symbols::PredicateDomain::Execution,
-        raw => {
-            return Err(crate::semantic::codec::invalid_discriminant(
-                crate::InterfaceValidationField::Reference,
-                raw,
-            ));
-        }
-    };
+    let domain = super::super::common::decode_predicate_domain(
+        read_u32(reader)?,
+        crate::InterfaceValidationField::Reference,
+    )?;
 
     Ok(InterfacePredicateSummary::new(dependency).with_condition(condition, domain))
 }

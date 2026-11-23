@@ -140,6 +140,47 @@ fn execution_requirements_remain_compile_time_obligations() {
 }
 
 #[test]
+fn opaque_predicate_aliases_remain_compile_time_obligations() {
+    let compilation = compilation(
+        r#"
+        trusted module app;
+
+        trusted predicate admitted(value: i32);
+        predicate permitted(value: i32) = admitted(value);
+
+        trusted func issue(pos value: i32) -> i32
+            ensures(trusted admitted(result))
+        {
+            return value;
+        }
+
+        trusted func selected(pos value: i32)
+            requires(permitted(value)) {}
+
+        func caller(pos value: i32)
+        {
+            let admitted_value = trusted issue(value);
+            trusted selected(admitted_value);
+        }
+    "#,
+    );
+
+    assert!(
+        compilation.check_diagnostics().is_empty(),
+        "{:#?}",
+        compilation.check_diagnostics()
+    );
+
+    let result = compilation
+        .lowered_unit(source_function_body_key(&compilation, "caller"))
+        .expect("fixture callable must lower successfully");
+
+    let mir = lowered_mir(&result);
+
+    assert!(!mir.operations().iter().any(|operation| matches!(operation.kind(), MirOperationKind::Call(call) if matches!(call.target(), MirCallTarget::Predicate(_)))));
+}
+
+#[test]
 fn represented_indirect_requirements_execute_before_invocation() {
     let compilation = compilation(
         r#"

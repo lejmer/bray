@@ -1,13 +1,12 @@
-use std::collections::BTreeSet;
 use std::ops::Range;
 
 use bray_symbols::{AnySymbolId, ExternalSymbolKey, PackageIdentity, SymbolKind};
 
-use crate::test_support::{insert_key_and_owners, package_version};
+use crate::test_support::{package_version, public_symbol_records};
 use crate::{
-    EncodedSemanticSection, ExportSymbolInput, InterfaceContentHash, InterfaceDependency,
-    InterfaceProductIdentity, InterfaceProductKind, InterfaceSectionTag, PackageInterfaceIdentity,
-    PackageInterfaceSurface, ValidatedInterfaceSection, build_package_interface_surface,
+    EncodedSemanticSection, InterfaceContentHash, InterfaceDependency, InterfaceProductIdentity,
+    InterfaceProductKind, InterfaceSectionTag, PackageInterfaceIdentity, PackageInterfaceSurface,
+    ValidatedInterfaceSection, build_package_interface_surface,
 };
 
 pub(super) use crate::test_support::local_by_kind;
@@ -258,21 +257,7 @@ pub(super) fn interface_surface(
     symbols: impl IntoIterator<Item = ExternalSymbolKey>,
     dependencies: impl IntoIterator<Item = PackageIdentity>,
 ) -> PackageInterfaceSurface {
-    let mut keys = BTreeSet::new();
-
-    for symbol in symbols {
-        insert_key_and_owners(&mut keys, symbol);
-    }
-
-    keys.insert(ExternalSymbolKey::package(package.clone()));
-
-    let records = keys.iter().map(|key| {
-        ExportSymbolInput::new(
-            key.clone(),
-            key.owner().cloned(),
-            bray_symbols::MemberVisibility::Public,
-        )
-    });
+    let (_, records) = public_symbol_records(&package, symbols);
 
     let dependencies = dependencies.into_iter().map(|dependency| {
         InterfaceDependency::new(

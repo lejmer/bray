@@ -71,8 +71,19 @@ pub(super) fn export_predicate_semantics(
         .map(|term| export.constant_term_id(term))
         .transpose()?;
 
+    let domain = checked.as_ref().map_or_else(
+        || {
+            if signature.value().is_trusted() {
+                bray_symbols::PredicateDomain::Trusted
+            } else {
+                bray_symbols::PredicateDomain::Value
+            }
+        },
+        |definition| definition.semantic().domain(),
+    );
+
     semantics.predicate_definitions.push(
-        InterfacePredicateDefinition::new(export.symbol_reference(symbol)?, state)
+        InterfacePredicateDefinition::new(export.symbol_reference(symbol)?, state, domain)
             .with_parameters(parameters)
             .with_condition(condition),
     );

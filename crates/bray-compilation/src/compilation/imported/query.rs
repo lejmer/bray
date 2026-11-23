@@ -1801,14 +1801,16 @@ mod tests {
             (
                 fixture.opaque_predicate_owner,
                 InterfacePredicateDefinitionState::OpaqueTrusted,
+                bray_symbols::PredicateDomain::Trusted,
             ),
             (
                 fixture.defined_predicate_owner,
                 InterfacePredicateDefinitionState::Defined,
+                bray_symbols::PredicateDomain::Value,
             ),
         ];
 
-        for (owner, expected) in cases {
+        for (owner, expected_state, expected_domain) in cases {
             let key = ImportedSemanticRecordKey::new(
                 interface,
                 owner,
@@ -1824,7 +1826,8 @@ mod tests {
                 panic!("exact predicate query must publish one definition state");
             };
 
-            assert_eq!(definition.state(), expected);
+            assert_eq!(definition.state(), expected_state);
+            assert_eq!(definition.domain(), expected_domain);
         }
 
         let interface_index = interface

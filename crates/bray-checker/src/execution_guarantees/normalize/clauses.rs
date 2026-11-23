@@ -60,7 +60,7 @@ pub fn predicate_conditions_with_inputs(
     inputs: &BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
     storage: Option<(&bray_bound_tree::StoragePlan, &bray_bound_tree::StorageFlow)>,
     predicates: Option<
-        &BTreeMap<bray_symbols::PredicateInstanceData, bray_symbols::PredicateSemanticSummary>,
+        &BTreeMap<bray_symbols::PredicateInstanceData, crate::PredicateConditionInput>,
     >,
 ) -> Result<
     Vec<(
@@ -160,7 +160,7 @@ fn predicate_domain(
     semantics: &CheckedExpressionSemantics,
     root: BoundExpressionId,
     predicates: Option<
-        &BTreeMap<bray_symbols::PredicateInstanceData, bray_symbols::PredicateSemanticSummary>,
+        &BTreeMap<bray_symbols::PredicateInstanceData, crate::PredicateConditionInput>,
     >,
 ) -> bray_symbols::PredicateDomain {
     use bray_bound_tree::{AnyBoundNodeId, BoundWalkControl, BoundWalkEvent, SemanticSelection};

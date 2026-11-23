@@ -108,6 +108,15 @@ The direct-bounds batch passed all 615 checker tests and both allocation and
 escaping-lifetime compiler regressions. Its exact optimized binary passed all
 1,709 fixed comparison cases with no failures or missing cases. The packaged
 bootstrap matrix and native archive remain to be verified for this candidate.
+The native archive then exposed a predicate-category boundary after its
+embedded standard library completed. Trusted opaque predicates have no body.
+Execution normalization must carry their trusted authority directly instead
+of treating a missing local body as either an ordinary value predicate or an
+import. Only defined ordinary predicates can become runtime helpers.
+The predicate-authority batch retains that domain through package export and
+import. Its local and imported product regressions, all 222 package-interface
+tests, all 615 checker tests, and the repository style gate pass. The native
+archive remains to be rerun from this candidate.
 
 ### Current storage contract
 

@@ -73,6 +73,11 @@ pub(super) fn encode_declaration_semantics(
         |encoder, definition| {
             write_symbol_reference(encoder, &definition.owner);
             encoder.write_u32(definition.state.to_wire());
+
+            encoder.write_u32(super::super::common::encode_predicate_domain(
+                definition.domain,
+            ));
+
             write_count(encoder, definition.parameters.len());
 
             for (parameter, name, ty) in &*definition.parameters {

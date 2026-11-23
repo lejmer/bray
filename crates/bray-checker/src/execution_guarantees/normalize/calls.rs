@@ -29,7 +29,7 @@ pub(super) fn selected_condition(
     expression: BoundExpressionId,
     budget: &mut usize,
     predicates: Option<
-        &BTreeMap<bray_symbols::PredicateInstanceData, bray_symbols::PredicateSemanticSummary>,
+        &BTreeMap<bray_symbols::PredicateInstanceData, crate::PredicateConditionInput>,
     >,
 ) -> Option<ExecutionCondition> {
     if let Some(SemanticSelection::Call(call)) = semantics.selections().expression(expression) {
@@ -99,7 +99,7 @@ pub(super) fn selected_condition(
 pub(crate) fn selected_call_condition(
     values: &SemanticValueStore,
     predicates: Option<
-        &BTreeMap<bray_symbols::PredicateInstanceData, bray_symbols::PredicateSemanticSummary>,
+        &BTreeMap<bray_symbols::PredicateInstanceData, crate::PredicateConditionInput>,
     >,
     expression: BoundExpressionId,
     call: &bray_bound_tree::SelectedCall,
@@ -241,7 +241,7 @@ fn call_argument_conditions(
     evaluated: &impl Fn(BoundExpressionId) -> Option<ExecutionCondition>,
     budget: &mut usize,
     predicates: Option<
-        &BTreeMap<bray_symbols::PredicateInstanceData, bray_symbols::PredicateSemanticSummary>,
+        &BTreeMap<bray_symbols::PredicateInstanceData, crate::PredicateConditionInput>,
     >,
 ) -> Vec<ExecutionCondition> {
     let mut arguments = Vec::new();
@@ -365,7 +365,7 @@ fn call_argument_conditions(
 fn predicate_condition(
     values: &SemanticValueStore,
     predicates: Option<
-        &BTreeMap<bray_symbols::PredicateInstanceData, bray_symbols::PredicateSemanticSummary>,
+        &BTreeMap<bray_symbols::PredicateInstanceData, crate::PredicateConditionInput>,
     >,
     predicate: bray_symbols::PredicateInstanceData,
     arguments: Vec<ExecutionCondition>,

@@ -37,7 +37,9 @@ mod type_normalization;
 mod type_representation;
 mod unit;
 
-pub use trusted_contracts::{TrustedCallContract, TrustedContractInputs};
+pub use trusted_contracts::{
+    PredicateConditionInput, TrustedCallContract, TrustedContractInputs,
+};
 
 #[cfg(test)]
 mod test_support;

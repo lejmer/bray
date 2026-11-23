@@ -138,6 +138,60 @@ fn imported_unproved_requirements_reach_concrete_predicate_helpers() {
 }
 
 #[test]
+fn imported_opaque_predicate_aliases_remain_compile_time_obligations() {
+    let provider = compilation(
+        r#"
+        trusted module api;
+
+        trusted predicate admitted(value: i32);
+        predicate permitted(value: i32) = admitted(value);
+
+        trusted func issue(pos value: i32) -> i32
+            ensures(trusted admitted(result))
+        {
+            return value;
+        }
+
+        trusted func selected(pos value: i32)
+            requires(permitted(value)) {}
+    "#,
+    );
+
+    assert!(
+        !provider.check_diagnostics().has_errors(),
+        "{:#?}",
+        provider.check_diagnostics()
+    );
+
+    let consumer = crate::test_support::compilation_with_dependencies(
+        r#"
+        module app;
+
+        using example.package.api;
+
+        func main()
+        {
+            let value = trusted example.package.api.issue(1);
+            trusted example.package.api.selected(value);
+        }
+    "#,
+        [implementation_dependency(export(&provider))],
+    );
+
+    assert!(
+        !consumer.check_diagnostics().has_errors(),
+        "{:#?}",
+        consumer.check_diagnostics()
+    );
+
+    let count = consumer
+        .codegen_instance_count_for_test(|key| matches!(key, bray_ir::MirUnitKey::Predicate(_)))
+        .expect("imported opaque predicate aliases must reach product planning");
+
+    assert_eq!(count, 0);
+}
+
+#[test]
 fn requirement_templates_preserve_named_argument_mapping() {
     let provider = compilation(
         r#"

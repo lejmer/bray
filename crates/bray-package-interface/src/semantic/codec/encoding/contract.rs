@@ -617,9 +617,7 @@ pub(super) fn encode_predicate_summary(
     encoder.write_u32(predicate.dependency_contract.raw());
     write_optional_u32(encoder, predicate.condition.map(|term| term.raw()));
 
-    encoder.write_u32(match predicate.domain {
-        bray_symbols::PredicateDomain::Value => 0,
-        bray_symbols::PredicateDomain::Trusted => 1,
-        bray_symbols::PredicateDomain::Execution => 2,
-    });
+    encoder.write_u32(super::super::common::encode_predicate_domain(
+        predicate.domain,
+    ));
 }

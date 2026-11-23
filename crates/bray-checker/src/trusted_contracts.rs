@@ -4,6 +4,33 @@ use bray_bound_tree::BoundExecutionSite;
 
 use crate::ExecutionCondition;
 
+/// Predicate meaning needed while normalizing execution conditions.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct PredicateConditionInput {
+    condition: Option<bray_symbols::ConstantTermId>,
+    domain: bray_symbols::PredicateDomain,
+}
+
+impl PredicateConditionInput {
+    /// Creates one predicate input from its retained meaning and checking authority.
+    pub const fn new(
+        condition: Option<bray_symbols::ConstantTermId>,
+        domain: bray_symbols::PredicateDomain,
+    ) -> Self {
+        Self { condition, domain }
+    }
+
+    /// Returns the predicate body term when the declaration defines one.
+    pub const fn condition(self) -> Option<bray_symbols::ConstantTermId> {
+        self.condition
+    }
+
+    /// Returns the authority required to establish the predicate.
+    pub const fn domain(self) -> bray_symbols::PredicateDomain {
+        self.domain
+    }
+}
+
 /// Checked predicate conditions supplied to one body analysis.
 #[derive(Debug, Default)]
 pub struct TrustedContractInputs {
@@ -16,9 +43,9 @@ pub struct TrustedContractInputs {
     pub statics: std::collections::BTreeSet<bray_symbols::StaticReferenceSelection>,
     /// Closed declaration constants used by this body's conditions.
     pub constants: BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
-    /// Checked ordinary predicate bodies in positional argument form.
+    /// Checked predicate meanings and opaque declaration authority.
     pub predicates:
-        BTreeMap<bray_symbols::PredicateInstanceData, bray_symbols::PredicateSemanticSummary>,
+        BTreeMap<bray_symbols::PredicateInstanceData, PredicateConditionInput>,
     /// Trusted conditions the caller must supply at entry.
     pub requirements: Vec<ExecutionCondition>,
     /// Borrowed or owning subjects whose established entry authority cannot be copied.

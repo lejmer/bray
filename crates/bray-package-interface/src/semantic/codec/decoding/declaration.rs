@@ -374,6 +374,12 @@ pub(super) fn decode_predicate_definition(
 ) -> Result<InterfacePredicateDefinition, InterfaceValidationError> {
     let owner = read_symbol_reference(reader, context)?;
     let state = decode_tag(read_u32(reader)?)?;
+
+    let domain = super::super::common::decode_predicate_domain(
+        read_u32(reader)?,
+        crate::InterfaceValidationField::Declaration,
+    )?;
+
     let count = read_count(reader, context.limits(), InterfaceLimit::RecordCount)?;
     let mut parameters = context.allocate_items(reader, count)?;
 
@@ -391,7 +397,7 @@ pub(super) fn decode_predicate_definition(
     let condition = crate::semantic::codec::common::read_optional_u32(reader)?
         .map(crate::InterfaceConstantTermId::new);
 
-    Ok(InterfacePredicateDefinition::new(owner, state)
+    Ok(InterfacePredicateDefinition::new(owner, state, domain)
         .with_parameters(parameters)
         .with_condition(condition))
 }

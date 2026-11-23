@@ -129,6 +129,7 @@ pub(super) fn imported_predicate_definition_summary(
     DiagnosticResult<(
         InterfacePredicateDefinitionState,
         Option<bray_symbols::ConstantTermId>,
+        bray_symbols::PredicateDomain,
     )>,
 > {
     let result = imported_records(
@@ -146,7 +147,11 @@ pub(super) fn imported_predicate_definition_summary(
     };
 
     Ok(DiagnosticResult::new(
-        (definition.state(), definition.condition()),
+        (
+            definition.state(),
+            definition.condition(),
+            definition.domain(),
+        ),
         result.diagnostics().clone(),
     ))
 }

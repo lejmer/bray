@@ -33,6 +33,10 @@ pub(crate) fn validate_predicate_definition(
     if !is_valid
         || (definition.condition().is_some()
             && definition.state() != InterfacePredicateDefinitionState::Defined)
+        || (definition.state() == InterfacePredicateDefinitionState::OpaqueTrusted
+            && definition.domain() != bray_symbols::PredicateDomain::Trusted)
+        || (definition.state() == InterfacePredicateDefinitionState::Required
+            && definition.domain() == bray_symbols::PredicateDomain::Execution)
     {
         return Err(crate::semantic::codec::invalid_value(
             crate::InterfaceValidationField::Declaration,
