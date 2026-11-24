@@ -134,10 +134,15 @@ where
         let mut escaping = std::collections::BTreeSet::new();
 
         for (slot, target) in state.memory.reference_targets(result) {
-            // Possible input regions retain lifetime support, but only an
-            // established address can identify the returned borrow's pointee.
-            let Some(origins) = state.memory.actual_borrow_choices(target, None) else {
-                continue;
+            let (possible, unbounded) = state.memory.effect_origins(target);
+
+            // A closed region bound lists every possible pointee. An opaque
+            // bound also retains holder and allocation support, which cannot
+            // alone establish that the returned reference points into them.
+            let origins = if unbounded {
+                state.memory.actual_borrow_choices(target, None).unwrap_or_default()
+            } else {
+                possible.cloned().collect()
             };
 
             for target in origins {

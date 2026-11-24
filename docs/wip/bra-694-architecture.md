@@ -302,8 +302,10 @@ At a call attempt, escape analysis, observation invalidation, and returned-refer
 regions. Observation invalidation reads the live `StorageFlowState` through each planned input route first. Captured
 descriptors supply detached and deferred frame reach that no longer has a live route.
 Possible input regions keep symbolic references and reports alive. A returned
-borrow escape checks established physical pointees and the retained value and
-loan dependencies; a possible region alone does not establish a pointee.
+borrow escape checks established physical pointees or every member of a closed
+physical region bound. Opaque bounds can also include holders and backing that
+support the value without being possible pointees. The retained value and loan
+dependencies still reject escapes from dying local storage.
 The selected input's borrow authority is monotonic. A later physical capture
 can confirm that authority but cannot erase it. An ordinary call attempt uses
 the live route for every input whose current physical binding supplies reached
@@ -405,9 +407,10 @@ through the admitted input capture. If a later descriptor is opaque, its
 possible pointees come from the reached pointer value and previously exposed
 storage. A borrow that keeps the enclosing owner alive does not by itself
 make that owner a possible pointee of the returned reference. The symbolic
-result identity retains those bounds across transfer and later escape. Escape
-and report retention expand that identity through the current returned-input
-bounds before deciding which concrete storage lifetime survives.
+result identity retains those bounds across transfer and later escape. Report
+retention expands the current returned-input bounds. Escape checking uses them
+as possible pointees when the region bound is closed, and otherwise uses only
+established address choices alongside the value and loan dependencies.
 An unreadable route ending in checked owning backing retains that allocation
 boundary as a region in `StorageFlowState`. The region can overlap external
 storage and is disjoint from storage owned inline by the caller. Result

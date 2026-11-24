@@ -63,56 +63,22 @@ evidence. Impossible internal states fail at the violated contract.
 
 ## Verification and current trace
 
-- `a262dd85f` checked and lowered the 43-body packaged inventory with zero
-  diagnostics on Windows x64 and ARM64. `00b7dfdb4` passed all 1,709 fixed
-  comparison cases. These runs are controls for the final candidate.
-- `c639d9330` passed the local and imported predicate product regressions
-  and 222 package-interface tests. `f28f37ed3` passed the style gate,
-  all 616 checker tests, and 48 recursive compilation regressions.
-- The sparse cleanup entry snapshot checked and lowered all 43 Windows x64
-  bootstrap bodies with zero diagnostics and passed the 616 checker and 139
-  bound-tree unit tests. The inventory took 232 s.
-  The lowering request for `execution/retirement.bray` took 78 s, including
-  prerequisites. Its execution properties were already cached. The other
-  targets and the final archive still need verification.
-- A profile of the first six bootstrap bodies attributed 39.8 s in the
-  retirement lowering request to 179 result-dependency component
-  evaluations and 4.9 s to imported semantic records.
-- `16752178e` passed all 617 checker tests, seven focused compilation
-  cases, and the 1,709 fixed comparison cases. A represented child of an
-  unused nullable formal uses the receiver address written by its finalizer.
-- `c807164e0` passed 618 checker tests, 139 bound-tree tests, nine focused
-  compilation cases, and all 1,709 fixed comparison cases. Nested nullable
-  cleanup accepted the supported receiver guarantee and rejected the missing guarantee. The
-  dependency summary recorded destruction of the newly installed child and
-  skipped the child that stayed empty.
-- The current typed-reference candidate passed all 151 storage-flow tests and
-  checked and lowered the complete 43-body Windows x64 packaged bootstrap
-  inventory with zero diagnostics. This includes both `execution/start.bray`
-  bodies and the ownership line 67 and 69 obligations. Observation
-  invalidation now retains raw, mutable-borrow, and shared-borrow authority
-  through normal calls, failure capture, and deferred observation.
-- The fixed-comparison regression trace reached the mutable `replace` input and
-  selected its finite `BorrowedReach` row. The first current-candidate comparison
-  reduced 21 baseline failures to five. A separate safe-loan reachability channel
-  cleared the opaque-retention control. Four cases remain in three shared paths:
-  symbolic returned origins must expand through their current bounds for escape
-  and report retention, incomplete dynamic storage must keep known reference
-  relations, and ordinary trusted completion must consume the same direct
-  post-call owner mapping as cleanup.
+- The current candidate passes all 1,709 fixed comparison cases, including
+  source and imported returns, nested cleanup, generator reference lifetime,
+  and the production channel endpoint check. The comparison used one verified
+  release test binary.
+- An earlier candidate checked and lowered the complete 43-body Windows x64
+  packaged bootstrap inventory with zero diagnostics. The current candidate
+  needs a fresh target-qualified standard library and the same check.
 - Normal calls and lifecycle cleanup publish exact reference targets in
   `StorageCompletion`. Trusted completion maps the reached actual input path to
   its formal `StoragePlan` path and reads the target's current value directly.
-  It does not search retained logical values to reconstruct an owner.
 - The optimized Windows x64 reference took 24.3 s to plan, 23.0 s to emit,
   and 53.0 s overall for the standard library. Native providers use Rust
   1.98.1 because the pinned LLVM cannot link Rust 1.99 provider bitcode.
-- The numeric probe must open the target-qualified bundle produced by the
-  native workflow. The parent directory contains an older manifest. It led
-  to unresolved standard-library names and a compound-assignment panic.
-  The correct x64 bundle selects all 264 compound operators. The corrected
-  numeric probe checked and lowered one body. The full native archive and
-  executable link remain unverified.
+- Packaged probes must open the target-qualified bundle. The parent directory
+  contains an older manifest. The full native archive and executable link
+  remain unverified.
 
 The timed numeric trace uses a 24-worker budget and a single root demand.
 One `logarithm` storage solve took 80 s. The instrumented candidate with
@@ -276,8 +242,8 @@ consumption, then reconciles it with the actual checked access. A noncopying
 complete value that owns its witness clears that potential warning. Extracting
 only a component does not.
 
-The channel registration contract is the next end-to-end check. The source
-`register_waiter` call establishes three trusted conditions on the returned
+The channel registration contract spans source and imported compilation. The
+source `register_waiter` call establishes three trusted conditions on the returned
 registration: its marker, the shared lock marker, and the shared channel
 marker. `send` and `receive` keep that registration live across suspension.
 `complete` makes cleanup unconditional on the markers. On an active exit,
@@ -286,10 +252,9 @@ until its destructor. The proof must never borrow a condition from an
 unrelated registration or retain one after its owner or observed marker
 changes. The source and imported standard-library paths, completion
 publication, retirement, suspension, and cleanup proof are consumers.
-The two current positive oracles are the `send` and `receive` bodies, which
-both fail only the shared channel marker requirement in a current source
-build. A deliberately absent or invalidated marker must remain a negative
-oracle. Source-mode proof retains channel validity on the original `shared`
+The positive oracles are the `send` and `receive` bodies. A deliberately
+absent or invalidated marker must remain a negative oracle. Source-mode proof
+retains channel validity on the original `shared`
 expression while cleanup reads `registration.shared.instance` through a loop
 join at its actual storage place. Both cleanup receiver readers agree. The
 join combines owned and scalar views of the same shared referent after a
@@ -301,9 +266,9 @@ or fallback.
 
 The fixed comparison also checks two reference boundaries. A copied generator
 element retains its original reference dependency even when its cursor and
-backing are possible physical input regions. Escape checking reads established
-borrow choices, while the existing dependency and loan checks reject a
-reference to a dying local. A cleanup finalizer can publish a symbolic
+backing support an opaque physical region. Escape checking reads established
+borrow choices or a closed possible region, while the existing dependency and
+loan checks reject a reference to a dying local. A cleanup finalizer can publish a symbolic
 reference descriptor whose current bound names one exact referent. Completion
 resolves that bound from the reached physical state before attaching the
 destructor's witness to its owner.
