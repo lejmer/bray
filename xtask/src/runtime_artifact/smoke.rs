@@ -31,6 +31,8 @@ pub(super) fn smoke_test(
     target: NativeTarget,
     directory: &Path,
 ) -> Result<(), CommandError> {
+    crate::progress::message("Compiling the allocation probe smoke executable");
+
     let (executable, _) = compile_c_smoke(
         ALLOCATION_PROBE_SMOKE_SOURCE,
         "allocation-probe-smoke",
@@ -40,6 +42,8 @@ pub(super) fn smoke_test(
         &[],
         &[],
     )?;
+
+    crate::progress::message("Running the allocation probe smoke executable");
 
     let output = crate::validation_process::success(
         Exec::cmd(&executable),
@@ -64,6 +68,8 @@ pub(super) fn smoke_test(
         ],
     )?;
 
+    crate::progress::message("Compiling the asynchronous runtime smoke executable");
+
     let executable = compile_smoke(
         SMOKE_SOURCE,
         "runtime-smoke",
@@ -73,6 +79,8 @@ pub(super) fn smoke_test(
         None,
         &package.native_links,
     )?;
+
+    crate::progress::message("Running the asynchronous runtime smoke executable");
 
     let output = crate::validation_process::success(
         Exec::cmd(&executable),
@@ -101,6 +109,8 @@ pub(super) fn smoke_test(
         ],
     )?;
 
+    crate::progress::message("Compiling the synchronous runtime smoke executable");
+
     let executable = compile_smoke(
         SYNC_SMOKE_SOURCE,
         "runtime-sync-smoke",
@@ -111,6 +121,8 @@ pub(super) fn smoke_test(
         &package.native_links,
     )?;
 
+    crate::progress::message("Running the synchronous runtime smoke executable");
+
     crate::validation_process::success(Exec::cmd(&executable), crate::validation_process::TIMEOUT)
         .map_err(|error| CommandError::SmokeExecution {
             name: "synchronous",
@@ -118,11 +130,21 @@ pub(super) fn smoke_test(
         })?;
 
     audit_synchronous_link_map(&map)?;
-    smoke_test_bootstrap(package, target, directory)?;
-    super::observation_smoke::smoke_test(package, target, directory)?;
-    super::entry_smoke::smoke_test(package, target, directory)?;
-    super::execution::smoke_test(package, target, directory)?;
-    super::synchronous::smoke_test(package, target, directory)?;
+    crate::progress::run("Running bootstrap smoke tests", || {
+        smoke_test_bootstrap(package, target, directory)
+    })?;
+    crate::progress::run("Running observation smoke tests", || {
+        super::observation_smoke::smoke_test(package, target, directory)
+    })?;
+    crate::progress::run("Running entry smoke tests", || {
+        super::entry_smoke::smoke_test(package, target, directory)
+    })?;
+    crate::progress::run("Running execution smoke tests", || {
+        super::execution::smoke_test(package, target, directory)
+    })?;
+    crate::progress::run("Running synchronous smoke tests", || {
+        super::synchronous::smoke_test(package, target, directory)
+    })?;
 
     Ok(())
 }
@@ -191,6 +213,8 @@ fn smoke_test_bootstrap(
     target: NativeTarget,
     directory: &Path,
 ) -> Result<(), CommandError> {
+    crate::progress::message("Preparing the bootstrap smoke executable");
+
     let resident = resident_host_object(target, directory)?;
     let mut archives = component_archives(package, &[RuntimeArchiveKind::Bootstrap])?;
 
@@ -211,6 +235,8 @@ fn smoke_test_bootstrap(
             &[]
         },
     )?;
+
+    crate::progress::message("Running the bootstrap smoke executable");
 
     let output = crate::validation_process::success(
         Exec::cmd(&executable).env("BRAY_NUMERIC_VECTORS", numeric_vectors),

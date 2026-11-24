@@ -67,14 +67,18 @@ evidence. Impossible internal states fail at the violated contract.
   source and imported returns, nested cleanup, generator reference lifetime,
   and the production channel endpoint check. The comparison used one verified
   release test binary.
-- The current Windows x64 standard library builds in 49 seconds, with planning
+- The current Windows x64 standard library builds in 48 seconds, with planning
   in 21 seconds. Its interface decodes completely after normal and failure
   stored-value rows normalize against their portable destinations.
 - Checkpoint `51c1942c7` checked and lowered all 43 selected Windows x64
   bootstrap bodies with zero diagnostics. The later full archive reached two
   additional report consumers. The current source candidate checks and lowers
   those consumers, both append contracts, and the metadata body without a
-  diagnostic. The full archive and other targets still need verification.
+  diagnostic. The complete Windows x64 runtime archive now builds, validates
+  its exports and native indexes, and links a smoke executable. Its first
+  execution shutdown crashes through a null optional callback. Execution and
+  shutdown belong to BRA-695 and BRA-696. The fixed comparison and other
+  targets still need verification against the current candidate.
 - Normal calls and lifecycle cleanup publish exact reference targets in
   `StorageCompletion`. Trusted completion maps the reached actual input path to
   its formal `StoragePlan` path and reads the target's current value directly.

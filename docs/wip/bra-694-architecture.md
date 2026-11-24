@@ -60,7 +60,9 @@ flowchart TD
   MIR, including generated host, callback, and async bodies. `bray-emitter` stages outputs and `bray-linker` links selected
   objects and runtime artifacts. `bray-runtime-interface` describes compiler-facing roles and compatibility, while
   `bray-runtime-abi` defines the native records and symbols. The bootstrap package supplies production Bray bodies.
-  Rust runtime adapters expose the stable ABI of their selected components. [Product emission](../../crates/bray-compilation/src/compilation/product_emission/execution.rs)
+  Rust runtime adapters expose the stable ABI of their selected components. The driver reports its planning, interface
+  export, checking, and emission boundaries to the runtime-artifact xtask, which presents progress during long builds.
+  [Product emission](../../crates/bray-compilation/src/compilation/product_emission/execution.rs)
   · [LLVM design](../design/codegen.md) · [Runtime integration](../design/async-runtime.md)
 
 ## Data owners and identities

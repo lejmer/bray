@@ -4,8 +4,8 @@ use std::path::{Path, PathBuf};
 use bray_base::NonEmptySharedStr;
 use bray_compilation::{BuildConfiguration, WorkerBudget};
 use bray_driver::{
-    DriverBackend, DriverCompilationConfiguration, DriverOptions, DriverProductConfiguration,
-    OutputFormat, run_build_request,
+    BuildPhase, DriverBackend, DriverCompilationConfiguration, DriverOptions,
+    DriverProductConfiguration, OutputFormat, run_build_request,
 };
 use bray_emitter::ArtifactKind;
 use bray_project::{PackageRole, ProjectGraph, ProjectPackage, ProjectProduct, load_project_graph};
@@ -257,7 +257,7 @@ fn build_components(
 
     for (component, destination) in components {
         crate::progress::run(
-            &format!("Building the {} runtime product", component.product()),
+            &format!("Building the {} product", component.product()),
             || {
                 build_component(
                     &workspace,
@@ -338,7 +338,16 @@ fn build_component(
         Vec::new(),
     );
 
-    let result = run_build_request(&options, build, sources);
+    let result = run_build_request(&options, build, sources, |phase| {
+        let activity = match phase {
+            BuildPhase::Planning => "Planning",
+            BuildPhase::ExportingInterface => "Exporting the interface for",
+            BuildPhase::Checking => "Checking",
+            BuildPhase::Emitting => "Emitting",
+        };
+
+        crate::progress::message(&format!("{activity} the {} product", component.product()));
+    });
 
     if result.exit_code() != std::process::ExitCode::SUCCESS {
         let detail = result

@@ -129,7 +129,9 @@ fn run_smoke(mut package: Package, target: NativeTarget) -> Result<(), CommandEr
         .tempdir()
         .map_err(CommandError::TemporaryDirectory)?;
 
-    super::smoke::add_package_dependencies(&mut package, target, directory.path())?;
+    crate::progress::run("Preparing runtime smoke dependencies", || {
+        super::smoke::add_package_dependencies(&mut package, target, directory.path())
+    })?;
 
     let result = crate::progress::run("Running runtime artifact smoke tests", || {
         smoke_test(&package, target, directory.path())

@@ -220,7 +220,7 @@ pub fn run_result(arguments: impl IntoIterator<Item = OsString>) -> DriverRunRes
             configuration,
             files,
         } => {
-            return run_build_request(&options, *configuration, files)
+            return run_build_request(&options, *configuration, files, |_| {})
                 .with_profile_output(profile_output);
         }
         command => command,

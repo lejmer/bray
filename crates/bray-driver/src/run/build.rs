@@ -23,6 +23,14 @@ use crate::command::{
     DriverBackend, DriverOptions, DriverProductConfiguration, DriverRuntimeSelection,
 };
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BuildPhase {
+    Planning,
+    ExportingInterface,
+    Checking,
+    Emitting,
+}
+
 /// Runs one typed build request through the compiler driver's normal planning and emission path.
 ///
 /// This entry point is for toolchain-owned orchestrators that already hold validated driver
@@ -31,6 +39,7 @@ pub fn run_build_request(
     options: &DriverOptions,
     configuration: DriverProductConfiguration,
     files: Vec<PathBuf>,
+    on_phase: impl Fn(BuildPhase),
 ) -> DriverRunResult {
     let output_format = options.output_format();
     let compilation_configuration = options.compilation();
@@ -146,6 +155,8 @@ pub fn run_build_request(
         None
     };
 
+    on_phase(BuildPhase::Planning);
+
     let native = if requires_generation {
         compilation
             .native_product_plan(
@@ -171,9 +182,13 @@ pub fn run_build_request(
     };
 
     if export_interface {
+        on_phase(BuildPhase::ExportingInterface);
+
         // This build requests the interface before checking releases its source prerequisites.
         let _ = compilation.package_interface_export_bundle();
     }
+
+    on_phase(BuildPhase::Checking);
 
     let diagnostics = compilation.check_diagnostics();
 
@@ -262,6 +277,8 @@ pub fn run_build_request(
         }
         (None, _) => {}
     }
+
+    on_phase(BuildPhase::Emitting);
 
     let outcome = compilation.emit_product(request, inputs);
 
