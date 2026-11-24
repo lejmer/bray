@@ -139,25 +139,7 @@ where
 
     let (failure_effects, reached_cleanup_edges) = domain.into_edge_outcomes();
 
-    for (edge, records) in failure_effects {
-        let edge = graph.edge(edge).expect("failure edge belongs to its graph");
-
-        let Some(crate::analysis::model::AnalysisRefinement::InvocationFailure(occurrence, kind)) =
-            edge.refinement()
-        else {
-            unreachable!("performed failure effects belong to an invocation failure edge");
-        };
-
-        let source = graph
-            .block(edge.source())
-            .expect("failure edge retains its source");
-
-        collector.enter_block(source);
-
-        for record in records {
-            collector.publish_failure_edge(edge.id(), occurrence, kind, record);
-        }
-    }
+    collector.publish_failure_effects(graph, failure_effects);
 
     let (fallthrough, normal, failures) =
         collector.collect_terminal_outcomes(graph, &result, &reached);
@@ -196,30 +178,7 @@ where
         .operation_invalidations
         .publish(bray_bound_tree::StorageInvalidation::merge);
 
-    let mut scopes = BTreeMap::new();
-
-    for ((operation, _), effects) in &observations {
-        let site = graph
-            .operation(*operation)
-            .expect("checked operation belongs to its graph")
-            .kind()
-            .occurrence();
-
-        let scope = effects.mutation_scope();
-
-        scopes
-            .entry(site)
-            .and_modify(|current: &mut bray_bound_tree::StorageMutationScope| {
-                *current = (*current).max(scope)
-            })
-            .or_insert(scope);
-    }
-
-    scopes.extend(
-        collector
-            .input_observation_scopes
-            .publish(|scope, incoming| *scope = (*scope).max(*incoming)),
-    );
+    let scopes = observation_scopes(graph, &observations, collector.input_observation_scopes);
 
     let analysis = StorageFlow::try_new(
         storage.unit(),
@@ -319,6 +278,41 @@ where
         CheckerOutcome::Cancelled => CheckerOutcome::Cancelled,
         CheckerOutcome::UpstreamFailure(error) => CheckerOutcome::UpstreamFailure(error),
     }
+}
+
+fn observation_scopes(
+    graph: &ControlFlowGraph,
+    observations: &BTreeMap<
+        (AnalysisOperationId, StorageOutcomeRows),
+        bray_bound_tree::StorageInvalidation,
+    >,
+    input_scopes: BlockRecords<
+        bray_bound_tree::BoundExecutionSite,
+        bray_bound_tree::StorageMutationScope,
+    >,
+) -> BTreeMap<bray_bound_tree::BoundExecutionSite, bray_bound_tree::StorageMutationScope> {
+    let mut scopes = BTreeMap::new();
+
+    for ((operation, _), effects) in observations {
+        let site = graph
+            .operation(*operation)
+            .expect("checked operation belongs to its graph")
+            .kind()
+            .occurrence();
+
+        let scope = effects.mutation_scope();
+
+        scopes
+            .entry(site)
+            .and_modify(|current: &mut bray_bound_tree::StorageMutationScope| {
+                *current = (*current).max(scope)
+            })
+            .or_insert(scope);
+    }
+
+    scopes.extend(input_scopes.publish(|scope, incoming| *scope = (*scope).max(*incoming)));
+
+    scopes
 }
 
 #[derive(Default)]
@@ -639,6 +633,32 @@ impl<'analysis, C> StorageFlowCollector<'analysis, C>
 where
     C: CheckerRequestContext + ?Sized,
 {
+    fn publish_failure_effects(
+        &mut self,
+        graph: &ControlFlowGraph,
+        failure_effects: BTreeMap<AnalysisEdgeId, Vec<super::failures::FailureEdgeEffects>>,
+    ) {
+        for (edge, records) in failure_effects {
+            let edge = graph.edge(edge).expect("failure edge belongs to its graph");
+
+            let Some(crate::analysis::model::AnalysisRefinement::InvocationFailure(occurrence, kind)) =
+                edge.refinement()
+            else {
+                unreachable!("performed failure effects belong to an invocation failure edge");
+            };
+
+            let source = graph
+                .block(edge.source())
+                .expect("failure edge retains its source");
+
+            self.enter_block(source);
+
+            for record in records {
+                self.publish_failure_edge(edge.id(), occurrence, kind, record);
+            }
+        }
+    }
+
     fn collect_terminal_outcomes<'solved>(
         &mut self,
         graph: &ControlFlowGraph,
@@ -1166,6 +1186,7 @@ where
         state.execution = Some(execution);
     }
 
+    // rust-style: allow(function-too-large, reason = "one operation transition shares reached accesses, admission, effects, invalidation, and completion state; splitting it would copy or reconstruct that state")
     fn apply_operation_effects(
         &mut self,
         state: &mut StorageFlowState,

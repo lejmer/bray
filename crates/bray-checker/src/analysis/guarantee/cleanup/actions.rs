@@ -536,118 +536,18 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let route = step.selection().route.as_ref();
         let reached = path.and_then(|path| cleanup_path(path, replacement));
 
+        if matches!(step, Step::Opaque { .. }) {
+            return self.dispose_opaque_part(state, remaining, part, step, observe, point, replacement, mutate);
+        }
+
         let Step::Lifecycle {
             ty,
             place,
             whole,
             represented,
             ..
-        } = step
-        else {
-            let Step::Opaque {
-                ty,
-                releases_storage,
-                failures,
-                ..
-            } = step
-            else {
-                unreachable!("non-lifecycle step is opaque cleanup");
-            };
-
-            let action = StorageCleanupAction {
-                occurrence,
-                access,
-                operation: point.id(),
-                part,
-                kind: StorageCleanupActionKind::Opaque,
-            };
-
-            if !solving && !self.cleanup_action_reached(action) {
-                return true;
-            }
-
-            if scope_exit && let Some(observe) = observe {
-                observe(CleanupObservation::Part {
-                    access,
-                    ty: *ty,
-                    releases_storage: *releases_storage,
-                    before: state,
-                });
-            }
-
-            let disposed = (!matches!(
-                self.request.semantic_values().type_data(*ty).as_ref(),
-                bray_symbols::TypeData::Borrow { .. }
-            ))
-            .then(|| {
-                reached
-                    .as_deref()
-                    .map(|path| self.storage_path_value(state, path))
-            })
-            .flatten();
-
-            if let Some(mutate) = mutate {
-                let mut completion = None;
-
-                // Inactive cleanup can retain reports even when its captures
-                // leave every ordinary input observation unchanged.
-                let effect = if replacement.is_none_or(|(source, reached)| reached == Some(source))
-                    && self.cleanup_preserves_inputs(state, access)
-                    && crate::representation::type_representation(self.request, *ty)
-                        != Some(bray_compiler_known::RepresentationRole::Future)
-                {
-                    CleanupMutation::Unchanged
-                } else {
-                    CleanupMutation::Opaque {
-                        ty: *ty,
-                        access,
-                        path,
-                        route,
-                        failures,
-                    }
-                };
-
-                if !mutate(CleanupTransition::Action(
-                    state,
-                    StorageMutation::Cleanup(action),
-                    effect,
-                    &mut completion,
-                )) {
-                    return false;
-                }
-            } else if self
-                .replay_cleanup_action(state, action, remaining, None, observe)
-                .is_none()
-            {
-                return false;
-            }
-
-            if let Some(disposed) = disposed {
-                // Destruction ends captured ownership even when cleanup has no user storage effects.
-                let place = reached
-                    .as_deref()
-                    .and_then(|path| ExecutionPlace::storage_path(self.storage, path));
-
-                let external = place
-                    .iter()
-                    .flat_map(|place| state.current.entry_borrows_under(place))
-                    .collect::<Vec<_>>();
-
-                if let Some(place) = &place {
-                    state.current.retire(place);
-                }
-
-                let retained = state
-                    .current
-                    .live_values()
-                    .chain(state.pending_results.values().cloned())
-                    .chain(external)
-                    .collect::<crate::execution_guarantees::RetainedSnapshots>();
-
-                state.retire_trusted_values([disposed], retained);
-            }
-
-            return true;
+        } = step else {
+            unreachable!("non-opaque cleanup step is lifecycle cleanup");
         };
 
         let completed = match after {
@@ -814,6 +714,119 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     completion.as_ref(),
                 );
             }
+        }
+
+        true
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "one opaque cleanup part retains its selected receiver and mutation observer"
+    )]
+    fn dispose_opaque_part(
+        &self,
+        state: &mut ExecutionState,
+        remaining: &[StorageAccessId],
+        part: usize,
+        step: &Step,
+        observe: &mut Option<&mut Observer<'_>>,
+        point: &AnalysisOperation,
+        replacement: Option<ReplacementPath<'_>>,
+        mutate: &mut Option<&mut Mutation<'_>>,
+    ) -> bool {
+        let Step::Opaque { ty, releases_storage, failures, .. } = step else {
+            unreachable!("opaque part retains its selected cleanup step");
+        };
+
+        let operation = point.kind();
+        let access = remaining[0];
+        let path = step.selection().target();
+        let route = step.selection().route.as_ref();
+        let reached = path.and_then(|path| cleanup_path(path, replacement));
+
+        let action = StorageCleanupAction {
+            occurrence: operation.occurrence(),
+            access,
+            operation: point.id(),
+            part,
+            kind: StorageCleanupActionKind::Opaque,
+        };
+
+        if mutate.is_none() && !self.cleanup_action_reached(action) {
+            return true;
+        }
+
+        if matches!(operation, AnalysisOperationKind::ScopeExit { .. })
+            && let Some(observe) = observe
+        {
+            observe(CleanupObservation::Part {
+                access,
+                ty: *ty,
+                releases_storage: *releases_storage,
+                before: state,
+            });
+        }
+
+        let disposed = (!matches!(
+            self.request.semantic_values().type_data(*ty).as_ref(),
+            bray_symbols::TypeData::Borrow { .. }
+        ))
+        .then(|| reached.as_deref().map(|path| self.storage_path_value(state, path)))
+        .flatten();
+
+        if let Some(mutate) = mutate {
+            let mut completion = None;
+
+            // Inactive cleanup can retain reports even when its captures
+            // leave every ordinary input observation unchanged.
+            let effect = if replacement.is_none_or(|(source, reached)| reached == Some(source))
+                && self.cleanup_preserves_inputs(state, access)
+                && crate::representation::type_representation(self.request, *ty)
+                    != Some(bray_compiler_known::RepresentationRole::Future)
+            {
+                CleanupMutation::Unchanged
+            } else {
+                CleanupMutation::Opaque { ty: *ty, access, path, route, failures }
+            };
+
+            if !mutate(CleanupTransition::Action(
+                state,
+                StorageMutation::Cleanup(action),
+                effect,
+                &mut completion,
+            )) {
+                return false;
+            }
+        } else if self
+            .replay_cleanup_action(state, action, remaining, None, observe)
+            .is_none()
+        {
+            return false;
+        }
+
+        if let Some(disposed) = disposed {
+            // Destruction ends captured ownership even when cleanup has no user storage effects.
+            let place = reached
+                .as_deref()
+                .and_then(|path| ExecutionPlace::storage_path(self.storage, path));
+
+            let external = place
+                .iter()
+                .flat_map(|place| state.current.entry_borrows_under(place))
+                .collect::<Vec<_>>();
+
+            if let Some(place) = &place {
+                state.current.retire(place);
+            }
+
+            let retained = state
+                .current
+                .live_values()
+                .chain(state.pending_results.values().cloned())
+                .chain(external)
+                .collect::<crate::execution_guarantees::RetainedSnapshots>();
+
+            state.retire_trusted_values([disposed], retained);
         }
 
         true

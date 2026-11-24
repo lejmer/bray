@@ -419,48 +419,16 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 .chain(referent.as_ref())
             {
                 if capability.kind() == bray_symbols::BorrowKind::Mutable {
-                    for (value, observation) in self.input.footprint.observations(path) {
-                        if observation.is_ordinary_inline()
-                            && targets.iter().all(|target| {
-                                survives(
-                                    &target.project(&value.projections[path.projections.len()..]),
-                                    observation,
-                                    ty,
-                                    false,
-                                )
-                            })
-                        {
-                            observation.record_preservation(
-                                value.clone(),
-                                stable_descriptors,
-                                stable_values,
-                            );
-
-                            observation.record_pointee_preservation(
-                                &exact_targets,
-                                ty,
-                                &value.projections[path.projections.len()..],
-                                stable_pointees,
-                            );
-                        }
-                    }
-
-                    if !exposed_referent {
-                        for descriptor in self.input.footprint.discriminants.get(&path.root).into_iter().flatten().filter(|descriptor| {
-                            descriptor.contains(path)
-                                && matches!(path.projections.get(descriptor.projections.len()), Some(bray_bound_tree::StorageProjection::NullableValue | bray_bound_tree::StorageProjection::ActiveUnionPayloadField { .. }))
-                        }) {
-                            let target = descriptor.access_id(self.storage).and_then(|access| {
-                                self.input.reference_target(self.request.semantic_values(), memory, self.storage, access)
-                            });
-
-                            if target.is_some_and(|target| !target.previous && survives(
-                                &target, bray_bound_tree::StorageObservationKind::Discriminant, ty, false,
-                            )) {
-                                bray_bound_tree::StorageObservationKind::Discriminant.record_preservation(descriptor.clone(), stable_descriptors, stable_values);
-                            }
-                        }
-                    }
+                    self.preserve_mutable_borrow(
+                        memory,
+                        path,
+                        &targets,
+                        &exact_targets,
+                        exposed_referent,
+                        ty,
+                        survives,
+                        (stable_descriptors, stable_values, stable_pointees),
+                    );
 
                     continue;
                 }
@@ -612,6 +580,72 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         for (logical, physical) in references {
             invalidation.preserve_reference_slot(logical, physical);
+        }
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "mutable loan preservation uses one reached referent and three publication indexes"
+    )]
+    fn preserve_mutable_borrow(
+        &self,
+        memory: &crate::analysis::storage_flow::memory::State,
+        path: &StoragePath,
+        targets: &[Target],
+        exact_targets: &[Target],
+        exposed_referent: bool,
+        ty: bray_symbols::TypeId,
+        survives: &impl Fn(&Target, StorageObservationKind, bray_symbols::TypeId, bool) -> bool,
+        (stable_descriptors, stable_values, stable_pointees): (
+            &mut std::collections::BTreeSet<StoragePath>,
+            &mut BTreeMap<StoragePath, StorageObservationKind>,
+            &mut BTreeMap<
+                (Target, bray_symbols::TypeId),
+                std::collections::BTreeSet<(std::sync::Arc<[StorageProjection]>, StorageObservationKind)>,
+            >,
+        ),
+    ) {
+        for (value, observation) in self.input.footprint.observations(path) {
+            if observation.is_ordinary_inline()
+                && targets.iter().all(|target| {
+                    survives(
+                        &target.project(&value.projections[path.projections.len()..]),
+                        observation,
+                        ty,
+                        false,
+                    )
+                })
+            {
+                observation.record_preservation(
+                    value.clone(),
+                    stable_descriptors,
+                    stable_values,
+                );
+
+                observation.record_pointee_preservation(
+                    exact_targets,
+                    ty,
+                    &value.projections[path.projections.len()..],
+                    stable_pointees,
+                );
+            }
+        }
+
+        if !exposed_referent {
+            for descriptor in self.input.footprint.discriminants.get(&path.root).into_iter().flatten().filter(|descriptor| {
+                descriptor.contains(path)
+                    && matches!(path.projections.get(descriptor.projections.len()), Some(bray_bound_tree::StorageProjection::NullableValue | bray_bound_tree::StorageProjection::ActiveUnionPayloadField { .. }))
+            }) {
+                let target = descriptor.access_id(self.storage).and_then(|access| {
+                    self.input.reference_target(self.request.semantic_values(), memory, self.storage, access)
+                });
+
+                if target.is_some_and(|target| !target.previous && survives(
+                    &target, bray_bound_tree::StorageObservationKind::Discriminant, ty, false,
+                )) {
+                    bray_bound_tree::StorageObservationKind::Discriminant.record_preservation(descriptor.clone(), stable_descriptors, stable_values);
+                }
+            }
         }
     }
 
@@ -1236,13 +1270,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         if mutations.clone().next().is_none() {
             return StorageInvalidation::Observed {
                 transition: Default::default(),
-                scope: mutations
-                    .clone()
-                    .map(|target| {
-                        target.mutation_scope(self.storage, self.request.semantic_values())
-                    })
-                    .max()
-                    .unwrap_or(bray_bound_tree::StorageMutationScope::Invocation),
+                scope: self.mutation_scope(mutations.clone()),
                 accesses: observations,
                 snapshots,
                 affected_pointees: Some(BTreeMap::new()),
@@ -1262,43 +1290,12 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             .filter(|target| target.storage_path().is_none())
             .collect::<Vec<_>>();
 
-        let unknown_referents_affected = mutations
-            .clone()
-            .any(|target| memory.unknown_reference_may_reach(target));
-
-        for (target, targets, unknown) in memory.observed_references() {
-            let Some(slot) = (target).value_observation_path() else {
-                continue;
-            };
-
-            if crate::ExecutionPlace::storage_path(self.storage, &slot).is_none() {
-                continue;
-            }
-
-            unrepresented
-                .retain(|mutation| !targets.iter().any(|target| target.contains(mutation)));
-
-            if unknown && unknown_referents_affected {
-                referents.insert(slot.clone());
-            }
-
-            for target in targets {
-                for mutation in mutations.clone().filter(|mutation| {
-                    memory.target_relationship(target, mutation) != StorageRelationship::Disjoint
-                }) {
-                    let suffix = if target.contains(mutation) {
-                        &mutation.projections()[target.projections().len()..]
-                    } else {
-                        &[]
-                    };
-
-                    referents.insert(observable_path(
-                        slot.root,
-                        slot.projections.iter().chain(suffix).copied(),
-                    ));
-                }
-            }
-        }
+        self.observed_reference_aliases(
+            memory,
+            mutations.clone(),
+            &mut unrepresented,
+            &mut referents,
+        );
 
         let candidates = self.local_observation_accesses(mutations.clone());
 
@@ -1489,13 +1486,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
             StorageInvalidation::Observed {
                 transition: Default::default(),
-                scope: mutations
-                    .clone()
-                    .map(|target| {
-                        target.mutation_scope(self.storage, self.request.semantic_values())
-                    })
-                    .max()
-                    .unwrap_or(bray_bound_tree::StorageMutationScope::Invocation),
+                scope: self.mutation_scope(mutations.clone()),
                 accesses: observations,
                 snapshots,
                 affected_pointees: Some(affected_pointees),
@@ -1509,6 +1500,62 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         } else {
             self.opaque_observations(memory, mutations.cloned(), true)
         }
+    }
+
+    fn observed_reference_aliases<'target>(
+        &self,
+        memory: &crate::analysis::storage_flow::memory::State,
+        mutations: impl Iterator<Item = &'target Target> + Clone,
+        unrepresented: &mut Vec<&'target Target>,
+        referents: &mut std::collections::BTreeSet<StoragePath>,
+    ) {
+        let unknown_referents_affected = mutations
+            .clone()
+            .any(|target| memory.unknown_reference_may_reach(target));
+
+        for (target, targets, unknown) in memory.observed_references() {
+            let Some(slot) = target.value_observation_path() else {
+                continue;
+            };
+
+            if crate::ExecutionPlace::storage_path(self.storage, &slot).is_none() {
+                continue;
+            }
+
+            unrepresented
+                .retain(|mutation| !targets.iter().any(|target| target.contains(mutation)));
+
+            if unknown && unknown_referents_affected {
+                referents.insert(slot.clone());
+            }
+
+            for target in targets {
+                for mutation in mutations.clone().filter(|mutation| {
+                    memory.target_relationship(target, mutation) != StorageRelationship::Disjoint
+                }) {
+                    let suffix = if target.contains(mutation) {
+                        &mutation.projections()[target.projections().len()..]
+                    } else {
+                        &[]
+                    };
+
+                    referents.insert(observable_path(
+                        slot.root,
+                        slot.projections.iter().chain(suffix).copied(),
+                    ));
+                }
+            }
+        }
+    }
+
+    fn mutation_scope<'target>(
+        &self,
+        mutations: impl Iterator<Item = &'target Target>,
+    ) -> bray_bound_tree::StorageMutationScope {
+        mutations
+            .map(|target| target.mutation_scope(self.storage, self.request.semantic_values()))
+            .max()
+            .unwrap_or(bray_bound_tree::StorageMutationScope::Invocation)
     }
 
     fn local_observation_accesses<'target>(

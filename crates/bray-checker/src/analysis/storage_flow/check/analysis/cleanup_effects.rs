@@ -254,25 +254,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let task_source = operands.frame.as_deref();
         let inactive_captures = operands.inactive_captures.as_deref();
 
-        let broadcasts = matches!(identity, StorageMutation::Cleanup(StorageCleanupAction { kind: StorageCleanupActionKind::Broadcast, .. }));
-
-        let inactive_broadcast = inactive_captures.is_some()
-            && broadcasts
-            && task_path.is_some_and(|path| {
-                state.memory
-                    .unexposed_storage(std::slice::from_ref(path), [])
-                    .next()
-                    .is_some()
-            });
-
-        let broadcast_frames = if broadcasts {
-            task_path
-                .into_iter()
-                .flat_map(|path| self.unexposed_deferred_paths(&state.memory, execution, path))
-                .collect::<Vec<_>>()
-        } else {
-            Vec::new()
-        };
+        let (broadcasts, inactive_broadcast, broadcast_frames) =
+            self.broadcast_cleanup_frames(&state.memory, execution, identity, operands);
 
         let mut effects = self.selected_cleanup_effects(&state.memory, execution, identity, mutation, operands);
 
@@ -341,23 +324,14 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let mut invalidation =
             self.cleanup_invalidation(&state.memory, effects.as_deref(), receiver);
 
-        if (task_source.is_some() || inactive_broadcast)
-            && let Some(path) = task_path
-            && let Some(effects) = &effects
-        {
-            preserve_run_descriptor(
-                &state.memory,
-                path,
-                effects,
-                inactive_broadcast,
-                &mut invalidation,
-            );
-        }
-
-        // Broadcast exposes captures, not the previously unexposed run handles.
-        for frame in &broadcast_frames {
-            preserve_run_descriptor(&state.memory, frame, &[], true, &mut invalidation);
-        }
+        preserve_cleanup_run_descriptors(
+            &state.memory,
+            operands,
+            inactive_broadcast,
+            effects.as_deref(),
+            &broadcast_frames,
+            &mut invalidation,
+        );
 
         self.preserve_storage_values(state, (operation.occurrence(), None), effects.as_deref(), &mut invalidation);
 
@@ -442,6 +416,37 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         }
 
         completion
+    }
+
+    fn broadcast_cleanup_frames(
+        &self,
+        memory: &State,
+        execution: &ExecutionState,
+        identity: StorageMutation,
+        operands: &CleanupOperands<'_>,
+    ) -> (bool, bool, Vec<StoragePath>) {
+        let broadcasts = matches!(identity, StorageMutation::Cleanup(StorageCleanupAction {
+            kind: StorageCleanupActionKind::Broadcast, ..
+        }));
+
+        let task_path = operands.task_path.as_deref();
+
+        let inactive_broadcast = operands.inactive_captures.is_some()
+            && broadcasts
+            && task_path.is_some_and(|path| {
+                memory.unexposed_storage(std::slice::from_ref(path), []).next().is_some()
+            });
+
+        let frames = if broadcasts {
+            task_path
+                .into_iter()
+                .flat_map(|path| self.unexposed_deferred_paths(memory, execution, path))
+                .collect()
+        } else {
+            Vec::new()
+        };
+
+        (broadcasts, inactive_broadcast, frames)
     }
 
     fn selected_cleanup_effects<'effects>(
@@ -697,6 +702,27 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         bray_bound_tree::StorageCompletion::new(observations)
     }
 
+}
+
+fn preserve_cleanup_run_descriptors(
+    memory: &State,
+    operands: &CleanupOperands<'_>,
+    inactive_broadcast: bool,
+    effects: Option<&[Effect]>,
+    broadcast_frames: &[StoragePath],
+    invalidation: &mut StorageInvalidation,
+) {
+    if (operands.frame.is_some() || inactive_broadcast)
+        && let Some(path) = operands.task_path.as_deref()
+        && let Some(effects) = effects
+    {
+        preserve_run_descriptor(memory, path, effects, inactive_broadcast, invalidation);
+    }
+
+    // Broadcast exposes captures, not the previously unexposed run handles.
+    for frame in broadcast_frames {
+        preserve_run_descriptor(memory, frame, &[], true, invalidation);
+    }
 }
 
 fn preserve_run_descriptor(

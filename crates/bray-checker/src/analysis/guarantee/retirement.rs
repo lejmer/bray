@@ -361,6 +361,14 @@ impl ExecutionState {
             &retired_conditions, &|owner, _| retired_owner(owner) && !retained_owner(owner),
             &retains_clause, extraction);
 
+        self.retire_selected_frames(&invalidated, &observes_selection);
+    }
+
+    fn retire_selected_frames(
+        &mut self,
+        invalidated: &BTreeSet<ExecutionCondition>,
+        observes_selection: &impl Fn(&ExecutionCondition) -> bool,
+    ) {
         // Another iteration can already own a different frame from this evaluation
         // site. Retire the actual inactive frame whose owner the change reached.
         let retired_frames = invalidated.iter()
