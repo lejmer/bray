@@ -74,11 +74,13 @@ evidence. Impossible internal states fail at the violated contract.
   bootstrap bodies with zero diagnostics. The later full archive reached two
   additional report consumers. The current source candidate checks and lowers
   those consumers, both append contracts, and the metadata body without a
-  diagnostic. The complete Windows x64 runtime archive now builds, validates
-  its exports and native indexes, and links a smoke executable. Its first
-  execution shutdown crashes through a null optional callback. Execution and
-  shutdown belong to BRA-695 and BRA-696. The fixed comparison and other
-  targets still need verification against the current candidate.
+  diagnostic. The existing bootstrap proof suite now checks and lowers all 38
+  listed source bodies on Windows and Linux for both x64 and Arm64, with four
+  passing target tests. The complete Windows x64 runtime archive builds,
+  validates its exports and native indexes, and links a smoke executable. Its
+  first execution shutdown crashes through a null optional callback. Execution
+  and shutdown belong to BRA-695 and BRA-696. The fixed comparison and final
+  archive run still need verification against the current candidate.
 - Normal calls and lifecycle cleanup publish exact reference targets in
   `StorageCompletion`. Trusted completion maps the reached actual input path to
   its formal `StoragePlan` path and reads the target's current value directly.

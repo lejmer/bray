@@ -130,18 +130,23 @@ pub(super) fn smoke_test(
         })?;
 
     audit_synchronous_link_map(&map)?;
+
     crate::progress::run("Running bootstrap smoke tests", || {
         smoke_test_bootstrap(package, target, directory)
     })?;
+
     crate::progress::run("Running observation smoke tests", || {
         super::observation_smoke::smoke_test(package, target, directory)
     })?;
+
     crate::progress::run("Running entry smoke tests", || {
         super::entry_smoke::smoke_test(package, target, directory)
     })?;
+
     crate::progress::run("Running execution smoke tests", || {
         super::execution::smoke_test(package, target, directory)
     })?;
+
     crate::progress::run("Running synchronous smoke tests", || {
         super::synchronous::smoke_test(package, target, directory)
     })?;

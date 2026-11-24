@@ -410,7 +410,10 @@ trusted internal func append_record_values(
     return append_record_metadata(left, right);
 }
 
-internal func append_record_metadata(pos mut left: ReportRecords, pos right: ReportRecords) -> (ReportRecords, ReportRecords)
+internal func append_record_metadata(
+    pos mut left: ReportRecords,
+    pos right: ReportRecords
+) -> (ReportRecords, ReportRecords)
     executes(pure, total)
 {
     if left.count == 0

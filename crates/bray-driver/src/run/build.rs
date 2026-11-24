@@ -23,18 +23,24 @@ use crate::command::{
     DriverBackend, DriverOptions, DriverProductConfiguration, DriverRuntimeSelection,
 };
 
+/// Stages an orchestrator can report while building one product.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum BuildPhase {
+    /// Resolve the native product and its required source units.
     Planning,
+    /// Prepare the package interface requested by the product.
     ExportingInterface,
+    /// Collect source and semantic diagnostics before emission.
     Checking,
+    /// Generate and publish the requested artifacts.
     Emitting,
 }
 
 /// Runs one typed build request through the compiler driver's normal planning and emission path.
 ///
 /// This entry point is for toolchain-owned orchestrators that already hold validated driver
-/// configuration and source paths. Ordinary command-line builds continue through [`crate::run`].
+/// configuration and source paths. The callback receives each stage before it starts.
+/// Ordinary command-line builds continue through [`crate::run`].
 pub fn run_build_request(
     options: &DriverOptions,
     configuration: DriverProductConfiguration,
@@ -61,15 +67,7 @@ pub fn run_build_request(
     let linked = artifacts.iter().any(|artifact| is_linked(*artifact));
     let build = native_build_configuration(configuration.build(), linked);
 
-    let requires_codegen = artifacts
-        .iter()
-        .copied()
-        .map(ArtifactKind::from)
-        .any(|artifact| {
-            artifact.backend_kind().is_some()
-                || artifact == ArtifactKind::PackageNativeImplementation
-        });
-
+    let requires_codegen = requires_codegen(&artifacts);
     let requires_generation = linked || requires_codegen;
 
     let request = match compilation_request(options, files, export_interface) {
@@ -155,9 +153,9 @@ pub fn run_build_request(
         None
     };
 
-    on_phase(BuildPhase::Planning);
-
     let native = if requires_generation {
+        on_phase(BuildPhase::Planning);
+
         compilation
             .native_product_plan(
                 product.clone(),
@@ -429,6 +427,13 @@ fn required_artifacts(
     }
 
     artifacts
+}
+
+fn requires_codegen(artifacts: &[TargetOutputKind]) -> bool {
+    artifacts.iter().copied().map(ArtifactKind::from).any(|artifact| {
+        artifact.backend_kind().is_some()
+            || artifact == ArtifactKind::PackageNativeImplementation
+    })
 }
 
 const fn is_linked(artifact: TargetOutputKind) -> bool {

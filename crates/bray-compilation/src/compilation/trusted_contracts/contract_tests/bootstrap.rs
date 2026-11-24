@@ -44,7 +44,7 @@ fn assert_bootstrap_contracts(target: NativeTarget) {
         "create_native_provider", "install_binding", "task.notify_waiters", "task.retire_dispatch",
         "task.advance_dispatch", "task.dispatch", "task_start", "main_drive", "worker_callback",
         "bootstrap.report_records_append", "bootstrap.append_record_pointer_values", "bootstrap.append_record_values",
-        "bootstrap.append_record_metadata", "report.consumer.consume_values", "task.result.write_result",
+        "bootstrap.append_record_metadata", "bootstrap.consume_values", "task.result.write_result",
     ] {
         let key = if name == "start_frame" {
             source_type_callable_member_body_key(&compilation, name)
@@ -52,7 +52,9 @@ fn assert_bootstrap_contracts(target: NativeTarget) {
             source_function_body_key(&compilation, name)
         } else {
             let (module, function) = name.rsplit_once('.').unwrap_or(("execution", name));
+
             let mut path = vec!["bray", "runtime", "bootstrap"];
+
             if module != "bootstrap" {
                 path.extend(module.split('.'));
             }

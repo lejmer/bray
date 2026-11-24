@@ -7,6 +7,7 @@ pub(crate) fn run<T, E>(label: &str, operation: impl FnOnce() -> Result<T, E>) -
     eprintln!("{}", start_message(label));
 
     let started = Instant::now();
+
     let result = std::thread::scope(|scope| {
         let (done, receiver) = mpsc::channel::<()>();
 
@@ -21,6 +22,7 @@ pub(crate) fn run<T, E>(label: &str, operation: impl FnOnce() -> Result<T, E>) -
         let result = operation();
 
         drop(done);
+
         result
     });
 
