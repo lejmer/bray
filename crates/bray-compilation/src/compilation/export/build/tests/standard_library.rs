@@ -144,7 +144,7 @@ fn protected_nested_cleanup_keeps_current_backing_effects() {
     }
 
     for (replacement, rejected) in [
-        ("_ = core.memory.read<Packet>(pointer);", "core.memory.read<Packet>(pointer)"),
+        ("_ = core.memory.read<Packet>(pointer);", "_ = core.memory.read<Packet>(pointer)"),
         ("recovered.payload = std.memory.uninit<Layer>();\n            let contents = std.memory.assume_initialized<Layer>(recovered.payload);", "assume_initialized<Layer>(recovered.payload)"),
     ] {
         let invalid = api.replacen("let recovered =", "let mut recovered =", 1).replacen(

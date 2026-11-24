@@ -63,13 +63,36 @@ evidence. Impossible internal states fail at the violated contract.
 
 ## Verification and current trace
 
+The async trait-view frame contract is repaired and its focused test passes.
+Trait-view lookup
+produces a callable and receiver pointer after checked input staging.
+Outgoing admission may branch before `CreateFrame`, which consumes both
+values. Admission and discharge also read the same callable. The two copyable
+values must occupy storage before that branch, and an admission rejection
+must not create a frame. Direct factories and ordinary indirect calls already
+carry their selected or staged inputs across this boundary. The repair should
+reuse temporary storage, add no parallel call representation, and leave
+synchronous view calls unchanged. The positive oracle is a borrowed view with
+an async method lowering to valid MIR; the negative oracle is MIR validation
+rejecting a value defined only in a predecessor block. Reconsider this
+placement if another async factory still produces block-local operands at
+the same boundary.
+
+The box construction test queried planned operand access statuses rather than
+the construction's value consumption. A direct positive and use-after-move
+negative source check now tests the ownership transfer through the box and
+its lowering. Partial box cleanup reaches release on normal and body panic
+paths. Its test has not yet established whether a cleanup failure path was
+generated and classified.
+
 - Checkpoint `51c1942c7` passed all 1,709 fixed comparison cases, including
   source and imported returns, nested cleanup, generator reference lifetime,
   and the production channel endpoint check. The comparison used one verified
   release test binary.
-- The current Windows x64 standard library builds in 48 seconds, with planning
-  in 21 seconds. Its interface decodes completely after normal and failure
-  stored-value rows normalize against their portable destinations.
+- The final Windows x64 standard library built in 53 seconds, with planning
+  in 23.8 seconds and emission in 23.4 seconds. Its interface decoded completely
+  after normal and failure stored-value rows normalized against their portable
+  destinations.
 - Checkpoint `51c1942c7` checked and lowered all 43 selected Windows x64
   bootstrap bodies with zero diagnostics. The later full archive reached two
   additional report consumers. The current source candidate checks and lowers
@@ -82,10 +105,13 @@ evidence. Impossible internal states fail at the violated contract.
   and shutdown belong to BRA-695 and BRA-696. The final Windows x64 archive
   built, validated exports, and published native indexes. Its smoke probe
   linked both executables and passed allocation checks before the same async
-  execution crash. The release compiler suite passed 2,978 active tests and
-  exposed 33 failures. The old fixed comparison inventory is unavailable, so
-  the full active suite is the current broader comparison. The test and
-  compiler repair batch is in progress.
+  execution crash. The preceding release compiler suite passed 2,990
+  active tests and exposed 21 failures after the first repair batch. Several
+  failures were invalid fixtures or stale structural assertions. The remaining
+  proof, report, liveness, cleanup, and dynamic-call failures are under review.
+  The old fixed comparison inventory is unavailable, so the full active suite
+  is the current broader comparison. Do not rerun the native archive after
+  these repairs; verify with compiler tests as requested.
 - Normal calls and lifecycle cleanup publish exact reference targets in
   `StorageCompletion`. Trusted completion maps the reached actual input path to
   its formal `StoragePlan` path and reads the target's current value directly.

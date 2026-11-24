@@ -145,8 +145,14 @@ fn returned_slice_receiver_uses_the_call_result_representation() {
         _ => panic!("slice receiver must read the result storage: {receiver:?}"),
     };
 
+    let receiver_type = values.type_data(place.ty());
+    let slice_type = match receiver_type.as_ref() {
+        TypeData::Borrow { target, .. } => values.type_data(*target),
+        _ => receiver_type,
+    };
+
     assert!(
-        matches!(values.type_data(place.ty()).as_ref(), TypeData::Slice(_)),
-        "receiver must borrow the slice result, not the anchor array: {place:?}"
+        matches!(slice_type.as_ref(), TypeData::Slice(_)),
+        "receiver must use the slice result, not the anchor array: {place:?}"
     );
 }

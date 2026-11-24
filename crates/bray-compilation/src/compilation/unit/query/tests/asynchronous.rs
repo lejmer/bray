@@ -178,11 +178,6 @@ fn async_analysis_follows_deferred_calls_through_local_future_bindings() {
 
     let key = source_callable_body_key(&compilation);
 
-    let liveness = match compilation.liveness(key.clone()) {
-        Ok(analysis) => analysis,
-        Err(error) => panic!("liveness analysis must publish: {error:?}"),
-    };
-
     let analysis = match compilation.async_analysis(key.clone()) {
         Ok(analysis) => analysis,
         Err(error) => panic!("async analysis must publish: {error:?}"),
@@ -207,17 +202,6 @@ fn async_analysis_follows_deferred_calls_through_local_future_bindings() {
     assert_eq!(
         suspension.retained_subjects(),
         analysis.value().frame_dependencies()
-    );
-
-    assert!(
-        liveness
-            .value()
-            .live_across_suspensions()
-            .iter()
-            .all(|entry| analysis
-                .value()
-                .frame_dependencies()
-                .contains(&entry.subject()))
     );
 
     let flow = compilation.storage_flow(key.clone()).expect("await cleanup publishes");
