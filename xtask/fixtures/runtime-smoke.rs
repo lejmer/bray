@@ -256,7 +256,6 @@ unsafe extern "C" {
     safe fn bray_runtime_panic_report_destruction(report: &mut PanicReport) -> Status;
     safe fn bray_runtime_entry_failure_reporting(payload: usize, size: usize) -> Status;
     safe fn bray_runtime_wake(task: TaskHandle) -> Status;
-    safe fn bray_runtime_main_thread_lane_startup(configuration: Configuration) -> Status;
     safe fn bray_runtime_task_allocation() -> TaskAllocation;
     safe fn bray_runtime_task_start(
         task: TaskHandle,
