@@ -319,6 +319,33 @@ no independent result owner. Reuse the fixed 1,709-case comparison after any
 compiler semantic repair. This source repair adds no parallel report value or
 fallback proof.
 
+## Current interface dependency contract
+
+A callable signature's returned ownership transfer must start at one of its
+actual receiver or parameter values. Every preserved child must be a valid
+projection of that input's declared type. The body summary or declaration
+query produces the dependency contract. The semantic exporter encodes and
+remaps it, the bundle validator checks it, and imported callers consume it.
+The full bootstrap archive now reaches bundle validation and rejects
+`CallableSignature` 1268 with an invalid dependency. Canonical symbol order
+maps that record to `EntryRestoration.enter`. Its checked body returns a
+consumed `Self` receiver, preserves the receiver, and excludes its borrowed
+`completion` field. `PreparedStart.enter` has the same transfer with two
+borrowed field exclusions. The binder declares these receivers as
+`ContextualSelf`. The exporter retains that type, but the interface
+preservation validator only resolves named storage shapes. The validator
+receives the signature receiver type, the transfer input, and the stored type
+representation. Resolve named `Self` directly through that representation.
+Implementation `Self` must read its existing subject record. Trait `Self`
+has no storage shape to project. Preserve the current rejection of unrelated
+fields, borrowed child traversal, and unresolved subjects. A valid consumed
+receiver with an excluded borrowed field must round-trip. The focused body
+summaries and full archive are the positive oracles, and mismatched field
+owners and trait `Self` projections are negative oracles. This is a validator
+coverage gap, so keep the producer and exported dependency unchanged. Revisit
+that conclusion if an assembled record points to another owner or if its
+receiver is not contextual `Self`.
+
 ## Acceptance
 
 1. Finish replacing old paths and search for their callers and equivalents.

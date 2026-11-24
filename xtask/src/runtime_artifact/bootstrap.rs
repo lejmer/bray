@@ -256,14 +256,19 @@ fn build_components(
         .map_err(|error| format!("could not load bootstrap project: {error:?}"))?;
 
     for (component, destination) in components {
-        build_component(
-            &workspace,
-            &graph,
-            &standard_library,
-            target,
-            support.path(),
-            *component,
-            destination,
+        crate::progress::run(
+            &format!("Building the {} runtime product", component.product()),
+            || {
+                build_component(
+                    &workspace,
+                    &graph,
+                    &standard_library,
+                    target,
+                    support.path(),
+                    *component,
+                    destination,
+                )
+            },
         )?;
     }
 

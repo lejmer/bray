@@ -1,3 +1,4 @@
+use std::sync::mpsc::{self, RecvTimeoutError};
 use std::time::{Duration, Instant};
 
 const PREFIX: &str = "[xtask]";
@@ -6,13 +7,28 @@ pub(crate) fn run<T, E>(label: &str, operation: impl FnOnce() -> Result<T, E>) -
     eprintln!("{}", start_message(label));
 
     let started = Instant::now();
-    let result = operation();
+    let result = std::thread::scope(|scope| {
+        let (done, receiver) = mpsc::channel::<()>();
 
-    let outcome = if result.is_ok() {
-        "completed"
-    } else {
-        "failed"
-    };
+        scope.spawn(move || {
+            while let Err(RecvTimeoutError::Timeout) =
+                receiver.recv_timeout(Duration::from_secs(30))
+            {
+                eprintln!("{PREFIX} {label} (still running after {}s)", started.elapsed().as_secs());
+            }
+        });
+
+        let result = operation();
+
+        drop(done);
+        result
+    });
+
+    finish(label, started, result)
+}
+
+fn finish<T, E>(label: &str, started: Instant, result: Result<T, E>) -> Result<T, E> {
+    let outcome = if result.is_ok() { "completed" } else { "failed" };
 
     eprintln!("{}", finish_message(label, outcome, started.elapsed()));
 

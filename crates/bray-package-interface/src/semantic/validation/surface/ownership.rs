@@ -59,24 +59,28 @@ mod tests {
     }
 
     #[test]
-    fn masks_reject_a_field_from_another_input_owner() {
-        use crate::{InterfaceGenericSubstitution, InterfaceGenericSubstitutionId, InterfaceProductIdentity, InterfaceStorageMember, InterfaceTypeRepresentation};
+    fn masks_resolve_named_and_contextual_self_owners() {
+        use crate::{InterfaceGenericSubstitution, InterfaceGenericSubstitutionId, InterfaceImplementationRecord, InterfaceProductIdentity, InterfaceStorageMember, InterfaceTypeRepresentation};
         use bray_symbols::{PackageIdentity, SymbolKind};
 
         let package = PackageIdentity::try_new("example.preservation").unwrap();
         let module = crate::test_support::module_key(package.clone(), "api");
         let first = crate::test_support::named_key(module.clone(), SymbolKind::Struct, "First");
-        let second = crate::test_support::named_key(module, SymbolKind::Struct, "Second");
+        let second = crate::test_support::named_key(module.clone(), SymbolKind::Struct, "Second");
+        let implementation = crate::test_support::named_key(module.clone(), SymbolKind::InherentImplementation, "FirstImpl");
+        let trait_key = crate::test_support::named_key(module, SymbolKind::Trait, "Unrelated");
         let first_field = crate::test_support::named_key(first.clone(), SymbolKind::StructField, "value");
         let second_field = crate::test_support::named_key(second.clone(), SymbolKind::StructField, "value");
 
         let surface = crate::test_support::identity_surface(package, InterfaceProductIdentity::try_new("library").unwrap(),
-            [first.clone(), second.clone(), first_field.clone(), second_field.clone()], []);
+            [first.clone(), second.clone(), implementation.clone(), trait_key.clone(), first_field.clone(), second_field.clone()], []);
 
         let reference = |key| InterfaceSymbolReference::Local(surface.symbol_by_external_key(key).unwrap());
         let first = reference(&first);
         let first_field = reference(&first_field);
         let second_field = reference(&second_field);
+        let implementation = reference(&implementation);
+        let trait_key = reference(&trait_key);
         let scalar = InterfaceTypeId::new(0);
         let owner = InterfaceTypeId::new(1);
         let input = InterfaceConstantTermId::new(0);
@@ -85,11 +89,13 @@ mod tests {
             substitutions: [InterfaceGenericSubstitution::new(first.clone(), [])].into(),
             types: [InterfaceType::Tuple([].into()), InterfaceType::Named {
                 definition: first.clone(), substitution: InterfaceGenericSubstitutionId::new(0),
-            }].into(),
+            }, InterfaceType::ContextualSelf(first.clone()), InterfaceType::ContextualSelf(implementation.clone()),
+                InterfaceType::ContextualSelf(trait_key)].into(),
             constant_terms: [InterfaceConstantTerm::CallableArgument(SymbolOrdinal::new(0))].into(),
             type_representations: [InterfaceTypeRepresentation::new(first).with_storage(InterfaceStorageShape::Structure([
                 InterfaceStorageMember::new(Some(first_field.clone()), scalar),
             ].into()))].into(),
+            implementations: [InterfaceImplementationRecord::new(implementation, owner, None)].into(),
             ..InterfaceSemantics::default()
         };
 
@@ -98,7 +104,11 @@ mod tests {
                 InterfaceConstantProjection::ProductField(field), Mask::none(),
             )].into()));
 
-            assert_eq!(semantics.validate_owned_preservation(&transfer, &[owner], &surface).is_ok(), valid);
+            for ty in [owner, InterfaceTypeId::new(2), InterfaceTypeId::new(3)] {
+                assert_eq!(semantics.validate_owned_preservation(&transfer, &[ty], &surface).is_ok(), valid);
+            }
+
+            assert!(semantics.validate_owned_preservation(&transfer, &[InterfaceTypeId::new(4)], &surface).is_err());
         }
     }
 
@@ -220,6 +230,16 @@ impl InterfaceSemantics {
 
                     ty = *target;
                 }
+                InterfaceType::ContextualSelf(context)
+                    if super::reference::validate_symbol_kind(context, surface)?.is_implementation() =>
+                {
+                    ty = self
+                        .implementations
+                        .iter()
+                        .find(|implementation| &implementation.implementation == context)
+                        .map(|implementation| implementation.subject)
+                        .ok_or_else(invalid)?;
+                }
                 _ => break shape,
             }
         };
@@ -244,6 +264,27 @@ impl InterfaceSemantics {
             }
             (InterfaceType::Named { definition, substitution }, InterfaceConstantProjection::ProductField(field))
             | (InterfaceType::Named { definition, substitution }, InterfaceConstantProjection::UnionPayloadField(field)) => {
+                self.preservation_named_projection_type(definition, Some(*substitution), field, projection, bindings, surface)
+            }
+            (InterfaceType::ContextualSelf(definition), InterfaceConstantProjection::ProductField(field))
+            | (InterfaceType::ContextualSelf(definition), InterfaceConstantProjection::UnionPayloadField(field))
+                if matches!(super::reference::validate_symbol_kind(definition, surface)?, bray_symbols::SymbolKind::Struct | bray_symbols::SymbolKind::Union) =>
+            {
+                self.preservation_named_projection_type(definition, None, field, projection, bindings, surface)
+            }
+            _ => Err(invalid()),
+        }
+    }
+
+    fn preservation_named_projection_type(
+        &self,
+        definition: &InterfaceSymbolReference,
+        substitution: Option<crate::InterfaceGenericSubstitutionId>,
+        field: &InterfaceSymbolReference,
+        projection: &InterfaceConstantProjection,
+        bindings: &mut Bindings,
+        surface: &PackageInterfaceSurface,
+    ) -> Result<InterfaceTypeId, InterfaceValidationError> {
                 let kind = super::reference::validate_symbol_kind(field, surface)?;
 
                 let expected = if matches!(projection, InterfaceConstantProjection::ProductField(_)) {
@@ -269,27 +310,26 @@ impl InterfaceSemantics {
                     _ => None,
                 }.ok_or_else(invalid)?;
 
-                let substitution = self.substitutions.get(substitution.to_index().ok_or_else(invalid)?).ok_or_else(invalid)?;
+                if let Some(substitution) = substitution {
+                    let substitution = self.substitutions.get(substitution.to_index().ok_or_else(invalid)?).ok_or_else(invalid)?;
 
-                for binding in &*substitution.bindings {
-                    let argument = match &binding.argument {
-                        InterfaceGenericArgument::Type(target) => match self.types.get(target.to_index().ok_or_else(invalid)?) {
-                            Some(InterfaceType::TypeParameter(parameter)) => bindings.get(parameter).cloned().unwrap_or(binding.argument.clone()),
-                            _ => binding.argument.clone(),
-                        },
-                        InterfaceGenericArgument::Constant(term) => match self.constant_terms.get(term.to_index().ok_or_else(invalid)?) {
-                            Some(InterfaceConstantTerm::Parameter(parameter)) => bindings.get(parameter).cloned().unwrap_or(binding.argument.clone()),
-                            _ => binding.argument.clone(),
-                        },
-                    };
+                    for binding in &*substitution.bindings {
+                        let argument = match &binding.argument {
+                            InterfaceGenericArgument::Type(target) => match self.types.get(target.to_index().ok_or_else(invalid)?) {
+                                Some(InterfaceType::TypeParameter(parameter)) => bindings.get(parameter).cloned().unwrap_or(binding.argument.clone()),
+                                _ => binding.argument.clone(),
+                            },
+                            InterfaceGenericArgument::Constant(term) => match self.constant_terms.get(term.to_index().ok_or_else(invalid)?) {
+                                Some(InterfaceConstantTerm::Parameter(parameter)) => bindings.get(parameter).cloned().unwrap_or(binding.argument.clone()),
+                                _ => binding.argument.clone(),
+                            },
+                        };
 
-                    bindings.insert(binding.parameter.clone(), argument);
+                        bindings.insert(binding.parameter.clone(), argument);
+                    }
                 }
 
                 Ok(member.ty())
-            }
-            _ => Err(invalid()),
-        }
     }
 
     fn preservation_array_length(&self, mut term: InterfaceConstantTermId, bindings: &Bindings) -> Result<Option<u64>, InterfaceValidationError> {
