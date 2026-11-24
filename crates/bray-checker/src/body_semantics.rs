@@ -139,7 +139,7 @@ where
         return CheckerOutcome::Cancelled;
     };
 
-    let (liveness, edge_lifetime_ends) = complete!(
+    let (liveness, edge_lifetime_ends, future_accesses, edge_future_accesses) = complete!(
         diagnostics,
         analyze_storage_liveness_with_graph(request, &effects, storage, graph, &reachability,)
     );
@@ -175,6 +175,8 @@ where
             graph,
             &reachability,
             &edge_lifetime_ends,
+            future_accesses,
+            &edge_future_accesses,
             &excluded,
         )
     );

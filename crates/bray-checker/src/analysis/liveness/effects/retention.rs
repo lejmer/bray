@@ -239,7 +239,12 @@ impl OperationEffects {
             .access_plans()
             .iter()
             .filter_map(|plan| {
-                storage.reference_route(plan.access()).is_none_or(|(_, route)| route.first_borrow_kind().is_some())
+                storage.reference_route(plan.access()).map_or_else(
+                    || plan.occurrence().expression().is_none_or(|expression| {
+                        !self.value_inputs.copies_without_borrows(expression)
+                    }),
+                    |(_, route)| route.first_borrow_kind().is_some(),
+                )
                     .then_some(plan.occurrence())
             })
             .collect::<BTreeSet<_>>();

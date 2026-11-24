@@ -8,7 +8,7 @@ use crate::analysis::model::{AnalysisBlock, AnalysisEdge, AnalysisEdgeKind, Anal
 use crate::analysis::reachability::ReachabilityResult;
 use crate::analysis::storage_flow::check::{BlockPublication, FailureEdgeEffects, StorageFlowCollector};
 use crate::{CheckerRequestContext, CheckerUnitView};
-use bray_bound_tree::{BoundDependencySubject, CheckedMemoryOperationKind, CheckedMemoryOperations, Liveness, StorageAccessPurpose, StoragePlan};
+use bray_bound_tree::{BoundDependencySubject, CheckedMemoryOperationKind, CheckedMemoryOperations, Liveness, StorageAccessId, StorageAccessPurpose, StoragePlan};
 use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
@@ -24,6 +24,7 @@ where
     reached_cleanup_edges: RefCell<BTreeSet<AnalysisEdgeId>>,
     cyclic_publications: RefCell<BTreeMap<AnalysisBlockId, (StorageFlowCollector<'analysis, C>, BlockPublication)>>,
     edge_lifetime_ends: &'analysis BTreeMap<AnalysisEdgeId, Vec<BoundDependencySubject>>,
+    edge_future_accesses: &'analysis BTreeMap<AnalysisEdgeId, Vec<StorageAccessId>>,
     reachability: &'analysis ReachabilityResult,
     storage: &'analysis StoragePlan,
     liveness: &'analysis Liveness,
@@ -49,6 +50,7 @@ where
         graph: &'analysis ControlFlowGraph,
         entry: StorageFlowState,
         edge_lifetime_ends: &'analysis BTreeMap<AnalysisEdgeId, Vec<BoundDependencySubject>>,
+        edge_future_accesses: &'analysis BTreeMap<AnalysisEdgeId, Vec<StorageAccessId>>,
         reachability: &'analysis ReachabilityResult,
         storage: &'analysis StoragePlan,
         liveness: &'analysis Liveness,
@@ -73,6 +75,7 @@ where
             reached_cleanup_edges: RefCell::default(),
             cyclic_publications: RefCell::default(),
             edge_lifetime_ends,
+            edge_future_accesses,
             reachability,
             storage,
             liveness,
@@ -236,7 +239,8 @@ where
                 })
                 .collect::<BTreeSet<_>>();
 
-            incoming.end_borrows(ended_borrows, self.storage, self.input);
+            incoming.end_borrows(ended_borrows, self.storage, self.input,
+                Some(self.edge_future_accesses.get(&edge.id()).map(Vec::as_slice).unwrap_or_default()));
 
             for end in ends {
                 if let bray_bound_tree::BoundDependencySubject::Storage(id) = *end

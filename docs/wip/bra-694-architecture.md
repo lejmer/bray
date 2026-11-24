@@ -119,6 +119,21 @@ own reached observation. A cleanup action's effects, report and completion
 belong to its actual receiver and the operation that reached it. A lexical
 exit names the source boundary for lowering. Several graph operations can run
 cleanup at that boundary, including a continuation after a failure.
+An opaque backing has no logical value slot. Its cleanup proof checks the
+availability of its addressable owner when deciding whether the backing can
+exist. Presence of the owner alone gives no backing initialization proof.
+Liveness extends a container's retained loans through reads that cross a
+checked borrow route and direct reads whose copied result can carry borrows.
+A copied independent borrow-free field does not extend the loan. A receiver
+storage requirement binds to its source access before its borrow input slot.
+The liveness result ends a loan after its final use even if an unread current
+field still holds its reference value, unless its carrier has cleanup or an
+exit transfer. Displacement and scope retirement check current physical
+holders. Pending transfers and reports retain their own loans. A borrowed
+receiver's field report retains the reached storage, while a reborrow of an
+existing reference retains that reference's value dependency. A call dependency can follow a mapped initializer only when
+the remaining path still has the initializer's type; an implicit nullable
+conversion keeps the evaluated nullable input available for direct binding.
 Deferred formation captures the selected receiver type and value with the
 ordinary inputs. A dynamic trait-view call has no concrete declaration to
 record as its callee; its receiver capture and deferred effect contract remain
@@ -556,7 +571,7 @@ paths. An exit intersection checks exact path membership in both sources.
 
 | Boundary | What the implementation passes forward |
 | --- | --- |
-| Prepare and solve | `check_body_semantics` prepares refinements, call contracts, and storage inputs once. It computes reachable edges and backward liveness, then solves forward `StorageFlowState`. Structural reachability and liveness feed one forward solve. The reached action determines the feasible cleanup outcome edges, and the solved flow supplies async publication. `StorageFlowState` keeps logical proof, physical memory, moves, borrows, effects, and report dependencies together. [Body checking](../../crates/bray-checker/src/body_semantics.rs) · [Flow domain](../../crates/bray-checker/src/analysis/storage_flow/model/domain.rs) |
+| Prepare and solve | `check_body_semantics` prepares refinements, call contracts, and storage inputs once. It computes reachable edges and backward liveness, then solves forward `StorageFlowState`. Structural reachability and liveness feed one forward solve. Liveness passes the planned accesses live after borrow retirement, including successor edges, directly to storage flow. Physical current values and these future accesses decide whether a stored loan survives its nominal last use. The reached action determines the feasible cleanup outcome edges, and the solved flow supplies async publication. `StorageFlowState` keeps logical proof, physical memory, moves, borrows, effects, and report dependencies together. [Body checking](../../crates/bray-checker/src/body_semantics.rs) · [Liveness](../../crates/bray-checker/src/analysis/liveness/solve.rs) · [Flow domain](../../crates/bray-checker/src/analysis/storage_flow/model/domain.rs) |
 | Evaluation and admission | `resolve_value_captures` and `capture_entry_values` retain the evaluated input, any typed current referent, and possible element dependencies. `ExecutionCallEvidence` holds these actual arguments, entry facts, admitted carriers, extracted values, and bound outputs. The checked phase determines when ownership is consumed. A false entry requirement can fail before the body runs. [Physical capture](../../crates/bray-checker/src/analysis/storage_flow/check/analysis/references/captured.rs) · [Entry evidence](../../crates/bray-checker/src/execution_guarantees/evidence.rs) |
 | Body entry | `StoragePlan` identifies the formal loan slots. `StorageFlowState` initializes the reached input reference targets. Entry proof binds clauses once against the actual initialized value tree. The declared carrier route selects the actual carrier and its ownership role in that same tree. Raw-memory requirements bind to address targets separately from the formal descriptor slots. `StorageFlow` passes the reached targets to execution certification. Returned carriers identify incoming backing through a typed address read and bind its lifetime against the caller's admitted support. [Entry state](../../crates/bray-checker/src/analysis/storage_flow/model/state.rs) · [Entry proof](../../crates/bray-checker/src/analysis/guarantee/flow/model.rs) · [Carrier binding](../../crates/bray-checker/src/analysis/guarantee/trusted/completion.rs) |
 | Attempt and invalidation | `apply_operation_effects` binds value rows and resolves selected call, intrinsic, and assignment effects. Effects, reports, and completion use the producer's admitted rows. The physical memory update and proof invalidation consume the resolved observations. Typed routes keep evaluated locations distinct from conservative region bounds in calls, frames, and cleanup. The reached-region set also keeps language-borrow traversal distinct from raw-address publication. Failure effects capture addresses before argument transfer. Execution retirements reach the proof state before completion. Last-use and consumed-handle retirements follow publication. [Operation driver](../../crates/bray-checker/src/analysis/storage_flow/check/analysis/core.rs) · [Effect binding](../../crates/bray-checker/src/analysis/storage_flow/check/analysis/effects.rs) · [Proof invalidation](../../crates/bray-checker/src/analysis/guarantee/flow/invalidation.rs) |

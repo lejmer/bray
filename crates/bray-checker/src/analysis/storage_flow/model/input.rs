@@ -18,6 +18,7 @@ pub(crate) struct StorageFlowInput {
     mutable_storage: BTreeSet<StorageIdentityId>,
     immutable_field_accesses: BTreeSet<StorageAccessId>,
     storage_last_uses: BTreeMap<bray_bound_tree::BoundExecutionSite, Vec<StorageIdentityId>>,
+    future_accesses: BTreeMap<bray_bound_tree::BoundExecutionSite, Vec<StorageAccessId>>,
     /// Assignments preserving tags, with whether their write domain is limited to contents.
     pub(in crate::analysis::storage_flow) tag_preserving_assignments:
         BTreeMap<bray_bound_tree::BoundExecutionSite, bool>,
@@ -397,7 +398,9 @@ impl StorageFlowInput {
         &mut self,
         storage: &StoragePlan,
         liveness: &Liveness,
+        future_accesses: BTreeMap<bray_bound_tree::BoundExecutionSite, Vec<StorageAccessId>>,
     ) {
+        self.future_accesses = future_accesses;
         self.suspension_borrows = liveness.live_across_suspensions().iter().filter_map(|entry| {
             match entry.subject() {
                 BoundDependencySubject::BorrowCapability(borrow) => Some(borrow),
@@ -460,6 +463,13 @@ impl StorageFlowInput {
             .get(&occurrence)
             .map(Vec::as_slice)
             .unwrap_or_default()
+    }
+
+    pub(in crate::analysis::storage_flow) fn future_accesses(
+        &self,
+        occurrence: bray_bound_tree::BoundExecutionSite,
+    ) -> &[StorageAccessId] {
+        self.future_accesses.get(&occurrence).map(Vec::as_slice).unwrap_or_default()
     }
 
     pub(in crate::analysis::storage_flow) fn borrowed_access(

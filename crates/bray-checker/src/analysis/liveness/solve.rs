@@ -1,7 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
-    BoundDependencySubject, LastUse, LiveAcrossScope, LiveAcrossSuspension, Liveness, StoragePlan,
+    BoundDependencySubject, BoundExecutionSite, LastUse, LiveAcrossScope, LiveAcrossSuspension,
+    Liveness, StorageAccessId, StoragePlan,
 };
 use bray_symbols::CallableSignatureQuery;
 
@@ -20,6 +21,8 @@ use super::domain::{SetLiveness, SetTransfer};
 use super::effects::OperationEffects;
 
 type EdgeLifetimeEnds = BTreeMap<AnalysisEdgeId, Vec<BoundDependencySubject>>;
+type FutureAccesses = BTreeMap<BoundExecutionSite, Vec<StorageAccessId>>;
+type EdgeFutureAccesses = BTreeMap<AnalysisEdgeId, Vec<StorageAccessId>>;
 
 pub(crate) fn analyze_storage_liveness_with_graph<C>(
     request: CheckerUnitView<'_, C>,
@@ -27,7 +30,7 @@ pub(crate) fn analyze_storage_liveness_with_graph<C>(
     storage: &StoragePlan,
     graph: &ControlFlowGraph,
     reachability: &ReachabilityResult,
-) -> CheckerOutcome<(Liveness, EdgeLifetimeEnds), C::UpstreamError>
+) -> CheckerOutcome<(Liveness, EdgeLifetimeEnds, FutureAccesses, EdgeFutureAccesses), C::UpstreamError>
 where
     C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
 {
@@ -54,10 +57,17 @@ where
     );
 
     match liveness {
-        Ok(liveness) => CheckerOutcome::without_diagnostics((
+        Ok((liveness, future_accesses)) => {
+            let (edge_lifetime_ends, edge_future_accesses) =
+                collect_edge_lifetime_ends(graph, reachability, effects, &domain, &result);
+
+            CheckerOutcome::without_diagnostics((
             liveness,
-            collect_edge_lifetime_ends(graph, reachability, effects, &domain, &result),
-        )),
+            edge_lifetime_ends,
+            future_accesses,
+            edge_future_accesses,
+        ))
+        }
         Err(error) => {
             panic!(
                 "Durable liveness construction rejected one exact relationship. in analyze_storage_liveness_with_graph, value0: {:?}",
@@ -156,9 +166,10 @@ fn collect_liveness(
     result: &FixedPointResult<BTreeSet<BoundDependencySubject>>,
     domain: &SetLiveness<'_, BoundDependencySubject>,
     kind: bray_bound_tree::BoundUnitKind,
-) -> Result<Liveness, bray_bound_tree::LivenessBuildError> {
+) -> Result<(Liveness, FutureAccesses), bray_bound_tree::LivenessBuildError> {
     let mut last_uses = Vec::new();
     let mut continuing_uses = BTreeSet::new();
+    let mut future_accesses = BTreeMap::<_, BTreeSet<_>>::new();
     let mut live_across_scopes = Vec::new();
     let mut live_across_suspensions = Vec::new();
     let mut is_recovered = false;
@@ -229,6 +240,13 @@ fn collect_liveness(
                     if state.contains(subject) {
                         continuing_uses.insert(last_use);
                     } else {
+                        if matches!(subject, BoundDependencySubject::BorrowCapability(_)) {
+                            future_accesses.entry(operation.kind().occurrence()).or_default()
+                                .extend(state.iter().filter_map(|subject| match subject {
+                                    BoundDependencySubject::StorageAccess(access) => Some(*access),
+                                    _ => None,
+                                }));
+                        }
                         last_uses.push(last_use);
                     }
                 }
@@ -248,7 +266,7 @@ fn collect_liveness(
         is_recovered = true;
     }
 
-    Liveness::try_new(
+    let liveness = Liveness::try_new(
         graph.unit(),
         kind,
         last_uses,
@@ -278,7 +296,10 @@ fn collect_liveness(
                     .map(|subject| bray_bound_tree::OwnerRetention::new(*expression, subject))
             }),
         is_recovered,
-    )
+    )?;
+
+    Ok((liveness, future_accesses.into_iter()
+        .map(|(site, accesses)| (site, accesses.into_iter().collect())).collect()))
 }
 
 fn collect_edge_lifetime_ends(
@@ -287,8 +308,9 @@ fn collect_edge_lifetime_ends(
     effects: &OperationEffects,
     domain: &SetLiveness<'_, BoundDependencySubject>,
     result: &FixedPointResult<BTreeSet<BoundDependencySubject>>,
-) -> EdgeLifetimeEnds {
+) -> (EdgeLifetimeEnds, EdgeFutureAccesses) {
     let mut ends = BTreeMap::new();
+    let mut future_accesses = BTreeMap::new();
 
     for target in graph.blocks() {
         if !reachability.is_block_reachable(target.id()) {
@@ -350,11 +372,15 @@ fn collect_edge_lifetime_ends(
 
             if !subjects.is_empty() {
                 ends.insert(edge.id(), subjects);
+                future_accesses.insert(edge.id(), live_in.iter().filter_map(|subject| match subject {
+                    BoundDependencySubject::StorageAccess(access) => Some(*access),
+                    _ => None,
+                }).collect());
             }
         }
     }
 
-    ends
+    (ends, future_accesses)
 }
 
 #[cfg(test)]
@@ -610,7 +636,7 @@ mod tests {
                 "identities cannot be live before their defining occurrence"
             );
 
-            let liveness = super::collect_liveness(
+            let (liveness, _) = super::collect_liveness(
                 &graph,
                 &reachability,
                 &effects,

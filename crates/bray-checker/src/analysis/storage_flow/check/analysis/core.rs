@@ -64,12 +64,14 @@ pub(crate) fn check_storage_flow_with_graph<C>(
     graph: &crate::analysis::model::ControlFlowGraph,
     reachability: &ReachabilityResult,
     edge_lifetime_ends: &BTreeMap<AnalysisEdgeId, Vec<BoundDependencySubject>>,
+    future_accesses: BTreeMap<bray_bound_tree::BoundExecutionSite, Vec<StorageAccessId>>,
+    edge_future_accesses: &BTreeMap<AnalysisEdgeId, Vec<StorageAccessId>>,
     excluded: &BTreeSet<AnalysisEdgeId>,
 ) -> CheckerOutcome<(StorageFlow, CheckedRefinements, bool), C::UpstreamError>
 where
     C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
 {
-    input.update_liveness(storage, liveness);
+    input.update_liveness(storage, liveness, future_accesses);
 
     let mut entry = StorageFlowState::entry(request.semantic_values(), storage, input);
 
@@ -89,6 +91,7 @@ where
         graph,
         entry,
         edge_lifetime_ends,
+        edge_future_accesses,
         reachability,
         storage,
         liveness,
@@ -3156,7 +3159,8 @@ where
             })
             .collect::<BTreeSet<_>>();
 
-        state.end_borrows(ended, self.storage, self.input);
+        state.end_borrows(ended, self.storage, self.input,
+            Some(self.input.future_accesses(operation)));
     }
 
     fn end_scope(
@@ -3198,7 +3202,7 @@ where
             })
             .collect();
 
-        state.end_borrows(ended, self.storage, self.input);
+        state.end_borrows(ended, self.storage, self.input, None);
     }
 
     fn borrow_is_entry(&self, borrow: BorrowCapabilityId) -> bool {

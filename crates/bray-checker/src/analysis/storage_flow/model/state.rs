@@ -256,12 +256,22 @@ impl StorageFlowState {
     }
 
     fn retain_unheld_borrows(
-        &self, ended: &mut BTreeSet<BorrowCapabilityId>, input: &StorageFlowInput,
+        &self, ended: &mut BTreeSet<BorrowCapabilityId>, storage: &StoragePlan,
+        input: &StorageFlowInput, future_accesses: Option<&[bray_bound_tree::StorageAccessId]>,
     ) {
         use bray_bound_tree::BoundDependencySubject::BorrowCapability;
 
         let loans = self.memory.surviving_value_loans(
-            |path| self.value_is_live(path), |path| Self::owns_cleanup(input, path.root),
+            |path| self.value_is_live(path)
+                && future_accesses.is_none_or(|accesses| {
+                    input.cleanup_requirements.get(path.root).is_some_and(|requirement| {
+                        requirement.transfers() || Self::owns_cleanup(input, path.root)
+                    }) || accesses.iter().any(|access| {
+                        storage.relationship_to_path(*access, path)
+                            != bray_bound_tree::StorageRelationship::Disjoint
+                    })
+                }),
+            |path| Self::owns_cleanup(input, path.root),
         );
 
         let reports = self.reachable_reports(|_| true)
@@ -326,7 +336,7 @@ impl StorageFlowState {
 
         if displaced.is_empty() { return; }
 
-        self.end_borrows(displaced, storage, input);
+        self.end_borrows(displaced, storage, input, None);
     }
 
     pub(in crate::analysis::storage_flow) fn transfer_report_boundary(
@@ -361,10 +371,11 @@ impl StorageFlowState {
         mut ended: BTreeSet<BorrowCapabilityId>,
         storage: &StoragePlan,
         input: &StorageFlowInput,
+        future_accesses: Option<&[bray_bound_tree::StorageAccessId]>,
     ) {
         if ended.is_empty() { return; }
 
-        self.retain_unheld_borrows(&mut ended, input);
+        self.retain_unheld_borrows(&mut ended, storage, input, future_accesses);
 
         if ended.is_empty() { return; }
 
