@@ -120,7 +120,7 @@ impl State {
         bounds
     }
 
-    pub(super) fn actual_borrow_choices(&self, target: &Target, staged: Option<(&Transfer, &Target)>) -> Option<Vec<Target>> {
+    pub(in crate::analysis::storage_flow) fn actual_borrow_choices(&self, target: &Target, staged: Option<(&Transfer, &Target)>) -> Option<Vec<Target>> {
         if !self.current_route_target(target, staged) { return None; }
 
         let Origin::Returned { projections, .. } = &target.origin else {
@@ -277,6 +277,36 @@ impl State {
         };
 
         Self::effect_origins_from(target, returned)
+    }
+
+    /// A current reference with one bounded physical pointee can be observed
+    /// through that pointee, even when its descriptor has a symbolic origin.
+    pub(in crate::analysis::storage_flow) fn unique_effect_origin(
+        &self,
+        targets: &[Target],
+    ) -> Option<Target> {
+        let mut unique: Option<Target> = None;
+
+        for target in targets {
+            let (origins, unknown) = self.effect_origins(target);
+
+            if unknown {
+                return None;
+            }
+
+            for origin in origins {
+                if !origin.is_exact() || origin.previous {
+                    return None;
+                }
+
+                match &unique {
+                    Some(existing) if existing != origin => return None,
+                    _ => unique = Some(origin.clone()),
+                }
+            }
+        }
+
+        unique
     }
 
     pub(super) fn effect_origins_from<'a>(

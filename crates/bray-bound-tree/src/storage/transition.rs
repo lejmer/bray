@@ -271,6 +271,7 @@ mod tests {
 
         merge_storage_value_transitions(&mut observed, &incoming);
         assert!(observed.contains(&row(0)) && observed.contains(&row(1)));
+
         assert!(
             observed.contains(&selected),
             "identical writes can accompany different contract effects"

@@ -55,6 +55,7 @@ impl State {
             .copied()
             .chain([StorageProjection::AddressTarget])
             .chain(projections.iter().copied());
+
         let prefix_len = parent.projections.len() + 1 + projections.len();
 
         if region.previous != target.previous
@@ -87,8 +88,10 @@ impl State {
         occurrence: Option<BoundExecutionSite>,
     ) -> (BTreeSet<Target>, BTreeSet<Target>, BTreeSet<Target>) {
         let staged = occurrence.and_then(|site| self.pending.get(&site));
+
         let (mut reached, mut published, _, borrowed, unknown) =
             self.walk_escape_regions(roots, staged, false);
+
         let mut implicit = BTreeSet::new();
 
         self.include_unknown_targets(&mut implicit, unknown);
@@ -149,11 +152,13 @@ impl State {
             }
 
             let private = target.is_staged();
+
             let (values, contents) = if private {
                 let Some(staged) = staged else { continue; };
 
                 if let Origin::Returned { reference, .. } = &target.origin {
                     let bounds = &staged.returned_inputs[reference];
+
                     let (origins, unbounded) =
                         Self::effect_origins_from(&target, Some(bounds));
 
@@ -163,6 +168,7 @@ impl State {
                             .cloned()
                             .map(|origin| (origin, kind)),
                     );
+
                     unknown |= unbounded || bounds.is_displaced();
                 }
 
@@ -177,6 +183,7 @@ impl State {
                             .cloned()
                             .map(|origin| (origin, kind)),
                     );
+
                     unknown |= unbounded;
                 }
 
@@ -189,12 +196,14 @@ impl State {
                         .storage_type
                         .is_some_and(|ty| self.complete_reference_types.get(&ty) == Some(&true))
             });
+
             let ranged = reference_free
                 || contained_only
                     && matches!(
                         target.origin,
                         Origin::Storage(_) | Origin::Allocation { .. } | Origin::Returned { .. }
                     );
+
             let contained = ranged.then(|| storage_subtree(values, &target));
             let all = (!ranged).then_some(values);
             let producer = private.then(|| target.prefix(0));
@@ -227,6 +236,7 @@ impl State {
                             .cloned()
                             .map(|target| (target, reference_kind)),
                     );
+
                     unknown |= references.is_unknown() || references.is_displaced();
                 }
 
@@ -238,6 +248,7 @@ impl State {
                             .cloned()
                             .map(|target| (target, Address)),
                     );
+
                     unknown |= backing.is_unknown() || backing.is_displaced();
                 }
             }

@@ -129,6 +129,7 @@ impl ExecutionCallEvidence {
 
         if self.pending_execution {
             self.assumptions.retain(|(condition, _)| !stale(condition));
+
             self.trusted_assumptions
                 .retain(|(condition, _)| !stale(condition));
         }
@@ -254,6 +255,7 @@ impl ExecutionCallEvidence {
 
     pub(crate) fn failure_guard(&self, row: usize) -> Option<&Condition> {
         let rows = self.failure_rows.as_deref()?;
+
         let index = rows
             .binary_search_by_key(&row, |candidate| candidate.index)
             .ok()?;
@@ -447,6 +449,7 @@ impl ExecutionCallEvidence {
             .argument_storage(ordinal)
             .and_then(bray_bound_tree::StorageCapturedValue::known_address)
             .and_then(bray_bound_tree::StorageTarget::value_observation_path)?;
+
         let actual = super::ExecutionPlace::storage_path(storage, &path)?;
 
         Some(
@@ -626,6 +629,7 @@ impl ExecutionCallEvidence {
         }
 
         mapped.assumptions = super::call_proof::map_assumptions(&self.assumptions, &mut map)?;
+
         mapped.trusted_assumptions =
             super::call_proof::map_assumptions(&self.trusted_assumptions, &mut map)?;
 
@@ -772,11 +776,13 @@ impl ExecutionCallEvidence {
                 .as_ref()
                 .map_or(&self.assumptions, |proof| &proof[0]),
         );
+
         let right = cache.ordinary_proof(
             selected
                 .as_ref()
                 .map_or(&other.assumptions, |proof| &proof[1]),
         );
+
         let outputs_changed = self.outputs.intersect(&other.outputs, (&left, &right));
 
         for (place, value) in &mut self.arguments {
@@ -937,8 +943,10 @@ mod tests {
     #[test]
     fn joined_admission_requires_live_address_support_on_both_predecessors() {
         let argument = ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(0));
+
         let address =
             ExecutionCondition::new(crate::ExecutionConditionKind::Input(argument.clone()));
+
         let left = ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(1));
         let right = ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(2));
 
@@ -966,14 +974,18 @@ mod tests {
     fn borrowed_boolean_requirements_read_current_contents_without_creating_authority() {
         let argument = ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(0));
         let owner = ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(1));
+
         let field =
             bray_symbols::ConstantProjectionKind::TupleElement(bray_symbols::SymbolOrdinal::new(0));
+
         let required = ExecutionCondition::new(crate::ExecutionConditionKind::Input(
             argument.clone().component(field),
         ));
+
         let contents = ExecutionCondition::new(crate::ExecutionConditionKind::Input(
             owner.clone().component(field),
         ));
+
         let mut entry = ExecutionCallEvidence::default();
         let cache = crate::execution_guarantees::ExecutionProofCache::default();
 
@@ -981,14 +993,17 @@ mod tests {
             argument.clone(),
             ExecutionCondition::new(crate::ExecutionConditionKind::Input(owner)).borrowed(),
         );
+
         entry.assumptions.insert((contents.clone(), true));
 
         assert!(entry.prove_requirements([&required]).is_ok());
+
         assert!(
             entry
                 .prove_requirements_with_cache(&cache, [&required])
                 .is_ok()
         );
+
         assert!(
             entry
                 .prove_requirements([&ExecutionCondition::new(
@@ -1000,6 +1015,7 @@ mod tests {
         entry.assumptions.clear();
 
         assert!(entry.prove_requirements([&required]).is_err());
+
         assert!(
             entry
                 .prove_requirements_with_cache(&cache, [&required])
@@ -1009,6 +1025,7 @@ mod tests {
         entry.assumptions.insert((contents, false));
 
         assert!(entry.prove_requirements([&required]).is_err());
+
         assert!(
             entry
                 .prove_requirements_with_cache(&cache, [&required])
@@ -1024,6 +1041,7 @@ mod tests {
         );
 
         assert!(entry.prove_requirements([&required]).is_err());
+
         assert!(
             entry
                 .prove_requirements_with_cache(&cache, [&required])

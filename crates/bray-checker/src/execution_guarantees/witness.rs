@@ -366,10 +366,12 @@ impl super::ExecutionCallEvidence {
         };
 
         let arguments = rename_arguments(&self.arguments);
+
         let outputs = self
             .outputs
             .try_map(|value| Ok::<_, std::convert::Infallible>(rename(value)))
             .expect("value substitution is total");
+
         let failure_rows = self
             .try_map_failure_guards(|value| Ok::<_, std::convert::Infallible>(rename(value)))
             .expect("value substitution is total");
@@ -478,6 +480,7 @@ mod tests {
         let outer = ExecutionCondition::new(crate::ExecutionConditionKind::Input(
             ExecutionPlace::argument(SymbolOrdinal::new(0)),
         ));
+
         let inner = ExecutionCondition::new(crate::ExecutionConditionKind::Input(
             ExecutionPlace::argument(SymbolOrdinal::new(1)),
         ));
@@ -546,9 +549,11 @@ mod tests {
     #[test]
     fn merging_witnesses_retains_all_possible_address_owners_and_reports_new_edges() {
         let carrier_condition = ExecutionCondition::boolean(true);
+
         let address = ExecutionCondition::new(crate::ExecutionConditionKind::Input(
             ExecutionPlace::argument(SymbolOrdinal::new(0)),
         ));
+
         let mut target = std::sync::Arc::new(ExecutionWitness::default());
 
         for ordinal in [1, 2] {

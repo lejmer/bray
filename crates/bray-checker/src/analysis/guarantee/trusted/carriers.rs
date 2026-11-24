@@ -718,6 +718,7 @@ impl ExecutionState {
 
                     if !Arc::ptr_eq(entry, &refined_entry) {
                         let frame = Arc::make_mut(&mut updated);
+
                         let candidate = frame
                             .producers
                             .get_mut(source)

@@ -325,6 +325,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                                     if exact {
                                         state.memory.clear_value(&elements);
                                     }
+
                                     break;
                                 }
                                 _ => {
@@ -450,11 +451,13 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let invocation = kind.occurrence();
 
         let expression = invocation.expression()?;
+
         let selection = self
             .execution
             .semantics
             .selections()
             .expression(expression)?;
+
         let values = self.request.semantic_values();
 
         let carries_frame = self
@@ -667,6 +670,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let subjects = self
             .inferred_value_subjects(site, Some(ty))
             .collect::<std::collections::BTreeSet<_>>();
+
         let requirements = state
             .result_dependencies
             .value_requirements(site)
@@ -748,7 +752,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             .expression(operand)
             .expect("checked await retains its operand type")
             .ty();
+
         let coordinate = bray_bound_tree::StorageTarget::storage(coordinate);
+
         let source = self
             .expression_reference(state, operand)
             .unwrap_or_else(|| Source::Value(coordinate.clone()));
@@ -926,6 +932,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         if let Some(expression) = kind.awaited_expression() {
             let capture = self.capture_await_input(state, operation.id(), expression);
+
             let execution = state
                 .execution
                 .as_mut()

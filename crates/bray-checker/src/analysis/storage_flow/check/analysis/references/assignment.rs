@@ -105,6 +105,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     ) -> ReachedReferenceRegions {
         let mut roots = Vec::new();
         let regions = source.and_then(|source| source.regions(&state.memory));
+
         let kind = source.map_or(
             bray_symbols::DependencyReferenceKind::Address,
             |source| source.reference_kind(&state.memory),

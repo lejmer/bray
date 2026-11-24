@@ -313,6 +313,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let mut first_execution = execution.clone();
 
         let mut completion = apply(self, &mut merged, &mut first_execution, first);
+
         merged.execution = Some(first_execution);
 
         for row in rows {

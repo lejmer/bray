@@ -86,10 +86,12 @@ impl ExecutionCondition {
 
         value.binding()?.whole_complete().then(|| {
             value.complete_carried_regions()?;
+
             let mut raw = value
                 .carried_sources()
                 .map(bray_bound_tree::StorageTarget::exposure_region)
                 .collect::<Vec<_>>();
+
             let mut borrowed = Vec::new();
 
             for (target, kind) in value.carried_reference_regions() {

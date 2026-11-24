@@ -134,7 +134,11 @@ where
         let mut escaping = std::collections::BTreeSet::new();
 
         for (slot, target) in state.memory.reference_targets(result) {
-            let (origins, _) = state.memory.effect_origins(target);
+            // Possible input regions retain lifetime support, but only an
+            // established address can identify the returned borrow's pointee.
+            let Some(origins) = state.memory.actual_borrow_choices(target, None) else {
+                continue;
+            };
 
             for target in origins {
                 let crate::analysis::storage_flow::memory::Origin::Storage(path) = &target.origin

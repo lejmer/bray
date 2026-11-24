@@ -120,7 +120,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 .steps()
                 .first()
                 .expect("a checked write follows its mutable descriptor");
+
             let projections = &path.projections()[..first.index()];
+
             let observed = projections
                 .iter()
                 .fold(descriptor.clone(), |value, field| value.project(*field));
@@ -141,6 +143,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     value,
                     Some((input, projections.into(), expected.clone())),
                 ));
+
                 continue;
             }
 
@@ -350,11 +353,13 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .clone()
             .into_referent()
             .captured_value(input.clone());
+
         let receiver = if receiver.is_reference() {
             receiver.with_referent(reached)
         } else {
             reached.borrowed()
         };
+
         let arguments = std::collections::BTreeMap::from([(place, receiver.clone())]);
         let result = ExecutionCondition::unknown();
 
@@ -439,6 +444,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             let resolved = if let Some(site) = source.local() {
                 let call = self.dependencies.calls().get(&site)?;
                 let environment = (&*frame.entry, call.storage(), ordinal);
+
                 let rows = call
                     .deferred_reports()
                     .and_then(|reports| reports.failures());
@@ -449,6 +455,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     .dependencies
                     .frame_callees()
                     .get(frame.callee.as_deref()?)?;
+
                 let environment = (&*frame.entry, &body.storage, ordinal);
 
                 self.resolve_abnormal_values(
@@ -486,9 +493,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }
 
         let call = self.dependencies.calls().get(&occurrence)?;
+
         let selection = occurrence
             .expression()
             .and_then(|expression| self.semantics.selections().expression(expression));
+
         let environment = (entry, call.storage(), |root| {
             selection?.invocation_input_ordinal(occurrence, root)
         });
@@ -994,6 +1003,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     .writes
                     .get(&StorageValueDestination::Result)
                     .unwrap_or(&unknown);
+
                 let guard = row.guard.bind(entry, result);
 
                 self.admits_output(&state.assumptions, entry, result, &guard, &row.ownership)
@@ -1111,6 +1121,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         Some(actual) => actual == expected,
                         None => {
                             exact = false;
+
                             true
                         }
                     }
@@ -1153,6 +1164,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     ownership: Default::default(),
                     writes: Default::default(),
                 });
+
                 continue;
             }
 
@@ -1311,6 +1323,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let expression = publication
             .expression()
             .expect("normal call outcomes retain their publishing expression");
+
         let mut completed = state.clone();
         let mut value = complete(&mut completed, first);
 
@@ -1340,6 +1353,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             expression,
             None,
         );
+
         *state = completed;
 
         Some(value)

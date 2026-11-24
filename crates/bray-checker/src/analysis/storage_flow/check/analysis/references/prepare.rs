@@ -57,6 +57,7 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
             .flat_map(|paths| paths.keys())
             .try_fold(Vec::new(), |mut targets, path| {
                 let slot = crate::analysis::storage_flow::memory::Target::storage(path.clone());
+
                 let kind = if memory.reached_borrow_capability(&slot).is_some() {
                     bray_symbols::DependencyReferenceKind::Borrow
                 } else {

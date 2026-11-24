@@ -299,6 +299,15 @@ ownership. Different referent owners and changed marker contents cannot use
 that path. Reuse the reached values and witness ledger; add no parallel state
 or fallback.
 
+The fixed comparison also checks two reference boundaries. A copied generator
+element retains its original reference dependency even when its cursor and
+backing are possible physical input regions. Escape checking reads established
+borrow choices, while the existing dependency and loan checks reject a
+reference to a dying local. A cleanup finalizer can publish a symbolic
+reference descriptor whose current bound names one exact referent. Completion
+resolves that bound from the reached physical state before attaching the
+destructor's witness to its owner.
+
 ## Acceptance
 
 1. Finish replacing old paths and search for their callers and equivalents.

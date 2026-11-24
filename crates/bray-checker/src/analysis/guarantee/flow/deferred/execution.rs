@@ -123,10 +123,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let source = BoundExecutionSite::from(expression);
         let key = source.into();
+
         let formed = frame
             .producers
             .get(&key)
             .filter(|producer| producer.completed.is_none());
+
         let opaque = frame
             .unknown
             .as_ref()
@@ -254,12 +256,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }
 
         let entry = state.admitted_call(invocation)?;
+
         let frame = entry
             .arguments
             .get(&ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(
                 0,
             )))?
             .deferred_value()?;
+
         let proof = state.ordinary_proof();
 
         if frame.unknown_possible(&proof) {
@@ -376,6 +380,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }
 
         let task = self.value(state, expression);
+
         let carriers = state
             .owned_witnesses([task])
             .map(|(carrier, _)| carrier.clone())
@@ -527,6 +532,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     .producers
                     .get_mut(source)
                     .expect("starting preserves the actual selected producer");
+
                 let entry = Arc::make_mut(&mut producer.entry);
 
                 for capture in inputs.iter() {
@@ -543,6 +549,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         .entry
                         .arguments
                         .get(&ExecutionPlace::argument(capture.input))?;
+
                     let target = value.inline_captured_storage()?.known_address()?;
 
                     (capture.value.known_address() == Some(target))
@@ -580,9 +587,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 .callee
                 .as_deref()
                 .and_then(|callee| self.dependencies.frame_callees().get(callee));
+
             let local = source
                 .local()
                 .and_then(|source| self.dependencies.calls().get(&source));
+
             let entry = &started.producers[source].entry;
 
             let (bindings, storage, failures) = match (local, checked) {
@@ -590,6 +599,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     let reports = call
                         .deferred_reports()
                         .and_then(|reports| reports.failures());
+
                     let failures = entry.select_failure_rows(
                         self.request.semantic_values(),
                         &self.proofs,
@@ -642,6 +652,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             };
 
             let count = entry.positional_arguments().count();
+
             let outputs = self.bind_entry_outputs(
                 state,
                 entry,
@@ -660,6 +671,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     .producers
                     .get_mut(source)
                     .expect("selected body retains its entry");
+
                 let entry = Arc::make_mut(&mut producer.entry);
 
                 entry.outputs = outputs;
@@ -899,9 +911,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 )
             } else {
                 let checked = self.frame_storage_outcomes(source, candidate);
+
                 let ordinal = |root: bray_symbols::DependencySubjectRoot| {
                     root.input_ordinal(candidate.has_receiver())
                 };
+
                 let selected = checked.map(|(storage, _)| (storage, ordinal));
 
                 self.complete_entry_outputs(
@@ -916,6 +930,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
                         let preserved =
                             self.preserved_borrowed_inputs(&references, &entry.arguments, ordinal);
+
                         let empty_ownership = bray_symbols::DependencyOwnedResult::default();
                         let ownership = row.map_or(&empty_ownership, |row| &row.ownership);
                         let carriers = row.map_or(&[][..], |row| row.carriers.as_ref());
@@ -928,8 +943,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                             value,
                             (ownership, preserved),
                         );
+
                         let mutation =
                             bray_bound_tree::StorageMutation::Operation(expression.into());
+
                         let value = self.complete_returned_references(
                             branch,
                             mutation,
@@ -1022,6 +1039,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         // The nested completion owns its payload path while the outer observation keeps its root.
         let payload_output = output.and_then(|output| output.clone().project(&[projection]));
+
         let completed = ExecutionCondition::new(crate::ExecutionConditionKind::VariantTest(
             variant,
             Arc::new(root.clone()),
@@ -1086,6 +1104,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             variant,
             Arc::new(root.clone()),
         ));
+
         let value = ExecutionCondition::constructed(tagged, [(projection, value)].into());
 
         let joined = super::super::merge_returned(
@@ -1112,6 +1131,7 @@ impl ExecutionState {
         row: usize,
     ) {
         let mut selected = frame.as_ref().clone();
+
         let producer = selected
             .producers
             .get_mut(source)

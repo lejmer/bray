@@ -143,6 +143,9 @@ destinations, and actual post-cleanup referents to the paired proof transition.
 The collector also publishes that same completion for later certification.
 Alternative outcomes intersect those exact relations before a common fact is
 carried.
+The completed reference footprint resolves a symbolic descriptor through its
+current physical bounds only when they identify one exact pointee. It must not
+replace an established concrete cleanup referent with the symbolic descriptor.
 Reference observations retain the reached target and the checked pointee type.
 The prepared footprint enumerates reference cells below an exact physical
 receiver, including fields that cleanup consumes without forwarding or
@@ -298,6 +301,9 @@ The physical state owns the input-region bounds of returned addresses by produce
 At a call attempt, escape analysis, observation invalidation, and returned-reference bounds share the reached input
 regions. Observation invalidation reads the live `StorageFlowState` through each planned input route first. Captured
 descriptors supply detached and deferred frame reach that no longer has a live route.
+Possible input regions keep symbolic references and reports alive. A returned
+borrow escape checks established physical pointees and the retained value and
+loan dependencies; a possible region alone does not establish a pointee.
 The selected input's borrow authority is monotonic. A later physical capture
 can confirm that authority but cannot erase it. An ordinary call attempt uses
 the live route for every input whose current physical binding supplies reached

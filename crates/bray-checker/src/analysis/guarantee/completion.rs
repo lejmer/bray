@@ -30,12 +30,15 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
 
         let mut candidate = crate::ExecutionCandidate::default();
         let mut reached_cleanup = BTreeMap::<_, ReachedScopeCleanup>::new();
+
         let mut dependencies = self
             .domain
             .consumed_completion_dependencies
             .borrow()
             .clone();
+
         let mut results = BTreeSet::new();
+
         let flow = self
             .domain
             .checked_body
@@ -62,6 +65,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
                     .graph
                     .operation(operation)
                     .expect("call evidence belongs to its CFG operation");
+
                 let occurrence = point.kind().occurrence();
 
                 if flow.requires_pure_effect_bound(operation) {
@@ -91,6 +95,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
                     .graph
                     .operation(*operation)
                     .expect("cleanup evidence belongs to a checked operation");
+
                 let scope_property = property.filter(|_| {
                     matches!(operation.kind(), AnalysisOperationKind::ScopeExit { .. })
                 });
@@ -253,10 +258,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         };
 
         let occurrence = expression.into();
+
         let contract = self
             .request
             .trusted_contracts()
             .and_then(|inputs| inputs.calls.get(&occurrence));
+
         let dependencies = self.dependencies.calls().get(&occurrence);
 
         if contract.is_none() && dependencies.is_none() {
@@ -632,6 +639,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let result = self.invocation_value(state, expression.into());
 
         let invocation = expression.into();
+
         let result = self.complete_trusted_call(
             state,
             (invocation, invocation),

@@ -1,5 +1,5 @@
 use std::borrow::Cow;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use bray_bound_tree::{
@@ -309,6 +309,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let roots = super::references::ReachedReferenceRegions::borrowed(
             operands.receiver.iter().cloned(),
         );
+
         let escaped = self.escape_effects(
             &state.memory,
             effects.as_deref(),
@@ -332,6 +333,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         state
             .memory
             .escape_regions(escaped.published, Some(operation.occurrence()));
+
         state
             .memory
             .escape_borrowed_regions(escaped.borrowed, Some(operation.occurrence()));
@@ -669,23 +671,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     continue;
                 };
 
-                let mut origins = BTreeSet::new();
-                let mut unbounded = false;
-
-                for target in &targets {
-                    let (targets, unknown) = memory.effect_origins(target);
-
-                    origins.extend(targets.cloned());
-                    unbounded |= unknown;
-                }
-
-                if unbounded || origins.len() != 1 {
+                let Some(target) = memory.unique_effect_origin(&targets) else {
                     continue;
-                }
-
-                let target = origins
-                    .pop_first()
-                    .expect("one exact cleanup referent was established");
+                };
 
                 observations.insert(
                     StoragePath {

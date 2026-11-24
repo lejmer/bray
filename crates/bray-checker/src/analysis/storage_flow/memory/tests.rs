@@ -4014,6 +4014,7 @@ fn opaque_reachability_distinguishes_safe_borrows_raw_escape_and_nested_argument
     state.transfer_value(&Target::storage(reference.clone()), holder.clone());
 
     let holder = Target::storage(holder);
+
     let reached = state
         .contained_reference_regions(&holder)
         .map(|(target, _)| target)
@@ -4075,6 +4076,7 @@ fn opaque_payload_borrows_preserve_disjoint_markers_but_raw_exposure_does_not() 
     let candidates = [owner.clone(), marker.clone(), payload.clone()];
 
     let reference_target = Target::storage(reference.clone());
+
     let reached = state
         .contained_reference_regions(&reference_target)
         .map(|(target, _)| target)
@@ -4334,11 +4336,13 @@ fn ambient_reachability_requires_raw_publication_of_an_owned_slot() {
 #[test]
 fn escaping_language_borrow_publishes_only_raw_addresses_carried_by_its_referent() {
     let ([owner, allocation, ..], origins) = places();
+
     let field = StorageProjection::TupleElement(bray_symbols::SymbolOrdinal::new(0));
     let pointer = StorageProjection::TupleElement(bray_symbols::SymbolOrdinal::new(1));
     let owner = Target::storage(owner);
     let borrowed = owner.project(&[field]);
     let pointer = borrowed.project(&[pointer]);
+
     let mut state = State {
         owned_storage: [owner.storage_path().expect("owned storage").root].into(),
         ..State::default()

@@ -130,6 +130,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     kind,
                     remainder.clone(),
                 ));
+
                 observe(CleanupObservation::Continuation(Box::new(failed)));
             }
         }
@@ -340,6 +341,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                             route,
                             failures: &[],
                         };
+
                         let mut completion = None;
 
                         mutate(CleanupTransition::Action(
@@ -586,6 +588,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             if let Some(mutate) = mutate {
                 let mut completion = None;
+
                 // Inactive cleanup can retain reports even when its captures
                 // leave every ordinary input observation unchanged.
                 let effect = if replacement.is_none_or(|(source, reached)| reached == Some(source))
@@ -755,6 +758,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             let completion = if let Some(mutate) = mutate {
                 let mut completion = None;
+
                 let outcomes = template
                     .captured_values()
                     .iter()
@@ -853,9 +857,11 @@ impl Lifecycle {
         let assumptions = state.assumptions.clone();
 
         let receiver_ordinal = bray_symbols::SymbolOrdinal::new(0);
+
         let input_borrow_kinds = borrowed
             .map(|kind| [(receiver_ordinal, kind)].into())
             .unwrap_or_default();
+
         let input_ordinals = [(ExecutionPlace::from(self.receiver), receiver_ordinal)].into();
 
         let borrow_owners = borrowed

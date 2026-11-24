@@ -91,6 +91,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     };
 
                     let prefix = route.input_path().projections();
+
                     let value = prefix.iter().copied().fold(
                         argument.clone().into_referent(),
                         crate::ExecutionCondition::project,
@@ -233,6 +234,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         let mut reached =
             memory.reachable_regions(roots.into_iter().chain(escaped.iter().cloned()));
+
         let exposed = memory.raw_exposed_regions();
 
         reached.1 |= incomplete;
@@ -493,6 +495,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                                 &value.projections[path.projections.len()..],
                                 stable_pointees,
                             );
+
                             observed = true;
                         }
                     }
@@ -522,12 +525,14 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                                 &value.projections[path.projections.len()..],
                                 stable_pointees,
                             );
+
                             references.extend(targets.iter().map(|target| {
                                 (
                                     value.clone(),
                                     target.project(&value.projections[path.projections.len()..]),
                                 )
                             }));
+
                             observed = true;
                         }
 
@@ -715,6 +720,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             };
 
             let exact = source.is_exact(memory);
+
             let exact_targets = source
                 .targets(memory)
                 .filter(|targets| targets.len() == 1)
@@ -785,6 +791,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                             stable_descriptors,
                             stable_values,
                         );
+
                         references.extend(targets.iter().map(|target| {
                             (
                                 path.clone(),
@@ -1111,16 +1118,14 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 continue;
             };
 
-            let [target] = targets.as_slice() else {
+            let Some(target) = state.memory.unique_effect_origin(&targets) else {
                 continue;
             };
 
-            if target.is_exact() {
-                observations.insert(
-                    path.clone(),
-                    StorageObservedTarget::borrowed(target.clone(), pointee),
-                );
-            }
+            observations.insert(
+                path.clone(),
+                StorageObservedTarget::borrowed(target, pointee),
+            );
         }
     }
 
@@ -1149,6 +1154,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         }
 
         let mut observations = BTreeMap::new();
+
         let entry = state
             .execution
             .as_ref()
@@ -1295,6 +1301,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         }
 
         let candidates = self.local_observation_accesses(mutations.clone());
+
         let all_accesses = candidates
             .is_none()
             .then(|| self.storage.access_entries().map(|(access, _)| access));
@@ -1312,6 +1319,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 .storage
                 .access(access)
                 .expect("observation indexes retain checked accesses");
+
             let direct = self.input.direct_reference_target(self.storage, access);
             let indirect;
 

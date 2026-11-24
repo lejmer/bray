@@ -50,6 +50,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }
 
         let place = self.invocation_result_place(invocation);
+
         let storage = self
             .storage
             .invocation_result(invocation)
@@ -196,6 +197,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         };
 
         let entry = state.entries.get(&expression.into())?;
+
         let memory = self
             .memory
             .operation(expression)
@@ -475,8 +477,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 let ordinal = selection
                     .input_ordinal(input.root())
                     .expect("checked input retains its ordinal");
+
                 let values = self.request.semantic_values();
                 let data = values.type_data(input.ty(values));
+
                 let bray_symbols::TypeData::Borrow { kind, .. } = data.as_ref() else {
                     return None;
                 };
@@ -494,6 +498,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .inputs()
             .filter_map(|input| {
                 let place = ExecutionPlace::from(input.reference()?);
+
                 let ordinal = selection
                     .input_ordinal(input.root())
                     .expect("checked input retains its ordinal");

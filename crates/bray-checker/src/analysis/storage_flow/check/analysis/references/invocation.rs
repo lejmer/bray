@@ -39,6 +39,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         if let Some(roots) = inputs {
             let mut concurrent = EffectPrefix::default();
+
             let call_prefix = if scheduled {
                 &mut concurrent
             } else {
@@ -157,6 +158,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             // references contained in the stored value can escape through this write.
             let value = operation.arguments()[1];
             let capture = self.captured_memory_operand(execution, operation, value);
+
             let stored = ReachedReferenceRegions::new(capture.into_iter().flat_map(|capture| {
                 capture.carried_reference_regions().chain(
                     capture
@@ -248,6 +250,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let borrowed = roots.classified().filter_map(|(target, kind)| {
             (kind == bray_symbols::DependencyReferenceKind::Borrow).then_some(target)
         });
+
         let portable = memory
             .escape_roots(roots.classified(), Some(occurrence))
             .into_iter()
@@ -295,11 +298,15 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         {
             for input in selection.inputs() {
                 has_planned_inputs = true;
+
                 let root = input.root();
+
                 let ordinal = selection
                     .input_ordinal(root)
                     .expect("a selected input retains its receiver-first ordinal");
+
                 let first_root = roots.len();
+
                 let Some(source) = self.invocation_reference(state, occurrence, root) else {
                     unresolved_inputs.insert(ordinal);
 
@@ -307,6 +314,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 };
 
                 let values = self.request.semantic_values();
+
                 let input_borrow_kind = match values.type_data(input.ty(values)).as_ref() {
                     bray_symbols::TypeData::Borrow { kind, .. } => Some(*kind),
                     _ => None,
@@ -385,6 +393,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         Option<bray_symbols::BorrowKind>,
     )> {
         let mut roots = Vec::new();
+
         let borrow_kind = |capability: Option<bray_bound_tree::BorrowCapabilityId>| {
             capability
                 .and_then(|capability| self.storage.borrow_capability(capability))
@@ -400,6 +409,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
                 if let Some(regions) = value.address_regions() {
                     let binding = value.binding();
+
                     let kind = if input_borrow_kind.is_some() {
                         bray_symbols::DependencyReferenceKind::Borrow
                     } else {
@@ -408,6 +418,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                             bray_bound_tree::StorageValueBinding::reference_kind,
                         )
                     };
+
                     let capability =
                         binding.and_then(bray_bound_tree::StorageValueBinding::borrow_capability);
 
@@ -418,6 +429,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                             input_borrow_kind.or_else(|| borrow_kind(capability)),
                         )
                     }));
+
                     return;
                 }
 
@@ -426,6 +438,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                         .carried_reference_bindings()
                         .map(|(target, kind, capability)| (target, kind, borrow_kind(capability))),
                 );
+
                 roots.extend(
                     value.carried_sources().cloned().map(|target| {
                         (target, bray_symbols::DependencyReferenceKind::Address, None)
@@ -836,6 +849,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let captured = self
             .execution
             .invocation_capture(entry?, occurrence, root)?;
+
         let contracts = self.dependencies.calls().get(&occurrence)?;
 
         let (_, path) = contracts.storage().subject(subject)?;
@@ -930,6 +944,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let declaration = subject
             .subject_root()
             .static_declaration(self.request.semantic_values())?;
+
         let projections = target.projections().to_vec();
 
         let selected = self

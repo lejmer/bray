@@ -33,6 +33,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let receiver = crate::ExecutionPlace::from(lifecycle.receiver);
         let arguments = BTreeMap::from([(receiver.clone(), root.clone())]);
+
         let direct_owners = completion
             .map(|completion| {
                 self.completion_owners(
@@ -205,12 +206,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         subjects: impl IntoIterator<Item = &'subject ExecutionCondition>,
     ) -> BTreeMap<ExecutionPlace, ExecutionCondition> {
         let inputs = inputs.into_iter().collect::<Vec<_>>();
+
         let references = references
             .iter()
             .filter_map(|(path, target)| {
                 Some((ExecutionPlace::storage_path(self.storage, path)?, target))
             })
             .collect::<BTreeMap<_, _>>();
+
         let mut owners = BTreeMap::<ExecutionPlace, BTreeSet<ExecutionCondition>>::new();
 
         for subject in subjects {
@@ -235,6 +238,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     .iter()
                     .copied()
                     .fold(actual_root.clone(), ExecutionPlace::component);
+
                 let owner = if let Some(target) = references.get(&actual) {
                     self.current_target_value(state, &target.target, target.pointee)
                 } else {
@@ -469,6 +473,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         let completed = Arc::make_mut(completed);
 
                         completed.assumptions.clone_from(&entry.assumptions);
+
                         completed
                             .trusted_assumptions
                             .clone_from(&entry.trusted_assumptions);
@@ -554,6 +559,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 observations.references(),
                 guarantees,
             );
+
             let references =
                 self.dependencies
                     .calls()
@@ -614,6 +620,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let selection = invocation
             .expression()
             .and_then(|expression| self.semantics.selections().expression(expression));
+
         let ordinal = |root| selection?.invocation_input_ordinal(invocation, root);
         let checked = self.dependencies.calls().get(&invocation);
 
@@ -818,6 +825,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             let formal =
                 entry.formal_condition(self.request.semantic_values(), carrier.guarantee());
+
             let condition = instantiate(&entry.capture_condition(&formal));
 
             if !condition.contains_trusted()
@@ -916,6 +924,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 let (_, route) = storage.subject(subject)?;
 
                 let ordinal = input_ordinal(root)?;
+
                 let argument = entry
                     .arguments
                     .get(&crate::ExecutionPlace::argument(ordinal))?;
@@ -940,6 +949,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     .get(&ordinal)
                     .into_iter()
                     .flat_map(|owners| owners.iter());
+
                 let mut owners = BTreeSet::new();
 
                 for place in retained {
@@ -952,6 +962,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     .argument_storage(ordinal)?
                     .known_address()?
                     .project(route.projections());
+
                 let place = crate::ExecutionPlace::storage_path(
                     self.storage,
                     &address.value_observation_path()?,
@@ -1011,6 +1022,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
                 let input = crate::ExecutionPlace::argument(input_ordinal(subject.subject_root())?);
                 let argument = entry.arguments.get(&input)?;
+
                 let descriptor = path
                     .iter()
                     .copied()
@@ -1169,12 +1181,15 @@ mod admission_tests {
     #[test]
     fn completed_admission_keeps_checked_requirements_out_of_pre_entry_evidence() {
         let input = ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(0));
+
         let owner = ExecutionCondition::new(crate::ExecutionConditionKind::Input(
             ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(1)),
         ));
+
         let predicate = crate::test_support::compiler_known_symbol::<bray_symbols::PredicateSymbolId>(
             "ValidWrite",
         );
+
         let substitution = crate::test_support::empty_substitution(predicate.into());
 
         let requirement = ExecutionCondition::new(crate::ExecutionConditionKind::Trusted(
@@ -1200,6 +1215,7 @@ mod admission_tests {
                 .prove_trusted_requirements(std::slice::from_ref(&requirement))
                 .is_err()
         );
+
         assume_normal_entry(
             &mut completed,
             &[],
@@ -1207,11 +1223,13 @@ mod admission_tests {
             &Default::default(),
         )
         .unwrap();
+
         assert!(
             completed
                 .prove_trusted_requirements(std::slice::from_ref(&requirement))
                 .is_ok()
         );
+
         assert!(
             before
                 .prove_trusted_requirements(std::slice::from_ref(&requirement))

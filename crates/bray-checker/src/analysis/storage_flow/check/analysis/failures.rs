@@ -521,10 +521,12 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         if let Some(attempt) = record.attempt {
             self.effects
                 .extend(std::sync::Arc::unwrap_or_clone(attempt.performed));
+
             self.record_outcome_mutation(
                 mutation,
                 std::borrow::Cow::Borrowed(&attempt.captured.invalidation),
             );
+
             self.publish_retirements(
                 mutation,
                 StorageValueBoundary::Execution,
@@ -563,6 +565,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let occurrence = kind.occurrence();
         let effects = mutations.as_deref();
         let mut escape_prefix = EffectPrefix::default();
+
         let escaped =
             self.address_escapes(state, execution, kind, effects, roots, &mut escape_prefix);
 
@@ -622,9 +625,11 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     ) {
         // The addresses belong to the admitted transition.
         self.check_raw_retirements(state, mutation.occurrence(), &effects.mutations);
+
         state
             .memory
             .escape_regions(effects.escaped.iter().cloned(), Some(mutation.occurrence()));
+
         state
             .memory
             .escape_borrowed_regions(effects.borrowed.iter().cloned(), Some(mutation.occurrence()));
