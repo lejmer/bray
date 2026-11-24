@@ -63,22 +63,28 @@ evidence. Impossible internal states fail at the violated contract.
 
 ## Verification and current trace
 
-- The current candidate passes all 1,709 fixed comparison cases, including
+- The preceding checkpoint passed all 1,709 fixed comparison cases, including
   source and imported returns, nested cleanup, generator reference lifetime,
   and the production channel endpoint check. The comparison used one verified
   release test binary.
-- An earlier candidate checked and lowered the complete 43-body Windows x64
-  packaged bootstrap inventory with zero diagnostics. The current candidate
-  needs a fresh target-qualified standard library and the same check.
+- The current Windows x64 standard library builds in 49 seconds, with planning
+  in 21 seconds. Its interface decodes completely after normal and failure
+  stored-value rows normalize against their portable destinations.
+- The current packaged bootstrap check reached and lowered all 43 selected
+  bodies. It reports two cleanup proof diagnostics at the `start_frame` scope.
+  The remaining targets and native archive still need verification.
 - Normal calls and lifecycle cleanup publish exact reference targets in
   `StorageCompletion`. Trusted completion maps the reached actual input path to
   its formal `StoragePlan` path and reads the target's current value directly.
+- The replaced `References` and `StoredValue` models, independent phase index,
+  `prepare_call_references`, and `normal_storage_preserved` are absent. Lifecycle
+  preparation uses the shared call-storage instantiator. Proof and lowering
+  consume the published per-operation storage transitions.
 - The optimized Windows x64 reference took 24.3 s to plan, 23.0 s to emit,
   and 53.0 s overall for the standard library. Native providers use Rust
   1.98.1 because the pinned LLVM cannot link Rust 1.99 provider bitcode.
 - Packaged probes must open the target-qualified bundle. The parent directory
-  contains an older manifest. The full native archive and executable link
-  remain unverified.
+  contains an older manifest.
 
 The timed numeric trace uses a 24-worker budget and a single root demand.
 One `logarithm` storage solve took 80 s. The instrumented candidate with

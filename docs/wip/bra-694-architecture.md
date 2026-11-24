@@ -725,7 +725,9 @@ Published snapshots and diagnostics retain graph order.
 2. The source component combines observations across recursive rounds. Generic substitution remaps the same portable
    graph. Package export maps it to interface symbol, type, term, and projection identities. The interface encodes the
    captured values, typed cell changes, and report support for each outcome. Panic and cancellation retain their
-   own failure writes. Decoding, remapping, validation, and interning use the importing semantic store's identities.
+   own failure writes. Normal and failure stored-value rows normalize by their mapped interface destinations,
+   merging possible sources and completeness after portable identities are assigned. Decoding, remapping,
+   validation, and interning use the importing semantic store's identities.
    Specialization identity also depends on the portable contract.
    [Substitution](../../crates/bray-symbols/src/value/substitution_apply/dependency.rs)
    · [Export conversion](../../crates/bray-compilation/src/compilation/export/semantic/dependencies.rs)
