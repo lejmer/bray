@@ -28,6 +28,10 @@ impl ExecutionCondition {
 
         let (left, right) = (source(self), source(other));
 
+        if !left.is_unknown() && left == right && (self.has_discriminant() || other.has_discriminant()) {
+            return Some(left.discriminant());
+        }
+
         let original = match (left.kind(), right.kind()) {
             (K::Discriminant(original), _) if original.as_ref() == right || left == right => original,
             (_, K::Discriminant(original)) if original.as_ref() == left || left == right => original,
@@ -182,5 +186,21 @@ mod tests {
 
         assert!(!scalar.has_discriminant());
         assert!(nullable.has_discriminant());
+    }
+
+    #[test]
+    fn a_payload_write_retains_its_original_discriminant_at_a_join() {
+        let input = |ordinal| ExecutionCondition::new(K::Input(crate::ExecutionPlace::argument(
+            bray_symbols::SymbolOrdinal::new(ordinal),
+        )));
+
+        let original = input(0);
+
+        let updated = original.with_storage_component(
+            &[StorageProjection::NullableValue], ExecutionCondition::boolean(true),
+        );
+
+        assert_eq!(updated.common_retained_discriminant(&original), Some(original.discriminant()));
+        assert_eq!(updated.common_retained_discriminant(&input(1)), None);
     }
 }

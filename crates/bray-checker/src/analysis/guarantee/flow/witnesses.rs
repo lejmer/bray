@@ -68,7 +68,12 @@ pub(super) fn conditional_facts<'value>(
 
     // Immutable branch selectors can qualify a moved carrier even when the selector
     // is stored outside it. Each proposed clause still needs both predecessor proofs.
-    let path_guards = if let Some(selector) = selector {
+    let selected_guards = selector.and_then(|selector| super::merge::ExecutionJoin::Selection(selector).retained_selector())
+        .map(|selector| [selector.clone(), ExecutionCondition::operation(BoundOperator::LogicalNot, vec![selector.clone()])]);
+
+    let path_guards = if let Some(guards) = &selected_guards {
+        guards.iter().cloned().collect::<BTreeSet<_>>()
+    } else if let Some(selector) = selector {
         // A structured join owns its selector. Derived consequences are facts, not
         // additional execution choices to multiply against every carrier clause.
         [left, right].into_iter().flat_map(|(_, substitution)| {
@@ -93,7 +98,10 @@ pub(super) fn conditional_facts<'value>(
 
     let ordinary_proofs = [left.0, right.0].map(|state| state.ordinary_proof());
     let all_guards = guards.iter().map(|(_, guard)| guard).chain(&path_guards).collect::<BTreeSet<_>>();
-    let inactive = inactive_guards(&all_guards, [&left_inputs, &right_inputs], &ordinary_proofs, facts);
+
+    let inactive = inactive_guards(all_guards.iter().copied().filter(|guard| {
+        selected_guards.as_ref().is_none_or(|selection| !selection.contains(guard))
+    }), [&left_inputs, &right_inputs], &ordinary_proofs, facts);
 
     conditional_aliases([left, right], [&left_inputs, &right_inputs], &all_guards, &inactive, &ordinary_proofs, facts);
 
@@ -162,29 +170,11 @@ pub(super) fn conditional_facts<'value>(
 
         // Each complete carrier supplies its own authority. An ordinary inactive
         // variant needs no trusted evidence, but another carrier cannot lend it.
-        let predecessors =
-            [(0, (left.0, &left_inputs)), (1, (right.0, &right_inputs))].map(|(index, (state, inputs))| {
-                let source = inputs.apply(&owner);
-                let mut evidence = ExecutionAssumptions::default();
-                let mut owning = ExecutionAssumptions::default();
-                let mut available = true;
+        let predecessors = [(0, left.0, &left_inputs), (1, right.0, &right_inputs)].map(|(index, state, inputs)| {
+            let (evidence, owning, available) = predecessor_evidence(state, inputs.apply(&owner), &source_proofs[index]);
 
-                for (_, witness) in state.owned_witnesses([source]) {
-                    available &= witness.available;
-
-                    for (condition, guarantee) in witness.conditions.iter().filter(|(condition, _)| {
-                        !witness.available || source_proofs[index].prove_trusted(condition) == Some(true)
-                    }) {
-                        condition.clone().assume(true, &mut evidence);
-
-                        if guarantee.witness {
-                            condition.clone().assume(true, &mut owning);
-                        }
-                    }
-                }
-
-                (state, inputs, evidence, owning, available)
-            });
+            (state, inputs, evidence, owning, available)
+        });
 
         let proofs = predecessors.each_ref().map(|(state, _, evidence, _, _)| {
             state.proofs.proof(evidence, &state.assumptions)
@@ -233,6 +223,11 @@ pub(super) fn conditional_facts<'value>(
             {
                 if inactive.contains(guard) { continue; }
 
+                // A structured fork already chose its input snapshot. Its
+                // selector does not need to be recovered from changed storage.
+                let selected = selected_guards.as_ref()
+                    .and_then(|selection| selection.iter().position(|chosen| chosen == guard));
+
                 let clause = ExecutionCondition::operation(
                     BoundOperator::LogicalOr,
                     vec![
@@ -243,7 +238,17 @@ pub(super) fn conditional_facts<'value>(
 
                 // These are actual predecessor snapshots of moved owners, not ordinary
                 // equal-content substitutions for borrowed observations.
-                if !matches!(clause.kind(), crate::ExecutionConditionKind::Boolean(true)) && proved(&clause) {
+                if matches!(clause.kind(), crate::ExecutionConditionKind::Boolean(true)) { continue; }
+
+                if let Some(index) = selected {
+                    let actual = predecessors[index].1.apply(&condition);
+
+                    if proofs[index].prove_trusted(&actual) == Some(true) {
+                        let owning = owning_proofs[index].prove_trusted(&actual) == Some(true);
+
+                        clauses.push((condition.clone(), clause, owning));
+                    }
+                } else if proved(&clause) {
                     let owning = owned(&clause);
 
                     clauses.push((condition.clone(), clause, owning));
@@ -255,6 +260,37 @@ pub(super) fn conditional_facts<'value>(
     }
 
     retained
+}
+
+fn predecessor_evidence(
+    state: &ExecutionState,
+    source: ExecutionCondition,
+    proof: &ExecutionProof<'_>,
+) -> (ExecutionAssumptions, ExecutionAssumptions, bool) {
+    let mut evidence = ExecutionAssumptions::default();
+    let mut owning = ExecutionAssumptions::default();
+    let mut available = true;
+
+    // A stored loan may carry its own checked clause. Its descriptor's
+    // ledger entry is independent of the referent's ownership.
+    let descriptor = source.is_reference()
+        .then(|| state.witnesses.get_key_value(source.owner_identity())).flatten();
+
+    for (_, witness) in descriptor.into_iter().chain(state.owned_witnesses([source])) {
+        available &= witness.available;
+
+        for (condition, guarantee) in witness.conditions.iter().filter(|(condition, _)| {
+            !witness.available || proof.prove_trusted(condition) == Some(true)
+        }) {
+            condition.clone().assume(true, &mut evidence);
+
+            if guarantee.witness {
+                condition.clone().assume(true, &mut owning);
+            }
+        }
+    }
+
+    (evidence, owning, available)
 }
 
 fn joined_snapshot_proposals(
@@ -304,15 +340,15 @@ fn corresponding_joined_source<'source>(
     }
 }
 
-fn inactive_guards(
-    guards: &BTreeSet<&ExecutionCondition>,
+fn inactive_guards<'guard>(
+    guards: impl Iterator<Item = &'guard ExecutionCondition>,
     inputs: [&SnapshotSubstitution<'_>; 2],
     proofs: &[ExecutionProof<'_>; 2],
     facts: &mut Vec<(ExecutionCondition, bool)>,
 ) -> BTreeSet<ExecutionCondition> {
     let mut inactive = BTreeSet::new();
 
-    for &guard in guards {
+    for guard in guards {
         let negated = ExecutionCondition::operation(BoundOperator::LogicalNot, vec![guard.clone()]);
 
         if proofs.iter().zip(inputs).all(|(proof, inputs)| {

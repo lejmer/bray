@@ -143,7 +143,8 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
 
             let template = &dependencies.lifecycle_dependencies()[&callable];
 
-            let storage = crate::dependency::prepare_call_storage(request, template, [], [], [], |subject| {
+            let storage = crate::dependency::prepare_call_storage(request, template, [], [], [],
+                Some(lifecycle.call.receiver), |subject| {
                 // The selected cleanup receiver already denotes its physical storage.
                 let owner = if subject.subject_root() == bray_symbols::DependencySubjectRoot::Receiver {
                     *ty

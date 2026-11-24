@@ -450,11 +450,13 @@ fn conditional_cleanup_keeps_the_address_written_by_its_finalizer() {
         {
         }
 
+        trusted predicate live(destination: &core.atomic.Atomic<u32>);
+
         struct Child
         {
             mut destination: &core.atomic.Atomic<u32>;
 
-            destruct()
+            trusted destruct() requires(trusted live(self.destination))
             {
                 core.atomic.store<u32, 0>(self.destination, 1);
             }
@@ -465,7 +467,9 @@ fn conditional_cleanup_keeps_the_address_written_by_its_finalizer() {
             mut child: Child;
             replacement: &core.atomic.Atomic<u32>;
 
-            finalize()
+            trusted finalize()
+                ensures(trusted live(self.child.destination))
+                executes(total)
             {
                 self.child.destination = self.replacement;
             }
@@ -478,40 +482,162 @@ fn conditional_cleanup_keeps_the_address_written_by_its_finalizer() {
         func dispose_optional_parent(pos owner: Parent?)
         {
         }
+
+        struct Outer
+        {
+            parent: Parent?;
+        }
+
+        func dispose_nested_optional_parent(pos owner: Outer?)
+        {
+        }
+
+        struct UnprovenParent
+        {
+            mut child: Child;
+            replacement: &core.atomic.Atomic<u32>;
+
+            finalize() executes(total)
+            {
+                self.child.destination = self.replacement;
+            }
+        }
+
+        func dispose_unproven_parent(pos owner: UnprovenParent?)
+        {
+        }
+
+        struct InstalledChild
+        {
+            destination: &core.atomic.Atomic<u32>;
+
+            destruct()
+            {
+                core.atomic.store<u32, 0>(self.destination, 1);
+            }
+        }
+
+        struct Installer
+        {
+            mut child: InstalledChild?;
+            replacement: &core.atomic.Atomic<u32>;
+
+            finalize()
+                requires(self.child matches none)
+            {
+                self.child = InstalledChild { destination = self.replacement };
+            }
+        }
+
+        func dispose_installed_child(pos replacement: &core.atomic.Atomic<u32>)
+        {
+            let mut owner = Installer { child = none, replacement = replacement };
+            owner.child = none;
+        }
+
+        struct EmptyOwner
+        {
+            child: InstalledChild?;
+
+            finalize()
+            {
+            }
+        }
+
+        func dispose_empty_child()
+        {
+            let owner = EmptyOwner { child = none };
+        }
         "#,
     );
 
     let cancellation = crate::CancellationToken::new();
     let binding = application.binding_context(&cancellation).expect("fixture symbols bind");
 
-    for (name, optional) in [
-        ("dispose_present", false),
-        ("dispose_optional", true),
-        ("dispose_parent", false),
-        ("dispose_optional_parent", true),
-    ] {
-        let lowered = application.lowered_unit(source_function_body_key(&application, name))
+    let atomic = |effect: &DependencyStorageEffect| matches!(effect,
+        DependencyStorageEffect::Atomic
+        | DependencyStorageEffect::Indirect { kind: DependencyMutationKind::Atomic, .. }
+        | DependencyStorageEffect::UnboundedMutation { kind: DependencyMutationKind::Atomic, .. }
+    );
+
+    let cases = [
+        ("dispose_present", Some(0)),
+        ("dispose_optional", Some(1)),
+        ("dispose_parent", Some(0)),
+        ("dispose_optional_parent", Some(1)),
+        ("dispose_nested_optional_parent", Some(2)),
+        ("dispose_installed_child", None),
+        ("dispose_empty_child", None),
+    ].map(|(name, nullable_boundaries)| {
+        let key = source_function_body_key(&application, name);
+
+        let lowered = application.lowered_unit(key.clone())
             .expect("fixture callable reaches lowering");
 
-        assert!(lowered.value().is_some() && !lowered.diagnostics().has_errors(), "{name}: {lowered:?}");
+        (name, nullable_boundaries, key, lowered)
+    });
+
+    let failed_lowering = cases.iter().filter_map(|(name, _, _, lowered)| {
+        (lowered.value().is_none() || lowered.diagnostics().has_errors())
+            .then_some((*name, lowered.diagnostics()))
+    }).collect::<Vec<_>>();
+
+    assert!(failed_lowering.is_empty(), "{failed_lowering:#?}");
+
+    let unproven = application.lowered_unit(source_function_body_key(&application, "dispose_unproven_parent"))
+        .expect("the unproven child is checked before lowering");
+
+    assert!(unproven.value().is_none());
+
+    bray_testing::assert_goal_state_diagnostic_kind(
+        unproven.diagnostics(), DiagnosticKind::CheckingTrustedObligationNotProven,
+    );
+
+    for (name, nullable_boundaries, key, _) in cases {
+        if nullable_boundaries.is_none() {
+            let dependencies = application.dependency_contracts(key.clone()).expect("the installer has checked lifecycle contracts");
+
+            let finalizer = dependencies.value().lifecycle_dependencies().iter()
+                .find(|(instance, _)| instance.definition().callable_symbol().kind() == bray_symbols::SymbolKind::Finalizer)
+                .expect("the installer selects a finalizer").1;
+
+            assert!(!finalizer.effects().iter().any(atomic),
+                "installing into the empty slot cannot invoke the child's destructor inside the finalizer: {finalizer:#?}");
+        }
 
         let summary = crate::compilation::result_dependencies::source_function_dependencies(&application, name);
 
-        let observed = summary.effects().iter().filter(|effect| matches!(effect,
-            DependencyStorageEffect::Atomic
-            | DependencyStorageEffect::Indirect { kind: DependencyMutationKind::Atomic, .. }
-            | DependencyStorageEffect::UnboundedMutation { kind: DependencyMutationKind::Atomic, .. }
-        )).collect::<Vec<_>>();
+        let observed = summary.effects().iter().filter(|effect| atomic(effect)).collect::<Vec<_>>();
+
+        if name == "dispose_empty_child" {
+            assert!(observed.is_empty(), "the empty child performs no destructor effects: {summary:#?}");
+
+            continue;
+        }
 
         let [DependencyStorageEffect::Indirect { addressed: true, reference, .. }] = observed.as_slice() else {
+            if nullable_boundaries.is_none() {
+                let flow = application.storage_flow(key).expect("the installer publishes reached cleanup");
+
+                panic!("{name} performs one atomic store through the installed descriptor: {summary:#?} with flow {:#?}", flow.value());
+            }
+
             panic!("{name} performs one atomic store through the installed descriptor: {summary:#?}");
         };
 
         assert_eq!(reference.subject_root(), DependencySubjectRoot::Parameter(SymbolOrdinal::new(0)));
 
-        let field = match (optional, reference.projections()) {
-            (false, [DependencyProjection::ProductField(field)])
-            | (true, [DependencyProjection::NullableValue, DependencyProjection::ProductField(field)]) => *field,
+        let Some(nullable_boundaries) = nullable_boundaries else {
+            assert!(reference.projections().is_empty(), "the installed child uses the caller's reference");
+
+            continue;
+        };
+
+        let field = match (nullable_boundaries, reference.projections()) {
+            (0, [DependencyProjection::ProductField(field)])
+            | (1, [DependencyProjection::NullableValue, DependencyProjection::ProductField(field)])
+            | (2, [DependencyProjection::NullableValue, DependencyProjection::ProductField(_),
+                DependencyProjection::NullableValue, DependencyProjection::ProductField(field)]) => *field,
             _ => panic!("{name} retains the original field supplying the replacement: {reference:?}"),
         };
 
@@ -519,6 +645,7 @@ fn conditional_cleanup_keeps_the_address_written_by_its_finalizer() {
 
         assert_eq!(name.map(|name| name.as_str()), Some("replacement"));
     }
+
 }
 
 #[test]

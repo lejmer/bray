@@ -115,6 +115,16 @@ impl CheckerRequestContext for TestCheckerContext {
         256
     }
 
+    fn classify_trusted_completion(
+        &self,
+        contract: &mut crate::TrustedCallContract,
+        _: &mut bray_diagnostics::DiagnosticBag,
+    ) -> CheckerQueryResult<(), Self::UpstreamError> {
+        assert!(contract.guarantees.is_empty(), "checker test signatures have no trusted completion declarations");
+
+        Ok(())
+    }
+
     fn generic_constraint_scope(
         &self,
         context: &SemanticUnitContext,

@@ -498,7 +498,7 @@ where C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQ
 
         let cleanup = capture_cleanup.iter().chain(&result_cleanup);
 
-        let storage = super::prepare_call_storage(request, &summary, cleanup, execution_subjects, [], |subject| {
+        let storage = super::prepare_call_storage(request, &summary, cleanup, execution_subjects, [], None, |subject| {
 
             let root = subject.subject_root();
 

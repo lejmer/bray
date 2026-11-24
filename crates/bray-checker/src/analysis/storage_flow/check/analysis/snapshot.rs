@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use bray_bound_tree::{
-    AsyncStorageExitDecision, BorrowCapabilityId, CheckedDependencyContracts, StorageAbsence, StorageAccessId,
+    AsyncCleanupPhases, AsyncStorageExitDecision, BorrowCapabilityId, CheckedDependencyContracts, StorageAbsence, StorageAccessId,
     StorageAccessPlan, StorageCleanupAction, StorageCleanupEntry, StorageCleanupSchedule, StorageExitDecision,
     StorageExitPoint, StorageIdentityId, StoragePath, StoragePlan, StorageTarget,
 };
@@ -61,7 +61,7 @@ struct ScopeExitSnapshot {
 
 struct ReachedCleanup {
     orders: Option<ReachedLifecycle>,
-    absent: BTreeSet<StoragePath>,
+    part_absence: BTreeMap<(StorageAccessId, usize, AsyncCleanupPhases), bool>,
     replacement: Option<StorageTarget>,
 }
 
@@ -135,7 +135,6 @@ impl CleanupSnapshots {
         &mut self,
         operation: AnalysisOperationId,
         selection: &CleanupSelection,
-        state: &StorageFlowState,
     ) {
         use std::collections::btree_map::Entry;
 
@@ -145,7 +144,7 @@ impl CleanupSnapshots {
             Entry::Vacant(entry) => {
                 entry.insert(ReachedCleanup {
                     orders: order.map(|order| ReachedLifecycle::Ordered(Arc::clone(order))),
-                    absent: state.absent_paths(None).cloned().collect(),
+                    part_absence: BTreeMap::new(),
                     // The cleanup transition also uses this reached address.
                     replacement: selection.replacement.clone(),
                 });
@@ -160,13 +159,24 @@ impl CleanupSnapshots {
                     }
                 }
 
-                reached.absent.retain(|path| state.has_absent_path(path));
-
                 if reached.replacement != selection.replacement {
                     reached.replacement = None;
                 }
             }
         }
+    }
+
+    pub(super) fn record_part_absence(
+        &mut self,
+        operation: AnalysisOperationId,
+        after: Option<StorageCleanupAction>,
+        part: (StorageAccessId, usize, AsyncCleanupPhases),
+        absent: bool,
+    ) {
+        let entry = self.entries.get_mut(&(operation, after))
+            .expect("a checked cleanup part belongs to a reached schedule");
+
+        entry.part_absence.entry(part).and_modify(|known| *known &= absent).or_insert(absent);
     }
 
     pub(super) fn record_phase(
@@ -264,7 +274,9 @@ impl CleanupSnapshots {
                 Some(ReachedLifecycle::Multiple(orders)) => orders.into_iter().collect(),
             };
 
-            (point, StorageCleanupEntry::new(orders, Arc::new(entry.absent), entry.replacement))
+            let absent_parts = entry.part_absence.into_iter().filter_map(|(part, absent)| absent.then_some(part)).collect();
+
+            (point, StorageCleanupEntry::new(orders, Arc::new(absent_parts), entry.replacement))
         }).collect()
     }
 }

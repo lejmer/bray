@@ -2,9 +2,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use crate::{
-    AnalysisOperationId, BoundExecutionSite, StorageAccessId, StorageCleanupAction,
+    AnalysisOperationId, AsyncCleanupPhases, BoundExecutionSite, StorageAccessId, StorageCleanupAction,
     StorageCleanupActionKind, StorageExitPoint, StorageFlow, StorageInvalidation, StorageMutation,
-    StoragePath, StorageTarget,
+    StorageTarget,
 };
 
 /// Why an evaluated place has no usable value.
@@ -20,18 +20,18 @@ pub enum StorageAbsence {
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct StorageCleanupEntry {
     orders: Arc<[Arc<[StorageAccessId]>]>,
-    absent: Arc<BTreeSet<StoragePath>>,
+    absent_parts: Arc<BTreeSet<(StorageAccessId, usize, AsyncCleanupPhases)>>,
     replacement: Option<StorageTarget>,
 }
 
 impl StorageCleanupEntry {
-    /// Retains the reached orders and the incoming absence and address facts.
+    /// Retains the reached orders, part decisions, and replacement address.
     pub fn new(
         orders: Arc<[Arc<[StorageAccessId]>]>,
-        absent: Arc<BTreeSet<StoragePath>>,
+        absent_parts: Arc<BTreeSet<(StorageAccessId, usize, AsyncCleanupPhases)>>,
         replacement: Option<StorageTarget>,
     ) -> Self {
-        Self { orders, absent, replacement }
+        Self { orders, absent_parts, replacement }
     }
 
     /// The checked order alternatives at entry to this phase.
@@ -39,11 +39,9 @@ impl StorageCleanupEntry {
         &self.orders
     }
 
-    /// Whether the reached owner or one of its enclosing slots was absent at entry.
-    pub fn is_absent(&self, place: &StoragePath) -> bool {
-        self.absent.range(StoragePath::root(place.root)..)
-            .take_while(|path| path.root == place.root)
-            .any(|path| path.contains(place))
+    /// Whether the part's owner was absent when the schedule reached it.
+    pub fn part_absent(&self, access: StorageAccessId, part: usize, phase: AsyncCleanupPhases) -> bool {
+        self.absent_parts.contains(&(access, part, phase))
     }
 
     /// The reached address of the displaced owner, when established.
@@ -121,7 +119,9 @@ impl StorageFlow {
             operation.unit() == self.unit()
                 && after.is_none_or(|action| action.operation.unit() == self.unit())
                 && entry.orders().iter().flat_map(|order| order.iter()).all(|access| access.unit() == self.unit())
-                && entry.absent.iter().all(|path| path.is_valid_for(self.unit()))
+                && entry.absent_parts.iter().all(|(access, _, phase)| {
+                    access.unit() == self.unit() && *phase != AsyncCleanupPhases::CancellationThenLifecycle
+                })
                 && entry.replacement().is_none_or(|target| target.is_valid_for(self.unit()))
         }), "cleanup entries belong to their checked unit");
 

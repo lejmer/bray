@@ -763,11 +763,34 @@ the entire selected part completes. The proof join uses the checked
 selection guard. The prepared plan registers cleanup owners among the entry
 observations, including formals read only by cleanup. Each guard supplies
 its checked discriminator path and, where exact, its payload path.
-A discriminator proved false on the skipped path marks
-only that payload absent. Its retained bindings cannot obscure a receiver
-write when the next represented part selects that payload. A join without
-a selector derives alternative guards from the retained predecessor
-premises.
+The skipped state can prove a payload absent from its enclosing discriminator
+prefix independently of initialization. Its retained bindings cannot
+obscure a receiver write when the next represented part selects that
+payload. A join without a selector derives alternative guards from the
+retained predecessor premises.
+
+Each part reads absence from current storage after the preceding action
+publishes its invalidation and receiver writes. A part installed by the
+finalizer can become active after entering cleanup. Proof replay reads the
+checked part decisions for the same operation and resumption cursor.
+
+Lifecycle completion uses the shared classification of trusted contract
+subjects. A completed receiver supplies the current argument contents and
+its checked borrow or consuming role. Conditional transfer retains each
+proved clause with its actual subject. Raw access clauses retain admission
+or current backing support for the reached address.
+
+The physical cleanup receiver begins at the already reached storage. An
+effect through its formal borrow follows the remaining typed route from
+that slot. Effects through descriptors stored in the receiver still read
+those descriptors. A payload write retains the enclosing discriminant
+when the reaching snapshots identify the same tag.
+An explicit cleanup fork retains the evaluated selector on its joined
+payloads and witnessed clauses. The proof verifies the clause against the
+predecessor that selected it. The other predecessor supplies its checked
+skipped path. Read the selected reference descriptor's witness directly
+from its ledger alongside the owning carriers. The referent's owner keeps
+its authority.
 Admission rejection of a scoped invocation uses
 the caller's input state. A failure after admission uses the performed state.
 An abandoned transfer names its actual produced result slot. Its failure

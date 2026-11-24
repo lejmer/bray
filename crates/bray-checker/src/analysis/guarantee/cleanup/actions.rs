@@ -1,7 +1,10 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use bray_bound_tree::{StorageAccessId, StorageCleanupAction, StorageCleanupActionKind, StorageMutation};
+use bray_bound_tree::{
+    AsyncCleanupPhases, StorageAccessId, StorageCleanupAction, StorageCleanupActionKind,
+    StorageCleanupEntry, StorageMutation, StoragePath,
+};
 use bray_symbols::TypeAssociatedLifecycleSlot;
 
 use super::plan::{Lifecycle, Step};
@@ -11,6 +14,21 @@ use crate::analysis::guarantee::{ExecutionFlowDomain, ExecutionState};
 use crate::analysis::model::{AnalysisOperation, AnalysisOperationKind};
 use crate::analysis::outcomes::CleanupProgress;
 use crate::{CheckerRequestContext, ExecutionCallEvidence, ExecutionPlace};
+
+fn part_absent(
+    access: StorageAccessId,
+    part: usize,
+    phase: AsyncCleanupPhases,
+    owner: Option<&StoragePath>,
+    entry: Option<&StorageCleanupEntry>,
+    mutate: &mut Option<&mut Mutation<'_>>,
+) -> bool {
+    if let Some(mutate) = mutate {
+        return mutate(CleanupTransition::PartAbsent { access, part, phase, owner });
+    }
+
+    entry.is_some_and(|entry| entry.part_absent(access, part, phase))
+}
 
 impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     fn published_cleanup(&self) -> &bray_bound_tree::StorageFlow {
@@ -186,7 +204,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         &self,
         state: &mut ExecutionState,
         access: StorageAccessId,
-        definitely_absent: &impl Fn(&bray_bound_tree::StoragePath) -> bool,
+        entry: Option<&StorageCleanupEntry>,
         observe: &mut Option<&mut Observer<'_>>,
         point: &AnalysisOperation,
         replacement: Option<ReplacementPath<'_>>,
@@ -208,7 +226,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 continue;
             }
 
-            let condition = self.cleanup_part_condition(state, step.selection(), definitely_absent, replacement);
+            let condition = self.cleanup_part_condition(state, step.selection(), |owner| {
+                part_absent(access, part, AsyncCleanupPhases::Cancellation, owner, entry, mutate)
+            }, replacement);
 
             let ty = match step {
                 Step::Opaque { ty, .. } | Step::Lifecycle { ty, .. } => *ty,
@@ -226,7 +246,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
                     let action = CleanupMutation::Opaque { ty, access, path, route, failures: &[] };
 
-                    mutate(state, CleanupTransition::Action(mutation, action))
+                    mutate(CleanupTransition::Action(state, mutation, action))
                 } else {
                     self.apply_published_cleanup(state, mutation);
 
@@ -243,7 +263,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         &self,
         state: &mut ExecutionState,
         remaining: &[StorageAccessId],
-        definitely_absent: &impl Fn(&bray_bound_tree::StoragePath) -> bool,
+        entry: Option<&StorageCleanupEntry>,
         observe: &mut Option<&mut Observer<'_>>,
         point: &AnalysisOperation,
         after: Option<StorageCleanupAction>,
@@ -283,7 +303,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     // Reaching the finalizer already selected this part for destruction.
                     crate::ExecutionCondition::boolean(true).into()
                 } else {
-                    self.cleanup_part_condition(state, step.selection(), definitely_absent, replacement)
+                    self.cleanup_part_condition(state, step.selection(), |owner| {
+                        part_absent(access, part, AsyncCleanupPhases::Lifecycle, owner, entry, mutate)
+                    }, replacement)
                 };
 
                 if !super::selection::select_cleanup(state, condition, mutate, |state, mutate| {
@@ -310,7 +332,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 let remaining = bray_bound_tree::StorageCleanupRemainder::at(scope, remaining, action);
 
                 if let Some(mutate) = mutate {
-                    assert!(mutate(state, CleanupTransition::Action(StorageMutation::Cleanup(action), CleanupMutation::Repeat(remaining))));
+                    assert!(mutate(CleanupTransition::Action(state, StorageMutation::Cleanup(action), CleanupMutation::Repeat(remaining))));
                 } else if let Some(observe) = observe {
                     let mut continued = state.clone();
 
@@ -401,7 +423,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     }
                 };
 
-                if !mutate(state, CleanupTransition::Action(StorageMutation::Cleanup(action), effect)) {
+                if !mutate(CleanupTransition::Action(state, StorageMutation::Cleanup(action), effect)) {
                     return false;
                 }
             } else if !self.replay_cleanup_action(state, action, remaining, None, observe) {
@@ -519,7 +541,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         outcomes,
                     });
 
-                if !mutate(state, CleanupTransition::Action(StorageMutation::Cleanup(action), invocation)) {
+                if !mutate(CleanupTransition::Action(state, StorageMutation::Cleanup(action), invocation)) {
                     return false;
                 }
             } else if !self.replay_cleanup_action(state, action, remaining, Some((&evidence, template)), observe) {
@@ -557,9 +579,17 @@ impl Lifecycle {
         // of this value, including when the receiver itself is a component.
         let value = value.unwrap_or_else(crate::ExecutionCondition::unknown);
 
+        let receiver = ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(0));
+
+        let addresses = if self.contract.address_subjects.is_empty() {
+            Default::default()
+        } else {
+            [(receiver.clone(), state.address_dependencies(&value))].into()
+        };
+
         let arguments = BTreeMap::from([
             (self.receiver.into(), value.clone()),
-            (ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(0)), value),
+            (receiver, value),
         ]);
 
         let assumptions = state.assumptions.clone();
@@ -574,7 +604,7 @@ impl Lifecycle {
             extracted_values: Default::default(),
             owned_inputs: Default::default(),
             borrow_owners: Default::default(),
-            addresses: Default::default(),
+            addresses,
             anonymous_target: None,
             trusted_boundary: !state.trust_boundaries.is_empty(),
             pending_execution: false,

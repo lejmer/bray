@@ -449,6 +449,16 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
             .map_err(checker_binder_error)
     }
 
+    fn classify_trusted_completion(
+        &self,
+        contract: &mut bray_checker::TrustedCallContract,
+        diagnostics: &mut bray_diagnostics::DiagnosticBag,
+    ) -> CheckerQueryResult<()> {
+        self.binding_context.compilation()
+            .classify_trusted_completion(contract, self.binding_context.cancellation(), diagnostics)
+            .map_err(checker_query_error)
+    }
+
     fn callable_result_dependencies(
         &self,
         callable: bray_symbols::CallableSymbolId,

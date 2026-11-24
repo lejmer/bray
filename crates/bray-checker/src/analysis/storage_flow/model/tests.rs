@@ -328,9 +328,6 @@ fn completed_call_payload_absence_reaches_cleanup_and_is_replaced_by_a_later_out
     assert!(state.no_payload_paths(identity).any(|path| path == &payload));
     assert!(state.definitely_absent.is_empty());
 
-    let roots = [identity].into_iter().collect();
-    let cleanup_entry = state.cleanup_entry_absence(&roots);
-
     let field = StoragePath {
         root: identity,
         projections: [
@@ -339,8 +336,8 @@ fn completed_call_payload_absence_reaches_cleanup_and_is_replaced_by_a_later_out
         ].into(),
     };
 
-    assert!(cleanup_entry(&field));
-    assert!(!cleanup_entry(&StoragePath::root(identity)));
+    assert!(state.is_path_absent(&field));
+    assert!(!state.is_path_absent(&StoragePath::root(identity)));
 
     state.memory.stage_unknown(
         expressions[2].into(),
@@ -351,8 +348,7 @@ fn completed_call_payload_absence_reaches_cleanup_and_is_replaced_by_a_later_out
 
     assert!(!state.has_absent_path(&payload));
     assert!(!state.absent_paths(Some(identity)).any(|path| path == &payload));
-    assert!(!state.cleanup_entry_absence(&roots)(&payload));
-    assert!(cleanup_entry(&payload));
+    assert!(!state.is_path_absent(&field));
 }
 
 fn storage_and_expressions(

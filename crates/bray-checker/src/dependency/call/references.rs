@@ -170,7 +170,7 @@ pub(super) fn with_reference_inputs<C: CheckerRequestContext + ?Sized>(
     );
 
     let execution = contracts.deferred_template().into_iter().flat_map(|contract| contract.requirement_subjects());
-    let storage = prepare_call_storage(request, template, cleanup, execution, roots, &mut input_type)?;
+    let storage = prepare_call_storage(request, template, cleanup, execution, roots, None, &mut input_type)?;
 
     Ok(contracts
         .with_captured_outcomes(template)
@@ -184,6 +184,7 @@ pub(crate) fn prepare_call_storage<'a, C: CheckerRequestContext + ?Sized>(
     additional_effects: impl IntoIterator<Item = &'a bray_symbols::DependencyStorageEffect>,
     additional_subjects: impl IntoIterator<Item = &'a bray_symbols::DependencySubject>,
     addressable_roots: impl IntoIterator<Item = DependencySubjectRoot>,
+    receiver_input_type: Option<bray_symbols::TypeId>,
     mut input: impl FnMut(
         &bray_symbols::DependencySubject,
     ) -> crate::CheckerQueryResult<Option<(bray_symbols::TypeId, bray_bound_tree::StorageReferencePath)>, C::UpstreamError>,
@@ -233,7 +234,15 @@ pub(crate) fn prepare_call_storage<'a, C: CheckerRequestContext + ?Sized>(
         |subject| subjects.get(subject).cloned(),
     );
 
-    let effect_paths = prepare_effect_paths(request, effects, types)?;
+    let effect_paths = prepare_effect_paths(request, effects, |subject| {
+        if subject.subject_root() == DependencySubjectRoot::Receiver && subject.projections().is_empty() {
+            // The reached receiver supplied to cleanup has already followed
+            // the first borrow. The effect still declares its suffix from that input.
+            receiver_input_type.or_else(|| types(subject))
+        } else {
+            types(subject)
+        }
+    })?;
 
     let write_paths = prepare_write_paths(request.semantic_values(), template, &subjects);
     let returned = returned_values(request, rows, &mut input)?;

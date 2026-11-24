@@ -86,22 +86,12 @@ impl StorageFlowState {
         self.definitely_absent.contains_key(path) || self.memory.has_no_payload(path)
     }
 
-    /// Retains the entry facts used by cleanup even after earlier parts mutate storage.
-    pub(in crate::analysis::storage_flow) fn cleanup_entry_absence(
+    /// Whether this slot or one of its enclosing slots is currently absent.
+    pub(in crate::analysis::storage_flow) fn is_path_absent(
         &self,
-        roots: &BTreeSet<StorageIdentityId>,
-    ) -> impl Fn(&bray_bound_tree::StoragePath) -> bool + use<> {
-        let logical = Arc::clone(&self.definitely_absent);
-
-        let physical = roots.iter().filter_map(|&root| {
-            let paths = self.memory.no_payload_paths(Some(root)).cloned().collect::<Vec<_>>();
-
-            (!paths.is_empty()).then_some((root, paths))
-        }).collect::<BTreeMap<_, _>>();
-
-        move |place| crate::storage::paths_at_root(&logical, Some(place.root))
-            .any(|(path, _)| path.contains(place))
-            || physical.get(&place.root).is_some_and(|paths| paths.iter().any(|path| path.contains(place)))
+        path: &bray_bound_tree::StoragePath,
+    ) -> bool {
+        self.absent_paths(Some(path.root)).any(|absent| absent.contains(path))
     }
 
     pub(in crate::analysis::storage_flow) fn no_payload_paths(&self, root: StorageIdentityId) -> impl Iterator<Item = &bray_bound_tree::StoragePath> + Clone {
@@ -283,7 +273,7 @@ impl StorageFlowState {
 
     fn value_is_live(&self, path: &bray_bound_tree::StoragePath) -> bool {
         self.live.contains(&path.root) && !self.fully_moved.contains(&path.root)
-            && !self.absent_paths(Some(path.root)).any(|absent| absent.contains(path))
+            && !self.is_path_absent(path)
     }
 
     /// A committed replacement ends displaced loans whose support has no surviving owner.

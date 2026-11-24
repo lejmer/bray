@@ -149,7 +149,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
                 let value = state.execution.as_ref().map(|execution| self.execution.storage_value(execution, expression, access));
 
-                self.observe_transferred_value(state, value, &destination, target_type);
+                self.observe_transferred_value(state, value.as_ref(), &destination, target_type);
             }
 
             return;
@@ -373,14 +373,14 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         crate::storage::nullable_wrapping(self.request.semantic_values(), source_type, target)
     }
 
-    fn observe_transferred_value(
+    pub(in crate::analysis::storage_flow::check::analysis) fn observe_transferred_value(
         &self,
         state: &mut StorageFlowState,
-        value: Option<crate::ExecutionCondition>,
+        value: Option<&crate::ExecutionCondition>,
         destination: &Place,
         target: bray_symbols::TypeId,
     ) -> bool {
-        if let Some(value) = &value {
+        if let Some(value) = value {
 
             for payload in self
                 .input
@@ -402,7 +402,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         }
 
         if matches!(self.request.semantic_values().type_data(target).as_ref(), bray_symbols::TypeData::Nullable(_))
-            && matches!(value.as_ref().map(crate::ExecutionCondition::kind), Some(crate::ExecutionConditionKind::Literal(value))
+            && matches!(value.map(crate::ExecutionCondition::kind), Some(crate::ExecutionConditionKind::Literal(value))
                 if matches!(value.kind(), bray_symbols::ConstantValueKind::NullableAbsent))
         {
             self.mark_absent_references(
@@ -486,7 +486,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             state.memory.clear(&destination);
         }
 
-        self.observe_transferred_value(state, value, &destination, target);
+        self.observe_transferred_value(state, value.as_ref(), &destination, target);
     }
 
     pub(in crate::analysis::storage_flow::check::analysis) fn prepare_intrinsic_result_references(

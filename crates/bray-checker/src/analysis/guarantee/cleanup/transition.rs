@@ -72,13 +72,17 @@ pub(in crate::analysis) enum CleanupMutation<'a> {
 }
 
 pub(in crate::analysis) enum CleanupTransition<'a> {
+    PartAbsent {
+        access: StorageAccessId, part: usize, phase: bray_bound_tree::AsyncCleanupPhases,
+        owner: Option<&'a bray_bound_tree::StoragePath>,
+    },
     BeginConditional(Vec<bray_bound_tree::StoragePath>),
-    Action(StorageMutation, CleanupMutation<'a>),
+    Action(&'a mut ExecutionState, StorageMutation, CleanupMutation<'a>),
     EndConditional { completes: bool },
 }
 
 pub(in crate::analysis) type Mutation<'a> =
-    dyn FnMut(&mut ExecutionState, CleanupTransition<'_>) -> bool + 'a;
+    dyn FnMut(CleanupTransition<'_>) -> bool + 'a;
 
 pub(in crate::analysis) struct CleanupSelection {
     pub(in crate::analysis) accesses: Option<Arc<[StorageAccessId]>>,
@@ -189,7 +193,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     let Some(entry) = flow.cleanup_entry(point.id(), Some(remainder.after)) else { return false; };
 
                     return self.execute_scope_cleanup(state, point, Some(&remainder.accesses),
-                        Some(remainder.after), &|place| entry.is_absent(place), &mut observe, &mut None);
+                        Some(remainder.after), Some(entry), &mut observe, &mut None);
                 }
 
                 let Some(entry) = flow.cleanup_entry(point.id(), None) else { return false; };
@@ -201,7 +205,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
                 if flow.outcome_mutation(order_failure).is_some() {
                     return self.execute_scope_cleanup(state, point, None,
-                        None, &|_| false, &mut observe, &mut None);
+                        None, None, &mut observe, &mut None);
                 }
 
                 self.replay_cleanup_orders(state, point, entry, &mut observe)
@@ -226,7 +230,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 };
 
                 self.execute_replacement_cleanup(
-                    state, remaining, &|place| entry.is_absent(place), &mut observe, point, after, entry.replacement(), &mut None,
+                    state, remaining, Some(entry), &mut observe, point, after, entry.replacement(), &mut None,
                 )
             }
             // These operations do not dispose storage. Their explicit invocation
@@ -254,7 +258,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             _ => return self.replay_distinct_cleanup_orders(state, point, entry, observe),
         };
 
-        self.execute_scope_cleanup(state, point, Some(order), None, &|place| entry.is_absent(place), observe, &mut None)
+        self.execute_scope_cleanup(state, point, Some(order), None, Some(entry), observe, &mut None)
     }
 
     fn replay_distinct_cleanup_orders(
@@ -265,9 +269,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         observe: &mut Option<&mut Observer<'_>>,
     ) -> bool {
         let required = entry.orders().iter().flat_map(|order| order.iter().copied()).collect::<std::collections::BTreeSet<_>>()
-            .into_iter().filter(|access| self.disposal.steps[access].iter().any(|step| {
+            .into_iter().filter(|access| self.disposal.steps[access].iter().enumerate().any(|(part, step)| {
                 step.phases().includes_lifecycle()
-                    && self.cleanup_part_condition(state, step.selection(), &|place| entry.is_absent(place), None)
+                    && self.cleanup_part_condition(state, step.selection(), |_| {
+                        entry.part_absent(*access, part, bray_bound_tree::AsyncCleanupPhases::Lifecycle)
+                    }, None)
                         .active
                         .prove_ordinary(&state.assumptions, Some(&state.proofs)) == Some(true)
             })).collect::<Vec<_>>();
@@ -277,7 +283,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let Some(first) = viable.next() else { return false; };
 
         if viable.peek().is_none() {
-            return self.execute_scope_cleanup(state, point, Some(first), None, &|place| entry.is_absent(place), observe, &mut None);
+            return self.execute_scope_cleanup(state, point, Some(first), None, Some(entry), observe, &mut None);
         }
 
         let mut completed = None;
@@ -285,7 +291,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         for order in std::iter::once(first).chain(viable) {
             let mut branch = state.clone();
 
-            if self.execute_scope_cleanup(&mut branch, point, Some(order), None, &|place| entry.is_absent(place), observe, &mut None) {
+            if self.execute_scope_cleanup(&mut branch, point, Some(order), None, Some(entry), observe, &mut None) {
                 super::super::flow::merge_execution(&mut completed, &Some(branch), super::super::flow::ExecutionJoin::Boundary);
             }
         }
@@ -370,17 +376,16 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         state: &mut ExecutionState,
         point: &AnalysisOperation,
         selected: &CleanupSelection,
-        absent: &impl Fn(&bray_bound_tree::StoragePath) -> bool,
         mut observe: Option<&mut Observer<'_>>,
         mutate: &mut Mutation<'_>,
     ) -> bool {
         let schedule = selected.accesses.as_deref();
 
         if matches!(point.kind(), AnalysisOperationKind::ScopeExit { .. }) {
-            self.execute_scope_cleanup(state, point, schedule, selected.after, absent, &mut observe, &mut Some(mutate))
+            self.execute_scope_cleanup(state, point, schedule, selected.after, None, &mut observe, &mut Some(mutate))
         } else {
             self.execute_replacement_cleanup(state, schedule.expect("replacement uses a checked cleanup order"),
-                absent, &mut observe, point, selected.after, selected.replacement.as_ref(), &mut Some(mutate))
+                None, &mut observe, point, selected.after, selected.replacement.as_ref(), &mut Some(mutate))
         }
     }
 
@@ -389,7 +394,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         &self,
         state: &mut ExecutionState,
         schedule: &[StorageAccessId],
-        absent: &impl Fn(&bray_bound_tree::StoragePath) -> bool,
+        entry: Option<&StorageCleanupEntry>,
         observe: &mut Option<&mut Observer<'_>>,
         point: &AnalysisOperation,
         mut after: Option<StorageCleanupAction>,
@@ -403,12 +408,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         if after.is_none() {
             for &access in schedule {
-                self.cancel_cleanup(state, access, absent, observe, point, path(access), mutate);
+                self.cancel_cleanup(state, access, entry, observe, point, path(access), mutate);
             }
         }
 
         for index in 0..schedule.len() {
-            if !self.dispose(state, &schedule[index..], absent, observe, point, after.take(), path(schedule[index]), mutate) {
+            if !self.dispose(state, &schedule[index..], entry, observe, point, after.take(), path(schedule[index]), mutate) {
                 return false;
             }
         }
@@ -422,7 +427,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         point: &AnalysisOperation,
         schedule: Option<&[StorageAccessId]>,
         mut after: Option<StorageCleanupAction>,
-        absent: &impl Fn(&bray_bound_tree::StoragePath) -> bool,
+        entry: Option<&StorageCleanupEntry>,
         observe: &mut Option<&mut Observer<'_>>,
         mutate: &mut Option<&mut Mutation<'_>>,
     ) -> bool {
@@ -449,10 +454,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
                     match phase {
                         AnalysisScopeExitPhase::TaskCancellationBroadcast => {
-                            self.cancel_cleanup(state, access, absent, observe, point, None, mutate);
+                            self.cancel_cleanup(state, access, entry, observe, point, None, mutate);
                         }
                         AnalysisScopeExitPhase::LifecycleResolution => {
-                            if !self.dispose(state, &accesses[index..], absent, observe, point, previous, None, mutate) {
+                            if !self.dispose(state, &accesses[index..], entry, observe, point, previous, None, mutate) {
                                 return false;
                             }
                         }
@@ -469,7 +474,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 };
 
                 if let Some(mutate) = mutate {
-                    assert!(mutate(state, CleanupTransition::Action(mutation, CleanupMutation::Recovery)),
+                    assert!(mutate(CleanupTransition::Action(state, mutation, CleanupMutation::Recovery)),
                         "a recovered order has no admitted action");
                 } else {
                     self.apply_published_cleanup(state, mutation);

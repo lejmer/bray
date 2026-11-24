@@ -78,11 +78,14 @@ evidence. Impossible internal states fail at the violated contract.
 - A profile of the first six bootstrap bodies attributed 39.8 s in the
   retirement lowering request to 179 result-dependency component
   evaluations and 4.9 s to imported semantic records.
-- Whole-part conditional cleanup with planned entry observations passed all
-  617 checker tests and seven focused compilation cases. A represented child
-  of an unused nullable formal uses the receiver address written by its
-  parent's finalizer. The earlier whole-part implementation passed the
-  1,709 fixed comparison cases. Repeat that inventory on this candidate.
+- `16752178e` passed all 617 checker tests, seven focused compilation
+  cases, and the 1,709 fixed comparison cases. A represented child of an
+  unused nullable formal uses the receiver address written by its finalizer.
+- The reached cleanup batch passed 618 checker tests, 139 bound-tree tests,
+  and nine focused compilation cases. Nested nullable cleanup accepted the
+  supported receiver guarantee and rejected the missing guarantee. The
+  dependency summary recorded destruction of the newly installed child and
+  skipped the child that stayed empty.
 - The optimized Windows x64 reference took 24.3 s to plan, 23.0 s to emit,
   and 53.0 s overall for the standard library. Native providers use Rust
   1.98.1 because the pinned LLVM cannot link Rust 1.99 provider bitcode.
@@ -103,14 +106,14 @@ accounted for most of the time. Preserve selected row contents through
 physical effects and private publication. Rows and cleanup cursors with
 different obligations require distinct state.
 
-Cleanup selection and exit publication use reached absence from two sources.
-The move ledger records absent paths. The physical binding records inactive
-payloads. Exact membership needs one lookup in each source. For a scope
-candidate or replacement, visit the corresponding root's paths. Keep the
-incoming move ledger and capture only the selected roots' inactive payloads
-before an earlier action can edit them. Keep parent absence, explicit
-inactive payloads, and unknown contents distinct. A historical binding
-cannot establish absence in the current allocation.
+Cleanup selection and exit publication read current absence from the move
+ledger and physical bindings. For each scheduled part, check its actual
+path after the preceding action's invalidation and committed writes. Replay
+reads the checked part decision for the operation and resumption cursor.
+Keep explicit absence distinct from unknown contents. Test a finalizer that
+installs a child in an initially empty slot and the control where the slot
+stays empty. The suffix must destroy only the installed child. The old
+operation-wide absence snapshot cannot describe both transitions.
 
 Conditional cleanup must carry the taken state through the finalizer's
 receiver write, destructor admission, and failure capture. Join the skipped
@@ -118,7 +121,28 @@ state only at the whole-part boundary. Compare the same finalizer and
 destructor with definite and conditional initialization. For represented
 children, check that an unused nullable formal supplies its entry
 discriminator and that the physical join retains the receiver write for
-the active payload. Test the child action with and without that discriminator.
+the active payload. For nested guards, each payload exists only under its
+enclosing discriminator prefix. The skipped state can prove a nested
+payload absent without proving either discriminator absent on its own.
+Keep initialization separate. A failed initialization check says nothing
+about an otherwise feasible payload. Verify nested receivers in logical
+proof, physical effects, and lowering alongside the unknown-initialization
+control. A reached finalizer's trusted postcondition must keep the actual
+receiver support used by the next part. The direct entry assumption serves
+a definite continuation. A conditional join needs the supported clause to
+retain it under the selected guard. Keep the authority's lifetime and raw
+address bounds distinct from the selector. Verify that an omitted guarantee
+or a write to its subject leaves the destructor requirement unsatisfied.
+The receiver's updated reference descriptor owns its witness entry. A
+conditional join reads that entry by its exact identity and verifies the
+clause against the selected predecessor.
+
+A lifecycle receiver may already be the storage reached through its
+implicit borrow. Effect binding starts there and follows the remaining
+checked route. A stored descriptor inside the receiver still needs its
+own read. Retain a nullable or union tag when both inputs identify the
+same tag snapshot through a payload write. An unresolved effect still
+invalidates every observation its footprint may reach.
 
 Nested dependency batches stalled the 43-body probe at the sixth body with
 all 25 threads waiting. Outgoing summary requests are sequential inside a

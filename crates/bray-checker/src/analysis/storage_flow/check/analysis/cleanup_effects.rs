@@ -77,13 +77,14 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let effects = self.input.buffer_cleanup_effects.get(&ty)?;
         let storage = &self.input.buffer_cleanup_storage[&ty];
 
-        Some(self.resolve_cleanup_effects(memory, Some(receiver), effects, storage))
+        Some(self.resolve_cleanup_effects(memory, Some(receiver), false, effects, storage))
     }
 
     fn resolve_cleanup_effects(
         &self,
         memory: &State,
         receiver: Option<&Target>,
+        receiver_borrow_reached: bool,
         effects: &[bray_symbols::DependencyStorageEffect],
         storage: &bray_bound_tree::BoundCallStorage,
     ) -> Vec<Effect> {
@@ -95,7 +96,11 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
             if path.is_none() && !subject.projections().is_empty() { return None; }
 
-            memory.reference_effect_targets(values, start, path, indirect)
+            let reached_receiver = receiver_borrow_reached
+                && subject.subject_root() == DependencySubjectRoot::Receiver
+                && subject.projections().is_empty();
+
+            memory.reference_effect_targets(values, start, path, indirect && !reached_receiver)
         }, |_, _, _, _| None)
     }
 
@@ -152,6 +157,11 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         call: &crate::analysis::guarantee::LifecycleInvocation<'_>,
     ) -> (EffectOutcomes, EffectRows) {
         let storage = &self.input.lifecycle_storage[&call.lifecycle.call.callable];
+
+        let receiver_borrow_reached = crate::representation::borrow_target_type(
+            self.request.semantic_values(), call.lifecycle.call.receiver,
+        ).is_some();
+
         let mut selection = SelectedEffectRows::new(!call.contract.captured_values().is_empty());
 
         selection.select_failures(call.contract.failure_outcomes(), |row| call.entry.admits_failure(row), |_| true);
@@ -161,7 +171,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         }
 
         selection.bind(call.contract.effect_outcomes(), |effect| {
-            self.resolve_cleanup_effects(memory, receiver, std::slice::from_ref(effect), storage)
+            self.resolve_cleanup_effects(memory, receiver, receiver_borrow_reached, std::slice::from_ref(effect), storage)
         })
     }
 
@@ -355,6 +365,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             bray_bound_tree::StorageCompletion::default()
         };
 
+        state.invalidate_observed_absence(&invalidation, &self.input.footprint.discriminants);
         domain.invalidate_observations(execution, identity, &invalidation);
         self.record_outcome_mutation(identity, Cow::Owned(invalidation));
         domain.refresh_storage_observations(execution, completion.references());
@@ -466,8 +477,16 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
             let value = self.execution.complete_captured_references(execution, mutation, value);
 
+            if let Some(path) = target.storage_path() {
+                state.initialize_path(path);
+            }
+
             self.record_current_write(state, target);
             self.publish_value_graph(state, target.clone(), value.clone(), super::references::ValuePublication::ReceiverWrite);
+
+            if let Some(path) = target.storage_path() {
+                self.observe_transferred_value(state, Some(&value), path, *ty);
+            }
 
             let snapshot = Arc::new(state.memory.capture_reached_value(target)
                 .with_observations(self.input.footprint.typed_observations(*ty)));

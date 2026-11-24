@@ -73,15 +73,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         let displaced = destination.as_ref().into_iter().flat_map(|owner| state.memory.value_loans(owner)).collect();
 
-        let reached = destination.as_ref().filter(|target| target.is_exact())
-            .and_then(Target::value_observation_path);
-
-        let roots = selected.accesses.iter().flat_map(|order| order.iter())
-            .filter_map(|&access| self.storage.root_identity(access))
-            .chain(reached.map(|path| path.root))
-            .collect();
-
-        let absent = state.cleanup_entry_absence(&roots);
         let mut trusted = std::mem::take(&mut self.trusted);
 
         let publish = self.publish;
@@ -91,7 +82,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         selected.replacement = destination;
 
         if publish {
-            self.exits.record_entry(point.id(), &selected, state);
+            self.exits.record_entry(point.id(), &selected);
         }
 
         let mut observe = |observation: CleanupObservation<'_>| {
@@ -103,8 +94,17 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let mut skipped = None;
 
         let mut mutate =
-            |execution: &mut ExecutionState, transition: CleanupTransition<'_>| {
-                let (identity, mutation) = match transition {
+            |transition: CleanupTransition<'_>| {
+                let (execution, identity, mutation) = match transition {
+                    CleanupTransition::PartAbsent { access, part, phase, owner } => {
+                        let absent = owner.is_some_and(|owner| state.is_path_absent(owner));
+
+                        if publish {
+                            self.exits.record_part_absence(point.id(), selected.after, (access, part, phase), absent);
+                        }
+
+                        return absent;
+                    }
                     CleanupTransition::BeginConditional(payloads) => {
                         let mut inactive = state.clone();
 
@@ -127,7 +127,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
                         return true;
                     }
-                    CleanupTransition::Action(identity, mutation) => (identity, mutation),
+                    CleanupTransition::Action(execution, identity, mutation) => (execution, identity, mutation),
                 };
 
                 if let CleanupMutation::Repeat(remaining) = mutation {
@@ -167,7 +167,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             execution,
             point,
             &selected,
-            &absent,
             publish.then_some(&mut observe as &mut crate::analysis::guarantee::Observer<'_>),
             &mut mutate,
         );

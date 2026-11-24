@@ -33,6 +33,15 @@ impl From<Option<AnalysisBlockId>> for ExecutionJoin<'_> {
 }
 
 impl<'result> ExecutionJoin<'result> {
+    pub(super) fn retained_selector(self) -> Option<&'result ExecutionCondition> {
+        match self {
+            Self::Selection(selector)
+                if !selector.contains_unknown() && !selector.contains_trusted()
+                    && !selector.observes_live(None) => Some(selector),
+            _ => None,
+        }
+    }
+
     pub(in crate::analysis) fn incoming_block(graph: &super::super::super::model::ControlFlowGraph, block: AnalysisBlockId) -> Self {
         if graph.is_loop_header(block) { Self::LoopHeader(block) } else { Self::Block(block) }
     }
@@ -218,7 +227,10 @@ fn join_observations<'a>(
     let mut left_identities = BTreeMap::new();
     let mut right_identities = BTreeMap::new();
     let mut joined_values = BTreeMap::new();
-    let mut joins = join.explicit_result().is_some();
+
+    let mut joins = join.explicit_result().is_some()
+        || matches!(join, ExecutionJoin::Selection(_)) && target.witnesses != incoming.witnesses;
+
     let mut results = Vec::new();
     let mut joined_facts = Vec::new();
     let mut needs_condition_proof = false;
@@ -566,6 +578,19 @@ fn join_current_value<'contents>(
         left.2.clone()
     } else if matches!(left.2, ValueAvailability::Unknown) || matches!(right.2, ValueAvailability::Unknown) {
         ValueAvailability::Unknown
+    } else if let Some(selector) = join.retained_selector()
+        && matches!((left.2, right.2),
+            (ValueAvailability::Present, ValueAvailability::Absent)
+            | (ValueAvailability::Absent, ValueAvailability::Present))
+    {
+        // The evaluated selection also describes which retained payload exists.
+        let guard = if *left.2 == ValueAvailability::Present {
+            selector.clone()
+        } else {
+            ExecutionCondition::operation(bray_bound_tree::BoundOperator::LogicalNot, vec![selector.clone()])
+        };
+
+        ValueAvailability::Guarded(guard)
     } else {
         ValueAvailability::Guarded(ExecutionCondition::new(crate::ExecutionConditionKind::InitializedSnapshot(
             place.clone(), std::sync::Arc::new(site.map_or_else(|| ExecutionCondition::boolean(true), |site| joined_observation(site, place))),

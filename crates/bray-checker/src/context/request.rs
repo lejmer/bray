@@ -153,6 +153,13 @@ pub trait CheckerRequestContext: Sync {
         ))
     }
 
+    /// Classifies the witness and address support in checked completion guarantees.
+    fn classify_trusted_completion(
+        &self,
+        contract: &mut crate::TrustedCallContract,
+        diagnostics: &mut bray_diagnostics::DiagnosticBag,
+    ) -> CheckerQueryResult<(), Self::UpstreamError>;
+
     /// Returns the inferred contract retained by one callable's returned value.
     fn callable_result_dependencies(
         &self,

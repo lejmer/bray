@@ -124,28 +124,13 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 continue;
             }
 
-            let carriers = self.input_witness_owners(
-                state, template, subject, &condition, arguments, &guarantees.addresses,
+            self.carry_input_witnesses(
+                state, (template, subject), (&guarantee, &condition),
+                (arguments, &guarantees.addresses), |_| self.input_guarantee_addresses(
+                    (invocation, references), &entry.arguments, template, owners,
+                    &guarantees.addresses, instantiate,
+                ),
             );
-
-            if carriers.is_empty() { continue; }
-
-            let addresses = self.input_guarantee_addresses(
-                (invocation, references),
-                &entry.arguments,
-                template,
-                owners,
-                &guarantees.addresses,
-                instantiate,
-            );
-
-            for carrier in carriers {
-                state
-                    .witnesses
-                    .entry(carrier.owner_identity().clone())
-                    .or_default()
-                    .carry(&guarantee, true, &addresses);
-            }
         }
 
         self.carry_input_access_guarantees(
@@ -178,6 +163,26 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         for condition in &guarantees.conditions {
             state.assume_contract_condition(instantiate(condition));
+        }
+    }
+
+    pub(super) fn carry_input_witnesses(
+        &self,
+        state: &mut ExecutionState,
+        (template, subject): (&ExecutionCondition, &ExecutionCondition),
+        (guarantee, condition): (&ExecutionCondition, &ExecutionCondition),
+        (arguments, address_subjects): (&BTreeMap<ExecutionPlace, ExecutionCondition>, &[(ExecutionCondition, ExecutionCondition, bool)]),
+        addresses: impl FnOnce(&ExecutionState) -> crate::execution_guarantees::AddressDependencies,
+    ) {
+        let carriers = self.input_witness_owners(state, template, subject, condition, arguments, address_subjects);
+
+        if carriers.is_empty() { return; }
+
+        let addresses = addresses(state);
+
+        for carrier in carriers {
+            state.witnesses.entry(carrier.owner_identity().clone()).or_default()
+                .carry(guarantee, true, &addresses);
         }
     }
 

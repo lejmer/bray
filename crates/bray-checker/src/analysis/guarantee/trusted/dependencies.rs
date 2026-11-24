@@ -388,17 +388,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 instantiate,
             );
 
-            let carrier = state
-                .witnesses
-                .entry(address.owner_identity().clone())
-                .or_default();
-
-            for clause in guarantee
-                .conjuncts()
-                .filter(|clause| clause.observes_trusted(&address))
-            {
-                carrier.carry(clause, false, &addresses);
-            }
+            carry_address_guarantee(state, &address, &guarantee, &addresses);
         }
     }
 
@@ -437,6 +427,19 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }
 
         (!origins.is_empty()).then_some(origins)
+    }
+}
+
+pub(super) fn carry_address_guarantee(
+    state: &mut super::super::state::ExecutionState,
+    address: &ExecutionCondition,
+    guarantee: &ExecutionCondition,
+    addresses: &crate::execution_guarantees::AddressDependencies,
+) {
+    let carrier = state.witnesses.entry(address.owner_identity().clone()).or_default();
+
+    for clause in guarantee.conjuncts().filter(|clause| clause.observes_trusted(address)) {
+        carrier.carry(clause, false, addresses);
     }
 }
 
@@ -481,6 +484,6 @@ fn entry_subject(
 
 /// Classified raw-address subjects can be reached through an input loan. The
 /// predicate observes the address stored there, independently of that loan.
-fn address_value(value: ExecutionCondition) -> ExecutionCondition {
+pub(super) fn address_value(value: ExecutionCondition) -> ExecutionCondition {
     value.into_referent().descriptor_identity().clone()
 }

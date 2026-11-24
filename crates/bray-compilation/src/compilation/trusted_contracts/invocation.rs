@@ -324,12 +324,25 @@ impl Compilation {
             behavior, completion, result.is_some(), |predicate| decode(predicate, diagnostics),
         )?;
 
-        let (witness_subjects, address_subjects) =
-            self.trusted_predicate_subjects(&contract.guarantees, cancellation, diagnostics)?;
-
-        contract.witness_subjects = witness_subjects;
-        contract.address_subjects = address_subjects;
+        self.classify_trusted_completion(&mut contract, cancellation, diagnostics)?;
 
         Ok(contract)
+    }
+
+    pub(in crate::compilation) fn classify_trusted_completion(
+        &self,
+        contract: &mut TrustedCallContract,
+        cancellation: &CancellationToken,
+        diagnostics: &mut DiagnosticBag,
+    ) -> Result<(), FactQueryError> {
+        if !contract.guarantees.is_empty() {
+            let (witness_subjects, address_subjects) =
+                self.trusted_predicate_subjects(&contract.guarantees, cancellation, diagnostics)?;
+
+            contract.witness_subjects = witness_subjects;
+            contract.address_subjects = address_subjects;
+        }
+
+        Ok(())
     }
 }

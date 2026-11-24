@@ -8,7 +8,13 @@ use std::borrow::Cow;
 
 pub(super) struct CleanupCondition {
     pub(super) active: ExecutionCondition,
-    payloads: Vec<(bray_bound_tree::StoragePath, ExecutionCondition)>,
+    payloads: Vec<GuardedPayload>,
+}
+
+struct GuardedPayload {
+    path: bray_bound_tree::StoragePath,
+    observation: Option<ExecutionPlace>,
+    present: ExecutionCondition,
 }
 
 impl From<ExecutionCondition> for CleanupCondition {
@@ -98,14 +104,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         &self,
         state: &ExecutionState,
         selection: &Selection,
-        definitely_absent: &impl Fn(&bray_bound_tree::StoragePath) -> bool,
+        definitely_absent: impl FnOnce(Option<&bray_bound_tree::StoragePath>) -> bool,
         replacement: Option<ReplacementPath<'_>>,
     ) -> CleanupCondition {
         use bray_bound_tree::BoundOperator;
 
         let owner = selection.owner.as_ref().and_then(|path| cleanup_path(path, replacement));
 
-        if owner.as_deref().is_some_and(definitely_absent) {
+        if definitely_absent(owner.as_deref()) {
             return ExecutionCondition::boolean(false).into();
         }
 
@@ -122,13 +128,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             _ => ExecutionCondition::unknown(),
         };
 
-        let mut active = if selection.route.is_some() {
+        let initialized = if selection.route.is_some() {
             initialized
         } else {
             ExecutionCondition::operation(BoundOperator::LogicalAnd, vec![initialized, ExecutionCondition::unknown()])
         };
 
         let mut payloads = Vec::new();
+        let mut present = ExecutionCondition::boolean(true);
 
         for selection in &selection.guards {
             let subject = cleanup_path(&selection.subject, replacement);
@@ -137,16 +144,23 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 ExecutionCondition::pattern(self.storage_path_value(state, path), selection.operator, selection.expected.clone())
             });
 
-            if !guard.is_unknown()
+            present = ExecutionCondition::operation(BoundOperator::LogicalAnd, vec![present, guard]);
+
+            // An inner payload cannot exist without each containing payload.
+            if !present.is_unknown()
                 && let Some(payload) = &selection.payload
                 && let Some(payload) = cleanup_path(payload, replacement)
-                && payload.projections.iter().all(|projection| projection.is_exact())
+                && payload.is_exact()
             {
-                payloads.push((payload.into_owned(), guard.clone()));
+                payloads.push(GuardedPayload {
+                    observation: ExecutionPlace::storage_path(self.storage, &payload),
+                    path: payload.into_owned(),
+                    present: present.clone(),
+                });
             }
-
-            active = ExecutionCondition::operation(BoundOperator::LogicalAnd, vec![active, guard]);
         }
+
+        let active = ExecutionCondition::operation(BoundOperator::LogicalAnd, vec![initialized, present]);
 
         CleanupCondition { active, payloads }
     }
@@ -173,18 +187,26 @@ pub(super) fn select_cleanup(
             skipped.refine_witnesses();
             state.refine_witnesses();
 
-            if let Some(mutate) = mutate {
-                let inactive = payloads.into_iter().filter_map(|(path, guard)| {
-                    (guard.prove_ordinary(&skipped.assumptions, Some(&skipped.proofs)) == Some(false)).then_some(path)
-                }).collect();
+            let mut inactive = Vec::new();
 
-                assert!(mutate(state, CleanupTransition::BeginConditional(inactive)));
+            for payload in payloads {
+                if payload.present.prove_ordinary(&skipped.assumptions, Some(&skipped.proofs)) == Some(false) {
+                    if let Some(place) = payload.observation {
+                        skipped.current.retire(&place);
+                    }
+
+                    inactive.push(payload.path);
+                }
+            }
+
+            if let Some(mutate) = mutate {
+                assert!(mutate(CleanupTransition::BeginConditional(inactive)));
             }
 
             let completes = action(state, mutate);
 
             if let Some(mutate) = mutate {
-                assert!(mutate(state, CleanupTransition::EndConditional { completes }));
+                assert!(mutate(CleanupTransition::EndConditional { completes }));
             }
 
             if completes {
@@ -192,6 +214,7 @@ pub(super) fn select_cleanup(
 
                 merge_execution(&mut joined, &Some(skipped), ExecutionJoin::Selection(&active));
                 *state = joined.expect("conditional cleanup retains its normal continuation");
+
             } else {
                 *state = skipped;
             }
@@ -205,7 +228,7 @@ pub(super) fn select_cleanup(
 mod tests {
     use std::sync::Arc;
 
-    use super::{CleanupCondition, CleanupTransition, ExecutionCondition, ExecutionPlace, ExecutionState, ValueAvailability, select_cleanup};
+    use super::{CleanupCondition, CleanupTransition, ExecutionCondition, ExecutionPlace, ExecutionState, GuardedPayload, ValueAvailability, select_cleanup};
 
     #[test]
     fn unknown_cleanup_cannot_publish_unconditional_completion_or_retirement() {
@@ -221,7 +244,7 @@ mod tests {
             let mut calls = 0;
             let moments = std::cell::RefCell::new(Vec::new());
 
-            let mut mutate = |_: &mut ExecutionState, transition: CleanupTransition<'_>| {
+            let mut mutate = |transition: CleanupTransition<'_>| {
                 let moment = match transition {
                     CleanupTransition::BeginConditional(payloads) if payloads.is_empty() => "begin",
                     CleanupTransition::EndConditional { completes: true } => "end",
@@ -272,7 +295,7 @@ mod tests {
             prior.clone().assume(active, &mut state.assumptions);
             ExecutionCondition::value_alias(prior.clone(), current.clone()).assume(true, &mut state.assumptions);
 
-            let mut mutate = |_: &mut ExecutionState, _: CleanupTransition<'_>| {
+            let mut mutate = |_: CleanupTransition<'_>| {
                 panic!("known copied guards must not create another control-flow choice");
             };
 
@@ -300,16 +323,25 @@ mod tests {
         let mut storage = StoragePlanBuilder::new(unit.unit(), unit.key().kind());
         let root = storage.push_identity(StorageIdentity::Temporary(expressions[0])).expect("stored nullable value");
         let payload = StoragePath { root, projections: [StorageProjection::NullableValue].into() };
+
+        let nested = StoragePath { root, projections: [
+            StorageProjection::NullableValue,
+            StorageProjection::TupleElement(bray_symbols::SymbolOrdinal::new(0)),
+            StorageProjection::NullableValue,
+        ].into() };
+
         let input = |index| ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(index))));
         let tag = input(0);
+        let both = ExecutionCondition::operation(BoundOperator::LogicalAnd, vec![tag.clone(), input(2)]);
 
-        for (active, known_absent) in [
-            (tag.clone(), true),
-            (ExecutionCondition::operation(BoundOperator::LogicalAnd, vec![input(1), tag.clone()]), false),
+        for (active, expected) in [
+            (tag.clone(), vec![payload.clone(), nested.clone()]),
+            (ExecutionCondition::operation(BoundOperator::LogicalAnd, vec![input(1), tag.clone()]), vec![]),
+            (both.clone(), vec![nested.clone()]),
         ] {
             let mut recorded = None;
 
-            let mut mutate = |_: &mut ExecutionState, transition: CleanupTransition<'_>| {
+            let mut mutate = |transition: CleanupTransition<'_>| {
                 if let CleanupTransition::BeginConditional(paths) = transition {
                     recorded = Some(paths);
                 }
@@ -317,11 +349,12 @@ mod tests {
                 true
             };
 
-            let condition = CleanupCondition { active, payloads: vec![(payload.clone(), tag.clone())] };
+            let condition = CleanupCondition { active, payloads: vec![
+                GuardedPayload { path: payload.clone(), observation: None, present: tag.clone() },
+                GuardedPayload { path: nested.clone(), observation: None, present: both.clone() },
+            ] };
 
             assert!(select_cleanup(&mut ExecutionState::default(), condition, &mut Some(&mut mutate), |_, _| true));
-
-            let expected = known_absent.then(|| payload.clone()).into_iter().collect::<Vec<_>>();
 
             assert_eq!(recorded, Some(expected));
         }

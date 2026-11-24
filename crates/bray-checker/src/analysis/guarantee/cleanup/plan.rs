@@ -539,13 +539,15 @@ impl Plan {
                     continue;
                 };
 
-                let lifecycle = lifecycle(
+                let mut lifecycle = lifecycle(
                     request.semantic_values(),
                     request.available_compiler_known_symbols(),
                     *callable,
                     signature,
                 )
                 .expect("selected lifecycle contract uses checked semantic terms");
+
+                request.context().classify_trusted_completion(&mut lifecycle.contract, diagnostics)?;
 
                 self.lifecycles.insert((ty, slot), lifecycle);
             }
@@ -708,9 +710,7 @@ fn cleanup_selection(
                 subject: path.clone(),
                 operator,
                 expected,
-                payload: payload.as_ref()
-                    .filter(|payload| payload.projections.iter().all(|projection| projection.is_exact()))
-                    .cloned(),
+                payload: payload.as_ref().filter(|payload| payload.is_exact()).cloned(),
             });
         }
 

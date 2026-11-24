@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use super::super::flow::ExecutionFlowDomain;
 use super::super::state::ExecutionState;
+use super::dependencies::{address_value, carry_address_guarantee};
 use super::guarantees::CompletionGuarantees;
 use crate::execution_guarantees::ExecutionOutput;
 use crate::{CheckerRequestContext, ExecutionCondition};
@@ -21,36 +22,86 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let contract = &lifecycle.contract;
 
+        if contract.guarantees.is_empty() && contract.postconditions.is_empty() {
+            return;
+        }
+
         let root = place
             .value_in(&state.current)
             .unwrap_or_else(ExecutionCondition::unknown);
 
-        let arguments = BTreeMap::from([(lifecycle.receiver.into(), root)]);
+        let receiver = crate::ExecutionPlace::from(lifecycle.receiver);
+        let arguments = BTreeMap::from([(receiver.clone(), root.clone())]);
 
-        for (conditions, trusted) in [
-            (&contract.guarantees, true),
-            (&contract.postconditions, false),
-        ] {
-            for condition in conditions {
-                let condition = entry.capture_condition(condition);
+        let instantiate = |condition: &ExecutionCondition| condition.substitute(
+            &|input| input.value_in(&arguments).unwrap_or_else(ExecutionCondition::unknown),
+            &ExecutionCondition::unknown(),
+            &mut { ExecutionCondition::WORK_LIMIT },
+        ).pointer_observations(&self.pointer_predicates);
 
-                let condition = condition.substitute(
-                    &|input| {
-                        input
-                            .value_in(&arguments)
-                            .unwrap_or_else(ExecutionCondition::unknown)
-                    },
-                    &ExecutionCondition::unknown(),
-                    &mut { ExecutionCondition::WORK_LIMIT },
-                ).pointer_observations(&self.pointer_predicates);
+        let context = if crate::representation::borrow_target_type(self.request.semantic_values(), lifecycle.call.receiver).is_some() {
+            std::borrow::Cow::Owned(BTreeMap::from([(receiver, root.borrowed())]))
+        } else {
+            std::borrow::Cow::Borrowed(&arguments)
+        };
 
-                if trusted {
-                    condition.assume(true, &mut state.trusted_assumptions);
-                } else {
-                    condition.assume(true, &mut state.assumptions);
+        let support = |state: &ExecutionState, value: &ExecutionCondition, claim: &ExecutionCondition| {
+            if contract.address_subjects.is_empty() {
+                return crate::execution_guarantees::AddressDependencies::new();
+            }
+
+            let mut addresses = state.address_dependencies(value);
+
+            for (address, owners) in entry.addresses.values().flatten() {
+                if claim.observes_trusted(address) && owners.iter().all(|owner| state.current.live_value(owner).is_some()) {
+                    addresses.entry(address.clone()).or_default().extend(owners.iter().cloned());
                 }
             }
+
+            addresses
+        };
+
+        for (template, subject) in &contract.witness_subjects {
+            let guarantee = instantiate(&entry.capture_condition(template));
+            let subject_value = instantiate(subject);
+
+            if guarantee.prove_ordinary(&state.assumptions, Some(&state.proofs)) == Some(true) {
+                continue;
+            }
+
+            self.carry_input_witnesses(
+                state, (template, subject), (&guarantee, &subject_value),
+                (&context, &contract.address_subjects), |state| support(state, &subject_value, &guarantee),
+            );
         }
+
+        for (template, subject, owning) in &contract.address_subjects {
+            if *owning || subject.observes_completion_result() {
+                continue;
+            }
+
+            let address = address_value(instantiate(subject));
+
+            if address.is_unknown() {
+                continue;
+            }
+
+            let guarantee = instantiate(&entry.capture_condition(template));
+            let addresses = support(state, &address, &guarantee);
+
+            if !addresses.is_empty() {
+                carry_address_guarantee(state, &address, &guarantee, &addresses);
+            }
+        }
+
+        for condition in &contract.guarantees {
+            state.assume_contract_condition(instantiate(&entry.capture_condition(condition)));
+        }
+
+        for condition in &contract.postconditions {
+            instantiate(&entry.capture_condition(condition)).assume(true, &mut state.assumptions);
+        }
+
     }
 
     pub(in crate::analysis::guarantee) fn expire_trusted_scope(
