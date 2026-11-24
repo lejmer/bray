@@ -268,6 +268,18 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             }
         }
 
+        for (path, kind) in &self.input.opaque_values {
+            if *kind == StorageObservationKind::Discriminant
+                && memory.retains_discriminant(path, &reached, inline_writes)
+            {
+                kind.record_preservation(
+                    path.clone(),
+                    &mut stable_descriptors,
+                    &mut stable_values,
+                );
+            }
+        }
+
         // Ordinary statics cannot be replaced while their product or exact-thread
         // owner is retained. Interior mutation cannot reach their empty markers.
         let protected = |target: &Target| {

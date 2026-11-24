@@ -70,9 +70,9 @@ evidence. Impossible internal states fail at the violated contract.
 - The current Windows x64 standard library builds in 49 seconds, with planning
   in 21 seconds. Its interface decodes completely after normal and failure
   stored-value rows normalize against their portable destinations.
-- The current packaged bootstrap check reached and lowered all 43 selected
-  bodies. It reports two cleanup proof diagnostics at the `start_frame` scope.
-  The remaining targets and native archive still need verification.
+- The current packaged Windows x64 bootstrap check reached and lowered all 43
+  selected bodies with zero diagnostics. The remaining targets and native
+  archive still need verification.
 - Normal calls and lifecycle cleanup publish exact reference targets in
   `StorageCompletion`. Trusted completion maps the reached actual input path to
   its formal `StoragePlan` path and reads the target's current value directly.
@@ -131,8 +131,9 @@ A lifecycle receiver may already be the storage reached through its
 implicit borrow. Effect binding starts there and follows the remaining
 checked route. A stored descriptor inside the receiver still needs its
 own read. Retain a nullable or union tag when both inputs identify the
-same tag snapshot through a payload write. An unresolved effect still
-invalidates every observation its footprint may reach.
+same tag snapshot through a payload write. An opaque effect retains a tag
+when its overlapping reachable writes all select only the payload. An
+unresolved alias that may reach the whole slot invalidates the tag.
 
 Nested dependency batches stalled the 43-body probe at the sixth body with
 all 25 threads waiting. Outgoing summary requests are sequential inside a

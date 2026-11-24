@@ -1975,6 +1975,37 @@ fn opaque_frame_preserves_inactive_payload_only_while_its_tag_survives() {
 }
 
 #[test]
+fn opaque_payload_mutation_preserves_its_tag_but_replacement_does_not() {
+    let ([tag, ..], _) = places();
+
+    let payload = Place {
+        root: tag.root,
+        projections: [StorageProjection::NullableValue].into(),
+    };
+
+    let tag_target = Target::storage(tag.clone());
+    let payload_target = Target::storage(payload);
+    let state = State::default();
+
+    assert!(state.retains_discriminant(
+        &tag,
+        &(BTreeSet::from([payload_target.clone()]), false),
+        &[],
+    ));
+
+    assert!(state.retains_discriminant(&tag, &(BTreeSet::new(), false), &[&payload_target]));
+
+    assert!(!state.retains_discriminant(
+        &tag,
+        &(BTreeSet::from([tag_target.clone()]), false),
+        &[],
+    ));
+
+    assert!(!state.retains_discriminant(&tag, &(BTreeSet::new(), false), &[&tag_target]));
+    assert!(!state.retains_discriminant(&tag, &(BTreeSet::new(), true), &[]));
+}
+
+#[test]
 fn unresolved_nested_pointer_does_not_reuse_the_outer_pointer_region() {
     let ([owner, borrowed, external, local], _) = places();
 

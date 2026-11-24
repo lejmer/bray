@@ -256,6 +256,37 @@ impl State {
             .collect()
     }
 
+    /// A write below a nullable or union payload cannot change its enclosing tag.
+    pub(in crate::analysis::storage_flow) fn retains_discriminant(
+        &self,
+        path: &Place,
+        (reached, unknown): &(BTreeSet<Target>, bool),
+        inline_writes: &[&Target],
+    ) -> bool {
+        let candidate = Target::storage(path.clone());
+
+        if *unknown && self.unknown_reference_may_reach(&candidate) {
+            return false;
+        }
+
+        reached.iter().chain(inline_writes.iter().copied()).all(|target| {
+            if self.target_relationship(target, &candidate)
+                == bray_bound_tree::StorageRelationship::Disjoint
+            {
+                return true;
+            }
+
+            target.storage_path().is_some_and(|written| {
+                path.contains(written)
+                    && matches!(
+                        written.projections.get(path.projections.len()),
+                        Some(StorageProjection::NullableValue
+                            | StorageProjection::ActiveUnionPayloadField { .. })
+                    )
+            })
+        })
+    }
+
     /// Whether the unchanged descriptor names only live allocations outside this effect.
     pub(in crate::analysis::storage_flow) fn retains_allocation_address(
         &self,

@@ -895,7 +895,11 @@ The physical cleanup receiver begins at the already reached storage. An
 effect through its formal borrow follows the remaining typed route from
 that slot. Effects through descriptors stored in the receiver still read
 those descriptors. A payload write retains the enclosing discriminant
-when the reaching snapshots identify the same tag.
+when the reaching snapshots identify the same tag. Opaque call effects
+preserve an inline discriminant when every reached or explicit write
+overlapping it selects only its nullable or union payload. A write to the
+whole optional or union, or an unknown reference that can reach it, invalidates
+the tag independently of payload observations.
 
 Definite input writes retain the portable subject together with the exact
 typed target that received the write. Assignment publishes the value at that
