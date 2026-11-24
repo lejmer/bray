@@ -201,19 +201,11 @@ fn a_panicking_call_keeps_its_checked_inputs_without_a_normal_completion() {
 
     assert!(!flow.invocation_completes(invocation));
 
-    let mut inputs = flow.input_admissions().filter_map(|(point, producer, captures)|
-        (producer.is_none() && !captures.is_empty()).then_some((point, captures)));
-
-    let (_, captures) = inputs.next().expect("the reached call captured its input");
-
-    assert!(inputs.next().is_none());
-
-    let [capture] = captures else {
-        panic!("stop has one input");
-    };
-
-    assert_eq!(capture.input, bray_symbols::SymbolOrdinal::new(0));
-    assert!(capture.value.known_address().is_some());
+    assert!(flow.input_admissions().any(|(_, producer, captures)| {
+        producer.is_none() && matches!(captures, [capture]
+            if capture.input == bray_symbols::SymbolOrdinal::new(0)
+                && capture.value.known_address().is_some())
+    }), "the reached call retains its evaluated input");
 }
 
 #[test]

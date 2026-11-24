@@ -740,7 +740,7 @@ mod tests {
     }
 
     #[test]
-    fn construction_admission_uses_local_total_actions() {
+    fn construction_admission_uses_local_pure_total_actions() {
         for action in ["finalize", "destruct"] {
             let source = r#"
                 module app;
@@ -748,7 +748,7 @@ mod tests {
                 struct Value
                 {
                     ACTION()
-                        executes(total) {}
+                        executes(pure, total) {}
                 }
 
                 func make() -> Value
@@ -1564,7 +1564,7 @@ mod tests {
     #[test]
     fn guarded_union_carriers_move_with_their_complete_payloads() {
         for asynchronous in [false, true] {
-            let mut source = include_str!("fixtures/guarded-union-carrier.bray").to_owned();
+            let mut source = include_str!("fixtures/guarded-union-carrier.bray").replace("\r\n", "\n");
 
             if asynchronous {
                 source = source.replace("callable Close = trusted func", "callable Close = trusted async func")
@@ -1640,8 +1640,8 @@ mod tests {
 
             if asynchronous {
                 source = source.replace("trusted func", "trusted async func")
-                    .replace("return trusted fresh();", "return await trusted fresh();")
-                    .replace("let pointer = trusted forward();", "let pointer = await trusted forward();");
+                    .replace("return fresh();", "return await fresh();")
+                    .replace("let pointer = forward();", "let pointer = await forward();");
             }
 
             let application = compilation(&source);
@@ -1656,7 +1656,7 @@ mod tests {
         }
 
         let independent = include_str!("fixtures/fresh-allocation-returns.bray")
-            .replace("return trusted core.memory.allocate(bytes = 8, align = 8);", "let temporary = trusted core.memory.allocate(bytes = 8, align = 8);\n    trusted core.memory.deallocate(temporary, bytes = 8, align = 8);\n    return trusted existing();")
+            .replace("return core.memory.allocate(bytes = 8, align = 8);", "let temporary = core.memory.allocate(bytes = 8, align = 8);\n    trusted core.memory.deallocate(temporary, bytes = 8, align = 8);\n    return trusted existing();")
             + "\nextern trusted func existing() -> DataPointer<u8>\n    ensures(trusted core.memory.owned_allocation(pointer = result, bytes = 8, align = 8));\n";
 
         let application = compilation(&independent);

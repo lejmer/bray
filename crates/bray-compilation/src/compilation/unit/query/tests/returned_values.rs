@@ -1496,21 +1496,21 @@ fn returned_borrow_storage_uses_exact_relations_instead_of_lifetime_anchors() {
                     return None;
                 };
 
-                accesses.values().flatten().find(|path| {
+                Some(accesses.values().flatten().filter(|path| {
                     matches!(
                         storage.identity(path.root),
                         Some(bray_bound_tree::StorageIdentity::Parameter(_))
                     ) && path.projections.len() == 2
-                })
+                }))
             })
+            .flatten()
             .collect::<Vec<_>>();
 
-        assert_eq!(
-            !observed.is_empty(),
-            exact,
-            "{source}\n{:?}",
-            flow.value().operation_invalidations().collect::<Vec<_>>()
-        );
+        let observed_fields = observed.iter().map(|path| path.projections[0].clone())
+            .collect::<std::collections::BTreeSet<_>>();
+
+        assert_eq!(observed_fields.len(), if exact { 1 } else { 2 },
+            "{source}\n{:?}", flow.value().operation_invalidations().collect::<Vec<_>>());
 
         if exact {
             let bray_symbols::DependencyProjection::ProductField(expected) =

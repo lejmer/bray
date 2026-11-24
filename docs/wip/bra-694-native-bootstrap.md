@@ -79,8 +79,13 @@ evidence. Impossible internal states fail at the violated contract.
   passing target tests. The complete Windows x64 runtime archive builds,
   validates its exports and native indexes, and links a smoke executable. Its
   first execution shutdown crashes through a null optional callback. Execution
-  and shutdown belong to BRA-695 and BRA-696. The fixed comparison and final
-  archive run still need verification against the current candidate.
+  and shutdown belong to BRA-695 and BRA-696. The final Windows x64 archive
+  built, validated exports, and published native indexes. Its smoke probe
+  linked both executables and passed allocation checks before the same async
+  execution crash. The release compiler suite passed 2,978 active tests and
+  exposed 33 failures. The old fixed comparison inventory is unavailable, so
+  the full active suite is the current broader comparison. The test and
+  compiler repair batch is in progress.
 - Normal calls and lifecycle cleanup publish exact reference targets in
   `StorageCompletion`. Trusted completion maps the reached actual input path to
   its formal `StoragePlan` path and reads the target's current value directly.

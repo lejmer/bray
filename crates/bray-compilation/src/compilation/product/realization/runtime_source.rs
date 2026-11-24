@@ -745,6 +745,12 @@ mod tests {
                     false,
                 );
 
+                let signature = if bray_runtime_interface::NativeEntryKind::for_runtime_role(role).is_some() {
+                    signature.with_panic_report_context()
+                } else {
+                    signature
+                };
+
                 assert_eq!(
                     runtime_source_signature_matches(
                         &compilation,

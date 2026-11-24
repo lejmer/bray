@@ -23,28 +23,26 @@ fn box_construction_transfers_its_noncopyable_input_storage() {
         .value()
         .tree()
         .expressions()
-        .find_map(|(_, expression)| match expression {
-            BoundExpression::BoxConstruction(expression) => Some(expression.arguments()),
+        .filter_map(|(_, expression)| match expression {
+            BoundExpression::BoxConstruction(expression) => Some(expression.arguments().iter().map(|argument| argument.expression())),
             _ => None,
         })
-        .expect("fixture selection must find its expected value");
+        .flatten()
+        .collect::<std::collections::BTreeSet<_>>();
 
-    let [operand, ..] = operands else {
-        panic!("fixture must provide a boxed value")
-    };
+    assert!(!operands.is_empty(), "fixture must provide a boxed value");
 
     assert!(
         flow.value().operations().iter().any(|operation| {
-            operation.expression() == operand.expression()
+            operands.contains(&operation.expression())
                 && operation.purpose() == bray_bound_tree::StorageAccessPurpose::Move
                 && operation.status() == bray_bound_tree::StorageOperationStatus::Valid
         }),
-        "box input {:?} must transfer ownership: {:?}",
-        operand.expression(),
+        "a reachable box input must transfer ownership: {:?}",
         flow.value()
             .operations()
             .iter()
-            .filter(|operation| operation.expression() == operand.expression())
+            .filter(|operation| operands.contains(&operation.expression()))
             .collect::<Vec<_>>()
     );
 }

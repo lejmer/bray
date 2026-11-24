@@ -125,18 +125,24 @@ fn returned_slice_receiver_uses_the_call_result_representation() {
         })
         .expect("slice length operation must exist");
 
-    let [bray_ir::MirOperand::Value(receiver)] = length.operands() else {
-        panic!("slice receiver must be evaluated");
+    let [receiver] = length.operands() else {
+        panic!("slice length must have one receiver");
     };
 
-    let borrow = mir
-        .operations()
-        .iter()
-        .find(|operation| operation.result() == Some(*receiver))
-        .expect("fixture lookup must find its expected value");
+    let place = match receiver {
+        bray_ir::MirOperand::Copy(place) | bray_ir::MirOperand::Move(place) => place,
+        bray_ir::MirOperand::Value(receiver) => {
+            let borrow = mir.operations().iter()
+                .find(|operation| operation.result() == Some(*receiver))
+                .expect("fixture lookup must find its expected value");
 
-    let bray_ir::MirOperationKind::Borrow { place, .. } = borrow.kind() else {
-        panic!("slice receiver must be reborrowed");
+            let bray_ir::MirOperationKind::Borrow { place, .. } = borrow.kind() else {
+                panic!("evaluated slice receiver must be a borrow");
+            };
+
+            place
+        }
+        _ => panic!("slice receiver must read the result storage: {receiver:?}"),
     };
 
     assert!(

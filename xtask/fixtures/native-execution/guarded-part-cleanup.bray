@@ -726,7 +726,7 @@ func main() -> i32
         false
     );
 
-    let guarded = guarded_alternative(
+    let guarded_value = guarded_alternative(
         GuardChoice.Second(
             Guard
             {
@@ -736,7 +736,7 @@ func main() -> i32
         true
     );
 
-    if first.value != 14 || second.value != 14 || fallback != 27 || guarded != 19
+    if first.value != 14 || second.value != 14 || fallback != 27 || guarded_value != 19
     {
         return 14;
     }

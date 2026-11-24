@@ -299,7 +299,7 @@ impl<Guard, Report, Effect, Write, Subject, Projection>
         Subject: Clone + Ord,
         Projection: Ord,
     {
-        self.references = bray_base::sorted_unique_shared_slice(references);
+        self.references = normalize_references(references);
         self.stored_values = super::DependencyStoredValue::normalize(stored_values);
 
         self
@@ -519,7 +519,7 @@ where Subject: Ord, Input: Eq, Projection: Eq, Static: Eq {
         Subject: Clone,
         Projection: Ord,
     {
-        self.references = bray_base::sorted_unique_shared_slice(references);
+        self.references = normalize_references(references);
         self.stored_values = super::DependencyStoredValue::normalize(stored_values);
 
         self
@@ -728,6 +728,24 @@ impl<Guard, Report, Effect, Write, Subject, Projection> CapturedStorageRow<Subje
     }
 }
 
+fn normalize_references<Subject: Ord, Projection: Ord>(
+    references: impl IntoIterator<Item = super::DependencyBorrowRelation<Subject, Projection>>,
+) -> Arc<[super::DependencyBorrowRelation<Subject, Projection>]> {
+    let mut strongest = std::collections::BTreeMap::new();
+
+    for relation in references {
+        let provenance = relation.provenance();
+        let key = relation.with_provenance(super::DependencyReferenceProvenance::Alternatives);
+
+        strongest.entry(key).and_modify(|current: &mut super::DependencyReferenceProvenance| {
+            *current = (*current).min(provenance);
+        }).or_insert(provenance);
+    }
+
+    bray_base::sorted_unique_shared_slice(strongest.into_iter().map(|(relation, provenance)|
+        relation.with_provenance(provenance)))
+}
+
 fn reference_origins<'a, Row, Subject, Projection>(
     rows: impl IntoIterator<Item = &'a Row>,
     contains: impl Fn(&Subject, &Subject) -> bool,
@@ -917,6 +935,22 @@ mod tests {
 
         assert!(Row::reference_origins(&feasible, PartialEq::eq).is_empty());
         assert_eq!(Row::stored_dependencies(&feasible, PartialEq::eq).as_ref(), [dependencies.incomplete()]);
+    }
+
+    #[test]
+    fn exact_reference_dominates_its_own_bound_but_not_another_exit() {
+        use super::super::{DependencyBorrowRelation, DependencyReferenceKind, DependencyReferenceProvenance};
+
+        let exact = DependencyBorrowRelation::new(Some(1), 2, DependencyReferenceKind::Borrow);
+        let bound = exact.clone().with_provenance(DependencyReferenceProvenance::InputRegions);
+        let one_exit = Row::new(None, []).with_storage([bound.clone(), exact.clone()], []);
+
+        assert_eq!(one_exit.references.as_ref(), std::slice::from_ref(&exact));
+        assert_eq!(Row::reference_origins([&one_exit], PartialEq::eq).as_ref(), std::slice::from_ref(&exact));
+
+        let other_exit = Row::new(None, []).with_storage([bound.clone()], []);
+
+        assert_eq!(Row::reference_origins([&one_exit, &other_exit], PartialEq::eq).as_ref(), std::slice::from_ref(&bound));
     }
 
     #[test]

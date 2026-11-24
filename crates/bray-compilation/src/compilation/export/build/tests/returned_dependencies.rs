@@ -4307,7 +4307,7 @@ fn rejected_invocation_has_no_callee_effects_or_completion() {
     let api = r#"
         module api;
 
-        struct Cell { value: bool; }
+        struct Cell { mut value: bool; }
 
         func write(pos allowed: bool, pos cell: &mut Cell)
             requires(allowed)

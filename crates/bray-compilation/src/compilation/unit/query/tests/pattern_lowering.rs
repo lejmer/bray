@@ -25,7 +25,7 @@ fn observed_call_result_patterns_evaluate_their_subject_once() {
             };
 
             let source = format!(
-                "{module} internal func make() -> (i32, bool)? {requirement} {{ return (7, true); }} func main() -> i32 {{ {body} }}"
+                "{module} internal func make() -> (i32, bool)? {requirement} {{ return (7, true); }} func main() -> i32 {requirement} {{ {body} }}"
             );
 
             let compilation = compilation(&source);

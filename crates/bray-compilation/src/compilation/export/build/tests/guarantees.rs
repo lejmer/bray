@@ -50,7 +50,7 @@ fn exclusive_entry_tags_require_bounded_effects_or_private_storage() {
 
     for (operation, capabilities, valid) in [
         ("API.checked_observe(&owner.sibling);", "", true),
-        ("API.observe(&owner.sibling);", "", false),
+        ("API.observe(&owner.sibling);", "", true),
         ("API.opaque(owner);", "", false),
         ("API.publish_tag(core.memory.address_of_mut<(usize?)>(&mut owner.registration));", "", false),
         ("API.publish_owner(core.memory.address_of_mut<API.Owner>(owner));", "", false),

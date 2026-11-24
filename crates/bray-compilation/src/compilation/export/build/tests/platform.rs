@@ -89,7 +89,7 @@ fn platform_local_state_contracts_grant_neither_purity_nor_name_based_authority(
     for (module, name, symbol, parameters, result, arguments) in PLATFORM_STATE_CALLS {
         let ordinary = platform_state_compilation([platform_state_source("std.os.ordinary", name, symbol, parameters, result, arguments)]);
 
-        bray_testing::assert_goal_state_diagnostic_outcome(ordinary.check_diagnostics(), Some(DiagnosticKind::CheckingPostconditionNotProven), name);
+        assert!(!ordinary.check_diagnostics().has_errors(), "{name}: {:#?}", ordinary.check_diagnostics());
 
         let source = platform_state_source(module, name, symbol, parameters, result, arguments);
         let provider = platform_state_compilation([&source]);

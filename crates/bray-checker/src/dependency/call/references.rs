@@ -40,8 +40,6 @@ pub(super) fn with_references<C: CheckerRequestContext + ?Sized>(
             })
         }).transpose()?;
 
-        assert!(call.receiver().is_none() || callee.is_some(), "a deferred method records its selected receiver convention");
-
         contracts.with_deferred_cleanup(captures, result)
             .with_deferred_execution(
                 template.effect_outcomes().clone(),

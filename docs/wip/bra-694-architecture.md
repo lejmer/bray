@@ -119,6 +119,10 @@ own reached observation. A cleanup action's effects, report and completion
 belong to its actual receiver and the operation that reached it. A lexical
 exit names the source boundary for lowering. Several graph operations can run
 cleanup at that boundary, including a continuation after a failure.
+Deferred formation captures the selected receiver type and value with the
+ordinary inputs. A dynamic trait-view call has no concrete declaration to
+record as its callee; its receiver capture and deferred effect contract remain
+available without inventing one.
 When lexical cleanup finishes, whole expired private roots leave the proof
 state. Prepared analysis shares the plan's initially absent root identities
 with both storage solving and proof replay. An expired or skipped private
@@ -140,6 +144,9 @@ and abnormal rows carry the reference relations and stored-value dependencies
 established by their own writes. Call, deferred-frame, and lifecycle replay
 select one set of rows and apply its logical and physical writes as one
 transition. Effects still frame the full area the call may change.
+Within one row, an exact reached reference subsumes a carried region relation
+with the same source and destination. Relations from different exit rows retain
+their separate precision until those rows join.
 Lifecycle completion resolves returned reference origins from the current
 physical flow state and returns the reached receiver, selected write
 destinations, and actual post-cleanup referents to the paired proof transition.

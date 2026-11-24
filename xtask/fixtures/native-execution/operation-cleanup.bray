@@ -381,7 +381,7 @@ trusted func main() -> i32
 
             match variant
             {
-                case Value(value) { assert(value == 619); }
+                case Value(value = value) { assert(value == 619); }
             }
 
             checked = true;

@@ -293,7 +293,7 @@ fn platform_allocation_origins_survive_nullable_forwarding_without_access_author
             "origin separation grants no trusted access authority: {summary:#?}");
 
         let invalid = caller.replace("-> DataPointer<u8>", "-> u8\n            uses(raw_memory)").replace(
-            "return trusted std.allocation_fixture.forward(overflow);",
+            "return std.allocation_fixture.forward(overflow);",
             "let pointer = std.allocation_fixture.forward(overflow);\n            return trusted core.memory.read<u8>(pointer);",
         );
 

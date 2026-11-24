@@ -289,7 +289,7 @@ using core.atomic;
             {
                 let pointer: FunctionPointer<Callback> = core.memory.function_address<Callback>(entry);
 
-                return core.memory.function.to_data<Callback>(pointer);
+                return trusted core.memory.function.to_data<Callback>(pointer);
             }
             "#,
         );
