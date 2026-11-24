@@ -278,12 +278,16 @@ trusted internal func clear_destination(pos owner: &Transfer)
     );
 }
 
-trusted internal func take_report(pos mut owner: Transfer) -> bray.runtime.bootstrap.PanicReportData
+trusted internal func take_report(pos owner: &mut Transfer) -> bray.runtime.bootstrap.PanicReportData
     requires(
         trusted transferred(owner = &owner),
         trusted bray.runtime.bootstrap.native_report_callbacks(report = &owner.outcome.report)
     )
-    ensures(trusted bray.runtime.bootstrap.native_report_callbacks(report = &result))
+    ensures(
+        trusted transferred(owner = &owner),
+        trusted bray.runtime.bootstrap.native_report_callbacks(report = &owner.outcome.report),
+        trusted bray.runtime.bootstrap.native_report_callbacks(report = &result)
+    )
 {
     return trusted std.memory.replace_value<bray.runtime.bootstrap.PanicReportData>(
         &mut owner.outcome.report,
@@ -291,7 +295,7 @@ trusted internal func take_report(pos mut owner: Transfer) -> bray.runtime.boots
     );
 }
 
-trusted internal func write_result(pos owner: Transfer)
+trusted internal func write_result(pos mut owner: Transfer)
     requires(
         trusted transferred(owner = &owner),
         trusted bray.runtime.bootstrap.native_report_callbacks(report = &owner.outcome.report)
@@ -320,7 +324,7 @@ trusted internal func write_result(pos owner: Transfer)
     else if !staged && owner.outcome.state == 2
     {
         let byte_destination = trusted panic_destination(&owner);
-        let report = trusted take_report(owner);
+        let report = trusted take_report(&mut owner);
 
         trusted std.memory.write<bray.runtime.bootstrap.PanicReportData>(byte_destination, report);
     }
