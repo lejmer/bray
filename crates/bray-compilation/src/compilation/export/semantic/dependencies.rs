@@ -63,6 +63,8 @@ impl<'a> SemanticExporter<'a> {
                 effects: row.effects.as_deref().map(|effects| self.dependency_effects(effects).map(bray_base::sorted_unique_shared_slice)).transpose()?,
                 cell_changes: row.cell_changes.as_deref().map(|cells| self.dependency_effects(cells).map(bray_base::sorted_unique_shared_slice)).transpose()?,
                 writes: bray_base::sorted_unique_shared_slice(self.dependency_bindings(&row.writes)?),
+                references: self.dependency_borrow_relations(&row.references)?.into(),
+                stored_values: self.dependency_stored_values(&row.stored_values)?.into(),
             })).collect()
     }
 

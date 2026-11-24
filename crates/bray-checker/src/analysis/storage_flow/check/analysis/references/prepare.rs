@@ -33,12 +33,12 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
         self.footprint.complete_reference_types.get(&ty?).copied()
     }
 
-    pub(in crate::analysis::storage_flow) fn inline_regions(
+    pub(in crate::analysis::storage_flow) fn inline_reference_regions(
         &self,
         memory: &crate::analysis::storage_flow::memory::State,
         storage: &bray_bound_tree::StoragePlan,
         value: &Place,
-    ) -> Option<Vec<crate::analysis::storage_flow::memory::Target>> {
+    ) -> Option<Vec<(crate::analysis::storage_flow::memory::Target, bray_symbols::DependencyReferenceKind)>> {
         if self.reference_free(storage, value)? {
             // Loading a scalar or a reference-free field does not publish its
             // owner's address. Its evaluation loan is not a stored pointer.
@@ -56,9 +56,14 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
             .into_iter()
             .flat_map(|paths| paths.keys())
             .try_fold(Vec::new(), |mut targets, path| {
-                targets.extend(memory.referenced_regions(
-                    &crate::analysis::storage_flow::memory::Target::storage(path.clone()),
-                )?);
+                let slot = crate::analysis::storage_flow::memory::Target::storage(path.clone());
+                let kind = if memory.reached_borrow_capability(&slot).is_some() {
+                    bray_symbols::DependencyReferenceKind::Borrow
+                } else {
+                    bray_symbols::DependencyReferenceKind::Address
+                };
+
+                targets.extend(memory.referenced_regions(&slot)?.into_iter().map(|target| (target, kind)));
 
                 Some(targets)
             })

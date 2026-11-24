@@ -166,9 +166,51 @@ impl StorageCapturedValue {
 
     /// Possible regions carried by this value's inline descriptors.
     pub fn carried_regions(&self) -> impl Iterator<Item = Target> + '_ {
-        storage_value_subtree(&self.state.values, &self.root)
-            .flat_map(|(_, value)| value.reference_regions().into_iter().flatten()
-                .chain(value.owned_backing().and_then(crate::StorageAddressValue::regions).into_iter().flatten()))
+        self.carried_reference_regions().map(|(target, _)| target)
+    }
+
+    /// Possible regions and descriptor kinds carried by this value's inline fields.
+    pub fn carried_reference_regions(
+        &self,
+    ) -> impl Iterator<Item = (Target, bray_symbols::DependencyReferenceKind)> + '_ {
+        self.carried_reference_bindings()
+            .map(|(target, kind, _)| (target, kind))
+    }
+
+    /// Possible regions, descriptor kinds and loan capabilities carried by inline fields.
+    pub fn carried_reference_bindings(
+        &self,
+    ) -> impl Iterator<
+        Item = (
+            Target,
+            bray_symbols::DependencyReferenceKind,
+            Option<crate::BorrowCapabilityId>,
+        ),
+    > + '_ {
+        storage_value_subtree(&self.state.values, &self.root).flat_map(|(_, value)| {
+            let kind = value.reference_kind();
+            let capability = value.borrow_capability();
+
+            value
+                .reference_regions()
+                .into_iter()
+                .flatten()
+                .map(move |target| (target, kind, capability))
+                .chain(
+                    value
+                        .owned_backing()
+                        .and_then(crate::StorageAddressValue::regions)
+                        .into_iter()
+                        .flatten()
+                        .map(|target| {
+                            (
+                                target,
+                                bray_symbols::DependencyReferenceKind::Address,
+                                None,
+                            )
+                        }),
+                )
+        })
     }
 
     /// All regions directly carried by this snapshot, when no descriptor or backing is unknown.

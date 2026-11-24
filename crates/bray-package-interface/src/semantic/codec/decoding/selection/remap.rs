@@ -360,6 +360,11 @@ fn remap_dependency_contract(
             row.cell_changes = row.cell_changes.as_deref().map(|cells| cells.iter().map(&remap_effect)
                 .collect::<Result<Vec<_>, _>>().map(bray_base::sorted_unique_shared_slice)).transpose()?;
 
+            let (references, stored_values) = remap_dependency_storage(&row.references, &row.stored_values, maps)?;
+
+            row.references = references.into();
+            row.stored_values = stored_values.into();
+
             row.writes = bray_base::sorted_unique_shared_slice(row.writes.iter().map(&remap_binding)
                 .collect::<Result<Vec<_>, _>>()?);
 

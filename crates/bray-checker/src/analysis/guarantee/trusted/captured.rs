@@ -8,7 +8,8 @@ use crate::{CheckerRequestContext, ExecutionCondition, ExecutionConditionKind as
 
 pub(super) fn captured_outcome<C: CheckerRequestContext + ?Sized>(
     domain: &ExecutionFlowDomain<'_, '_, C>, state: &ExecutionState, result: &ExecutionCondition,
-    writes: &std::collections::BTreeSet<bray_bound_tree::StoragePath>, guards: &[bray_symbols::ConstantTermId],
+    writes: &crate::analysis::storage_flow::ReachedInputWrites,
+    guards: &[bray_symbols::ConstantTermId],
 ) -> CapturedValueOutcome {
     CapturedValueOutcome::new(conjunction(domain.request.semantic_values(), guards.iter().copied()),
         captured_bindings(domain, state, Some(result), writes))
@@ -16,7 +17,7 @@ pub(super) fn captured_outcome<C: CheckerRequestContext + ?Sized>(
 
 pub(super) fn captured_bindings<C: CheckerRequestContext + ?Sized>(
     domain: &ExecutionFlowDomain<'_, '_, C>, state: &ExecutionState, result: Option<&ExecutionCondition>,
-    writes: &std::collections::BTreeSet<bray_bound_tree::StoragePath>,
+    writes: &crate::analysis::storage_flow::ReachedInputWrites,
 ) -> BTreeMap<DependencySubject, Value> {
     let mut memo = HashMap::new();
     let mut values = BTreeMap::new();
@@ -26,24 +27,16 @@ pub(super) fn captured_bindings<C: CheckerRequestContext + ?Sized>(
             captured(domain, state, result, &mut memo));
     }
 
-    for path in writes {
-        let Some(place) = crate::ExecutionPlace::storage_identity(domain.storage, path.root) else { continue; };
+    for (subject, target) in writes {
+        let Some(value) = domain.current_target_value(
+            state,
+            &target.target,
+            target.pointee,
+        ) else {
+            continue;
+        };
 
-        let Some(reference) = place.reference() else { continue; };
-
-        let Some(root) = crate::dependency::parameter_root(domain.request, reference) else { continue; };
-
-        let Some(projections) = path.projections.iter().map(|projection| value_projection(domain, *projection)).collect::<Option<Vec<_>>>() else { continue; };
-
-        let Some(value) = place.value_in(&state.current) else { continue; };
-
-        let value = if value.is_reference() {
-            ExecutionCondition::storage_value(Op::Read, vec![value].into()).copied_value().clone()
-        } else { value };
-
-        let value = path.projections.iter().copied().fold(value, ExecutionCondition::project);
-
-        values.insert(DependencySubject::new(root, projections), captured(domain, state, &value, &mut memo));
+        values.insert(subject.clone(), captured(domain, state, &value, &mut memo));
     }
 
     values

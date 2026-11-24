@@ -649,6 +649,75 @@ fn conditional_cleanup_keeps_the_address_written_by_its_finalizer() {
 }
 
 #[test]
+#[ignore = "tier:proof"]
+fn finalizer_address_guarantee_expires_with_the_backing_storage() {
+    let application = production_sync_compilation(
+        r#"
+        trusted module app;
+        using core.memory;
+
+        struct Receipt
+        {
+            mut pointer: DataPointer<u32>;
+        }
+
+        struct Writer
+        {
+            receipt: &mut Receipt;
+            backing: &u32;
+
+            trusted finalize()
+                ensures(trusted core.memory.valid_read<u32>(pointer = self.receipt.pointer, count = 1))
+            {
+                self.receipt.pointer = core.memory.address_of<u32>(self.backing);
+            }
+        }
+
+        func observe(pos pointer: DataPointer<u32>)
+            requires(trusted core.memory.valid_read<u32>(pointer = pointer, count = 1))
+        {
+        }
+
+        func before_backing_ends()
+        {
+            let mut receipt = Receipt { pointer = core.memory.null<u32>() };
+            let backing: u32 = 7;
+            {
+                let writer = Writer { receipt = &mut receipt, backing = &backing };
+            };
+            observe(receipt.pointer);
+        }
+
+        func after_backing_ends()
+        {
+            let mut receipt = Receipt { pointer = core.memory.null<u32>() };
+            {
+                let backing: u32 = 7;
+                {
+                    let writer = Writer { receipt = &mut receipt, backing = &backing };
+                };
+            };
+            observe(receipt.pointer);
+        }
+        "#,
+    );
+
+    let live = application.lowered_unit(source_function_body_key(&application, "before_backing_ends"))
+        .expect("check the address while its backing lives");
+
+    assert!(live.value().is_some() && !live.diagnostics().has_errors(), "{:?}", live.diagnostics());
+
+    let expired = application.lowered_unit(source_function_body_key(&application, "after_backing_ends"))
+        .expect("check the address after its backing retires");
+
+    assert!(expired.value().is_none());
+
+    bray_testing::assert_goal_state_diagnostic_kind(
+        expired.diagnostics(), DiagnosticKind::CheckingTrustedObligationNotProven,
+    );
+}
+
+#[test]
 fn consuming_cleanup_retains_only_proven_external_borrow_identity() {
     use bray_diagnostics::{DiagnosticArgValue, DiagnosticContractObligationKind};
 

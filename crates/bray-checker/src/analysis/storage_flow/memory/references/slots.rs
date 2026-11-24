@@ -6,7 +6,7 @@ use super::super::model::{
 #[cfg(test)]
 use super::super::model::AddressValue;
 
-use bray_bound_tree::{BoundExecutionSite, StorageIdentityId, StorageProjection};
+use bray_bound_tree::{StorageIdentityId, StorageProjection};
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -89,12 +89,24 @@ impl State {
             .flat_map(|(location, value)| value.possible_references().map(move |references| (location, &references.targets, references.is_unknown())))
     }
 
-    pub(in crate::analysis::storage_flow) fn contained_regions<'a>(
+    pub(in crate::analysis::storage_flow) fn contained_reference_regions<'a>(
         &'a self,
         location: &'a Target,
-    ) -> impl Iterator<Item = &'a Target> {
-        storage_subtree(&self.values, location)
-            .flat_map(|(_, value)| value.carried_references().flat_map(|references| references.targets.iter()))
+    ) -> impl Iterator<Item = (Target, bray_symbols::DependencyReferenceKind)> + 'a {
+        storage_subtree(&self.values, location).flat_map(|(_, value)| {
+            let kind = value.reference_kind();
+
+            value
+                .possible_references()
+                .flat_map(move |references| {
+                    references.targets.iter().cloned().map(move |target| (target, kind))
+                })
+                .chain(value.owned_backing().into_iter().flat_map(|backing| {
+                    backing.targets.iter().cloned().map(|target| {
+                        (target, bray_symbols::DependencyReferenceKind::Address)
+                    })
+                }))
+        })
     }
 
     pub(in crate::analysis::storage_flow) fn raw_exposed_regions(&self) -> BTreeSet<Target> {
@@ -102,14 +114,14 @@ impl State {
             .iter()
             // A callee can publish an address without forming it in this caller.
             .filter(|(_, contents)| contents.exposed || contents.escaped)
-            .map(|(target, _)| exposure_region(target))
+            .map(|(target, _)| target.exposure_region())
             .collect()
     }
 
     /// Regions whose address has been published outside the invocation.
     pub(in crate::analysis::storage_flow) fn escaped_storage_regions(&self) -> impl Iterator<Item = Target> + '_ {
         self.contents.iter().filter(|(_, contents)| contents.escaped)
-            .map(|(target, _)| exposure_region(target))
+            .map(|(target, _)| target.exposure_region())
     }
 
     pub(in crate::analysis::storage_flow) fn unexposed_storage<'a>(
@@ -225,7 +237,7 @@ impl State {
                     })
                     .map(|(target, _)| {
                         // Native address arithmetic can reach other fields of the allocation.
-                        exposure_region(target)
+                        target.exposure_region()
                     }),
             )
             .chain(
@@ -279,112 +291,6 @@ impl State {
                     || bounds.targets.iter().any(|target| target.previous || self.is_external_region(target))
             }
             _ => true,
-        }
-    }
-
-    /// Returns escaped operands and their stored references before caller-side alias resolution.
-    pub(in crate::analysis::storage_flow) fn escape_roots(
-        &self,
-        roots: impl IntoIterator<Item = Target>,
-        occurrence: Option<BoundExecutionSite>,
-    ) -> BTreeSet<Target> {
-        let roots = roots.into_iter().map(|root| exposure_region(&root)).collect::<BTreeSet<_>>();
-
-        let reached = self.walk_regions(roots.iter().cloned(), occurrence.and_then(|site| self.pending.get(&site)), true,
-            |region, slot| region.contains_storage(slot)).0;
-
-        reached.iter().filter(|target| {
-            !matches!(target.origin, Origin::Returned { staged: true, .. })
-                && (roots.contains(*target) || !reached.iter().any(|region| self.entry_field_is_reachable(region, target)))
-        })
-            .cloned().collect()
-    }
-
-    fn entry_field_is_reachable(&self, region: &Target, target: &Target) -> bool {
-        let Origin::Entry { reference: parent, projections, kind: bray_symbols::DependencyReferenceKind::Address, .. } = &region.origin
-        else {
-            return false;
-        };
-
-        let Origin::Entry { reference: field, .. } = &target.origin
-        else {
-            return false;
-        };
-
-        let prefix = parent.projections.iter().copied()
-            .chain([StorageProjection::AddressTarget])
-            .chain(projections.iter().copied());
-
-        let prefix_len = parent.projections.len() + 1 + projections.len();
-
-        if region.previous != target.previous || parent.root != field.root
-            || field.projections.len() < prefix_len
-            || !field.projections.iter().copied().zip(prefix).all(|(field, parent)| field == parent) {
-            return false;
-        }
-
-        // The caller expands the escaped raw address. Only a field still holding its
-        // original incoming pointer is redundant. Writes and captured old copies differ.
-        self.values.get(&region.project(&field.projections[prefix_len..]))
-            .and_then(|value| value.address.as_ref())
-            .is_some_and(|references| references.is_exact() && references.targets.contains(target))
-    }
-
-    pub(in crate::analysis::storage_flow) fn escaped_regions(
-        &self,
-        roots: impl IntoIterator<Item = Target>,
-        occurrence: Option<BoundExecutionSite>,
-    ) -> BTreeSet<Target> {
-        let staged = occurrence.and_then(|site| self.pending.get(&site));
-
-        let (targets, unknown) = self.walk_regions(roots, staged, false, |_, _| true);
-
-        let mut implicit = BTreeSet::new();
-
-        self.include_unknown_targets(&mut implicit, unknown);
-
-        // Publishing a symbolic result also exposes each possible input allocation.
-        // Keep its own identity for backing produced independently of those inputs.
-        targets
-            .iter()
-            .flat_map(|target| std::iter::once(target).chain(
-                (!target.is_staged()).then(|| self.effect_origins(target).0).into_iter().flatten(),
-            ))
-            .chain(implicit.iter().flat_map(|target| self.effect_origins(target).0)
-                .filter(|target| self.unknown_reference_may_reach(target)))
-            .map(exposure_region)
-            .collect()
-    }
-
-    #[cfg(test)]
-    pub(in crate::analysis::storage_flow) fn escape_targets(
-        &mut self,
-        roots: impl IntoIterator<Item = Target>,
-    ) {
-        self.escape_regions(self.escaped_regions(roots, None), None);
-    }
-
-    pub(in crate::analysis::storage_flow) fn escape_regions(
-        &mut self,
-        regions: impl IntoIterator<Item = Target>,
-        occurrence: Option<BoundExecutionSite>,
-    ) {
-        for target in regions {
-            self.effect_payloads(&target, occurrence).entry(target).or_default().escaped = true;
-        }
-    }
-
-    pub(in crate::analysis::storage_flow::memory) fn effect_payloads(
-        &mut self,
-        target: &Target,
-        occurrence: Option<BoundExecutionSite>,
-    ) -> &mut BTreeMap<Target, Contents> {
-        if target.is_staged() {
-            let occurrence = occurrence.expect("a private effect retains its producing operation");
-
-            &mut self.pending.get_mut(&occurrence).expect("a private effect reaches the staged output").payloads
-        } else {
-            &mut self.contents
         }
     }
 
@@ -793,16 +699,5 @@ pub(in crate::analysis::storage_flow::memory) fn take_subtree<'a, V>(
             .expect("captured subtree key is present");
 
         (key, value)
-    })
-}
-
-pub(in crate::analysis::storage_flow::memory) fn exposure_region(target: &Target) -> Target {
-    target.allocation_region().unwrap_or_else(|| {
-        // An inline local has one enclosing allocation. Keep symbolic entry
-        // references unchanged when their allocation boundary is not established.
-        match &target.origin {
-            Origin::Storage(path) => Target { previous: target.previous, ..Target::storage(Place::root(path.root)) },
-            _ => target.clone(),
-        }
     })
 }

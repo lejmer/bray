@@ -186,6 +186,36 @@ impl BoundCallStorage {
         outcomes: impl IntoIterator<Item = &'a CapturedValueOutcome>,
     ) -> Vec<BoundCallReference> {
         let relations = CapturedValueOutcome::reference_origins(outcomes, DependencySubject::contains);
+
+        self.prepared_references(&relations)
+    }
+
+    /// The typed reference writes established by the selected abnormal outcomes.
+    pub fn failure_reference_outputs<'a, Report>(
+        &self,
+        outcomes: impl IntoIterator<
+            Item = &'a bray_symbols::CapturedFailureOutcome<
+                bray_symbols::ConstantTermId,
+                Report,
+            >,
+        >,
+    ) -> Vec<BoundCallReference>
+    where
+        Report: 'a,
+    {
+        let relations = bray_symbols::CapturedFailureOutcome::reference_origins(
+            outcomes,
+            DependencySubject::contains,
+        );
+
+        self.prepared_references(&relations)
+    }
+
+    /// Binds already selected portable relations to their prepared call routes.
+    pub fn prepared_references(
+        &self,
+        relations: &[DependencyBorrowRelation],
+    ) -> Vec<BoundCallReference> {
         let mut unavailable = BTreeSet::new();
         let mut references = Vec::with_capacity(relations.len());
 

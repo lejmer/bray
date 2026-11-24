@@ -16,6 +16,34 @@ use std::sync::Arc;
 const BUFFER_POINTER: StorageProjection =
     StorageProjection::TupleElement(bray_symbols::SymbolOrdinal::new(0));
 
+fn raw_escaped_regions(
+    state: &State,
+    roots: impl IntoIterator<Item = Target>,
+    occurrence: Option<bray_bound_tree::BoundExecutionSite>,
+) -> BTreeSet<Target> {
+    state
+        .escaped_regions(
+            roots
+                .into_iter()
+                .map(|target| (target, DependencyReferenceKind::Address)),
+            occurrence,
+        )
+        .0
+}
+
+fn raw_escape_roots(
+    state: &State,
+    roots: impl IntoIterator<Item = Target>,
+    occurrence: Option<bray_bound_tree::BoundExecutionSite>,
+) -> BTreeSet<Target> {
+    state.escape_roots(
+        roots
+            .into_iter()
+            .map(|target| (target, DependencyReferenceKind::Address)),
+        occurrence,
+    )
+}
+
 fn captured_frame(producer: bray_bound_tree::BoundExecutionSite, transition: Arc<bray_bound_tree::StorageDeferredTransition>)
     -> crate::ExecutionCondition
 {
@@ -2595,7 +2623,7 @@ fn stored_whole_sources_follow_transfers_and_weak_replay() {
 
         assert_eq!(state.value_target(&destination, error_type()), known.then(|| exact.clone()));
 
-        assert_eq!(state.contained_regions(&destination).any(|target| *target == carried), !known,
+        assert_eq!(state.contained_reference_regions(&destination).any(|(target, _)| target == carried), !known,
             "uncertain evaluated addresses retain explicit carried bounds in either staging order");
     }
 
@@ -3985,9 +4013,10 @@ fn opaque_reachability_distinguishes_safe_borrows_raw_escape_and_nested_argument
 
     state.transfer_value(&Target::storage(reference.clone()), holder.clone());
 
+    let holder = Target::storage(holder);
     let reached = state
-        .contained_regions(&Target::storage(holder))
-        .cloned()
+        .contained_reference_regions(&holder)
+        .map(|(target, _)| target)
         .collect::<Vec<_>>();
 
     let unexposed = state
@@ -4045,9 +4074,10 @@ fn opaque_payload_borrows_preserve_disjoint_markers_but_raw_exposure_does_not() 
 
     let candidates = [owner.clone(), marker.clone(), payload.clone()];
 
+    let reference_target = Target::storage(reference.clone());
     let reached = state
-        .contained_regions(&Target::storage(reference.clone()))
-        .cloned()
+        .contained_reference_regions(&reference_target)
+        .map(|(target, _)| target)
         .collect::<Vec<_>>();
 
     assert_eq!(
@@ -4223,17 +4253,17 @@ fn ambient_reachability_requires_raw_publication_of_an_owned_slot() {
 
     let returned = state.value_target(&Target::storage(view), error_type()).expect("returned view retains its bounded identity");
 
-    assert!(!state.escaped_regions([Target::storage(opaque.clone())], None).contains(&target),
+    assert!(!raw_escaped_regions(&state, [Target::storage(opaque.clone())], None).contains(&target),
         "an unknown external pointer cannot publish a private alternative of another returned view");
 
-    assert!(state.escaped_regions([returned], None).contains(&target),
+    assert!(raw_escaped_regions(&state, [returned], None).contains(&target),
         "explicitly publishing a returned pointer exposes each possible input region");
 
     state.address(owner, pointer, error_type(), origins[0]);
 
     assert!(state.unknown_reference_may_reach(&target));
 
-    assert!(state.escaped_regions([Target::storage(opaque)], None).contains(&target),
+    assert!(raw_escaped_regions(&state, [Target::storage(opaque)], None).contains(&target),
         "unknown pointers can reach actually exposed local storage");
 
     let ([parameter, raw, view, _], origins, capability) = borrowed_places();
@@ -4302,6 +4332,52 @@ fn ambient_reachability_requires_raw_publication_of_an_owned_slot() {
 }
 
 #[test]
+fn escaping_language_borrow_publishes_only_raw_addresses_carried_by_its_referent() {
+    let ([owner, allocation, ..], origins) = places();
+    let field = StorageProjection::TupleElement(bray_symbols::SymbolOrdinal::new(0));
+    let pointer = StorageProjection::TupleElement(bray_symbols::SymbolOrdinal::new(1));
+    let owner = Target::storage(owner);
+    let borrowed = owner.project(&[field]);
+    let pointer = borrowed.project(&[pointer]);
+    let mut state = State {
+        owned_storage: [owner.storage_path().expect("owned storage").root].into(),
+        ..State::default()
+    };
+
+    let backing = state.fresh(allocation, origins[0]);
+
+    Arc::make_mut(&mut state.values).insert(pointer, AddressValue::one(backing.clone()).into());
+
+    let (reached, published) = state.escaped_regions(
+        [(borrowed.clone(), DependencyReferenceKind::Borrow)],
+        None,
+    );
+
+    assert!(reached.contains(&borrowed));
+    assert!(reached.contains(&backing));
+    assert!(published.contains(&backing));
+    assert!(!published.contains(&borrowed));
+    assert!(!published.contains(&owner));
+
+    state.escape_regions(published, None);
+
+    let (ambient, unknown) = state
+        .ambient_regions(
+            &[
+                Effect::Ambient,
+                Effect::BorrowedReach([borrowed.clone()].into()),
+            ],
+            None,
+        )
+        .expect("bounded raw publication retains a finite ambient region");
+
+    assert!(!unknown);
+    assert!(ambient.contains(&backing));
+    assert!(!ambient.contains(&borrowed));
+    assert!(!ambient.contains(&owner));
+}
+
+#[test]
 fn captured_cleanup_keeps_known_regions_when_the_address_is_incomplete() {
     let ([slot, allocation, ..], origins) = places();
 
@@ -4321,7 +4397,8 @@ fn captured_cleanup_keeps_known_regions_when_the_address_is_incomplete() {
     let captured = state.capture_reached_value(&target);
 
     let expected = Effect::CapturedCleanup {
-        ty, sources: [].into(), regions: [backing].into(), inline: [].into(), complete: false,
+        ty, sources: [].into(), regions: [backing].into(), borrowed: [].into(),
+        inline: [].into(), complete: false,
     };
 
     assert_eq!(state.capture_cleanup(&target, ty, false), Some(expected.clone()));
@@ -4403,7 +4480,7 @@ fn captured_cleanup_selects_activity_before_reading_the_payload() {
     ].into());
 
     assert_eq!(state.captured_cleanup_effects(semantic_values(), &capture, &indirect, ty, false), Some(vec![
-        Effect::CapturedCleanup { ty, sources: [].into(), regions: [nested_backing].into(), inline: [].into(), complete: false },
+        Effect::CapturedCleanup { ty, sources: [].into(), regions: [nested_backing].into(), borrowed: [].into(), inline: [].into(), complete: false },
     ]));
 }
 
@@ -4418,7 +4495,7 @@ fn captured_cleanup_weakens_only_the_reached_backing() {
 
     let effects = [Effect::CapturedCleanup {
         ty, sources: [Target::storage(pointer)].into(), regions: [backing.clone()].into(),
-        inline: [independent.project(&[BUFFER_POINTER])].into(), complete: true,
+        borrowed: [].into(), inline: [independent.project(&[BUFFER_POINTER])].into(), complete: true,
     }];
 
     let _ = state.take_retirements();
@@ -4447,7 +4524,7 @@ fn captured_cleanup_weakens_backing_acquired_before_entry() {
     let backing = state.owned_backing(&owner).expect("the input owns its entry backing").clone();
 
     let effect = Effect::CapturedCleanup {
-        ty, sources: [owner].into(), regions: [backing.clone()].into(), inline: [].into(), complete: true,
+        ty, sources: [owner].into(), regions: [backing.clone()].into(), borrowed: [].into(), inline: [].into(), complete: true,
     };
 
     assert_eq!(state.reached_dependency_storage(&backing, ty), Some((true, true)));
@@ -5301,7 +5378,11 @@ fn effects_on_private_result_backing_are_published_with_that_backing() {
 
     assert_eq!(state.retirement_obligations(&fresh, &discharges, Some(call)), None);
 
-    let escaped = state.escaped_regions([fresh.project(&[StorageProjection::AnyElement])], Some(call));
+    let escaped = raw_escaped_regions(
+        &state,
+        [fresh.project(&[StorageProjection::AnyElement])],
+        Some(call),
+    );
 
     assert!(escaped.contains(&input));
     state.escape_regions(escaped, Some(call));
@@ -6341,7 +6422,7 @@ fn fresh_allocation_publication_follows_only_the_references_stored_in_it() {
     );
 
     assert_eq!(
-        memory.escaped_regions([allocation.clone()], None),
+        raw_escaped_regions(&memory, [allocation.clone()], None),
         BTreeSet::from([allocation.clone()])
     );
 
@@ -6358,7 +6439,7 @@ fn fresh_allocation_publication_follows_only_the_references_stored_in_it() {
     memory.complete_transition(call);
 
     assert_eq!(
-        memory.escaped_regions([allocation.clone()], None),
+        raw_escaped_regions(&memory, [allocation.clone()], None),
         BTreeSet::from([allocation, entry])
     );
 }
@@ -6404,8 +6485,7 @@ fn typed_scalar_publication_does_not_load_aliased_pointer_slots() {
 
     // Aliased pointer-containing inputs still expose newly stored allocations.
     assert!(
-        memory
-            .escaped_regions([right.clone()], None)
+        raw_escaped_regions(&memory, [right.clone()], None)
             .contains(&allocation)
     );
 
@@ -6420,7 +6500,7 @@ fn typed_scalar_publication_does_not_load_aliased_pointer_slots() {
         .storage_type = Some(scalar);
 
     assert_eq!(
-        memory.escaped_regions([word.clone()], None),
+        raw_escaped_regions(&memory, [word.clone()], None),
         BTreeSet::from([word.clone()])
     );
 
@@ -6436,7 +6516,7 @@ fn typed_scalar_publication_does_not_load_aliased_pointer_slots() {
         .or_default()
         .storage_type = Some(scalar);
 
-    assert!(memory.escaped_regions([word], None).contains(&allocation));
+    assert!(raw_escaped_regions(&memory, [word], None).contains(&allocation));
 
     // Explicit raw exposure retains conservative allocation reachability.
     let other = right.project(&[StorageProjection::TupleElement(
@@ -6450,7 +6530,7 @@ fn typed_scalar_publication_does_not_load_aliased_pointer_slots() {
         .storage_type = Some(scalar);
 
     assert_eq!(
-        memory.escaped_regions([other.clone()], None),
+        raw_escaped_regions(&memory, [other.clone()], None),
         BTreeSet::from([other.clone()])
     );
 
@@ -6461,7 +6541,7 @@ fn typed_scalar_publication_does_not_load_aliased_pointer_slots() {
         bray_symbols::DependencyReferenceKind::Address,
     );
 
-    assert!(memory.escaped_regions([other], None).contains(&allocation));
+    assert!(raw_escaped_regions(&memory, [other], None).contains(&allocation));
 }
 
 #[test]
@@ -6680,8 +6760,8 @@ fn escape_roots_keep_stored_values_without_exporting_possible_aliases() {
     let mut state = State { owned_storage: [local.root].into(), ..State::default() };
 
     Arc::make_mut(&mut state.values).insert(owner.project(&[field]), super::model::AddressValue::one(stored.clone()).into());
-    assert!(state.escaped_regions([pointer.clone()], None).contains(&stored), "body-local checks retain possible aliases");
-    assert_eq!(state.escape_roots([pointer.clone()], None), BTreeSet::from([pointer.clone()]), "possible aliases are resolved again at the caller");
+    assert!(raw_escaped_regions(&state, [pointer.clone()], None).contains(&stored), "body-local checks retain possible aliases");
+    assert_eq!(raw_escape_roots(&state, [pointer.clone()], None), BTreeSet::from([pointer.clone()]), "possible aliases are resolved again at the caller");
 
     let incoming_field = Target { previous: false, origin: super::Origin::entry(
         Place { root: parameter.root, projections: [pointer_field, StorageProjection::AddressTarget, field].into() },
@@ -6689,10 +6769,10 @@ fn escape_roots_keep_stored_values_without_exporting_possible_aliases() {
 
     Arc::make_mut(&mut state.values).insert(pointer.project(&[field]), super::model::AddressValue::one(incoming_field.clone()).into());
 
-    assert_eq!(state.escape_roots([pointer.clone()], None), BTreeSet::from([pointer.clone()]),
+    assert_eq!(raw_escape_roots(&state, [pointer.clone()], None), BTreeSet::from([pointer.clone()]),
         "an unchanged incoming pointee field is already reachable from its escaped raw-address root");
 
-    assert!(state.escape_roots([incoming_field.clone()], None).contains(&incoming_field),
+    assert!(raw_escape_roots(&state, [incoming_field.clone()], None).contains(&incoming_field),
         "an explicitly escaped field pointer remains an operand");
 
     Arc::make_mut(&mut state.values).insert(Target::storage(local.clone()).project(&[pointer_field]), super::model::AddressValue::one(incoming_field.clone()).into());
@@ -6702,12 +6782,12 @@ fn escape_roots_keep_stored_values_without_exporting_possible_aliases() {
 
     Arc::make_mut(&mut state.values).insert(slot, bounds);
 
-    assert!(state.escape_roots([pointer.clone(), Target::storage(local.clone())], None).contains(&incoming_field),
+    assert!(raw_escape_roots(&state, [pointer.clone(), Target::storage(local.clone())], None).contains(&incoming_field),
         "possible origins do not prove the source field still holds its evaluated entry value");
 
     Arc::make_mut(&mut state.values).insert(pointer.project(&[field]), super::model::AddressValue::one(stored.clone()).into());
 
-    let escaped = state.escape_roots([pointer.clone(), Target::storage(local.clone())], None);
+    let escaped = raw_escape_roots(&state, [pointer.clone(), Target::storage(local.clone())], None);
 
     assert!(escaped.contains(&incoming_field), "a captured old field pointer survives replacement of its original slot");
     assert!(escaped.contains(&stored), "a replacement's actual incoming pointer remains an escape root");
@@ -6716,6 +6796,6 @@ fn escape_roots_keep_stored_values_without_exporting_possible_aliases() {
 
     Arc::make_mut(&mut state.values).insert(local.project(&[field]), super::model::AddressValue::one(stored.clone()).into());
 
-    assert!(state.escape_roots([local.project(&[pointer_field])], None).contains(&stored),
+    assert!(raw_escape_roots(&state, [local.project(&[pointer_field])], None).contains(&stored),
         "an escaped local allocation retains its actual stored references even through a field address");
 }

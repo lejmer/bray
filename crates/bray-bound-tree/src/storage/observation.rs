@@ -262,6 +262,10 @@ pub enum StorageFailureWrites {
         input_count: usize,
         /// The reached portable rows with their resolved destinations.
         values: std::sync::Arc<[crate::StorageValueTransition]>,
+        /// Exact reference descriptors established by the same abnormal writes.
+        references: std::sync::Arc<[bray_symbols::DependencyBorrowRelation]>,
+        /// Remaining physical dependencies established by the same abnormal writes.
+        stored_values: std::sync::Arc<[bray_symbols::DependencyStoredValue]>,
     },
 }
 

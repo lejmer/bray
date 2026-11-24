@@ -4,7 +4,7 @@ use bray_bound_tree::{BoundCallReference, BoundExecutionSite};
 
 use super::super::flow::ExecutionFlowDomain;
 use super::observations::GuaranteeSource;
-use crate::{CheckerRequestContext, ExecutionCondition};
+use crate::{CheckerRequestContext, ExecutionCondition, TrustedAddressSubject};
 
 impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     /// Classifies actual value lifetimes separately from raw-address access.
@@ -15,7 +15,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         guarantee: &ExecutionCondition,
         owning: bool,
         owners: &BTreeMap<bray_bound_tree::BoundExecutionSite, GuaranteeSource>,
-        address_subjects: &[(ExecutionCondition, ExecutionCondition, bool)],
+        address_subjects: &[TrustedAddressSubject],
         instantiate: &impl Fn(&ExecutionCondition) -> ExecutionCondition,
     ) -> (
         BTreeSet<crate::ExecutionPlace>,
@@ -26,7 +26,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let owning = owning
             && !address_subjects
                 .iter()
-                .any(|(condition, _, owning)| condition == guarantee && !owning);
+                .any(|address| &address.condition == guarantee && !address.owning);
 
         let arguments = entry;
         let mut retained = BTreeSet::new();
@@ -57,8 +57,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
                 let subjects = address_subjects
                     .iter()
-                    .filter(|(condition, _, _)| condition == guarantee)
-                    .map(|(_, subject, _)| subject.clone())
+                    .filter(|address| &address.condition == guarantee)
+                    .map(|address| address.subject.clone())
                     .chain(
                         references.iter()
                             .filter(|reference| {
@@ -283,21 +283,22 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         entry: &BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
         guarantee: &ExecutionCondition,
         sources: &BTreeMap<bray_bound_tree::BoundExecutionSite, GuaranteeSource>,
-        subjects: &[(ExecutionCondition, ExecutionCondition, bool)],
+        subjects: &[TrustedAddressSubject],
         instantiate: &impl Fn(&ExecutionCondition) -> ExecutionCondition,
     ) -> crate::execution_guarantees::AddressDependencies {
         let mut addresses = BTreeMap::new();
 
-        for (_, subject, _) in subjects.iter().filter(|(condition, subject, _)| {
-            condition == guarantee
-                && !subject.observes_completion_result()
-                && subject.inputs().iter().any(|input| {
+        for address in subjects.iter().filter(|address| {
+            &address.condition == guarantee
+                && !address.subject.observes_completion_result()
+                && address.subject.inputs().iter().any(|input| {
                     matches!(
                         input.root,
                         crate::execution_guarantees::ExecutionInput::Argument(_)
                     )
                 })
         }) {
+            let subject = &address.subject;
             let address = address_value(instantiate(subject));
 
             let owners = addresses
@@ -357,32 +358,32 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         origins: (BoundExecutionSite, &[BoundCallReference]),
         state: &mut super::super::state::ExecutionState,
         arguments: &BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
-        subjects: &[(ExecutionCondition, ExecutionCondition, bool)],
+        subjects: &[TrustedAddressSubject],
         sources: &BTreeMap<bray_bound_tree::BoundExecutionSite, GuaranteeSource>,
         instantiate: &impl Fn(&ExecutionCondition) -> ExecutionCondition,
     ) {
-        for (template, subject, _) in subjects.iter().filter(|(_, subject, owning)| {
-            !*owning
-                && !subject.observes_completion_result()
-                && subject.inputs().iter().any(|input| {
+        for subject in subjects.iter().filter(|address| {
+            !address.owning
+                && !address.subject.observes_completion_result()
+                && address.subject.inputs().iter().any(|input| {
                     matches!(
                         input.root,
                         crate::execution_guarantees::ExecutionInput::Argument(_)
                     )
                 })
         }) {
-            let address = address_value(instantiate(subject));
+            let address = address_value(instantiate(&subject.subject));
 
             if address == ExecutionCondition::unknown() {
                 continue;
             }
 
-            let guarantee = instantiate(template);
+            let guarantee = instantiate(&subject.condition);
 
             let addresses = self.input_guarantee_addresses(
                 origins,
                 arguments,
-                template,
+                &subject.condition,
                 sources,
                 subjects,
                 instantiate,

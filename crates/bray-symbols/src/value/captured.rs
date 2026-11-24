@@ -261,7 +261,8 @@ impl DependencyFailureKind {
 /// Performed effects and the report produced together on one abnormal exit.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CapturedFailureOutcome<Guard = ConstantTermId, Report = Arc<[super::DependencyRequirement]>,
-    Effect = super::DependencyStorageEffect, Write = (super::DependencySubject, CapturedValueTemplate)> {
+    Effect = super::DependencyStorageEffect, Write = (super::DependencySubject, CapturedValueTemplate),
+    Subject = super::DependencySubject, Projection = super::DependencyProjection> {
     /// The actual exit kind, or an opaque summary covering either kind.
     pub kind: Option<DependencyFailureKind>,
     /// Entry condition for this exit, independent of any normal result.
@@ -272,14 +273,62 @@ pub struct CapturedFailureOutcome<Guard = ConstantTermId, Report = Arc<[super::D
     pub cell_changes: Option<Arc<[Effect]>>,
     /// Values installed in caller storage before this failure. No normal result is published.
     pub writes: Arc<[Write]>,
+    /// Reference descriptors installed by the same abnormal writes.
+    pub references: Arc<[super::DependencyBorrowRelation<Subject, Projection>]>,
+    /// Remaining physical dependencies installed by the same abnormal writes.
+    pub stored_values: Arc<[super::DependencyStoredValue<Subject>]>,
     /// Report dependencies. An empty present list describes an independent report.
     pub report: Option<Report>,
 }
 
-impl<Guard, Report, Effect, Write> CapturedFailureOutcome<Guard, Report, Effect, Write> {
+impl<Guard, Report, Effect, Write, Subject, Projection>
+    CapturedFailureOutcome<Guard, Report, Effect, Write, Subject, Projection>
+{
     /// An opaque outcome conservatively covers any abnormal exit.
     pub fn covers(&self, kind: DependencyFailureKind) -> bool {
         self.kind.is_none_or(|actual| actual == kind)
+    }
+
+    /// Attaches the physical values established by this abnormal exit.
+    pub fn with_storage(
+        mut self,
+        references: impl IntoIterator<Item = super::DependencyBorrowRelation<Subject, Projection>>,
+        stored_values: impl IntoIterator<Item = super::DependencyStoredValue<Subject>>,
+    ) -> Self
+    where
+        Subject: Clone + Ord,
+        Projection: Ord,
+    {
+        self.references = bray_base::sorted_unique_shared_slice(references);
+        self.stored_values = super::DependencyStoredValue::normalize(stored_values);
+
+        self
+    }
+
+    /// Joins the established abnormal reference origins before one failure row is selected.
+    pub fn reference_origins<'a>(
+        rows: impl IntoIterator<Item = &'a Self>,
+        contains: impl Fn(&Subject, &Subject) -> bool,
+    ) -> Arc<[super::DependencyBorrowRelation<Subject, Projection>]>
+    where
+        Self: 'a,
+        Subject: Clone + Ord + 'a,
+        Projection: Clone + Ord + 'a,
+    {
+        reference_origins(rows, contains)
+    }
+
+    /// Joins physical dependencies installed by the selected abnormal writes.
+    pub fn stored_dependencies<'a>(
+        rows: impl IntoIterator<Item = &'a Self>,
+        contains: impl Fn(&Subject, &Subject) -> bool,
+    ) -> Arc<[super::DependencyStoredValue<Subject>]>
+    where
+        Self: 'a,
+        Subject: Clone + Ord + 'a,
+        Projection: 'a,
+    {
+        stored_dependencies(rows, contains)
     }
 }
 
@@ -298,11 +347,20 @@ impl CapturedFailureOutcome {
                     known.writes = common_bindings([known.writes.as_ref(), row.writes.as_ref()].into_iter(),
                         &CapturedValueTemplate::Unknown);
                 }
+
+                if known.references != row.references {
+                    known.references = reference_origins([&*known, row], PartialEq::eq);
+                }
+
+                if known.stored_values != row.stored_values {
+                    known.stored_values = stored_dependencies([&*known, row], PartialEq::eq);
+                }
             }).or_insert_with(|| row.clone());
         }
 
         outcomes.into_values().collect()
     }
+
 }
 
 /// The dependencies of a report held in the produced value at a normal exit.
@@ -523,81 +581,13 @@ impl<Subject: Ord + Clone, Input: Ord + Clone, Projection: Ord + Clone, Static: 
     /// Joins the established reference origins for callers that cannot select an exit.
     pub fn reference_origins<'a>(rows: impl IntoIterator<Item = &'a Self>, contains: impl Fn(&Subject, &Subject) -> bool) -> Arc<[super::DependencyBorrowRelation<Subject, Projection>]>
     where Self: 'a {
-        use std::collections::{BTreeMap, BTreeSet};
-
-        let rows = rows.into_iter().collect::<Vec<_>>();
-        let mut destinations = BTreeMap::<_, (usize, BTreeSet<_>)>::new();
-
-        for row in &rows {
-            let mut established = BTreeSet::new();
-
-            for reference in row.references.iter() {
-                let group = destinations.entry(reference.exit()).or_default();
-
-                group.0 += usize::from(established.insert(reference.exit()));
-                group.1.insert(reference.clone());
-            }
-        }
-
-        bray_base::sorted_unique_shared_slice(destinations.into_iter().flat_map(|(destination, (established, mut relations))| {
-            if established != rows.len() && rows.iter().any(|row| {
-                !row.references.iter().any(|relation| relation.exit() == destination)
-                    && !row.inactive_payloads.iter().any(|payload| contains(payload, destination))
-            }) {
-                // An unobserved slot in a feasible exit is unknown, even when other exits have bounds.
-                relations.clear();
-            } else if relations.iter().any(|relation| !relation.is_no_payload()) {
-                relations.retain(|relation| !relation.is_no_payload());
-            }
-
-            let mut joined = BTreeMap::new();
-
-            for relation in relations {
-                let provenance = relation.provenance();
-                let key = relation.with_provenance(super::DependencyReferenceProvenance::Alternatives);
-
-                joined.entry(key).and_modify(|previous: &mut super::DependencyReferenceProvenance| {
-                    *previous = (*previous).max(provenance);
-                }).or_insert(provenance);
-            }
-
-            let exact = joined.len() == 1;
-
-            joined.into_iter().map(move |(relation, provenance)| {
-                relation.with_provenance(provenance).with_exactness(exact && provenance == super::DependencyReferenceProvenance::Exact)
-            })
-        }))
+        reference_origins(rows, contains)
     }
 
     /// Joins known stored dependencies without treating a missing active slot as independent.
     pub fn stored_dependencies<'a>(rows: impl IntoIterator<Item = &'a Self>, contains: impl Fn(&Subject, &Subject) -> bool) -> Arc<[super::DependencyStoredValue<Subject>]>
     where Self: 'a {
-        let mut rows = rows.into_iter();
-
-        let Some(first) = rows.next() else { return Arc::new([]); };
-
-        let Some(second) = rows.next() else { return Arc::clone(&first.stored_values); };
-
-        let rows = [first, second].into_iter().chain(rows).collect::<Vec<_>>();
-
-        let merged = super::DependencyStoredValue::normalize(
-            rows.iter().flat_map(|row| row.stored_values.iter().cloned()),
-        );
-
-        merged.iter().cloned().map(|value| {
-            let destination = value.destination();
-
-            if rows.iter().all(|row| row.stored_values.binary_search_by(|incoming|
-                incoming.destination().cmp(destination)).is_ok()
-                || destination.dereferences() == 0 && row.references.iter().any(|reference|
-                    reference.exit() == destination.subject() && reference.is_no_payload())
-                || row.inactive_payloads.iter().any(|payload| contains(payload, destination.subject())))
-            {
-                value
-            } else {
-                value.incomplete()
-            }
-        }).collect()
+        stored_dependencies(rows, contains)
     }
 
     /// Retains inactive subtrees established by every feasible normal exit.
@@ -699,6 +689,144 @@ impl<Subject: Ord + Clone, Input: Ord + Clone, Projection: Ord + Clone, Static: 
     }
 }
 
+trait CapturedStorageRow<Subject, Projection> {
+    fn references(&self) -> &[super::DependencyBorrowRelation<Subject, Projection>];
+    fn stored_values(&self) -> &[super::DependencyStoredValue<Subject>];
+    fn inactive_payloads(&self) -> &[Subject];
+}
+
+impl<Subject, Input, Projection, Static, Guard, OwnedProjection, Callee, Variant, Report, Effect, WitnessSubject>
+    CapturedStorageRow<Subject, Projection>
+    for CapturedValueOutcome<Subject, Input, Projection, Static, Guard, OwnedProjection, Callee, Variant, Report, Effect, WitnessSubject>
+{
+    fn references(&self) -> &[super::DependencyBorrowRelation<Subject, Projection>] {
+        &self.references
+    }
+
+    fn stored_values(&self) -> &[super::DependencyStoredValue<Subject>] {
+        &self.stored_values
+    }
+
+    fn inactive_payloads(&self) -> &[Subject] {
+        &self.inactive_payloads
+    }
+}
+
+impl<Guard, Report, Effect, Write, Subject, Projection> CapturedStorageRow<Subject, Projection>
+    for CapturedFailureOutcome<Guard, Report, Effect, Write, Subject, Projection>
+{
+    fn references(&self) -> &[super::DependencyBorrowRelation<Subject, Projection>] {
+        &self.references
+    }
+
+    fn stored_values(&self) -> &[super::DependencyStoredValue<Subject>] {
+        &self.stored_values
+    }
+
+    fn inactive_payloads(&self) -> &[Subject] {
+        &[]
+    }
+}
+
+fn reference_origins<'a, Row, Subject, Projection>(
+    rows: impl IntoIterator<Item = &'a Row>,
+    contains: impl Fn(&Subject, &Subject) -> bool,
+) -> Arc<[super::DependencyBorrowRelation<Subject, Projection>]>
+where
+    Row: CapturedStorageRow<Subject, Projection> + 'a,
+    Subject: Clone + Ord + 'a,
+    Projection: Clone + Ord + 'a,
+{
+    use std::collections::{BTreeMap, BTreeSet};
+
+    let rows = rows.into_iter().collect::<Vec<_>>();
+    let mut destinations = BTreeMap::<_, (usize, BTreeSet<_>)>::new();
+
+    for row in &rows {
+        let mut established = BTreeSet::new();
+
+        for reference in row.references() {
+            let group = destinations.entry(reference.exit()).or_default();
+
+            group.0 += usize::from(established.insert(reference.exit()));
+            group.1.insert(reference.clone());
+        }
+    }
+
+    bray_base::sorted_unique_shared_slice(destinations.into_iter().flat_map(
+        |(destination, (established, mut relations))| {
+            if established != rows.len()
+                && rows.iter().any(|row| {
+                    !row.references().iter().any(|relation| relation.exit() == destination)
+                        && !row.inactive_payloads().iter().any(|payload| contains(payload, destination))
+                })
+            {
+                // An unobserved slot in a feasible exit is unknown, even when other exits have bounds.
+                relations.clear();
+            } else if relations.iter().any(|relation| !relation.is_no_payload()) {
+                relations.retain(|relation| !relation.is_no_payload());
+            }
+
+            let mut joined = BTreeMap::new();
+
+            for relation in relations {
+                let provenance = relation.provenance();
+                let key = relation.with_provenance(super::DependencyReferenceProvenance::Alternatives);
+
+                joined.entry(key).and_modify(|previous: &mut super::DependencyReferenceProvenance| {
+                    *previous = (*previous).max(provenance);
+                }).or_insert(provenance);
+            }
+
+            let exact = joined.len() == 1;
+
+            joined.into_iter().map(move |(relation, provenance)| {
+                relation.with_provenance(provenance)
+                    .with_exactness(exact && provenance == super::DependencyReferenceProvenance::Exact)
+            })
+        },
+    ))
+}
+
+fn stored_dependencies<'a, Row, Subject, Projection>(
+    rows: impl IntoIterator<Item = &'a Row>,
+    contains: impl Fn(&Subject, &Subject) -> bool,
+) -> Arc<[super::DependencyStoredValue<Subject>]>
+where
+    Row: CapturedStorageRow<Subject, Projection> + 'a,
+    Subject: Clone + Ord + 'a,
+    Projection: 'a,
+{
+    let mut rows = rows.into_iter();
+
+    let Some(first) = rows.next() else { return Arc::new([]); };
+
+    let Some(second) = rows.next() else { return first.stored_values().into(); };
+
+    let rows = [first, second].into_iter().chain(rows).collect::<Vec<_>>();
+
+    let merged = super::DependencyStoredValue::normalize(
+        rows.iter().flat_map(|row| row.stored_values().iter().cloned()),
+    );
+
+    merged.iter().cloned().map(|value| {
+        let destination = value.destination();
+
+        if rows.iter().all(|row| {
+            row.stored_values().binary_search_by(|incoming| incoming.destination().cmp(destination)).is_ok()
+                || destination.dereferences() == 0
+                    && row.references().iter().any(|reference| {
+                        reference.exit() == destination.subject() && reference.is_no_payload()
+                    })
+                || row.inactive_payloads().iter().any(|payload| contains(payload, destination.subject()))
+        }) {
+            value
+        } else {
+            value.incomplete()
+        }
+    }).collect()
+}
+
 fn common_bindings<'a, Subject: Clone + Ord + 'a, Value: Clone + Eq + 'a>(
     mut rows: impl Iterator<Item = &'a [(Subject, Value)]> + Clone,
     unknown: &Value,
@@ -739,8 +867,25 @@ pub fn common_cell_changes<'a, Effect: Clone + Ord + 'a>(
 
 #[cfg(test)]
 mod tests {
-    use super::{CapturedValueOutcome as Outcome, CapturedValueTemplate as Value};
+    use super::{CapturedFailureOutcome as FailureOutcome, CapturedValueOutcome as Outcome, CapturedValueTemplate as Value};
     type Row = Outcome<u8, u8, (), (), u8>;
+    type Failure = FailureOutcome<u8, (), (), (), u8, ()>;
+
+    fn failure(
+        references: impl IntoIterator<Item = super::super::DependencyBorrowRelation<u8, ()>>,
+        stored_values: impl IntoIterator<Item = super::super::DependencyStoredValue<u8>>,
+    ) -> Failure {
+        Failure {
+            kind: None,
+            guard: None,
+            effects: None,
+            cell_changes: None,
+            writes: std::sync::Arc::new([]),
+            references: references.into_iter().collect::<Vec<_>>().into(),
+            stored_values: stored_values.into_iter().collect::<Vec<_>>().into(),
+            report: None,
+        }
+    }
 
     #[test]
     fn inactive_payloads_and_unknown_observations_have_distinct_joins() {
@@ -772,6 +917,45 @@ mod tests {
 
         assert!(Row::reference_origins(&feasible, PartialEq::eq).is_empty());
         assert_eq!(Row::stored_dependencies(&feasible, PartialEq::eq).as_ref(), [dependencies.incomplete()]);
+    }
+
+    #[test]
+    fn abnormal_rows_join_logical_and_physical_writes_at_the_same_selection() {
+        use super::super::{
+            DependencyBorrowRelation, DependencyReferenceKind, DependencyStoredValue,
+            DependencyStoredValuePath,
+        };
+
+        let input = DependencyStoredValuePath::new(1, 0);
+        let destination = DependencyStoredValuePath::new(2, 0);
+
+        let origin = DependencyBorrowRelation::new(
+            Some(1),
+            2,
+            DependencyReferenceKind::Address,
+        );
+
+        let dependency = DependencyStoredValue::new(destination, [input], true);
+        let active = failure([origin.clone()], [dependency.clone()]);
+
+        assert_eq!(
+            Failure::reference_origins([&active], PartialEq::eq).as_ref(),
+            std::slice::from_ref(&origin),
+        );
+
+        assert_eq!(
+            Failure::stored_dependencies([&active], PartialEq::eq).as_ref(),
+            std::slice::from_ref(&dependency),
+        );
+
+        let rows = [active, failure([], [])];
+
+        assert!(Failure::reference_origins(&rows, PartialEq::eq).is_empty());
+
+        assert_eq!(
+            Failure::stored_dependencies(&rows, PartialEq::eq).as_ref(),
+            &[dependency.incomplete()],
+        );
     }
 
     #[test]

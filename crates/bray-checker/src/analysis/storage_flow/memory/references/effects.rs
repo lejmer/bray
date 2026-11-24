@@ -105,13 +105,13 @@ impl State {
     /// Normal ambient effects share external roots and this call's escaped inputs.
     /// A whole invocation escape has no finite reachability bound.
     pub(in crate::analysis::storage_flow) fn ambient_regions(
-        &self, effects: &[Effect], occurrence: Option<BoundExecutionSite>,
+        &self, effects: &[Effect], _occurrence: Option<BoundExecutionSite>,
     ) -> Option<(std::collections::BTreeSet<Target>, bool)> {
         if effects.contains(&Effect::Escape(None)) { return None; }
 
         let escaped = effects.iter().flat_map(Effect::escape_regions).cloned();
 
-        let (targets, unknown) = self.reachable_regions(self.escaped_regions(escaped, occurrence).into_iter()
+        let (targets, unknown) = self.reachable_regions(escaped
             .chain(Effect::captured_cleanup_regions(effects).cloned()));
 
         Some((targets, unknown || Effect::incomplete_captured_cleanup(effects)))
@@ -179,7 +179,8 @@ impl State {
             previous_bound = bound;
 
             match effect {
-                Effect::Escape(_) | Effect::Mutation { kind: DependencyMutationKind::Escape, .. } => {}
+                Effect::Escape(_) | Effect::BorrowedReach(_)
+                | Effect::Mutation { kind: DependencyMutationKind::Escape, .. } => {}
                 Effect::Mutation { address, footprint: target, kind: kind @ (DependencyMutationKind::Dispose(_) | DependencyMutationKind::Cleanup(_)), .. } => {
                     let backing = if matches!(kind, DependencyMutationKind::Dispose(_)) {
                         address.as_ref().and_then(|owner| self.owned_backing(owner)).cloned()
@@ -252,7 +253,8 @@ impl State {
                     DependencyMutationKind::Atomic,
                 ),
                 Effect::Unknown => {}
-                Effect::Ambient | Effect::Atomic | Effect::UnboundedMutation { .. } | Effect::CapturedCleanup { .. } => {
+                Effect::Ambient | Effect::Atomic | Effect::UnboundedMutation { .. }
+                | Effect::CapturedCleanup { .. } => {
                     unreachable!("classified effects handled above")
                 }
             }

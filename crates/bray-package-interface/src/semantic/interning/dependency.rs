@@ -170,17 +170,25 @@ impl InternState<'_> {
         rows: &[crate::InterfaceFailureOutcome],
         symbols: &impl InterfaceSymbolResolver,
     ) -> Result<Vec<bray_symbols::CapturedFailureOutcome>, Option<InterfaceSemanticInternError>> {
-        rows.iter().map(|row| Ok(bray_symbols::CapturedFailureOutcome {
-            kind: row.kind,
-            guard: row.guard.map(|term| self.constant_term_id(term).ok_or(None)).transpose()?,
-            report: row.report.as_deref().map(|report|
-                self.convert_dependency_requirements(report, symbols).map_err(Some)?.map(bray_base::sorted_unique_shared_slice).ok_or(None)).transpose()?,
-            effects: row.effects.as_deref().map(|effects|
-                self.convert_dependency_effects(effects, symbols).map_err(Some)?.map(bray_base::sorted_unique_shared_slice).ok_or(None)).transpose()?,
-            cell_changes: row.cell_changes.as_deref().map(|cells|
-                self.convert_dependency_effects(cells, symbols).map_err(Some)?.map(bray_base::sorted_unique_shared_slice).ok_or(None)).transpose()?,
-            writes: bray_base::sorted_unique_shared_slice(self.convert_captured_bindings(&row.writes, symbols)?),
-        })).collect()
+        rows.iter().map(|row| {
+            let (references, stored_values) = self.convert_dependency_storage(
+                &row.references, &row.stored_values, symbols,
+            ).map_err(Some)?.ok_or(None)?;
+
+            Ok(bray_symbols::CapturedFailureOutcome {
+                kind: row.kind,
+                guard: row.guard.map(|term| self.constant_term_id(term).ok_or(None)).transpose()?,
+                report: row.report.as_deref().map(|report|
+                    self.convert_dependency_requirements(report, symbols).map_err(Some)?.map(bray_base::sorted_unique_shared_slice).ok_or(None)).transpose()?,
+                effects: row.effects.as_deref().map(|effects|
+                    self.convert_dependency_effects(effects, symbols).map_err(Some)?.map(bray_base::sorted_unique_shared_slice).ok_or(None)).transpose()?,
+                cell_changes: row.cell_changes.as_deref().map(|cells|
+                    self.convert_dependency_effects(cells, symbols).map_err(Some)?.map(bray_base::sorted_unique_shared_slice).ok_or(None)).transpose()?,
+                writes: bray_base::sorted_unique_shared_slice(self.convert_captured_bindings(&row.writes, symbols)?),
+                references: references.into(),
+                stored_values: stored_values.into(),
+            })
+        }).collect()
     }
 
     fn convert_captured_bindings(

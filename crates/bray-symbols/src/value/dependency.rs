@@ -775,6 +775,8 @@ impl DependencyContractTemplateData {
             effects: None,
             cell_changes: None,
             writes: Arc::new([]),
+            references: Arc::new([]),
+            stored_values: Arc::new([]),
         }]))
     }
 
@@ -881,7 +883,13 @@ impl DependencyContractTemplateData {
     /// Enumerates paths needed to prepare references, effects and stored-value bounds.
     /// A stored-value path does not itself establish reference authority.
     pub fn reference_subjects(&self) -> impl Iterator<Item = &DependencySubject> {
-        self.captured_values().iter().flat_map(|row| row.references.iter())
+        let storage_rows = self.captured_values().iter().map(|row| {
+            (row.references.as_ref(), row.stored_values.as_ref())
+        }).chain(self.failure_outcomes().into_iter().flatten().map(|row| {
+            (row.references.as_ref(), row.stored_values.as_ref())
+        }));
+
+        storage_rows.clone().flat_map(|(references, _)| references)
             .flat_map(|relation| {
                 relation
                     .source_subject()
@@ -889,7 +897,7 @@ impl DependencyContractTemplateData {
                     .chain(std::iter::once(relation.exit()))
             })
             .chain(self.effects().iter().chain(self.cell_changes()).flat_map(DependencyStorageEffect::subjects))
-            .chain(self.captured_values().iter().flat_map(|row| row.stored_values.iter()).flat_map(|stored| {
+            .chain(storage_rows.flat_map(|(_, stored)| stored).flat_map(|stored| {
                 std::iter::once(stored.destination().subject()).chain(stored.sources().iter().map(DependencyStoredValuePath::subject))
             }))
             .chain(self.captured_values().iter().flat_map(|outcome| {

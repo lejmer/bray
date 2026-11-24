@@ -52,6 +52,26 @@ impl<'a> LifecycleInvocation<'a> {
     pub(in crate::analysis) fn normal_outcomes(&self, selected: Option<usize>) -> impl Iterator<Item = &'a bray_symbols::CapturedValueOutcome> + Clone + '_ {
         self.outcomes.iter().filter_map(move |(index, row, _)| selected.is_none_or(|selected| *index == selected).then_some(*row))
     }
+
+    pub(in crate::analysis) fn failure_outcomes(
+        &self,
+        kind: bray_symbols::DependencyFailureKind,
+        selected: Option<usize>,
+    ) -> impl Iterator<Item = &'a bray_symbols::CapturedFailureOutcome> + Clone + '_ {
+        self.contract
+            .failure_outcomes()
+            .into_iter()
+            .flatten()
+            .enumerate()
+            .filter_map(move |(index, outcome)| {
+                (outcome.covers(kind)
+                    && selected.map_or_else(
+                        || self.entry.admits_failure(index),
+                        |selected| selected == index,
+                    ))
+                .then_some(outcome)
+            })
+    }
 }
 
 pub(in crate::analysis) enum CleanupMutation<'a> {
@@ -94,21 +114,18 @@ pub(in crate::analysis) struct CleanupSelection {
 impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     pub(in crate::analysis) fn cleanup_receiver_writes<'rows>(
         &self,
-        contract: &'rows bray_symbols::DependencyContractTemplateData,
-        entry: &ExecutionCallEvidence,
+        call: &'rows LifecycleInvocation<'_>,
         mutation: StorageMutation,
     ) -> Vec<(&'rows bray_symbols::DependencySubject, &'rows bray_symbols::CapturedValueTemplate)> {
         use bray_symbols::DependencySubjectRoot;
 
         match mutation {
             StorageMutation::CleanupOutcome { row, .. } =>
-                contract.captured_values()[row].bindings.iter()
+                call.contract.captured_values()[row].bindings.iter()
                     .filter(|(subject, _)| subject.subject_root() == DependencySubjectRoot::Receiver)
                     .map(|(subject, value)| (subject, value)).collect(),
             StorageMutation::CleanupFailure { kind, row, .. } => {
-                let mut candidates = contract.failure_outcomes().into_iter().flatten().enumerate().filter(|(index, outcome)| {
-                    outcome.covers(kind) && row.map_or_else(|| entry.admits_failure(*index), |row| row == *index)
-                }).map(|(_, outcome)| &outcome.writes);
+                let mut candidates = call.failure_outcomes(kind, row).map(|outcome| &outcome.writes);
 
                 let Some(first) = candidates.next() else { return Vec::new(); };
 

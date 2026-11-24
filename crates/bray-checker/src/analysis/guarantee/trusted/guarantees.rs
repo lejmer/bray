@@ -5,13 +5,13 @@ use bray_bound_tree::{BoundCallReference, BoundExecutionSite};
 use super::super::flow::ExecutionFlowDomain;
 use super::super::state::ExecutionState;
 use super::observations::GuaranteeSource;
-use crate::{CheckerRequestContext, ExecutionCallEvidence, ExecutionCondition, ExecutionPlace, TrustedCallContract};
+use crate::{CheckerRequestContext, ExecutionCallEvidence, ExecutionCondition, ExecutionPlace, TrustedAddressSubject, TrustedCallContract};
 
 #[derive(Default)]
 pub(super) struct CompletionGuarantees<'contract> {
     conditions: Vec<ExecutionCondition>,
     subjects: Vec<(ExecutionCondition, &'contract ExecutionCondition)>,
-    pub(super) addresses: Vec<(ExecutionCondition, ExecutionCondition, bool)>,
+    pub(super) addresses: Vec<TrustedAddressSubject>,
 }
 
 impl<'contract> CompletionGuarantees<'contract> {
@@ -25,7 +25,7 @@ impl<'contract> CompletionGuarantees<'contract> {
         let publication = |condition: &ExecutionCondition| {
             condition.contains_trusted()
                 && condition.observes_completion_result()
-                && !contract.address_subjects.iter().any(|(clause, _, _)| clause == condition)
+                && !contract.address_subjects.iter().any(|subject| &subject.condition == condition)
         };
 
         for condition in contract.guarantees.iter().flat_map(ExecutionCondition::conjuncts) {
@@ -52,8 +52,8 @@ impl<'contract> CompletionGuarantees<'contract> {
             }
         }
 
-        row.addresses.extend(contract.address_subjects.iter().map(|(condition, subject, owning)| {
-            (entry.capture_condition(condition), subject.clone(), *owning)
+        row.addresses.extend(contract.address_subjects.iter().map(|address| {
+            TrustedAddressSubject { condition: entry.capture_condition(&address.condition), ..address.clone() }
         }));
 
         (row, published)
@@ -171,7 +171,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         state: &mut ExecutionState,
         (template, subject): (&ExecutionCondition, &ExecutionCondition),
         (guarantee, condition): (&ExecutionCondition, &ExecutionCondition),
-        (arguments, address_subjects): (&BTreeMap<ExecutionPlace, ExecutionCondition>, &[(ExecutionCondition, ExecutionCondition, bool)]),
+        (arguments, address_subjects): (&BTreeMap<ExecutionPlace, ExecutionCondition>, &[TrustedAddressSubject]),
         addresses: impl FnOnce(&ExecutionState) -> crate::execution_guarantees::AddressDependencies,
     ) {
         let carriers = self.input_witness_owners(state, template, subject, condition, arguments, address_subjects);

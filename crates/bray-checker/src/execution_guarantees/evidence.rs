@@ -269,19 +269,31 @@ impl ExecutionCallEvidence {
     }
 
     /// Complete escape bounds from the evaluated operands, including their actual descriptors.
-    pub(crate) fn argument_regions(&self, count: usize) -> Option<Arc<[bray_bound_tree::StorageTarget]>> {
+    pub(crate) fn argument_regions(
+        &self,
+        count: usize,
+    ) -> Option<(Arc<[bray_bound_tree::StorageTarget]>, Arc<[bray_bound_tree::StorageTarget]>)> {
         let mut arguments = self.positional_arguments();
-        let mut regions = Vec::new();
+        let mut raw = Vec::new();
+        let mut borrowed = Vec::new();
 
         for index in 0..count {
             let (ordinal, argument) = arguments.next()?;
 
             if ordinal.to_index() != Some(index) { return None; }
 
-            regions.extend(argument.captured_input_regions()?);
+            let (argument_raw, argument_borrowed) = argument.captured_input_regions()?;
+
+            raw.extend(argument_raw);
+            borrowed.extend(argument_borrowed);
         }
 
-        arguments.next().is_none().then(|| bray_base::sorted_unique_shared_slice(regions))
+        arguments.next().is_none().then(|| {
+            (
+                bray_base::sorted_unique_shared_slice(raw),
+                bray_base::sorted_unique_shared_slice(borrowed),
+            )
+        })
     }
 
     /// Actual values moved into the receiver-first noncopying input slots.

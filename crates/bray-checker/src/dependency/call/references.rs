@@ -101,7 +101,7 @@ fn result_retains_inputs<C: CheckerRequestContext + ?Sized>(
                 || contract
                     .address_subjects
                     .iter()
-                    .any(|(_, subject, _)| subject.observes_completion_result())
+                    .any(|subject| subject.subject.observes_completion_result())
         })
         || template.captured_values().iter().any(|row| !row.carriers.is_empty() || !row.ownership.is_empty())
         || template.captured_values().iter().flat_map(|outcome| outcome.bindings.iter()).any(|(_, value)| value.inputs().next().is_some())
@@ -222,15 +222,18 @@ pub(crate) fn prepare_call_storage<'a, C: CheckerRequestContext + ?Sized>(
     let mut references = Vec::new();
     let types = |subject: &bray_symbols::DependencySubject| subjects.get(subject).map(|(ty, _)| *ty);
     let rows = template.captured_values();
+    let failure_rows = template.failure_outcomes().into_iter().flatten();
 
     for relation in rows.iter().flat_map(|outcome| outcome.references.iter())
+        .chain(failure_rows.clone().flat_map(|outcome| outcome.references.iter()))
         .map(|relation| relation.clone().with_exactness(false)).collect::<std::collections::BTreeSet<_>>() {
         references.extend(prepare_reference(request, &relation, &types)?);
     }
 
     let stored_paths = prepare_stored_value_paths(
         request.semantic_values(),
-        rows.iter().flat_map(|outcome| outcome.stored_values.iter()),
+        rows.iter().flat_map(|outcome| outcome.stored_values.iter())
+            .chain(failure_rows.flat_map(|outcome| outcome.stored_values.iter())),
         |subject| subjects.get(subject).cloned(),
     );
 

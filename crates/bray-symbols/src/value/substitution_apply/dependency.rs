@@ -310,6 +310,8 @@ impl SemanticValueStore {
                     cells.iter().map(effect).collect::<Result<Vec<_>, _>>().map(bray_base::sorted_unique_shared_slice)
                 }).transpose()?,
                 writes: bray_base::sorted_unique_shared_slice(row.writes.iter().map(bind_value).collect::<Result<Vec<_>, _>>()?),
+                references: self.substitute_dependency_borrows(&row.references, substitution)?.into(),
+                stored_values: self.substitute_stored_dependencies(&row.stored_values, substitution)?.into(),
                 report: row.report.clone(),
             })
         }).collect::<Result<Vec<_>, SemanticValueStoreError>>()).transpose()?;

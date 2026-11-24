@@ -73,6 +73,19 @@ impl TrustedContractInputs {
     }
 }
 
+/// One typed address subject of a normal-completion clause.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct TrustedAddressSubject {
+    /// Clause that observes this address.
+    pub condition: ExecutionCondition,
+    /// Address expression in the formal completion context.
+    pub subject: ExecutionCondition,
+    /// Representation of the observed address.
+    pub ty: bray_symbols::TypeId,
+    /// Whether the clause establishes owning authority.
+    pub owning: bool,
+}
+
 /// Trusted requirements and guarantees on one selected call.
 #[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
 pub struct TrustedCallContract {
@@ -89,7 +102,7 @@ pub struct TrustedCallContract {
     /// Checked witness carriers paired with their conditional completion guarantee.
     pub witness_subjects: Vec<(ExecutionCondition, ExecutionCondition)>,
     /// Typed raw-address subjects, their completion guarantee, and whether they carry owning authority.
-    pub address_subjects: Vec<(ExecutionCondition, ExecutionCondition, bool)>,
+    pub address_subjects: Vec<TrustedAddressSubject>,
     /// Conditions required before invocation.
     pub requirements: Vec<ExecutionCondition>,
     /// Compiler-only compound execution conditions that require ordinary caller evidence.

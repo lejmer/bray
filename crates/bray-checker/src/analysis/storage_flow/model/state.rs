@@ -11,6 +11,9 @@ use crate::analysis::outcomes::{CleanupProgress, OutcomeState};
 
 pub(in crate::analysis::storage_flow) type EffectPrefix = Arc<BTreeSet<bray_symbols::DependencyStorageEffect>>;
 
+pub(in crate::analysis) type ReachedInputWrites =
+    BTreeMap<bray_symbols::DependencySubject, bray_bound_tree::StorageObservedTarget>;
+
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(in crate::analysis) struct StorageFlowState {
     pub(in crate::analysis::storage_flow) reachable: bool,
@@ -29,7 +32,7 @@ pub(in crate::analysis) struct StorageFlowState {
     pub(in crate::analysis::storage_flow) active_borrows: BTreeSet<BorrowCapabilityId>,
     pub(in crate::analysis::storage_flow) definitely_active_borrows: BTreeSet<BorrowCapabilityId>,
     // Committed writes into entry referents along every path to this state.
-    pub(in crate::analysis::storage_flow) written_inputs: BTreeSet<bray_bound_tree::StoragePath>,
+    pub(in crate::analysis::storage_flow) written_inputs: ReachedInputWrites,
     pub(in crate::analysis::storage_flow) effect_prefix: EffectPrefix,
     // Admitted inputs shared by both successors before applying the normal outcome.
     pub(in crate::analysis::storage_flow) failure_entry: Option<AdmittedFailure>,
@@ -70,7 +73,38 @@ impl RetainedReports {
     }
 }
 
+fn record_written_input(
+    writes: &mut ReachedInputWrites,
+    subject: bray_symbols::DependencySubject,
+    target: bray_bound_tree::StorageObservedTarget,
+) {
+    if let Some((existing_subject, existing_target)) = writes
+        .iter()
+        .find(|(existing_subject, _)| existing_subject.contains(&subject))
+    {
+        if existing_subject == &subject {
+            assert_eq!(
+                existing_target, &target,
+                "one formal input write retains one reached typed target"
+            );
+        }
+
+        return;
+    }
+
+    writes.retain(|existing_subject, _| !subject.contains(existing_subject));
+    writes.insert(subject, target);
+}
+
 impl StorageFlowState {
+    pub(in crate::analysis::storage_flow) fn record_written_input(
+        &mut self,
+        subject: bray_symbols::DependencySubject,
+        target: bray_bound_tree::StorageObservedTarget,
+    ) {
+        record_written_input(&mut self.written_inputs, subject, target);
+    }
+
     pub(in crate::analysis) fn absent_paths(
         &self,
         root: Option<StorageIdentityId>,
@@ -91,7 +125,12 @@ impl StorageFlowState {
         &self,
         path: &bray_bound_tree::StoragePath,
     ) -> bool {
-        self.absent_paths(Some(path.root)).any(|absent| absent.contains(path))
+        self.has_absent_path(path) || (0..path.projections.len()).rev().any(|length| {
+            self.has_absent_path(&bray_bound_tree::StoragePath {
+                root: path.root,
+                projections: path.projections[..length].into(),
+            })
+        })
     }
 
     pub(in crate::analysis::storage_flow) fn no_payload_paths(&self, root: StorageIdentityId) -> impl Iterator<Item = &bray_bound_tree::StoragePath> + Clone {
@@ -479,7 +518,7 @@ impl StorageFlowState {
             definitely_active_borrows: active_borrows.clone(),
             active_borrows,
             memory,
-            written_inputs: BTreeSet::new(),
+            written_inputs: BTreeMap::new(),
             effect_prefix: EffectPrefix::default(),
             failure_entry: None,
             cleanup: None,
@@ -539,11 +578,21 @@ impl StorageFlowState {
         let writes_changed = if self.written_inputs == incoming.written_inputs {
             false
         } else {
-            let writes = self.written_inputs.iter().filter(|path|
-                incoming.written_inputs.iter().any(|other| other.contains(path)))
-                .chain(incoming.written_inputs.iter().filter(|path|
-                    self.written_inputs.iter().any(|other| other.contains(path))))
-                .cloned().collect::<BTreeSet<_>>();
+            let mut writes = ReachedInputWrites::new();
+
+            for (subject, target) in &self.written_inputs {
+                for (other_subject, other_target) in &incoming.written_inputs {
+                    if subject.contains(other_subject) {
+                        record_written_input(
+                            &mut writes,
+                            other_subject.clone(),
+                            other_target.clone(),
+                        );
+                    } else if other_subject.contains(subject) {
+                        record_written_input(&mut writes, subject.clone(), target.clone());
+                    }
+                }
+            }
 
             let changed = self.written_inputs != writes;
 

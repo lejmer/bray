@@ -228,8 +228,11 @@ fn join_observations<'a>(
     let mut right_identities = BTreeMap::new();
     let mut joined_values = BTreeMap::new();
 
-    let mut joins = join.explicit_result().is_some()
-        || matches!(join, ExecutionJoin::Selection(_)) && target.witnesses != incoming.witnesses;
+    let changed_carrier_evidence = matches!(join, ExecutionJoin::Selection(_))
+        && (!target.witnesses.is_empty() || !incoming.witnesses.is_empty())
+        && (target.witnesses != incoming.witnesses || target.trusted_assumptions != incoming.trusted_assumptions);
+
+    let mut joins = join.explicit_result().is_some() || changed_carrier_evidence;
 
     let mut results = Vec::new();
     let mut joined_facts = Vec::new();

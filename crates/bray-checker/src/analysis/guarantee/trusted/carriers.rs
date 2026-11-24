@@ -44,11 +44,11 @@ impl<C: crate::CheckerRequestContext + ?Sized> super::super::flow::ExecutionFlow
         subject: &ExecutionCondition,
         condition: &ExecutionCondition,
         arguments: &BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
-        addresses: &[(ExecutionCondition, ExecutionCondition, bool)],
+        addresses: &[crate::TrustedAddressSubject],
     ) -> Vec<ExecutionCondition> {
         if addresses.iter()
-            .filter(|(guarantee, address, _)| guarantee == template && address == subject)
-            .map(|(_, _, owning)| *owning)
+            .filter(|address| &address.condition == template && &address.subject == subject)
+            .map(|address| address.owning)
             .reduce(|left, right| left || right) == Some(false)
         {
             // The access producer retains these bounds with their non-owning classification.

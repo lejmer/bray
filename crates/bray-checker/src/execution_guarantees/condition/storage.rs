@@ -59,17 +59,48 @@ impl ExecutionCondition {
     }
 
     /// Complete regions supplied by this evaluated value to an opaque operation.
-    pub(crate) fn captured_input_regions(&self) -> Option<Vec<bray_bound_tree::StorageTarget>> {
+    pub(crate) fn captured_input_regions(
+        &self,
+    ) -> Option<(Vec<bray_bound_tree::StorageTarget>, Vec<bray_bound_tree::StorageTarget>)> {
         if self.contains_deferred() { return None; }
 
         let value = self.inline_captured_storage()?;
 
         if let Some(regions) = value.address_regions() {
-            return Some(regions);
+            let borrowed = value.binding().is_some_and(|binding| {
+                binding.reference_kind() == bray_symbols::DependencyReferenceKind::Borrow
+            });
+
+            return Some(if borrowed {
+                (Vec::new(), regions)
+            } else {
+                (
+                    regions
+                        .into_iter()
+                        .map(|target| target.exposure_region())
+                        .collect(),
+                    Vec::new(),
+                )
+            });
         }
 
         value.binding()?.whole_complete().then(|| {
-            value.complete_carried_regions().map(|regions| regions.into_iter().collect())
+            value.complete_carried_regions()?;
+            let mut raw = value
+                .carried_sources()
+                .map(bray_bound_tree::StorageTarget::exposure_region)
+                .collect::<Vec<_>>();
+            let mut borrowed = Vec::new();
+
+            for (target, kind) in value.carried_reference_regions() {
+                if kind == bray_symbols::DependencyReferenceKind::Borrow {
+                    borrowed.push(target);
+                } else {
+                    raw.push(target.exposure_region());
+                }
+            }
+
+            Some((raw, borrowed))
         }).flatten()
     }
 

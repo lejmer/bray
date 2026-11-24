@@ -38,7 +38,7 @@ mod type_representation;
 mod unit;
 
 pub use trusted_contracts::{
-    PredicateConditionInput, TrustedCallContract, TrustedContractInputs,
+    PredicateConditionInput, TrustedAddressSubject, TrustedCallContract, TrustedContractInputs,
 };
 
 #[cfg(test)]

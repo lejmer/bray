@@ -23,6 +23,37 @@ struct PerformedFailureEffects {
 }
 
 impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
+    pub(in crate::analysis::storage_flow::check::analysis) fn stage_failure_outputs(
+        &self,
+        state: &mut StorageFlowState,
+        occurrence: bray_bound_tree::BoundExecutionSite,
+        invocation: super::references::InvocationOutputs<'_>,
+        references: &mut [bray_bound_tree::BoundCallReference],
+        stored_values: &[bray_symbols::DependencyStoredValue],
+        begin: bool,
+    ) {
+        if begin {
+            state.memory.begin_transition(occurrence);
+        }
+
+        references.sort_by_key(|reference| {
+            let relation = reference.relation();
+
+            let depth = invocation
+                .storage()
+                .subject(relation.exit())
+                .map_or(0, |(_, path)| path.steps().len());
+
+            (depth, relation.entry().is_some())
+        });
+
+        for reference in references {
+            self.stage_invocation_reference(state, occurrence, &invocation, reference, None);
+        }
+
+        self.stage_stored_values(state, occurrence, &invocation, stored_values);
+    }
+
     pub(super) fn capture_failure_effects(
         &mut self,
         state: &mut StorageFlowState,
@@ -30,7 +61,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         execution: &crate::analysis::guarantee::ExecutionState,
         outcomes: Option<&EffectOutcomes>,
         prefixes: &EffectRows,
-        roots: &[Target],
+        roots: &super::references::ReachedReferenceRegions,
     ) -> bool {
         if let Some(outcomes) = outcomes {
             self.record_resolved_effects(&state.memory, outcomes.possible(), None);
@@ -124,23 +155,26 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             PerformedFailureEffects { captured, performed, retirements }
         });
 
-        if commits_cleanup {
-            failure.memory.complete_transition(occurrence);
-        }
-
         if let Some(attempt) = &attempt {
             writes.retire_storage(&attempt.retirements);
         }
 
-        let completion = write_plan.filter(|_| !writes.0.is_empty()).map(|plan| {
-            let mut completion = self.publish_failure_writes(&mut failure, mutation, &writes);
-
-            if !completion.publications().is_empty() {
-                completion.record_failure_writes(plan);
+        let completion = if let Some(plan) = write_plan {
+            self.publish_failure_writes(
+                &mut failure,
+                occurrence,
+                mutation,
+                &writes,
+                plan,
+                commits_cleanup,
+            )
+        } else {
+            if commits_cleanup {
+                failure.memory.complete_transition(occurrence);
             }
 
-            completion
-        });
+            None
+        };
 
         let retirements = failure.memory.take_retirements();
 
@@ -157,9 +191,33 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     fn publish_failure_writes(
         &self,
         state: &mut StorageFlowState,
+        occurrence: bray_bound_tree::BoundExecutionSite,
         mutation: StorageMutation,
         writes: &crate::execution_guarantees::ExecutionOutputs,
-    ) -> StorageCompletion {
+        plan: bray_bound_tree::StorageFailureWrites,
+        pending: bool,
+    ) -> Option<StorageCompletion> {
+        use bray_bound_tree::StorageFailureWrites;
+
+        let has_logical = !writes.0.is_empty();
+
+        let has_physical = matches!(
+            &plan,
+            StorageFailureWrites::Bound {
+                references,
+                stored_values,
+                ..
+            } if !references.is_empty() || !stored_values.is_empty()
+        );
+
+        if !has_logical && !has_physical {
+            if pending {
+                state.memory.complete_transition(occurrence);
+            }
+
+            return None;
+        }
+
         let mut completion = StorageCompletion::default();
 
         for (region, value) in writes.possible_writes() {
@@ -171,18 +229,46 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         }
 
         for destination in writes.destinations() {
-            let StorageValueDestination::Current { target, ty, installed } = destination else { continue; };
+            let StorageValueDestination::Current {
+                target,
+                installed,
+                ..
+            } = destination
+            else {
+                continue;
+            };
 
-            let Some(value) = writes.common_value(destination) else { continue; };
+            let Some(value) = writes.common_value(destination) else {
+                continue;
+            };
 
             if !*installed {
-                self.publish_value_graph(state, target.clone(), value.clone(), super::references::ValuePublication::Replacement);
+                self.publish_value_graph(
+                    state,
+                    target.clone(),
+                    value.clone(),
+                    super::references::ValuePublication::Replacement,
+                );
             }
+        }
+
+        if has_physical {
+            self.stage_failure_storage(state, occurrence, &plan, !pending);
+        }
+
+        if pending || has_physical {
+            state.memory.complete_transition(occurrence);
+        }
+
+        for destination in writes.destinations() {
+            let StorageValueDestination::Current { target, ty, .. } = destination else { continue; };
+
+            let Some(_) = writes.common_value(destination) else { continue; };
 
             let snapshot = state.memory.capture_reached_value(target)
                 .with_observations(self.input.footprint.typed_observations(*ty));
 
-            self.record_current_write(state, target);
+            self.record_current_write(state, target, *ty);
             completion.publish(destination.clone(), Arc::new(snapshot));
         }
 
@@ -191,7 +277,150 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             mutation, writes, &completion,
         );
 
-        completion
+        completion.record_failure_writes(plan);
+
+        Some(completion)
+    }
+
+    fn stage_failure_storage(
+        &self,
+        state: &mut StorageFlowState,
+        occurrence: bray_bound_tree::BoundExecutionSite,
+        plan: &bray_bound_tree::StorageFailureWrites,
+        begin: bool,
+    ) {
+        let bray_bound_tree::StorageFailureWrites::Bound {
+            producer,
+            references,
+            stored_values,
+            ..
+        } = plan
+        else {
+            return;
+        };
+
+        if let Some(producer) = producer {
+            self.stage_deferred_failure_storage(
+                state,
+                occurrence,
+                producer,
+                references,
+                stored_values,
+                begin,
+            );
+        } else {
+            self.stage_call_failure_storage(
+                state,
+                occurrence,
+                references,
+                stored_values,
+                begin,
+            );
+        }
+    }
+
+    fn stage_deferred_failure_storage(
+        &self,
+        state: &mut StorageFlowState,
+        occurrence: bray_bound_tree::BoundExecutionSite,
+        producer: &bray_bound_tree::StorageDeferredProducer,
+        references: &[bray_symbols::DependencyBorrowRelation],
+        stored_values: &[bray_symbols::DependencyStoredValue],
+        begin: bool,
+    ) {
+        let execution = state
+            .execution
+            .as_ref()
+            .expect("reached failure retains its captured inputs");
+
+        let (_, reached, frame) = self
+            .execution
+            .direct_await_body(execution, occurrence)
+            .expect("deferred failure writes retain their selected frame");
+
+        assert_eq!(reached, producer, "failure writes retain their selected producer");
+
+        let storage = if let Some(site) = producer.local() {
+            self.dependencies
+                .calls()
+                .get(&site)
+                .expect("local deferred failure retains its call contract")
+                .storage()
+        } else {
+            &self
+                .dependencies
+                .frame_callees()
+                .get(
+                    frame
+                        .callee
+                        .as_deref()
+                        .expect("imported deferred failure retains its callee"),
+                )
+                .expect("imported deferred failure retains its body contract")
+                .storage
+        };
+
+        let entry = std::sync::Arc::clone(&frame.entry);
+        let has_receiver = frame.has_receiver();
+        let mut prepared = storage.prepared_references(references);
+
+        let invocation = super::references::InvocationOutputs::Frame {
+            storage,
+            entry: &entry,
+            has_receiver,
+            result: None,
+        };
+
+        self.stage_failure_outputs(
+            state,
+            occurrence,
+            invocation,
+            &mut prepared,
+            stored_values,
+            begin,
+        );
+    }
+
+    fn stage_call_failure_storage(
+        &self,
+        state: &mut StorageFlowState,
+        occurrence: bray_bound_tree::BoundExecutionSite,
+        references: &[bray_symbols::DependencyBorrowRelation],
+        stored_values: &[bray_symbols::DependencyStoredValue],
+        begin: bool,
+    ) {
+        let execution = state
+            .execution
+            .as_ref()
+            .expect("reached failure retains its captured inputs");
+
+        let entry = execution
+            .admitted_call(occurrence)
+            .expect("ordinary failure writes retain their admitted call")
+            .clone();
+
+        let contracts = self
+            .dependencies
+            .calls()
+            .get(&occurrence)
+            .expect("ordinary failure writes retain their call contract");
+
+        let mut prepared = contracts.storage().prepared_references(references);
+
+        let invocation = super::references::InvocationOutputs::Call {
+            contracts,
+            entry: Some(&entry),
+            roots: &[],
+        };
+
+        self.stage_failure_outputs(
+            state,
+            occurrence,
+            invocation,
+            &mut prepared,
+            stored_values,
+            begin,
+        );
     }
 
     pub(super) fn publish_failure_edge(
@@ -222,19 +451,26 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     pub(super) fn resolve_effect_prefix(
         &mut self, state: &StorageFlowState, kind: AnalysisOperationKind,
         execution: &crate::analysis::guarantee::ExecutionState, mutations: Option<Arc<[Effect]>>,
-        cell_changes: Option<Arc<[Effect]>>, roots: &[Target],
+        cell_changes: Option<Arc<[Effect]>>, roots: &super::references::ReachedReferenceRegions,
     ) -> Option<crate::analysis::storage_flow::memory::CapturedEffects> {
         let occurrence = kind.occurrence();
         let effects = mutations.as_deref();
         let mut escape_prefix = EffectPrefix::default();
         let escaped = self.address_escapes(state, execution, kind, effects, roots, &mut escape_prefix);
 
-        if effects.is_some_and(<[_]>::is_empty) && cell_changes.is_none() && escaped.is_empty() && escape_prefix.is_empty() {
+        if effects.is_some_and(<[_]>::is_empty)
+            && cell_changes.is_none()
+            && escaped.reached.is_empty()
+            && escaped.published.is_empty()
+            && escape_prefix.is_empty()
+        {
             return None;
         }
 
+        let mutation_roots = roots.mutation_regions(&state.memory);
         let mut invalidation = self.operation_observations(
-            state, kind, Default::default(), &[], effects, Some(roots), &escaped,
+            state, kind, Default::default(), &[], effects, Some(&mutation_roots),
+            &escaped.published,
         );
 
         // Observing a running task does not establish a new body-entry memory snapshot.
@@ -251,7 +487,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         Some(crate::analysis::storage_flow::memory::CapturedEffects {
             mutations: mutations.unwrap_or_else(|| [Effect::Unknown].into()),
             cell_changes,
-            escaped: escaped.into_iter().collect(),
+            escaped: escaped.published.into_iter().collect(),
             escape_prefix: escape_prefix.iter().cloned().collect(),
             invalidation: invalidation.expect("resolved call effects have storage observations"),
         })

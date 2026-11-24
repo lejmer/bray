@@ -1,23 +1,40 @@
 use bray_bound_tree::{AnyBoundNodeId, BoundAssignmentOperator, BoundExecutionSite, BoundExpression, StorageAccessId, StorageAddressValue};
 
 use super::super::core::StorageFlowCollector;
+use super::ReachedReferenceRegions;
 use crate::analysis::model::AnalysisOperationKind;
 use crate::analysis::storage_flow::memory::{Place, Source, Target};
 use crate::analysis::storage_flow::model::StorageFlowState;
 use crate::CheckerRequestContext;
 
 impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
+    pub(in crate::analysis::storage_flow::check::analysis) fn typed_assignment_target<'target>(
+        &self,
+        target: Option<&'target Target>,
+        plan: Option<bray_bound_tree::StorageAccessPlan>,
+    ) -> Option<(&'target Target, bray_symbols::TypeId)> {
+        let (target, plan) = target.zip(plan)?;
+
+        let ty = self
+            .storage
+            .access(plan.access())
+            .expect("an assignment target has its checked access")
+            .reached_type();
+
+        Some((target, ty))
+    }
+
     pub(in crate::analysis::storage_flow::check::analysis) fn prepare_assignment(
         &self,
         state: &mut StorageFlowState,
         operation: AnalysisOperationKind,
         access: StorageAccessId,
         address: Option<&StorageAddressValue>,
-    ) -> Vec<Target> {
-        let Some(expression) = operation.occurrence().expression() else { return Vec::new(); };
+    ) -> ReachedReferenceRegions {
+        let Some(expression) = operation.occurrence().expression() else { return ReachedReferenceRegions::default(); };
 
         let Some(BoundExpression::Assignment(assignment)) = self.request.view().expression(expression) else {
-            return Vec::new();
+            return ReachedReferenceRegions::default();
         };
 
         let [_, operand] = assignment.operands() else {
@@ -85,37 +102,39 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         argument: BoundExecutionSite,
         place: Option<Place>,
         source: Option<&Source>,
-    ) -> Vec<Target> {
+    ) -> ReachedReferenceRegions {
         let mut roots = Vec::new();
         let regions = source.and_then(|source| source.regions(&state.memory));
+        let kind = source.map_or(
+            bray_symbols::DependencyReferenceKind::Address,
+            |source| source.reference_kind(&state.memory),
+        );
 
         if regions.is_none()
             && let Some(regions) = place.as_ref().and_then(|place| {
                 self.input
-                    .inline_regions(&state.memory, self.storage, place)
+                    .inline_reference_regions(&state.memory, self.storage, place)
             })
         {
-            return regions;
+            return ReachedReferenceRegions::new(regions);
         }
 
         if let Some(place) = &place {
-            roots.extend(
-                state
-                    .memory
-                    .contained_regions(&Target::storage(place.clone()))
-                    .cloned(),
-            );
+            roots.extend(state.memory.contained_reference_regions(&Target::storage(place.clone())));
 
             if regions.is_none() && self.input.reference_free(self.storage, place).is_none() {
                 // Unknown value contents remain symbolic entry values until instantiation.
-                roots.push(Target::storage(place.clone()));
+                roots.push((
+                    Target::storage(place.clone()),
+                    bray_symbols::DependencyReferenceKind::Address,
+                ));
             }
         }
 
         if let Some(regions) = regions {
             // The physical target is authoritative. Its lifetime anchor need
             // not be reachable through the reference, as with a lock guard.
-            roots.extend(regions);
+            roots.extend(regions.into_iter().map(|target| (target, kind)));
         } else {
             // Opaque task representations can retain a loan without
             // publishing a physical field. Its possible targets bound effects,
@@ -129,12 +148,15 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                             .memory
                             .borrow_regions(capability)
                             .into_iter()
-                            .flatten(),
+                            .flatten()
+                            .map(|target| {
+                                (target, bray_symbols::DependencyReferenceKind::Borrow)
+                            }),
                     );
                 }
             }
         }
 
-        roots
+        ReachedReferenceRegions::new(roots)
     }
 }

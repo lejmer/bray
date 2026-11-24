@@ -238,7 +238,7 @@ impl TrustedChecks {
         domain: &ExecutionFlowDomain<'_, '_, C>,
         state: &ExecutionState,
         result: &ExecutionCondition,
-        writes: &BTreeSet<bray_bound_tree::StoragePath>,
+        writes: &crate::analysis::storage_flow::ReachedInputWrites,
     ) -> Option<super::owned::NormalReturn> {
         super::super::postcondition::check_postconditions(
             domain,
@@ -255,7 +255,7 @@ impl TrustedChecks {
         domain: &ExecutionFlowDomain<'_, '_, C>,
         state: &ExecutionState,
         kind: bray_symbols::DependencyFailureKind,
-        writes: &BTreeSet<bray_bound_tree::StoragePath>,
+        writes: &crate::analysis::storage_flow::ReachedInputWrites,
     ) -> bray_symbols::CapturedFailureOutcome {
         let result = ExecutionCondition::unknown();
         let return_substitution = super::super::flow::return_substitution(&result);
@@ -267,6 +267,8 @@ impl TrustedChecks {
             effects: None,
             cell_changes: None,
             writes: super::captured::captured_bindings(domain, state, None, writes).into_iter().collect(),
+            references: Default::default(),
+            stored_values: Default::default(),
             report: None,
         }
     }

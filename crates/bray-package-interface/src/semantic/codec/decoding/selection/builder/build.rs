@@ -1039,7 +1039,13 @@ impl<'bytes, 'records> SelectionBuilder<'bytes, 'records> {
             self.enqueue(PendingRecord::ConstantTerm(guard.raw()));
         }
 
-        for stored in contract.captured_values.iter().flat_map(|outcome| outcome.stored_values.iter()) {
+        let storage_rows = contract.captured_values.iter().map(|outcome| {
+            (outcome.references.as_ref(), outcome.stored_values.as_ref())
+        }).chain(contract.failure_outcomes.as_deref().into_iter().flatten().map(|outcome| {
+            (outcome.references.as_ref(), outcome.stored_values.as_ref())
+        }));
+
+        for stored in storage_rows.clone().flat_map(|(_, stored)| stored) {
             self.include_dependency_subject(stored.destination().subject());
 
             for source in stored.sources() {
@@ -1047,7 +1053,7 @@ impl<'bytes, 'records> SelectionBuilder<'bytes, 'records> {
             }
         }
 
-        for relation in contract.captured_values.iter().flat_map(|outcome| outcome.references.iter()) {
+        for relation in storage_rows.flat_map(|(references, _)| references) {
             if let Some(entry) = relation.source_subject() {
                 self.include_dependency_subject(entry);
             }

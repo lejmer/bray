@@ -16,6 +16,8 @@ pub enum StorageEffect {
     Ambient,
     /// Invocation inputs may escape. A bound records the admitted input regions.
     Escape(Option<Arc<[Target]>>),
+    /// Exact referents reached through language borrows while applying an input effect.
+    BorrowedReach(Arc<[Target]>),
     Atomic,
     // The original checked access type belongs to the mutation. An alias bound
     // supplies its region, never a substitute raw access or transfer type.
@@ -37,6 +39,7 @@ pub enum StorageEffect {
         ty: TypeId,
         sources: Arc<[Target]>,
         regions: Arc<[Target]>,
+        borrowed: Arc<[Target]>,
         inline: Arc<[Target]>,
         complete: bool,
     },
@@ -54,9 +57,14 @@ impl StorageEffect {
 
         let mut complete = binding.is_some_and(|value| value.whole_complete() || value.reference().is_some());
         let mut regions = std::collections::BTreeSet::new();
+        let mut borrowed = std::collections::BTreeSet::new();
 
         for value in values {
             complete &= value.collect_carried_regions(&mut regions) && value.sources.is_empty();
+
+            if value.borrow_capability().is_some() {
+                borrowed.extend(value.reference_regions().into_iter().flatten());
+            }
         }
 
         let inline = if include_inline {
@@ -69,7 +77,14 @@ impl StorageEffect {
             .filter(|(sources, complete)| *complete && !sources.is_empty())
             .map_or_else(|| Arc::from([]), |(sources, _)| sources.iter().cloned().collect());
 
-        Some(Self::CapturedCleanup { ty, sources, regions: regions.into_iter().collect(), inline, complete })
+        Some(Self::CapturedCleanup {
+            ty,
+            sources,
+            regions: regions.into_iter().collect(),
+            borrowed: borrowed.into_iter().collect(),
+            inline,
+            complete,
+        })
     }
 
     pub fn at(
@@ -129,7 +144,7 @@ impl StorageEffect {
     pub fn preserves_storage_lifetimes(&self) -> bool {
         match self {
             Self::Unknown | Self::Ambient | Self::CapturedCleanup { .. } => false,
-            Self::Escape(_) | Self::Atomic => true,
+            Self::Escape(_) | Self::BorrowedReach(_) | Self::Atomic => true,
             Self::Mutation { kind, .. } | Self::UnboundedMutation { kind, .. } => {
                 kind.cleanup_type().is_none() && *kind != DependencyMutationKind::Retire
             }
@@ -151,7 +166,7 @@ impl StorageEffect {
     /// An open cleanup with a region bound and no identified value to read.
     pub fn incomplete_cleanup(ty: TypeId, regions: std::collections::BTreeSet<Target>, inline: impl IntoIterator<Item = Target>) -> Self {
         Self::CapturedCleanup {
-            ty, sources: [].into(), regions: regions.into_iter().collect(),
+            ty, sources: [].into(), regions: regions.into_iter().collect(), borrowed: [].into(),
             inline: bray_base::sorted_unique_shared_slice(inline), complete: false,
         }
     }
@@ -197,9 +212,11 @@ impl StorageEffect {
 
         match self {
             Self::Escape(Some(targets)) => retire_regions(targets),
-            Self::CapturedCleanup { sources, regions, inline, .. } => {
+            Self::BorrowedReach(targets) => retire_regions(targets),
+            Self::CapturedCleanup { sources, regions, borrowed, inline, .. } => {
                 retire_regions(sources);
                 retire_regions(regions);
+                retire_regions(borrowed);
                 retire_regions(inline);
             }
             _ => {}
@@ -211,7 +228,9 @@ impl StorageEffect {
             Self::Mutation { address, footprint, discharged, .. } => address.iter().chain(std::iter::once(footprint))
                 .chain(discharged.iter().flat_map(|duties| duties.iter().map(|duty| &duty.cell)))
                 .any(|target| retirement.contains(current, target)),
-            Self::Escape(Some(targets)) => targets.iter().any(|target| retirement.contains(current, target)),
+            Self::Escape(Some(targets)) | Self::BorrowedReach(targets) => {
+                targets.iter().any(|target| retirement.contains(current, target))
+            }
             Self::CapturedCleanup { sources, regions, inline, .. } => sources.iter().chain(regions.iter()).chain(inline.iter())
                 .any(|target| retirement.contains(current, target)),
             _ => false,
@@ -242,7 +261,7 @@ impl StorageEffect {
         match self {
             Self::Mutation { kind: DependencyMutationKind::Escape, .. } => None,
             Self::Mutation { footprint: target, kind, .. } => Some((target, *kind)),
-            Self::Unknown | Self::Ambient | Self::Escape(_) | Self::Atomic | Self::UnboundedMutation { .. }
+            Self::Unknown | Self::Ambient | Self::Escape(_) | Self::BorrowedReach(_) | Self::Atomic | Self::UnboundedMutation { .. }
             | Self::CapturedCleanup { .. } => None,
         }
     }
@@ -253,6 +272,39 @@ impl StorageEffect {
             Self::CapturedCleanup { regions, .. } => Some(regions.iter()),
             _ => None,
         }).flatten()
+    }
+
+    /// Exact referents reached through safe invocation inputs.
+    pub fn borrowed_reach_regions(effects: &[Self]) -> impl Iterator<Item = &Target> {
+        effects.iter().filter_map(|effect| match effect {
+            Self::BorrowedReach(regions) => Some(regions.iter()),
+            _ => None,
+        }).flatten()
+    }
+
+    /// Regions carried into open cleanup with their evaluated descriptor kinds.
+    pub fn captured_cleanup_reference_regions(
+        effects: &[Self],
+    ) -> impl Iterator<Item = (&Target, bray_symbols::DependencyReferenceKind)> {
+        effects
+            .iter()
+            .filter_map(|effect| match effect {
+                Self::CapturedCleanup {
+                    regions, borrowed, ..
+                } => Some((regions.iter(), borrowed)),
+                _ => None,
+            })
+            .flat_map(|(regions, borrowed)| {
+                regions.map(move |target| {
+                    let kind = if borrowed.contains(target) {
+                        bray_symbols::DependencyReferenceKind::Borrow
+                    } else {
+                        bray_symbols::DependencyReferenceKind::Address
+                    };
+
+                    (target, kind)
+                })
+            })
     }
 
     pub fn incomplete_captured_cleanup(effects: &[Self]) -> bool {

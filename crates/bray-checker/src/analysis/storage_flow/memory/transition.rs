@@ -71,7 +71,7 @@ impl State {
     }
 
     pub(in crate::analysis::storage_flow::memory) fn has_addressed_storage(&self, target: &Target) -> bool {
-        let region = super::references::exposure_region(target);
+        let region = target.exposure_region();
 
         storage_subtree(&self.contents, &region).next().is_some()
     }

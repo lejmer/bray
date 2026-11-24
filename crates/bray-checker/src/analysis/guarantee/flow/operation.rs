@@ -99,12 +99,28 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let invalidation = flow.selected_operation_invalidation(point.id(), selection.as_ref());
         let target = |kind| flow.operation_target(point.id(), kind, rows);
 
-        let assignment = expression.filter(|_| matches!(operation,
-            AnalysisOperationKind::Bound(_) | AnalysisOperationKind::AssignmentInstall(_)))
+        let assignment = expression
+            .filter(|_| {
+                matches!(
+                    operation,
+                    AnalysisOperationKind::Bound(_) | AnalysisOperationKind::AssignmentInstall(_)
+                )
+            })
             .and_then(|expression| target(StorageStateTarget::Assignment(expression)))
             .filter(|target| target.is_exact())
-            .and_then(bray_bound_tree::StorageTarget::value_observation_path)
-            .and_then(|path| crate::ExecutionPlace::storage_path(self.storage, &path));
+            .and_then(|target| {
+                let plan = operation
+                    .storage_plans(self.storage)
+                    .find(|plan| plan.purpose() == bray_bound_tree::StorageAccessPurpose::Assignment)?;
+
+                let ty = self
+                    .storage
+                    .access(plan.access())
+                    .expect("an assignment target has its checked access")
+                    .reached_type();
+
+                Some((target, ty))
+            });
 
         if task.is_some() && invalidation.is_none() && flow.operation_invalidation(point.id()).is_some() {
             return false;
@@ -135,7 +151,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             self.replay_storage_moves(state, point, rows);
             self.replay_admission(state, point, selection.as_ref());
-            self.produce_call_attempt(state, invocation, inputs, invalidation, assignment.as_ref());
+            self.produce_call_attempt(state, invocation, inputs, invalidation, assignment);
         } else {
             if operation.awaited_expression().is_some() {
                 self.replay_admission(state, point, selection.as_ref());
@@ -143,7 +159,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             let ordinary = task.is_none().then_some(invalidation).flatten();
 
-            self.transfer_operation(state, operation, ordinary, assignment.as_ref(), captures);
+            self.transfer_operation(state, operation, ordinary, assignment, captures);
 
             if let AnalysisOperationKind::Call { invocation, phase: AnalysisCallPhase::Input } = operation {
                 let _ = self.capture_entry_check(state, invocation);
@@ -241,7 +257,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         state: &mut ExecutionState,
         operation: super::super::super::model::AnalysisOperationKind,
         invalidation: Option<&bray_bound_tree::StorageInvalidation>,
-        assignment_place: Option<&crate::ExecutionPlace>,
+        assignment: Option<(&bray_bound_tree::StorageTarget, bray_symbols::TypeId)>,
         captures: &[bray_bound_tree::StorageValueCapture],
     ) {
         if let super::super::super::model::AnalysisOperationKind::Result { expression, phase } =
@@ -321,7 +337,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 AnalysisCallPhase::Attempt => {
                     let admitted = self.admit_call_inputs(state, invocation);
 
-                    self.produce_call_attempt(state, invocation, admitted, invalidation, assignment_place);
+                    self.produce_call_attempt(state, invocation, admitted, invalidation, assignment);
                 }
                 AnalysisCallPhase::Completion => {}
             }
@@ -337,16 +353,21 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 self.invalidate_observations(state, bray_bound_tree::StorageMutation::AssignmentInstall(expression), invalidation);
             }
 
-            if let Some(place) = assignment_place {
+            if let Some((target, ty)) = assignment {
                 let source = self.storage.invocation_result(expression.into()).expect("selected operator has its own storage");
 
-                let destination = operation.storage_plans(self.storage)
-                    .find(|plan| plan.purpose() == bray_bound_tree::StorageAccessPurpose::Assignment)
-                    .expect("assignment has its checked write access");
+                let source_ty = self
+                    .storage
+                    .access(source)
+                    .expect("assignment source has its checked type")
+                    .reached_type();
 
-                let ty = |access| self.storage.access(access).expect("assignment storage has a checked type").reached_type();
-
-                state.assign(place.clone(), value.coerce(self.request.semantic_values(), ty(source), ty(destination.access())), None);
+                self.publish_current_value(
+                    state,
+                    target,
+                    ty,
+                    value.coerce(self.request.semantic_values(), source_ty, ty),
+                );
             }
 
             state.vacate(result);
@@ -388,7 +409,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         state.pending_results.insert(expression, observed);
                     }
 
-                    self.expression(state, expression, invalidation, assignment_place,
+                    self.expression(state, expression, invalidation, assignment,
                         matches!(operation, super::super::super::model::AnalysisOperationKind::Bound(_)));
                 }
 
@@ -524,7 +545,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         &self, state: &mut ExecutionState, invocation: bray_bound_tree::BoundExecutionSite,
         admitted: (Option<ExecutionCondition>, bool),
         invalidation: Option<&bray_bound_tree::StorageInvalidation>,
-        assignment_place: Option<&crate::ExecutionPlace>,
+        assignment: Option<(&bray_bound_tree::StorageTarget, bray_symbols::TypeId)>,
     ) {
         let (observed, deferred) = admitted;
 
@@ -533,7 +554,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 state.pending_results.insert(expression, observed);
             }
 
-            self.expression(state, expression, invalidation, assignment_place, false);
+            self.expression(state, expression, invalidation, assignment, false);
 
             if let Some(value) = state.expressions.remove(&expression) {
                 state.pending_results.insert(expression, value);
@@ -823,7 +844,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         state: &mut ExecutionState,
         expression: BoundExpressionId,
         invalidation: Option<&bray_bound_tree::StorageInvalidation>,
-        assignment_place: Option<&crate::ExecutionPlace>,
+        assignment_target: Option<(&bray_bound_tree::StorageTarget, bray_symbols::TypeId)>,
         completes: bool,
     ) {
         state.expressions.remove(&expression);
@@ -867,8 +888,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let node = self.request.view().expression(expression);
 
         let assignment_value = if let Some(BoundExpression::Assignment(assignment)) = node
-            && let [target, source] = assignment.operands()
-            && let Some(place) = assignment_place
+            && let [_, source] = assignment.operands()
+            && let Some((destination, destination_ty)) = assignment_target
         {
             assert_eq!(assignment.operator(), BoundAssignmentOperator::Assign,
                 "a compound assignment installs the completed operator result");
@@ -879,19 +900,18 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 self.request.semantic_values(),
                 types.expression(*source)
                     .expect("assignment source retains its checked type").ty(),
-                types.expression(*target)
-                    .expect("assignment target retains its checked type").ty(),
+                destination_ty,
             );
 
-            Some((place, value))
+            Some((destination, destination_ty, value))
         } else {
             None
         };
 
         self.invalidate(state, expression.into(), invalidation);
 
-        if let Some((place, value)) = assignment_value {
-            state.assign(place.clone(), value, None);
+        if let Some((target, ty, value)) = assignment_value {
+            self.publish_current_value(state, target, ty, value);
         }
 
         match node {

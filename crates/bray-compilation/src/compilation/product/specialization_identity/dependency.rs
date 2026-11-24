@@ -205,6 +205,8 @@ impl StructuralValueEncoder<'_, '_> {
         self.dependency_optional_report(row.report.as_deref())?;
         self.dependency_optional_effects(row.effects.as_deref())?;
         self.dependency_optional_effects(row.cell_changes.as_deref())?;
+        self.dependency_set(&row.references, Self::dependency_borrow)?;
+        self.dependency_set(&row.stored_values, Self::dependency_stored_value)?;
 
         self.dependency_set(&row.writes, Self::dependency_captured_write)
     }

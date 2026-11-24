@@ -351,6 +351,8 @@ pub(super) fn sequence_dependencies(
             effects: Some(contract.effects().into()),
             cell_changes: None,
             writes: std::sync::Arc::new([]),
+            references: std::sync::Arc::new([]),
+            stored_values: std::sync::Arc::new([]),
         }])
     };
 

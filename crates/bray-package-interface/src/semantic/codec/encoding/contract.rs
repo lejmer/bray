@@ -170,6 +170,7 @@ fn encode_failure_outcomes(encoder: &mut WireEncoder, outcomes: Option<&[crate::
 
             encode_optional_effects(encoder, row.effects.as_deref());
             encode_optional_effects(encoder, row.cell_changes.as_deref());
+            encode_dependency_storage(encoder, &row.references, &row.stored_values);
             super::super::captured::encode_bindings(encoder, &row.writes);
         }
     }

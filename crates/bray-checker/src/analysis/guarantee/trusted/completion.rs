@@ -5,8 +5,8 @@ use super::super::flow::ExecutionFlowDomain;
 use super::super::state::ExecutionState;
 use super::dependencies::{address_value, carry_address_guarantee};
 use super::guarantees::CompletionGuarantees;
-use crate::execution_guarantees::ExecutionOutput;
-use crate::{CheckerRequestContext, ExecutionCondition};
+use crate::execution_guarantees::{AddressDependencies, ExecutionOutput};
+use crate::{CheckerRequestContext, ExecutionCondition, ExecutionPlace};
 
 impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     pub(in crate::analysis::guarantee) fn complete_trusted_cleanup(
@@ -33,11 +33,13 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let receiver = crate::ExecutionPlace::from(lifecycle.receiver);
         let arguments = BTreeMap::from([(receiver.clone(), root.clone())]);
 
-        let instantiate = |condition: &ExecutionCondition| condition.substitute(
+        let bind = |condition: &ExecutionCondition| condition.substitute(
             &|input| input.value_in(&arguments).unwrap_or_else(ExecutionCondition::unknown),
             &ExecutionCondition::unknown(),
             &mut { ExecutionCondition::WORK_LIMIT },
-        ).pointer_observations(&self.pointer_predicates);
+        );
+
+        let instantiate = |condition: &ExecutionCondition| bind(condition).pointer_observations(&self.pointer_predicates);
 
         let context = if crate::representation::borrow_target_type(self.request.semantic_values(), lifecycle.call.receiver).is_some() {
             std::borrow::Cow::Owned(BTreeMap::from([(receiver, root.borrowed())]))
@@ -45,21 +47,34 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             std::borrow::Cow::Borrowed(&arguments)
         };
 
-        let support = |state: &ExecutionState, value: &ExecutionCondition, claim: &ExecutionCondition| {
-            if contract.address_subjects.is_empty() {
-                return crate::execution_guarantees::AddressDependencies::new();
+        let mut support = BTreeMap::<_, AddressDependencies>::new();
+        let mut unsupported = BTreeSet::new();
+        let mut access_subjects = Vec::new();
+
+        for subject in &contract.address_subjects {
+            if subject.subject.observes_completion_result() { continue; }
+
+            let value = bind(&subject.subject);
+            let address = address_value(value.clone());
+
+            if address.is_unknown() {
+                unsupported.insert(&subject.condition);
+
+                continue;
             }
 
-            let mut addresses = state.address_dependencies(value);
+            let Some(owners) = self.cleanup_address_owners(state, entry, &value, &address, subject.ty) else {
+                unsupported.insert(&subject.condition);
 
-            for (address, owners) in entry.addresses.values().flatten() {
-                if claim.observes_trusted(address) && owners.iter().all(|owner| state.current.live_value(owner).is_some()) {
-                    addresses.entry(address.clone()).or_default().extend(owners.iter().cloned());
-                }
-            }
+                continue;
+            };
 
-            addresses
-        };
+            support.entry(&subject.condition).or_default().entry(address.clone()).or_default().extend(owners);
+
+            if !subject.owning { access_subjects.push((&subject.condition, address)); }
+        }
+
+        support.retain(|condition, _| !unsupported.contains(condition));
 
         for (template, subject) in &contract.witness_subjects {
             let guarantee = instantiate(&entry.capture_condition(template));
@@ -69,29 +84,28 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 continue;
             }
 
+            let observes_address = contract.address_subjects.iter().any(|address| {
+                &address.condition == template && !address.subject.observes_completion_result()
+            });
+
+            if observes_address && !support.contains_key(template) {
+                continue;
+            }
+
             self.carry_input_witnesses(
                 state, (template, subject), (&guarantee, &subject_value),
-                (&context, &contract.address_subjects), |state| support(state, &subject_value, &guarantee),
+                (&context, &contract.address_subjects), |_| support.get(template).cloned().unwrap_or_default(),
             );
         }
 
-        for (template, subject, owning) in &contract.address_subjects {
-            if *owning || subject.observes_completion_result() {
+        for (template, address) in access_subjects {
+            let Some(support) = support.get(template) else {
                 continue;
-            }
-
-            let address = address_value(instantiate(subject));
-
-            if address.is_unknown() {
-                continue;
-            }
+            };
 
             let guarantee = instantiate(&entry.capture_condition(template));
-            let addresses = support(state, &address, &guarantee);
 
-            if !addresses.is_empty() {
-                carry_address_guarantee(state, &address, &guarantee, &addresses);
-            }
+            carry_address_guarantee(state, &address, &guarantee, support);
         }
 
         for condition in &contract.guarantees {
@@ -102,6 +116,37 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             instantiate(&entry.capture_condition(condition)).assume(true, &mut state.assumptions);
         }
 
+    }
+
+    fn cleanup_address_owners(
+        &self,
+        state: &ExecutionState,
+        entry: &crate::ExecutionCallEvidence,
+        value: &ExecutionCondition,
+        address: &ExecutionCondition,
+        ty: bray_symbols::TypeId,
+    ) -> Option<BTreeSet<ExecutionPlace>> {
+        let pointee = crate::representation::reference_target_type(self.request, ty);
+
+        let reached = value.inline_captured_storage().and_then(bray_bound_tree::StorageCapturedValue::address_regions)
+            .filter(|targets| !targets.is_empty()).and_then(|targets| targets.iter().map(|target| {
+                if matches!(&target.origin, bray_bound_tree::StorageOrigin::BackingRegion) { return None; }
+
+                target.value_observation_path().and_then(|path| ExecutionPlace::storage_owner(self.storage, &path))
+                    .or_else(|| pointee.map(|ty| ExecutionPlace::pointee(self.storage, target, ty)))
+            }).collect::<Option<BTreeSet<_>>>());
+
+        if reached.is_some() { return reached; }
+
+        let mut owners = state.address_dependencies(value).remove(address);
+
+        for retained in entry.addresses.values().filter_map(|addresses| addresses.get(address)) {
+            if retained.iter().all(|owner| state.current.live_value(owner).is_some()) {
+                owners.get_or_insert_default().extend(retained.iter().cloned());
+            }
+        }
+
+        owners
     }
 
     pub(in crate::analysis::guarantee) fn expire_trusted_scope(

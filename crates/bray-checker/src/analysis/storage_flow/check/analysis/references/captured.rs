@@ -16,16 +16,45 @@ pub(in crate::analysis::storage_flow::check::analysis) enum ValuePublication {
 }
 
 impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
-    pub(in crate::analysis::storage_flow::check::analysis) fn record_current_write(&self, state: &mut StorageFlowState, target: &bray_bound_tree::StorageTarget) {
-        if target.is_exact()
-            && matches!(target.origin, bray_bound_tree::StorageOrigin::Entry { layer: 1, kind: bray_symbols::DependencyReferenceKind::Borrow, .. })
-            && let Some(path) = target.inline_state_path()
-            && self.formal_root(path.root).is_some()
-            && !state.written_inputs.iter().any(|written| written.contains(&path))
-        {
-            state.written_inputs.retain(|written| !path.contains(written));
-            state.written_inputs.insert(path);
+    pub(in crate::analysis::storage_flow::check::analysis) fn record_current_write(
+        &self,
+        state: &mut StorageFlowState,
+        target: &bray_bound_tree::StorageTarget,
+        ty: bray_symbols::TypeId,
+    ) {
+        if !target.is_exact() {
+            return;
         }
+
+        let bray_bound_tree::StorageOrigin::Entry {
+            reference,
+            layer: 1,
+            kind: bray_symbols::DependencyReferenceKind::Borrow,
+            projections,
+        } = &target.origin
+        else {
+            return;
+        };
+
+        let Some(root) = self.formal_root(reference.root) else {
+            return;
+        };
+
+        let path = reference
+            .projections
+            .iter()
+            .chain(projections.iter())
+            .copied()
+            .collect::<Vec<_>>();
+
+        let Some(path) = crate::storage::dependency_projections(self.request, &path) else {
+            return;
+        };
+
+        state.record_written_input(
+            bray_symbols::DependencySubject::new(root, path),
+            bray_bound_tree::StorageObservedTarget::borrowed(target.clone(), ty),
+        );
     }
 
     pub(in crate::analysis::storage_flow::check::analysis) fn preserve_captured_observations(&self,
@@ -74,8 +103,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
                     bray_bound_tree::StorageTarget::storage(path)
                 }
-                StorageValueDestination::Current { target, .. } => {
-                    self.record_current_write(state, target);
+                StorageValueDestination::Current { target, ty, .. } => {
+                    self.record_current_write(state, target, *ty);
 
                     target.clone()
                 }

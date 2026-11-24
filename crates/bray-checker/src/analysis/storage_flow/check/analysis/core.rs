@@ -149,14 +149,14 @@ where
         }
     }
 
-    let (fallthrough, normal) = collector.collect_terminal_outcomes(graph, &result, &reached);
+    let (fallthrough, normal, failures) = collector.collect_terminal_outcomes(graph, &result, &reached);
 
     let mut diagnostics = match std::mem::take(&mut collector.diagnostics).finish(&mut collector) {
         Ok(diagnostics) => diagnostics,
         Err(error) => return CheckerOutcome::from_query_error(error),
     };
 
-    let result_dependencies = match collector.result_dependencies(&mut diagnostics, &normal) {
+    let result_dependencies = match collector.result_dependencies(&mut diagnostics, &normal, &failures) {
         Ok(dependencies) => dependencies,
         Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
         Err(CheckerQueryError::Upstream(error)) => return CheckerOutcome::UpstreamFailure(error),
@@ -490,7 +490,6 @@ where
     block: Option<AnalysisBlockId>,
     report_collections: BTreeSet<Option<BoundExpressionId>>,
     pub(super) reporting_completions: BTreeSet<bray_bound_tree::BoundExecutionSite>,
-    pub(super) failure_outcomes: Vec<bray_symbols::CapturedFailureOutcome>,
     outcome_mutations:
         BlockRecords<bray_bound_tree::StorageMutation, bray_bound_tree::StorageInvalidation>,
     pub(super) completions:
@@ -511,8 +510,13 @@ where
         graph: &ControlFlowGraph,
         result: &'solved FixedPointResult<StorageFlowOutcomes>,
         reached: &BTreeSet<AnalysisBlockId>,
-    ) -> (bool, Vec<&'solved StorageFlowState>) {
+    ) -> (
+        bool,
+        Vec<&'solved StorageFlowState>,
+        Vec<(&'solved StorageFlowState, bray_symbols::DependencyFailureKind)>,
+    ) {
         let mut completed = Vec::new();
+        let mut failures = Vec::new();
         let normal = graph.completion_exits().map(|exit| exit.block()).collect::<BTreeSet<_>>();
 
         let abnormal = graph.abnormal_exits().map(|exit| {
@@ -543,7 +547,7 @@ where
                 } else if let Some(kind) = abnormal.get(&block.id()) {
                     let kind = state.cleanup.as_ref().map_or(*kind, crate::analysis::outcomes::CleanupProgress::failure);
 
-                    self.collect_failure(state, kind);
+                    failures.push((state, kind));
                 }
             }
         }
@@ -553,23 +557,7 @@ where
                 && result.output(exit.block()).is_some_and(|outcomes| outcomes.states().any(|state| !state.recovered))
         });
 
-        (fallthrough, completed)
-    }
-
-    fn collect_failure(&mut self, state: &StorageFlowState, kind: bray_symbols::DependencyFailureKind) {
-        let execution = state.execution.as_ref().expect("reachable failure retains its execution facts");
-
-        let mut outcome = self.trusted.failure_outcome(self.execution, execution, kind, &state.written_inputs);
-
-        outcome.effects = Some(state.effect_prefix.iter().cloned().collect());
-        outcome.cell_changes = self.outcome_cell_changes(state);
-
-        outcome.report = match kind {
-            bray_symbols::DependencyFailureKind::Panic => Some(state.completed_report().unwrap_or_default()),
-            bray_symbols::DependencyFailureKind::Cancellation => state.completed_report(),
-        };
-
-        self.failure_outcomes.push(outcome);
+        (fallthrough, completed, failures)
     }
 
     fn collect_conditions(
@@ -662,7 +650,6 @@ where
             block: None,
             report_collections: BTreeSet::new(),
             reporting_completions: BTreeSet::new(),
-            failure_outcomes: Vec::new(),
             memory_decisions: BTreeMap::new(),
             diagnostics: BlockChecks::default(),
             publish,
@@ -964,7 +951,9 @@ where
 
         let assignment_mutation = assignment_plan.map(|plan| self.assignment_mutation(kind, plan, &execution));
 
-        let invocation_roots = attempt.map(|_| Self::invocation_roots(&state.memory, execution.admitted_call(occurrence)));
+        let invocation_roots = attempt.map(|_| {
+            self.invocation_roots(&state.memory, execution.admitted_call(occurrence))
+        });
 
         if kind.awaited_expression().is_none() {
             self.prepare_frame_execution(&state.memory, &mut execution, operation, &[]);
@@ -1023,8 +1012,8 @@ where
         }
 
         let (escaped, escape_prefix) = self.operation_escapes(
-            state, &execution, kind, (assignment_roots.as_deref(), assignment_effects),
-            (invocation_roots.as_deref(), call_effects), started.is_some(),
+            state, &execution, kind, (assignment_roots.as_ref(), assignment_effects),
+            (invocation_roots.as_ref(), call_effects), started.is_some(),
         );
 
         if !completing {
@@ -1035,7 +1024,7 @@ where
                 assignment_mutation,
                 possible_effects,
                 invocation_roots.as_deref().unwrap_or(&[]),
-                &escaped,
+                &escaped.reached,
             );
         }
 
@@ -1044,12 +1033,17 @@ where
 
         let transition = (operation.id(), guarded.as_ref());
 
+        let invocation_mutation_roots = invocation_roots
+            .as_ref()
+            .map(|roots| roots.mutation_regions(&state.memory));
+
         let invalidation = (!completing).then(|| self.prepare_operation_invalidation(
             state, &mut execution, (operation, guarded.as_ref()), (local_effects, call_effects, returned_referents),
-            invocation_roots.as_deref(), &escaped, intrinsic,
+            invocation_mutation_roots.as_deref(), &escaped.published, intrinsic,
         )).flatten();
 
         let unique_assignment = assignment.and_then(StorageAddressValue::single_location).cloned();
+        let assignment_target = self.typed_assignment_target(unique_assignment.as_ref(), assignment_plan);
 
         if let Some(plan) = assignment_plan {
             reached_accesses.insert(plan, destination);
@@ -1060,7 +1054,9 @@ where
         if !completing {
             let can_fail = attempt.is_some() && self.capture_failure_effects(
                 state, kind, &execution, outcomes.as_ref(), &failure_prefixes,
-                invocation_roots.as_deref().unwrap_or(&[]),
+                invocation_roots
+                    .as_ref()
+                    .expect("a call attempt retains its reached input regions"),
             );
 
             if let Some(expression) = kind.awaited_expression() {
@@ -1103,20 +1099,20 @@ where
                 local_effects,
             );
 
-            if let Some(target) = unique_assignment.as_ref() && assignment_mutation.is_some() {
-                self.record_current_write(state, target);
+            if let Some((target, ty)) = assignment_target && assignment_mutation.is_some() {
+                self.record_current_write(state, target, ty);
             }
 
-            let assignment = unique_assignment.as_ref()
-                .filter(|target| target.is_exact())
-                .and_then(Target::value_observation_path)
-                .and_then(|path| crate::ExecutionPlace::storage_path(self.storage, &path));
+            let assignment = assignment_target.filter(|(target, _)| target.is_exact());
 
-            if let Some(call) = call {
-                self.execution.produce_call_attempt(&mut execution, occurrence, call, invalidation.as_ref(), assignment.as_ref());
-            } else {
-                self.execution.transfer_operation(&mut execution, kind, invalidation.as_ref(), assignment.as_ref(), captures);
-            }
+            self.transfer_operation_execution(
+                &mut execution,
+                kind,
+                call,
+                invalidation.as_ref(),
+                assignment,
+                captures,
+            );
         }
 
         if matches!(
@@ -1134,7 +1130,9 @@ where
         self.record_entry_check(&mut execution, kind);
 
         state.execution = Some(execution);
-        state.memory.escape_regions(escaped, Some(occurrence));
+        state
+            .memory
+            .escape_regions(escaped.published, Some(occurrence));
 
         self.apply_call_effects(state, kind, call_effects, invalidation.as_ref());
 
@@ -1274,6 +1272,34 @@ where
         state.refinements = refinements;
 
         completion
+    }
+
+    fn transfer_operation_execution(
+        &self,
+        execution: &mut crate::analysis::guarantee::ExecutionState,
+        operation: AnalysisOperationKind,
+        admitted: Option<(Option<crate::ExecutionCondition>, bool)>,
+        invalidation: Option<&bray_bound_tree::StorageInvalidation>,
+        assignment: Option<(&Target, bray_symbols::TypeId)>,
+        captures: &[bray_bound_tree::StorageValueCapture],
+    ) {
+        if let Some(admitted) = admitted {
+            self.execution.produce_call_attempt(
+                execution,
+                operation.occurrence(),
+                admitted,
+                invalidation,
+                assignment,
+            );
+        } else {
+            self.execution.transfer_operation(
+                execution,
+                operation,
+                invalidation,
+                assignment,
+                captures,
+            );
+        }
     }
 
     fn admit_call_attempt(

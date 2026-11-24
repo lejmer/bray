@@ -401,4 +401,33 @@ mod tests {
             assert_ne!(unrelated.prove_trusted(&branch.trusted_assumptions, &branch.assumptions), Some(true));
         }
     }
+
+    #[test]
+    fn selected_completion_can_prove_a_clause_in_a_shared_carrier_ledger() {
+        let input = |index| ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(index))));
+        let owner = ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(0));
+        let selector = input(1);
+        let claim = ExecutionCondition::new(crate::ExecutionConditionKind::Trusted(Arc::new(input(2))));
+        let mut state = ExecutionState::default();
+
+        state.assign(owner, input(0), None);
+        state.carry_guarantee(input(0), claim.clone());
+
+        select_cleanup(&mut state, selector.clone().into(), &mut None, |chosen, _| {
+            claim.clone().assume(true, &mut chosen.trusted_assumptions);
+
+            true
+        });
+
+        assert_ne!(state.proof().prove_trusted(&claim), Some(true));
+
+        for selected in [false, true] {
+            let mut branch = state.clone();
+
+            selector.clone().assume(selected, &mut branch.assumptions);
+            branch.refine_witnesses();
+
+            assert_eq!(branch.proof().prove_trusted(&claim) == Some(true), selected);
+        }
+    }
 }

@@ -353,6 +353,17 @@ impl StorageTarget {
         Some(region)
     }
 
+    /// Returns the region reachable through native address arithmetic.
+    pub fn exposure_region(&self) -> Self {
+        self.allocation_region().unwrap_or_else(|| match &self.origin {
+            StorageOrigin::Storage(path) => Self {
+                previous: self.previous,
+                ..Self::storage(StoragePath::root(path.root))
+            },
+            _ => self.clone(),
+        })
+    }
+
     /// Compares referents without equating independent entry or returned references.
     pub fn relationship(&self, other: &Self) -> crate::StorageRelationship {
         self.relationship_in_slots(other, &[])

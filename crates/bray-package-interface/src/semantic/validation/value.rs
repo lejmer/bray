@@ -99,7 +99,13 @@ impl InterfaceSemantics {
                 self.validate_owned_result_graph(&outcome.ownership, symbol_count, dependency_count, limits)?;
             }
 
-            for stored in contract.captured_values.iter().flat_map(|outcome| outcome.stored_values.iter()) {
+            let storage_rows = contract.captured_values.iter().map(|outcome| {
+                (outcome.references.as_ref(), outcome.stored_values.as_ref())
+            }).chain(contract.failure_outcomes.as_deref().into_iter().flatten().map(|outcome| {
+                (outcome.references.as_ref(), outcome.stored_values.as_ref())
+            }));
+
+            for stored in storage_rows.clone().flat_map(|(_, stored)| stored) {
                 for (endpoint, destination) in std::iter::once((stored.destination(), true))
                     .chain(stored.sources().iter().map(|source| (source, false))) {
                     let root = endpoint.subject().subject_root();
@@ -120,7 +126,7 @@ impl InterfaceSemantics {
                 }
             }
 
-            for relation in contract.captured_values.iter().flat_map(|outcome| outcome.references.iter()) {
+            for relation in storage_rows.flat_map(|(references, _)| references) {
                 if let Some(entry) = relation.source_subject() {
                     self.validate_dependency_subject(entry, symbol_count, dependency_count)?;
                 }

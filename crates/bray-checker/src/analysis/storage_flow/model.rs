@@ -9,6 +9,6 @@ mod tests;
 pub(super) use domain::StorageFlowDomain;
 pub(crate) use input::StorageFlowInput;
 pub(super) use outcomes::StorageFlowOutcomes;
-pub(in crate::analysis) use state::StorageFlowState;
+pub(in crate::analysis) use state::{ReachedInputWrites, StorageFlowState};
 
 pub(super) use state::{AdmittedFailure, EffectPrefix, merge_fully_moved};

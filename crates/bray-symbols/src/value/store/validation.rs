@@ -438,7 +438,13 @@ pub(super) fn validate_dependency_template_data(
         validate_dependency_subject(tables, store, payload);
     }
 
-    for stored in data.captured_values().iter().flat_map(|row| row.stored_values.iter()) {
+    let storage_rows = data.captured_values().iter().map(|row| {
+        (row.references.as_ref(), row.stored_values.as_ref())
+    }).chain(data.failure_outcomes().into_iter().flatten().map(|row| {
+        (row.references.as_ref(), row.stored_values.as_ref())
+    }));
+
+    for stored in storage_rows.clone().flat_map(|(_, stored)| stored) {
         for (endpoint, destination) in std::iter::once((stored.destination(), true))
             .chain(stored.sources().iter().map(|source| (source, false))) {
             let root = endpoint.subject().subject_root();
@@ -456,7 +462,7 @@ pub(super) fn validate_dependency_template_data(
         }
     }
 
-    for relation in data.captured_values().iter().flat_map(|row| row.references.iter()) {
+    for relation in storage_rows.flat_map(|(references, _)| references) {
         if let Some(entry) = relation.entry() {
             validate_dependency_subject(tables, store, entry);
         }

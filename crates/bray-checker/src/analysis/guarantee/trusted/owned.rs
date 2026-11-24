@@ -26,7 +26,7 @@ impl super::check::TrustedChecks {
         domain: &ExecutionFlowDomain<'_, '_, C>,
         state: &ExecutionState,
         result: &ExecutionCondition,
-        writes: &std::collections::BTreeSet<bray_bound_tree::StoragePath>,
+        writes: &crate::analysis::storage_flow::ReachedInputWrites,
     ) -> Option<NormalReturn> {
         let inputs = domain.request.trusted_contracts()?;
 

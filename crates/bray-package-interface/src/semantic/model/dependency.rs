@@ -330,7 +330,8 @@ pub type InterfaceCapturedBinding = (InterfaceDependencySubject, bray_symbols::C
 
 /// One abnormal outcome using interface-local identities.
 pub type InterfaceFailureOutcome = bray_symbols::CapturedFailureOutcome<InterfaceConstantTermId,
-    Arc<[InterfaceDependencyRequirement]>, InterfaceStorageEffect, InterfaceCapturedBinding>;
+    Arc<[InterfaceDependencyRequirement]>, InterfaceStorageEffect, InterfaceCapturedBinding,
+    InterfaceDependencySubject, InterfaceDependencyProjection>;
 
 /// One normalized portable dependency contract.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -394,6 +395,8 @@ impl InterfaceDependencyContract {
             effects: None,
             cell_changes: None,
             writes: Arc::new([]),
+            references: Arc::new([]),
+            stored_values: Arc::new([]),
         }]))
     }
 

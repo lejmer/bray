@@ -1,9 +1,9 @@
 use crate::analysis::storage_flow::memory::Effect;
 use bray_symbols::DependencyMutationKind;
 use std::borrow::Cow;
-use std::collections::BTreeSet;
 
 use super::super::core::StorageFlowCollector;
+use super::{ReachedReferenceRegions, ResolvedEscapes};
 use crate::CheckerRequestContext;
 use crate::analysis::storage_flow::memory::{Origin, Place, Source, Target};
 use crate::analysis::storage_flow::model::{EffectPrefix, StorageFlowState};
@@ -16,10 +16,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         state: &StorageFlowState,
         execution: &crate::analysis::guarantee::ExecutionState,
         operation: crate::analysis::model::AnalysisOperationKind,
-        (assignment, assignment_effects): (Option<&[Target]>, Option<&[Effect]>),
-        (inputs, call_effects): (Option<&[Target]>, Option<&[Effect]>),
+        (assignment, assignment_effects): (Option<&ReachedReferenceRegions>, Option<&[Effect]>),
+        (inputs, call_effects): (Option<&ReachedReferenceRegions>, Option<&[Effect]>),
         scheduled: bool,
-    ) -> (BTreeSet<Target>, EffectPrefix) {
+    ) -> (ResolvedEscapes, EffectPrefix) {
         let mut prefix = EffectPrefix::default();
 
         let mut escaped = assignment.map(|roots| {
@@ -30,7 +30,17 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             let mut concurrent = EffectPrefix::default();
             let call_prefix = if scheduled { &mut concurrent } else { &mut prefix };
 
-            escaped.extend(self.address_escapes(state, execution, operation, call_effects, roots, call_prefix));
+            let incoming = self.address_escapes(
+                state,
+                execution,
+                operation,
+                call_effects,
+                roots,
+                call_prefix,
+            );
+
+            escaped.reached.extend(incoming.reached);
+            escaped.published.extend(incoming.published);
         }
 
         (escaped, prefix)
@@ -42,9 +52,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         execution: &crate::analysis::guarantee::ExecutionState,
         operation: crate::analysis::model::AnalysisOperationKind,
         effects: Option<&[crate::analysis::storage_flow::memory::Effect]>,
-        roots: &[Target],
+        roots: &ReachedReferenceRegions,
         prefix: &mut EffectPrefix,
-    ) -> BTreeSet<Target> {
+    ) -> ResolvedEscapes {
         let occurrence = operation.occurrence();
 
         let memory = matches!(occurrence, BoundExecutionSite::Node(_))
@@ -66,7 +76,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         }) {
             // These compiler-owned operations retire backing, extract an element,
             // or update its live prefix without publishing an input address.
-            return BTreeSet::new();
+            return ResolvedEscapes::default();
         }
 
         let exposed_integer = memory.is_some_and(|operation| {
@@ -84,7 +94,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         }) {
             // Storing reference-free data publishes neither the source nor the
             // destination pointer. Its destination mutation is modeled separately.
-            return BTreeSet::new();
+            return ResolvedEscapes::default();
         }
 
         if memory.is_some_and(|operation| matches!(operation.kind(),
@@ -93,7 +103,13 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 | bray_bound_tree::CheckedMemoryOperationKind::RawBufferRelease { .. }
         )) {
             // The owning primitive supplies the stored payload's exact escape roots.
-            return self.escape_effects(&state.memory, effects, &[], false, (occurrence, Some(prefix)));
+            return self.escape_effects(
+                &state.memory,
+                effects,
+                &ReachedReferenceRegions::default(),
+                false,
+                (occurrence, Some(prefix)),
+            );
         }
 
         let direct_write = memory.is_some()
@@ -121,15 +137,20 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             // Dereferencing the destination does not publish its address. Only
             // references contained in the stored value can escape through this write.
             let value = operation.arguments()[1];
-            let mut stored = Vec::new();
             let capture = self.captured_memory_operand(execution, operation, value);
+            let stored = ReachedReferenceRegions::new(capture.into_iter().flat_map(|capture| {
+                capture.carried_reference_regions().chain(capture.carried_sources().cloned().map(|target| {
+                    (target, bray_symbols::DependencyReferenceKind::Address)
+                }))
+            }));
 
-            if let Some(capture) = capture {
-                stored.extend(capture.carried_regions());
-                stored.extend(capture.carried_sources().cloned());
-            }
-
-            self.escape_effects(&state.memory, Some(&[]), &stored, may_store, (occurrence, Some(prefix)))
+            self.escape_effects(
+                &state.memory,
+                Some(&[]),
+                &stored,
+                may_store,
+                (occurrence, Some(prefix)),
+            )
         } else {
             self.escape_effects(
                 &state.memory,
@@ -145,43 +166,57 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         &mut self,
         memory: &crate::analysis::storage_flow::memory::State,
         effects: Option<&[crate::analysis::storage_flow::memory::Effect]>,
-        roots: &[Target],
+        roots: &ReachedReferenceRegions,
         retain_inputs: bool,
         (occurrence, mut prefix): (BoundExecutionSite, Option<&mut EffectPrefix>),
-    ) -> BTreeSet<Target> {
+    ) -> ResolvedEscapes {
 
         let all_inputs = retain_inputs
             || effects.is_none_or(|effects| {
                 effects
                     .iter()
-                    .any(|effect| matches!(effect, Effect::Escape(None)))
+                    .any(|effect| matches!(effect, Effect::Escape(_) | Effect::BorrowedReach(_)))
             });
 
         let targets = effects
             .into_iter()
             .flatten()
             .flat_map(Effect::escape_regions)
-            .chain(roots.iter().filter(|_| all_inputs))
             .cloned()
-            .collect::<Vec<_>>();
+            .map(|target| (target, bray_symbols::DependencyReferenceKind::Address))
+            .chain(roots.classified().filter(|_| all_inputs))
+            .chain(
+                Effect::borrowed_reach_regions(effects.unwrap_or_default())
+                    .cloned()
+                    .map(|target| (target, bray_symbols::DependencyReferenceKind::Borrow)),
+            );
 
         // Cleanup can publish references stored in the disposed value. Its own
         // receiver address remains governed by the terminal receiver contract.
         let cleanup_references = effects.into_iter().flatten().flat_map(|effect| {
             match effect {
                 Effect::Mutation { footprint: target, kind, .. } if kind.cleanup_type().is_some() => {
-                    Some(matches!(kind, DependencyMutationKind::Cleanup(_)).then_some(target).into_iter().chain(memory.contained_regions(target)))
+                    Some(
+                        matches!(kind, DependencyMutationKind::Cleanup(_))
+                            .then_some((target.clone(), bray_symbols::DependencyReferenceKind::Address))
+                            .into_iter()
+                            .chain(memory.contained_reference_regions(target)),
+                    )
                 }
                 _ => None,
-            }.into_iter().flatten().cloned()
+            }.into_iter().flatten()
         });
 
-        let roots = targets.into_iter().chain(cleanup_references)
-            .chain(Effect::captured_cleanup_regions(effects.unwrap_or_default()).cloned()).collect::<Vec<_>>();
+        let roots = ReachedReferenceRegions::new(
+            targets.chain(cleanup_references).chain(
+                Effect::captured_cleanup_reference_regions(effects.unwrap_or_default())
+                    .map(|(target, kind)| (target.clone(), kind)),
+            ),
+        );
 
         // A possible alias inside this body is not an unconditional input escape.
         // Retain the operands so callers resolve aliases using their actual storage.
-        for target in memory.escape_roots(roots.iter().cloned(), Some(occurrence)) {
+        for target in memory.escape_roots(roots.classified(), Some(occurrence)) {
             self.record_target_effect(
                 memory,
                 &target,
@@ -193,31 +228,66 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             );
         }
 
-        memory.escaped_regions(roots, Some(occurrence))
+        let (reached, published) =
+            memory.escaped_regions(roots.classified(), Some(occurrence));
+
+        ResolvedEscapes { reached, published }
     }
 
     pub(in crate::analysis::storage_flow::check::analysis) fn invocation_roots(
+        &self,
         memory: &crate::analysis::storage_flow::memory::State,
         entry: Option<&crate::ExecutionCallEvidence>,
-    ) -> Vec<Target> {
+    ) -> ReachedReferenceRegions {
         let mut roots = Vec::new();
+
+        let borrow_kind = |capability: Option<bray_bound_tree::BorrowCapabilityId>| {
+            capability
+                .and_then(|capability| self.storage.borrow_capability(capability))
+                .map(bray_bound_tree::PlannedBorrowCapability::kind)
+        };
 
         let mut capture = |argument: &crate::ExecutionCondition| {
             let Some(value) = argument.inline_captured_storage() else { return; };
 
             if let Some(regions) = value.address_regions() {
-                roots.extend(regions);
+                let binding = value.binding();
+                let kind = binding.map_or(
+                    bray_symbols::DependencyReferenceKind::Address,
+                    bray_bound_tree::StorageValueBinding::reference_kind,
+                );
+                let capability = binding.and_then(bray_bound_tree::StorageValueBinding::borrow_capability);
+
+                roots.extend(
+                    regions
+                        .into_iter()
+                        .map(|target| (target, kind, borrow_kind(capability))),
+                );
                 return;
             }
 
-            roots.extend(value.carried_regions());
-            roots.extend(value.carried_sources().cloned());
+            roots.extend(value.carried_reference_bindings().map(|(target, kind, capability)| {
+                (target, kind, borrow_kind(capability))
+            }));
+            roots.extend(value.carried_sources().cloned().map(|target| {
+                (
+                    target,
+                    bray_symbols::DependencyReferenceKind::Address,
+                    None,
+                )
+            }));
 
             // A value with an opaque layout can still carry actual loan support.
             for support in value.dependency_support() {
                 for subject in &support.subjects {
                     if let bray_bound_tree::BoundDependencySubject::BorrowCapability(loan) = *subject {
-                        roots.extend(memory.borrow_regions(loan).into_iter().flatten());
+                        roots.extend(memory.borrow_regions(loan).into_iter().flatten().map(|target| {
+                            (
+                                target,
+                                bray_symbols::DependencyReferenceKind::Borrow,
+                                borrow_kind(Some(loan)),
+                            )
+                        }));
                     }
                 }
             }
@@ -233,7 +303,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             }
         }
 
-        roots
+        ReachedReferenceRegions::with_borrow_kinds(roots)
     }
 
     pub(in crate::analysis::storage_flow::check::analysis) fn invocation_place(

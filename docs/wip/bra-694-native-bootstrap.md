@@ -81,11 +81,17 @@ evidence. Impossible internal states fail at the violated contract.
 - `16752178e` passed all 617 checker tests, seven focused compilation
   cases, and the 1,709 fixed comparison cases. A represented child of an
   unused nullable formal uses the receiver address written by its finalizer.
-- The reached cleanup batch passed 618 checker tests, 139 bound-tree tests,
-  and nine focused compilation cases. Nested nullable cleanup accepted the
-  supported receiver guarantee and rejected the missing guarantee. The
+- `c807164e0` passed 618 checker tests, 139 bound-tree tests, nine focused
+  compilation cases, and all 1,709 fixed comparison cases. Nested nullable
+  cleanup accepted the supported receiver guarantee and rejected the missing guarantee. The
   dependency summary recorded destruction of the newly installed child and
   skipped the child that stayed empty.
+- The current typed-reference candidate passed all 151 storage-flow tests and
+  checked and lowered the complete 43-body Windows x64 packaged bootstrap
+  inventory with zero diagnostics. This includes both `execution/start.bray`
+  bodies and the ownership line 67 and 69 obligations. Observation
+  invalidation now retains raw, mutable-borrow, and shared-borrow authority
+  through normal calls, failure capture, and deferred observation.
 - The optimized Windows x64 reference took 24.3 s to plan, 23.0 s to emit,
   and 53.0 s overall for the standard library. Native providers use Rust
   1.98.1 because the pinned LLVM cannot link Rust 1.99 provider bitcode.
@@ -222,6 +228,33 @@ caller-local `Current` view. A sound bound retains every feasible input and
 ambient source. The fixed comparison and the bootstrap inventory exercise
 both requirements. Reconsider the design if the reached values and effects
 cannot distinguish those controls without maintaining another value tree.
+
+### Current review batch
+
+Definite writes through an input descriptor must retain both their portable
+subject and their reached typed target. The storage collector is the
+authoritative producer. Normal return and failure summaries are the
+consumers. Assignment updates the execution state at that target. The
+summaries read the written value there instead of reconstructing it from the
+formal root. A control-flow join keeps only a subject written on every
+predecessor and uses the narrower common subtree. The repair must not publish
+a sibling write, a write from only one branch, or authority beyond the
+reached address backing.
+
+Each normal or abnormal row also retains the direct physical reference
+relations and stored-value dependencies established by those writes. Package
+encoding, substitution, call preparation, and fixed-point joins preserve
+that row-local storage. Ordinary calls, deferred frames, and lifecycle calls
+apply the selected row's logical and physical writes together. No consumer
+may reconstruct the physical write from a receiver or parameter root.
+
+The positive oracle is a finalizer that stores the address of live backing
+through a nested mutable receiver and then publishes its trusted read
+guarantee. The negative oracle performs the same cleanup after the backing
+expires. Source checking, lowering, failure rows, imported summaries, and the
+fixed 1,709-case comparison consume the same output form. Reconsider the
+representation if a summary cannot name both the formal subject and the
+actual typed target without another lookup.
 
 ## Acceptance
 

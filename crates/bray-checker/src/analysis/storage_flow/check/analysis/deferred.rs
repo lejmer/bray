@@ -220,7 +220,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 storage,
                 entry: &producer.entry,
                 has_receiver: producer.has_receiver(),
-                result,
+                result: Some(result),
             };
 
             self.stage_invocation_outputs(state, occurrence, invocation, &mut references, outcomes, None);
@@ -517,7 +517,12 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 Some(count) => candidate.entry.argument_regions(count),
                 None => candidate.entry.outputs.common_value(&bray_bound_tree::StorageValueDestination::Result)
                     .and_then(crate::ExecutionCondition::captured_input_regions)
-                    .map(bray_base::sorted_unique_shared_slice),
+                    .map(|(raw, borrowed)| {
+                        (
+                            bray_base::sorted_unique_shared_slice(raw),
+                            bray_base::sorted_unique_shared_slice(borrowed),
+                        )
+                    }),
             },
             |subject, path, indirect| {
                 if !subject.subject_root().is_static() && !indirect

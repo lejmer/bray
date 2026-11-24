@@ -242,7 +242,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let mut escaped_overlap = None;
 
         let unproved = effects.into_iter().flatten().any(|effect| {
-            if let Effect::CapturedCleanup { ty, regions, inline, sources, complete } = effect {
+            if let Effect::CapturedCleanup { ty, regions, inline, sources, complete, .. } = effect {
                 // Open types retain the route used to bind their carried effects at specialization.
                 // A capture with no such route still needs proof for its unknown reach.
                 let portable = || !sources.is_empty() && inline.iter().all(|target| sources.contains(target)) && sources.iter().all(|source| {

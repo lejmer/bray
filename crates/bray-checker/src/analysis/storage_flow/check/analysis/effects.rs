@@ -261,7 +261,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         resolved.push(Effect::Ambient);
 
-        let roots = Self::invocation_roots(&state.memory, execution.admitted_call(occurrence));
+        let roots = self.invocation_roots(&state.memory, execution.admitted_call(occurrence));
 
         let cells = if let StorageTaskOutcome::Abnormal { depth, kind, row } = outcome {
             self.execution.observed_task_at(execution, expression, depth)
@@ -626,7 +626,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         memory: &crate::analysis::storage_flow::memory::State,
         storage: &bray_bound_tree::BoundCallStorage,
         selection: (&[DependencyStorageEffect], Option<&crate::ExecutionCallEvidence>, Option<(bray_bound_tree::BoundExecutionSite, &Target)>),
-        mut input_regions: impl FnMut() -> Option<std::sync::Arc<[Target]>>,
+        mut input_regions: impl FnMut() -> Option<(
+            std::sync::Arc<[Target]>,
+            std::sync::Arc<[Target]>,
+        )>,
         mut resolve: impl FnMut(&DependencySubject, Option<&StorageReferencePath>, bool) -> Option<Vec<crate::analysis::storage_flow::memory::MutationTarget>>,
         mut carried: impl FnMut(&DependencySubject, &StorageReferencePath, bray_symbols::TypeId, bool) -> Option<Vec<Effect>>,
     ) -> Vec<Effect> {
@@ -638,7 +641,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         memory: &crate::analysis::storage_flow::memory::State,
         storage: &bray_bound_tree::BoundCallStorage,
         (effects, entry, staged): (&[DependencyStorageEffect], Option<&crate::ExecutionCallEvidence>, Option<(bray_bound_tree::BoundExecutionSite, &Target)>),
-        input_regions: &mut impl FnMut() -> Option<std::sync::Arc<[Target]>>,
+        input_regions: &mut impl FnMut() -> Option<(
+            std::sync::Arc<[Target]>,
+            std::sync::Arc<[Target]>,
+        )>,
         resolve: &mut impl FnMut(&DependencySubject, Option<&StorageReferencePath>, bool) -> Option<Vec<crate::analysis::storage_flow::memory::MutationTarget>>,
         carried: &mut impl FnMut(&DependencySubject, &StorageReferencePath, bray_symbols::TypeId, bool) -> Option<Vec<Effect>>,
     ) -> Vec<Effect> {
@@ -650,10 +656,18 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             let (subject, indirect, continues, kind, access_type, addressed) = match effect {
                 DependencyStorageEffect::OrderedRetirement { .. } => unreachable!("retirement has one stated discharge prefix"),
                 DependencyStorageEffect::Escape | DependencyStorageEffect::UnboundedMutation { kind: DependencyMutationKind::Escape, .. } => {
-                    let regions = input_regions();
+                    let Some((raw, borrowed)) = input_regions() else {
+                        resolved.push(Effect::Escape(None));
 
-                    if regions.as_ref().is_none_or(|regions| !regions.is_empty()) {
-                        resolved.push(Effect::Escape(regions));
+                        continue;
+                    };
+
+                    if !raw.is_empty() {
+                        resolved.push(Effect::Escape(Some(raw)));
+                    }
+
+                    if !borrowed.is_empty() {
+                        resolved.push(Effect::BorrowedReach(borrowed));
                     }
 
                     continue;
@@ -847,7 +861,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         for effect in effects {
             match effect {
-                Effect::Escape(_) | Effect::Mutation { kind: DependencyMutationKind::Escape, .. } => {}
+                Effect::Escape(_) | Effect::BorrowedReach(_)
+                | Effect::Mutation { kind: DependencyMutationKind::Escape, .. } => {}
                 Effect::Mutation { address, footprint, discharged, kind, access_type } => {
                     let by_operand = address.as_ref() == Some(footprint);
                     let discharged = discharged.as_deref().unwrap_or_default();

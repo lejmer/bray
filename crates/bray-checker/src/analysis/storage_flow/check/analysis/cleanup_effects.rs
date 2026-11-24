@@ -33,7 +33,12 @@ fn apply_lifecycle_cell_changes(memory: &mut State, mutation: StorageMutation, r
 
                 memory.apply_cell_changes(cells, occurrence);
             }
+
+            if completes {
+                memory.complete_transition(occurrence);
+            }
         }
+        StorageMutation::CleanupFailure { .. } if completes => memory.complete_transition(occurrence),
         StorageMutation::CleanupOutcome { row, .. } if completes => {
             if let Some(cells) = rows.get(&StorageEffectRow::NormalCells(row)) {
                 memory.stage_cell_changes(occurrence, cells);
@@ -91,7 +96,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let values = self.request.semantic_values();
 
         self.resolve_effects(memory, storage, (effects, None, None),
-            || receiver.map(|target| [target.clone()].into()), |subject, path, indirect| {
+            || receiver.map(|target| (([]).into(), [target.clone()].into())), |subject, path, indirect| {
             let start = self.cleanup_subject_root(receiver, subject)?;
 
             if path.is_none() && !subject.projections().is_empty() { return None; }
@@ -205,6 +210,11 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             self.collect_lifecycle_reports(state, operation, call, normal, failure);
         }
 
+        let lifecycle_call = match mutation {
+            CleanupMutation::Lifecycle(call) => Some(call),
+            _ => None,
+        };
+
         let invocation = match mutation {
             CleanupMutation::Lifecycle(call) if failure.is_none() => Some(call),
             _ => None,
@@ -217,10 +227,28 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             _ => None,
         };
 
-        let mut references = invocation.map(|call| {
-            self.input.lifecycle_storage[&call.lifecycle.call.callable]
+        let failure_rows = lifecycle_call
+            .and_then(|call| failure.map(|(kind, row)| call.failure_outcomes(kind, row).collect::<Vec<_>>()))
+            .unwrap_or_default();
+
+        let storage = lifecycle_call.map(|call| {
+            &self.input.lifecycle_storage[&call.lifecycle.call.callable]
+        });
+
+        let mut references = if let Some(call) = invocation {
+            storage
+                .expect("normal lifecycle retains prepared storage")
                 .reference_outputs(call.normal_outcomes(normal))
-        }).unwrap_or_default();
+        } else if let Some(storage) = storage {
+            storage.failure_reference_outputs(failure_rows.iter().copied())
+        } else {
+            Vec::new()
+        };
+
+        let failure_stored = bray_symbols::CapturedFailureOutcome::stored_dependencies(
+            failure_rows.iter().copied(),
+            bray_symbols::DependencySubject::contains,
+        );
 
         let task_path = operands.task_path.as_deref();
         let task_source = operands.frame.as_deref();
@@ -278,10 +306,13 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             effects = Some(Cow::Owned(vec![Effect::Unknown, Effect::Escape(None)]));
         }
 
+        let roots = super::references::ReachedReferenceRegions::borrowed(
+            operands.receiver.iter().cloned(),
+        );
         let escaped = self.escape_effects(
             &state.memory,
             effects.as_deref(),
-            operands.receiver.as_slice(),
+            &roots,
             false,
             (operation.occurrence(), Some(&mut state.effect_prefix)),
         );
@@ -294,11 +325,13 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 operation,
                 effects.as_deref(),
                 receiver.into_iter().cloned(),
-                &escaped,
+                &escaped.reached,
             );
         }
 
-        state.memory.escape_regions(escaped, Some(operation.occurrence()));
+        state
+            .memory
+            .escape_regions(escaped.published, Some(operation.occurrence()));
 
         let mut invalidation =
             self.cleanup_invalidation(&state.memory, effects.as_deref(), receiver);
@@ -323,18 +356,36 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         self.preserve_storage_values(state, (operation.occurrence(), None), effects.as_deref(), &mut invalidation);
 
-        if let Some(call) = &invocation
+        let lifecycle_staged = lifecycle_call.is_some_and(|call| call.completes);
+
+        if let Some(call) = lifecycle_call
             && call.completes
         {
-            let invocation = super::references::InvocationOutputs::Lifecycle {
-                storage: &self.input.lifecycle_storage[&call.lifecycle.call.callable],
+            let output = super::references::InvocationOutputs::Lifecycle {
+                storage: storage.expect("lifecycle invocation retains prepared storage"),
                 receiver,
                 path: call.path,
             };
 
-            self.stage_invocation_outputs(
-                state, operation.occurrence(), invocation, &mut references, call.normal_outcomes(normal), None,
-            );
+            if failure.is_some() {
+                self.stage_failure_outputs(
+                    state,
+                    operation.occurrence(),
+                    output,
+                    &mut references,
+                    &failure_stored,
+                    true,
+                );
+            } else {
+                self.stage_invocation_outputs(
+                    state,
+                    operation.occurrence(),
+                    output,
+                    &mut references,
+                    call.normal_outcomes(normal),
+                    None,
+                );
+            }
         }
 
         let performed = effects.as_deref().unwrap_or(&[Effect::Unknown]);
@@ -344,7 +395,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         state.memory.apply_effects(Some(performed), &invalidation, operation.occurrence());
 
         if let Some((_, rows)) = &operands.lifecycle_effects {
-            apply_lifecycle_cell_changes(&mut state.memory, identity, rows, invocation.is_some_and(|call| call.completes));
+            apply_lifecycle_cell_changes(&mut state.memory, identity, rows, lifecycle_staged);
         }
 
         let retirements = state.memory.take_retirements();
@@ -426,7 +477,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         if !receiver.is_exact() { return None; }
 
         let storage = &self.input.lifecycle_storage[&call.lifecycle.call.callable];
-        let recipes = self.execution.cleanup_receiver_writes(call.contract, call.entry, mutation);
+        let recipes = self.execution.cleanup_receiver_writes(call, mutation);
 
         let writes = recipes.into_iter().filter_map(|(subject, value)| {
             let (ty, target) = if subject.projections().is_empty() {
@@ -481,7 +532,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 state.initialize_path(path);
             }
 
-            self.record_current_write(state, target);
+            self.record_current_write(state, target, *ty);
             self.publish_value_graph(state, target.clone(), value.clone(), super::references::ValuePublication::ReceiverWrite);
 
             if let Some(path) = target.storage_path() {

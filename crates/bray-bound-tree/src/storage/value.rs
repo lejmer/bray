@@ -447,6 +447,15 @@ impl StorageValueBinding {
             .then_some(self.borrow_capability).flatten()
     }
 
+    /// The access kind carried by this evaluated descriptor.
+    pub fn reference_kind(&self) -> bray_symbols::DependencyReferenceKind {
+        if self.borrow_capability().is_some() {
+            bray_symbols::DependencyReferenceKind::Borrow
+        } else {
+            bray_symbols::DependencyReferenceKind::Address
+        }
+    }
+
     /// Support retained by this evaluated value independently of its original slot.
     pub fn dependency_support(&self) -> Option<&Arc<ReportDependencies>> {
         self.dependency_support.as_ref()

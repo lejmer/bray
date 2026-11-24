@@ -114,6 +114,50 @@ fn guard_observations_do_not_create_ownership_and_join_by_intersection() {
 }
 
 #[test]
+fn input_write_joins_keep_the_narrower_subtree_written_on_both_paths() {
+    use bray_bound_tree::{StorageObservedTarget, StoragePath, StorageProjection, StorageTarget};
+    use bray_symbols::{DependencyProjection, DependencySubject, DependencySubjectRoot, SymbolOrdinal};
+
+    let (identity, _) = storage_and_expressions(93);
+
+    let ordinal = SymbolOrdinal::new(0);
+    let root = DependencySubjectRoot::Parameter(SymbolOrdinal::new(0));
+    let root_subject = DependencySubject::root(root);
+    let child_subject = DependencySubject::new(root, [DependencyProjection::TupleElement(ordinal)]);
+    let root_target = StorageTarget::storage(StoragePath::root(identity));
+    let child_target = root_target.project(&[StorageProjection::TupleElement(ordinal)]);
+
+    let mut parent_write = reachable_state();
+
+    parent_write.record_written_input(
+        root_subject,
+        StorageObservedTarget::borrowed(root_target, error_type()),
+    );
+
+    let mut child_write = reachable_state();
+
+    child_write.record_written_input(
+        child_subject.clone(),
+        StorageObservedTarget::borrowed(child_target.clone(), error_type()),
+    );
+
+    assert!(parent_write.merge(&child_write, None));
+
+    assert_eq!(
+        parent_write.written_inputs,
+        [(
+            child_subject,
+            StorageObservedTarget::borrowed(child_target, error_type()),
+        )]
+        .into_iter()
+        .collect()
+    );
+
+    assert!(parent_write.merge(&reachable_state(), None));
+    assert!(parent_write.written_inputs.is_empty());
+}
+
+#[test]
 fn fully_moved_storage_survives_only_when_every_incoming_path_moves_it() {
     let (identity, _) = storage_and_expressions(79);
 

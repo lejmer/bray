@@ -331,7 +331,8 @@ pub(super) fn instantiate_reports<C: CheckerRequestContext + ?Sized>(
         }).transpose()?;
 
         Ok(bray_symbols::CapturedFailureOutcome { kind: row.kind, guard: row.guard, effects: row.effects.clone(),
-            cell_changes: row.cell_changes.clone(), writes: row.writes.clone(), report })
+            cell_changes: row.cell_changes.clone(), writes: row.writes.clone(), references: row.references.clone(),
+            stored_values: row.stored_values.clone(), report })
     }).collect::<Result<_, DependencyContractInstantiationError<_>>>()).transpose()?;
 
     Ok(bray_bound_tree::BoundCallReports::new(completed, payloads, failures))

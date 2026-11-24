@@ -8,6 +8,12 @@ use crate::{CheckerRequestContext, ExecutionCondition, ExecutionPlace};
 pub(in crate::analysis) type ResolveWrite<'a> = dyn Fn(&StorageCapturedValue, &StorageReferencePath) -> Option<Vec<StorageMutationTarget>> + 'a;
 pub(in crate::analysis) type CaptureFrameInputs<'a> = dyn Fn(&crate::ExecutionCallEvidence) -> Vec<bray_bound_tree::StorageValueCapture> + 'a;
 
+struct ResolvedFailureValues {
+    values: std::sync::Arc<[bray_bound_tree::StorageValueTransition]>,
+    references: std::sync::Arc<[bray_symbols::DependencyBorrowRelation]>,
+    stored_values: std::sync::Arc<[bray_symbols::DependencyStoredValue]>,
+}
+
 impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     pub(in crate::analysis) fn invocation_value_transitions(&self, state: &ExecutionState,
         invocation: BoundExecutionSite, bindings: &[bray_symbols::CapturedValueOutcome], resolve: &ResolveWrite<'_>,
@@ -261,7 +267,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         {
             let ordinal = |root: bray_symbols::DependencySubjectRoot| root.input_ordinal(frame.has_receiver());
 
-            let values = if let Some(site) = source.local() {
+            let resolved = if let Some(site) = source.local() {
                 let call = self.dependencies.calls().get(&site)?;
                 let environment = (&*frame.entry, call.storage(), ordinal);
                 let rows = call.deferred_reports().and_then(|reports| reports.failures());
@@ -277,7 +283,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             return Some((frame.entry.as_ref(), StorageFailureWrites::Bound {
                 producer: Some(source.clone()),
                 input_count: frame.entry.positional_arguments().count(),
-                values,
+                values: resolved.values,
+                references: resolved.references,
+                stored_values: resolved.stored_values,
             }));
         }
 
@@ -293,9 +301,25 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let call = self.dependencies.calls().get(&occurrence)?;
         let selection = occurrence.expression().and_then(|expression| self.semantics.selections().expression(expression));
         let environment = (entry, call.storage(), |root| selection?.invocation_input_ordinal(occurrence, root));
-        let values = self.resolve_abnormal_values(state, (kind, row), environment, call.reports().failures(), resolve)?;
 
-        Some((entry, StorageFailureWrites::Bound { producer: None, input_count: call.input_count(), values }))
+        let resolved = self.resolve_abnormal_values(
+            state,
+            (kind, row),
+            environment,
+            call.reports().failures(),
+            resolve,
+        )?;
+
+        Some((
+            entry,
+            StorageFailureWrites::Bound {
+                producer: None,
+                input_count: call.input_count(),
+                values: resolved.values,
+                references: resolved.references,
+                stored_values: resolved.stored_values,
+            },
+        ))
     }
 
     fn resolve_abnormal_values<Report>(
@@ -306,7 +330,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             impl Fn(bray_symbols::DependencySubjectRoot) -> Option<bray_symbols::SymbolOrdinal>),
         rows: Option<&[bray_symbols::CapturedFailureOutcome<bray_symbols::ConstantTermId, Report>]>,
         resolve: &ResolveWrite<'_>,
-    ) -> Option<std::sync::Arc<[bray_bound_tree::StorageValueTransition]>> {
+    ) -> Option<ResolvedFailureValues> {
         let proof = state.ordinary_proof();
 
         let rows = rows?.iter().enumerate().filter(|(index, outcome)| {
@@ -314,19 +338,40 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 entry.admits_failure(*index)
                     && entry.failure_guard(*index).is_none_or(|guard| proof.can_assume(guard, true))
             }, |selected| *index == selected)
-        });
+        }).collect::<Vec<_>>();
 
-        if rows.clone().all(|(_, row)| row.writes.is_empty()) { return None; }
+        if rows.is_empty() {
+            return None;
+        }
 
-        let values = rows.map(|(index, row)| {
+        let values = rows.iter().map(|(index, row)| {
             let mut transition = self.entry_value_transition(Some(entry), None, &row.writes, Some(storage), &ordinal, resolve);
 
-            transition.source_row = Some(index);
+            transition.source_row = Some(*index);
 
             transition
         }).collect::<Vec<_>>();
 
-        values.iter().any(|row| !row.outcome.bindings.is_empty()).then(|| values.into())
+        let selected = rows.iter().map(|(_, row)| *row).collect::<Vec<_>>();
+
+        let references = bray_symbols::CapturedFailureOutcome::reference_origins(
+            selected.iter().copied(),
+            bray_symbols::DependencySubject::contains,
+        );
+
+        let stored_values = bray_symbols::CapturedFailureOutcome::stored_dependencies(
+            selected.iter().copied(),
+            bray_symbols::DependencySubject::contains,
+        );
+
+        (values.iter().any(|row| !row.outcome.bindings.is_empty())
+            || !references.is_empty()
+            || !stored_values.is_empty())
+            .then(|| ResolvedFailureValues {
+                values: values.into(),
+                references,
+                stored_values,
+            })
     }
 
     pub(in crate::analysis) fn bind_failure_writes(

@@ -7,6 +7,25 @@ pub(in crate::analysis::storage_flow) enum Source {
 }
 
 impl Source {
+    pub(in crate::analysis::storage_flow) fn reference_kind(
+        &self,
+        state: &State,
+    ) -> bray_symbols::DependencyReferenceKind {
+        match self {
+            Self::Value(source) => state
+                .reached_route_binding(source, None)
+                .map_or(bray_symbols::DependencyReferenceKind::Address, |binding| {
+                    binding.reference_kind()
+                }),
+            Self::Borrow(_) => bray_symbols::DependencyReferenceKind::Borrow,
+            Self::Captured(source) => source
+                .binding()
+                .map_or(bray_symbols::DependencyReferenceKind::Address, |binding| {
+                    binding.reference_kind()
+                }),
+        }
+    }
+
     pub(in crate::analysis::storage_flow) fn is_exact(&self, state: &State) -> bool {
         let exact = |address: Option<&super::super::model::AddressValue>| {
             address.is_some_and(super::super::model::AddressValue::is_exact)

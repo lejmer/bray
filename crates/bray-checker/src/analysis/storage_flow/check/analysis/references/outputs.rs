@@ -29,12 +29,12 @@ pub(in crate::analysis::storage_flow::check::analysis) enum InvocationOutputs<'a
         storage: &'a BoundCallStorage,
         entry: &'a crate::ExecutionCallEvidence,
         has_receiver: bool,
-        result: &'a Place,
+        result: Option<&'a Place>,
     },
 }
 
 impl InvocationOutputs<'_> {
-    pub(super) fn storage(&self) -> &BoundCallStorage {
+    pub(in crate::analysis::storage_flow::check::analysis) fn storage(&self) -> &BoundCallStorage {
         match self {
             Self::Call { contracts, .. } => contracts.storage(),
             Self::Lifecycle { storage, .. } | Self::Frame { storage, .. } => storage,
@@ -87,8 +87,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 }
             }
             InvocationOutputs::Frame { result, entry, .. } => {
+                let result = result.expect("normal frame output retains its result destination");
+
                 self.stage_result_reference_bounds(state, occurrence, result, &inactive, |memory, _| {
-                    Self::invocation_roots(memory, Some(entry))
+                    self.invocation_roots(memory, Some(entry)).regions().to_vec()
                 });
             }
             InvocationOutputs::Lifecycle { .. } => {}
@@ -135,6 +137,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             .filter_map(|subject| match invocation {
                 InvocationOutputs::Call { .. } => self.invocation_logical_path(occurrence, subject),
                 InvocationOutputs::Frame { result, .. } => {
+                    let result = (*result)?;
                     let projections = storage_projections(self.request.semantic_values(), self.dependencies, subject.projections())?;
 
                     Some(Place { root: result.root, projections: result.projections.iter().chain(&projections).copied().collect() })
@@ -153,7 +156,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     ) {
         let destination = match invocation {
             InvocationOutputs::Call { .. } => self.invocation_result(occurrence),
-            InvocationOutputs::Frame { result, .. } => Some((*result).clone()),
+            InvocationOutputs::Frame { result, .. } => (*result).cloned(),
             InvocationOutputs::Lifecycle { .. } => None,
         };
 
@@ -227,7 +230,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             .is_some_and(|symbol| callable.definition().symbol() == symbol.into())
     }
 
-    fn stage_invocation_reference(
+    pub(in crate::analysis::storage_flow::check::analysis) fn stage_invocation_reference(
         &self,
         state: &mut StorageFlowState,
         occurrence: BoundExecutionSite,
@@ -356,6 +359,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             }
             InvocationOutputs::Lifecycle { .. } => None,
             InvocationOutputs::Frame { result, .. } if subject.subject_root() == DependencySubjectRoot::Result => {
+                let result = (*result)?;
+
                 Some(Place {
                     root: result.root,
                     projections: result.projections.iter().chain(route.projections()).copied().collect(),
@@ -396,7 +401,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 let values = self.request.semantic_values();
 
                 if root == DependencySubjectRoot::Result && output {
-                    let result = Target::storage((*result).clone());
+                    let result = Target::storage((*result)?.clone());
 
                     return state.memory.staged_reference_locations(occurrence, values, &result, &result, path);
                 }
@@ -491,8 +496,12 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             InvocationOutputs::Call { .. } => self.invocation_stored_root(occurrence, root),
             InvocationOutputs::Lifecycle { receiver, .. } if root == DependencySubjectRoot::Receiver => receiver.cloned(),
             InvocationOutputs::Lifecycle { .. } => self.static_location(&DependencySubject::root(root)),
-            InvocationOutputs::Frame { result, .. } if root == DependencySubjectRoot::Result => Some(Target::storage((*result).clone())),
-            InvocationOutputs::Frame { .. } => self.static_location(&DependencySubject::root(root)),
+            InvocationOutputs::Frame { result, .. } if root == DependencySubjectRoot::Result => {
+                Some(Target::storage((*result)?.clone()))
+            }
+            InvocationOutputs::Frame { .. } => {
+                self.static_location(&DependencySubject::root(root))
+            }
         }
     }
 
@@ -504,6 +513,17 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         outcomes: impl Iterator<Item = &'outcome CapturedValueOutcome>,
     ) {
         let stored = CapturedValueOutcome::stored_dependencies(outcomes, DependencySubject::contains);
+
+        self.stage_stored_values(state, occurrence, invocation, &stored);
+    }
+
+    pub(in crate::analysis::storage_flow::check::analysis) fn stage_stored_values(
+        &self,
+        state: &mut StorageFlowState,
+        occurrence: BoundExecutionSite,
+        invocation: &InvocationOutputs<'_>,
+        stored: &[DependencyStoredValue],
+    ) {
 
         let transfers = self.stored_transfers(
             &stored,
@@ -518,7 +538,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
                 let sources = if inline_source {
                     self.output_sources(state, occurrence, invocation, subject)?
-                } else if !output && let InvocationOutputs::Frame { entry, has_receiver, .. } = invocation
+                } else if !output
+                    && let InvocationOutputs::Frame { entry, has_receiver, .. } = invocation
                     && let Some(input) = subject.subject_root().input_ordinal(*has_receiver)
                 {
                     let captured = entry.argument_storage(input)?;

@@ -131,9 +131,15 @@ fn decode_failure_outcomes(
 
         let effects = decode_optional_effects(reader, limits, context)?;
         let cell_changes = decode_optional_effects(reader, limits, context)?;
+
+        let (references, stored_values) = decode_dependency_storage(reader, limits, context)?;
+
         let writes = super::super::captured::decode_bindings(reader, limits, context)?;
 
-        outcomes.push(crate::InterfaceFailureOutcome { kind, guard, report, effects, cell_changes, writes });
+        outcomes.push(crate::InterfaceFailureOutcome {
+            kind, guard, report, effects, cell_changes, writes,
+            references: references.into(), stored_values: stored_values.into(),
+        });
     }
 
     Ok(Some(outcomes))
@@ -1185,6 +1191,8 @@ mod tests {
                 1, 1, 1, 2, 3, 0, 7, // An abnormal report borrowing parameter three.
                 0, // Opaque failure effects.
                 1, 0, // An explicit empty set of typed cell updates.
+                1, 65, 2, 3, 0, 2, 3, 0, 0, 0, // One exact borrowed reference written to parameter three.
+                1, 2, 3, 0, 0, 1, 1, 2, 3, 0, 0, // Its complete stored-value dependency.
                 1, 2, 3, 0, 0, 7, // One write to parameter three from captured term seven.
                 1, // One normal outcome.
                 1, 0, // An independent normal report.
@@ -1227,6 +1235,34 @@ mod tests {
                     writes: [(
                         InterfaceDependencySubject::new(InterfaceDependencySubjectRoot::Parameter(SymbolOrdinal::new(3)), []),
                         bray_symbols::CapturedValueTemplate::Input(crate::InterfaceConstantTermId::new(7)),
+                    )].into(),
+                    references: [bray_symbols::DependencyBorrowRelation::new(
+                        Some(InterfaceDependencySubject::new(
+                            InterfaceDependencySubjectRoot::Parameter(SymbolOrdinal::new(3)),
+                            [],
+                        )),
+                        InterfaceDependencySubject::new(
+                            InterfaceDependencySubjectRoot::Parameter(SymbolOrdinal::new(3)),
+                            [],
+                        ),
+                        bray_symbols::DependencyReferenceKind::Borrow,
+                    )].into(),
+                    stored_values: [bray_symbols::DependencyStoredValue::new(
+                        bray_symbols::DependencyStoredValuePath::new(
+                            InterfaceDependencySubject::new(
+                                InterfaceDependencySubjectRoot::Parameter(SymbolOrdinal::new(3)),
+                                [],
+                            ),
+                            0,
+                        ),
+                        [bray_symbols::DependencyStoredValuePath::new(
+                            InterfaceDependencySubject::new(
+                                InterfaceDependencySubjectRoot::Parameter(SymbolOrdinal::new(3)),
+                                [],
+                            ),
+                            0,
+                        )],
+                        true,
                     )].into(),
                 }]))
         );

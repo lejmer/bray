@@ -130,9 +130,15 @@ A scoped entry can return a fallible wrapper. Its successful payload becomes the
 The exit's checked access names that current capability for both physical and proof admission.
 
 The write record names committed inline paths into admitted mutable inputs.
-The summary reads the final value of each written path. Call binding projects the prepared path from the admitted
-descriptor to find the live destination. Effects still frame the full area the call may change.
-Lifecycle completion publishes the reached receiver and its selected write destinations for proof replay.
+It retains the reached typed target as well as the portable subject. The
+summary reads logical values and physical reference relations directly from
+that reached target. It does not recover either from the formal root. Normal
+and abnormal rows carry the reference relations and stored-value dependencies
+established by their own writes. Call, deferred-frame, and lifecycle replay
+select one set of rows and apply its logical and physical writes as one
+transition. Effects still frame the full area the call may change.
+Lifecycle completion publishes the reached receiver and its selected write
+destinations for proof replay.
 Reference observations retain the reached target and the checked pointee type.
 Proof uses that observation to read updated contents through the existing descriptor.
 Normal completion publishes the reached borrow's known identity, or the
@@ -253,6 +259,23 @@ The physical state owns the input-region bounds of returned addresses by produce
 
 At a call attempt, escape analysis, observation invalidation, and returned-reference bounds share the reached input
 regions. The admitted operands supply possible reach through their captured descriptors and carried dependencies.
+Each region retains the descriptor kind that made it reachable. A language
+borrow opens only its exact referent for the duration of the effect. It does
+not publish that referent's address. Raw descriptors carried by the borrowed
+value are followed and can escape normally. A raw address publishes its
+allocation region and remains an ambient root after the call. Bound physical
+effects therefore keep exact borrowed reach separate from raw escape roots
+through normal execution, failure capture, deferred observation, assignment,
+and cleanup.
+Observation invalidation derives mutation roots from the same typed input
+regions. A raw address opens its allocation region, a mutable borrow opens its
+exact referent, and a shared borrow keeps its inline referent stable while raw
+descriptors stored inside it still open their allocation regions. The published
+raw set separately records which reached regions remain ambient after the call.
+An escape inspection alone cannot turn a safe referent into an ambient mutation
+root. Normal calls, failure prefixes, and deferred observation use the same
+typed split. Terminal ownership uses the broader reached set because it must
+account for every call-time referent.
 Effects naming a synchronous call result read that result's already staged
 physical value tree. An indirect result-field escape reads the reached field
 descriptor there and follows the staged backing to any carried references.
@@ -451,7 +474,7 @@ paths. An exit intersection checks exact path membership in both sources.
 | Prepare and solve | `check_body_semantics` prepares refinements, call contracts, and storage inputs once. It computes reachable edges and backward liveness, then solves forward `StorageFlowState`. Structural reachability and liveness feed one forward solve. The reached action determines the feasible cleanup outcome edges, and the solved flow supplies async publication. `StorageFlowState` keeps logical proof, physical memory, moves, borrows, effects, and report dependencies together. [Body checking](../../crates/bray-checker/src/body_semantics.rs) · [Flow domain](../../crates/bray-checker/src/analysis/storage_flow/model/domain.rs) |
 | Evaluation and admission | `resolve_value_captures` and `capture_entry_values` retain the evaluated input, any typed current referent, and possible element dependencies. `ExecutionCallEvidence` holds these actual arguments, entry facts, admitted carriers, extracted values, and bound outputs. The checked phase determines when ownership is consumed. A false entry requirement can fail before the body runs. [Physical capture](../../crates/bray-checker/src/analysis/storage_flow/check/analysis/references/captured.rs) · [Entry evidence](../../crates/bray-checker/src/execution_guarantees/evidence.rs) |
 | Body entry | `StoragePlan` identifies the formal loan slots. `StorageFlowState` initializes the reached input reference targets. Entry proof binds clauses once against the actual initialized value tree. The declared carrier route selects the actual carrier and its ownership role in that same tree. Raw-memory requirements bind to address targets separately from the formal descriptor slots. `StorageFlow` passes the reached targets to execution certification. Returned carriers identify incoming backing through a typed address read and bind its lifetime against the caller's admitted support. [Entry state](../../crates/bray-checker/src/analysis/storage_flow/model/state.rs) · [Entry proof](../../crates/bray-checker/src/analysis/guarantee/flow/model.rs) · [Carrier binding](../../crates/bray-checker/src/analysis/guarantee/trusted/completion.rs) |
-| Attempt and invalidation | `apply_operation_effects` binds value rows and resolves selected call, intrinsic, and assignment effects. Effects, reports, and completion use the producer's admitted rows. The physical memory update and proof invalidation consume the resolved observations. Typed routes keep evaluated locations distinct from conservative region bounds in calls, frames, and cleanup. Failure effects capture addresses before argument transfer. Execution retirements reach the proof state before completion. Last-use and consumed-handle retirements follow publication. [Operation driver](../../crates/bray-checker/src/analysis/storage_flow/check/analysis/core.rs) · [Effect binding](../../crates/bray-checker/src/analysis/storage_flow/check/analysis/effects.rs) · [Proof invalidation](../../crates/bray-checker/src/analysis/guarantee/flow/invalidation.rs) |
+| Attempt and invalidation | `apply_operation_effects` binds value rows and resolves selected call, intrinsic, and assignment effects. Effects, reports, and completion use the producer's admitted rows. The physical memory update and proof invalidation consume the resolved observations. Typed routes keep evaluated locations distinct from conservative region bounds in calls, frames, and cleanup. The reached-region set also keeps language-borrow traversal distinct from raw-address publication. Failure effects capture addresses before argument transfer. Execution retirements reach the proof state before completion. Last-use and consumed-handle retirements follow publication. [Operation driver](../../crates/bray-checker/src/analysis/storage_flow/check/analysis/core.rs) · [Effect binding](../../crates/bray-checker/src/analysis/storage_flow/check/analysis/effects.rs) · [Proof invalidation](../../crates/bray-checker/src/analysis/guarantee/flow/invalidation.rs) |
 | Private result and cleanup | The private result can be present while caller publication is pending. Storage checking selects active obligations, and proof replay reads their checked schedule. Both execute the same cancellation and lifecycle phases and read absent paths directly from the reached or published storage state. Lifecycle invocation uses the resolved receiver and its checked contract. Cleanup can change contents, retire support, retain dependencies for a report, or take an abnormal edge. [Private result](../../crates/bray-checker/src/analysis/guarantee/flow/value.rs) · [Storage cleanup](../../crates/bray-checker/src/analysis/storage_flow/check/analysis/cleanup.rs) · [Lifecycle transition](../../crates/bray-checker/src/analysis/guarantee/cleanup/transition.rs) |
 | Normal completion | `complete_entry_outputs` selects feasible value rows and completes ownership and carriers against each actual result. The join publishes the result and current writes together. Ordinary postconditions and authored result-guarded value guarantees observe that publication. Compilation retains every declared guarantee and its result witness subject separately from the subset a safe body must prove. One completion instantiator binds the clause and subject to the reached entry snapshot and actual result. A safe body publishes only a clause proved by one live source witness and retains that source support. A trusted declaration supplies the clause without a body proof obligation. When a carried clause lacks checked portable support, the caller binds the declared support from the admitted arguments and reached result. In both cases, the declared subject supplies the portable carrier path. `publish_captured_outputs` pairs the surviving logical value with its physical snapshot and records it for replay. Exact current destinations and possible region writes have different publication paths. `StorageFlow` also publishes reachability, storage decisions, replacements, suspension, and scope exits. [Output binding](../../crates/bray-checker/src/analysis/guarantee/flow/captured.rs) · [Completion and carriers](../../crates/bray-checker/src/analysis/guarantee/trusted/completion.rs) · [Checked storage flow](../../crates/bray-bound-tree/src/storage/flow/model.rs) |
 | Failure, catch, and cancellation | Calls and frames bind the selected normal and abnormal effect rows together against their admitted inputs. A failure edge applies its captured prefix and carries its report. Its completion passes the reached write bindings and surviving snapshots to certification. An opaque prefix uses the checked effect envelope. Result dependency analysis carries reports through catch boundaries. Cancellation after a child completes can own that child's already transferred result and require its cleanup. [Failure propagation](../../crates/bray-checker/src/analysis/storage_flow/model/domain.rs) · [Failure writes](../../crates/bray-checker/src/analysis/storage_flow/check/analysis/failures.rs) · [Report ownership](../../crates/bray-checker/src/analysis/storage_flow/check/analysis/reports.rs) · [Await edges](../../crates/bray-checker/src/analysis/execution.rs) |
@@ -772,25 +795,40 @@ retained predecessor premises.
 Each part reads absence from current storage after the preceding action
 publishes its invalidation and receiver writes. A part installed by the
 finalizer can become active after entering cleanup. Proof replay reads the
-checked part decisions for the same operation and resumption cursor.
+checked part decisions for the same operation and resumption cursor. The
+producer reads the reached path and its enclosing paths through the live
+absence indexes.
 
 Lifecycle completion uses the shared classification of trusted contract
 subjects. A completed receiver supplies the current argument contents and
 its checked borrow or consuming role. Conditional transfer retains each
 proved clause with its actual subject. Raw access clauses retain admission
-or current backing support for the reached address.
+or current backing support for the reached address. The checked predicate
+signature supplies the address representation. The completed descriptor
+supplies its actual physical regions, including newly formed addresses.
+Retirement revokes the clause at the applicable backing lifetime boundary.
 
 The physical cleanup receiver begins at the already reached storage. An
 effect through its formal borrow follows the remaining typed route from
 that slot. Effects through descriptors stored in the receiver still read
 those descriptors. A payload write retains the enclosing discriminant
 when the reaching snapshots identify the same tag.
+
+Definite input writes retain the portable subject together with the exact
+typed target that received the write. Assignment publishes the value at that
+target in both the forward solve and proof replay. Normal and failure
+publication read it there. A nested descriptor route is not flattened into
+an inline formal path and is not reconstructed from the entry value. Joins
+intersect written subtrees while preserving the reached target for the
+narrower common subject.
 An explicit cleanup fork retains the evaluated selector on its joined
 payloads and witnessed clauses. The proof verifies the clause against the
 predecessor that selected it. The other predecessor supplies its checked
 skipped path. Read the selected reference descriptor's witness directly
 from its ledger alongside the owning carriers. The referent's owner keeps
-its authority.
+its authority. A completion can establish a clause under a selector while
+the possible witness ledger stays the same. The join reads proved evidence
+alongside the ledger.
 Admission rejection of a scoped invocation uses
 the caller's input state. A failure after admission uses the performed state.
 An abandoned transfer names its actual produced result slot. Its failure

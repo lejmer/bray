@@ -141,7 +141,7 @@ impl Compilation {
     ) -> Result<
         (
             Vec<(ExecutionCondition, ExecutionCondition)>,
-            Vec<(ExecutionCondition, ExecutionCondition, bool)>,
+            Vec<bray_checker::TrustedAddressSubject>,
         ),
         FactQueryError,
     > {
@@ -217,7 +217,9 @@ impl Compilation {
                             {
                                 let owning = !storage_predicates.contains(predicate);
 
-                                addresses.push((guarantee.clone(), argument.clone(), owning));
+                                addresses.push(bray_checker::TrustedAddressSubject {
+                                    condition: guarantee.clone(), subject: argument.clone(), ty, owning,
+                                });
                             }
 
                             let subject = if argument.observes_completion_result() {

@@ -507,7 +507,12 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                         .and_then(bray_bound_tree::StorageCapturedValue::address_regions)
                         .unwrap_or_default()
                 }
-                _ => Self::invocation_roots(memory, execution.and_then(|execution| execution.admitted_call(occurrence))),
+                _ => self.invocation_roots(
+                    memory,
+                    execution.and_then(|execution| execution.admitted_call(occurrence)),
+                )
+                .regions()
+                .to_vec(),
             }
         });
     }
