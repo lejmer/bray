@@ -1,7 +1,10 @@
 use crate::analysis::storage_flow::memory::Effect;
 use std::collections::BTreeMap;
 
-use bray_bound_tree::{StorageInvalidation, StorageObservationKind, StorageObservedTarget, StoragePath, StorageProjection, StorageRelationship, StorageSnapshotRoot};
+use bray_bound_tree::{
+    StorageInvalidation, StorageObservationKind, StorageObservedTarget, StoragePath,
+    StorageProjection, StorageRelationship, StorageSnapshotRoot,
+};
 
 use super::core::StorageFlowCollector;
 use crate::CheckerRequestContext;
@@ -17,8 +20,12 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         effects: Option<&[Effect]>,
         invalidation: &mut StorageInvalidation,
     ) {
-        let (producer, entry, storage) = if let Some((_, source, producer)) = self.execution.direct_await_body(execution, occurrence) {
-            let Some((storage, _)) = self.execution.frame_storage_outcomes(source, producer) else { return; };
+        let (producer, entry, storage) = if let Some((_, source, producer)) =
+            self.execution.direct_await_body(execution, occurrence)
+        {
+            let Some((storage, _)) = self.execution.frame_storage_outcomes(source, producer) else {
+                return;
+            };
 
             (Some(source), producer.entry.as_ref(), storage)
         } else if let Some(entry) = execution.admitted_call(occurrence)
@@ -30,8 +37,12 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         };
 
         let snapshots = match invalidation {
-            StorageInvalidation::All { normal_snapshots, .. }
-            | StorageInvalidation::Observed { normal_snapshots, .. } => normal_snapshots,
+            StorageInvalidation::All {
+                normal_snapshots, ..
+            }
+            | StorageInvalidation::Observed {
+                normal_snapshots, ..
+            } => normal_snapshots,
             StorageInvalidation::Unchanged => return,
         };
 
@@ -41,48 +52,89 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         for transfer in transfers {
             let route = storage.returned_value(&transfer);
 
-            if route.is_borrowed() { continue; }
+            if route.is_borrowed() {
+                continue;
+            }
 
-            let (root, prefix, value) = if let Some(value) = entry.extracted_values.get(&transfer.input()) {
-                (StorageSnapshotRoot::Extracted { producer: producer.cloned(), term: transfer.input() }, &[][..], value.clone())
-            } else {
-                if producer.is_some() { continue; }
+            let (root, prefix, value) =
+                if let Some(value) = entry.extracted_values.get(&transfer.input()) {
+                    (
+                        StorageSnapshotRoot::Extracted {
+                            producer: producer.cloned(),
+                            term: transfer.input(),
+                        },
+                        &[][..],
+                        value.clone(),
+                    )
+                } else {
+                    if producer.is_some() {
+                        continue;
+                    }
 
-                let Some(ordinal) = occurrence.expression()
-                    .and_then(|expression| self.execution.semantics.selections().expression(expression))
-                    .and_then(|selection| selection.invocation_input_ordinal(occurrence, route.input_root()))
-                else { continue; };
+                    let Some(ordinal) = occurrence
+                        .expression()
+                        .and_then(|expression| {
+                            self.execution.semantics.selections().expression(expression)
+                        })
+                        .and_then(|selection| {
+                            selection.invocation_input_ordinal(occurrence, route.input_root())
+                        })
+                    else {
+                        continue;
+                    };
 
-                let Some(argument) = entry.arguments.get(&crate::ExecutionPlace::argument(ordinal)) else { continue; };
+                    let Some(argument) = entry
+                        .arguments
+                        .get(&crate::ExecutionPlace::argument(ordinal))
+                    else {
+                        continue;
+                    };
 
-                let prefix = route.input_path().projections();
-                let value = prefix.iter().copied().fold(argument.clone().into_referent(), crate::ExecutionCondition::project);
+                    let prefix = route.input_path().projections();
+                    let value = prefix.iter().copied().fold(
+                        argument.clone().into_referent(),
+                        crate::ExecutionCondition::project,
+                    );
 
-                (StorageSnapshotRoot::Argument(ordinal), prefix, value)
-            };
+                    (StorageSnapshotRoot::Argument(ordinal), prefix, value)
+                };
 
             if matches!(root, StorageSnapshotRoot::Extracted { .. })
-                && transfer.preservation().preserves_value() && transfer.preservation().children().is_empty()
-                && value.inline_captured_storage().is_some_and(|capture| retained_capture(memory, capture, effects))
+                && transfer.preservation().preserves_value()
+                && transfer.preservation().children().is_empty()
+                && value
+                    .inline_captured_storage()
+                    .is_some_and(|capture| retained_capture(memory, capture, effects))
             {
                 snapshots.insert((root, [].into()), StorageObservationKind::Value);
                 continue;
             }
 
             for (path, kind) in value.captured_observations() {
-                if !kind.is_immutable_inline() && kind != StorageObservationKind::Discriminant { continue; }
+                if !kind.is_immutable_inline() && kind != StorageObservationKind::Discriminant {
+                    continue;
+                }
 
-                let Some(selectors) = path.iter().copied().map(crate::ExecutionPlace::projection_kind).collect::<Option<Vec<_>>>()
-                else { continue; };
+                let Some(selectors) = path
+                    .iter()
+                    .copied()
+                    .map(crate::ExecutionPlace::projection_kind)
+                    .collect::<Option<Vec<_>>>()
+                else {
+                    continue;
+                };
 
-                if transfer.preservation().subtree(&selectors).preserves_value() {
+                if transfer
+                    .preservation()
+                    .subtree(&selectors)
+                    .preserves_value()
+                {
                     let selected = prefix.iter().copied().chain(path).collect();
 
                     snapshots.entry((root.clone(), selected)).or_insert(kind);
                 }
             }
         }
-
     }
 
     pub(super) fn preserve_consumed_input_observations(
@@ -93,33 +145,59 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     ) {
         use bray_bound_tree::{StorageSnapshotRoot, StorageValueConsumptionPhase};
 
-        let Some(entry) = entry else { return; };
+        let Some(entry) = entry else {
+            return;
+        };
 
-        let Some(expression) = invocation.expression() else { return; };
+        let Some(expression) = invocation.expression() else {
+            return;
+        };
 
         let (stable, snapshots) = match invalidation {
-            StorageInvalidation::All { stable_values, normal_snapshots, .. }
-            | StorageInvalidation::Observed { stable_values, normal_snapshots, .. } => (stable_values, normal_snapshots),
+            StorageInvalidation::All {
+                stable_values,
+                normal_snapshots,
+                ..
+            }
+            | StorageInvalidation::Observed {
+                stable_values,
+                normal_snapshots,
+                ..
+            } => (stable_values, normal_snapshots),
             StorageInvalidation::Unchanged => return,
         };
 
         for &ordinal in entry.owned_inputs.iter() {
-            let staged = self.storage.invocation_input(expression, ordinal)
+            let staged = self
+                .storage
+                .invocation_input(expression, ordinal)
                 .and_then(|access| self.storage.logical_path(access));
 
-            let captured = entry.argument_storage(ordinal)
+            let captured = entry
+                .argument_storage(ordinal)
                 .and_then(bray_bound_tree::StorageCapturedValue::storage_coordinate);
 
             let Some(source) = staged.into_iter().chain(captured).find(|source| {
-                self.storage.value_consumptions(invocation, StorageValueConsumptionPhase::Admission)
+                self.storage
+                    .value_consumptions(invocation, StorageValueConsumptionPhase::Admission)
                     .any(|path| path == *source)
-            })
-            else { continue; };
+            }) else {
+                continue;
+            };
 
-            for (path, kind) in stable.range(source.clone()..).take_while(|(path, _)| source.contains(path)) {
+            for (path, kind) in stable
+                .range(source.clone()..)
+                .take_while(|(path, _)| source.contains(path))
+            {
                 if source.contains_storage(path)
-                    && (kind.is_immutable_inline() || *kind == bray_bound_tree::StorageObservationKind::Discriminant) {
-                    snapshots.entry((StorageSnapshotRoot::Argument(ordinal), path.projections[source.projections.len()..].into()))
+                    && (kind.is_immutable_inline()
+                        || *kind == bray_bound_tree::StorageObservationKind::Discriminant)
+                {
+                    snapshots
+                        .entry((
+                            StorageSnapshotRoot::Argument(ordinal),
+                            path.projections[source.projections.len()..].into(),
+                        ))
                         .or_insert(*kind);
                 }
             }
@@ -132,7 +210,13 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         roots: impl IntoIterator<Item = Target>,
         backing_scope_known: bool,
     ) -> StorageInvalidation {
-        self.opaque_observations_with_escapes(memory, (roots, false), &Default::default(), &[], backing_scope_known)
+        self.opaque_observations_with_escapes(
+            memory,
+            (roots, false),
+            &Default::default(),
+            &[],
+            backing_scope_known,
+        )
     }
 
     pub(super) fn opaque_observations_with_escapes(
@@ -147,7 +231,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let mut stable_values = BTreeMap::new();
         let mut stable_allocation_addresses = std::collections::BTreeSet::new();
 
-        let mut reached = memory.reachable_regions(roots.into_iter().chain(escaped.iter().cloned()));
+        let mut reached =
+            memory.reachable_regions(roots.into_iter().chain(escaped.iter().cloned()));
         let exposed = memory.raw_exposed_regions();
 
         reached.1 |= incomplete;
@@ -156,7 +241,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             if !inline_writes.is_empty() {
                 let target = Target::storage(path.clone());
 
-                if inline_writes.iter().any(|write| memory.target_relationship(write, &target) != StorageRelationship::Disjoint) {
+                if inline_writes.iter().any(|write| {
+                    memory.target_relationship(write, &target) != StorageRelationship::Disjoint
+                }) {
                     continue;
                 }
             }
@@ -170,8 +257,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 // Only the prepared immutable observations retain their values.
                 kind.record_preservation(path.clone(), &mut stable_descriptors, &mut stable_values);
 
-                if backing_scope_known && *kind == StorageObservationKind::Address
-                    && memory.retains_allocation_address(path, &reached, &exposed) {
+                if backing_scope_known
+                    && *kind == StorageObservationKind::Address
+                    && memory.retains_allocation_address(path, &reached, &exposed)
+                {
                     stable_allocation_addresses.insert(path.clone());
                 }
             }
@@ -179,21 +268,36 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         // Ordinary statics cannot be replaced while their product or exact-thread
         // owner is retained. Interior mutation cannot reach their empty markers.
-        let protected = |target: &Target| !exposed.iter().chain(escaped).chain(inline_writes.iter().copied()).any(|raw| {
-            memory.target_relationship(raw, target) != StorageRelationship::Disjoint
-        });
+        let protected = |target: &Target| {
+            !exposed
+                .iter()
+                .chain(escaped)
+                .chain(inline_writes.iter().copied())
+                .any(|raw| memory.target_relationship(raw, target) != StorageRelationship::Disjoint)
+        };
 
-        let static_observation = |kind| matches!(kind, StorageObservationKind::Identity | StorageObservationKind::Marker(_));
+        let static_observation = |kind| {
+            matches!(
+                kind,
+                StorageObservationKind::Identity | StorageObservationKind::Marker(_)
+            )
+        };
 
         for (root, observations) in &self.input.footprint.owned_observations {
-            if matches!(self.storage.identity(*root), Some(bray_bound_tree::StorageIdentity::Static(_)))
-                && protected(&Target::storage(StoragePath::root(*root)))
+            if matches!(
+                self.storage.identity(*root),
+                Some(bray_bound_tree::StorageIdentity::Static(_))
+            ) && protected(&Target::storage(StoragePath::root(*root)))
             {
                 stable_descriptors.insert(StoragePath::root(*root));
 
                 for (path, observation) in observations {
                     if static_observation(*observation) {
-                        observation.record_preservation(path.clone(), &mut stable_descriptors, &mut stable_values);
+                        observation.record_preservation(
+                            path.clone(),
+                            &mut stable_descriptors,
+                            &mut stable_values,
+                        );
                     }
                 }
             }
@@ -202,15 +306,27 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let mut stable_pointees = BTreeMap::new();
 
         // A returned view may be the only access to this exact static instance.
-        for (target, ty) in memory.typed_storage().filter(|(target, _)| matches!(target.origin,
-            bray_bound_tree::StorageOrigin::Static {
-                root: bray_symbols::DependencySubjectRoot::StaticInstance(_, bray_symbols::StaticStorageDuration::Product),
-                selection: Some(_), ..
-            }))
-        {
+        for (target, ty) in memory.typed_storage().filter(|(target, _)| {
+            matches!(
+                target.origin,
+                bray_bound_tree::StorageOrigin::Static {
+                    root: bray_symbols::DependencySubjectRoot::StaticInstance(
+                        _,
+                        bray_symbols::StaticStorageDuration::Product
+                    ),
+                    selection: Some(_),
+                    ..
+                }
+            )
+        }) {
             for (path, observation) in self.input.footprint.typed_observations(ty) {
                 if static_observation(observation) && protected(&target.project(path)) {
-                    observation.record_pointee_preservation([target], ty, path, &mut stable_pointees);
+                    observation.record_pointee_preservation(
+                        [target],
+                        ty,
+                        path,
+                        &mut stable_pointees,
+                    );
                 }
             }
         }
@@ -219,7 +335,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             stable_descriptors,
             stable_values,
             stable_allocation_addresses,
-            stable_reference_slots: Default::default(), normal_snapshots: Default::default(), stable_pointees,
+            stable_reference_slots: Default::default(),
+            normal_snapshots: Default::default(),
+            stable_pointees,
         }
     }
 
@@ -227,7 +345,12 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         &self,
         state: &StorageFlowState,
         memory: &crate::analysis::storage_flow::memory::State,
-        survives: &impl Fn(&Target, bray_bound_tree::StorageObservationKind, bray_symbols::TypeId, bool) -> bool,
+        survives: &impl Fn(
+            &Target,
+            bray_bound_tree::StorageObservationKind,
+            bray_symbols::TypeId,
+            bool,
+        ) -> bool,
         invalidation: &mut StorageInvalidation,
     ) {
         let mut references = Vec::new();
@@ -258,8 +381,11 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
             let referent = memory.borrow_observation(*borrow);
 
-            let ty = self.storage.access(capability.access())
-                .expect("active borrow retains its checked access").reached_type();
+            let ty = self
+                .storage
+                .access(capability.access())
+                .expect("active borrow retains its checked access")
+                .reached_type();
 
             let ty = self.request.semantic_values().unborrowed_type(ty);
 
@@ -267,16 +393,22 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             // a current owner, and one possible target cannot protect its siblings.
             let source = Source::Borrow(*borrow);
 
-            let Some(targets) = source.regions(memory)
-                .filter(|targets| !targets.is_empty() && targets.iter().all(|target| !target.previous)) else {
+            let Some(targets) = source.regions(memory).filter(|targets| {
+                !targets.is_empty() && targets.iter().all(|target| !target.previous)
+            }) else {
                 continue;
             };
 
-            let exact_targets = source.targets(memory).filter(|targets| targets.len() == 1).unwrap_or_default();
+            let exact_targets = source
+                .targets(memory)
+                .filter(|targets| targets.len() == 1)
+                .unwrap_or_default();
 
-            let exposed_referent = targets.iter().any(|target| exposed.iter().any(|raw| {
-                memory.target_relationship(raw, target) != StorageRelationship::Disjoint
-            }));
+            let exposed_referent = targets.iter().any(|target| {
+                exposed.iter().any(|raw| {
+                    memory.target_relationship(raw, target) != StorageRelationship::Disjoint
+                })
+            });
 
             for path in self
                 .storage
@@ -288,11 +420,26 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     for (value, observation) in self.input.footprint.observations(path) {
                         if observation.is_ordinary_inline()
                             && targets.iter().all(|target| {
-                                survives(&target.project(&value.projections[path.projections.len()..]), observation, ty, false)
-                            }) {
-                            observation.record_preservation(value.clone(), stable_descriptors, stable_values);
+                                survives(
+                                    &target.project(&value.projections[path.projections.len()..]),
+                                    observation,
+                                    ty,
+                                    false,
+                                )
+                            })
+                        {
+                            observation.record_preservation(
+                                value.clone(),
+                                stable_descriptors,
+                                stable_values,
+                            );
 
-                            observation.record_pointee_preservation(&exact_targets, ty, &value.projections[path.projections.len()..], stable_pointees);
+                            observation.record_pointee_preservation(
+                                &exact_targets,
+                                ty,
+                                &value.projections[path.projections.len()..],
+                                stable_pointees,
+                            );
                         }
                     }
 
@@ -320,13 +467,32 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 let mut observed = false;
 
                 if !exposed_referent {
-                    for (value, observation) in self.input.opaque_values.range(path.clone()..).take_while(|(value, _)| path.contains(value)) {
+                    for (value, observation) in self
+                        .input
+                        .opaque_values
+                        .range(path.clone()..)
+                        .take_while(|(value, _)| path.contains(value))
+                    {
                         if targets.iter().all(|target| {
-                            survives(&target.project(&value.projections[path.projections.len()..]), bray_bound_tree::StorageObservationKind::Mutable, ty, true)
+                            survives(
+                                &target.project(&value.projections[path.projections.len()..]),
+                                bray_bound_tree::StorageObservationKind::Mutable,
+                                ty,
+                                true,
+                            )
                         }) {
-                            observation.record_preservation(value.clone(), stable_descriptors, stable_values);
+                            observation.record_preservation(
+                                value.clone(),
+                                stable_descriptors,
+                                stable_values,
+                            );
 
-                            observation.record_pointee_preservation(&exact_targets, ty, &value.projections[path.projections.len()..], stable_pointees);
+                            observation.record_pointee_preservation(
+                                &exact_targets,
+                                ty,
+                                &value.projections[path.projections.len()..],
+                                stable_pointees,
+                            );
                             observed = true;
                         }
                     }
@@ -336,52 +502,106 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     // Pointer descriptors belong to the shared owner, separately
                     // from the mutable storage they reach.
                     if observation == bray_bound_tree::StorageObservationKind::Address {
-                        if targets.iter().all(|target| survives(
-                            &target.project(&value.projections[path.projections.len()..]), observation, ty, true,
-                        )) {
-                            observation.record_preservation(value.clone(), stable_descriptors, stable_values);
+                        if targets.iter().all(|target| {
+                            survives(
+                                &target.project(&value.projections[path.projections.len()..]),
+                                observation,
+                                ty,
+                                true,
+                            )
+                        }) {
+                            observation.record_preservation(
+                                value.clone(),
+                                stable_descriptors,
+                                stable_values,
+                            );
 
-                            observation.record_pointee_preservation(&exact_targets, ty, &value.projections[path.projections.len()..], stable_pointees);
-                            references.extend(targets.iter().map(|target| (value.clone(), target.project(&value.projections[path.projections.len()..]))));
+                            observation.record_pointee_preservation(
+                                &exact_targets,
+                                ty,
+                                &value.projections[path.projections.len()..],
+                                stable_pointees,
+                            );
+                            references.extend(targets.iter().map(|target| {
+                                (
+                                    value.clone(),
+                                    target.project(&value.projections[path.projections.len()..]),
+                                )
+                            }));
                             observed = true;
                         }
 
                         continue;
                     }
 
-                    let survives = targets.iter().all(|target| survives(
-                        &target.project(&value.projections[path.projections.len()..]), observation, ty, true,
-                    ));
+                    let survives = targets.iter().all(|target| {
+                        survives(
+                            &target.project(&value.projections[path.projections.len()..]),
+                            observation,
+                            ty,
+                            true,
+                        )
+                    });
 
-                    if survives && (!exposed_referent || observation == bray_bound_tree::StorageObservationKind::Identity || observation.is_immutable_inline()) {
-                        observation.record_preservation(value.clone(), stable_descriptors, stable_values);
+                    if survives
+                        && (!exposed_referent
+                            || observation == bray_bound_tree::StorageObservationKind::Identity
+                            || observation.is_immutable_inline())
+                    {
+                        observation.record_preservation(
+                            value.clone(),
+                            stable_descriptors,
+                            stable_values,
+                        );
 
-                        observation.record_pointee_preservation(&exact_targets, ty, &value.projections[path.projections.len()..], stable_pointees);
+                        observation.record_pointee_preservation(
+                            &exact_targets,
+                            ty,
+                            &value.projections[path.projections.len()..],
+                            stable_pointees,
+                        );
 
                         observed = true;
                     }
                 }
 
-                if exposed_referent || !observed && discriminants.is_none() { continue; }
+                if exposed_referent || !observed && discriminants.is_none() {
+                    continue;
+                }
 
                 // The logical access can be an invocation input. Its exact physical
                 // referent still retains the complete owner for this shared loan.
                 stable_descriptors.insert(path.clone());
 
                 for descriptor in discriminants
-                        .into_iter()
-                        .flatten()
-                        .filter(|descriptor| path.contains(descriptor)) {
-                    if targets.iter().all(|target| !target.previous && survives(
-                        &target.project(&descriptor.projections[path.projections.len()..]),
-                        bray_bound_tree::StorageObservationKind::Discriminant, ty, true,
-                    )) {
-                        bray_bound_tree::StorageObservationKind::Discriminant.record_preservation(descriptor.clone(), stable_descriptors, stable_values);
+                    .into_iter()
+                    .flatten()
+                    .filter(|descriptor| path.contains(descriptor))
+                {
+                    if targets.iter().all(|target| {
+                        !target.previous
+                            && survives(
+                                &target.project(&descriptor.projections[path.projections.len()..]),
+                                bray_bound_tree::StorageObservationKind::Discriminant,
+                                ty,
+                                true,
+                            )
+                    }) {
+                        bray_bound_tree::StorageObservationKind::Discriminant.record_preservation(
+                            descriptor.clone(),
+                            stable_descriptors,
+                            stable_values,
+                        );
 
-                        bray_bound_tree::StorageObservationKind::Discriminant.record_pointee_preservation(&exact_targets, ty, &descriptor.projections[path.projections.len()..], stable_pointees);
+                        bray_bound_tree::StorageObservationKind::Discriminant
+                            .record_pointee_preservation(
+                                &exact_targets,
+                                ty,
+                                &descriptor.projections[path.projections.len()..],
+                                stable_pointees,
+                            );
                     }
                 }
-
             }
         }
 
@@ -393,7 +613,11 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     pub(super) fn preserve_shared_views(
         &self,
         memory: &crate::analysis::storage_flow::memory::State,
-        survives: &impl Fn(&Target, bray_bound_tree::StorageObservationKind, bray_symbols::TypeId) -> bool,
+        survives: &impl Fn(
+            &Target,
+            bray_bound_tree::StorageObservationKind,
+            bray_symbols::TypeId,
+        ) -> bool,
         slot_survives: &impl Fn(&Target) -> bool,
         invalidation: &mut StorageInvalidation,
     ) {
@@ -411,24 +635,39 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
             let access = reference.access_id(self.storage);
 
-            let locations = if let Some((slot, _, _)) = self.input.entry_references.get(&(reference.clone(), 1)) {
+            let locations = if let Some((slot, _, _)) =
+                self.input.entry_references.get(&(reference.clone(), 1))
+            {
                 memory.reference_locations(
-                    self.request.semantic_values(), Target::storage(StoragePath::root(reference.root)), slot, None,
+                    self.request.semantic_values(),
+                    Target::storage(StoragePath::root(reference.root)),
+                    slot,
+                    None,
                 )
-            } else { match access {
-                _ if reference.projections.is_empty() => Some(Target::storage(reference.clone())),
-                Some(access) => self.input.reference_target(self.request.semantic_values(), memory, self.storage, access),
-                None if self
+            } else {
+                match access {
+                    _ if reference.projections.is_empty() => {
+                        Some(Target::storage(reference.clone()))
+                    }
+                    Some(access) => self.input.reference_target(
+                        self.request.semantic_values(),
+                        memory,
+                        self.storage,
+                        access,
+                    ),
+                    None if self
                         .storage
                         .identity(reference.root)
                         .is_some_and(|identity| {
                             identity.is_invocation_owned(self.storage.kind())
                         }) =>
-                {
-                    Some(Target::storage(reference.clone()))
+                    {
+                        Some(Target::storage(reference.clone()))
+                    }
+                    None => None,
                 }
-                None => None,
-            }.map(|location| vec![location]) };
+                .map(|location| vec![location])
+            };
 
             // A shared loan protects each possible referent. Exact pointer identity
             // is unnecessary, but unknown or retired backing supplies no protection.
@@ -442,16 +681,30 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
             // Classify the actual descriptor before following its shared referent.
             // The loan protects reached data, not replacement of its containing slot.
-            if location.previous || !crate::analysis::storage_flow::memory::State::stable_reference_slot(&location, invalidation)
-                && !slot_survives(&location) {
+            if location.previous
+                || !crate::analysis::storage_flow::memory::State::stable_reference_slot(
+                    &location,
+                    invalidation,
+                ) && !slot_survives(&location)
+            {
                 continue;
             }
 
             invalidation.preserve_reference_slot(reference.clone(), location.clone());
 
             let (stable_descriptors, stable_values, stable_pointees) = match invalidation {
-                StorageInvalidation::All { stable_descriptors, stable_values, stable_pointees, .. }
-                | StorageInvalidation::Observed { stable_descriptors, stable_values, stable_pointees, .. } => (stable_descriptors, stable_values, stable_pointees),
+                StorageInvalidation::All {
+                    stable_descriptors,
+                    stable_values,
+                    stable_pointees,
+                    ..
+                }
+                | StorageInvalidation::Observed {
+                    stable_descriptors,
+                    stable_values,
+                    stable_pointees,
+                    ..
+                } => (stable_descriptors, stable_values, stable_pointees),
                 StorageInvalidation::Unchanged => return,
             };
 
@@ -462,7 +715,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             };
 
             let exact = source.is_exact(memory);
-            let exact_targets = source.targets(memory).filter(|targets| targets.len() == 1).unwrap_or_default();
+            let exact_targets = source
+                .targets(memory)
+                .filter(|targets| targets.len() == 1)
+                .unwrap_or_default();
 
             for (path, observation) in observations {
                 // A whole-value frame must not hide a retired marker inside it.
@@ -486,37 +742,73 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                             bray_bound_tree::StorageOrigin::Entry { .. }
                             | bray_bound_tree::StorageOrigin::Returned { .. }
                             | bray_bound_tree::StorageOrigin::Static { .. } => {
-                                let framed = if address { stable_descriptors.contains(path) || stable_values.get(path) == Some(&bray_bound_tree::StorageObservationKind::Address) } else { stable_values.get(path).is_some_and(|kind| *kind == *observation || kind.is_immutable_inline()) };
+                                let framed = if address {
+                                    stable_descriptors.contains(path)
+                                        || stable_values.get(path)
+                                            == Some(
+                                                &bray_bound_tree::StorageObservationKind::Address,
+                                            )
+                                } else {
+                                    stable_values.get(path).is_some_and(|kind| {
+                                        *kind == *observation || kind.is_immutable_inline()
+                                    })
+                                };
 
-                                framed || immutable_value || address || identity
+                                framed
+                                    || immutable_value
+                                    || address
+                                    || identity
                                     || !exposed.iter().any(|raw| {
                                         memory.target_relationship(raw, &target)
                                             != StorageRelationship::Disjoint
                                     })
                             }
-                            _ => target
-                                .storage_path()
-                                .is_some_and(|path| stable_values.get(path).is_some_and(|kind| *kind == *observation || kind.is_immutable_inline())
-                                    || address && stable_descriptors.contains(path)),
+                            _ => target.storage_path().is_some_and(|path| {
+                                stable_values.get(path).is_some_and(|kind| {
+                                    *kind == *observation || kind.is_immutable_inline()
+                                }) || address && stable_descriptors.contains(path)
+                            }),
                         }
                     })
                 {
-                    observation.record_pointee_preservation(&exact_targets, *ty, &path.projections[reference.projections.len()..], stable_pointees);
+                    observation.record_pointee_preservation(
+                        &exact_targets,
+                        *ty,
+                        &path.projections[reference.projections.len()..],
+                        stable_pointees,
+                    );
 
                     // The copied logical path shares immutable projection metadata.
                     if address {
-                        observation.record_preservation(path.clone(), stable_descriptors, stable_values);
-                        references.extend(targets.iter().map(|target| (path.clone(), target.project(&path.projections[reference.projections.len()..]))));
+                        observation.record_preservation(
+                            path.clone(),
+                            stable_descriptors,
+                            stable_values,
+                        );
+                        references.extend(targets.iter().map(|target| {
+                            (
+                                path.clone(),
+                                target.project(&path.projections[reference.projections.len()..]),
+                            )
+                        }));
 
                         if exact
                             && let Some(physical) = targets[0]
                                 .project(&path.projections[reference.projections.len()..])
                                 .observation_path()
                         {
-                            bray_bound_tree::StorageObservationKind::Address.record_preservation(physical, stable_descriptors, stable_values);
+                            bray_bound_tree::StorageObservationKind::Address.record_preservation(
+                                physical,
+                                stable_descriptors,
+                                stable_values,
+                            );
                         }
                     } else {
-                        observation.record_preservation(path.clone(), stable_descriptors, stable_values);
+                        observation.record_preservation(
+                            path.clone(),
+                            stable_descriptors,
+                            stable_values,
+                        );
                     }
                 }
             }
@@ -535,8 +827,16 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         contents: bool,
     ) {
         let (stable_descriptors, stable_values) = match invalidation {
-            StorageInvalidation::All { stable_descriptors, stable_values, .. }
-            | StorageInvalidation::Observed { stable_descriptors, stable_values, .. } => (stable_descriptors, stable_values),
+            StorageInvalidation::All {
+                stable_descriptors,
+                stable_values,
+                ..
+            }
+            | StorageInvalidation::Observed {
+                stable_descriptors,
+                stable_values,
+                ..
+            } => (stable_descriptors, stable_values),
             StorageInvalidation::Unchanged => return,
         };
 
@@ -545,33 +845,49 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         if tags {
             // Tag-free stores run no replacement cleanup. Inexact aliasing
             // cannot turn one into a variant replacement.
-            for descriptor in self.input
-                    .footprint
-                    .discriminants
-                    .iter()
-                    .filter(|(root, _)| {
-                        let target = self
-                            .storage
-                            .root_access(**root)
-                            .and_then(|access| {
-                                self.input.reference_target(self.request.semantic_values(), memory, self.storage, access)
-                            })
-                            .unwrap_or_else(|| Target::storage(StoragePath::root(**root)));
-
-                        !exposed.iter().any(|raw| {
-                            memory.target_relationship(raw, &target)
-                                != StorageRelationship::Disjoint
+            for descriptor in self
+                .input
+                .footprint
+                .discriminants
+                .iter()
+                .filter(|(root, _)| {
+                    let target = self
+                        .storage
+                        .root_access(**root)
+                        .and_then(|access| {
+                            self.input.reference_target(
+                                self.request.semantic_values(),
+                                memory,
+                                self.storage,
+                                access,
+                            )
                         })
+                        .unwrap_or_else(|| Target::storage(StoragePath::root(**root)));
+
+                    !exposed.iter().any(|raw| {
+                        memory.target_relationship(raw, &target) != StorageRelationship::Disjoint
                     })
-                    .flat_map(|(_, paths)| paths) {
-                bray_bound_tree::StorageObservationKind::Discriminant.record_preservation(descriptor.clone(), stable_descriptors, stable_values);
+                })
+                .flat_map(|(_, paths)| paths)
+            {
+                bray_bound_tree::StorageObservationKind::Discriminant.record_preservation(
+                    descriptor.clone(),
+                    stable_descriptors,
+                    stable_values,
+                );
             }
         }
 
         if contents {
             // Plain assignments and typed data stores cannot transfer empty
             // ownership markers, even when their destination has inexact aliases.
-            stable_values.extend(self.input.footprint.empty_markers.keys().map(|path| (path.clone(), bray_bound_tree::StorageObservationKind::Value)));
+            stable_values.extend(
+                self.input
+                    .footprint
+                    .empty_markers
+                    .keys()
+                    .map(|path| (path.clone(), bray_bound_tree::StorageObservationKind::Value)),
+            );
         }
     }
 
@@ -626,7 +942,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             }
         }
 
-        snapshots.insert(observed, StorageObservedTarget::borrowed(target.clone(), pointee));
+        snapshots.insert(
+            observed,
+            StorageObservedTarget::borrowed(target.clone(), pointee),
+        );
     }
 
     pub(super) fn resolved_observations(
@@ -648,16 +967,30 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let ambient = effects.iter().any(Effect::is_ambient);
 
         let atomic = if !all_inputs && effects.iter().any(Effect::is_atomic) {
-            let frame = self.input.footprint.atomic.as_ref()
+            let frame = self
+                .input
+                .footprint
+                .atomic
+                .as_ref()
                 .expect("atomic effects prepare their observation frame");
 
             let targets = if effects.contains(&Effect::Atomic) {
-                self.opaque_observations_with_escapes(memory, (roots.clone(), false), escaped, &[], false)
+                self.opaque_observations_with_escapes(
+                    memory,
+                    (roots.clone(), false),
+                    escaped,
+                    &[],
+                    false,
+                )
             } else {
-                self.target_observations(memory, effects.iter()
-                    .filter_map(Effect::mutation)
-                    .filter(|(_, kind)| *kind == bray_symbols::DependencyMutationKind::Atomic)
-                    .map(|(target, _)| target))
+                self.target_observations(
+                    memory,
+                    effects
+                        .iter()
+                        .filter_map(Effect::mutation)
+                        .filter(|(_, kind)| *kind == bray_symbols::DependencyMutationKind::Atomic)
+                        .map(|(target, _)| target),
+                )
             };
 
             Some(crate::storage::observation::restrict(targets, frame))
@@ -665,14 +998,17 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             None
         };
 
-        let ordinary = effects.iter().filter_map(Effect::mutation)
+        let ordinary = effects
+            .iter()
+            .filter_map(Effect::mutation)
             .filter(|(_, kind)| *kind != bray_symbols::DependencyMutationKind::Atomic)
             .map(|(target, _)| target);
 
         if !all_inputs && !ambient && ordinary.clone().next().is_none() {
             return match atomic {
                 Some(invalidation) => invalidation.with_observation_transition(transition),
-                None => self.target_observations(memory, ordinary)
+                None => self
+                    .target_observations(memory, ordinary)
                     .with_observation_transition(StorageObservationTransition::Unchanged),
             };
         }
@@ -685,20 +1021,38 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             // Unresolved operands do not establish a finite lifetime footprint.
             let incomplete_capture = Effect::incomplete_captured_cleanup(effects);
 
-            let backing_scope_known = !unbounded_escape && !incomplete_capture && !effects.iter().any(|effect| {
-                matches!(effect, Effect::Unknown | Effect::UnboundedMutation { ambient: false, .. })
-                    && !effect.preserves_storage_lifetimes()
-            });
+            let backing_scope_known = !unbounded_escape
+                && !incomplete_capture
+                && !effects.iter().any(|effect| {
+                    matches!(
+                        effect,
+                        Effect::Unknown | Effect::UnboundedMutation { ambient: false, .. }
+                    ) && !effect.preserves_storage_lifetimes()
+                });
 
-            let roots = roots.into_iter().filter(|_| all_inputs || unbounded_escape).chain(ordinary.cloned())
+            let roots = roots
+                .into_iter()
+                .filter(|_| all_inputs || unbounded_escape)
+                .chain(Effect::borrowed_reach_regions(effects).cloned())
+                .chain(ordinary.cloned())
                 .chain(Effect::captured_cleanup_regions(effects).cloned());
 
-            let inline = effects.iter().filter_map(|effect| match effect {
-                Effect::CapturedCleanup { inline, .. } => Some(inline.iter()),
-                _ => None,
-            }).flatten().collect::<Vec<_>>();
+            let inline = effects
+                .iter()
+                .filter_map(|effect| match effect {
+                    Effect::CapturedCleanup { inline, .. } => Some(inline.iter()),
+                    _ => None,
+                })
+                .flatten()
+                .collect::<Vec<_>>();
 
-            self.opaque_observations_with_escapes(memory, (roots, incomplete_capture), escaped, &inline, backing_scope_known)
+            self.opaque_observations_with_escapes(
+                memory,
+                (roots, incomplete_capture),
+                escaped,
+                &inline,
+                backing_scope_known,
+            )
         } else {
             self.target_observations(memory, ordinary)
         };
@@ -717,18 +1071,56 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         receiver: Option<&Target>,
     ) -> StorageInvalidation {
         if receiver.is_none()
-            && effects.is_none_or(|effects| {
-                effects
-                    .iter()
-                    .any(Effect::may_reach_all_inputs)
-            })
+            && effects.is_none_or(|effects| effects.iter().any(Effect::may_reach_all_inputs))
         {
             return StorageInvalidation::unknown();
         }
 
         match effects {
-            Some(effects) => self.resolved_observations(memory, effects, receiver.cloned(), &Default::default()),
+            Some(effects) => {
+                self.resolved_observations(memory, effects, receiver.cloned(), &Default::default())
+            }
             None => self.opaque_observations(memory, receiver.cloned(), false),
+        }
+    }
+
+    pub(in crate::analysis::storage_flow::check::analysis) fn complete_reference_footprint(
+        &self,
+        state: &StorageFlowState,
+        root: &StoragePath,
+        observations: &mut BTreeMap<StoragePath, StorageObservedTarget>,
+    ) {
+        for (path, ty) in self.input.footprint.references_below(root) {
+            let Some(pointee) =
+                crate::representation::borrow_target_type(self.request.semantic_values(), ty)
+            else {
+                continue;
+            };
+
+            if state
+                .no_payload_paths(path.root)
+                .any(|absent| absent.contains(path))
+            {
+                continue;
+            }
+
+            let Some(targets) = state
+                .memory
+                .value_targets(&Target::storage(path.clone()))
+            else {
+                continue;
+            };
+
+            let [target] = targets.as_slice() else {
+                continue;
+            };
+
+            if target.is_exact() {
+                observations.insert(
+                    path.clone(),
+                    StorageObservedTarget::borrowed(target.clone(), pointee),
+                );
+            }
         }
     }
 
@@ -757,17 +1149,28 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         }
 
         let mut observations = BTreeMap::new();
-        let entry = state.execution.as_ref().and_then(|execution| execution.admitted_call(occurrence));
+        let entry = state
+            .execution
+            .as_ref()
+            .and_then(|execution| execution.admitted_call(occurrence));
 
         // Read the current referent through the descriptor admitted at input evaluation.
-        for (subject, ty, _) in contracts.into_iter().flat_map(|call| call.storage().subjects()) {
-            let Some(pointee) = crate::representation::borrow_target_type(self.request.semantic_values(), ty) else { continue; };
+        for (subject, ty, _) in contracts
+            .into_iter()
+            .flat_map(|call| call.storage().subjects())
+        {
+            let Some(pointee) =
+                crate::representation::borrow_target_type(self.request.semantic_values(), ty)
+            else {
+                continue;
+            };
 
             let Some(observed) = self.invocation_logical_path(occurrence, subject) else {
                 continue;
             };
 
-            let Some(sources) = self.admitted_reference_sources(state, occurrence, entry, subject) else {
+            let Some(sources) = self.admitted_reference_sources(state, occurrence, entry, subject)
+            else {
                 continue;
             };
 
@@ -787,23 +1190,28 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 continue;
             }
 
-            observations.insert(observed, StorageObservedTarget::borrowed(target.clone(), pointee));
+            observations.insert(
+                observed,
+                StorageObservedTarget::borrowed(target.clone(), pointee),
+            );
+        }
+
+        if let Some(entry) = entry {
+            for ordinal in entry.input_borrow_kinds.keys() {
+                let Some(root) = entry
+                    .argument_storage(*ordinal)
+                    .and_then(bray_bound_tree::StorageCapturedValue::known_address)
+                    .and_then(Target::storage_path)
+                else {
+                    continue;
+                };
+
+                self.complete_reference_footprint(state, root, &mut observations);
+            }
         }
 
         if let Some(result) = self.invocation_result(occurrence) {
-            for (path, ty) in self.input.footprint.references_below(&result) {
-                let Some(pointee) = crate::representation::borrow_target_type(self.request.semantic_values(), ty) else { continue; };
-
-                if state.no_payload_paths(path.root).any(|absent| absent.contains(path)) {
-                    continue;
-                }
-
-                let Some(targets) = state.memory.value_targets(&Target::storage(path.clone())) else { continue; };
-
-                if let [target] = targets.as_slice() && target.is_exact() {
-                    observations.insert(path.clone(), StorageObservedTarget::borrowed(target.clone(), pointee));
-                }
-            }
+            self.complete_reference_footprint(state, &result, &mut observations);
         }
 
         Some(bray_bound_tree::StorageCompletion::new(observations))
@@ -835,7 +1243,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 referents,
                 stable_descriptors,
                 stable_values: BTreeMap::new(),
-                stable_reference_slots: Default::default(), normal_snapshots: Default::default(), stable_pointees: Default::default(),
+                stable_reference_slots: Default::default(),
+                normal_snapshots: Default::default(),
+                stable_pointees: Default::default(),
             };
         }
 
@@ -885,30 +1295,52 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         }
 
         let candidates = self.local_observation_accesses(mutations.clone());
-        let all_accesses = candidates.is_none().then(|| self.storage.access_entries().map(|(access, _)| access));
+        let all_accesses = candidates
+            .is_none()
+            .then(|| self.storage.access_entries().map(|(access, _)| access));
 
-        for access in candidates.into_iter().flatten().chain(all_accesses.into_iter().flatten()) {
+        for access in candidates
+            .into_iter()
+            .flatten()
+            .chain(all_accesses.into_iter().flatten())
+        {
             let Some(logical) = self.storage.logical_path(access) else {
                 continue;
             };
 
-            let access_data = self.storage.access(access).expect("observation indexes retain checked accesses");
+            let access_data = self
+                .storage
+                .access(access)
+                .expect("observation indexes retain checked accesses");
             let direct = self.input.direct_reference_target(self.storage, access);
             let indirect;
 
             let observed = if let Some(direct) = &direct {
                 Some(std::slice::from_ref(direct))
             } else {
-                indirect = self.input.reference_targets(self.request.semantic_values(), memory, self.storage, access);
+                indirect = self.input.reference_targets(
+                    self.request.semantic_values(),
+                    memory,
+                    self.storage,
+                    access,
+                );
 
                 indirect.as_deref()
             };
 
             // Stored borrows observe their reached contents. Borrow-capability routes
             // already name their target. Raw-address accesses observe descriptor slots.
-            let pointee = if matches!(access_data.root(), bray_bound_tree::StorageAccessRoot::Storage(_)) {
-                crate::representation::borrow_target_type(self.request.semantic_values(), access_data.reached_type())
-            } else { None };
+            let pointee = if matches!(
+                access_data.root(),
+                bray_bound_tree::StorageAccessRoot::Storage(_)
+            ) {
+                crate::representation::borrow_target_type(
+                    self.request.semantic_values(),
+                    access_data.reached_type(),
+                )
+            } else {
+                None
+            };
 
             let referents;
 
@@ -919,13 +1351,19 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
                 // The access names a stored loan. A pointee write changes reached
                 // data, while a disjoint descriptor retains the evaluated loan.
-                if slots.iter().all(|slot| mutations.clone().all(|mutation| {
-                    memory.target_relationship(slot, mutation) == StorageRelationship::Disjoint
-                })) {
+                if slots.iter().all(|slot| {
+                    mutations.clone().all(|mutation| {
+                        memory.target_relationship(slot, mutation) == StorageRelationship::Disjoint
+                    })
+                }) {
                     stable_descriptors.insert(logical.clone());
                 }
 
-                let Some(targets) = slots.iter().map(|slot| memory.value_targets(slot)).collect::<Option<Vec<_>>>() else {
+                let Some(targets) = slots
+                    .iter()
+                    .map(|slot| memory.value_targets(slot))
+                    .collect::<Option<Vec<_>>>()
+                else {
                     continue;
                 };
 
@@ -950,7 +1388,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             );
 
             if let Some(observed) = &observed {
-                unrepresented.retain(|mutation| !observed.iter().any(|target| target.contains(mutation)));
+                unrepresented
+                    .retain(|mutation| !observed.iter().any(|target| target.contains(mutation)));
             }
 
             let mut changed = Vec::new();
@@ -958,12 +1397,19 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             for mutation in mutations.clone() {
                 // Possible origin bounds revoke evidence independently. They do
                 // not establish a particular new snapshot through another loan.
-                if pointee.is_some() && !observed.as_ref().is_some_and(|observed| observed.iter().any(|target| target.contains(mutation))) {
+                if pointee.is_some()
+                    && !observed.as_ref().is_some_and(|observed| {
+                        observed.iter().any(|target| target.contains(mutation))
+                    })
+                {
                     continue;
                 }
 
                 if observed.as_ref().is_some_and(|observed| {
-                    observed.iter().all(|target| memory.target_relationship(target, mutation) == StorageRelationship::Disjoint)
+                    observed.iter().all(|target| {
+                        memory.target_relationship(target, mutation)
+                            == StorageRelationship::Disjoint
+                    })
                 }) {
                     continue;
                 }
@@ -975,27 +1421,31 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     _ => None,
                 });
 
-                let suffix = observed.as_ref().and_then(|targets| {
-                    let mut suffix = None;
+                let suffix = observed
+                    .as_ref()
+                    .and_then(|targets| {
+                        let mut suffix = None;
 
-                    for target in targets.iter().filter(|target| {
-                        memory.target_relationship(target, mutation) != StorageRelationship::Disjoint
-                    }) {
-                        if !target.contains(mutation) {
-                            return None;
+                        for target in targets.iter().filter(|target| {
+                            memory.target_relationship(target, mutation)
+                                != StorageRelationship::Disjoint
+                        }) {
+                            if !target.contains(mutation) {
+                                return None;
+                            }
+
+                            let relative = &mutation.projections()[target.projections().len()..];
+
+                            if suffix.is_some_and(|previous| previous != relative) {
+                                return None;
+                            }
+
+                            suffix = Some(relative);
                         }
 
-                        let relative = &mutation.projections()[target.projections().len()..];
-
-                        if suffix.is_some_and(|previous| previous != relative) {
-                            return None;
-                        }
-
-                        suffix = Some(relative);
-                    }
-
-                    suffix
-                }).unwrap_or_default();
+                        suffix
+                    })
+                    .unwrap_or_default();
 
                 let path = observable_path(
                     logical.root,
@@ -1007,10 +1457,13 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 {
                     // An enclosing invalidation is not a value alias of protected
                     // contents. Keep their precise target with the mutation only.
-                    snapshots.insert(path.clone(), StorageObservedTarget {
-                        target: mutation.clone(),
-                        pointee: if suffix.is_empty() { pointee } else { None },
-                    });
+                    snapshots.insert(
+                        path.clone(),
+                        StorageObservedTarget {
+                            target: mutation.clone(),
+                            pointee: if suffix.is_empty() { pointee } else { None },
+                        },
+                    );
                 }
 
                 changed.push(path);
@@ -1041,7 +1494,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 referents,
                 stable_descriptors,
                 stable_values: BTreeMap::new(),
-                stable_reference_slots: Default::default(), normal_snapshots: Default::default(), stable_pointees: Default::default(),
+                stable_reference_slots: Default::default(),
+                normal_snapshots: Default::default(),
+                stable_pointees: Default::default(),
             }
         } else {
             self.opaque_observations(memory, mutations.cloned(), true)
@@ -1058,11 +1513,19 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         for mutation in mutations {
             match &mutation.origin {
-                Origin::Storage(path) if !matches!(
-                    self.storage.identity(path.root), Some(bray_bound_tree::StorageIdentity::Static(_))
-                ) => { roots.insert(path.root); }
+                Origin::Storage(path)
+                    if !matches!(
+                        self.storage.identity(path.root),
+                        Some(bray_bound_tree::StorageIdentity::Static(_))
+                    ) =>
+                {
+                    roots.insert(path.root);
+                }
                 Origin::Allocation { .. } => {}
-                Origin::Storage(_) | Origin::Static { .. } | Origin::Entry { .. } | Origin::Returned { .. }
+                Origin::Storage(_)
+                | Origin::Static { .. }
+                | Origin::Entry { .. }
+                | Origin::Returned { .. }
                 | Origin::BackingRegion => return None,
             }
         }
@@ -1072,7 +1535,13 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let mut accesses = self.input.indirect_observation_accesses.clone();
 
         for root in roots {
-            accesses.extend(self.input.direct_observation_accesses.get(&root).into_iter().flatten());
+            accesses.extend(
+                self.input
+                    .direct_observation_accesses
+                    .get(&root)
+                    .into_iter()
+                    .flatten(),
+            );
         }
 
         accesses.sort_unstable();
@@ -1102,20 +1571,20 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
             let descriptor = path.prefix(index, step);
 
-            let Some(locations) =
-                memory.reference_locations(
-                    self.request.semantic_values(),
-                    Target::storage(StoragePath::root(root)),
-                    &descriptor,
-                    None,
-                )
-            else {
+            let Some(locations) = memory.reference_locations(
+                self.request.semantic_values(),
+                Target::storage(StoragePath::root(root)),
+                &descriptor,
+                None,
+            ) else {
                 continue;
             };
 
-            if locations.iter().all(|location| mutations.clone().all(|mutation| {
-                memory.target_relationship(location, mutation) == StorageRelationship::Disjoint
-            })) {
+            if locations.iter().all(|location| {
+                mutations.clone().all(|mutation| {
+                    memory.target_relationship(location, mutation) == StorageRelationship::Disjoint
+                })
+            }) {
                 descriptors.insert(StoragePath {
                     root,
                     projections: path.projections()[..index].into(),
@@ -1130,19 +1599,33 @@ fn retained_capture(
     capture: &bray_bound_tree::StorageCapturedValue,
     effects: Option<&[Effect]>,
 ) -> bool {
-    let Some(effects) = effects else { return false; };
+    let Some(effects) = effects else {
+        return false;
+    };
 
-    if effects.iter().any(|effect| effect.is_ambient() || effect.is_atomic() || effect.may_reach_all_inputs()) {
+    if effects
+        .iter()
+        .any(|effect| effect.is_ambient() || effect.is_atomic() || effect.may_reach_all_inputs())
+    {
         return false;
     }
 
-    let Some(regions) = capture.complete_carried_regions() else { return false; };
+    let Some(regions) = capture.complete_carried_regions() else {
+        return false;
+    };
 
-    let (reached, unknown) = memory.transitive_regions(regions, |region, slot| region.contains_storage(slot));
+    let (reached, unknown) =
+        memory.transitive_regions(regions, |region, slot| region.contains_storage(slot));
 
-    !unknown && effects.iter().filter_map(Effect::mutation).all(|(changed, _)| {
-        reached.iter().all(|region| memory.target_relationship(region, changed) == StorageRelationship::Disjoint)
-    })
+    !unknown
+        && effects
+            .iter()
+            .filter_map(Effect::mutation)
+            .all(|(changed, _)| {
+                reached.iter().all(|region| {
+                    memory.target_relationship(region, changed) == StorageRelationship::Disjoint
+                })
+            })
 }
 
 fn observable_path(

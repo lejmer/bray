@@ -5,7 +5,10 @@ use bray_bound_tree::{BoundCallReference, BoundExecutionSite};
 use super::super::flow::ExecutionFlowDomain;
 use super::super::state::ExecutionState;
 use super::observations::GuaranteeSource;
-use crate::{CheckerRequestContext, ExecutionCallEvidence, ExecutionCondition, ExecutionPlace, TrustedAddressSubject, TrustedCallContract};
+use crate::{
+    CheckerRequestContext, ExecutionCallEvidence, ExecutionCondition, ExecutionPlace,
+    TrustedAddressSubject, TrustedCallContract,
+};
 
 #[derive(Default)]
 pub(super) struct CompletionGuarantees<'contract> {
@@ -25,10 +28,17 @@ impl<'contract> CompletionGuarantees<'contract> {
         let publication = |condition: &ExecutionCondition| {
             condition.contains_trusted()
                 && condition.observes_completion_result()
-                && !contract.address_subjects.iter().any(|subject| &subject.condition == condition)
+                && !contract
+                    .address_subjects
+                    .iter()
+                    .any(|subject| &subject.condition == condition)
         };
 
-        for condition in contract.guarantees.iter().flat_map(ExecutionCondition::conjuncts) {
+        for condition in contract
+            .guarantees
+            .iter()
+            .flat_map(ExecutionCondition::conjuncts)
+        {
             let captured = entry.capture_condition(condition);
 
             if publication(condition) {
@@ -52,15 +62,26 @@ impl<'contract> CompletionGuarantees<'contract> {
             }
         }
 
-        row.addresses.extend(contract.address_subjects.iter().map(|address| {
-            TrustedAddressSubject { condition: entry.capture_condition(&address.condition), ..address.clone() }
-        }));
+        row.addresses
+            .extend(
+                contract
+                    .address_subjects
+                    .iter()
+                    .map(|address| TrustedAddressSubject {
+                        condition: entry.capture_condition(&address.condition),
+                        ..address.clone()
+                    }),
+            );
 
         (row, published)
     }
 
     pub(super) fn is_empty(&self) -> bool {
         self.conditions.is_empty() && self.subjects.is_empty() && self.addresses.is_empty()
+    }
+
+    pub(super) fn witness_subjects(&self) -> impl Iterator<Item = &ExecutionCondition> {
+        self.subjects.iter().map(|(_, subject)| *subject)
     }
 }
 
@@ -72,11 +93,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         (contract, entry): (&TrustedCallContract, &ExecutionCallEvidence),
         guarantees: &CompletionGuarantees<'_>,
         result: &ExecutionCondition,
-        (arguments, owners): (&BTreeMap<ExecutionPlace, ExecutionCondition>, &BTreeMap<BoundExecutionSite, GuaranteeSource>),
+        (arguments, owners): (
+            &BTreeMap<ExecutionPlace, ExecutionCondition>,
+            &BTreeMap<BoundExecutionSite, GuaranteeSource>,
+        ),
+        direct_owners: Option<&BTreeMap<ExecutionPlace, ExecutionCondition>>,
         supported: &BTreeSet<ExecutionCondition>,
         instantiate: &impl Fn(&ExecutionCondition) -> ExecutionCondition,
     ) {
-
         let carry_result = |state: &mut ExecutionState,
                             template: &ExecutionCondition,
                             guarantee: &ExecutionCondition,
@@ -106,7 +130,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             let guarantee = instantiate(template);
             let condition = instantiate(subject);
 
-            if subject.observes_completion_result() && supported.iter().any(|proof| proof.implies(&guarantee)) {
+            if subject.observes_completion_result()
+                && supported.iter().any(|proof| proof.implies(&guarantee))
+            {
                 continue;
             }
 
@@ -118,18 +144,31 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             }
 
             if subject.observes_completion_result() {
-                let carrier = self.borrowed_result_carrier(result, subject).unwrap_or(condition);
+                let carrier = self
+                    .borrowed_result_carrier(result, subject)
+                    .unwrap_or(condition);
 
                 carry_result(state, template, &guarantee, &carrier, true);
                 continue;
             }
 
             self.carry_input_witnesses(
-                state, (template, subject), (&guarantee, &condition),
-                (arguments, &guarantees.addresses), |_| self.input_guarantee_addresses(
-                    (invocation, references), &entry.arguments, template, owners,
-                    &guarantees.addresses, instantiate,
-                ),
+                state,
+                entry,
+                (template, subject),
+                (&guarantee, &condition),
+                (arguments, &guarantees.addresses),
+                direct_owners,
+                |_| {
+                    self.input_guarantee_addresses(
+                        (invocation, references),
+                        &entry.arguments,
+                        template,
+                        owners,
+                        &guarantees.addresses,
+                        instantiate,
+                    )
+                },
             );
         }
 
@@ -142,10 +181,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             instantiate,
         );
 
-        for template in guarantees.conditions
-            .iter()
-            .filter(|guarantee| guarantee.contains_trusted() && guarantee.observes_completion_result())
-        {
+        for template in guarantees.conditions.iter().filter(|guarantee| {
+            guarantee.contains_trusted() && guarantee.observes_completion_result()
+        }) {
             if guarantees.subjects.iter().any(|(guarantee, subject)| {
                 guarantee == template && subject.observes_completion_result()
             }) {
@@ -169,19 +207,38 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     pub(super) fn carry_input_witnesses(
         &self,
         state: &mut ExecutionState,
+        entry: &crate::ExecutionCallEvidence,
         (template, subject): (&ExecutionCondition, &ExecutionCondition),
         (guarantee, condition): (&ExecutionCondition, &ExecutionCondition),
-        (arguments, address_subjects): (&BTreeMap<ExecutionPlace, ExecutionCondition>, &[TrustedAddressSubject]),
+        (arguments, address_subjects): (
+            &BTreeMap<ExecutionPlace, ExecutionCondition>,
+            &[TrustedAddressSubject],
+        ),
+        direct_owners: Option<&BTreeMap<ExecutionPlace, ExecutionCondition>>,
         addresses: impl FnOnce(&ExecutionState) -> crate::execution_guarantees::AddressDependencies,
     ) {
-        let carriers = self.input_witness_owners(state, template, subject, condition, arguments, address_subjects);
+        let carriers = self.input_witness_owners(
+            state,
+            entry,
+            template,
+            subject,
+            condition,
+            arguments,
+            address_subjects,
+            direct_owners,
+        );
 
-        if carriers.is_empty() { return; }
+        if carriers.is_empty() {
+            return;
+        }
 
         let addresses = addresses(state);
 
         for carrier in carriers {
-            state.witnesses.entry(carrier.owner_identity().clone()).or_default()
+            state
+                .witnesses
+                .entry(carrier.owner_identity().clone())
+                .or_default()
                 .carry(guarantee, true, &addresses);
         }
     }
@@ -224,7 +281,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         while let Some(predicate) = pending.pop() {
             match predicate.kind() {
                 crate::ExecutionConditionKind::Trusted(predicate) => pending.push(predicate),
-                crate::ExecutionConditionKind::Operation(_, operands) => pending.extend(operands.iter()),
+                crate::ExecutionConditionKind::Operation(_, operands) => {
+                    pending.extend(operands.iter())
+                }
                 crate::ExecutionConditionKind::Predicate(symbol, _, _)
                     if Some(*symbol) == self.owned_allocation
                         && (predicate.observes(carrier) || transferred) =>

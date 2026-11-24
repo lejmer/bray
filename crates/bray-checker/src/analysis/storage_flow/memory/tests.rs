@@ -4348,7 +4348,7 @@ fn escaping_language_borrow_publishes_only_raw_addresses_carried_by_its_referent
 
     Arc::make_mut(&mut state.values).insert(pointer, AddressValue::one(backing.clone()).into());
 
-    let (reached, published) = state.escaped_regions(
+    let (reached, published, borrowed_reach) = state.escaped_regions(
         [(borrowed.clone(), DependencyReferenceKind::Borrow)],
         None,
     );
@@ -4358,8 +4358,10 @@ fn escaping_language_borrow_publishes_only_raw_addresses_carried_by_its_referent
     assert!(published.contains(&backing));
     assert!(!published.contains(&borrowed));
     assert!(!published.contains(&owner));
+    assert_eq!(borrowed_reach, BTreeSet::from([borrowed.clone()]));
 
     state.escape_regions(published, None);
+    state.escape_borrowed_regions(borrowed_reach, None);
 
     let (ambient, unknown) = state
         .ambient_regions(
@@ -4373,8 +4375,10 @@ fn escaping_language_borrow_publishes_only_raw_addresses_carried_by_its_referent
 
     assert!(!unknown);
     assert!(ambient.contains(&backing));
-    assert!(!ambient.contains(&borrowed));
+    assert!(ambient.contains(&borrowed));
     assert!(!ambient.contains(&owner));
+    assert!(!state.raw_exposed_regions().contains(&borrowed));
+    assert!(state.reachable_regions([]).0.contains(&borrowed));
 }
 
 #[test]
@@ -4747,6 +4751,7 @@ fn private_production_retains_captures_until_normal_completion() {
             mutations: [super::Effect::at(source_target.clone(), bray_symbols::DependencyMutationKind::Write, None)]
             .into(),
             escaped: [source_target.clone()].into(),
+            borrowed: Default::default(),
             escape_prefix: Default::default(),
             invalidation: bray_bound_tree::StorageInvalidation::unknown(),
         }.into(),
@@ -4830,6 +4835,7 @@ fn captured_failure_targets_follow_storage_retirement() {
             ]
             .into(),
             escaped: [previous, Target::storage(source.clone())].into(),
+            borrowed: Default::default(),
             escape_prefix: Default::default(),
             invalidation: bray_bound_tree::StorageInvalidation::unknown(),
         }.into(),

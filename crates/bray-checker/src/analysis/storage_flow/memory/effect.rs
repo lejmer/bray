@@ -1,4 +1,4 @@
-use super::model::{Place, State, Target};
+use super::model::{State, Target};
 use bray_symbols::DependencyMutationKind;
 
 pub(in crate::analysis::storage_flow) use bray_bound_tree::{StorageCapturedEffects as CapturedEffects, StorageEffect as Effect};
@@ -16,10 +16,13 @@ impl State {
                             || path
                                 .projections
                                 .contains(&bray_bound_tree::StorageProjection::OwnedTarget)
-                            || self
-                                .contents
-                                .get(&Target::storage(Place::root(path.root)))
-                                .is_some_and(|contents| contents.escaped)
+                            || self.contents.iter().any(|(target, contents)| {
+                                (contents.escaped || contents.borrowed)
+                                    && self.target_relationship(
+                                        target,
+                                        &Target::storage(path.clone()),
+                                    ) != bray_bound_tree::StorageRelationship::Disjoint
+                            })
                     })
             }
             Effect::UnboundedMutation { kind, .. } => kind.is_write() && *kind != DependencyMutationKind::Clear,

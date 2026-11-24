@@ -331,6 +331,23 @@ fn common_scalar_components(
     budget: &mut usize,
 ) -> Option<ExecutionCondition> {
     if let (
+        crate::ExecutionConditionKind::Observation { owner: left_owner, contents: left_value, kind: left_kind },
+        crate::ExecutionConditionKind::Observation { owner: right_owner, contents: right_value, kind: right_kind },
+    ) = (left.kind(), right.kind())
+        && left_owner == right_owner
+        && matches!((*left_kind, *right_kind),
+            (ObservationKind::Owned, ObservationKind::Scalar)
+                | (ObservationKind::Scalar, ObservationKind::Owned))
+    {
+        // A partial write changes the data view, not the referent selected by
+        // an existing loan. Retain only common contents under that same owner.
+        let owner = left_owner.as_ref().clone();
+
+        return Some(ExecutionCondition::scalar_observation(owner.clone(),
+            common_components(left_value, right_value, Some(owner), conditions, facts, budget)));
+    }
+
+    if let (
         crate::ExecutionConditionKind::Observation { owner: left_owner, contents: left_value, kind: ObservationKind::Scalar },
         crate::ExecutionConditionKind::Observation { owner: right_owner, contents: right_value, kind: ObservationKind::Scalar },
     ) = (left.kind(), right.kind()) {

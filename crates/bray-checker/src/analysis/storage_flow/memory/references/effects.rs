@@ -109,7 +109,8 @@ impl State {
     ) -> Option<(std::collections::BTreeSet<Target>, bool)> {
         if effects.contains(&Effect::Escape(None)) { return None; }
 
-        let escaped = effects.iter().flat_map(Effect::escape_regions).cloned();
+        let escaped = effects.iter().flat_map(Effect::escape_regions).cloned()
+            .chain(Effect::borrowed_reach_regions(effects).cloned());
 
         let (targets, unknown) = self.reachable_regions(escaped
             .chain(Effect::captured_cleanup_regions(effects).cloned()));

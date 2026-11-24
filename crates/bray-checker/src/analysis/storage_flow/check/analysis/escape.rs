@@ -131,25 +131,38 @@ where
             return;
         };
 
-        for (slot, origin) in state.memory.reference_targets(result) {
-            let crate::analysis::storage_flow::memory::Origin::Storage(path) = origin else {
-                continue;
-            };
+        let mut escaping = std::collections::BTreeSet::new();
 
-            if block.is_some_and(|block| {
-                self.execution.disposal.storage_scope(path.root) != Some(block)
-            }) {
-                continue;
-            }
+        for (slot, target) in state.memory.reference_targets(result) {
+            let (origins, _) = state.memory.effect_origins(target);
 
-            match self.retained_borrow_access(slot, origin, ty) {
-                Ok(Some(access)) => self.report_escaping_access(exit, access),
-                Ok(_) => continue,
-                Err(error) => {
-                    self.fail_query(error);
-                    return;
+            for target in origins {
+                let crate::analysis::storage_flow::memory::Origin::Storage(path) = &target.origin
+                else {
+                    continue;
+                };
+
+                if block.is_some_and(|block| {
+                    self.execution.disposal.storage_scope(path.root) != Some(block)
+                }) {
+                    continue;
+                }
+
+                match self.retained_borrow_access(slot, &target.origin, ty) {
+                    Ok(Some(access)) => {
+                        escaping.insert(access);
+                    }
+                    Ok(_) => continue,
+                    Err(error) => {
+                        self.fail_query(error);
+                        return;
+                    }
                 }
             }
+        }
+
+        for access in escaping {
+            self.report_escaping_access(exit, access);
         }
     }
 

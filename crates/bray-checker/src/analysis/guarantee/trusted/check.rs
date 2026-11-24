@@ -45,6 +45,7 @@ pub(in crate::analysis) struct TrustedChecks {
     failed: Failures<bray_bound_tree::BoundExecutionSite, crate::UnprovenExecutionCondition>,
     failed_execution: Failures<bray_bound_tree::BoundExecutionSite, crate::UnprovenExecutionCondition>,
     transfers: Failures<BoundExpressionId, super::transfers::WitnessTransferFailure>,
+    transferred: BTreeSet<BoundExpressionId>,
     pending_transfers: Vec<(
         bray_bound_tree::BoundExecutionSite,
         Option<ExecutionCondition>,
@@ -109,7 +110,7 @@ impl TrustedChecks {
         operation: crate::analysis::model::AnalysisOperationKind,
         current_access: &impl Fn(bray_bound_tree::StorageAccessPlan) -> Option<bray_bound_tree::StoragePath>,
     ) {
-        super::transfers::check_witness_transfers(
+        self.transferred = super::transfers::check_witness_transfers(
             domain.request,
             domain.storage,
             domain,
@@ -156,7 +157,7 @@ impl TrustedChecks {
         admission: Option<&CallAdmissionChecks>,
         current_access: &impl Fn(bray_bound_tree::StorageAccessPlan) -> Option<bray_bound_tree::StoragePath>,
     ) {
-        super::transfers::check_witness_transfers(
+        let produced_transfers = super::transfers::check_witness_transfers(
             domain.request,
             domain.storage,
             domain,
@@ -166,6 +167,10 @@ impl TrustedChecks {
             current_access,
             |expression, failure| record_failure(&mut self.transfers, self.block, expression, || failure),
         );
+
+        let mut transferred = std::mem::take(&mut self.transferred);
+
+        transferred.extend(produced_transfers);
 
         // Completion facts can prove that a potential extraction never occurred.
         let proof = state.ordinary_proof();
@@ -182,11 +187,13 @@ impl TrustedChecks {
                 proof.prove_trusted(&condition) != Some(false)
             });
 
-            if active {
+            let expression = invocation
+                .expression()
+                .expect("pending ownership transfer has its source expression");
+
+            if active && !transferred.contains(&expression) {
                 record_failure(&mut self.transfers, self.block,
-                    invocation
-                        .expression()
-                        .expect("pending ownership transfer has its source expression"),
+                    expression,
                     || failure,
                 );
             }

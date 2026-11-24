@@ -14,19 +14,29 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         invocation: BoundExecutionSite,
         entry: &ExecutionCallEvidence,
     ) -> Option<ExecutionCondition> {
-        let BoundExecutionSite::Node(bray_bound_tree::AnyBoundNodeId::Expression(expression)) = invocation else {
+        let BoundExecutionSite::Node(bray_bound_tree::AnyBoundNodeId::Expression(expression)) =
+            invocation
+        else {
             return None;
         };
 
-        self.memory.operation(expression).filter(|operation| matches!(operation.kind(),
-            bray_bound_tree::CheckedMemoryOperationKind::UninitAssumeInitialized { .. }
-            | bray_bound_tree::CheckedMemoryOperationKind::UninitMove { .. }))?;
+        self.memory.operation(expression).filter(|operation| {
+            matches!(
+                operation.kind(),
+                bray_bound_tree::CheckedMemoryOperationKind::UninitAssumeInitialized { .. }
+                    | bray_bound_tree::CheckedMemoryOperationKind::UninitMove { .. }
+            )
+        })?;
 
         let wrapper = ExecutionPlace::argument(SymbolOrdinal::new(0))
             .value_in(&entry.arguments)
             .expect("protected extraction retains its evaluated storage");
 
-        Some(wrapper.argument_value(false).project(bray_bound_tree::StorageProjection::UninitPayload))
+        Some(
+            wrapper
+                .argument_value(false)
+                .project(bray_bound_tree::StorageProjection::UninitPayload),
+        )
     }
 
     pub(super) fn complete_implicit_invocation(
@@ -40,27 +50,40 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }
 
         let place = self.invocation_result_place(invocation);
-        let storage = self.storage.invocation_result(invocation).and_then(|access| self.storage.root_identity(access));
+        let storage = self
+            .storage
+            .invocation_result(invocation)
+            .and_then(|access| self.storage.root_identity(access));
 
         // An infallible enter produces the capability directly. Other results keep their own type and slot.
         let result = match storage.and_then(|identity| self.storage.identity(identity)) {
             Some(bray_bound_tree::StorageIdentity::ScopedCapability { expression, .. }) => {
                 ExecutionCondition::new(crate::ExecutionConditionKind::ScopedCapability(expression))
             }
-            _ => place.as_ref().map_or_else(ExecutionCondition::unknown, |place| {
-                ExecutionCondition::post_state(
-                    bray_bound_tree::StorageMutation::Operation(invocation),
-                    ExecutionCondition::new(crate::ExecutionConditionKind::Input(place.clone())),
-                )
-            }),
+            _ => place
+                .as_ref()
+                .map_or_else(ExecutionCondition::unknown, |place| {
+                    ExecutionCondition::post_state(
+                        bray_bound_tree::StorageMutation::Operation(invocation),
+                        ExecutionCondition::new(crate::ExecutionConditionKind::Input(
+                            place.clone(),
+                        )),
+                    )
+                }),
         };
 
-        let result = self.complete_trusted_call(state, (invocation, invocation), None, place.as_ref(), result, observations);
+        let result = self.complete_trusted_call(
+            state,
+            (invocation, invocation),
+            None,
+            place.as_ref(),
+            result,
+            observations,
+        );
 
         if let Some(place) = place {
             state.assign(place, result, None);
         }
-
     }
 
     pub(in crate::analysis) fn observe_memory_read(
@@ -69,8 +92,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         expression: BoundExpressionId,
         target: Option<&bray_bound_tree::StorageTarget>,
     ) -> bool {
-        let Some(pointee) = self.memory.operation(expression)
-            .and_then(|operation| operation.kind().moving_read_type()) else {
+        let Some(pointee) = self
+            .memory
+            .operation(expression)
+            .and_then(|operation| operation.kind().moving_read_type())
+        else {
             return false;
         };
 
@@ -84,9 +110,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             return false;
         };
 
-        let value = if matches!(self.request.semantic_values().type_data(pointee).as_ref(), bray_symbols::TypeData::Borrow { .. }) {
+        let value = if matches!(
+            self.request.semantic_values().type_data(pointee).as_ref(),
+            bray_symbols::TypeData::Borrow { .. }
+        ) {
             value
-        } else { value.argument_value(false) };
+        } else {
+            value.argument_value(false)
+        };
 
         if let Some(path) = path {
             self.observe_move(state, &path, pointee, &value);
@@ -104,11 +135,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         state: &ExecutionState,
         expression: BoundExpressionId,
     ) -> Option<ExecutionCondition> {
-        if self.memory.operation(expression).is_some_and(|operation| operation.kind().moving_read_type().is_some()) {
+        if self
+            .memory
+            .operation(expression)
+            .is_some_and(|operation| operation.kind().moving_read_type().is_some())
+        {
             if let Some(value) = state.pending_results.get(&expression) {
                 return Some(value.clone());
             }
-
         }
 
         let selection = self.semantics.selections().expression(expression)?;
@@ -162,14 +196,21 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         };
 
         let entry = state.entries.get(&expression.into())?;
-        let memory = self.memory.operation(expression).map(|operation| operation.kind());
+        let memory = self
+            .memory
+            .operation(expression)
+            .map(|operation| operation.kind());
 
-        if matches!(memory, Some(bray_bound_tree::CheckedMemoryOperationKind::UninitFrom { .. })) {
+        if matches!(
+            memory,
+            Some(bray_bound_tree::CheckedMemoryOperationKind::UninitFrom { .. })
+        ) {
             let payload = ExecutionPlace::argument(SymbolOrdinal::new(0))
                 .value_in(&entry.arguments)
                 .expect("initialized storage retains its evaluated payload");
 
-            let wrapper = ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expression));
+            let wrapper =
+                ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expression));
 
             return Some(ExecutionCondition::constructed(
                 wrapper,
@@ -193,7 +234,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 .value_in(&entry.arguments)
                 .expect("checked compare-exchange retains its evaluated expected value");
 
-            let result = ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expression));
+            let result =
+                ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expression));
 
             let observed =
                 result
@@ -209,7 +251,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 vec![observed, expected],
             );
 
-            return Some(ExecutionCondition::constructed(result,
+            return Some(ExecutionCondition::constructed(
+                result,
                 [(
                     bray_bound_tree::StorageProjection::TupleElement(SymbolOrdinal::new(1)),
                     succeeded,
@@ -274,15 +317,22 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             && !crate::representation::type_representation(self.request, ty)
                 .is_some_and(crate::representation::is_scalar_value)
         {
-            if matches!(self.request.semantic_values().type_data(ty).as_ref(), bray_symbols::TypeData::Borrow { .. }) {
+            if matches!(
+                self.request.semantic_values().type_data(ty).as_ref(),
+                bray_symbols::TypeData::Borrow { .. }
+            ) {
                 return Some(ExecutionCondition::reference_value(
-                    ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expression)).borrowed(), result,
+                    ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expression))
+                        .borrowed(),
+                    result,
                 ));
             }
 
             // Const computation describes data, not the identity of an owner
             // produced by this invocation. Returned transfers refine this slot.
-            return Some(ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expression)));
+            return Some(ExecutionCondition::new(
+                crate::ExecutionConditionKind::Expression(expression),
+            ));
         }
 
         Some(result)
@@ -314,7 +364,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     expression,
                 )
             }
-            BoundExecutionSite::Iterate(_) | BoundExecutionSite::Next(_) | BoundExecutionSite::ScopedEnter(_) => {
+            BoundExecutionSite::Iterate(_)
+            | BoundExecutionSite::Next(_)
+            | BoundExecutionSite::ScopedEnter(_) => {
                 let access = self
                     .storage
                     .invocation_result(input)
@@ -413,6 +465,44 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         )
     }
 
+    pub(in crate::analysis::guarantee) fn input_borrow_kinds(
+        &self,
+        selection: &SemanticSelection,
+    ) -> BTreeMap<SymbolOrdinal, bray_symbols::BorrowKind> {
+        selection
+            .inputs()
+            .filter_map(|input| {
+                let ordinal = selection
+                    .input_ordinal(input.root())
+                    .expect("checked input retains its ordinal");
+                let values = self.request.semantic_values();
+                let data = values.type_data(input.ty(values));
+                let bray_symbols::TypeData::Borrow { kind, .. } = data.as_ref() else {
+                    return None;
+                };
+
+                Some((ordinal, *kind))
+            })
+            .collect()
+    }
+
+    pub(in crate::analysis::guarantee) fn input_ordinals(
+        &self,
+        selection: &SemanticSelection,
+    ) -> BTreeMap<ExecutionPlace, SymbolOrdinal> {
+        selection
+            .inputs()
+            .filter_map(|input| {
+                let place = ExecutionPlace::from(input.reference()?);
+                let ordinal = selection
+                    .input_ordinal(input.root())
+                    .expect("checked input retains its ordinal");
+
+                Some((place, ordinal))
+            })
+            .collect()
+    }
+
     pub(in crate::analysis::guarantee) fn input_entry(
         &self,
         state: &ExecutionState,
@@ -442,21 +532,23 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         ) {
             self.staged_arguments(state, expression, selection, Some(ordinal))
         } else if let Some(source) = input.expression() {
-            let place = self.input_place(invocation).expect("input materialization retains its slot");
+            let place = self
+                .input_place(invocation)
+                .expect("input materialization retains its slot");
 
             let identity = ExecutionCondition::post_state(
                 bray_bound_tree::StorageMutation::Operation(invocation),
                 ExecutionCondition::new(crate::ExecutionConditionKind::Input(place)),
             );
 
-            let value = self.storage.occurrence_plans(invocation).fold(self.operand_value(state, source), |value, plan| {
-                self.copied_access_value(identity.clone(), value, plan)
-            });
+            let value = self
+                .storage
+                .occurrence_plans(invocation)
+                .fold(self.operand_value(state, source), |value, plan| {
+                    self.copied_access_value(identity.clone(), value, plan)
+                });
 
-            BTreeMap::from([(
-                ExecutionPlace::argument(SymbolOrdinal::new(0)),
-                value,
-            )])
+            BTreeMap::from([(ExecutionPlace::argument(SymbolOrdinal::new(0)), value)])
         } else {
             BTreeMap::new()
         };
@@ -477,6 +569,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             witness_allocations: Default::default(),
             extracted_values: Default::default(),
             owned_inputs: Default::default(),
+            input_borrow_kinds: Default::default(),
+            input_ordinals: Default::default(),
             borrow_owners: Default::default(),
             addresses: Default::default(),
             anonymous_target: None,
@@ -528,10 +622,16 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             match input {
                 bray_bound_tree::SelectedInput::Receiver(receiver) => value.coerce(
-                    self.request.semantic_values(), receiver.source_type(), input.ty(self.request.semantic_values()),
+                    self.request.semantic_values(),
+                    receiver.source_type(),
+                    input.ty(self.request.semantic_values()),
                 ),
                 _ => input.conversion().map_or(value.clone(), |conversion| {
-                    super::super::completion::converted_argument(self.request.semantic_values(), value, conversion)
+                    super::super::completion::converted_argument(
+                        self.request.semantic_values(),
+                        value,
+                        conversion,
+                    )
                 }),
             }
         };

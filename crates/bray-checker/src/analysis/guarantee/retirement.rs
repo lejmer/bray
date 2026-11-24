@@ -164,6 +164,22 @@ impl ExecutionState {
             |snapshots| snapshots.retains_contents(value),
         );
 
+        // A moved child or an independently live referent does not expire with
+        // its former container. The actual owner or reached live view and the
+        // clause's observed data must both survive.
+        let retains_clause = |owner: &ExecutionCondition,
+                              condition: &ExecutionCondition,
+                              support: &crate::execution_guarantees::ExecutionGuarantee| {
+            condition.observes_only(&retained_data)
+                && retained_snapshots.as_ref().is_some_and(|snapshots| {
+                    snapshots.retains_owner(owner)
+                        || support.addresses.is_empty()
+                            && snapshots.retains_witness_carrier(owner, |referent| {
+                                super::state::observes_carried_referent(condition, referent)
+                            })
+                })
+        };
+
         let invalidated = self.retired_owners(pending, kind, retained_snapshots.is_some(), &retained_owner);
 
         let invalidated_observations = invalidated.iter().cloned()
@@ -276,6 +292,7 @@ impl ExecutionState {
 
             witness.retain_conditions(|condition, guarantee| {
                 let memo = &queries(condition);
+                let retained_clause = retains_clause(carrier, condition, guarantee);
 
                 let address_expired = !retired_places.is_empty()
                     && guarantee.addresses.values().flatten()
@@ -285,9 +302,15 @@ impl ExecutionState {
                 // carrier. Only replacement or retirement can end their owner.
                 let loses_owner = retired
                     && !retained_contents(condition, memo)
-                    && (directly_changed.contains(carrier.owner_identity()) || !stable(condition, memo));
+                    && (directly_changed.contains(carrier.owner_identity()) || !stable(condition, memo))
+                    && !retained_clause;
 
-                if loses_owner || revokes_guarantee(condition, memo) || address_expired || availability_expired(condition) {
+                if loses_owner
+                    || revokes_guarantee(condition, memo)
+                        && !retained_clause
+                    || address_expired
+                    || availability_expired(condition)
+                {
 
                     condition.clone().assume(true, &mut retired_conditions);
 
@@ -314,15 +337,29 @@ impl ExecutionState {
         // Another live carrier may independently establish the same condition.
         self.exclude_live_witnesses(&mut retired_conditions);
 
-        self.trusted_assumptions
-            .retain(|fact| !revokes_guarantee(&fact.0, &queries(&fact.0)) && !retired_conditions.contains(fact));
+        let mut witnessed_conditions = BTreeSet::new();
+
+        for condition in self.live_witness_conditions() {
+            condition
+                .clone()
+                .assume(true, &mut witnessed_conditions);
+        }
+
+        self.trusted_assumptions.retain(|fact| {
+            (!revokes_guarantee(&fact.0, &queries(&fact.0))
+                || witnessed_conditions.contains(fact))
+                && !retired_conditions.contains(fact)
+        });
 
         self.allocation_owners.retain(|condition, owner| {
-            !revokes_guarantee(condition, &queries(condition)) && !invalidated.contains(owner)
+            (!revokes_guarantee(condition, &queries(condition))
+                || retained_owner(owner) && condition.observes_only(&retained_data))
+                && !invalidated.contains(owner)
         });
 
         self.retire_entry_context(&|condition| revokes(condition, &queries(condition)),
-            &retired_conditions, &|owner, _| retired_owner(owner) && !retained_owner(owner), extraction);
+            &retired_conditions, &|owner, _| retired_owner(owner) && !retained_owner(owner),
+            &retains_clause, extraction);
 
         // Another iteration can already own a different frame from this evaluation
         // site. Retire the actual inactive frame whose owner the change reached.
@@ -469,6 +506,11 @@ impl ExecutionState {
         revokes: &impl Fn(&ExecutionCondition) -> bool,
         retired: &BTreeSet<(ExecutionCondition, bool)>,
         owner_revoked: &impl Fn(&ExecutionCondition, &crate::execution_guarantees::ExecutionWitness) -> bool,
+        retains_clause: &impl Fn(
+            &ExecutionCondition,
+            &ExecutionCondition,
+            &crate::execution_guarantees::ExecutionGuarantee,
+        ) -> bool,
         extraction: Option<(bray_bound_tree::BoundExecutionSite, &RetainedSnapshots)>,
     ) {
         let private = extraction.filter(|(_, moved)| !moved.is_empty())
@@ -481,15 +523,20 @@ impl ExecutionState {
                 if moved.retains_inline_contents(observed))
         })));
 
-        let clause_revoked = |pending, condition: &ExecutionCondition, support: &crate::execution_guarantees::ExecutionGuarantee, identity| {
+        let clause_revoked = |pending, owner: &ExecutionCondition, condition: &ExecutionCondition, support: &crate::execution_guarantees::ExecutionGuarantee, identity| {
             support.addresses.keys().any(revokes)
                 || revokes(condition) && (pending || !support.addresses.is_empty()
                     || !is_private(identity) || !retained(condition))
+                    && !retains_clause(owner, condition, support)
         };
 
         let owner_revoked = |pending, owner: &ExecutionCondition, witness: &crate::execution_guarantees::ExecutionWitness| {
-            owner_revoked(owner, witness) && (pending || !is_private(std::ptr::from_ref(witness))
-                || !extraction.is_some_and(|(_, moved)| moved.retains_owner(owner)))
+            owner_revoked(owner, witness)
+                && !witness.conditions.iter().any(|(condition, support)| {
+                    retains_clause(owner, condition, support)
+                })
+                && (pending || !is_private(std::ptr::from_ref(witness))
+                    || !extraction.is_some_and(|(_, moved)| moved.retains_owner(owner)))
         };
 
         let facts_revoked = |entry: &crate::ExecutionCallEvidence| entry.pending_execution && entry.assumptions
@@ -500,19 +547,35 @@ impl ExecutionState {
 
             (facts_revoked(entry) || entry.witness_support_revoked(
                 &|owner, witness| owner_revoked(pending, owner, witness),
-                &|condition, support, identity| clause_revoked(pending, condition, support, identity),
+                &|owner, condition, support, identity| clause_revoked(pending, owner, condition, support, identity),
             )).then_some(())
         }, |entry, ()| {
             let pending = entry.pending_execution;
 
             entry.revoke_witness_support(
                 &|owner, witness| owner_revoked(pending, owner, witness),
-                &|condition, support, identity| clause_revoked(pending, condition, support, identity),
+                &|owner, condition, support, identity| clause_revoked(pending, owner, condition, support, identity),
             );
 
             if entry.pending_execution {
-                entry.assumptions.retain(|fact| !revokes(&fact.0) && !retired.contains(fact));
-                entry.trusted_assumptions.retain(|fact| !revokes(&fact.0) && !retired.contains(fact));
+                let mut witnessed = BTreeSet::new();
+
+                for condition in entry
+                    .witness_inputs
+                    .values()
+                    .filter(|witness| witness.available)
+                    .flat_map(|witness| witness.conditions.keys())
+                {
+                    condition.clone().assume(true, &mut witnessed);
+                }
+
+                let retain_fact = |fact: &(ExecutionCondition, bool)| {
+                    witnessed.contains(fact)
+                        || !revokes(&fact.0) && !retired.contains(fact)
+                };
+
+                entry.assumptions.retain(&retain_fact);
+                entry.trusted_assumptions.retain(retain_fact);
             }
         });
     }
@@ -581,7 +644,13 @@ impl ExecutionState {
         self.allocation_owners
             .retain(|condition, _| !revokes_observation(condition));
 
-        self.retire_entry_context(&revokes_observation, &BTreeSet::new(), &|_, _| false, extraction);
+        self.retire_entry_context(
+            &revokes_observation,
+            &BTreeSet::new(),
+            &|_, _| false,
+            &|_, _, _| false,
+            extraction,
+        );
     }
 
     pub(super) fn invalidate_contents(
@@ -608,19 +677,24 @@ impl ExecutionState {
         &self,
         retired: &mut BTreeSet<(ExecutionCondition, bool)>,
     ) {
-        for witness in self.witnesses.values().filter(|witness| witness.available) {
+        for condition in self.live_witness_conditions() {
             if retired.is_empty() {
                 break;
             }
 
-            for condition in witness.conditions.keys() {
-                condition
-                    .clone()
-                    .assume_with(true, &mut |condition, holds| {
-                        retired.remove(&(condition, holds));
-                    });
-            }
+            condition
+                .clone()
+                .assume_with(true, &mut |condition, holds| {
+                    retired.remove(&(condition, holds));
+                });
         }
+    }
+
+    fn live_witness_conditions(&self) -> impl Iterator<Item = &ExecutionCondition> {
+        self.witnesses
+            .values()
+            .filter(|witness| witness.available)
+            .flat_map(|witness| witness.conditions.keys())
     }
 
     fn retire_witness_dependencies(
@@ -671,7 +745,10 @@ impl ExecutionState {
             witness.dependencies.iter().any(expired)
         };
 
-        let clause_revoked = |_: &ExecutionCondition, guarantee: &crate::execution_guarantees::ExecutionGuarantee, _| {
+        let clause_revoked = |_: &ExecutionCondition,
+                              _: &ExecutionCondition,
+                              guarantee: &crate::execution_guarantees::ExecutionGuarantee,
+                              _| {
             address_support_expired(guarantee)
         };
 

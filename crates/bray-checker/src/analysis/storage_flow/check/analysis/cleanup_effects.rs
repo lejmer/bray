@@ -1,5 +1,5 @@
 use std::borrow::Cow;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use bray_bound_tree::{
@@ -188,7 +188,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         identity: StorageMutation,
         mutation: &CleanupMutation<'_>,
         operands: &CleanupOperands<'_>,
-    ) {
+    ) -> bray_bound_tree::StorageCompletion {
         let domain = self.execution;
         let publish = self.publish;
 
@@ -332,6 +332,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         state
             .memory
             .escape_regions(escaped.published, Some(operation.occurrence()));
+        state
+            .memory
+            .escape_borrowed_regions(escaped.borrowed, Some(operation.occurrence()));
 
         let mut invalidation =
             self.cleanup_invalidation(&state.memory, effects.as_deref(), receiver);
@@ -411,7 +414,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         self.record_capture_retirements(execution, identity, bray_bound_tree::StorageValueBoundary::Execution, retirements);
 
         let mut completion = if let (Some(call), Some(effects)) = (&invocation, &effects) {
-            self.cleanup_observations(&state.memory, receiver, call, &references, effects, &mut invalidation)
+            self.cleanup_observations(state, receiver, call, &references, effects, &mut invalidation)
         } else {
             bray_bound_tree::StorageCompletion::default()
         };
@@ -419,19 +422,24 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         state.invalidate_observed_absence(&invalidation, &self.input.footprint.discriminants);
         domain.invalidate_observations(execution, identity, &invalidation);
         self.record_outcome_mutation(identity, Cow::Owned(invalidation));
-        domain.refresh_storage_observations(execution, completion.references());
 
         if let Some(writes) = publication {
             self.publish_receiver_writes(state, execution, identity, writes, &mut completion);
         }
 
+        // References observe the final current tree, including every direct
+        // receiver write from this outcome. Refreshing before publication
+        // would leave aliases bound to the preceding contents.
+        domain.refresh_storage_observations(execution, completion.references());
+
         self.record_capture_retirements(execution, identity,
             bray_bound_tree::StorageValueBoundary::Retirement, state.memory.take_retirements());
 
         if publish && (invocation.is_some() || completion.lifecycle_receiver().is_some()) {
-            self.completions.record(self.block(), identity, completion);
+            self.completions.record(self.block(), identity, completion.clone());
         }
 
+        completion
     }
 
     fn selected_cleanup_effects<'effects>(
@@ -575,13 +583,14 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
     fn cleanup_observations(
         &self,
-        memory: &State,
+        state: &StorageFlowState,
         receiver: Option<&Target>,
         call: &crate::analysis::guarantee::LifecycleInvocation<'_>,
         references: &[bray_bound_tree::BoundCallReference],
         effects: &[Effect],
         invalidation: &mut StorageInvalidation,
     ) -> bray_bound_tree::StorageCompletion {
+        let memory = &state.memory;
         let mut observations = std::collections::BTreeMap::new();
 
         let (Some(path), Some(receiver)) = (call.path, receiver) else {
@@ -660,9 +669,23 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     continue;
                 };
 
-                let [target] = targets.as_slice() else {
+                let mut origins = BTreeSet::new();
+                let mut unbounded = false;
+
+                for target in &targets {
+                    let (targets, unknown) = memory.effect_origins(target);
+
+                    origins.extend(targets.cloned());
+                    unbounded |= unknown;
+                }
+
+                if unbounded || origins.len() != 1 {
                     continue;
-                };
+                }
+
+                let target = origins
+                    .pop_first()
+                    .expect("one exact cleanup referent was established");
 
                 observations.insert(
                     StoragePath {
@@ -674,8 +697,12 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                             .copied()
                             .collect(),
                     },
-                    bray_bound_tree::StorageObservedTarget::borrowed(target.clone(), pointee),
+                    bray_bound_tree::StorageObservedTarget::borrowed(target, pointee),
                 );
+            }
+
+            if let Some(root) = receiver.storage_path() {
+                self.complete_reference_footprint(state, root, &mut observations);
             }
         }
 

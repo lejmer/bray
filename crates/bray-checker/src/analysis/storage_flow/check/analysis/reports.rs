@@ -285,19 +285,23 @@ impl<'analysis, C: CheckerRequestContext + ?Sized> StorageFlowCollector<'analysi
         if let Some(source) = transfer.source {
             let ty = self.storage.identity_type(source).expect("scoped exit retains its result type");
 
-            for (slot, origin) in state.memory.reference_targets(source) {
+            for (slot, target) in state.memory.reference_targets(source) {
                 if slot.projections.first() != Some(&transfer.projection) { continue; }
 
-                match self.retained_borrow_access(slot, origin, ty) {
-                    Ok(Some(access)) => {
-                        dependencies.storage.insert(access);
-                        dependencies.subjects.insert(BoundDependencySubject::StorageAccess(access));
-                        dependencies.subjects.extend(self.storage.root_identity(access).map(BoundDependencySubject::Storage));
-                    }
-                    Ok(None) => {}
-                    Err(error) => {
-                        self.fail_query(error);
-                        return;
+                let (origins, _) = state.memory.effect_origins(target);
+
+                for target in origins {
+                    match self.retained_borrow_access(slot, &target.origin, ty) {
+                        Ok(Some(access)) => {
+                            dependencies.storage.insert(access);
+                            dependencies.subjects.insert(BoundDependencySubject::StorageAccess(access));
+                            dependencies.subjects.extend(self.storage.root_identity(access).map(BoundDependencySubject::Storage));
+                        }
+                        Ok(None) => {}
+                        Err(error) => {
+                            self.fail_query(error);
+                            return;
+                        }
                     }
                 }
             }

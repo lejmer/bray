@@ -92,6 +92,18 @@ evidence. Impossible internal states fail at the violated contract.
   bodies and the ownership line 67 and 69 obligations. Observation
   invalidation now retains raw, mutable-borrow, and shared-borrow authority
   through normal calls, failure capture, and deferred observation.
+- The fixed-comparison regression trace reached the mutable `replace` input and
+  selected its finite `BorrowedReach` row. The first current-candidate comparison
+  reduced 21 baseline failures to five. A separate safe-loan reachability channel
+  cleared the opaque-retention control. Four cases remain in three shared paths:
+  symbolic returned origins must expand through their current bounds for escape
+  and report retention, incomplete dynamic storage must keep known reference
+  relations, and ordinary trusted completion must consume the same direct
+  post-call owner mapping as cleanup.
+- Normal calls and lifecycle cleanup publish exact reference targets in
+  `StorageCompletion`. Trusted completion maps the reached actual input path to
+  its formal `StoragePlan` path and reads the target's current value directly.
+  It does not search retained logical values to reconstruct an owner.
 - The optimized Windows x64 reference took 24.3 s to plan, 23.0 s to emit,
   and 53.0 s overall for the standard library. Native providers use Rust
   1.98.1 because the pinned LLVM cannot link Rust 1.99 provider bitcode.
@@ -231,30 +243,61 @@ cannot distinguish those controls without maintaining another value tree.
 
 ### Current review batch
 
-Definite writes through an input descriptor must retain both their portable
-subject and their reached typed target. The storage collector is the
-authoritative producer. Normal return and failure summaries are the
-consumers. Assignment updates the execution state at that target. The
-summaries read the written value there instead of reconstructing it from the
-formal root. A control-flow join keeps only a subject written on every
-predecessor and uses the narrower common subtree. The repair must not publish
-a sibling write, a write from only one branch, or authority beyond the
-reached address backing.
+`StorageCompletion` and the current value tree supply the post-call owner for
+each trusted witness subject. Normal call and lifecycle publication attach the
+clause to that owner. Scope retirement and owned-result transfer consume the
+same identity. They must not infer the owner again from the retired receiver
+or its entry snapshot.
 
-Each normal or abnormal row also retains the direct physical reference
-relations and stored-value dependencies established by those writes. Package
-encoding, substitution, call preparation, and fixed-point joins preserve
-that row-local storage. Ordinary calls, deferred frames, and lifecycle calls
-apply the selected row's logical and physical writes together. No consumer
-may reconstruct the physical write from a receiver or parameter root.
+Retirement receives the values that end and the complete retained value tree.
+It revokes a clause when its owner, observed contents, address support, or
+backing expires. A retired container does not revoke a clause whose direct
+owner and observed contents both survive as a caller-owned referent or a moved
+child. The rule applies to the public witness ledger and admitted frames. A
+new owner with equal contents gains no evidence.
 
-The positive oracle is a finalizer that stores the address of live backing
-through a nested mutable receiver and then publishes its trusted read
-guarantee. The negative oracle performs the same cleanup after the backing
-expires. Source checking, lowering, failure rows, imported summaries, and the
-fixed 1,709-case comparison consume the same output form. Reconsider the
-representation if a summary cannot name both the formal subject and the
-actual typed target without another lookup.
+The positive oracles are an updated referent that outlives a temporary
+mutable-reference holder and an updated child moved out of its parent. The
+negative oracles mutate the observed contents, retain an unrelated referent,
+or move only the observed marker instead of its complete owner. Source and
+imported lifecycle behavior must agree. The existing focused contract tests
+cover these cases. Reconsider the design if retirement cannot decide from its
+retained owner and contents indexes without another value tree or route
+lookup. The repair should remove the temporary completion probes and add no
+new persistent representation.
+
+Lifecycle completion publishes all direct current writes before refreshing
+reference aliases from their targets. Integrated flow and published replay use
+the same order. The resulting clause and its retained owner therefore observe
+one current snapshot when scope retirement evaluates them.
+
+Returned-witness checking captures possible summary separation before
+consumption, then reconciles it with the actual checked access. A noncopying
+complete value that owns its witness clears that potential warning. Extracting
+only a component does not.
+
+The channel registration contract is the next end-to-end check. The source
+`register_waiter` call establishes three trusted conditions on the returned
+registration: its marker, the shared lock marker, and the shared channel
+marker. `send` and `receive` keep that registration live across suspension.
+`complete` makes cleanup unconditional on the markers. On an active exit,
+cleanup must read the same reached registration and preserve each condition
+until its destructor. The proof must never borrow a condition from an
+unrelated registration or retain one after its owner or observed marker
+changes. The source and imported standard-library paths, completion
+publication, retirement, suspension, and cleanup proof are consumers.
+The two current positive oracles are the `send` and `receive` bodies, which
+both fail only the shared channel marker requirement in a current source
+build. A deliberately absent or invalidated marker must remain a negative
+oracle. Source-mode proof retains channel validity on the original `shared`
+expression while cleanup reads `registration.shared.instance` through a loop
+join at its actual storage place. Both cleanup receiver readers agree. The
+join combines owned and scalar views of the same shared referent after a
+partial write, then reanchors its data on the registration's loop placeholder.
+Keep their common data under the existing referent identity without claiming
+ownership. Different referent owners and changed marker contents cannot use
+that path. Reuse the reached values and witness ledger; add no parallel state
+or fallback.
 
 ## Acceptance
 

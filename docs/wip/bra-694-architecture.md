@@ -98,7 +98,7 @@ value without gaining allocation ownership.
 | Body preparation | The compilation fact cache owns one plan per bound unit. Each planned access retains its typed read and backing steps with its logical path. CFG, dependency binding, and refinement preparation borrow the plan. Preparation records the result-producing edges and shares them with storage flow and certification. Prepared cleanup requirements and lowering type shapes are shared across summary iterations. | The entry state adds actual inputs to the planned identities. Observation preparation indexes the routes by their footprint. |
 | Backward liveness | Planned accesses, definitions, transfers, and lexical ownership supply structural uses and definitions. Prepared cleanup requirements identify slots eligible to retire at their last use. | Reached flow uses those requirements for entry state, last-use and edge retirement, and private storage alias bounds. |
 | Forward operation | The collector reads the checked access, type and use from the plan. | The current state owns logical values, physical contents, and retained duties. Admission captures evaluated inputs once. Reached storage effects supply the observation frame and portable effect summary. Normal and abnormal successors use the admitted transition or its performed outcome. Exact immutable assumption snapshots share their normalized proof inputs through the flow's proof context. |
-| Scope cleanup | Prepared steps name owners, parts, and receiver types. The scope owns the checked destination of any pending transfer. | Reached flow selects actions from live, moved, and absent storage. Proof reads each operation's reached order and failure suffix. Lifecycle admission uses the same proof context as the paired storage state instead of rebuilding closure and equality inputs at each visit. MIR reads the published scope schedule by scope and exit. |
+| Scope cleanup | Prepared steps name owners, parts, and receiver types. The scope owns the checked destination of any pending transfer. | Reached flow selects actions from live, moved, and absent storage. `StorageCompletion` records each updated reference field and its actual post-cleanup target. Alternative outcomes retain only relations on which they agree. The integrated transition returns that completion directly to its paired proof state. Direct receiver writes update the current tree before aliases refresh from their final targets. Published replay applies the same order from the stored completion during later certification. Lifecycle admission uses the same proof context as the paired storage state instead of rebuilding closure and equality inputs at each visit. MIR reads the published scope schedule by scope and exit. |
 | Replacement cleanup | The plan names the destination access evaluated before the incoming value. Prepared cleanup classifies its type once. A selected compound operator has its own typed result slot and a separate installation operation. | Flow holds the evaluated indirect address through input evaluation, cleanup, and installation. The same address supplies conflict checks, old-value availability, the cleanup receiver, and the write. Proof, suspension analysis, and MIR read the reached cleanup decision. |
 | Suspension and frame execution | The plan names the evaluated await operand or the staged receiver of `start()`. | Storage flow checks the selected frame's requirements against the reached state. `StorageSuspensionState` publishes retention and rejected requirements for await. Async behavior reads the selected calls at await and start. |
 | Summary and proof | Exact plan identities bind contract subjects and observation sites within this unit. | `StorageFlow` publishes invalidation, capture retirement and completion by exact CFG operation and admitted outcome. Cleanup actions and failure edges retain their own transition identities. Exit rows abstract the actual value, effects and report into portable summaries for the next caller. |
@@ -137,11 +137,40 @@ and abnormal rows carry the reference relations and stored-value dependencies
 established by their own writes. Call, deferred-frame, and lifecycle replay
 select one set of rows and apply its logical and physical writes as one
 transition. Effects still frame the full area the call may change.
-Lifecycle completion publishes the reached receiver and its selected write
-destinations for proof replay.
+Lifecycle completion resolves returned reference origins from the current
+physical flow state and returns the reached receiver, selected write
+destinations, and actual post-cleanup referents to the paired proof transition.
+The collector also publishes that same completion for later certification.
+Alternative outcomes intersect those exact relations before a common fact is
+carried.
 Reference observations retain the reached target and the checked pointee type.
+The prepared footprint enumerates reference cells below an exact physical
+receiver, including fields that cleanup consumes without forwarding or
+returning. Their current bindings are the completion observations. Portable
+contract storage remains the route for reference paths whose receiver has no
+physical storage coordinate.
 Proof uses that observation to read updated contents through the existing descriptor.
-Normal completion publishes the reached borrow's known identity, or the
+Admission records the live owner places reached by each borrowed argument. Lifecycle
+admission also records the exact formal-to-positional input identity, so lifecycle
+clauses naming their receiver reach the same owner record without comparing values.
+Completion carries input witnesses to those current owners directly. Lifecycle
+completion maps each formal receiver field to the owner named by its published
+post-cleanup relation. It does not reconstruct ownership from retained values.
+Normal completion records current reference cells below each exact reached
+borrowed input from the same prepared footprint used by storage flow. The
+admitted input snapshot maps each trusted witness subject from its positional
+or formal path to the captured physical address. An ordinary subject reads its
+owner from the current value tree at that path. A stored-reference subject
+reads the exact post-call target from `StorageCompletion` and then reads that
+target's current owner. This includes trusted postcondition carriers that are
+not result dependencies.
+Retirement checks that direct owner against the retained current value and
+transfer trees. It also checks that the clause's observed contents are still
+present. Retiring a container does not revoke a clause carried by an
+independently live referent or a child moved from that container. Equal data
+under a different owner does not retain the clause. Admitted frames apply the
+same owner and contents rule.
+It publishes the reached borrow's known identity, or the
 evaluated producer's logical identity when a portable row leaves its origin
 opaque. The checked storage transition supplies address and lifetime support.
 The lifetime owner of a borrowed result can differ from its physical pointee.
@@ -165,6 +194,11 @@ Intervening argument evaluation can change the contents or end its authority.
 Finite mutations publish which typed pointees can change using the reached
 memory's alias relation. Proof materializes retained observations on demand.
 Current storage applies the published masks to the affected places.
+An admitted language borrow publishes `BorrowedReach` alongside ambient effects.
+`BorrowedReach` bounds the accompanying ambient effect. It is not a mutation by
+itself. Both observation survival and the physical preservation check consume
+that bound. The current borrow capability decides whether an overlapping effect
+is permitted to preserve the observation.
 Framing and proof retirement resolve each checked preservation path once.
 After opaque invalidation frames the current values, only physically preserved
 observations supply copied data to proof. A live copy of pointer bits does not
@@ -248,6 +282,10 @@ The join assembles current roots from the predecessors and publishes each root
 once. It rebinds evaluated frames, owned result layouts, and proof evidence
 while the predecessor roots are still readable. The fixed point compares the
 joined slots to those predecessor slots.
+An owned view and a scalar view of the same referent retain that referent's
+identity at the join. Their common current contents remain nonowning. A
+changed sibling does not rename an unchanged field onto the loop placeholder,
+and a different referent cannot contribute its authority.
 Direct calls and deferred bodies share the prepared input route and output type
 for each owning transfer. A deferred body reads its current typed input
 referent at activation through its retained descriptor. The operation and
@@ -258,30 +296,52 @@ body entry.
 The physical state owns the input-region bounds of returned addresses by producer and incarnation. A first publication has no prior incarnation to retire. Retiring one projection keeps the current bounds for sibling views and retains the original bounds for historical aliases. A later full publication can supply different current bounds at the same producer.
 
 At a call attempt, escape analysis, observation invalidation, and returned-reference bounds share the reached input
-regions. The admitted operands supply possible reach through their captured descriptors and carried dependencies.
+regions. Observation invalidation reads the live `StorageFlowState` through each planned input route first. Captured
+descriptors supply detached and deferred frame reach that no longer has a live route.
+The selected input's borrow authority is monotonic. A later physical capture
+can confirm that authority but cannot erase it. An ordinary call attempt uses
+the live route for every input whose current physical binding supplies reached
+reference state. Its admitted capture supplies only the exact scalar, retired
+staging slot, or otherwise unresolved input whose planned route supplies no
+current reach. Implicit, detached, and deferred execution use the saved capture
+when no live input route exists.
 Each region retains the descriptor kind that made it reachable. A language
-borrow opens only its exact referent for the duration of the effect. It does
-not publish that referent's address. Raw descriptors carried by the borrowed
-value are followed and can escape normally. A raw address publishes its
-allocation region and remains an ambient root after the call. Bound physical
-effects therefore keep exact borrowed reach separate from raw escape roots
-through normal execution, failure capture, deferred observation, assignment,
-and cleanup.
-Observation invalidation derives mutation roots from the same typed input
-regions. A raw address opens its allocation region, a mutable borrow opens its
-exact referent, and a shared borrow keeps its inline referent stable while raw
-descriptors stored inside it still open their allocation regions. The published
-raw set separately records which reached regions remain ambient after the call.
-An escape inspection alone cannot turn a safe referent into an ambient mutation
-root. Normal calls, failure prefixes, and deferred observation use the same
-typed split. Terminal ownership uses the broader reached set because it must
-account for every call-time referent.
+borrow opens only its exact referent. When the borrow escapes, that exact
+referent remains reachable for lifetime checks without publishing its address.
+Raw descriptors carried by the borrowed value are followed and can escape
+normally. A raw address publishes its allocation region and remains an ambient
+root after the call. Bound physical effects therefore keep exact borrowed reach
+separate from raw escape roots through normal execution, failure capture,
+deferred observation, assignment, and cleanup.
+Observation invalidation starts from the complete reached input set. The
+current borrow capabilities then preserve observations that a shared loan
+protects and allow a mutable loan's referent to change. This keeps authority in
+the same live state that owns the loan instead of classifying it a second time
+from the reached-region list. A portable `BorrowedReach` effect contributes its
+exact regions to this observation set even when the same row has ambient
+effects. The ambient classification cannot discard a finite borrowed reach.
+The published raw set records which regions remain ambient after the call. A
+separate safe-loan set records exact referents that remain lifetime-reachable.
+An escape inspection alone cannot turn a safe referent into a raw ambient
+mutation root. Normal calls, cleanup, failure prefixes, and deferred observation
+persist both channels through the same reached state and preservation rules.
+Terminal ownership uses the same broad set because it must account for every
+call-time referent.
+The checked input capture retains the planned outer borrow kind beside the
+evaluated descriptor. Admission carries that kind with the receiver-first entry,
+and frame activation carries the same field into each producer entry before
+effects are resolved. Live invocation reach reads the planned input type and
+current physical binding directly. Detached capture replay uses the carried
+outer kind rather than inferring authority from a descriptor's original loan
+capability after conversion. Safe-borrow reach remains a caller-visible escape
+effect and an exact lifetime root in physical memory. Only raw-address reach is
+published as address exposure.
 Effects naming a synchronous call result read that result's already staged
 physical value tree. An indirect result-field escape reads the reached field
 descriptor there and follows the staged backing to any carried references.
 A bounded selector reaches each overlapping staged field.
-The private transfer retains exposure, observed types, and lifetime changes
-for that backing. Deferred effects read the captured frame result, while
+The private transfer retains raw exposure, safe-loan reach, observed types, and
+lifetime changes for that backing. Deferred effects read the captured frame result, while
 lifecycle cleanup reads its receiver. If a carried escape route cannot be
 resolved, it has unknown reach rather than an empty footprint.
 An unresolved structured escape retains the identity of the value whose carried
@@ -339,7 +399,9 @@ through the admitted input capture. If a later descriptor is opaque, its
 possible pointees come from the reached pointer value and previously exposed
 storage. A borrow that keeps the enclosing owner alive does not by itself
 make that owner a possible pointee of the returned reference. The symbolic
-result identity retains those bounds across transfer and later escape.
+result identity retains those bounds across transfer and later escape. Escape
+and report retention expand that identity through the current returned-input
+bounds before deciding which concrete storage lifetime survives.
 An unreadable route ending in checked owning backing retains that allocation
 boundary as a region in `StorageFlowState`. The region can overlap external
 storage and is disjoint from storage owned inline by the caller. Result
@@ -476,7 +538,7 @@ paths. An exit intersection checks exact path membership in both sources.
 | Body entry | `StoragePlan` identifies the formal loan slots. `StorageFlowState` initializes the reached input reference targets. Entry proof binds clauses once against the actual initialized value tree. The declared carrier route selects the actual carrier and its ownership role in that same tree. Raw-memory requirements bind to address targets separately from the formal descriptor slots. `StorageFlow` passes the reached targets to execution certification. Returned carriers identify incoming backing through a typed address read and bind its lifetime against the caller's admitted support. [Entry state](../../crates/bray-checker/src/analysis/storage_flow/model/state.rs) · [Entry proof](../../crates/bray-checker/src/analysis/guarantee/flow/model.rs) · [Carrier binding](../../crates/bray-checker/src/analysis/guarantee/trusted/completion.rs) |
 | Attempt and invalidation | `apply_operation_effects` binds value rows and resolves selected call, intrinsic, and assignment effects. Effects, reports, and completion use the producer's admitted rows. The physical memory update and proof invalidation consume the resolved observations. Typed routes keep evaluated locations distinct from conservative region bounds in calls, frames, and cleanup. The reached-region set also keeps language-borrow traversal distinct from raw-address publication. Failure effects capture addresses before argument transfer. Execution retirements reach the proof state before completion. Last-use and consumed-handle retirements follow publication. [Operation driver](../../crates/bray-checker/src/analysis/storage_flow/check/analysis/core.rs) · [Effect binding](../../crates/bray-checker/src/analysis/storage_flow/check/analysis/effects.rs) · [Proof invalidation](../../crates/bray-checker/src/analysis/guarantee/flow/invalidation.rs) |
 | Private result and cleanup | The private result can be present while caller publication is pending. Storage checking selects active obligations, and proof replay reads their checked schedule. Both execute the same cancellation and lifecycle phases and read absent paths directly from the reached or published storage state. Lifecycle invocation uses the resolved receiver and its checked contract. Cleanup can change contents, retire support, retain dependencies for a report, or take an abnormal edge. [Private result](../../crates/bray-checker/src/analysis/guarantee/flow/value.rs) · [Storage cleanup](../../crates/bray-checker/src/analysis/storage_flow/check/analysis/cleanup.rs) · [Lifecycle transition](../../crates/bray-checker/src/analysis/guarantee/cleanup/transition.rs) |
-| Normal completion | `complete_entry_outputs` selects feasible value rows and completes ownership and carriers against each actual result. The join publishes the result and current writes together. Ordinary postconditions and authored result-guarded value guarantees observe that publication. Compilation retains every declared guarantee and its result witness subject separately from the subset a safe body must prove. One completion instantiator binds the clause and subject to the reached entry snapshot and actual result. A safe body publishes only a clause proved by one live source witness and retains that source support. A trusted declaration supplies the clause without a body proof obligation. When a carried clause lacks checked portable support, the caller binds the declared support from the admitted arguments and reached result. In both cases, the declared subject supplies the portable carrier path. `publish_captured_outputs` pairs the surviving logical value with its physical snapshot and records it for replay. Exact current destinations and possible region writes have different publication paths. `StorageFlow` also publishes reachability, storage decisions, replacements, suspension, and scope exits. [Output binding](../../crates/bray-checker/src/analysis/guarantee/flow/captured.rs) · [Completion and carriers](../../crates/bray-checker/src/analysis/guarantee/trusted/completion.rs) · [Checked storage flow](../../crates/bray-bound-tree/src/storage/flow/model.rs) |
+| Normal completion | `complete_entry_outputs` selects feasible value rows and completes ownership and carriers against each actual result. The join publishes the result and current writes together. `StorageCompletion` records exact post-call reference targets from result storage and the prepared physical footprint below exact borrowed inputs. `StoragePlan` maps each observed input path back to its formal path, and proof reads the target's current value directly as the trusted carrier. Cleanup records the same footprint below its exact receiver and uses the same mapping. Ordinary postconditions and authored result-guarded value guarantees observe that publication. Compilation retains every declared guarantee and its result witness subject separately from the subset a safe body must prove. One completion instantiator binds the clause and subject to the reached entry snapshot and actual result. A safe body publishes only a clause proved by one live source witness and retains that source support. A trusted declaration supplies the clause without a body proof obligation. When a carried clause lacks checked portable support, the caller binds the declared support from the admitted arguments and reached result. In both cases, the declared subject supplies the portable carrier path. `publish_captured_outputs` pairs the surviving logical value with its physical snapshot and records it for replay. Exact current destinations and possible region writes have different publication paths. `StorageFlow` also publishes reachability, storage decisions, replacements, suspension, and scope exits. [Output binding](../../crates/bray-checker/src/analysis/guarantee/flow/captured.rs) · [Completion and carriers](../../crates/bray-checker/src/analysis/guarantee/trusted/completion.rs) · [Checked storage flow](../../crates/bray-bound-tree/src/storage/flow/model.rs) |
 | Failure, catch, and cancellation | Calls and frames bind the selected normal and abnormal effect rows together against their admitted inputs. A failure edge applies its captured prefix and carries its report. Its completion passes the reached write bindings and surviving snapshots to certification. An opaque prefix uses the checked effect envelope. Result dependency analysis carries reports through catch boundaries. Cancellation after a child completes can own that child's already transferred result and require its cleanup. [Failure propagation](../../crates/bray-checker/src/analysis/storage_flow/model/domain.rs) · [Failure writes](../../crates/bray-checker/src/analysis/storage_flow/check/analysis/failures.rs) · [Report ownership](../../crates/bray-checker/src/analysis/storage_flow/check/analysis/reports.rs) · [Await edges](../../crates/bray-checker/src/analysis/execution.rs) |
 | Deferred execution | Formation captures the selected callable, receiver type, witnesses, evaluated arguments, and owned inputs. Immutable value nodes record whether their complete structure contains an actual frame, including retained origins and aggregate fields. Discovery and frame-only rewrites can skip subtrees without frames. Start and direct await refresh reached contents while retaining the captured address descriptors. Activation publishes bound value rows by operation and producer. `StorageDeferredTransition` keeps latent effects, typed failure prefixes, and cleanup. Scheduling accounts for possible interference. Observation selects the task's performed effects from its captured frame, then publishes its actual result and any acquired report. An outer failure while suspended has its own admitted state and possible performed prefix. [Frame discovery](../../crates/bray-checker/src/execution_guarantees/condition/traversal.rs) · [Deferred proof flow](../../crates/bray-checker/src/analysis/guarantee/flow/deferred/execution.rs) · [Deferred physical effects](../../crates/bray-checker/src/analysis/storage_flow/check/analysis/deferred.rs) · [Captured transition](../../crates/bray-bound-tree/src/storage/capture/transfer.rs) |
 | Replay and lowering | Certification reads the actual targets, invalidation, completions, and retirements of the reached CFG operation. Obligation selection borrows the admitted logical arguments, assumptions, and implementation choices. Templates and whole-body checks use a source target only when its reached operations agree. Lowering uses the plan, checked activity decisions, scope exits, suspensions, and completion presence to emit MIR. MIR carries explicit initialization guards, result and report transfers, cancellation, and cleanup edges to code generation. [Proof inputs](../../crates/bray-checker/src/execution_guarantees/call_proof.rs) · [Proof replay](../../crates/bray-checker/src/analysis/guarantee/flow/operation.rs) · [Lowerer](../../crates/bray-lowering/src/lowering/lowerer.rs) · [MIR cleanup](../../crates/bray-lowering/src/lowering/cleanup/control.rs) |
@@ -497,6 +559,12 @@ the selected payload among moved snapshots, so retiring the source cell does
 not discard that admitted witness before completion. [Protected values](../../crates/bray-checker/src/analysis/guarantee/flow/inputs.rs) · [Admission](../../crates/bray-checker/src/analysis/guarantee/completion.rs) · [Invalidation](../../crates/bray-checker/src/analysis/guarantee/flow/invalidation.rs) · [Protected reads](../../crates/bray-checker/src/analysis/storage_flow/check/analysis/memory/operations.rs) · [Return activity](../../crates/bray-checker/src/analysis/guarantee/trusted/owned.rs) · [Carrier publication](../../crates/bray-checker/src/analysis/storage_flow/check/analysis/references/publication.rs)
 
 Each prepared publication retains its source outcome row when several reached destinations join. Proof and storage flow use the same frame-alternative selection. Nullable and union refinements consume the checked discriminant observations, including tags whose payloads changed while the tag stayed live.
+An operation checks transfers from existing source accesses before consuming
+them and checks produced accesses after publication. The same operation carries
+the complete noncopying source transfers to the returned-witness check. A
+possible separation in a call summary is discharged when the reached access
+transfers its complete witnessed owner. Moving only a projected component
+still reports separation.
 The template's possible-effect envelope covers execution before an outcome
 is known. Each normal row supplies its own performed effects. Substitution
 and interface binding preserve those effects with the rest of the row.
@@ -807,6 +875,10 @@ or current backing support for the reached address. The checked predicate
 signature supplies the address representation. The completed descriptor
 supplies its actual physical regions, including newly formed addresses.
 Retirement revokes the clause at the applicable backing lifetime boundary.
+For a safe-borrow subject, those captured physical regions select the live
+storage owner directly. The completion attaches the witness to that owner as
+well as the temporary loan. Structural owner matching is only needed when the
+descriptor has no exact physical route.
 
 The physical cleanup receiver begins at the already reached storage. An
 effect through its formal borrow follows the remaining typed route from
@@ -881,7 +953,7 @@ into the remaining cleanup. A region supplies possible effects and dependencies.
 
 | Composition | End-to-end relationship |
 | --- | --- |
-| Generic value, buffer, frame, and escape | A value containing a reference moves into generic `RawBuffer<T>` storage. The captured graph retains the whole appended or popped value. Admission captures the backing's reached element bounds. Publication binds new elements against those bounds. Branches and loops affect which prefix and owning transfer survive. Moving the buffer into a deferred frame carries the backing's dependencies and cleanup. Pop transfers the selected element and leaves the remaining dependencies with the buffer. Scope exit or escape checks referent lifetimes against the actual surviving owner. Source and imported callers instantiate the same rows. [Buffer source](../../standard-library/std/src/memory/buffer.bray) · [Checked buffer operations](../../crates/bray-checker/src/analysis/storage_flow/check/analysis/memory/buffer.rs) |
+| Generic value, buffer, frame, and escape | A value containing a reference moves into generic `RawBuffer<T>` storage. The captured graph retains the whole appended or popped value. Admission captures the backing's reached element bounds. Publication binds new elements against those bounds. Displaced or otherwise incomplete address knowledge can still retain known possible origins. A dynamic element destination publishes every such reference relation with input-region provenance and separately marks its stored-value coverage incomplete. Incompleteness does not erase a known lifetime edge, exclude additional origins, or claim a complete element map. Branches and loops affect which prefix and owning transfer survive. Moving the buffer into a deferred frame carries the backing's dependencies and cleanup. Pop transfers the selected element and leaves the remaining dependencies with the buffer. Scope exit or escape checks referent lifetimes against the actual surviving owner. Source and imported callers instantiate the same rows. [Buffer source](../../standard-library/std/src/memory/buffer.bray) · [Checked buffer operations](../../crates/bray-checker/src/analysis/storage_flow/check/analysis/memory/buffer.rs) |
 | Nominal `Self` in a generic member | The selected method has bindings for its enclosing declaration and its own generic parameters. The named `Self` type uses the parameters of its declaring struct or union. Normalization and product mapping get that open type from the source or imported declaration before applying the selected bindings. Nested results and receiver types carry the same nominal identity. [Type normalization](../../crates/bray-checker/src/type_normalization.rs) · [Declaration lookup](../../crates/bray-compilation/src/compilation/substitution.rs) · [Constant import control](../../crates/bray-compilation/src/compilation/export/build/tests/constants.rs) |
 | Saved pointer, escape and retirement | Selecting a field, reading its descriptor, and following it are separate operations. A later write to the field changes the current descriptor. Retirement through the earlier evaluated value applies to that reached allocation and revokes its dependent witnesses. An incomplete escape route below a reached raw address starts its conservative reach at that address. Extend it through known carried data and aliases. The effect footprint bounds invalidation. A precise retirement still requires the captured operand. [Typed route execution](../../crates/bray-checker/src/analysis/storage_flow/memory/references/route.rs) · [Effect resolution](../../crates/bray-checker/src/analysis/storage_flow/check/analysis/effects.rs) |
 | Native dispatch and start | `dispatch_ready` holds `Current` while retaining a resident task reference. The same context view supplies the pending read, worker attachment, and recovery thread. Recovery takes the scheduler reference reached from the execution owner. The C adapter reads its admitted native slots. Notification, frame retirement, and advancement keep the caller's dispatch claim until explicit release. `start_frame` moves the prepared owner from its selected result into a scoped entry. Its service acquisition supplies lane selection and registration. After lane admission, start moves the token out of its slot and authorizes it for the inspected thread origin. Commit consumes that token and receives the task borrow, selected registration, and inspected metadata. The scope keeps the view and service acquisitions and clears its registration before wake once the task cell owns it. An early exit withdraws the reservation if present before closing the service owner. [Dispatch](../../runtime/bootstrap/src/execution/driving.bray) · [Current and context](../../runtime/bootstrap/src/execution/context.bray) · [Recovery](../../runtime/bootstrap/src/scheduler/lane.bray) · [Start](../../runtime/bootstrap/src/execution/start.bray) · [Commit and rollback](../../runtime/bootstrap/src/execution/prepared_start.bray) |
@@ -892,6 +964,7 @@ into the remaining cleanup. A region supplies possible effects and dependencies.
 | Windows environment read | `native_environment_entry` produces the Boolean and span together and declares initialized-read guarantees under the true result selector. `environment_storage` selects the true branch and passes the actual address field to `byte_buffer_read`. The source returns distinct tuples. Loss can occur after result production, during guarantee instantiation, publication, branch refinement, or proof retention. [Windows implementation](../../standard-library/std/src/platform/windows.bray) · [Production check and lowering](../../crates/bray-compilation/src/compilation/trusted_contracts/contract_tests/standard_storage.rs) |
 | Scoped unit completion | Scope enter, body, and exit can complete with a unit result and no recorded observations. The collector publishes a completion for a reached normal phase even when its payload is empty. `invocation_completes` uses that record in lowering to preserve the following return. [Completion collection](../../crates/bray-checker/src/analysis/storage_flow/check/analysis/core.rs) · [Lowering consumer](../../crates/bray-lowering/src/lowering/expression/core/operations.rs) · [Scoped result control](../../crates/bray-compilation/src/compilation/lowering/tests/lifecycle.rs) |
 | Deferred task observation | `start` holds the selected body's evaluated inputs. The completed `join` or `cancel` outcome produces the body's value and resumes its witnesses. The abnormal outcome has its own prefix and cannot use that value. `try` selects `Completed` before transferring the payload. [Deferred frame and logical completion](../../crates/bray-checker/src/analysis/guarantee/flow/deferred/execution.rs) · [Composite outcome propagation](../../crates/bray-checker/src/analysis/storage_flow/model/outcomes.rs) · [Source and imported controls](../../crates/bray-compilation/src/compilation/export/build/tests/deferred_completion.rs) |
+| Channel registration cleanup | `register_waiter` publishes marker, lock, and channel validity on the returned registration. `send` and `receive` carry that registration through suspension. `complete` clears the active guard; otherwise its destructor reads all three conditions from the reached registration. Completion publication and retirement must preserve the same owner and observed marker until cleanup. [Registration](../../standard-library/std/src/channel/lifecycle.bray) · [Async consumers](../../standard-library/std/src/channel/endpoint.bray) · [Cleanup proof](../../crates/bray-checker/src/analysis/guarantee/cleanup/actions.rs) |
 
 The bootstrap proof entry points request both `execution_properties` and `lowered_unit` for each listed body.
 The [verification record](bra-694-native-bootstrap.md#acceptance) tracks the comparison and native targets.

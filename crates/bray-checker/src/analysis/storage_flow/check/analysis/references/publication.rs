@@ -467,7 +467,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         >;
 
         // Physical reference payloads keep their actual reference origins.
-        // These bounds do not forward borrow authority to the caller.
+        // These bounds do not forward borrow authority to the caller. Known
+        // origins remain may-dependencies when additional origins are unknown.
         let mut physical = Physical::new();
 
         for (destination, value) in exit.stored_bindings() {
@@ -495,10 +496,12 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 continue;
             };
 
-            if !precise || endpoint.dereferences() != 0 {
+            if endpoint.dereferences() != 0 {
                 entry.1 = false;
                 continue;
             }
+
+            entry.1 &= precise;
 
             let ReferenceExitValue::Address {
                 targets,
@@ -506,18 +509,17 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 bounds,
             } = value
             else {
-                entry.0.insert(DependencyBorrowRelation::new_no_payload(
-                    endpoint.subject().clone(),
-                    kind,
-                ));
+                if precise {
+                    entry.0.insert(DependencyBorrowRelation::new_no_payload(
+                        endpoint.subject().clone(),
+                        kind,
+                    ));
+                }
 
                 continue;
             };
 
-            if bounds != ReferenceBounds::Known {
-                entry.1 = false;
-                continue;
-            }
+            entry.1 &= bounds == ReferenceBounds::Known;
 
             if nullable {
                 if destination.is_exact() {
@@ -533,7 +535,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             for target in targets {
                 if target.previous {
                     entry.1 = false;
-                    continue;
                 }
 
                 let precise_source = match &target.origin {
@@ -556,7 +557,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
                 if !precise_source {
                     entry.1 = false;
-                    continue;
                 }
 
                 let Some(relation) =
@@ -582,9 +582,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let mut references = Vec::new();
 
         for (destination, (relations, complete)) in physical {
-            if complete {
-                references.extend(relations);
-            } else {
+            references.extend(relations);
+
+            if !complete {
                 values.push(DependencyStoredValue::new(destination, [], false));
             }
         }

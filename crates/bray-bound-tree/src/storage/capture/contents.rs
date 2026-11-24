@@ -15,6 +15,7 @@ enum Initialization {
 pub struct StorageContents {
     pub exposed: bool,
     pub escaped: bool,
+    pub borrowed: bool,
     pub storage_type: Option<TypeId>,
     initialized: BTreeMap<TypeId, Initialization>,
     pub pending: BTreeMap<TypeId, Origins>,
@@ -92,9 +93,11 @@ impl StorageContents {
     pub fn merge(&mut self, incoming: &Self, target: &Target) -> bool {
         let previous_exposure = self.exposed;
         let previous_escape = self.escaped;
+        let previous_borrow = self.borrowed;
 
         self.exposed |= incoming.exposed;
         self.escaped |= incoming.escaped;
+        self.borrowed |= incoming.borrowed;
 
         let previous_type = self.storage_type;
 
@@ -109,7 +112,8 @@ impl StorageContents {
 
         let mut changed = self.storage_type != previous_type
             || self.exposed != previous_exposure
-            || self.escaped != previous_escape;
+            || self.escaped != previous_escape
+            || self.borrowed != previous_borrow;
 
         self.initialized.retain(|ty, kind| {
             let Some(other) = incoming.initialized.get(ty) else {

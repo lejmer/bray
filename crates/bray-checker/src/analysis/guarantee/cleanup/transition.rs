@@ -97,7 +97,12 @@ pub(in crate::analysis) enum CleanupTransition<'a> {
         owner: Option<&'a bray_bound_tree::StoragePath>,
     },
     BeginConditional(Vec<bray_bound_tree::StoragePath>),
-    Action(&'a mut ExecutionState, StorageMutation, CleanupMutation<'a>),
+    Action(
+        &'a mut ExecutionState,
+        StorageMutation,
+        CleanupMutation<'a>,
+        &'a mut Option<bray_bound_tree::StorageCompletion>,
+    ),
     EndConditional { completes: bool },
 }
 
@@ -491,7 +496,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 };
 
                 if let Some(mutate) = mutate {
-                    assert!(mutate(CleanupTransition::Action(state, mutation, CleanupMutation::Recovery)),
+                    let mut completion = None;
+
+                    assert!(mutate(CleanupTransition::Action(
+                        state,
+                        mutation,
+                        CleanupMutation::Recovery,
+                        &mut completion,
+                    )),
                         "a recovered order has no admitted action");
                 } else {
                     self.apply_published_cleanup(state, mutation);

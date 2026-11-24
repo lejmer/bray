@@ -261,7 +261,9 @@ pub(super) fn check_witness_transfers<C: CheckerRequestContext + ?Sized>(
     plans: impl Iterator<Item = bray_bound_tree::StorageAccessPlan>,
     current_access: &impl Fn(bray_bound_tree::StorageAccessPlan) -> Option<bray_bound_tree::StoragePath>,
     mut record: impl FnMut(BoundExpressionId, WitnessTransferFailure),
-) {
+) -> std::collections::BTreeSet<BoundExpressionId> {
+    let mut transferred = std::collections::BTreeSet::new();
+
     for plan in plans.filter(|plan| plan.purpose().transfers_value()) {
         let path = current_access(plan);
 
@@ -295,9 +297,13 @@ pub(super) fn check_witness_transfers<C: CheckerRequestContext + ?Sized>(
 
         let copies = storage.effective_purpose(plan) == bray_bound_tree::StorageAccessPurpose::Copy;
 
+        if is_witness && !copies {
+            transferred.insert(plan.expression());
+        }
+
         let failure = if is_witness && copies && materializes {
             copied_witness(state, value)
-        } else if !copies && let Some(carrier) = partial_witness {
+        } else if !is_witness && !copies && let Some(carrier) = partial_witness {
             let guarantee = state.witnesses.get(carrier.owner_identity())
                 .and_then(|witness| witness.owning_conditions(state.proof()).next())
                 .expect("a rejected transfer retains its live owning condition").clone();
@@ -310,6 +316,8 @@ pub(super) fn check_witness_transfers<C: CheckerRequestContext + ?Sized>(
 
         record(plan.expression(), failure);
     }
+
+    transferred
 }
 
 fn separated_carrier<C: CheckerRequestContext + ?Sized>(

@@ -13,7 +13,7 @@ impl State {
         roots: impl IntoIterator<Item = (Target, DependencyReferenceKind)>,
         occurrence: Option<BoundExecutionSite>,
     ) -> BTreeSet<Target> {
-        let (reached, published, roots, _) = self.walk_escape_regions(
+        let (reached, published, roots, _, _) = self.walk_escape_regions(
             roots,
             occurrence.and_then(|site| self.pending.get(&site)),
             true,
@@ -85,9 +85,9 @@ impl State {
         &self,
         roots: impl IntoIterator<Item = (Target, DependencyReferenceKind)>,
         occurrence: Option<BoundExecutionSite>,
-    ) -> (BTreeSet<Target>, BTreeSet<Target>) {
+    ) -> (BTreeSet<Target>, BTreeSet<Target>, BTreeSet<Target>) {
         let staged = occurrence.and_then(|site| self.pending.get(&site));
-        let (mut reached, mut published, _, unknown) =
+        let (mut reached, mut published, _, borrowed, unknown) =
             self.walk_escape_regions(roots, staged, false);
         let mut implicit = BTreeSet::new();
 
@@ -104,7 +104,7 @@ impl State {
             published.insert(target);
         }
 
-        (reached, published)
+        (reached, published, borrowed)
     }
 
     fn walk_escape_regions(
@@ -112,7 +112,7 @@ impl State {
         roots: impl IntoIterator<Item = (Target, DependencyReferenceKind)>,
         staged: Option<&Transfer>,
         contained_only: bool,
-    ) -> (BTreeSet<Target>, BTreeSet<Target>, BTreeSet<Target>, bool) {
+    ) -> (BTreeSet<Target>, BTreeSet<Target>, BTreeSet<Target>, BTreeSet<Target>, bool) {
         use DependencyReferenceKind::{Address, Borrow};
 
         let mut pending = roots.into_iter().collect::<Vec<_>>();
@@ -243,7 +243,11 @@ impl State {
             }
         }
 
-        (reached, published, input_addresses, unknown)
+        let borrowed = modes.into_iter().filter_map(|(target, kind)| {
+            (kind == Borrow).then_some(target)
+        }).collect();
+
+        (reached, published, input_addresses, borrowed, unknown)
     }
 
     #[cfg(test)]
@@ -251,7 +255,7 @@ impl State {
         &mut self,
         roots: impl IntoIterator<Item = Target>,
     ) {
-        let (_, published) = self.escaped_regions(
+        let (_, published, borrowed) = self.escaped_regions(
             roots
                 .into_iter()
                 .map(|target| (target, DependencyReferenceKind::Address)),
@@ -259,6 +263,7 @@ impl State {
         );
 
         self.escape_regions(published, None);
+        self.escape_borrowed_regions(borrowed, None);
     }
 
     pub(in crate::analysis::storage_flow) fn escape_regions(
@@ -271,6 +276,19 @@ impl State {
                 .entry(target)
                 .or_default()
                 .escaped = true;
+        }
+    }
+
+    pub(in crate::analysis::storage_flow) fn escape_borrowed_regions(
+        &mut self,
+        regions: impl IntoIterator<Item = Target>,
+        occurrence: Option<BoundExecutionSite>,
+    ) {
+        for target in regions {
+            self.effect_payloads(&target, occurrence)
+                .entry(target)
+                .or_default()
+                .borrowed = true;
         }
     }
 

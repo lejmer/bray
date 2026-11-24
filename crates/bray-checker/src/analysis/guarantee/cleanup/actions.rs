@@ -9,7 +9,9 @@ use bray_symbols::TypeAssociatedLifecycleSlot;
 
 use super::plan::{Lifecycle, Step};
 use super::selection::{ReplacementPath, cleanup_path};
-use super::transition::{CleanupMutation, CleanupObservation, CleanupTransition, LifecycleInvocation, Mutation, Observer};
+use super::transition::{
+    CleanupMutation, CleanupObservation, CleanupTransition, LifecycleInvocation, Mutation, Observer,
+};
 use crate::analysis::guarantee::{ExecutionFlowDomain, ExecutionState};
 use crate::analysis::model::{AnalysisOperation, AnalysisOperationKind};
 use crate::analysis::outcomes::CleanupProgress;
@@ -24,7 +26,12 @@ fn part_absent(
     mutate: &mut Option<&mut Mutation<'_>>,
 ) -> bool {
     if let Some(mutate) = mutate {
-        return mutate(CleanupTransition::PartAbsent { access, part, phase, owner });
+        return mutate(CleanupTransition::PartAbsent {
+            access,
+            part,
+            phase,
+            owner,
+        });
     }
 
     entry.is_some_and(|entry| entry.part_absent(access, part, phase))
@@ -37,26 +44,43 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .storage_flow()
     }
 
-    pub(super) fn apply_published_cleanup(&self, state: &mut ExecutionState, mutation: StorageMutation) {
+    pub(super) fn apply_published_cleanup(
+        &self,
+        state: &mut ExecutionState,
+        mutation: StorageMutation,
+    ) {
+        if let Some(completion) = self.apply_published_cleanup_effects(state, mutation) {
+            self.refresh_storage_observations(state, completion.references());
+        }
+    }
+
+    fn apply_published_cleanup_effects<'a>(
+        &'a self,
+        state: &mut ExecutionState,
+        mutation: StorageMutation,
+    ) -> Option<&'a bray_bound_tree::StorageCompletion> {
         let flow = self.published_cleanup();
 
-        state.retire_captured_storage(flow.capture_retirements(mutation, bray_bound_tree::StorageValueBoundary::Execution));
+        state.retire_captured_storage(
+            flow.capture_retirements(mutation, bray_bound_tree::StorageValueBoundary::Execution),
+        );
 
         self.invalidate_observations(
             state,
             mutation,
-            flow.outcome_mutation(mutation).unwrap_or_else(|| panic!("selected cleanup {mutation:?} has no checked transition")),
+            flow.outcome_mutation(mutation).unwrap_or_else(|| {
+                panic!("selected cleanup {mutation:?} has no checked transition")
+            }),
         );
 
-        if let Some(completion) = flow.completion(mutation) {
-            self.refresh_storage_observations(state, completion.references());
-        }
+        flow.completion(mutation)
     }
 
     fn cleanup_action_reached(&self, action: StorageCleanupAction) -> bool {
         let flow = self.published_cleanup();
 
-        flow.outcome_mutation(StorageMutation::Cleanup(action)).is_some()
+        flow.outcome_mutation(StorageMutation::Cleanup(action))
+            .is_some()
             || flow.cleanup_outcomes(action).next().is_some()
             || flow.cleanup_failures(action).next().is_some()
     }
@@ -66,9 +90,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         state: &mut ExecutionState,
         action: StorageCleanupAction,
         remaining: &[StorageAccessId],
-        invocation: Option<(&ExecutionCallEvidence, &bray_symbols::DependencyContractTemplateData)>,
+        invocation: Option<(
+            &ExecutionCallEvidence,
+            &bray_symbols::DependencyContractTemplateData,
+        )>,
         observe: &mut Option<&mut Observer<'_>>,
-    ) -> bool {
+    ) -> Option<bray_bound_tree::StorageCompletion> {
         let flow = self.published_cleanup();
 
         if let Some(observe) = observe {
@@ -77,7 +104,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     unreachable!("checked fault iterator has one action's failures");
                 };
 
-                let Some(remainder) = flow.cleanup_remainders(mutation)
+                let Some(remainder) = flow
+                    .cleanup_remainders(mutation)
                     .find(|remainder| remainder.accesses.as_ref() == remaining)
                 else {
                     continue;
@@ -85,7 +113,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
                 let mut failed = state.clone();
 
-                if invocation.is_some_and(|(evidence, _)| !self.assume_cleanup_failure(&mut failed, evidence, row)) {
+                if invocation.is_some_and(|(evidence, _)| {
+                    !self.assume_cleanup_failure(&mut failed, evidence, row)
+                }) {
                     continue;
                 }
 
@@ -95,7 +125,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     self.apply_published_cleanup(&mut failed, mutation);
                 }
 
-                failed.cleanup = Some(CleanupProgress::during(state.cleanup.as_ref(), kind, remainder.clone()));
+                failed.cleanup = Some(CleanupProgress::during(
+                    state.cleanup.as_ref(),
+                    kind,
+                    remainder.clone(),
+                ));
                 observe(CleanupObservation::Continuation(Box::new(failed)));
             }
         }
@@ -103,52 +137,68 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let normal = StorageMutation::Cleanup(action);
 
         if flow.outcome_mutation(normal).is_some() {
+            let completion = flow.completion(normal).cloned().unwrap_or_default();
+
             self.apply_published_cleanup(state, normal);
 
-            return true;
+            return Some(completion);
         }
 
-        let Some((entry, contract)) = invocation else { return false; };
+        let Some((entry, contract)) = invocation else {
+            return None;
+        };
 
         let mut rows = flow.cleanup_outcomes(action).filter_map(|(mutation, row)| {
             let outcome = &contract.captured_values()[row];
 
-            self.cleanup_normal_guard(state, entry, outcome).map(|guard| (mutation, guard))
+            self.cleanup_normal_guard(state, entry, outcome)
+                .map(|guard| {
+                    let completion = flow.completion(mutation).cloned().unwrap_or_default();
+
+                    (mutation, guard, completion)
+                })
         });
 
-        let Some(first) = rows.next() else { return false; };
+        let Some(first) = rows.next() else {
+            return None;
+        };
 
-        let apply = |state: &mut ExecutionState, (mutation, guard)| {
+        let apply = |state: &mut ExecutionState, mutation, guard| {
             self.assume_cleanup_guard(state, guard);
             self.replay_lifecycle_completion(state, mutation, entry);
         };
 
+        let (mutation, guard, mut completion) = first;
+
         let Some(second) = rows.next() else {
             drop(rows);
-            apply(state, first);
+            apply(state, mutation, guard);
 
-            return true;
+            return Some(completion);
         };
 
         let mut first_branch = state.clone();
 
-        apply(&mut first_branch, first);
+        apply(&mut first_branch, mutation, guard);
 
         let mut merged = Some(first_branch);
 
-        for row in std::iter::once(second).chain(rows) {
+        for (mutation, guard, incoming) in std::iter::once(second).chain(rows) {
             let mut branch = state.clone();
 
-            apply(&mut branch, row);
+            apply(&mut branch, mutation, guard);
+            completion.merge(&incoming);
 
             super::super::flow::merge_execution(
-                &mut merged, &Some(branch), super::super::flow::ExecutionJoin::Boundary,
+                &mut merged,
+                &Some(branch),
+                super::super::flow::ExecutionJoin::Boundary,
             );
         }
 
         *state = merged.expect("a reached cleanup row supplies the next execution state");
 
-        true
+        Some(completion)
     }
 
     fn replay_lifecycle_completion(
@@ -160,11 +210,13 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         use bray_bound_tree::{StorageValueBoundary, StorageValueDestination};
 
         let flow = self.published_cleanup();
+        let completion = flow.completion(mutation);
 
-        let publication = flow.completion(mutation).and_then(|completion| {
+        let publication = completion.and_then(|completion| {
             let (input, transition) = completion.lifecycle_receiver()?;
 
-            let mut values = self.bind_cleanup_receiver_outputs(state, entry, mutation, input, transition);
+            let mut values =
+                self.bind_cleanup_receiver_outputs(state, entry, mutation, input, transition);
 
             let retirements = flow.capture_retirements(mutation, StorageValueBoundary::Execution);
 
@@ -179,7 +231,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             Some((completion, values))
         });
 
-        self.apply_published_cleanup(state, mutation);
+        self.apply_published_cleanup_effects(state, mutation);
 
         if let Some((completion, mut values)) = publication {
             for (destination, snapshot) in completion.publications() {
@@ -187,19 +239,31 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     unreachable!("lifecycle receiver publication changes current storage");
                 };
 
-                let Some(value) = values.remove(destination) else { continue; };
+                let Some(value) = values.remove(destination) else {
+                    continue;
+                };
 
-                let value = self.complete_captured_references(state, mutation, value)
+                let value = self
+                    .complete_captured_references(state, mutation, value)
                     .captured_value(snapshot.clone());
 
                 self.publish_current_value(state, target, *ty, value);
             }
         }
 
-        state.retire_captured_storage(flow.capture_retirements(mutation, StorageValueBoundary::Retirement));
+        if let Some(completion) = completion {
+            self.refresh_storage_observations(state, completion.references());
+        }
+
+        state.retire_captured_storage(
+            flow.capture_retirements(mutation, StorageValueBoundary::Retirement),
+        );
     }
 
-    #[expect(clippy::too_many_arguments, reason = "cancellation uses the checked part and its reached replacement place")]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "cancellation uses the checked part and its reached replacement place"
+    )]
     pub(super) fn cancel_cleanup(
         &self,
         state: &mut ExecutionState,
@@ -210,10 +274,17 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         replacement: Option<ReplacementPath<'_>>,
         mutate: &mut Option<&mut Mutation<'_>>,
     ) {
-        let steps = self.disposal.steps.get(&access)
+        let steps = self
+            .disposal
+            .steps
+            .get(&access)
             .expect("selected cancellation has prepared cleanup parts");
 
-        for (part, step) in steps.iter().enumerate().filter(|(_, step)| step.phases().includes_cancellation()) {
+        for (part, step) in steps
+            .iter()
+            .enumerate()
+            .filter(|(_, step)| step.phases().includes_cancellation())
+        {
             let mutation = StorageMutation::Cleanup(StorageCleanupAction {
                 occurrence: point.kind().occurrence(),
                 operation: point.id(),
@@ -222,13 +293,30 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 kind: StorageCleanupActionKind::Broadcast,
             });
 
-            if mutate.is_none() && self.published_cleanup().outcome_mutation(mutation).is_none() {
+            if mutate.is_none()
+                && self
+                    .published_cleanup()
+                    .outcome_mutation(mutation)
+                    .is_none()
+            {
                 continue;
             }
 
-            let condition = self.cleanup_part_condition(state, step.selection(), |owner| {
-                part_absent(access, part, AsyncCleanupPhases::Cancellation, owner, entry, mutate)
-            }, replacement);
+            let condition = self.cleanup_part_condition(
+                state,
+                step.selection(),
+                |owner| {
+                    part_absent(
+                        access,
+                        part,
+                        AsyncCleanupPhases::Cancellation,
+                        owner,
+                        entry,
+                        mutate,
+                    )
+                },
+                replacement,
+            );
 
             let ty = match step {
                 Step::Opaque { ty, .. } | Step::Lifecycle { ty, .. } => *ty,
@@ -236,29 +324,45 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             let path = step.selection().target();
 
-            let completes = super::selection::select_cleanup(state, condition, mutate, |state, mutate| {
-                if let Some(observe) = observe {
-                    observe(CleanupObservation::Cancellation);
-                }
+            let completes =
+                super::selection::select_cleanup(state, condition, mutate, |state, mutate| {
+                    if let Some(observe) = observe {
+                        observe(CleanupObservation::Cancellation);
+                    }
 
-                if let Some(mutate) = mutate {
-                    let route = step.selection().route.as_ref();
+                    if let Some(mutate) = mutate {
+                        let route = step.selection().route.as_ref();
 
-                    let action = CleanupMutation::Opaque { ty, access, path, route, failures: &[] };
+                        let action = CleanupMutation::Opaque {
+                            ty,
+                            access,
+                            path,
+                            route,
+                            failures: &[],
+                        };
+                        let mut completion = None;
 
-                    mutate(CleanupTransition::Action(state, mutation, action))
-                } else {
-                    self.apply_published_cleanup(state, mutation);
+                        mutate(CleanupTransition::Action(
+                            state,
+                            mutation,
+                            action,
+                            &mut completion,
+                        ))
+                    } else {
+                        self.apply_published_cleanup(state, mutation);
 
-                    true
-                }
-            });
+                        true
+                    }
+                });
 
             assert!(completes, "a cancellation broadcast has a continuation");
         }
     }
 
-    #[expect(clippy::too_many_arguments, reason = "cleanup resumes the checked action at its reached replacement place")]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "cleanup resumes the checked action at its reached replacement place"
+    )]
     pub(super) fn dispose(
         &self,
         state: &mut ExecutionState,
@@ -272,21 +376,39 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     ) -> bool {
         let access = remaining[0];
 
-        let steps = self.disposal.steps.get(&access)
+        let steps = self
+            .disposal
+            .steps
+            .get(&access)
             .expect("selected cleanup has prepared transitions");
 
         let (start, after_slot) = match after {
-            Some(StorageCleanupAction { access: paused, part, kind: StorageCleanupActionKind::Lifecycle(slot), .. }) => {
+            Some(StorageCleanupAction {
+                access: paused,
+                part,
+                kind: StorageCleanupActionKind::Lifecycle(slot),
+                ..
+            }) => {
                 assert_eq!(access, paused, "cleanup resumes its current owner");
 
                 (part, Some(slot))
             }
-            Some(StorageCleanupAction { access: paused, part, kind: StorageCleanupActionKind::Opaque, .. }) => {
+            Some(StorageCleanupAction {
+                access: paused,
+                part,
+                kind: StorageCleanupActionKind::Opaque,
+                ..
+            }) => {
                 assert_eq!(access, paused, "cleanup resumes its current owner");
 
                 (part + 1, None)
             }
-            Some(StorageCleanupAction { access: paused, part, kind: StorageCleanupActionKind::RepeatArray, .. }) => {
+            Some(StorageCleanupAction {
+                access: paused,
+                part,
+                kind: StorageCleanupActionKind::RepeatArray,
+                ..
+            }) => {
                 assert_eq!(access, paused, "a repeated array resumes its current owner");
 
                 (part, None)
@@ -298,18 +420,41 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         for (part, step) in steps.iter().enumerate().skip(start) {
             let after = (part == start).then_some(after_slot).flatten();
 
-            if step.phases().includes_lifecycle() && after != Some(TypeAssociatedLifecycleSlot::Destructor) {
+            if step.phases().includes_lifecycle()
+                && after != Some(TypeAssociatedLifecycleSlot::Destructor)
+            {
                 let condition = if after == Some(TypeAssociatedLifecycleSlot::Finalizer) {
                     // Reaching the finalizer already selected this part for destruction.
                     crate::ExecutionCondition::boolean(true).into()
                 } else {
-                    self.cleanup_part_condition(state, step.selection(), |owner| {
-                        part_absent(access, part, AsyncCleanupPhases::Lifecycle, owner, entry, mutate)
-                    }, replacement)
+                    self.cleanup_part_condition(
+                        state,
+                        step.selection(),
+                        |owner| {
+                            part_absent(
+                                access,
+                                part,
+                                AsyncCleanupPhases::Lifecycle,
+                                owner,
+                                entry,
+                                mutate,
+                            )
+                        },
+                        replacement,
+                    )
                 };
 
                 if !super::selection::select_cleanup(state, condition, mutate, |state, mutate| {
-                    self.dispose_part(state, remaining, part, step, observe, point, (after, replacement), mutate)
+                    self.dispose_part(
+                        state,
+                        remaining,
+                        part,
+                        step,
+                        observe,
+                        point,
+                        (after, replacement),
+                        mutate,
+                    )
                 }) {
                     return false;
                 }
@@ -317,26 +462,42 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             if (mutate.is_some() || observe.is_some())
                 && let Some(first) = step.selection().repeat_from
-                && steps[first..=part].iter().any(|step| step.phases().includes_lifecycle())
+                && steps[first..=part]
+                    .iter()
+                    .any(|step| step.phases().includes_lifecycle())
             {
                 let scope = match point.kind() {
-                    AnalysisOperationKind::ScopeExit { scope, exit, .. } => Some(bray_bound_tree::StorageExitPoint::new(scope, exit)),
+                    AnalysisOperationKind::ScopeExit { scope, exit, .. } => {
+                        Some(bray_bound_tree::StorageExitPoint::new(scope, exit))
+                    }
                     _ => None,
                 };
 
                 let action = StorageCleanupAction {
-                    occurrence: point.kind().occurrence(), operation: point.id(), access, part: first,
+                    occurrence: point.kind().occurrence(),
+                    operation: point.id(),
+                    access,
+                    part: first,
                     kind: StorageCleanupActionKind::RepeatArray,
                 };
 
-                let remaining = bray_bound_tree::StorageCleanupRemainder::at(scope, remaining, action);
+                let remaining =
+                    bray_bound_tree::StorageCleanupRemainder::at(scope, remaining, action);
 
                 if let Some(mutate) = mutate {
-                    assert!(mutate(CleanupTransition::Action(state, StorageMutation::Cleanup(action), CleanupMutation::Repeat(remaining))));
+                    let mut completion = None;
+
+                    assert!(mutate(CleanupTransition::Action(
+                        state,
+                        StorageMutation::Cleanup(action),
+                        CleanupMutation::Repeat(remaining),
+                        &mut completion,
+                    )));
                 } else if let Some(observe) = observe {
                     let mut continued = state.clone();
 
-                    continued.cleanup = Some(CleanupProgress::repeat(state.cleanup.as_ref(), remaining));
+                    continued.cleanup =
+                        Some(CleanupProgress::repeat(state.cleanup.as_ref(), remaining));
 
                     observe(CleanupObservation::Continuation(Box::new(continued)));
                 }
@@ -346,7 +507,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         true
     }
 
-    #[expect(clippy::too_many_arguments, reason = "one selected cleanup part retains its source, proof and mutation observer")]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "one selected cleanup part retains its source, proof and mutation observer"
+    )]
     fn dispose_part(
         &self,
         state: &mut ExecutionState,
@@ -355,7 +519,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         step: &Step,
         observe: &mut Option<&mut Observer<'_>>,
         point: &AnalysisOperation,
-        (after, replacement): (Option<TypeAssociatedLifecycleSlot>, Option<ReplacementPath<'_>>),
+        (after, replacement): (
+            Option<TypeAssociatedLifecycleSlot>,
+            Option<ReplacementPath<'_>>,
+        ),
         mutate: &mut Option<&mut Mutation<'_>>,
     ) -> bool {
         let operation = point.kind();
@@ -375,7 +542,13 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             ..
         } = step
         else {
-            let Step::Opaque { ty, releases_storage, failures, .. } = step else {
+            let Step::Opaque {
+                ty,
+                releases_storage,
+                failures,
+                ..
+            } = step
+            else {
                 unreachable!("non-lifecycle step is opaque cleanup");
             };
 
@@ -392,7 +565,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             }
 
             if scope_exit && let Some(observe) = observe {
-                observe(CleanupObservation::Part { access, ty: *ty, releases_storage: *releases_storage, before: state });
+                observe(CleanupObservation::Part {
+                    access,
+                    ty: *ty,
+                    releases_storage: *releases_storage,
+                    before: state,
+                });
             }
 
             let disposed = (!matches!(
@@ -400,11 +578,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 bray_symbols::TypeData::Borrow { .. }
             ))
             .then(|| {
-                reached.as_deref().map(|path| self.storage_path_value(state, path))
+                reached
+                    .as_deref()
+                    .map(|path| self.storage_path_value(state, path))
             })
             .flatten();
 
             if let Some(mutate) = mutate {
+                let mut completion = None;
                 // Inactive cleanup can retain reports even when its captures
                 // leave every ordinary input observation unchanged.
                 let effect = if replacement.is_none_or(|(source, reached)| reached == Some(source))
@@ -423,25 +604,39 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     }
                 };
 
-                if !mutate(CleanupTransition::Action(state, StorageMutation::Cleanup(action), effect)) {
+                if !mutate(CleanupTransition::Action(
+                    state,
+                    StorageMutation::Cleanup(action),
+                    effect,
+                    &mut completion,
+                )) {
                     return false;
                 }
-            } else if !self.replay_cleanup_action(state, action, remaining, None, observe) {
+            } else if self
+                .replay_cleanup_action(state, action, remaining, None, observe)
+                .is_none()
+            {
                 return false;
             }
 
             if let Some(disposed) = disposed {
                 // Destruction ends captured ownership even when cleanup has no user storage effects.
-                let place = reached.as_deref().and_then(|path| ExecutionPlace::storage_path(self.storage, path));
+                let place = reached
+                    .as_deref()
+                    .and_then(|path| ExecutionPlace::storage_path(self.storage, path));
 
-                let external = place.iter().flat_map(|place| state.current.entry_borrows_under(place))
+                let external = place
+                    .iter()
+                    .flat_map(|place| state.current.entry_borrows_under(place))
                     .collect::<Vec<_>>();
 
                 if let Some(place) = &place {
                     state.current.retire(place);
                 }
 
-                let retained = state.current.live_values()
+                let retained = state
+                    .current
+                    .live_values()
                     .chain(state.pending_results.values().cloned())
                     .chain(external)
                     .collect::<crate::execution_guarantees::RetainedSnapshots>();
@@ -461,7 +656,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let mut slots = [
             TypeAssociatedLifecycleSlot::Finalizer,
             TypeAssociatedLifecycleSlot::Destructor,
-        ].into_iter().skip(completed).filter_map(|slot| {
+        ]
+        .into_iter()
+        .skip(completed)
+        .filter_map(|slot| {
             let lifecycle = self.disposal.lifecycles.get(&(*ty, slot))?;
 
             let action = StorageCleanupAction {
@@ -473,24 +671,46 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             };
 
             (solving || self.cleanup_action_reached(action)).then_some((slot, lifecycle, action))
-        }).peekable();
+        })
+        .peekable();
 
-        if scope_exit && !*represented && let Some(observe) = observe
+        if scope_exit
+            && !*represented
+            && let Some(observe) = observe
             && slots.peek().is_some()
         {
-            observe(CleanupObservation::Part { access, ty: *ty, releases_storage: false, before: state });
+            observe(CleanupObservation::Part {
+                access,
+                ty: *ty,
+                releases_storage: false,
+                before: state,
+            });
         }
 
         let place = if replacement.is_some() {
-            reached.as_deref().and_then(|path| ExecutionPlace::storage_path(self.storage, path))
+            reached
+                .as_deref()
+                .and_then(|path| ExecutionPlace::storage_path(self.storage, path))
         } else {
             place.clone()
         };
 
         for (slot, lifecycle, action) in slots {
-            let value = reached.as_deref().map(|path| self.storage_path_value(state, path));
+            let value = reached
+                .as_deref()
+                .map(|path| self.storage_path_value(state, path));
 
-            let mut evidence = lifecycle.entry(state, value);
+            let borrow_kind = match self
+                .request
+                .semantic_values()
+                .type_data(lifecycle.call.receiver)
+                .as_ref()
+            {
+                bray_symbols::TypeData::Borrow { kind, .. } => Some(*kind),
+                _ => None,
+            };
+
+            let mut evidence = lifecycle.entry(state, value, place.as_ref(), borrow_kind);
 
             self.preserve_integer_entry_conditions(
                 state,
@@ -498,15 +718,25 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 &mut evidence,
             );
 
-            let requirements = self.prove_trusted_requirements(&evidence, &lifecycle.contract.requirements)
-                .and_then(|()| evidence.prove_requirements_with_cache(&self.proofs, lifecycle.contract.preconditions.iter()
-                    .map(|(condition, _)| condition)));
+            let requirements = self
+                .prove_trusted_requirements(&evidence, &lifecycle.contract.requirements)
+                .and_then(|()| {
+                    evidence.prove_requirements_with_cache(
+                        &self.proofs,
+                        lifecycle
+                            .contract
+                            .preconditions
+                            .iter()
+                            .map(|(condition, _)| condition),
+                    )
+                });
 
             let established = requirements.is_ok();
 
             let template = &self.dependencies.lifecycle_dependencies()[&lifecycle.call.callable];
 
-            evidence.failure_rows = self.select_frame_failures(&evidence, template.failure_outcomes());
+            evidence.failure_rows =
+                self.select_frame_failures(&evidence, template.failure_outcomes());
 
             let evidence = Arc::new(evidence);
 
@@ -523,33 +753,62 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 });
             }
 
-            if let Some(mutate) = mutate {
-                let outcomes = template.captured_values().iter().enumerate().filter_map(|(index, row)| {
-                    self.cleanup_normal_guard(state, &evidence, row).map(|guard| (index, row, guard))
-                })
+            let completion = if let Some(mutate) = mutate {
+                let mut completion = None;
+                let outcomes = template
+                    .captured_values()
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(index, row)| {
+                        self.cleanup_normal_guard(state, &evidence, row)
+                            .map(|guard| (index, row, guard))
+                    })
                     .collect();
 
                 let invocation = CleanupMutation::Lifecycle(LifecycleInvocation {
-                        ty: *ty,
-                        access,
-                        lifecycle,
-                        entry: &evidence,
-                        contract: template,
-                        completes: established,
-                        path,
-                        route,
-                        outcomes,
-                    });
+                    ty: *ty,
+                    access,
+                    lifecycle,
+                    entry: &evidence,
+                    contract: template,
+                    completes: established,
+                    path,
+                    route,
+                    outcomes,
+                });
 
-                if !mutate(CleanupTransition::Action(state, StorageMutation::Cleanup(action), invocation)) {
+                if !mutate(CleanupTransition::Action(
+                    state,
+                    StorageMutation::Cleanup(action),
+                    invocation,
+                    &mut completion,
+                )) {
                     return false;
                 }
-            } else if !self.replay_cleanup_action(state, action, remaining, Some((&evidence, template)), observe) {
-                return false;
-            }
+
+                completion
+            } else {
+                let Some(completion) = self.replay_cleanup_action(
+                    state,
+                    action,
+                    remaining,
+                    Some((&evidence, template)),
+                    observe,
+                ) else {
+                    return false;
+                };
+
+                Some(completion)
+            };
 
             if established {
-                self.complete_trusted_cleanup(state, place.clone(), lifecycle, &evidence);
+                self.complete_trusted_cleanup(
+                    state,
+                    place.clone(),
+                    lifecycle,
+                    &evidence,
+                    completion.as_ref(),
+                );
             }
         }
 
@@ -574,6 +833,8 @@ impl Lifecycle {
         &self,
         state: &ExecutionState,
         value: Option<crate::ExecutionCondition>,
+        place: Option<&ExecutionPlace>,
+        borrowed: Option<bray_symbols::BorrowKind>,
     ) -> ExecutionCallEvidence {
         // Capture one actual receiver snapshot. Its components are projections
         // of this value, including when the receiver itself is a component.
@@ -587,12 +848,20 @@ impl Lifecycle {
             [(receiver.clone(), state.address_dependencies(&value))].into()
         };
 
-        let arguments = BTreeMap::from([
-            (self.receiver.into(), value.clone()),
-            (receiver, value),
-        ]);
+        let arguments = BTreeMap::from([(self.receiver.into(), value.clone()), (receiver, value)]);
 
         let assumptions = state.assumptions.clone();
+
+        let receiver_ordinal = bray_symbols::SymbolOrdinal::new(0);
+        let input_borrow_kinds = borrowed
+            .map(|kind| [(receiver_ordinal, kind)].into())
+            .unwrap_or_default();
+        let input_ordinals = [(ExecutionPlace::from(self.receiver), receiver_ordinal)].into();
+
+        let borrow_owners = borrowed
+            .and_then(|_| place)
+            .map(|place| [(receiver_ordinal, std::sync::Arc::from([place.clone()]))].into())
+            .unwrap_or_default();
 
         // Entry assumptions must survive the mutations made by this lifecycle invocation.
         ExecutionCallEvidence {
@@ -603,7 +872,9 @@ impl Lifecycle {
             witness_allocations: Default::default(),
             extracted_values: Default::default(),
             owned_inputs: Default::default(),
-            borrow_owners: Default::default(),
+            input_borrow_kinds,
+            input_ordinals,
+            borrow_owners,
             addresses,
             anonymous_target: None,
             trusted_boundary: !state.trust_boundaries.is_empty(),

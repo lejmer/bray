@@ -95,7 +95,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         let mut mutate =
             |transition: CleanupTransition<'_>| {
-                let (execution, identity, mutation) = match transition {
+                let (execution, identity, mutation, completion) = match transition {
                     CleanupTransition::PartAbsent { access, part, phase, owner } => {
                         let absent = owner.is_some_and(|owner| state.is_path_absent(owner));
 
@@ -127,7 +127,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
                         return true;
                     }
-                    CleanupTransition::Action(execution, identity, mutation) => (execution, identity, mutation),
+                    CleanupTransition::Action(execution, identity, mutation, completion) => {
+                        (execution, identity, mutation, completion)
+                    }
                 };
 
                 if let CleanupMutation::Repeat(remaining) = mutation {
@@ -160,7 +162,20 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     }
                 }
 
-                self.apply_cleanup_outcomes(state, execution, operation, identity, &mutation, &operands)
+                let Some(reached) = self.apply_cleanup_outcomes(
+                    state,
+                    execution,
+                    operation,
+                    identity,
+                    &mutation,
+                    &operands,
+                ) else {
+                    return false;
+                };
+
+                *completion = Some(reached);
+
+                true
             };
 
         let completes = domain.transition_storage_cleanup(
@@ -260,11 +275,11 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         identity: StorageMutation,
         mutation: &CleanupMutation<'_>,
         operands: &CleanupOperands<'_>,
-    ) -> bool {
+    ) -> Option<bray_bound_tree::StorageCompletion> {
         let CleanupMutation::Lifecycle(call) = mutation else {
-            self.apply_cleanup_action(state, execution, operation, identity, mutation, operands);
-
-            return true;
+            return Some(self.apply_cleanup_action(
+                state, execution, operation, identity, mutation, operands,
+            ));
         };
 
         let StorageMutation::Cleanup(action) = identity else {
@@ -272,47 +287,49 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         };
 
         if call.contract.captured_values().is_empty() {
-            self.apply_cleanup_action(state, execution, operation, identity, mutation, operands);
-
-            return true;
+            return Some(self.apply_cleanup_action(
+                state, execution, operation, identity, mutation, operands,
+            ));
         }
 
         let domain = self.execution;
         let mut rows = call.outcomes.iter().map(|(row, _, guard)| (*row, guard.clone()));
 
-        let Some(first) = rows.next() else { return false; };
+        let first = rows.next()?;
 
         let apply = |collector: &mut Self, state: &mut StorageFlowState, execution: &mut ExecutionState,
             (row, guard): (usize, crate::ExecutionCondition)| {
             domain.assume_cleanup_guard(execution, guard);
 
             collector.apply_cleanup_action(state, execution, operation,
-                    StorageMutation::CleanupOutcome { action, row }, mutation, operands);
+                    StorageMutation::CleanupOutcome { action, row }, mutation, operands)
         };
 
         let Some(last) = rows.next_back() else {
-            apply(self, state, execution, first);
-
-            return true;
+            return Some(apply(self, state, execution, first));
         };
 
         let mut merged = state.clone();
         let mut first_execution = execution.clone();
 
-        apply(self, &mut merged, &mut first_execution, first);
+        let mut completion = apply(self, &mut merged, &mut first_execution, first);
         merged.execution = Some(first_execution);
 
         for row in rows {
             let mut incoming = state.clone();
             let mut incoming_execution = execution.clone();
 
-            apply(self, &mut incoming, &mut incoming_execution, row);
+            let incoming_completion = apply(self, &mut incoming, &mut incoming_execution, row);
+
+            completion.merge(&incoming_completion);
             incoming.execution = Some(incoming_execution);
 
             merged.merge(&incoming, crate::analysis::guarantee::ExecutionJoin::Boundary);
         }
 
-        apply(self, state, execution, last);
+        let last_completion = apply(self, state, execution, last);
+
+        completion.merge(&last_completion);
         state.execution = Some(std::mem::take(execution));
 
         merged.merge(state, crate::analysis::guarantee::ExecutionJoin::Boundary);
@@ -320,7 +337,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         *execution = merged.execution.take().expect("joined lifecycle outcomes retain their execution state");
         *state = merged;
 
-        true
+        Some(completion)
     }
 
     #[expect(clippy::too_many_arguments, reason = "a cleanup fault retains the reached action, schedule, and admitted state")]

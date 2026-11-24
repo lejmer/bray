@@ -318,6 +318,7 @@ pub struct StorageCapturedEffects {
     pub mutations: Arc<[StorageEffect]>,
     pub cell_changes: Option<Arc<[StorageEffect]>>,
     pub escaped: Vec<Target>,
+    pub borrowed: Vec<Target>,
     /// Entry-relative escape effects captured before the input slots were consumed.
     pub escape_prefix: Arc<[bray_symbols::DependencyStorageEffect]>,
     pub invalidation: crate::StorageInvalidation,
@@ -325,7 +326,8 @@ pub struct StorageCapturedEffects {
 
 impl StorageCapturedEffects {
     pub fn references(&self, current: &Target, retirement: Retirement) -> bool {
-        self.escaped.iter().any(|target| retirement.contains(current, target))
+        self.escaped.iter().chain(&self.borrowed)
+            .any(|target| retirement.contains(current, target))
             || self.mutations.iter().chain(self.cell_changes.iter().flat_map(|changes| changes.iter()))
                 .any(|effect| effect.references(current, retirement))
     }
@@ -347,7 +349,7 @@ impl StorageCapturedEffects {
             self.cell_changes = Some(retained.into());
         }
 
-        for target in &mut self.escaped {
+        for target in self.escaped.iter_mut().chain(&mut self.borrowed) {
             if retirement.contains(current, target) {
                 target.previous = true;
             }
@@ -359,6 +361,8 @@ impl StorageCapturedEffects {
     fn normalize(&mut self) {
         self.escaped.sort_unstable();
         self.escaped.dedup();
+        self.borrowed.sort_unstable();
+        self.borrowed.dedup();
     }
 
     pub fn merge(&mut self, incoming: &Self) {
@@ -368,6 +372,7 @@ impl StorageCapturedEffects {
 
         self.cell_changes = bray_symbols::common_cell_changes([self.cell_changes.as_ref(), incoming.cell_changes.as_ref()].into_iter());
         self.escaped.extend(incoming.escaped.iter().cloned());
+        self.borrowed.extend(incoming.borrowed.iter().cloned());
 
         if self.escape_prefix != incoming.escape_prefix {
             self.escape_prefix = bray_base::sorted_unique_shared_slice(self.escape_prefix.iter().chain(&*incoming.escape_prefix).cloned());

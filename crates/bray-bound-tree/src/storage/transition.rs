@@ -1,4 +1,4 @@
-use bray_symbols::{SymbolOrdinal, TypeId};
+use bray_symbols::{BorrowKind, SymbolOrdinal, TypeId};
 
 use super::{StorageProjection, StorageTarget};
 
@@ -18,12 +18,17 @@ pub enum StorageValueBoundary {
 pub struct StorageValueCapture {
     /// The actual evaluated input, independently of its source slot's later contents.
     pub input: SymbolOrdinal,
+    /// Access authority of the planned outer input borrow.
+    pub borrow_kind: Option<BorrowKind>,
     /// Captured inline descriptors, initialized shape and deferred environment.
     pub value: std::sync::Arc<crate::StorageCapturedValue>,
     /// Current typed referent captured at execution entry, when its address is established.
     pub referent: Option<(TypeId, std::sync::Arc<crate::StorageCapturedValue>)>,
     /// Possible element dependencies behind a buffer descriptor, without identifying a particular element.
-    pub element_bounds: Option<(StorageProjection, std::sync::Arc<crate::StorageCapturedValue>)>,
+    pub element_bounds: Option<(
+        StorageProjection,
+        std::sync::Arc<crate::StorageCapturedValue>,
+    )>,
 }
 
 /// Retains checked input captures common to the reached alternatives.
@@ -35,29 +40,45 @@ pub fn merge_storage_value_captures(
         return;
     }
 
-    *observed = observed.iter().filter_map(|capture| {
-        let other = incoming.iter().find(|other| other.input == capture.input)?;
+    *observed = observed
+        .iter()
+        .filter_map(|capture| {
+            let other = incoming.iter().find(|other| other.input == capture.input)?;
 
-        let referent = match (&capture.referent, &other.referent) {
-            (Some((ty, left)), Some((other_ty, right))) if ty == other_ty => Some((*ty, std::sync::Arc::new(left.merged(right)))),
-            _ => None,
-        };
+            assert_eq!(
+                capture.borrow_kind, other.borrow_kind,
+                "one checked input retains its planned borrow authority across control flow"
+            );
 
-        let element_bounds = match (&capture.element_bounds, &other.element_bounds) {
-            (Some((pointer, left)), Some((other_pointer, right))) if pointer == other_pointer =>
-                Some((*pointer, std::sync::Arc::new(left.merged(right)))),
-            (Some((pointer, bounds)), None) | (None, Some((pointer, bounds))) =>
-                Some((*pointer, std::sync::Arc::new(bounds.with_unknown_alternative()))),
-            _ => None,
-        };
+            let referent = match (&capture.referent, &other.referent) {
+                (Some((ty, left)), Some((other_ty, right))) if ty == other_ty => {
+                    Some((*ty, std::sync::Arc::new(left.merged(right))))
+                }
+                _ => None,
+            };
 
-        Some(StorageValueCapture {
-            input: capture.input,
-            element_bounds,
-            value: std::sync::Arc::new(capture.value.merged(&other.value)),
-            referent,
+            let element_bounds = match (&capture.element_bounds, &other.element_bounds) {
+                (Some((pointer, left)), Some((other_pointer, right)))
+                    if pointer == other_pointer =>
+                {
+                    Some((*pointer, std::sync::Arc::new(left.merged(right))))
+                }
+                (Some((pointer, bounds)), None) | (None, Some((pointer, bounds))) => Some((
+                    *pointer,
+                    std::sync::Arc::new(bounds.with_unknown_alternative()),
+                )),
+                _ => None,
+            };
+
+            Some(StorageValueCapture {
+                input: capture.input,
+                borrow_kind: capture.borrow_kind,
+                element_bounds,
+                value: std::sync::Arc::new(capture.value.merged(&other.value)),
+                referent,
+            })
         })
-    }).collect();
+        .collect();
 }
 
 /// A source in the operation's captured entry environment.
@@ -111,8 +132,13 @@ pub enum StorageSnapshotRoot {
     Produced(StorageValueDestination),
 }
 
-type StorageValueOutcome = bray_symbols::CapturedValueOutcome<StorageValueDestination, StorageValueInput,
-    StorageProjection, bray_symbols::StaticReferenceSelection, bray_symbols::ConstantTermId>;
+type StorageValueOutcome = bray_symbols::CapturedValueOutcome<
+    StorageValueDestination,
+    StorageValueInput,
+    StorageProjection,
+    bray_symbols::StaticReferenceSelection,
+    bray_symbols::ConstantTermId,
+>;
 
 /// One guarded set of reached publications and its source row in the callable contract.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -121,14 +147,25 @@ pub struct StorageValueTransition {
     pub source_row: Option<usize>,
     /// The guarded publications bound to this operation's actual destinations.
     pub outcome: StorageValueOutcome,
-    write_inputs: std::sync::Arc<[(SymbolOrdinal, std::sync::Arc<[StorageProjection]>, StorageTarget)]>,
+    write_inputs: std::sync::Arc<
+        [(
+            SymbolOrdinal,
+            std::sync::Arc<[StorageProjection]>,
+            StorageTarget,
+        )],
+    >,
 }
 
 impl StorageValueTransition {
     /// Records reached publications with no portable contract row, such as a memory intrinsic.
     pub fn new(
         guard: Option<bray_symbols::ConstantTermId>,
-        bindings: impl IntoIterator<Item = (StorageValueDestination, bray_symbols::CapturedValueTemplate<StorageValueInput, StorageProjection>)>,
+        bindings: impl IntoIterator<
+            Item = (
+                StorageValueDestination,
+                bray_symbols::CapturedValueTemplate<StorageValueInput, StorageProjection>,
+            ),
+        >,
     ) -> Self {
         Self {
             source_row: None,
@@ -138,14 +175,29 @@ impl StorageValueTransition {
     }
 
     /// Retains the actual admitted descriptors that establish exact writes in this row.
-    pub fn with_write_inputs(mut self, inputs: impl IntoIterator<Item = (SymbolOrdinal, std::sync::Arc<[StorageProjection]>, StorageTarget)>) -> Self {
+    pub fn with_write_inputs(
+        mut self,
+        inputs: impl IntoIterator<
+            Item = (
+                SymbolOrdinal,
+                std::sync::Arc<[StorageProjection]>,
+                StorageTarget,
+            ),
+        >,
+    ) -> Self {
         self.write_inputs = bray_base::sorted_unique_shared_slice(inputs);
 
         self
     }
 
     /// The input ordinals, stored descriptor selectors, and evaluated addresses behind exact writes.
-    pub fn write_inputs(&self) -> &[(SymbolOrdinal, std::sync::Arc<[StorageProjection]>, StorageTarget)] {
+    pub fn write_inputs(
+        &self,
+    ) -> &[(
+        SymbolOrdinal,
+        std::sync::Arc<[StorageProjection]>,
+        StorageTarget,
+    )] {
         &self.write_inputs
     }
 }
@@ -156,35 +208,59 @@ pub fn merge_storage_value_transitions(
     observed: &mut std::sync::Arc<[StorageValueTransition]>,
     incoming: &std::sync::Arc<[StorageValueTransition]>,
 ) {
-    if observed == incoming { return; }
+    if observed == incoming {
+        return;
+    }
 
-    let opaque = (observed.is_empty() || incoming.is_empty()).then(|| StorageValueTransition::new(None, []));
+    let opaque =
+        (observed.is_empty() || incoming.is_empty()).then(|| StorageValueTransition::new(None, []));
 
-    *observed = bray_base::sorted_unique_shared_slice(observed.iter().chain(incoming.iter()).cloned().chain(opaque));
+    *observed = bray_base::sorted_unique_shared_slice(
+        observed
+            .iter()
+            .chain(incoming.iter())
+            .cloned()
+            .chain(opaque),
+    );
 }
 
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
 
-    use bray_symbols::{CapturedValueTemplate, DependencySubject, DependencySubjectRoot, SymbolOrdinal};
     use crate::{BoundUnitId, StorageIdentityId, StoragePath, StorageTarget};
+    use bray_symbols::{
+        CapturedValueTemplate, DependencySubject, DependencySubjectRoot, SymbolOrdinal,
+    };
 
-    use super::{StorageValueDestination, StorageValueInput, StorageValueTransition, merge_storage_value_transitions};
+    use super::{
+        StorageValueDestination, StorageValueInput, StorageValueTransition,
+        merge_storage_value_transitions,
+    };
 
     #[test]
     fn replay_keeps_possible_writes_without_establishing_a_current_write() {
-        let target = StorageTarget::storage(StoragePath::root(StorageIdentityId::from_slot(BoundUnitId::new(1), 0)));
+        let target = StorageTarget::storage(StoragePath::root(StorageIdentityId::from_slot(
+            BoundUnitId::new(1),
+            0,
+        )));
 
         let destination = StorageValueDestination::Region {
             target,
             via: DependencySubject::root(DependencySubjectRoot::Receiver),
         };
 
-        let row = |ordinal| StorageValueTransition::new(None, [(
-            destination.clone(),
-            CapturedValueTemplate::Input(StorageValueInput::Argument(SymbolOrdinal::new(ordinal))),
-        )]);
+        let row = |ordinal| {
+            StorageValueTransition::new(
+                None,
+                [(
+                    destination.clone(),
+                    CapturedValueTemplate::Input(StorageValueInput::Argument(SymbolOrdinal::new(
+                        ordinal,
+                    ))),
+                )],
+            )
+        };
 
         let mut selected = row(0);
 
@@ -195,7 +271,10 @@ mod tests {
 
         merge_storage_value_transitions(&mut observed, &incoming);
         assert!(observed.contains(&row(0)) && observed.contains(&row(1)));
-        assert!(observed.contains(&selected), "identical writes can accompany different contract effects");
+        assert!(
+            observed.contains(&selected),
+            "identical writes can accompany different contract effects"
+        );
 
         merge_storage_value_transitions(&mut observed, &Arc::default());
         assert!(observed.contains(&StorageValueTransition::new(None, [])));
