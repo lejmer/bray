@@ -298,24 +298,21 @@ trusted internal func consume_values(
 
     loop
     {
-        let (found, mut incidents) = trusted bray.runtime.bootstrap.report.incident.dispose_value(current, reporting);
+        let (found, incidents) = trusted bray.runtime.bootstrap.report.incident.dispose_value(current, reporting);
 
         if status == STATUS_SUCCESS
         {
             status = found;
         }
 
-        trusted report_records_append(
-            std.memory.address_of_mut<ReportRecords>(&mut incidents),
-            std.memory.address_of_mut<ReportRecords>(&mut remaining)
-        );
+        let (combined, _) = trusted append_record_values(incidents, remaining);
 
-        if incidents.count == 0
+        if combined.count == 0
         {
             return status;
         }
 
-        let (tail, next) = trusted pop_record_value(incidents);
+        let (tail, next) = trusted pop_record_value(combined);
 
         remaining = tail;
         current = next;

@@ -63,16 +63,18 @@ evidence. Impossible internal states fail at the violated contract.
 
 ## Verification and current trace
 
-- The preceding checkpoint passed all 1,709 fixed comparison cases, including
+- Checkpoint `51c1942c7` passed all 1,709 fixed comparison cases, including
   source and imported returns, nested cleanup, generator reference lifetime,
   and the production channel endpoint check. The comparison used one verified
   release test binary.
 - The current Windows x64 standard library builds in 49 seconds, with planning
   in 21 seconds. Its interface decodes completely after normal and failure
   stored-value rows normalize against their portable destinations.
-- The current packaged Windows x64 bootstrap check reached and lowered all 43
-  selected bodies with zero diagnostics. The remaining targets and native
-  archive still need verification.
+- Checkpoint `51c1942c7` checked and lowered all 43 selected Windows x64
+  bootstrap bodies with zero diagnostics. The later full archive reached two
+  additional report consumers. The current source candidate checks and lowers
+  those consumers, both append contracts, and the metadata body without a
+  diagnostic. The full archive and other targets still need verification.
 - Normal calls and lifecycle cleanup publish exact reference targets in
   `StorageCompletion`. Trusted completion maps the reached actual input path to
   its formal `StoragePlan` path and reads the target's current value directly.
@@ -279,6 +281,43 @@ loan checks reject a reference to a dying local. A cleanup finalizer can publish
 reference descriptor whose current bound names one exact referent. Completion
 resolves that bound from the reached physical state before attaching the
 destructor's witness to its owner.
+
+## Current full-product report contract
+
+`pop_record_value` publishes `retained_report_value` on its complete tuple
+element. Tuple extraction and assignment to the loop's current owner must
+retain it through the next `dispose_value` admission. Mutation or an unknown
+write to that owner must revoke it. The input requirement supplies the first
+iteration. During storage-flow construction, the `pop_record_value` completion
+establishes both the condition and witness. The later `remaining = tail`
+assignment removes both on some paths before the loop backedge. The earlier
+call to the C-facing `report_records_append` exposes the address of `remaining`.
+An independent returned report pointer can then conservatively name that
+exposed storage, so the assignment correctly revokes the witness under the
+current memory model. `ReportRecords` is copyable and its internal append
+already operates on values. Use that direct value operation in `consume_values`
+and retain the pointer wrapper for external callers. The C wrapper must keep
+both incoming `valid_write` and alignment claims through the pool mutation
+until its output writes. Calling the value operation from that wrapper loses
+both `valid_write` claims because its effect can alias either pointer. Keep
+the pointer-bearing contract at the C boundary and perform the pool link in
+each contract context. Share the pure chain-metadata update so the append
+policy has one owner. The positive oracle checks both append bodies and the
+consumer. A pointer alias that may be invalidated remains a negative oracle.
+
+`take_transfer` publishes `native_report_callbacks` on its nested report.
+`write_result` borrows that complete owner through `clear_destination`,
+`write_tag`, and `panic_destination`, then replaces the nested report through
+`take_report(&mut owner)` before writing it to the raw destination. The returned
+report owns the callback witness and the remaining owner retains its marker
+and empty report. The focused packaged check now clears this diagnostic.
+
+Positive oracles are the six affected packaged bodies and the full archive.
+Negative oracles are changed report contents, an alias that invalidates a C
+output pointer, a fabricated callback witness, and a partial extraction with
+no independent result owner. Reuse the fixed 1,709-case comparison after any
+compiler semantic repair. This source repair adds no parallel report value or
+fallback proof.
 
 ## Acceptance
 

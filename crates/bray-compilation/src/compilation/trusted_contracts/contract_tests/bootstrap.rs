@@ -43,15 +43,21 @@ fn assert_bootstrap_contracts(target: NativeTarget) {
         "record_worker_failure", "retire_driver", "retire_driver_resources", "task.retain_in_arena", "task.retention",
         "create_native_provider", "install_binding", "task.notify_waiters", "task.retire_dispatch",
         "task.advance_dispatch", "task.dispatch", "task_start", "main_drive", "worker_callback",
+        "bootstrap.report_records_append", "bootstrap.append_record_pointer_values", "bootstrap.append_record_values",
+        "bootstrap.append_record_metadata", "report.consumer.consume_values", "task.result.write_result",
     ] {
         let key = if name == "start_frame" {
             source_type_callable_member_body_key(&compilation, name)
         } else if name == "owner_entry_scope" {
             source_function_body_key(&compilation, name)
         } else {
-            let (module, function) = name.split_once('.').unwrap_or(("execution", name));
+            let (module, function) = name.rsplit_once('.').unwrap_or(("execution", name));
+            let mut path = vec!["bray", "runtime", "bootstrap"];
+            if module != "bootstrap" {
+                path.extend(module.split('.'));
+            }
 
-            source_module_function_body_key(&compilation, &["bray", "runtime", "bootstrap", module], function)
+            source_module_function_body_key(&compilation, &path, function)
         };
 
         eprintln!("{} checking {name}", target.as_str());
