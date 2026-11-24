@@ -78,12 +78,13 @@ rejecting a value defined only in a predecessor block. Reconsider this
 placement if another async factory still produces block-local operands at
 the same boundary.
 
-The box construction test queried planned operand access statuses rather than
-the construction's value consumption. A direct positive and use-after-move
-negative source check now tests the ownership transfer through the box and
-its lowering. Partial box cleanup reaches release on normal and body panic
-paths. Its test has not yet established whether a cleanup failure path was
-generated and classified.
+The box construction test now checks the value transfer directly. Its positive
+case lowers, and its negative case rejects use after move. The partial box test
+checks that release is reached on normal and body-panic exits and that release's
+own fallible outcome is checked. A release failure does not call release again.
+For guarded `total`, storage flow records the moved `Pair.boxed` field and
+schedules no cleanup on its reached exit. Execution certification still reports
+missing evidence for the field-transfer branch. The whole-owner transfer passes.
 
 - Checkpoint `51c1942c7` passed all 1,709 fixed comparison cases, including
   source and imported returns, nested cleanup, generator reference lifetime,

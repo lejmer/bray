@@ -1,50 +1,48 @@
 use crate::test_support::{compilation, source_function_body_key};
-use bray_bound_tree::BoundExpression;
 use bray_diagnostics::DiagnosticKind;
-use bray_ir::{MirBlockKind, MirOperationKind, MirTerminatorKind};
+use bray_ir::{MirOperationKind, MirTerminatorKind};
 
 #[test]
 fn box_construction_transfers_its_noncopyable_input_storage() {
-    let compilation = compilation(include_str!(
+    let fixture = include_str!(
         "../../../../../../../xtask/fixtures/native-execution/guarded-part-cleanup.bray"
-    ));
-
-    let key = source_function_body_key(&compilation, "main");
-
-    let bound = compilation
-        .bound_unit(key.clone())
-        .expect("fixture callable must bind successfully");
-
-    let flow = compilation
-        .storage_flow(key)
-        .expect("fixture callable must complete storage-flow analysis");
-
-    let operands = bound
-        .value()
-        .tree()
-        .expressions()
-        .filter_map(|(_, expression)| match expression {
-            BoundExpression::BoxConstruction(expression) => Some(expression.arguments().iter().map(|argument| argument.expression())),
-            _ => None,
-        })
-        .flatten()
-        .collect::<std::collections::BTreeSet<_>>();
-
-    assert!(!operands.is_empty(), "fixture must provide a boxed value");
-
-    assert!(
-        flow.value().operations().iter().any(|operation| {
-            operands.contains(&operation.expression())
-                && operation.purpose() == bray_bound_tree::StorageAccessPurpose::Move
-                && operation.status() == bray_bound_tree::StorageOperationStatus::Valid
-        }),
-        "a reachable box input must transfer ownership: {:?}",
-        flow.value()
-            .operations()
-            .iter()
-            .filter(|operation| operands.contains(&operation.expression()))
-            .collect::<Vec<_>>()
     );
+    let (declarations, _) = fixture
+        .split_once("func main")
+        .expect("fixture has a main body");
+    for (reuse, valid) in [("", true), ("take(pair.left);", false)] {
+        let source = format!("{declarations}{}", r#"
+            func box_input()
+            {
+                let mut first: Counter = Counter { value = 0 };
+                let mut second: Counter = Counter { value = 0 };
+                let pair = Pair {
+                    left = Guard { counter = &mut first },
+                    right = Guard { counter = &mut second },
+                };
+                let owned: box[InlineStorage<Pair>] Pair = box[InlineStorage<Pair>](pair, options = 9);
+                boxed(owned);
+                REUSE
+            }
+        "#.replace("REUSE", reuse));
+        let compilation = compilation(&source);
+        let diagnostics = compilation.check_diagnostics();
+
+        if valid {
+            assert!(!diagnostics.has_errors(), "{diagnostics:#?}");
+
+            let lowered = compilation
+                .lowered_unit(source_function_body_key(&compilation, "box_input"))
+                .expect("valid boxed transfer lowers");
+
+            assert!(!lowered.diagnostics().has_errors(), "{:?}", lowered.diagnostics());
+        } else {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                diagnostics,
+                DiagnosticKind::CheckingUseOfMovedStorage,
+            );
+        }
+    }
 }
 
 #[test]
@@ -120,8 +118,7 @@ fn partially_moved_box_projects_through_policy_and_releases_on_reachable_exits()
     let mut normal = false;
     let mut body_panic = false;
     let mut body_cancellation = false;
-    let mut cleanup_panic = false;
-    let mut cleanup_cancellation = false;
+    let mut checked_release = false;
 
     for block in mir.blocks() {
         match block.terminator().kind() {
@@ -133,12 +130,20 @@ fn partially_moved_box_projects_through_policy_and_releases_on_reachable_exits()
                 cancelled,
                 ..
             } => {
-                if block.kind() == MirBlockKind::Ordinary {
+                let release_call = block.operations().iter().any(|operation| {
+                    matches!(
+                        mir.operation(*operation).expect("checked call operation exists").kind(),
+                        MirOperationKind::Call(call) if call.is_cleanup()
+                            && matches!(call.target(), bray_ir::MirCallTarget::Direct(reference)
+                                if release_instances.contains(&reference.instance()))
+                    )
+                });
+
+                if release_call {
+                    checked_release = true;
+                } else {
                     body_panic |= reaches_release(panicked.target());
                     body_cancellation |= reaches_release(cancelled.target());
-                } else {
-                    cleanup_panic |= reaches_release(panicked.target());
-                    cleanup_cancellation |= reaches_release(cancelled.target());
                 }
             }
             _ => {}
@@ -146,8 +151,8 @@ fn partially_moved_box_projects_through_policy_and_releases_on_reachable_exits()
     }
 
     assert!(
-        normal && body_panic && !body_cancellation && cleanup_panic && cleanup_cancellation,
-        "normal exit, body panic and cleanup failures reach release, while the non-cancelling body has no cancellation cleanup: {mir:?}"
+        normal && body_panic && !body_cancellation && checked_release,
+        "release reachability: normal={normal}, body_panic={body_panic}, body_cancellation={body_cancellation}, checked_release={checked_release}; {mir:?}"
     );
 
     assert!(mir.operations().iter().any(|operation| matches!(operation.kind(),
