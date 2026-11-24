@@ -413,6 +413,115 @@ fn conditional_cleanup_cannot_publish_unconditional_guarantees() {
 }
 
 #[test]
+#[ignore = "tier:proof"]
+fn conditional_cleanup_keeps_the_address_written_by_its_finalizer() {
+    use bray_symbols::{
+        DependencyMutationKind, DependencyProjection, DependencyStorageEffect,
+        DependencySubjectRoot, SymbolOrdinal,
+    };
+
+    let application = production_sync_compilation(
+        r#"
+        trusted module app;
+
+        using core.atomic;
+
+        struct Writer
+        {
+            mut destination: &core.atomic.Atomic<u32>;
+            replacement: &core.atomic.Atomic<u32>;
+
+            finalize()
+            {
+                self.destination = self.replacement;
+            }
+
+            destruct()
+            {
+                core.atomic.store<u32, 0>(self.destination, 1);
+            }
+        }
+
+        func dispose_present(pos writer: Writer)
+        {
+        }
+
+        func dispose_optional(pos writer: Writer?)
+        {
+        }
+
+        struct Child
+        {
+            mut destination: &core.atomic.Atomic<u32>;
+
+            destruct()
+            {
+                core.atomic.store<u32, 0>(self.destination, 1);
+            }
+        }
+
+        struct Parent
+        {
+            mut child: Child;
+            replacement: &core.atomic.Atomic<u32>;
+
+            finalize()
+            {
+                self.child.destination = self.replacement;
+            }
+        }
+
+        func dispose_parent(pos owner: Parent)
+        {
+        }
+
+        func dispose_optional_parent(pos owner: Parent?)
+        {
+        }
+        "#,
+    );
+
+    let cancellation = crate::CancellationToken::new();
+    let binding = application.binding_context(&cancellation).expect("fixture symbols bind");
+
+    for (name, optional) in [
+        ("dispose_present", false),
+        ("dispose_optional", true),
+        ("dispose_parent", false),
+        ("dispose_optional_parent", true),
+    ] {
+        let lowered = application.lowered_unit(source_function_body_key(&application, name))
+            .expect("fixture callable reaches lowering");
+
+        assert!(lowered.value().is_some() && !lowered.diagnostics().has_errors(), "{name}: {lowered:?}");
+
+        let summary = crate::compilation::result_dependencies::source_function_dependencies(&application, name);
+
+        let observed = summary.effects().iter().filter(|effect| matches!(effect,
+            DependencyStorageEffect::Atomic
+            | DependencyStorageEffect::Indirect { kind: DependencyMutationKind::Atomic, .. }
+            | DependencyStorageEffect::UnboundedMutation { kind: DependencyMutationKind::Atomic, .. }
+        )).collect::<Vec<_>>();
+
+        let [DependencyStorageEffect::Indirect { addressed: true, reference, .. }] = observed.as_slice() else {
+            panic!("{name} performs one atomic store through the installed descriptor: {summary:#?}");
+        };
+
+        assert_eq!(reference.subject_root(), DependencySubjectRoot::Parameter(SymbolOrdinal::new(0)));
+
+        let field = match (optional, reference.projections()) {
+            (false, [DependencyProjection::ProductField(field)])
+            | (true, [DependencyProjection::NullableValue, DependencyProjection::ProductField(field)]) => *field,
+            _ => panic!("{name} retains the original field supplying the replacement: {reference:?}"),
+        };
+
+        let name = binding.member_name(field.into()).expect("fixture field name");
+
+        assert_eq!(name.map(|name| name.as_str()), Some("replacement"));
+    }
+}
+
+#[test]
 fn consuming_cleanup_retains_only_proven_external_borrow_identity() {
     use bray_diagnostics::{DiagnosticArgValue, DiagnosticContractObligationKind};
 

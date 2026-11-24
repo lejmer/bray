@@ -349,8 +349,9 @@ impl PreparedBodyAnalysis {
         storage: &StoragePlan,
         expressions: &CheckedExpressionSemantics,
     ) -> Result<(), crate::CheckerQueryError<C::UpstreamError>> {
-        // Contracts can observe parameters that the body never reads. Keep
-        // their checked entry types without walking arbitrary aggregate fields.
+        // Cleanup and contracts can read inputs that the body never observes.
+        let cleanup_roots = self.cleanup.owner_roots().collect::<BTreeSet<_>>();
+
         for (identity, _) in storage.identity_entries() {
             let Some(place) = crate::ExecutionPlace::storage_identity(storage, identity)
                 .filter(|place| input_invariant_subject(place).is_some())
@@ -364,9 +365,10 @@ impl PreparedBodyAnalysis {
 
             let ty = request.semantic_values().unborrowed_type(ty);
 
-            if crate::representation::type_representation(request, ty)
-                .and_then(bray_compiler_known::RepresentationRole::integer_representation)
-                .is_some()
+            if cleanup_roots.contains(&identity)
+                || crate::representation::type_representation(request, ty)
+                    .and_then(bray_compiler_known::RepresentationRole::integer_representation)
+                    .is_some()
                 || matches!(request.semantic_values().type_data(ty).as_ref(),
                     bray_symbols::TypeData::Named { definition: bray_symbols::NamedTypeSymbolId::Union(_), .. })
             {

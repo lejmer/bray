@@ -64,8 +64,16 @@ impl Step {
 pub(super) struct Selection {
     pub(super) owner: Option<StoragePath>,
     pub(super) route: Option<StorageReferencePath>,
-    pub(super) guards: Vec<(StoragePath, bray_bound_tree::BoundOperator, ExecutionCondition)>,
+    pub(super) guards: Vec<SelectionGuard>,
     pub(super) repeat_from: Option<usize>,
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub(super) struct SelectionGuard {
+    pub(super) subject: StoragePath,
+    pub(super) operator: bray_bound_tree::BoundOperator,
+    pub(super) expected: ExecutionCondition,
+    pub(super) payload: Option<StoragePath>,
 }
 
 impl Selection {
@@ -223,6 +231,14 @@ impl Plan {
         &self,
     ) -> impl Iterator<Item = &bray_bound_tree::StoragePath> {
         self.steps.values().flatten().filter_map(|step| step.selection().target())
+    }
+
+    pub(in crate::analysis) fn owner_roots(
+        &self,
+    ) -> impl Iterator<Item = bray_bound_tree::StorageIdentityId> + '_ {
+        self.steps.values().flatten().filter_map(|step| {
+            step.selection().owner.as_ref().map(|path| path.root)
+        })
     }
 
     pub(in crate::analysis) fn reporting_accesses<'a>(
@@ -656,17 +672,6 @@ fn cleanup_selection(
             _ => None,
         };
 
-        if let Some(predicate) = predicate {
-            let (operator, expected) = crate::execution_guarantees::pattern_value(
-                values,
-                projection.source_type(),
-                predicate,
-            )
-            .expect("cleanup presence guards have checked pattern values");
-
-            guards.push((path.clone(), operator, expected));
-        }
-
         let component = match projection.projection() {
             StorageCleanupProjectionKind::Component(component) => Some(component),
             StorageCleanupProjectionKind::OwnedTarget(_) => {
@@ -684,16 +689,36 @@ fn cleanup_selection(
             _ => None,
         };
 
-        let Some(component) = component else {
+        let payload = component.map(|component| {
+            StoragePath {
+                root: path.root,
+                projections: path.projections.iter().copied().chain([component]).collect(),
+            }
+        });
+
+        if let Some(predicate) = predicate {
+            let (operator, expected) = crate::execution_guarantees::pattern_value(
+                values,
+                projection.source_type(),
+                predicate,
+            )
+            .expect("cleanup presence guards have checked pattern values");
+
+            guards.push(SelectionGuard {
+                subject: path.clone(),
+                operator,
+                expected,
+                payload: payload.as_ref()
+                    .filter(|payload| payload.projections.iter().all(|projection| projection.is_exact()))
+                    .cloned(),
+            });
+        }
+
+        let Some(payload) = payload else {
             return Selection { owner: Some(path), guards, ..Selection::default() };
         };
 
-        path.projections = path
-            .projections
-            .iter()
-            .copied()
-            .chain([component])
-            .collect();
+        path = payload;
     }
 
     let route = StorageReferencePath::new(path.projections[base..].into(), steps.into());

@@ -71,8 +71,14 @@ pub(in crate::analysis) enum CleanupMutation<'a> {
     Lifecycle(LifecycleInvocation<'a>),
 }
 
+pub(in crate::analysis) enum CleanupTransition<'a> {
+    BeginConditional(Vec<bray_bound_tree::StoragePath>),
+    Action(StorageMutation, CleanupMutation<'a>),
+    EndConditional { completes: bool },
+}
+
 pub(in crate::analysis) type Mutation<'a> =
-    dyn FnMut(&mut ExecutionState, StorageMutation, CleanupMutation<'_>, bool) -> bool + 'a;
+    dyn FnMut(&mut ExecutionState, CleanupTransition<'_>) -> bool + 'a;
 
 pub(in crate::analysis) struct CleanupSelection {
     pub(in crate::analysis) accesses: Option<Arc<[StorageAccessId]>>,
@@ -262,6 +268,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .into_iter().filter(|access| self.disposal.steps[access].iter().any(|step| {
                 step.phases().includes_lifecycle()
                     && self.cleanup_part_condition(state, step.selection(), &|place| entry.is_absent(place), None)
+                        .active
                         .prove_ordinary(&state.assumptions, Some(&state.proofs)) == Some(true)
             })).collect::<Vec<_>>();
 
@@ -430,7 +437,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 for (index, &access) in accesses.iter().enumerate() {
                     let previous = after.take();
 
-                    if ExecutionPlace::storage(self.storage, access)
+                    let selected_part = previous.is_some_and(|action| {
+                        action.kind == bray_bound_tree::StorageCleanupActionKind::Lifecycle(TypeAssociatedLifecycleSlot::Finalizer)
+                    });
+
+                    if !selected_part && ExecutionPlace::storage(self.storage, access)
                         .is_some_and(|place| state.current.is_subtree_absent(&place))
                     {
                         continue;
@@ -458,7 +469,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 };
 
                 if let Some(mutate) = mutate {
-                    assert!(mutate(state, mutation, CleanupMutation::Recovery, false), "a recovered order has no admitted action");
+                    assert!(mutate(state, CleanupTransition::Action(mutation, CleanupMutation::Recovery)),
+                        "a recovered order has no admitted action");
                 } else {
                     self.apply_published_cleanup(state, mutation);
                 }

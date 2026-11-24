@@ -11,7 +11,7 @@ use super::core::StorageFlowCollector;
 use super::effect_rows::EffectRows;
 use super::snapshot::ReplacementState;
 use crate::CheckerRequestContext;
-use crate::analysis::guarantee::{CleanupObservation, CleanupSelection, ExecutionState};
+use crate::analysis::guarantee::{CleanupObservation, CleanupSelection, CleanupTransition, ExecutionState};
 use crate::analysis::model::{AnalysisOperation, AnalysisOperationKind, AnalysisScopeExitPhase};
 use crate::analysis::outcomes::CleanupProgress;
 use crate::analysis::storage_flow::{
@@ -100,11 +100,36 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             }
         };
 
+        let mut skipped = None;
+
         let mut mutate =
-            |execution: &mut ExecutionState,
-             identity: StorageMutation,
-             mutation: CleanupMutation<'_>,
-             conditional: bool| {
+            |execution: &mut ExecutionState, transition: CleanupTransition<'_>| {
+                let (identity, mutation) = match transition {
+                    CleanupTransition::BeginConditional(payloads) => {
+                        let mut inactive = state.clone();
+
+                        for payload in payloads {
+                            inactive.mark_path_absent(payload, bray_bound_tree::StorageAbsence::NoPayload);
+                        }
+
+                        assert!(skipped.replace(inactive).is_none(), "cleanup parts cannot nest a selection");
+
+                        return true;
+                    }
+                    CleanupTransition::EndConditional { completes } => {
+                        let inactive = skipped.take().expect("a conditional cleanup part retains its inactive state");
+
+                        if completes {
+                            state.merge(&inactive, crate::analysis::guarantee::ExecutionJoin::Boundary);
+                        } else {
+                            *state = inactive;
+                        }
+
+                        return true;
+                    }
+                    CleanupTransition::Action(identity, mutation) => (identity, mutation),
+                };
+
                 if let CleanupMutation::Repeat(remaining) = mutation {
                     let mut continued = state.clone();
 
@@ -116,7 +141,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 }
 
                 let mut operands = self.cleanup_operands(&state.memory, execution, &mutation, replacement);
-                let skipped = conditional.then(|| state.memory.clone());
 
                 if let CleanupMutation::Lifecycle(call) = &mutation {
                     operands.lifecycle_effects = Some(self.lifecycle_effects(&state.memory, operands.receiver.as_ref(), call));
@@ -132,22 +156,11 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                         && (!call.contract.normal_completion()
                             || (!call.contract.captured_values().is_empty() && call.outcomes.is_empty()))
                     {
-                        if let Some(skipped) = skipped {
-                            state.memory = skipped;
-                        }
-
                         return false;
                     }
                 }
 
-                let completes = self.apply_cleanup_outcomes(state, execution, operation, identity, &mutation, &operands);
-
-                if let Some(skipped) = skipped {
-                    // The guard's inactive branch retains its incoming physical contents.
-                    state.memory.merge(&skipped, &Default::default(), &Default::default());
-                }
-
-                completes
+                self.apply_cleanup_outcomes(state, execution, operation, identity, &mutation, &operands)
             };
 
         let completes = domain.transition_storage_cleanup(

@@ -387,15 +387,23 @@ impl StorageFlowState {
         storage: &StoragePlan,
     ) {
         if let Some(path) = storage.logical_path(access).cloned() {
-            Arc::make_mut(&mut self.definitely_absent)
-                .entry(path)
-                .and_modify(|current| {
-                    if reason == StorageAbsence::Moved {
-                        *current = reason;
-                    }
-                })
-                .or_insert(reason);
+            self.mark_path_absent(path, reason);
         }
+    }
+
+    pub(in crate::analysis::storage_flow) fn mark_path_absent(
+        &mut self,
+        path: bray_bound_tree::StoragePath,
+        reason: StorageAbsence,
+    ) {
+        Arc::make_mut(&mut self.definitely_absent)
+            .entry(path)
+            .and_modify(|current| {
+                if reason == StorageAbsence::Moved {
+                    *current = reason;
+                }
+            })
+            .or_insert(reason);
     }
 
     pub(in crate::analysis::storage_flow) fn invalidate_observed_absence(

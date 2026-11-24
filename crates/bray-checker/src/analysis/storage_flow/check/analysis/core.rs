@@ -310,7 +310,6 @@ impl BlockPublication {
             }
 
             outcomes.apply_operation(collector, block.id(), operation);
-
         }
 
         for state in outcomes.states() {
@@ -1709,9 +1708,7 @@ where
                         && (*variant == active) != value
                     {
                         // The absent variant is an ownership fact even when its payload has no source binding.
-                        std::sync::Arc::make_mut(&mut state.definitely_absent)
-                            .entry(payload.clone())
-                            .or_insert(StorageAbsence::NoPayload);
+                        state.mark_path_absent(payload.clone(), StorageAbsence::NoPayload);
                     }
                 }
             }

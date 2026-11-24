@@ -6,7 +6,7 @@ use bray_symbols::TypeAssociatedLifecycleSlot;
 
 use super::plan::{Lifecycle, Step};
 use super::selection::{ReplacementPath, cleanup_path};
-use super::transition::{CleanupMutation, CleanupObservation, LifecycleInvocation, Mutation, Observer};
+use super::transition::{CleanupMutation, CleanupObservation, CleanupTransition, LifecycleInvocation, Mutation, Observer};
 use crate::analysis::guarantee::{ExecutionFlowDomain, ExecutionState};
 use crate::analysis::model::{AnalysisOperation, AnalysisOperationKind};
 use crate::analysis::outcomes::CleanupProgress;
@@ -216,7 +216,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             let path = step.selection().target();
 
-            let completes = super::selection::select_cleanup(state, condition, |state, conditional| {
+            let completes = super::selection::select_cleanup(state, condition, mutate, |state, mutate| {
                 if let Some(observe) = observe {
                     observe(CleanupObservation::Cancellation);
                 }
@@ -224,7 +224,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 if let Some(mutate) = mutate {
                     let route = step.selection().route.as_ref();
 
-                    mutate(state, mutation, CleanupMutation::Opaque { ty, access, path, route, failures: &[] }, conditional)
+                    let action = CleanupMutation::Opaque { ty, access, path, route, failures: &[] };
+
+                    mutate(state, CleanupTransition::Action(mutation, action))
                 } else {
                     self.apply_published_cleanup(state, mutation);
 
@@ -277,10 +279,15 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             let after = (part == start).then_some(after_slot).flatten();
 
             if step.phases().includes_lifecycle() && after != Some(TypeAssociatedLifecycleSlot::Destructor) {
-                let condition = self.cleanup_part_condition(state, step.selection(), definitely_absent, replacement);
+                let condition = if after == Some(TypeAssociatedLifecycleSlot::Finalizer) {
+                    // Reaching the finalizer already selected this part for destruction.
+                    crate::ExecutionCondition::boolean(true).into()
+                } else {
+                    self.cleanup_part_condition(state, step.selection(), definitely_absent, replacement)
+                };
 
-                if !super::selection::select_cleanup(state, condition, |state, conditional| {
-                    self.dispose_part(state, remaining, part, step, observe, point, (after, replacement), conditional, mutate)
+                if !super::selection::select_cleanup(state, condition, mutate, |state, mutate| {
+                    self.dispose_part(state, remaining, part, step, observe, point, (after, replacement), mutate)
                 }) {
                     return false;
                 }
@@ -303,7 +310,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 let remaining = bray_bound_tree::StorageCleanupRemainder::at(scope, remaining, action);
 
                 if let Some(mutate) = mutate {
-                    assert!(mutate(state, StorageMutation::Cleanup(action), CleanupMutation::Repeat(remaining), false));
+                    assert!(mutate(state, CleanupTransition::Action(StorageMutation::Cleanup(action), CleanupMutation::Repeat(remaining))));
                 } else if let Some(observe) = observe {
                     let mut continued = state.clone();
 
@@ -327,7 +334,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         observe: &mut Option<&mut Observer<'_>>,
         point: &AnalysisOperation,
         (after, replacement): (Option<TypeAssociatedLifecycleSlot>, Option<ReplacementPath<'_>>),
-        conditional: bool,
         mutate: &mut Option<&mut Mutation<'_>>,
     ) -> bool {
         let operation = point.kind();
@@ -395,7 +401,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     }
                 };
 
-                if !mutate(state, StorageMutation::Cleanup(action), effect, conditional) {
+                if !mutate(state, CleanupTransition::Action(StorageMutation::Cleanup(action), effect)) {
                     return false;
                 }
             } else if !self.replay_cleanup_action(state, action, remaining, None, observe) {
@@ -501,10 +507,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 })
                     .collect();
 
-                if !mutate(
-                    state,
-                    StorageMutation::Cleanup(action),
-                    CleanupMutation::Lifecycle(LifecycleInvocation {
+                let invocation = CleanupMutation::Lifecycle(LifecycleInvocation {
                         ty: *ty,
                         access,
                         lifecycle,
@@ -514,9 +517,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         path,
                         route,
                         outcomes,
-                    }),
-                    conditional,
-                ) {
+                    });
+
+                if !mutate(state, CleanupTransition::Action(StorageMutation::Cleanup(action), invocation)) {
                     return false;
                 }
             } else if !self.replay_cleanup_action(state, action, remaining, Some((&evidence, template)), observe) {

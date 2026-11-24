@@ -75,6 +75,14 @@ evidence. Impossible internal states fail at the violated contract.
   The lowering request for `execution/retirement.bray` took 78 s, including
   prerequisites. Its execution properties were already cached. The other
   targets and the final archive still need verification.
+- A profile of the first six bootstrap bodies attributed 39.8 s in the
+  retirement lowering request to 179 result-dependency component
+  evaluations and 4.9 s to imported semantic records.
+- Whole-part conditional cleanup with planned entry observations passed all
+  617 checker tests and seven focused compilation cases. A represented child
+  of an unused nullable formal uses the receiver address written by its
+  parent's finalizer. The earlier whole-part implementation passed the
+  1,709 fixed comparison cases. Repeat that inventory on this candidate.
 - The optimized Windows x64 reference took 24.3 s to plan, 23.0 s to emit,
   and 53.0 s overall for the standard library. Native providers use Rust
   1.98.1 because the pinned LLVM cannot link Rust 1.99 provider bitcode.
@@ -104,12 +112,13 @@ before an earlier action can edit them. Keep parent absence, explicit
 inactive payloads, and unknown contents distinct. A historical binding
 cannot establish absence in the current allocation.
 
-An unknown cleanup guard forks execution for the entire represented part,
-but storage flow currently joins physical memory after each lifecycle call.
-Check the finalizer's written descriptor at destructor admission, at failure
-capture, and at the later merge with the skipped part. The destructor on the
-taken path must see the finalizer's actual write. Use the same pair of
-lifecycle calls with proven and conditional part initialization as controls.
+Conditional cleanup must carry the taken state through the finalizer's
+receiver write, destructor admission, and failure capture. Join the skipped
+state only at the whole-part boundary. Compare the same finalizer and
+destructor with definite and conditional initialization. For represented
+children, check that an unused nullable formal supplies its entry
+discriminator and that the physical join retains the receiver write for
+the active payload. Test the child action with and without that discriminator.
 
 Nested dependency batches stalled the 43-body probe at the sixth body with
 all 25 threads waiting. Outgoing summary requests are sequential inside a

@@ -26,4 +26,4 @@ pub(in crate::analysis) use trusted::{CallAdmissionChecks, NormalReturn, OwnedRe
 pub(in crate::analysis) use trusted::portable_carrier_path;
 mod flow;
 
-pub(in crate::analysis) use cleanup::{CleanupMutation, CleanupObservation, Lifecycle, LifecycleInvocation, Observer, CleanupSelection};
+pub(in crate::analysis) use cleanup::{CleanupMutation, CleanupObservation, CleanupSelection, CleanupTransition, Lifecycle, LifecycleInvocation, Observer};
