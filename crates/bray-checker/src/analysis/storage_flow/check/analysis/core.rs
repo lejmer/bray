@@ -1857,8 +1857,38 @@ where
         {
             // The operator has published retained outputs. End its input loans
             // before the assignment installs the result.
-            self.end_last_use_borrows(state, kind.occurrence());
+            let installing = self.installing_borrows(state, kind);
+
+            self.end_last_use_borrows(state, kind.occurrence(), &installing);
         }
+    }
+
+    /// Loans that authorize an assignment destination stay active until its installation writes.
+    fn installing_borrows(&self, state: &StorageFlowState, kind: AnalysisOperationKind) -> Vec<BorrowCapabilityId> {
+        if matches!(kind, AnalysisOperationKind::AssignmentInstall(_)) {
+            return Vec::new();
+        }
+
+        let Some(destination) = self
+            .storage
+            .node_plans(kind.node())
+            .find(|plan| plan.purpose() == StorageAccessPurpose::Assignment)
+        else {
+            return Vec::new();
+        };
+
+        let authority = self
+            .storage
+            .access(destination.access())
+            .and_then(|access| access.root().borrow_capability())
+            .or_else(|| {
+                self.input
+                    .reached_access(self.request.semantic_values(), &state.memory, self.storage, destination.access(), |_| None)
+                    .and_then(|reached| reached.loan)
+            });
+
+        crate::analysis::storage_flow::memory::borrow_chain_from(self.storage, Some(&state.memory), authority)
+            .unwrap_or_default()
     }
 
     fn end_operation_uses(&self, state: &mut StorageFlowState, kind: AnalysisOperationKind) {
@@ -1882,7 +1912,9 @@ where
                 ..
             }
         ) {
-            self.end_last_use_borrows(state, kind.occurrence());
+            let installing = self.installing_borrows(state, kind);
+
+            self.end_last_use_borrows(state, kind.occurrence(), &installing);
 
             let operator_completion =
                 matches!(
@@ -3117,6 +3149,7 @@ where
         &self,
         state: &mut StorageFlowState,
         operation: bray_bound_tree::BoundExecutionSite,
+        installing: &[BorrowCapabilityId],
     ) {
         if state.active_borrows.is_empty() {
             return;
@@ -3141,6 +3174,10 @@ where
                 let Some(capability) = self.storage.borrow_capability(*borrow) else {
                     return false;
                 };
+
+                if installing.contains(borrow) {
+                    return false;
+                }
 
                 let subject = BoundDependencySubject::BorrowCapability(*borrow);
 

@@ -1632,6 +1632,53 @@ fn reading_through_a_stored_reference_retains_its_loan() {
 }
 
 #[test]
+fn consumed_scoped_reborrows_release_the_selected_owner_field() {
+    for (selection, valid) in [
+        ("let selected = find(storage);", true),
+        ("let selected = find(storage); storage.active = 2;", false),
+    ] {
+        let source = r#"
+            module app;
+            struct Record { mut depth: usize; }
+            struct Table { mut active: usize; mut entry: Record; }
+            struct Host { mut storage: Table?; }
+            func find(pos storage: &mut Table) -> (&mut Record)? {
+                let mut result: (&mut Record)? = none;
+                result = &mut storage.entry;
+                return result;
+            }
+            func caller(pos host: &mut Host) -> bool {
+                let storage: &mut Table = if let ?storage = host.storage {
+                    yield &mut storage;
+                } else {
+                    return false;
+                };
+                storage.active += 1;
+                {
+                    Selection
+                    match consume selected {
+                        case ?entry { entry.depth = 0; }
+                        case none {}
+                    }
+                }
+                storage.active -= 1;
+                return true;
+            }
+        "#
+        .replace("Selection", selection);
+
+        let application = compilation(&source);
+        let diagnostics = application.check_diagnostics();
+
+        if valid {
+            assert!(!diagnostics.has_errors(), "{selection}: {diagnostics:#?}");
+        } else {
+            assert_goal_state_diagnostic_kind(diagnostics, DiagnosticKind::CheckingConflictingBorrow);
+        }
+    }
+}
+
+#[test]
 fn normal_exit_references_follow_constructed_fields_and_nullable_conversion() {
     for (result_type, body, depth) in [
         ("&bool", "return value;", 0),
