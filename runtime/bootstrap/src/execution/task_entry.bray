@@ -186,9 +186,10 @@ trusted internal func request_cancellation(pos owner: &bray.runtime.bootstrap.ta
 {
     let requested = trusted bray.runtime.bootstrap.task.cancellation_change(owner, 1);
 
+    // The wake result reports whether the task was queued, not a request failure.
     if (requested & 2) != 0
     {
-        return trusted wake_reference(owner, bray.runtime.bootstrap.scheduler.WAKE_CANCELLATION);
+        _ = trusted wake_reference(owner, bray.runtime.bootstrap.scheduler.WAKE_CANCELLATION);
     }
 
     return 0;
