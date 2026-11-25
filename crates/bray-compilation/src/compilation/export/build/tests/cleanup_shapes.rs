@@ -114,7 +114,7 @@ fn imported_recursive_cleanup_keeps_later_substitutions_obligations() {
 #[test]
 fn growing_raw_buffer_cleanup_shapes_report_the_analysis_limit() {
     let source = r#"
-        trusted module app;
+        module app;
 
         using core.memory;
         using std.memory;

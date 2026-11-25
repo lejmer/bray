@@ -42,7 +42,11 @@ internal func wait_for_atomic_change(pos state: (&std.atomic.Atomic<u32>, &std.a
 
     ready.store(1, order = std.atomic.StoreOrder.Release);
     ready.notify_all();
-    value.wait(0, order = std.atomic.LoadOrder.Acquire);
+
+    while value.load(order = std.atomic.LoadOrder.Acquire) == 0
+    {
+        value.wait(0, order = std.atomic.LoadOrder.Acquire);
+    }
 
     assert(value.load(order = std.atomic.LoadOrder.Acquire) == 1);
 }
@@ -78,11 +82,22 @@ func generic_atomic_wrapper_covers_the_complete_operation_surface()
 
     assert(weak.0 == 5);
 
-    counter.fetch_add(3, order = std.atomic.ReadModifyWriteOrder.Relaxed);
-    counter.fetch_sub(1, order = std.atomic.ReadModifyWriteOrder.Acquire);
-    counter.fetch_and(15, order = std.atomic.ReadModifyWriteOrder.Release);
-    counter.fetch_or(16, order = std.atomic.ReadModifyWriteOrder.AcquireRelease);
-    counter.fetch_xor(3, order = std.atomic.ReadModifyWriteOrder.SequentiallyConsistent);
+    let previous: u32 = if weak.1
+    {
+        yield 7;
+    }
+    else
+    {
+        yield 5;
+    };
+
+    assert(counter.load(order = std.atomic.LoadOrder.Relaxed) == previous);
+    assert(counter.fetch_add(3, order = std.atomic.ReadModifyWriteOrder.Relaxed) == previous);
+    assert(counter.fetch_sub(1, order = std.atomic.ReadModifyWriteOrder.Acquire) == previous + 3);
+    assert(counter.fetch_and(15, order = std.atomic.ReadModifyWriteOrder.Release) == previous + 2);
+    assert(counter.fetch_or(16, order = std.atomic.ReadModifyWriteOrder.AcquireRelease) == previous + 2);
+    assert(counter.fetch_xor(3, order = std.atomic.ReadModifyWriteOrder.SequentiallyConsistent) == previous + 18);
+    assert(counter.load(order = std.atomic.LoadOrder.Relaxed) == ((previous + 18) ^ 3));
 
     std.atomic.fence(order = std.atomic.FenceOrder.Acquire);
     std.atomic.compiler_fence(order = std.atomic.FenceOrder.Release);

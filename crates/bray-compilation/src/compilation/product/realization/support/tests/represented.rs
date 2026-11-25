@@ -233,7 +233,7 @@ fn generator_cleanup_admits_and_expands_suspending_prefix_traversal() {
 #[test]
 fn buffer_traversal_admits_local_work_and_retains_it_after_borrowed_release() {
     let source = r#"
-        module app;
+        trusted module app;
         using std.memory;
         using core.atomic;
 
@@ -294,7 +294,7 @@ fn buffer_traversal_admits_local_work_and_retains_it_after_borrowed_release() {
 
         trusted async func allocate_owner() uses(manual_alloc)
         {
-            let buffer: std.memory.RawBuffer<Owner> = trusted internal std.memory.allocate_buffer<Owner>(
+            let buffer: std.memory.RawBuffer<Owner> = internal std.memory.allocate_buffer<Owner>(
                 capacity = 0, bytes = 0, align = std.memory.align_of<Owner>());
         }
     "#;
@@ -548,4 +548,110 @@ fn buffer_traversal_admits_local_work_and_retains_it_after_borrowed_release() {
             "secure local traversal backing before allocation publishes ownership"
         );
     }
+}
+
+#[test]
+fn allocation_owner_ends_balance_their_admissions() {
+    let source = r#"
+        trusted module app;
+        using std.memory;
+
+        trusted func cycle() uses(manual_alloc)
+        {
+            let allocation = trusted std.memory.allocate({ bytes = 8, align = 8 });
+            trusted std.memory.deallocate(allocation);
+        }
+    "#;
+
+    let compilation =
+        Compilation::load(standard_memory_request(source, false)).expect("fixture input must load");
+
+    let diagnostics = compilation.check_diagnostics();
+
+    assert!(!diagnostics.has_errors(), "{diagnostics:?}");
+
+    // Deallocation ends its consumed owner's allowance because no lifecycle follows.
+    let deallocation_discharges = |mir: &bray_ir::MirUnit| {
+        mir.blocks()
+            .iter()
+            .filter(|block| {
+                let kinds = block
+                    .operations()
+                    .iter()
+                    .map(|id| {
+                        mir.operation(*id)
+                            .expect("fixture operation must exist")
+                            .kind()
+                    })
+                    .collect::<Vec<_>>();
+
+                kinds.iter().enumerate().any(|(index, kind)| {
+                    matches!(kind, MirOperationKind::Memory(memory)
+                        if memory.kind() == &bray_bound_tree::CheckedMemoryOperationKind::Deallocate
+                            && kinds[..index].iter().any(|earlier| matches!(earlier,
+                                MirOperationKind::DischargeOutgoing {
+                                    owner: MirOutgoingOwner::Value(ty),
+                                    ..
+                                } if *ty == memory.operand_types()[0])))
+                })
+            })
+            .count()
+    };
+
+    let cycle = compilation
+        .lowered_unit(source_function_body_key(&compilation, "cycle"))
+        .expect("fixture callable must lower successfully");
+
+    let cycle = cycle
+        .value()
+        .as_ref()
+        .expect("fixture optional value must be present")
+        .mir()
+        .expect("fixture instance must retain its MIR");
+
+    let allocation = cycle
+        .operations()
+        .iter()
+        .find_map(|operation| match operation.kind() {
+            MirOperationKind::Memory(memory)
+                if memory.kind() == &bray_bound_tree::CheckedMemoryOperationKind::Allocate =>
+            {
+                memory.result_type()
+            }
+            _ => None,
+        })
+        .expect("fixture must allocate");
+
+    assert!(cycle.operations().iter().any(|operation| matches!(operation.kind(),
+        MirOperationKind::AdmitOutgoing { owner: MirOutgoingOwner::Value(ty), .. } if *ty == allocation)));
+
+    assert_eq!(deallocation_discharges(cycle), 1);
+
+    // The allocation destructor republishes its receiver into deallocation.
+    let destructors = compilation
+        .declared_unit_keys_for_test()
+        .expect("fixture declarations must resolve their units")
+        .into_iter()
+        .filter(|key| {
+            key.kind() == bray_bound_tree::BoundUnitKind::CallableBody
+                && key.declared_owner().kind() == bray_symbols::SymbolKind::Destructor
+        })
+        .filter_map(|key| {
+            let lowered = compilation
+                .lowered_unit(key)
+                .expect("fixture destructor must lower successfully");
+
+            let mir = lowered.value().as_ref()?.mir()?.clone();
+
+            mir.operations()
+                .iter()
+                .any(|operation| matches!(operation.kind(),
+                    MirOperationKind::Memory(memory)
+                        if memory.kind() == &bray_bound_tree::CheckedMemoryOperationKind::Deallocate))
+                .then_some(mir)
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(destructors.len(), 1);
+    assert_eq!(deallocation_discharges(&destructors[0]), 1);
 }

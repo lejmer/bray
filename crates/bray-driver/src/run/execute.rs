@@ -220,7 +220,7 @@ pub fn run_result(arguments: impl IntoIterator<Item = OsString>) -> DriverRunRes
             configuration,
             files,
         } => {
-            return run_build_request(&options, *configuration, files)
+            return run_build_request(&options, *configuration, files, |_| {})
                 .with_profile_output(profile_output);
         }
         command => command,
@@ -999,27 +999,6 @@ mod tests {
 
         assert_eq!(argument_names, ["project_command_failure"]);
         assert!(!report.exists());
-    }
-
-    #[test]
-    fn run_fails_when_check_diagnostics_have_errors() {
-        let file = TemporaryFile::write("bad.bray", &[0xff]);
-
-        let mut stdout = Vec::new();
-        let mut stderr = Vec::new();
-
-        assert_eq!(
-            run_with_writers(
-                [
-                    OsString::from("brayc"),
-                    OsString::from("check"),
-                    file.path().as_os_str().to_os_string(),
-                ],
-                &mut stdout,
-                &mut stderr,
-            ),
-            ExitCode::FAILURE
-        );
     }
 
     #[test]

@@ -416,7 +416,7 @@ fn pure_assembly_preserves_read_only_memory_inputs() {
                 )
                 uses(device_memory, intrinsic, raw_memory, unchecked_alias, unchecked_init)
             {{
-                let observed: (usize, ) = trusted core.target.assembly<
+                let observed: (usize, ) = core.target.assembly<
                     (usize, DataPointer<[u8; 16]>), (usize, )
                 >(
                     template = "",
@@ -1027,16 +1027,18 @@ fn unknown_join_and_loop_values_keep_reachable_calls() {
             "    {\n",
             "        selected = true;\n",
             "    }\n",
-            "    while flag\n",
+            "    let mut repeat = flag;\n",
+            "    while repeat\n",
             "    {\n",
             "        selected = true;\n",
+            "        repeat = false;\n",
             "    }\n",
             "    if selected\n",
             "    {\n",
             "        used();\n",
             "    }\n",
             "}\n",
-            "func main() { gate(flag = false); }\n",
+            "func main() { gate(flag = false); gate(flag = true); }\n",
         )],
         CompilationOptions::new(
             WorkerBudget::serial(),

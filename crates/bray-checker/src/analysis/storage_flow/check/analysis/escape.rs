@@ -1,10 +1,11 @@
 use bray_bound_tree::{AnyBoundNodeId, BoundDependencySubject};
-use bray_diagnostics::DiagnosticKind;
+use bray_diagnostics::{DiagnosticId, DiagnosticKind};
 
 use super::core::StorageFlowCollector;
+use super::diagnostics::DiagnosticSubject;
 use crate::CheckerRequestContext;
 use crate::analysis::storage_flow::model::StorageFlowState;
-use crate::diagnostic::{bound_node_origin, diagnostic_id, escaping_storage_dependency_diagnostic};
+use crate::diagnostic::{bound_node_origin, escaping_storage_dependency_diagnostic};
 
 impl<C> StorageFlowCollector<'_, C>
 where
@@ -16,16 +17,40 @@ where
         block: bray_bound_tree::StorageScope,
         exit: AnyBoundNodeId,
     ) {
-        if !self.publish || self.query_failure.is_some() {
+        if !self.publish || self.query_failed {
             return;
         }
 
         self.report_escaping_return_references(state, Some(block), exit);
 
-        for borrow in state.active_borrows.iter().copied() {
+        let expires = |owner| match block {
+            bray_bound_tree::StorageScope::AbandonedTransfer { value, .. } => owner == value,
+            _ => self.execution.disposal.storage_scope(owner) == Some(block),
+        };
+
+        let survives = |owner| match block {
+            bray_bound_tree::StorageScope::AbandonedTransfer { .. } => !expires(owner),
+            _ => !expires(owner)
+                || bray_bound_tree::storage_identity_transfers_at_unit_exit(self.storage, owner),
+        };
+
+        let mut carried_borrows = self.returned_loans(state);
+        let mut report_storage = std::collections::BTreeSet::new();
+
+        for report in state.reachable_reports(survives) {
+            carried_borrows.extend(report.subjects.iter().filter_map(|subject| {
+                let BoundDependencySubject::BorrowCapability(borrow) = subject else { return None; };
+
+                Some(*borrow)
+            }));
+
+            report_storage.extend(report.storage.iter().copied());
+        }
+
+        for &borrow in state.active_borrows.union(&carried_borrows) {
             let subject = BoundDependencySubject::BorrowCapability(borrow);
 
-            if !state.report_retains(subject)
+            if !carried_borrows.contains(&borrow)
                 && (!self.liveness.is_owner_retained(subject)
                     || !self.liveness.is_live_across_scope(block, exit, subject))
             {
@@ -51,16 +76,11 @@ where
                 continue;
             }
 
-            if self.borrow_reaches_external_storage(capability.access()) {
+            if self.storage.borrow_reaches_external_storage(capability.access()) {
                 continue;
             }
 
-            if self.owners.identity_scope(self.storage, storage) != Some(block)
-                || !self.reported_diagnostics.insert((
-                    DiagnosticKind::CheckingEscapingStorageDependency,
-                    capability.access(),
-                ))
-            {
+            if !expires(storage) {
                 continue;
             }
 
@@ -69,33 +89,29 @@ where
 
         // Returned contracts can retain storage directly without a syntactic returned loan.
         // Exact reference identity is not needed to reject a dependency on a dying local.
-        for access in self.input.retained_storage.iter().copied() {
-            if (!state.report_retains(BoundDependencySubject::StorageAccess(access))
-                && !self.liveness.is_live_across_scope(
-                    block,
-                    exit,
-                    BoundDependencySubject::StorageAccess(access),
-                ))
-                || self.borrow_reaches_external_storage(access)
-                || self.has_permanent_literal_storage(access)
-            {
-                continue;
-            }
+        let live = self.execution.retained_storage.iter().copied().filter(|access| {
+            self.liveness.is_live_across_scope(block, exit, BoundDependencySubject::StorageAccess(*access))
+        });
 
-            let Some(storage) = self.storage.root_identity(access) else {
-                continue;
-            };
+        let expired = report_storage.into_iter().chain(live).filter(|access| {
+            self.storage.root_identity(*access).is_some_and(expires)
+                && !self.storage.borrow_reaches_external_storage(*access)
+                && !self.has_permanent_literal_storage(*access)
+        }).collect::<std::collections::BTreeSet<_>>();
 
-            if self.owners.identity_scope(self.storage, storage) != Some(block)
-                || !self
-                    .reported_diagnostics
-                    .insert((DiagnosticKind::CheckingEscapingStorageDependency, access))
-            {
-                continue;
-            }
-
+        for access in expired {
             self.report_escaping_access(exit, access);
         }
+    }
+
+    fn returned_loans(&self, state: &StorageFlowState) -> std::collections::BTreeSet<bray_bound_tree::BorrowCapabilityId> {
+        let Some(bray_bound_tree::StorageBinding::Identity(result)) = self.storage.binding(bray_bound_tree::StorageBindingTarget::Result) else {
+            return Default::default();
+        };
+
+        let target = bray_bound_tree::StorageTarget::storage(bray_bound_tree::StoragePath::root(result));
+
+        state.memory.value_loans(&target).collect()
     }
 
     fn report_escaping_return_references(
@@ -115,53 +131,75 @@ where
             return;
         };
 
-        for (slot, origin) in state.memory.reference_targets(result) {
-            let crate::analysis::storage_flow::memory::Origin::Storage(path) = origin else {
-                continue;
+        let mut escaping = std::collections::BTreeSet::new();
+
+        for (slot, target) in state.memory.reference_targets(result) {
+            let (possible, unbounded) = state.memory.effect_origins(target);
+
+            // A closed region bound lists every possible pointee. An opaque
+            // bound also retains holder and allocation support, which cannot
+            // alone establish that the returned reference points into them.
+            let origins = if unbounded {
+                state.memory.actual_borrow_choices(target, None).unwrap_or_default()
+            } else {
+                possible.cloned().collect()
             };
 
-            if block.is_some_and(|block| {
-                self.owners.identity_scope(self.storage, path.root) != Some(block)
-            }) {
-                continue;
-            }
+            for target in origins {
+                let crate::analysis::storage_flow::memory::Origin::Storage(path) = &target.origin
+                else {
+                    continue;
+                };
 
-            let identity = self
-                .storage
-                .identity(path.root)
-                .expect("reference target has planned storage");
+                if block.is_some_and(|block| {
+                    self.execution.disposal.storage_scope(path.root) != Some(block)
+                }) {
+                    continue;
+                }
 
-            if identity.borrows_input_storage(self.request.unit().key().kind()) {
-                continue;
-            }
-
-            let access = path
-                .access_id(self.storage)
-                .or_else(|| bray_bound_tree::StoragePath::root(path.root).access_id(self.storage))
-                .expect("returned reference has an evaluated source storage access");
-
-            if self.borrow_reaches_external_storage(access)
-                || self.has_permanent_literal_storage(access)
-            {
-                continue;
-            }
-
-            match self.reference_kind(slot, ty) {
-                Ok(Some(bray_symbols::DependencyReferenceKind::Borrow)) => {}
-                Ok(_) => continue,
-                Err(error) => {
-                    self.query_failure = Some(error);
-                    return;
+                match self.retained_borrow_access(slot, &target.origin, ty) {
+                    Ok(Some(access)) => {
+                        escaping.insert(access);
+                    }
+                    Ok(_) => continue,
+                    Err(error) => {
+                        self.fail_query(error);
+                        return;
+                    }
                 }
             }
-
-            if self
-                .reported_diagnostics
-                .insert((DiagnosticKind::CheckingEscapingStorageDependency, access))
-            {
-                self.report_escaping_access(exit, access);
-            }
         }
+
+        for access in escaping {
+            self.report_escaping_access(exit, access);
+        }
+    }
+
+    pub(super) fn retained_borrow_access(
+        &self,
+        slot: &bray_bound_tree::StoragePath,
+        origin: &crate::analysis::storage_flow::memory::Origin,
+        ty: bray_symbols::TypeId,
+    ) -> crate::CheckerQueryResult<Option<bray_bound_tree::StorageAccessId>, C::UpstreamError> {
+        let crate::analysis::storage_flow::memory::Origin::Storage(path) = origin else {
+            return Ok(None);
+        };
+
+        let identity = self.storage.identity(path.root).expect("reference target has planned storage");
+
+        if identity.borrows_input_storage(self.request.unit().key().kind()) {
+            return Ok(None);
+        }
+
+        let access = path.access_id(self.storage)
+            .or_else(|| self.storage.root_access(path.root))
+            .expect("retained reference has an evaluated source storage access");
+
+        if self.storage.borrow_reaches_external_storage(access) || self.has_permanent_literal_storage(access) {
+            return Ok(None);
+        }
+
+        Ok((self.reference_kind(slot, ty)? == Some(bray_symbols::DependencyReferenceKind::Borrow)).then_some(access))
     }
 
     fn escape_span(&self, exit: AnyBoundNodeId) -> bray_source::SourceSpan {
@@ -212,11 +250,10 @@ where
                     .source()
             });
 
-        self.diagnostics.add(escaping_storage_dependency_diagnostic(
-            diagnostic_id(self.diagnostics.len()),
-            exit_span,
-            self.request.source(source).span(),
-        ));
+        self.diagnostics.record(
+            DiagnosticSubject::Storage(DiagnosticKind::CheckingEscapingStorageDependency, access),
+            escaping_storage_dependency_diagnostic(DiagnosticId::new(0), exit_span, self.request.source(source).span()),
+        );
     }
 
     pub(super) fn report_escaping_default_storage(
@@ -224,14 +261,16 @@ where
         state: &StorageFlowState,
         expression: bray_bound_tree::BoundExpressionId,
     ) {
-        if !self.publish || self.query_failure.is_some() {
+        if !self.publish || self.query_failed {
             return;
         }
 
         self.report_escaping_return_references(state, None, expression.into());
 
-        for borrow in state.active_borrows.iter().copied() {
-            if !self
+        let carried_borrows = self.returned_loans(state);
+
+        for borrow in state.active_borrows.union(&carried_borrows).copied() {
+            if !carried_borrows.contains(&borrow) && !self
                 .liveness
                 .is_owner_retained_by(expression, BoundDependencySubject::BorrowCapability(borrow))
             {
@@ -265,14 +304,7 @@ where
                 continue;
             }
 
-            if self.borrow_reaches_external_storage(capability.access()) {
-                continue;
-            }
-
-            if !self.reported_diagnostics.insert((
-                DiagnosticKind::CheckingEscapingStorageDependency,
-                capability.access(),
-            )) {
+            if self.storage.borrow_reaches_external_storage(capability.access()) {
                 continue;
             }
 
@@ -288,20 +320,22 @@ where
                 let dependency = self.request.source(dependency);
 
                 escaping_storage_dependency_diagnostic(
-                    diagnostic_id(self.diagnostics.len()),
+                    DiagnosticId::new(0),
                     source,
                     dependency.span(),
                 )
             };
 
-            self.diagnostics.add(diagnostic);
+            self.diagnostics.record(
+                DiagnosticSubject::Storage(DiagnosticKind::CheckingEscapingStorageDependency, capability.access()), diagnostic,
+            );
         }
 
-        for access in self.input.retained_storage.iter().copied() {
+        for access in self.execution.retained_storage.iter().copied() {
             let subject = BoundDependencySubject::StorageAccess(access);
 
             if !self.liveness.is_owner_retained_by(expression, subject)
-                || self.borrow_reaches_external_storage(access)
+                || self.storage.borrow_reaches_external_storage(access)
                 || self.has_permanent_literal_storage(access)
             {
                 continue;
@@ -317,12 +351,7 @@ where
                 continue;
             }
 
-            if self
-                .reported_diagnostics
-                .insert((DiagnosticKind::CheckingEscapingStorageDependency, access))
-            {
-                self.report_escaping_access(expression.into(), access);
-            }
+            self.report_escaping_access(expression.into(), access);
         }
     }
 
@@ -341,37 +370,6 @@ where
             .is_some_and(|identity| identity.has_permanent_literal_storage(self.request.view()))
     }
 
-    pub(super) fn borrow_reaches_external_storage(
-        &self,
-        mut access: bray_bound_tree::StorageAccessId,
-    ) -> bool {
-        loop {
-            if self.projected_storage_borrow_kind(access).is_some() {
-                return true;
-            }
-
-            let record =
-                self.storage
-                    .access(access).unwrap_or_else(|| panic!("borrow_reaches_external_storage requires planned storage access, access: {access:?}"));
-
-            let Some(borrow) = record.root().borrow_capability() else {
-                return matches!(
-                    self.storage
-                        .root_identity(access)
-                        .and_then(|root| self.storage.identity(root)),
-                    Some(bray_bound_tree::StorageIdentity::Static(_))
-                );
-            };
-
-            let capability = self.storage.borrow_capability(borrow).unwrap_or_else(|| panic!("borrow_reaches_external_storage requires planned borrow capability, access: {access:?}, borrow: {borrow:?}"));
-
-            if capability.entry_binding().is_some() {
-                return true;
-            }
-
-            access = capability.access();
-        }
-    }
 }
 
 #[cfg(test)]

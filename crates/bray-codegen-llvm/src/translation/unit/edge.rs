@@ -38,7 +38,9 @@ pub(super) fn reachable_blocks(
             } => {
                 pending.push(completed.target());
 
-                if !forwards_call_outcomes || !direct_panic_propagation(unit, panicked) {
+                if !empty_unreachable_target(unit, panicked.target())
+                    && (!forwards_call_outcomes || !direct_panic_propagation(unit, panicked))
+                {
                     pending.push(panicked.target());
                 }
 

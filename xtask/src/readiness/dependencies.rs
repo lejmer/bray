@@ -113,6 +113,39 @@ mod tests {
     use super::super::workspace::dependency_workspace;
 
     #[test]
+    fn command_packages_depend_only_on_their_owned_driver() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent().expect("xtask belongs to its Cargo workspace")
+            .canonicalize().expect("resolve the repository root");
+
+        let metadata = super::CargoMetadata::load(&root).expect("read workspace dependency declarations");
+
+        for (name, required, forbidden) in [
+            ("bray", Some("bray-tooling"), &["bray-compilation", "bray-formatter", "bray-lsp"][..]),
+            ("brayc", Some("bray-driver"), &["bray-tooling"][..]),
+            ("brayfmt", Some("bray-formatter"), &["bray-compilation", "bray-driver", "bray"][..]),
+            ("bray-driver", Some("bray-tooling"), &["bray"][..]),
+            ("bray-tooling", None, &["bray", "bray-driver"][..]),
+        ] {
+            let package = metadata.package(&root.join("crates").join(name).join("Cargo.toml"))
+                .unwrap_or_else(|error| panic!("load {name} metadata: {error}"));
+
+            if let Some(required) = required {
+                assert!(package.contains_normal(required), "{name} must depend on {required}");
+            }
+
+            if name == "bray" {
+                assert!(!package.contains_normal("bray-driver"), "bray-driver is a development dependency");
+            }
+
+            for forbidden in forbidden {
+                assert!(package.dependencies.iter().all(|dependency| dependency.name != *forbidden),
+                    "unexpected {name} dependency on {forbidden}");
+            }
+        }
+    }
+
+    #[test]
     fn cargo_dependency_identity_ignores_text_and_preserves_declaration_kinds() {
         let (_directory, workspace) = dependency_workspace(&[(
             "boundary",

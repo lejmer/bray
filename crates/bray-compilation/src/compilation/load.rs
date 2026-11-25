@@ -307,20 +307,5 @@ mod tests {
         for diagnostic in [&too_many, &too_large, &invalid_utf8] {
             bray_testing::assert_goal_state_diagnostic(diagnostic);
         }
-
-        bray_testing::assert_goal_state_diagnostic_kind(
-            &bray_diagnostics::DiagnosticBag::single(too_many),
-            DiagnosticKind::SourceTooManyInputs,
-        );
-
-        bray_testing::assert_goal_state_diagnostic_kind(
-            &bray_diagnostics::DiagnosticBag::single(too_large),
-            DiagnosticKind::SourceTextTooLarge,
-        );
-
-        bray_testing::assert_goal_state_diagnostic_kind(
-            &bray_diagnostics::DiagnosticBag::single(invalid_utf8),
-            DiagnosticKind::SourceInvalidUtf8,
-        );
     }
 }

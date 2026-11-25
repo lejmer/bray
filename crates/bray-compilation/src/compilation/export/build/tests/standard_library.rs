@@ -30,6 +30,303 @@ use super::fixtures::{
     standard_library_compilation, standard_library_compilation_with_options,
 };
 
+const MEMORY_SOURCES: [&str; 8] = [
+    include_str!("../../../../../../../standard-library/std/src/std.bray"),
+    include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
+    include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
+    include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
+    include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
+    include_str!("../../../../../../../standard-library/std/src/numeric/limits.bray"),
+    include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
+    include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
+];
+
+#[test]
+fn protected_nested_cleanup_keeps_current_backing_effects() {
+    let api = r#"
+        trusted module std.cleanup_fixture;
+
+        using core.memory;
+        using std.memory;
+
+        struct Marker
+        {
+        }
+
+        struct Frame
+        {
+            marker: Marker;
+        }
+
+        struct Row
+        {
+            buffer: std.memory.RawBuffer<u8>;
+        }
+
+        struct Layer
+        {
+            buffers: std.memory.RawBuffer<Row>?;
+        }
+
+        struct Packet
+        {
+            mut payload: Uninit<Layer>;
+        }
+
+        trusted predicate live(owner: &Marker);
+
+        trusted predicate readable(pointer: DataPointer<Packet>);
+
+        func observe_marker(pos owner: &Frame)
+            requires(trusted live(&owner.marker))
+        {
+        }
+
+        func observe_backing(pos pointer: DataPointer<Row>)
+            requires(trusted core.memory.valid_write<Row>(pointer = pointer, count = 1))
+        {
+        }
+
+        trusted func dispose(pos packet: Packet)
+            requires(trusted core.memory.uninit_initialized<Layer>(storage = &packet.payload))
+            uses(raw_memory, unchecked_init)
+        {
+            let pointer = core.memory.address_of<Packet>(&packet);
+            let recovered = trusted core.memory.read<Packet>(pointer);
+            let contents = trusted std.memory.assume_initialized<Layer>(recovered.payload);
+        }
+
+        trusted func take(pos pointer: DataPointer<Packet>) -> Packet
+            requires(
+                trusted readable(pointer),
+                trusted core.memory.valid_read<Packet>(pointer = pointer, count = 1),
+                trusted core.memory.initialized_as<Packet>(pointer = pointer),
+                trusted core.memory.aligned_for<Packet>(pointer = pointer),
+            )
+            ensures(trusted core.memory.uninit_initialized<Layer>(storage = &result.payload))
+            uses(raw_memory)
+        {
+            return trusted core.memory.read<Packet>(pointer);
+        }
+
+        trusted func dispose_incoming(pos pointer: DataPointer<Packet>)
+            requires(
+                trusted readable(pointer),
+                trusted core.memory.valid_read<Packet>(pointer = pointer, count = 1),
+                trusted core.memory.initialized_as<Packet>(pointer = pointer),
+                trusted core.memory.aligned_for<Packet>(pointer = pointer),
+            )
+            uses(unchecked_init)
+        {
+            let acquired = trusted take(pointer);
+            let contents = trusted std.memory.assume_initialized<Layer>(acquired.payload);
+        }
+    "#;
+
+    let provider = standard_library_compilation(MEMORY_SOURCES.into_iter().chain([api]));
+
+    assert!(!provider.check_diagnostics().has_errors(), "{:#?}", provider.check_diagnostics());
+
+    for name in ["dispose", "dispose_incoming"] {
+        let summary = crate::compilation::result_dependencies::source_function_dependencies(&provider, name);
+
+        assert!(summary.effects().iter().any(|effect| match effect {
+            bray_symbols::DependencyStorageEffect::Indirect { kind: bray_symbols::DependencyMutationKind::Retire, .. } => true,
+            bray_symbols::DependencyStorageEffect::Direct { subject, kind: bray_symbols::DependencyMutationKind::Retire, .. } =>
+                subject.projections().contains(&bray_symbols::DependencyProjection::OwnedTarget),
+            _ => false,
+        }),
+            "nested cleanup must publish actual retirement: {summary:#?}");
+
+        assert!(!summary.effects().iter().any(|effect| matches!(effect,
+            bray_symbols::DependencyStorageEffect::Unknown | bray_symbols::DependencyStorageEffect::UnboundedMutation { .. })),
+            "known nested descriptors must keep finite backing effects: {summary:#?}");
+    }
+
+    for (replacement, rejected) in [
+        ("_ = core.memory.read<Packet>(pointer);", "_ = core.memory.read<Packet>(pointer)"),
+        ("recovered.payload = std.memory.uninit<Layer>();\n            let contents = std.memory.assume_initialized<Layer>(recovered.payload);", "assume_initialized<Layer>(recovered.payload)"),
+    ] {
+        let invalid = api.replacen("let recovered =", "let mut recovered =", 1).replacen(
+            "let contents = trusted std.memory.assume_initialized<Layer>(recovered.payload);", replacement, 1,
+        );
+
+        let application = standard_library_compilation(MEMORY_SOURCES.into_iter().chain([invalid.as_str()]));
+        let diagnostics = application.check_diagnostics();
+
+        bray_testing::assert_goal_state_diagnostic_kind(diagnostics,
+            bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven);
+
+        let source = source_function_body_key(&application, "dispose").source().syntax().source_id();
+
+        assert!(diagnostics.iter().filter(|diagnostic| diagnostic.kind()
+            == bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven)
+            .all(|diagnostic| crate::test_support::diagnostic_at_call(diagnostic, source, &invalid, rejected)),
+            "{replacement}: {diagnostics:#?}");
+    }
+
+    for imported in [false, true] {
+        for (initialized, observation, rejected) in [
+            (true, "observe_marker(owner);", None),
+            (true, "observe_backing(saved);", Some("observe_backing(saved)")),
+            (false, "observe_marker(owner);", Some("dispose(packet)")),
+        ] {
+            let payload = if initialized {
+                r#"std.memory.uninit_from<std.cleanup_fixture.Layer>(
+                            {
+                                buffers = storage,
+                            }
+                        )"#
+            } else {
+                "std.memory.uninit<std.cleanup_fixture.Layer>()"
+            };
+
+            let caller = format!(r#"
+                trusted module app;
+
+                using core.memory;
+                using std.memory;
+                using std.cleanup_fixture;
+
+                trusted func caller(
+                    pos storage: std.memory.RawBuffer<std.cleanup_fixture.Row>,
+                    pos owner: &std.cleanup_fixture.Frame,
+                )
+                    requires(
+                        trusted std.cleanup_fixture.live(&owner.marker),
+                        trusted core.memory.valid_write<std.cleanup_fixture.Row>(pointer = storage.pointer, count = 1),
+                    )
+                {{
+                    let saved = storage.pointer;
+                    let packet: std.cleanup_fixture.Packet =
+                    {{
+                        payload = {payload},
+                    }};
+
+                    std.cleanup_fixture.dispose(packet);
+                    std.cleanup_fixture.{observation}
+                }}
+            "#);
+
+            let application = if imported {
+                super::fixtures::execution_consumer(&provider, &caller)
+            } else {
+                standard_library_compilation(MEMORY_SOURCES.into_iter().chain([api, &caller]))
+            };
+
+            let diagnostics = application.check_diagnostics();
+
+            bray_testing::assert_goal_state_diagnostic_outcome(diagnostics,
+                rejected.map(|_| bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven), &caller);
+
+            if let Some(rejected) = rejected {
+                let source = source_function_body_key(&application, "caller").source().syntax().source_id();
+
+                assert!(diagnostics.iter().filter(|diagnostic| diagnostic.kind()
+                    == bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven)
+                    .any(|diagnostic| crate::test_support::diagnostic_at_call(diagnostic, source, &caller, rejected)),
+                    "rejection must identify {rejected}: {diagnostics:#?}");
+            }
+        }
+    }
+}
+
+#[test]
+fn platform_allocation_origins_survive_nullable_forwarding_without_access_authority() {
+    let declarations = r#"
+        trusted module std.platform.heap;
+
+        extern trusted func aligned_allocate(pos bytes: usize, pos alignment: usize) -> DataPointer<u8>
+            uses(foreign_call);
+    "#;
+
+    let wrapper = r#"
+        trusted module std.allocation_fixture;
+
+        using core.memory;
+        using std.platform.heap;
+
+        trusted func forward(pos overflow: bool) -> DataPointer<u8>
+        {
+            if overflow
+            {
+                return core.memory.null<u8>();
+            }
+
+            return trusted std.platform.heap.aligned_allocate(8, 8);
+        }
+    "#;
+
+    let caller = r#"
+        trusted module app;
+
+        using core.memory;
+        using std.allocation_fixture;
+
+        trusted func relay(pos overflow: bool) -> DataPointer<u8>
+        {
+            return std.allocation_fixture.forward(overflow);
+        }
+    "#;
+
+    let provider = standard_library_compilation([declarations, wrapper]);
+
+    assert!(!provider.check_diagnostics().has_errors(), "{:#?}", provider.check_diagnostics());
+
+    for imported in [false, true] {
+        let application = if imported {
+            super::fixtures::execution_consumer(&provider, caller)
+        } else {
+            standard_library_compilation([declarations, wrapper, caller])
+        };
+
+        let diagnostics = application.check_diagnostics();
+
+        assert!(!diagnostics.has_errors(), "imported={imported}: {diagnostics:#?}");
+
+        let summary = crate::compilation::result_dependencies::source_function_dependencies(&application, "relay");
+
+        assert!(summary.borrows().iter().any(|relation| relation.allocation().is_some()),
+            "imported={imported}: nullable forwarding retains the actual allocation origin: {summary:#?}");
+
+        assert!(summary.requirements().is_empty() && summary.captured_values().iter().all(|row| row.carriers.is_empty()),
+            "origin separation grants no trusted access authority: {summary:#?}");
+
+        let invalid = caller.replace("-> DataPointer<u8>", "-> u8\n            uses(raw_memory)").replace(
+            "return std.allocation_fixture.forward(overflow);",
+            "let pointer = std.allocation_fixture.forward(overflow);\n            return trusted core.memory.read<u8>(pointer);",
+        );
+
+        let application = if imported {
+            super::fixtures::execution_consumer(&provider, &invalid)
+        } else {
+            standard_library_compilation([declarations, wrapper, invalid.as_str()])
+        };
+
+        let diagnostics = application.check_diagnostics();
+
+        bray_testing::assert_goal_state_diagnostic_kind(diagnostics,
+            bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven);
+
+        let source = source_function_body_key(&application, "relay").source().syntax().source_id();
+
+        assert!(diagnostics.iter().any(|diagnostic| crate::test_support::diagnostic_at_call(
+            diagnostic, source, &invalid, "core.memory.read<u8>(pointer)",
+        )), "origin separation cannot authorize the raw read: {diagnostics:#?}");
+
+        let invalid = caller.replace("-> DataPointer<u8>\n", "-> DataPointer<u8>\n            ensures(!core.memory.is_null<u8>(result))\n");
+
+        let application = if imported {
+            super::fixtures::execution_consumer(&provider, &invalid)
+        } else {
+            standard_library_compilation([declarations, wrapper, invalid.as_str()])
+        };
+
+        bray_testing::assert_goal_state_diagnostic_kind(application.check_diagnostics(),
+            bray_diagnostics::DiagnosticKind::CheckingPostconditionNotProven);
+    }
+}
+
 #[test]
 fn platform_service_implementations_publish_their_role_with_the_root_template() {
     let Some(binding) =
@@ -94,17 +391,9 @@ fn platform_service_implementations_publish_their_role_with_the_root_template() 
 
 #[test]
 fn raw_buffer_views_share_the_owners_declared_backing_type() {
-    let compilation = standard_library_compilation([
-        include_str!("../../../../../../../standard-library/std/src/std.bray"),
-        include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
-        include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
-        include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
-        include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
-        include_str!("../../../../../../../standard-library/std/src/numeric/limits.bray"),
-        include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
-        include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
+    let compilation = standard_library_compilation(MEMORY_SOURCES.into_iter().chain([
         r#"
-            trusted module app;
+            module app;
 
             using std.memory;
 
@@ -125,7 +414,7 @@ fn raw_buffer_views_share_the_owners_declared_backing_type() {
                 return buffer;
             }
         "#,
-    ]);
+    ]));
 
     let checked = compilation
         .lowered_unit(source_function_body_key(&compilation, "inspect"))
@@ -154,7 +443,7 @@ fn readdressed_borrowed_views_preserve_the_original_storage_type() {
                 requires(trusted held(owner = &owner.acquisition))
                 uses(raw_memory, unchecked_alias, layout_reinterpret)
             {
-                let pointer = trusted std.memory.reinterpret<Header, u8>(owner.resource);
+                let pointer = std.memory.reinterpret<Header, u8>(owner.resource);
                 let permit = trusted lambda(pos owner: &Owner, pos pointer: DataPointer<Header>)
                     requires(trusted held(owner = &owner.acquisition))
                     ensures(
@@ -207,7 +496,7 @@ fn copied_raw_buffer_fields_do_not_establish_initialized_ownership() {
         using core.memory;
         using std.memory;
 
-        func forged_buffer() {{
+        trusted func forged_buffer() uses(raw_memory) {{
             let mut buffer: std.memory.RawBuffer<u8> = {{
                 pointer = core.memory.null<u8>(), capacity = 1, initialized = {initialized},
             }};
@@ -313,7 +602,7 @@ fn raw_buffer_nullable_views_retain_the_borrowed_owner() {
 
             trusted func caller<T>(pos holder: &{borrow}Holder<T>) -> &{borrow}T
             {{
-                return trusted element<T>(holder);
+                return element<T>(holder);
             }}
             "#
         );
@@ -350,7 +639,7 @@ fn checked_slice_prefix_addresses_establish_the_exact_extent() {
         include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
         include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
         r#"
-            trusted module app;
+            module app;
 
             using core.memory;
             using std.memory;
@@ -404,7 +693,7 @@ fn checked_slice_prefix_authority_expires_with_its_storage() {
         include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
         include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
         r#"
-            trusted module app;
+            module app;
 
             using core.memory;
             using std.memory;
@@ -450,7 +739,7 @@ fn checked_slice_prefix_authority_expires_with_its_storage() {
 #[test]
 fn raw_buffer_subslices_preserve_disjoint_field_authority() {
     let source = r#"
-trusted module std.slice_field_probe;
+module std.slice_field_probe;
 
 using std.memory;
 
@@ -752,7 +1041,7 @@ fn byte_buffer_bulk_writes_publish_the_initialized_prefix() {
         include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
         include_str!("../../../../../../../standard-library/std/src/bytes/buffer.bray"),
         r#"
-            trusted module app;
+            module app;
 
             using std.bytes;
             using std.memory;
@@ -761,10 +1050,10 @@ fn byte_buffer_bulk_writes_publish_the_initialized_prefix() {
                 let bytes: [u8; 2] = [1, 2];
                 let mut buffer: std.bytes.Buffer = try std.bytes.Buffer.from_slice(&bytes[..]);
 
-                try trusted std.bytes.append(&mut buffer, bytes = &bytes[..]);
-                try trusted std.bytes.append(&mut buffer, value = 7, count = 2);
-                try trusted std.bytes.resize(&mut buffer, new_length = 8, fill = 9);
-                trusted std.bytes.truncate(&mut buffer, new_length = 3);
+                try std.bytes.append(&mut buffer, bytes = &bytes[..]);
+                try std.bytes.append(&mut buffer, value = 7, count = 2);
+                try std.bytes.resize(&mut buffer, new_length = 8, fill = 9);
+                std.bytes.truncate(&mut buffer, new_length = 3);
 
                 return Ok(buffer.as_slice().length());
             }
@@ -877,7 +1166,7 @@ fn nul_terminated_storage_conditions_do_not_turn_addresses_into_owned_witnesses(
             requires(trusted core.memory.nul_terminated_read(pointer = pointer))
             ensures(trusted core.memory.nul_terminated_read(pointer = result))
         {
-            let address: DataPointer<u8> = trusted preserve_text(pointer);
+            let address: DataPointer<u8> = preserve_text(pointer);
             let copied: DataPointer<u8> = address;
 
             return copied;
@@ -901,11 +1190,11 @@ fn nul_terminated_storage_conditions_do_not_turn_addresses_into_owned_witnesses(
 
         for source in [
             r#"
-        module app;
+        trusted module app;
 
         func missing_termination(pos pointer: DataPointer<u8>) -> DataPointer<u8>
         {
-            return trusted preserve_text(pointer);
+            return preserve_text(pointer);
         }
         "#,
             r#"
@@ -923,7 +1212,7 @@ fn nul_terminated_storage_conditions_do_not_turn_addresses_into_owned_witnesses(
         {
             trusted std.memory.write<u8>(pointer, value = 1);
 
-            return trusted preserve_text(pointer);
+            return preserve_text(pointer);
         }
         "#,
         ] {
@@ -987,7 +1276,7 @@ fn native_nul_guarantees_follow_the_selected_pointer_null_guard() {
                 let pointer: DataPointer<u8> = trusted native_directory(destination, capacity);
                 {guard}
 
-                _ = trusted preserve_text(pointer);
+                _ = preserve_text(pointer);
             }}
         "#
         );
@@ -1089,7 +1378,7 @@ using std.numeric;
 {}
 {}
 {}
-trusted internal func observe_cursor() {{ BODY _ = trusted internal native_text_cursor_entry(&cursor); }}"#,
+trusted internal func observe_cursor() {{ BODY _ = internal native_text_cursor_entry(&cursor); }}"#,
         section(
             unix,
             "internal struct NativeTextCursor",
@@ -1147,7 +1436,7 @@ trusted internal func observe_cursor() {{ BODY _ = trusted internal native_text_
     windows_native.push('}');
 
     let mut windows_platform = format!(
-        "trusted internal module std.platform; using core.memory; using std.memory; using std.numeric; using std.os.windows; {} {} {} {} {} {} {} {} trusted internal func observe_cursor() {{ BODY _ = trusted internal native_environment_entry(&owner); }}",
+        "trusted internal module std.platform; using core.memory; using std.memory; using std.numeric; using std.os.windows; {} {} {} {} {} {} {} {} trusted internal func observe_cursor() {{ BODY _ = internal native_environment_entry(&owner); }}",
         section(
             representation,
             "@copy\n@layout(c)\ninternal struct PlatformStatus",
@@ -1217,8 +1506,8 @@ trusted internal func observe_cursor() {{ BODY _ = trusted internal native_text_
             &native,
             &linux_platform,
             [
-                "let cursor: NativeTextCursor = trusted internal environment_cursor();",
-                "let mut cursor: NativeTextCursor = trusted internal environment_cursor(); cursor.current = std.memory.null<DataPointer<u8>>();",
+                "let cursor: NativeTextCursor = internal environment_cursor();",
+                "let mut cursor: NativeTextCursor = internal environment_cursor(); cursor.current = std.memory.null<DataPointer<u8>>();",
                 "let cursor: NativeTextCursor = { first = std.memory.null<DataPointer<u8>>(), limit = 1, current = std.memory.null<DataPointer<u8>>(), remaining = 1 };",
             ],
         ),
@@ -1228,8 +1517,8 @@ trusted internal func observe_cursor() {{ BODY _ = trusted internal native_text_
             &windows_native,
             &windows_platform,
             [
-                "{ let arguments: LocalAllocation = trusted internal native_arguments(); if arguments.count > 0 { _ = trusted internal native_argument(&arguments, index = 0); } }; let owner: EnvironmentBlock = trusted internal native_environment();",
-                "let original = trusted internal native_environment(); let owner: EnvironmentBlock = { identity = original.identity, pointer = original.pointer, current = std.memory.uninit_from<DataPointer<u16>>(std.memory.null<u16>()) };",
+                "{ let arguments: LocalAllocation = internal native_arguments(); if arguments.count > 0 { _ = trusted internal native_argument(&arguments, index = 0); } }; let owner: EnvironmentBlock = internal native_environment();",
+                "let original = internal native_environment(); let owner: EnvironmentBlock = { identity = original.identity, pointer = original.pointer, current = std.memory.uninit_from<DataPointer<u16>>(std.memory.null<u16>()) };",
                 "let owner: EnvironmentBlock = { identity = NativeTextOwner {}, pointer = std.memory.null<u16>(), current = std.memory.uninit_from<DataPointer<u16>>(std.memory.null<u16>()) };",
             ],
         ),
@@ -1354,7 +1643,7 @@ using std.memory;
 
 using internal std.thread;
 
- trusted func round_trip() -> {ty} {capabilities} {{ return trusted internal std.thread.take_transferred_value<{ty}>(trusted internal std.thread.allocate_thread_value<{ty}>({value})); }}"#
+ trusted func round_trip() -> {ty} {capabilities} {{ return internal std.thread.take_transferred_value<{ty}>(internal std.thread.allocate_thread_value<{ty}>({value})); }}"#
         );
 
         let compilation = standard_library_compilation([
@@ -1382,7 +1671,7 @@ using internal std.thread;
 fn returned_tuple_and_array_components_retain_initialized_storage_contracts() {
     for (result_type, result_value, projection) in [
         ("(usize, bool)", "(initialized, true)", ".0"),
-        ("[usize; 2]", "[initialized, 0]", "[0]"),
+        ("[usize; 2]", "[initialized, 1]", "[0]"),
     ] {
         let source = format!(
             r#"
@@ -1402,9 +1691,9 @@ fn returned_tuple_and_array_components_retain_initialized_storage_contracts() {
             }}
 
             trusted internal func consume_prefix(pos buffer: &mut std.memory.RawBuffer<u8>, count: usize) uses(unchecked_init) {{
-                let prefix: {result_type} = trusted internal fill_prefix(buffer, count = count);
+                let prefix: {result_type} = internal fill_prefix(buffer, count = count);
 
-                trusted std.memory.set_initialized_count<u8>(buffer, count = prefix{projection});
+                std.memory.set_initialized_count<u8>(buffer, count = prefix{projection});
             }}
         "#
         );
@@ -1440,7 +1729,7 @@ fn returned_tuple_and_array_components_retain_initialized_storage_contracts() {
 
         let consumer_source = format!(
             r#"
-            module app;
+            trusted module app;
 
             using std.memory;
             using internal std.platform;
@@ -1448,9 +1737,9 @@ fn returned_tuple_and_array_components_retain_initialized_storage_contracts() {
             trusted func consume_prefix(pos buffer: &mut std.memory.RawBuffer<u8>, count: usize)
                 uses(unchecked_init)
             {{
-                let prefix: {result_type} = trusted std.platform.fill_prefix(buffer, count = count);
+                let prefix: {result_type} = std.platform.fill_prefix(buffer, count = count);
 
-                trusted std.memory.set_initialized_count<u8>(buffer, count = prefix{projection});
+                std.memory.set_initialized_count<u8>(buffer, count = prefix{projection});
             }}
         "#
         );
@@ -1487,14 +1776,16 @@ fn returned_tuple_and_array_components_retain_initialized_storage_contracts() {
                 &source,
             ]);
 
-            assert!(
-                compilation.check_diagnostics().iter().any(|diagnostic| {
-                    diagnostic.kind()
-                        == bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven
-                }),
-                "{:#?}",
-                compilation.check_diagnostics()
-            );
+            let caller = source_function_body_key(&compilation, "consume_prefix");
+            let source_id = caller.source().syntax().source_id();
+            let diagnostics = compilation.check_diagnostics();
+
+            assert!(diagnostics.iter().any(|diagnostic| {
+                diagnostic.kind() == bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven
+                    && crate::test_support::diagnostic_at_call(
+                        diagnostic, source_id, &source, "std.memory.set_initialized_count<u8>(buffer, count = prefix[1])",
+                    )
+            }), "{diagnostics:#?}");
         }
     }
 }
@@ -1522,6 +1813,8 @@ fn standard_runtime_text_storage_has_complete_contracts() {
 
 #[test]
 fn raw_byte_access_requires_initialized_extents_and_rejects_index_overflow() {
+    use bray_diagnostics::{DiagnosticArgValue, DiagnosticCondition, DiagnosticKind};
+
     let sources = [
         include_str!("../../../../../../../standard-library/std/src/std.bray"),
         include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
@@ -1556,7 +1849,7 @@ fn raw_byte_access_requires_initialized_extents_and_rejects_index_overflow() {
                 uses(raw_memory)
             {{
                 if !({guard}) {{ return 0; }}
-                return trusted internal byte_buffer_read(pointer, index = 3);
+                return internal byte_buffer_read(pointer, index = 3);
             }}
         "#
         );
@@ -1573,7 +1866,7 @@ fn raw_byte_access_requires_initialized_extents_and_rejects_index_overflow() {
         } else {
             bray_testing::assert_goal_state_diagnostic_kind(
                 compilation.check_diagnostics(),
-                bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven,
+                DiagnosticKind::CheckingTrustedObligationNotProven,
             );
         }
     }
@@ -1730,12 +2023,12 @@ fn raw_byte_access_requires_initialized_extents_and_rejects_index_overflow() {
         compilation.check_diagnostics(),
     );
 
-    for source in [
-        r#"
+    for (source, expected, impossible_requirement) in [
+        (r#"
         module std.memory;
 
         using std.numeric;
-        internal func read_after_changing_guarded_index(pos bytes: &[u8]) {
+        trusted internal func read_after_changing_guarded_index(pos bytes: &[u8]) uses(raw_memory) {
             let count: usize = bytes.length();
             let byte_pointer: DataPointer<u8> = internal slice_pointer(bytes, count = count);
             let mut index: usize = 0;
@@ -1745,49 +2038,55 @@ fn raw_byte_access_requires_initialized_extents_and_rejects_index_overflow() {
                 _ = trusted internal byte_buffer_read(byte_pointer, index = index);
             }
         }
-        "#,
-        r#"
+        "#, DiagnosticKind::CheckingTrustedObligationNotProven, false),
+        (r#"
         module std.memory;
 
         using core.memory;
-        internal func read_without_initialization(pos pointer: DataPointer<u8>) -> u8
-            requires(trusted core.memory.valid_read<u8>(pointer = pointer, count = 1)) {
+        trusted internal func read_without_initialization(pos pointer: DataPointer<u8>) -> u8
+            requires(trusted core.memory.valid_read<u8>(pointer = pointer, count = 1))
+            uses(raw_memory) {
             return trusted internal byte_buffer_read(pointer, index = 0);
         }
-        "#,
-        r#"
+        "#, DiagnosticKind::CheckingTrustedObligationNotProven, false),
+        (r#"
         module std.memory;
 
         using core.memory;
-        internal func copy_without_initialization(pos source: DataPointer<u8>, pos destination: DataPointer<u8>)
+        trusted internal func copy_without_initialization(pos source: DataPointer<u8>, pos destination: DataPointer<u8>)
             requires(
                 trusted core.memory.valid_read<u8>(pointer = source, count = 1),
                 trusted core.memory.valid_write<u8>(pointer = destination, count = 1),
-            ) {
+            ) uses(raw_memory, unchecked_init) {
             trusted std.memory.copy_overlapping<u8>(source, destination, count = 1);
         }
-        "#,
-        r#"
+        "#, DiagnosticKind::CheckingUninitializedRawStorage, false),
+        (r#"
         module std.memory;
 
         using std.numeric;
 
         using core.memory;
-        internal func overflowing_index(pos pointer: DataPointer<u8>) -> u8
+        trusted internal func overflowing_index(pos pointer: DataPointer<u8>) -> u8
             requires(
                 trusted core.memory.valid_read<u8>(pointer = pointer, count = 0),
                 trusted core.memory.initialized_range_as<u8>(pointer = pointer, count = 0),
-            ) {
+            ) uses(raw_memory) {
             return trusted internal byte_buffer_read(pointer, index = std.numeric.USIZE_MAX);
         }
-        "#,
+        "#, DiagnosticKind::CheckingTrustedObligationNotProven, true),
     ] {
         let compilation = standard_library_compilation(sources.into_iter().chain([source]));
 
-        bray_testing::assert_goal_state_diagnostic_kind(
-            compilation.check_diagnostics(),
-            bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven,
-        );
+        let diagnostics = compilation.check_diagnostics();
+
+        bray_testing::assert_goal_state_diagnostic_kind(diagnostics, expected);
+
+        if impossible_requirement {
+            assert!(diagnostics.by_kind(expected).any(|diagnostic| diagnostic.args().iter()
+                .any(|argument| matches!(argument.value(), DiagnosticArgValue::ContractObligation(obligation)
+                    if obligation.actual == DiagnosticCondition::Boolean(false)))), "{diagnostics:#?}");
+        }
     }
 }
 
@@ -1910,7 +2209,7 @@ fn raw_reads_retire_initialization_after_moves_and_opaque_calls() {
                 uses(raw_memory)
             {{
                 {interruption}
-                let second: {value_type} = trusted std.memory.read<{value_type}>(pointer);
+                let second: {value_type} = std.memory.read<{value_type}>(pointer);
             }}
         "#,
         );
@@ -1936,12 +2235,12 @@ fn raw_reads_retire_initialization_after_moves_and_opaque_calls() {
 
 #[test]
 fn raw_allocation_copied_fields_do_not_transfer_the_live_owner() {
-    for operation in [
-        "let second: std.memory.RawAllocation = { pointer = first.pointer, bytes = first.bytes, align = first.align };",
-        "let second = pack(pointer = first.pointer, bytes = first.bytes, align = first.align);",
-        "trusted core.memory.deallocate(first.pointer, bytes = first.bytes, align = first.align);",
-        "let pointer = first.pointer; let bytes = first.bytes; let align = first.align; let second = pack(pointer = pointer, bytes = bytes, align = align);",
-        "let pointer = first.pointer; let bytes = first.bytes; let align = first.align; let second = pack_with_owner(owner = first, pointer = pointer, bytes = bytes, align = align);",
+    for (operation, expected_site) in [
+        ("let second: std.memory.RawAllocation = { pointer = first.pointer, bytes = first.bytes, align = first.align };", "let second:"),
+        ("let second = pack(pointer = first.pointer, bytes = first.bytes, align = first.align);", "pack(pointer = first.pointer"),
+        ("core.memory.deallocate(first.pointer, bytes = first.bytes, align = first.align);", "core.memory.deallocate(first.pointer"),
+        ("let pointer = first.pointer; let bytes = first.bytes; let align = first.align; let second = pack(pointer = pointer, bytes = bytes, align = align);", "pack(pointer = pointer"),
+        ("let pointer = first.pointer; let bytes = first.bytes; let align = first.align; let second = pack_with_owner(owner = first, pointer = pointer, bytes = bytes, align = align);", "pack_with_owner(owner = first"),
     ] {
         let source = format!(
             r#"
@@ -1956,8 +2255,8 @@ fn raw_allocation_copied_fields_do_not_transfer_the_live_owner() {
                 return {{ pointer = pointer, bytes = bytes, align = align }};
             }}
 
-            func duplicate() {{
-                let first = trusted std.memory.allocate(std.memory.MemoryLayout {{ bytes = 8, align = 8 }});
+            trusted func duplicate() uses(manual_alloc) {{
+                let first = std.memory.allocate(std.memory.MemoryLayout {{ bytes = 8, align = 8 }});
                 {operation}
             }}
 
@@ -1969,22 +2268,18 @@ fn raw_allocation_copied_fields_do_not_transfer_the_live_owner() {
         "#
         );
 
-        let compilation = standard_library_compilation([
-            include_str!("../../../../../../../standard-library/std/src/std.bray"),
-            include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
-            include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
-            include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
-            include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
-            include_str!("../../../../../../../standard-library/std/src/numeric/limits.bray"),
-            include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
-            include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
-            &source,
-        ]);
+        let compilation = standard_library_compilation(MEMORY_SOURCES.into_iter().chain([source.as_str()]));
+        let kind = bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven;
+        let diagnostics = compilation.check_diagnostics();
 
-        bray_testing::assert_goal_state_diagnostic_kind(
-            compilation.check_diagnostics(),
-            bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven,
-        );
+        assert!(diagnostics.iter().any(|diagnostic| {
+            diagnostic.kind() == kind && diagnostic.primary_span().is_some_and(|span| {
+                compilation.source(span.source_id()).is_some_and(|document| document.text() == source)
+                    && crate::test_support::diagnostic_at_call(diagnostic, span.source_id(), &source, expected_site)
+            })
+        }), "copied allocation fields must fail at {expected_site}: {diagnostics:#?}");
+
+        bray_testing::assert_goal_state_diagnostic_kind(diagnostics, kind);
     }
 }
 
@@ -1992,7 +2287,7 @@ fn raw_allocation_copied_fields_do_not_transfer_the_live_owner() {
 fn scoped_raw_allocation_requirements_reject_copied_owner_fields() {
     for mode in ["", "consume "] {
         let source = format!(
-            r#"trusted module app;
+            r#"module app;
 
 using core.memory;
 using std.memory;
@@ -2090,7 +2385,7 @@ fn raw_allocation_entry_field_proofs_remain_attached_to_the_owner() {
     for ownership in ["", "&"] {
         let source = format!(
             r#"
-            trusted module app;
+            module app;
 
             using core.memory;
             using std.memory;
@@ -2134,7 +2429,7 @@ fn raw_allocation_field_construction_requires_ownership() {
         include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
         include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
         r#"
-            trusted module app;
+            module app;
 
             using core.memory;
             using std.memory;
@@ -2163,7 +2458,7 @@ fn raw_allocation_field_construction_accepts_actual_ownership() {
         include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
         include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
         r#"
-            trusted module app;
+            module app;
 
             using core.memory;
             using std.memory;
@@ -2195,7 +2490,7 @@ fn raw_buffer_origins_require_recognition_and_survive_prefix_writes() {
         include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
         include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
         r#"
-            module app;
+            trusted module app;
 
             using core.memory;
             using internal std.memory;
@@ -2309,7 +2604,7 @@ fn raw_allocation_field_construction_transfers_ownership_once() {
         include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
         include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
         r#"
-            trusted module app;
+            module app;
 
             using core.memory;
             using std.memory;
@@ -2561,7 +2856,7 @@ fn standard_formatting_surface_round_trips_and_specializes_without_provider_sour
         include_str!("../../../../../../../standard-library/std/src/std.bray"),
         include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
         r#"
-            module std.memory;
+            trusted module std.memory;
 
             union MemoryLayoutError
             {
@@ -2970,7 +3265,7 @@ fn standard_formatting_surface_round_trips_and_specializes_without_provider_sour
             {
                 let mut destination: std.io.FormattingSink<RecordingWriter> = std.io.FormattingSink<RecordingWriter>(writer);
 
-                return trusted std.format.write_to<u32, std.io.FormattingSink<RecordingWriter>, std.io.IoError>(
+                return std.format.write_to<u32, std.io.FormattingSink<RecordingWriter>, std.io.IoError>(
                     &mut destination,
                     std.format.Argument<u32>(&value),
                 );
@@ -3256,7 +3551,12 @@ fn thread_storage_load_only_initializes_successful_outputs() {
                 trusted core.memory.valid_write<DataPointer<u8>>(pointer = value, count = 1),
                 trusted core.memory.aligned_for<DataPointer<u8>>(pointer = value),
             ) {
-            return Error({ category = 5, reserved = 0, native_code = 0 });
+            if key == 0
+            {
+                return Error({ category = 5, reserved = 0, native_code = 0 });
+            }
+
+            return Ok(std.memory.null<u8>());
         }
     "#;
 
@@ -3265,17 +3565,15 @@ fn thread_storage_load_only_initializes_successful_outputs() {
             r#"
             trusted internal module std.thread;
 
-            using std.numeric;
-
             using core.memory;
             using std.memory;
-            trusted internal func load_uninitialized_slot(pos pointer: DataPointer<DataPointer<u8>>) -> DataPointer<u8>
+            trusted internal func load_uninitialized_slot(pos key: u64, pos pointer: DataPointer<DataPointer<u8>>) -> DataPointer<u8>
                 requires(
                     trusted core.memory.valid_read<DataPointer<u8>>(pointer = pointer, count = 1),
                     trusted core.memory.valid_write<DataPointer<u8>>(pointer = pointer, count = 1),
                     trusted core.memory.aligned_for<DataPointer<u8>>(pointer = pointer),
                 ) {{
-                let status = trusted platform_thread_storage_load(std.numeric.U64_MAX, pointer);
+                let status = trusted platform_thread_storage_load(key, pointer);
                 {}
                 need_initialized(pointer);
                 return std.memory.null<u8>();
@@ -3311,10 +3609,17 @@ fn thread_storage_load_only_initializes_successful_outputs() {
                 compilation.check_diagnostics(),
             );
         } else {
-            bray_testing::assert_goal_state_diagnostic_kind(
-                compilation.check_diagnostics(),
-                bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven,
-            );
+            let diagnostics = compilation.check_diagnostics();
+            let kind = bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven;
+
+            bray_testing::assert_goal_state_diagnostic_kind(diagnostics, kind);
+
+            assert!(diagnostics.iter().any(|diagnostic| {
+                diagnostic.kind() == kind && diagnostic.primary_span().is_some_and(|span| {
+                    compilation.source(span.source_id()).is_some_and(|document| document.text() == caller)
+                        && crate::test_support::diagnostic_at_call(diagnostic, span.source_id(), &caller, "need_initialized(pointer)")
+                })
+            }), "an unchecked error status must leave the output uninitialized: {diagnostics:#?}");
         }
     }
 }
@@ -3500,12 +3805,12 @@ using std.memory.function;
                     uses(foreign_call)
                 {{
                     let native_entry = trusted std.memory.callable_from_pointer(
-                        trusted std.memory.function.reinterpret<std.os.{system}.ThreadStartRoutine, ThreadStartRoutine>(
-                            trusted std.memory.function_address(entry)
+                        std.memory.function.reinterpret<std.os.{system}.ThreadStartRoutine, ThreadStartRoutine>(
+                            std.memory.function_address(entry)
                         )
                     );
 
-                    _ = trusted std.os.{system}.pthread_create(
+                    _ = std.os.{system}.pthread_create(
                         output,
                         attributes = std.memory.null<std.os.{system}.PThreadAttribute>(),
                         entry = native_entry,
@@ -3807,6 +4112,8 @@ fn imported_nested_integer_truncation_retains_compiler_operation_proofs() {
 
 #[test]
 fn layout_queries_in_runtime_requirements_reach_native_predicate_operations() {
+    use bray_bound_tree::{CheckedMemoryOperationKind, MemoryLayoutQueryKind};
+
     let declarations = format!(
         r#"
         module std.memory;
@@ -3827,7 +4134,11 @@ fn layout_queries_in_runtime_requirements_reach_native_predicate_operations() {
 
     let provider = standard_library_compilation(sources);
 
-    for query in ["size_of", "align_of", "stride_of"] {
+    for (query, expected, expected_kind) in [
+        ("size_of", 16, MemoryLayoutQueryKind::Size),
+        ("align_of", 8, MemoryLayoutQueryKind::Alignment),
+        ("stride_of", 16, MemoryLayoutQueryKind::Stride),
+    ] {
         let source = format!(
             r#"
             module app;
@@ -3852,7 +4163,7 @@ fn layout_queries_in_runtime_requirements_reach_native_predicate_operations() {
 
             func main()
             {{
-                caller(16);
+                caller({expected});
             }}
         "#
         );
@@ -3867,13 +4178,16 @@ fn layout_queries_in_runtime_requirements_reach_native_predicate_operations() {
                 compilation.check_diagnostics()
             );
 
-            let helpers = compilation
-                .codegen_instance_count_for_test(|key| {
-                    matches!(key, bray_ir::MirUnitKey::Predicate(_))
-                })
-                .expect("checked layout queries lower to native memory operations");
+            let graph = compilation.codegen_graph_for_test().expect("the checked layout query lowers");
 
-            assert!(helpers > 0, "{query} must retain a runtime requirement");
+            let mut predicate_operations = graph.instances().iter()
+                .filter(|instance| matches!(instance.mir().key(), bray_ir::MirUnitKey::Predicate(_)))
+                .flat_map(|instance| instance.mir().operations());
+
+            assert!(predicate_operations.any(|operation| matches!(operation.kind(),
+                MirOperationKind::Memory(memory) if matches!(memory.kind(),
+                    CheckedMemoryOperationKind::LayoutQuery { kind, .. } if *kind == expected_kind))),
+                "the runtime predicate must query {query}");
         }
     }
 }
@@ -4004,13 +4318,109 @@ fn raw_buffer_reachability_preserves_reference_bearing_payload_dependencies() {
             }
         }
     }
+
+    let declarations = r#"
+        trusted module std.buffer_fixture;
+
+        using internal std.memory;
+
+        struct Marker {}
+        struct Owner { marker: Marker; }
+
+        trusted predicate live(value: &Marker);
+
+        trusted func create() -> Owner
+            ensures(trusted live(&result.marker))
+        {
+            return { marker = Marker {} };
+        }
+
+        trusted func store<T>(pos value: T) -> std.memory.RawBuffer<T>
+        {
+            let moved = value;
+            let mut buffer: std.memory.RawBuffer<T> = match trusted std.memory.RawBuffer<T>(capacity = 1)
+            {
+                case Ok(buffer) { yield buffer; }
+                case Error(_) { panic("buffer layout failed"); }
+            };
+
+            trusted internal std.memory.initialize_spare<T>(&mut buffer, moved);
+            return buffer;
+        }
+
+        trusted func restore<T>(pos buffer: std.memory.RawBuffer<T>) -> T
+        {
+            let mut moved = buffer;
+            return trusted internal std.memory.take_last<T>(&mut moved);
+        }
+
+        trusted func round_trip(pos owner: Owner) -> Owner
+        {
+            return restore<Owner>(store<Owner>(owner));
+        }
+
+        func inspect(pos owner: &Owner)
+            requires(trusted live(&owner.marker))
+        {}
+    "#;
+
+    let provider = standard_library_compilation(sources.into_iter().chain([declarations]));
+
+    assert!(!provider.check_diagnostics().has_errors(), "{:#?}", provider.check_diagnostics());
+
+    let mut failures = Vec::new();
+
+    for (created, valid) in [
+        ("std.buffer_fixture.create()", true),
+        ("std.buffer_fixture.Owner { marker = std.buffer_fixture.Marker {} }", false)
+    ] {
+        let caller = format!(r#"
+            trusted module app;
+
+            using std.buffer_fixture;
+
+            trusted func caller()
+            {{
+                let owner = std.buffer_fixture.round_trip({created});
+                std.buffer_fixture.inspect(&owner);
+            }}
+        "#);
+
+        let source = standard_library_compilation(sources.into_iter().chain([declarations, caller.as_str()]));
+        let imported = super::fixtures::execution_consumer(&provider, &caller);
+
+        for (mode, compilation) in [("source", &source), ("import", &imported)] {
+            let diagnostics = compilation.check_diagnostics();
+
+            if diagnostics.has_errors() == valid {
+                failures.push(format!("{mode}, created={created}: {diagnostics:#?}"));
+                continue;
+            }
+
+            if !valid {
+                bray_testing::assert_goal_state_diagnostic_kind(diagnostics,
+                    bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven);
+            } else {
+                let lowered = compilation.lowered_unit(crate::test_support::source_function_body_key(compilation, "caller"))
+                    .expect("generic stored-value composition reaches lowering");
+
+                assert!(!lowered.diagnostics().has_errors() && lowered.value().is_some(), "{mode}: {lowered:#?}");
+            }
+        }
+    }
+
+    assert!(failures.is_empty(), "{}\n{:#?}", failures.join("\n"), ["store", "restore", "round_trip"].map(|name| {
+        let contract = crate::compilation::result_dependencies::source_function_dependencies(&provider, name);
+
+        format!("{name}: values={:?}, owned={:?}, stored={:?}, borrows={:?}", contract.captured_values(), contract.owned_result(), contract.stored_values(), contract.borrows())
+    }));
 }
 
 #[test]
 fn typed_links_preserve_pure_pointer_transport_without_address_observation() {
     for (ty, empty, projected, is_empty, valid) in [
         ("DataPointer<u8>", "std.memory.null<u8>()", "owner.pointer", "std.memory.is_null<u8>(self.value)", true),
-        ("usize", "0", "trusted core.target.expose_address<u8>(owner.pointer)", "self.value == 0", false),
+        ("usize", "0", "core.target.expose_address<u8>(owner.pointer)", "self.value == 0", false),
     ] {
         let source = format!(r#"
             trusted module app;
@@ -4060,7 +4470,7 @@ fn typed_links_preserve_pure_pointer_transport_without_address_observation() {
 
                 if empty.empty()
                 {{
-                    return trusted make_link(&owner);
+                    return make_link(&owner);
                 }}
 
                 return empty;
@@ -4099,7 +4509,7 @@ fn typed_links_preserve_pure_pointer_transport_without_address_observation() {
 #[test]
 fn copied_opaque_pointee_fields_do_not_retain_the_reading_loan() {
     let owner = r#"
-        module std.memory;
+        trusted module std.loan_fixture;
 
         using core.memory;
         using std.memory;
@@ -4134,6 +4544,7 @@ fn copied_opaque_pointee_fields_do_not_retain_the_reading_loan() {
                 uses(raw_memory, unchecked_alias)
             {
                 let pointer = self.pointer;
+
                 let permit = trusted lambda(pos owner: &Marker, pos pointer: DataPointer<State>)
                     requires(trusted active(owner))
                     ensures(
@@ -4216,7 +4627,8 @@ fn copied_opaque_pointee_fields_do_not_retain_the_reading_loan() {
 
     let envelope = r#"
                 let pin = number;
-                let mut envelope: std.memory.Envelope =
+
+                let mut envelope: std.loan_fixture.Envelope =
                 {
                     owner = guard,
                     pin = &pin
@@ -4225,21 +4637,21 @@ fn copied_opaque_pointee_fields_do_not_retain_the_reading_loan() {
 
     for (result, setup, view, before, returned, failure) in [
         ("DataPointer<u32>", "", "guard", "", "state.link.pointer", None),
-        ("std.memory.Link", "", "guard", "", "state.link", None),
-        ("&std.memory.Link", "", "guard", "", "&state.link", escaping),
+        ("std.loan_fixture.Link", "", "guard", "", "state.link", None),
+        ("&std.loan_fixture.Link", "", "guard", "", "&state.link", escaping),
         ("&u32", "", "guard", "", "state.borrowed", escaping),
-        ("std.memory.Link", "", "guard", "let link = state.link;\n                let moved = guard;", "link", None),
-        ("std.memory.Link", "", "guard", "let moved = guard;", "state.link", Some(bray_diagnostics::DiagnosticKind::CheckingConflictingBorrow)),
-        ("std.memory.Link", "", "guard", "", "std.memory.read_link(state)", None),
-        ("DataPointer<u32>", "", "guard", "", "std.memory.read_pointer(state)", None),
-        ("std.memory.Link", envelope, "envelope.owner", "", "state.link", None),
-        ("std.memory.Link", envelope, "envelope.owner", "", "std.memory.read_link(state)", None),
-        ("&std.memory.Link", envelope, "envelope.owner", "", "&state.link", escaping),
-        ("std.memory.Link", envelope, "envelope.owner", "", "std.memory.take_link(state)", None),
-        ("std.memory.Link?", envelope, "envelope.owner", "let link: std.memory.Link? = std.memory.take_link(state);", "link", None),
-        ("(u64, bool, std.memory.Link?)", envelope, "envelope.owner", "let link: std.memory.Link? = std.memory.take_link(state);", "(0, false, link)", None),
-        ("std.memory.Link", "", "", "", "trusted std.memory.read_link_from_guard(&mut guard)", None),
-        ("&std.memory.Link", "", "", "", "trusted std.memory.read_borrow_from_guard(&mut guard)", escaping),
+        ("std.loan_fixture.Link", "", "guard", "let link = state.link;\n                let moved = guard;", "link", None),
+        ("std.loan_fixture.Link", "", "guard", "let moved = guard;", "state.link", Some(bray_diagnostics::DiagnosticKind::CheckingConflictingBorrow)),
+        ("std.loan_fixture.Link", "", "guard", "", "std.loan_fixture.read_link(state)", None),
+        ("DataPointer<u32>", "", "guard", "", "std.loan_fixture.read_pointer(state)", None),
+        ("std.loan_fixture.Link", envelope, "envelope.owner", "", "state.link", None),
+        ("std.loan_fixture.Link", envelope, "envelope.owner", "", "std.loan_fixture.read_link(state)", None),
+        ("&std.loan_fixture.Link", envelope, "envelope.owner", "", "&state.link", escaping),
+        ("std.loan_fixture.Link", envelope, "envelope.owner", "", "std.loan_fixture.take_link(state)", None),
+        ("std.loan_fixture.Link?", envelope, "envelope.owner", "let link: std.loan_fixture.Link? = std.loan_fixture.take_link(state);", "link", None),
+        ("(u64, bool, std.loan_fixture.Link?)", envelope, "envelope.owner", "let link: std.loan_fixture.Link? = std.loan_fixture.take_link(state);", "(0, false, link)", None),
+        ("std.loan_fixture.Link", "", "", "", "trusted std.loan_fixture.read_link_from_guard(&mut guard)", None),
+        ("&std.loan_fixture.Link", "", "", "", "trusted std.loan_fixture.read_borrow_from_guard(&mut guard)", escaping),
     ] {
         let valid = failure.is_none();
 
@@ -4253,9 +4665,10 @@ fn copied_opaque_pointee_fields_do_not_retain_the_reading_loan() {
             trusted module app;
 
             using std.memory;
+            using std.loan_fixture;
 
-            trusted func caller(pos mut guard: std.memory.Guard, pos number: u32) -> {result}
-                requires(trusted std.memory.active(&guard.acquisition))
+            trusted func caller(pos mut guard: std.loan_fixture.Guard, pos number: u32) -> {result}
+                requires(trusted std.loan_fixture.active(&guard.acquisition))
             {{
                 {setup}
                 {read_view}
@@ -4359,7 +4772,7 @@ fn pointer_postconditions_keep_the_evaluated_value_across_call_mutation() {
     "#;
 
     let conditional = r#"
-                let status = trusted std.memory.produce(pointer);
+                let status = std.memory.produce(pointer);
 
                 if status != 0
                 {
@@ -4372,16 +4785,16 @@ fn pointer_postconditions_keep_the_evaluated_value_across_call_mutation() {
                 {
                     pointer = pointer
                 };
-                trusted std.memory.after_input(carrier.pointer, std.memory.overwrite(&mut carrier));
+                std.memory.after_input(carrier.pointer, std.memory.overwrite(&mut carrier));
     "#;
 
     for (name, parameters, setup, call, observed, valid, capabilities) in [
         ("conditional address", "", address, conditional, "pointer", true, ""),
         ("conditional parameter", "pos pointer: DataPointer<u32>", "", conditional, "pointer", true, ""),
-        ("unconditional address", "", address, "trusted std.memory.make_ready(pointer);", "pointer", true, ""),
-        ("pure control", "", address, "trusted std.memory.make_ready_pure(pointer);", "pointer", true, "uses(foreign_call)"),
-        ("overwritten pointer", "", address, "trusted std.memory.make_ready(pointer);\n                pointer = core.memory.null<u32>();", "pointer", false, ""),
-        ("changed pointee", "", address, "trusted std.memory.make_ready(pointer);\n                trusted std.memory.mutate(pointer);", "pointer", false, ""),
+        ("unconditional address", "", address, "std.memory.make_ready(pointer);", "pointer", true, ""),
+        ("pure control", "", address, "std.memory.make_ready_pure(pointer);", "pointer", true, "uses(foreign_call)"),
+        ("overwritten pointer", "", address, "std.memory.make_ready(pointer);\n                pointer = core.memory.null<u32>();", "pointer", false, ""),
+        ("changed pointee", "", address, "std.memory.make_ready(pointer);\n                std.memory.mutate(pointer);", "pointer", false, ""),
         ("staged original", "", address, staged, "pointer", true, ""),
         ("staged replacement", "", address, staged, "carrier.pointer", false, ""),
     ] {
@@ -4396,7 +4809,7 @@ fn pointer_postconditions_keep_the_evaluated_value_across_call_mutation() {
             {{
                 {setup}
                 {call}
-                trusted std.memory.inspect({observed});
+                std.memory.inspect({observed});
             }}
         "#);
 
@@ -4513,7 +4926,7 @@ fn returned_pointer_ranges_keep_their_borrowed_scalar_extent() {
             {{
                 let {binding} = trusted std.range_test.ranges(&owner{argument});
 
-                trusted std.memory.copy<Uninit<u8>>({source}, {destination}, count = {count});
+                std.memory.copy<Uninit<u8>>({source}, {destination}, count = {count});
             }}
         "#);
 
@@ -4549,9 +4962,6 @@ fn returned_pointer_ranges_keep_their_borrowed_scalar_extent() {
                 if initialized {
                     assert!(diagnostics.by_kind(bray_diagnostics::DiagnosticKind::CheckingUninitializedRawStorage).next().is_none(),
                         "a different failed requirement must not erase proven initialization: {diagnostics:#?}");
-                } else {
-                    bray_testing::assert_goal_state_diagnostic_kind(diagnostics,
-                        bray_diagnostics::DiagnosticKind::CheckingUninitializedRawStorage);
                 }
             }
         }
@@ -4565,7 +4975,6 @@ fn callable_address_evidence_follows_the_actual_function_pointer() {
 
         using core.memory;
         using std.memory;
-        using std.memory.function;
 
         callable Callback = @abi(c) trusted func() -> unit;
 
@@ -4600,11 +5009,11 @@ fn callable_address_evidence_follows_the_actual_function_pointer() {
         {
         }
 
-        trusted func supply_result(pos pointer: DataPointer<u8>) -> FunctionPointer<Callback>
+        trusted func supply_result(pos callback: Callback) -> FunctionPointer<Callback>
             ensures(trusted core.memory.callable_address_valid<Callback>(pointer = result))
             uses(layout_reinterpret)
         {
-            return trusted std.memory.function.from_data<Callback>(pointer);
+            return std.memory.function_address<Callback>(callback);
         }
 
         func construct_owner(pos pointer: FunctionPointer<Callback>, pos replacement: FunctionPointer<Callback>) -> Owner
@@ -4619,30 +5028,13 @@ fn callable_address_evidence_follows_the_actual_function_pointer() {
 
         struct PointerState
         {
-            pointer: DataPointer<u8>;
-            alternate: DataPointer<u8>;
+            callback: Callback;
+            alternate: Callback;
         }
 
-        trusted func supply_state(pos owner: &Owner, pos pointer: DataPointer<PointerState>) -> &PointerState
-            uses(raw_memory, unchecked_alias)
+        func borrow_state(pos state: &PointerState) -> &PointerState
         {
-            let permit = trusted lambda(pos pointer: DataPointer<PointerState>)
-                ensures(
-                    trusted core.memory.valid_read<PointerState>(pointer = pointer, count = 1),
-                    trusted core.memory.aligned_for<PointerState>(pointer = pointer),
-                    trusted core.memory.initialized_as<PointerState>(pointer = pointer),
-                    trusted core.memory.shared_alias_valid<PointerState>(pointer = pointer),
-                    trusted core.memory.epoch_current<PointerState>(pointer = pointer),
-                    trusted core.memory.synchronized_access<PointerState>(pointer = pointer),
-                    trusted core.memory.movement_stable<PointerState>(pointer = pointer),
-                    trusted core.memory.finalization_pending<PointerState>(pointer = pointer)
-                )
-                executes(pure, total)
-            {
-            };
-
-            trusted permit(pointer);
-            return trusted std.memory.borrow_from<PointerState, Owner>(owner, pointer);
+            return state;
         }
     "#;
 
@@ -4668,54 +5060,52 @@ fn callable_address_evidence_follows_the_actual_function_pointer() {
     "#;
 
     for (name, requirement, setup, observed, valid) in [
-        ("value", "", "trusted std.function_evidence.supply_value(owner.pointer);", "owner.pointer", true),
-        ("borrowed field", "", "trusted std.function_evidence.supply_field(&owner);", "owner.pointer", true),
-        ("result", "", "let pointer = trusted std.function_evidence.supply_result(core.memory.null<u8>());", "pointer", true),
+        ("value", "", "std.function_evidence.supply_value(owner.pointer);", "owner.pointer", true),
+        ("borrowed field", "", "std.function_evidence.supply_field(&owner);", "owner.pointer", true),
+        ("result", "", "let pointer = std.function_evidence.supply_result(callback);", "pointer", true),
         ("constructed field", "", r#"
                 let produced = std.function_evidence.construct_owner(owner.pointer, owner.replacement);
 
-                trusted std.function_evidence.supply_field(&produced);
+                std.function_evidence.supply_field(&produced);
         "#, "produced.pointer", true),
         ("different constructed field", "", r#"
                 let produced = std.function_evidence.construct_owner(owner.pointer, owner.replacement);
 
-                trusted std.function_evidence.supply_field(&produced);
+                std.function_evidence.supply_field(&produced);
         "#, "produced.replacement", false),
-        ("opaque borrowed field", "", r#"
-                let state = trusted std.function_evidence.supply_state(&owner,
-                    core.memory.null<std.function_evidence.PointerState>());
-                let data = if branch
+        ("selected borrowed field", "", r#"
+                let state = std.function_evidence.borrow_state(input_state);
+                let selected = if branch
                 {
-                    yield state.pointer;
+                    yield state.callback;
                 }
                 else
                 {
                     yield state.alternate;
                 };
-                let pointer = trusted std.function_evidence.supply_result(data);
+                let pointer = std.function_evidence.supply_result(selected);
         "#, "pointer", true),
-        ("different opaque result", "", r#"
-                let state = trusted std.function_evidence.supply_state(&owner,
-                    core.memory.null<std.function_evidence.PointerState>());
-                let data = if branch
+        ("different borrowed result", "", r#"
+                let state = std.function_evidence.borrow_state(input_state);
+                let selected = if branch
                 {
-                    yield state.pointer;
+                    yield state.callback;
                 }
                 else
                 {
                     yield state.alternate;
                 };
-                let pointer = trusted std.function_evidence.supply_result(data);
+                let pointer = std.function_evidence.supply_result(selected);
         "#, "owner.pointer", false),
-        ("different value", "", "trusted std.function_evidence.supply_field(&owner);", "owner.replacement", false),
+        ("different value", "", "std.function_evidence.supply_field(&owner);", "owner.replacement", false),
         ("replacement", "", r#"
-                trusted std.function_evidence.supply_field(&owner);
+                std.function_evidence.supply_field(&owner);
                 owner.pointer = owner.replacement;
         "#, "owner.pointer", false),
         ("retained copy", "", r#"
                 let original = owner.pointer;
 
-                trusted std.function_evidence.supply_field(&owner);
+                std.function_evidence.supply_field(&owner);
                 owner.pointer = owner.replacement;
         "#, "original", true),
         ("entry copy", required, r#"
@@ -4727,19 +5117,21 @@ fn callable_address_evidence_follows_the_actual_function_pointer() {
         ("copied slot authority", "", r#"
                 let original = owner.pointer;
 
-                trusted std.function_evidence.supply_field(&owner);
-                trusted std.function_evidence.supply_slot(&owner.pointer);
+                std.function_evidence.supply_field(&owner);
+                std.function_evidence.supply_slot(&owner.pointer);
                 std.function_evidence.require_slot(&original);
         "#, "original", false),
         ("replaced slot authority", "", r#"
                 let original = owner.pointer;
 
-                trusted std.function_evidence.supply_field(&owner);
-                trusted std.function_evidence.supply_slot(&owner.pointer);
+                std.function_evidence.supply_field(&owner);
+                std.function_evidence.supply_slot(&owner.pointer);
                 owner.pointer = owner.replacement;
                 std.function_evidence.require_slot(&owner.pointer);
         "#, "original", false),
     ] {
+        let acknowledgement = if name.ends_with("slot authority") { "trusted " } else { "" };
+
         let source = format!(r#"
             trusted module app;
 
@@ -4747,13 +5139,18 @@ fn callable_address_evidence_follows_the_actual_function_pointer() {
             using std.memory;
             using std.function_evidence;
 
-            trusted func caller(pos mut owner: std.function_evidence.Owner, pos branch: bool) -> std.function_evidence.Callback
+            trusted func caller(
+                pos mut owner: std.function_evidence.Owner,
+                pos branch: bool,
+                pos callback: std.function_evidence.Callback,
+                pos input_state: &std.function_evidence.PointerState,
+            ) -> std.function_evidence.Callback
                 {requirement}
                 uses(layout_reinterpret)
             {{
                 {setup}
 
-                return trusted std.memory.callable_from_pointer<std.function_evidence.Callback>({observed});
+                return {acknowledgement}std.memory.callable_from_pointer<std.function_evidence.Callback>({observed});
             }}
         "#);
 

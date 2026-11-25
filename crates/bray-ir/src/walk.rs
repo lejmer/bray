@@ -783,19 +783,46 @@ mod tests {
 
     use super::{MirVisitControl, MirVisitor, walk_mir_unit};
     use crate::{
-        MirBlock, MirBlockId, MirBlockKind, MirSourceAnchor, MirTerminatorKind, MirUnitBuilder,
+        MirBlock, MirBlockId, MirBlockKind, MirEdge, MirSourceAnchor, MirTerminatorKind, MirUnitBuilder,
         MirUnitKind,
     };
 
     #[test]
     fn walkers_visit_blocks_and_terminators_in_construction_order() {
-        let unit = mir_unit();
+        let bound = test_bound_unit(4);
+        let source = MirSourceAnchor::from(bound.key().source());
+        let target = crate::test_support::test_target();
+
+        let mut builder =
+            MirUnitBuilder::for_bound(bound.identity(), MirUnitKind::Synchronous, target);
+
+        let [last, entry, middle] = std::array::from_fn(|_| {
+            builder.push_block(source.clone(), MirBlockKind::Ordinary)
+                .expect("test MIR block is valid")
+        });
+
+        for (block, next) in [(entry, middle), (middle, last)] {
+            builder.set_terminator(
+                block,
+                source.clone(),
+                MirTerminatorKind::Goto(MirEdge::new(next, [])),
+            );
+        }
+
+        builder.set_terminator(
+            last,
+            source,
+            MirTerminatorKind::Return { value: None, report: None },
+        );
+
+        let unit = builder.finish(entry);
         let mut visitor = BlockVisitor::default();
 
+        assert!(unit.is_valid());
         walk_mir_unit(&unit, &mut visitor);
 
-        assert_eq!(visitor.blocks, vec![unit.entry()]);
-        assert_eq!(visitor.terminators, vec![unit.entry()]);
+        assert_eq!(visitor.blocks, [last, entry, middle]);
+        assert_eq!(visitor.terminators, [last, entry, middle]);
     }
 
     #[derive(Default)]
@@ -822,27 +849,4 @@ mod tests {
         }
     }
 
-    fn mir_unit() -> crate::MirUnit {
-        let bound = test_bound_unit(4);
-        let source = MirSourceAnchor::from(bound.key().source());
-        let target = crate::test_support::test_target();
-
-        let mut builder =
-            MirUnitBuilder::for_bound(bound.identity(), MirUnitKind::Synchronous, target);
-
-        let Ok(entry) = builder.push_block(source.clone(), MirBlockKind::Ordinary) else {
-            panic!("test MIR block must be valid");
-        };
-
-        builder.set_terminator(
-            entry,
-            source,
-            MirTerminatorKind::Return {
-                value: None,
-                report: None,
-            },
-        );
-
-        builder.finish(entry)
-    }
 }

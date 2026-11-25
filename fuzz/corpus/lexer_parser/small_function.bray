@@ -1,3 +1,6 @@
-fn add(a: i32, b: i32) -> i32 {
+module app;
+
+func add(pos a: i32, pos b: i32) -> i32
+{
     return a + b;
 }

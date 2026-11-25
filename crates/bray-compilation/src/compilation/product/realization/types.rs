@@ -16,7 +16,7 @@ use bray_target::{TargetLayoutContract, TargetValueLayout};
 use super::super::super::CodegenPreparationError;
 use super::super::super::Compilation;
 use super::super::super::checker::CompilationCheckerContext;
-use super::super::super::substitution::substitution_for_owner;
+use super::super::super::substitution::open_named_type;
 use super::super::specialization::ConcreteCodegenInstance;
 use super::contextual_self::{
     codegen_instance_contextual_self, implementation_subject, substitute_contextual_self,
@@ -347,10 +347,12 @@ impl Compilation {
                     .copied(),
             );
 
-        let mut diagnostics = DiagnosticBag::new();
+        let mut normalizer = bray_checker::TypeNormalizer::new(&checker, substitution);
 
-        let ty = bray_checker::normalize_type_valued_members(&checker, ty, &mut diagnostics)
+        let ty = normalizer.normalize_type(ty)
             .map_err(codegen_checker_error)?;
+
+        let diagnostics = normalizer.take_diagnostics();
 
         if diagnostics.has_errors() {
             return Err(CodegenPreparationError::Diagnostics(diagnostics));
@@ -454,15 +456,10 @@ impl Compilation {
 
         match data.as_ref() {
             TypeData::ContextualSelf(SelfTypeContext::NamedType(definition)) => {
-                let substitution =
-                    substitution_for_owner(values, definition.into_any(), [substitution])?;
+                let binding = self.binding_context(cancellation)?;
+                let declared = open_named_type(&binding, *definition)?;
 
-                values
-                    .intern_type(TypeData::Named {
-                        definition: *definition,
-                        substitution,
-                    })
-                    .map_err(FactQueryError::SemanticValueStore)
+                values.substitute_type(declared, substitution).map_err(FactQueryError::SemanticValueStore)
             }
             TypeData::Borrow { kind, target } => {
                 let target =
@@ -829,42 +826,9 @@ impl Compilation {
             TypeData::TraitView(_) => {
                 CodegenTypeMapping::new_unsized(ty, CodegenTypeKind::UnsizedTraitView)
             }
-            TypeData::ContextualSelf(SelfTypeContext::NamedType(definition)) => {
-                let mut candidates = Vec::new();
-
-                for mapping in mappings.values() {
-                    let data = values.type_data(mapping.ty());
-
-                    if matches!(
-                        data.as_ref(),
-                        TypeData::Named {
-                            definition: candidate,
-                            ..
-                        } if candidate == definition
-                    ) {
-                        candidates.push(mapping);
-                    }
-                }
-
-                let mut candidates = candidates.into_iter();
-
-                let mapping = candidates.next().cloned().unwrap_or_else(|| {
-                    panic!("checked native UnresolvedType contract failed: {:?}", ty)
-                });
-
-                if candidates.any(|candidate| {
-                    candidate.layout() != mapping.layout() || candidate.kind() != mapping.kind()
-                }) {
-                    panic!("checked native UnresolvedType contract failed: {:?}", ty);
-                }
-
-                mapping.representation_for(ty).with_backend_type(ty)
-            }
             TypeData::Error
             | TypeData::TypeParameter(_)
-            | TypeData::ContextualSelf(
-                SelfTypeContext::Trait(_) | SelfTypeContext::Implementation(_),
-            )
+            | TypeData::ContextualSelf(_)
             | TypeData::TypeValuedMemberProjection { .. } => {
                 panic!("checked native UnresolvedType contract failed: {:?}", ty);
             }

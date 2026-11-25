@@ -236,7 +236,7 @@ impl Compilation {
 
         self.codegen_type(value, target, cancellation, mappings, pending)?;
 
-        let representation = atomic_representation_for_type(self, value, target, cancellation)?
+        let representation = atomic_representation_for_type(self, value, target.profile(), cancellation)?
             .ok_or(CodegenPreparationError::UnsupportedType(value))?;
 
         let storage_type = match atomic_storage_role(representation) {

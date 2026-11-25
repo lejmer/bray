@@ -344,7 +344,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         state: &ExecutionState,
         expression: BoundExpressionId,
         ranges: &mut IntegerRanges,
-        maxima: &mut std::collections::BTreeMap<BoundExpressionId, u64>,
+        maximum: &mut Option<(BoundExpressionId, u64)>,
     ) -> bool {
         match self.semantics.selections().expression(expression) {
             Some(SemanticSelection::Call(call)) => {
@@ -361,13 +361,13 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             Some(SemanticSelection::Operation(SelectedOperation::Operator {
                 target: bray_bound_tree::OperatorTarget::BuiltIn(operator),
                 ..
-            })) => self.predicate_builtin_is_valid(state, expression, *operator, ranges, maxima),
+            })) => self.predicate_builtin_is_valid(state, expression, *operator, ranges, maximum),
             Some(SemanticSelection::Operation(SelectedOperation::CompoundAssignment(selected))) => {
                 let bray_bound_tree::OperatorTarget::BuiltIn(operator) = selected.target() else {
                     return false;
                 };
 
-                self.predicate_builtin_is_valid(state, expression, operator, ranges, maxima)
+                self.predicate_builtin_is_valid(state, expression, operator, ranges, maximum)
             }
             Some(SemanticSelection::Operation(SelectedOperation::Conversion(conversion))) => {
                 let Some(BoundExpression::Conversion(operation)) =
@@ -384,7 +384,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 )
             }
             Some(SemanticSelection::Operation(SelectedOperation::Index { .. })) => {
-                self.index_in_bounds(state, expression)
+                self.index_in_bounds(state, expression).unwrap_or(false)
             }
             _ => true,
         }
@@ -431,7 +431,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         expression: BoundExpressionId,
         operator: BoundOperator,
         ranges: &mut IntegerRanges,
-        maxima: &mut std::collections::BTreeMap<BoundExpressionId, u64>,
+        maximum: &mut Option<(BoundExpressionId, u64)>,
     ) -> bool {
         let operands = match self
             .request
@@ -478,10 +478,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
                     let upper = u64::try_from(upper).expect("bounded nonnegative count fits u64");
 
-                    maxima
-                        .entry(*count)
-                        .and_modify(|maximum| *maximum = (*maximum).max(upper))
-                        .or_insert(upper);
+                    *maximum = Some((*count, upper));
 
                     true
                 }),

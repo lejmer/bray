@@ -1,6 +1,8 @@
-module std.memory;
+trusted module raw_buffer_fixture;
 
 using core.atomic;
+using std.memory;
+using internal std.memory;
 
 internal static CLEANUP_ORDER: core.atomic.Atomic<usize> = core.atomic.initialize<usize>(0);
 
@@ -16,17 +18,17 @@ internal struct CleanupProbe
     }
 }
 
-trusted func main() -> Result<unit, MemoryLayoutError>
+trusted func main() -> Result<unit, std.memory.MemoryLayoutError>
 {
-    let empty: RawBuffer<CleanupProbe> = try trusted RawBuffer<CleanupProbe>(capacity = 0);
+    let empty: std.memory.RawBuffer<CleanupProbe> = try trusted std.memory.RawBuffer<CleanupProbe>(capacity = 0);
 
-    assert(initialized_count<CleanupProbe>(&empty) == 0);
-    assert(capacity<CleanupProbe>(&empty) == 0);
+    assert(std.memory.initialized_count<CleanupProbe>(&empty) == 0);
+    assert(std.memory.capacity<CleanupProbe>(&empty) == 0);
 
-    let buffer: RawBuffer<u8> = try trusted RawBuffer<u8>(capacity = 5);
+    let buffer: std.memory.RawBuffer<u8> = try trusted std.memory.RawBuffer<u8>(capacity = 5);
 
-    assert(initialized_count<u8>(&buffer) == 0);
-    assert(capacity<u8>(&buffer) == 5);
+    assert(std.memory.initialized_count<u8>(&buffer) == 0);
+    assert(std.memory.capacity<u8>(&buffer) == 5);
 
     core.atomic.store<usize, 4>(&CLEANUP_ORDER, 0);
     trusted destroy_probes();
@@ -37,7 +39,7 @@ trusted func main() -> Result<unit, MemoryLayoutError>
 
     let cleanup: Result<unit, PanicReport> = catch
     {
-        let buffer_owner: RawBuffer<CleanupProbe> = trusted probe_buffer();
+        let buffer_owner: std.memory.RawBuffer<CleanupProbe> = trusted probe_buffer();
         let panic_after_initialize: bool = true;
 
         if panic_after_initialize
@@ -62,18 +64,18 @@ trusted func main() -> Result<unit, MemoryLayoutError>
 
 trusted internal func destroy_probes() -> unit
 {
-    let buffer_owner: RawBuffer<CleanupProbe> = trusted probe_buffer();
+    let buffer_owner: std.memory.RawBuffer<CleanupProbe> = trusted probe_buffer();
 }
 
-trusted internal func probe_buffer() -> RawBuffer<CleanupProbe>
+trusted internal func probe_buffer() -> std.memory.RawBuffer<CleanupProbe>
 {
-    let mut buffer: RawBuffer<CleanupProbe> = match trusted RawBuffer<CleanupProbe>(capacity = 3)
+    let mut buffer: std.memory.RawBuffer<CleanupProbe> = match trusted std.memory.RawBuffer<CleanupProbe>(capacity = 3)
     {
         case Ok(value) { yield value; }
         case Error(_) { panic("raw buffer cleanup probe layout is unavailable"); }
     };
 
-    trusted internal initialize_spare<CleanupProbe>(
+    trusted internal std.memory.initialize_spare<CleanupProbe>(
         &mut buffer,
         CleanupProbe
         {
@@ -81,7 +83,7 @@ trusted internal func probe_buffer() -> RawBuffer<CleanupProbe>
         },
     );
 
-    trusted internal initialize_spare<CleanupProbe>(
+    trusted internal std.memory.initialize_spare<CleanupProbe>(
         &mut buffer,
         CleanupProbe
         {
@@ -89,7 +91,7 @@ trusted internal func probe_buffer() -> RawBuffer<CleanupProbe>
         },
     );
 
-    trusted internal initialize_spare<CleanupProbe>(
+    trusted internal std.memory.initialize_spare<CleanupProbe>(
         &mut buffer,
         CleanupProbe
         {

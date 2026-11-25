@@ -181,8 +181,15 @@ impl Lowerer<'_> {
                 | CheckedMemoryOperationKind::InlineAssembly { output: None, .. }
         );
 
-        let admitted_owner =
-            matches!(kind, CheckedMemoryOperationKind::RawBufferAllocate).then_some(result_type);
+        let admitted_owner = matches!(
+            kind,
+            CheckedMemoryOperationKind::RawBufferAllocate | CheckedMemoryOperationKind::Allocate
+        )
+        .then_some(result_type);
+
+        // Deallocation consumes its owner without running the owner's lifecycle.
+        let released_owner = matches!(kind, CheckedMemoryOperationKind::Deallocate)
+            .then(|| operand_types[0]);
 
         let check_outcome = kind.requires_checked_outcome()
             && !matches!(
@@ -196,6 +203,10 @@ impl Lowerer<'_> {
 
         if let Some(owner) = admitted_owner {
             current = self.admit_outgoing_owner(id, current, &source, owner)?;
+        }
+
+        if let Some(owner) = released_owner {
+            self.discharge_outgoing_owner(current, &source, owner)?;
         }
 
         let (completed, result) = self.push_memory_call(id, current, &source, memory)?;
@@ -307,23 +318,11 @@ impl Lowerer<'_> {
         let retention = self.cleanup_retention(source)?;
         let outcome = outcome.with_retention(retention);
 
-        let broadcast = self.builder.push_block(
-            Self::retained_source(source),
-            bray_ir::MirBlockKind::CleanupBroadcast,
-        )?;
+        let broadcast = self.begin_cleanup_broadcast(block, source)?;
 
         let lifecycle = self.builder.push_block(
             Self::retained_source(source),
             bray_ir::MirBlockKind::LifecycleResolution,
-        )?;
-
-        self.set_terminator(
-            block,
-            Self::retained_source(source),
-            MirTerminatorKind::BeginCleanup(bray_ir::MirCleanupEdge::new(
-                bray_ir::MirCleanupPhase::TaskCancellation,
-                bray_ir::MirEdge::new(broadcast, []),
-            )),
         )?;
 
         let mut current = broadcast;

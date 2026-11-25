@@ -1,3 +1,4 @@
+mod effect;
 mod model;
 mod references;
 mod transition;
@@ -6,7 +7,9 @@ mod transition;
 mod tests;
 
 pub(super) use model::{
-    CapturedEffects, Effect, Origin, Place, ReferenceBounds, ReferenceExit, State, Target,
+    EffectOutcomes, Origin, Place, ReachedAccess, ReferenceBounds, ReferenceExit, ReferenceExitValue, State, Target,
 };
 
-pub(super) use references::Source;
+pub(super) use effect::{CapturedEffects, Effect};
+pub(super) use bray_bound_tree::StorageMutationTarget as MutationTarget;
+pub(super) use references::{Source, borrow_chain_from};

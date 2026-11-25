@@ -284,19 +284,15 @@ fn test_in(
     parts: &[TestPart],
     profile_output: Option<&Path>,
 ) -> Result<(), BuildError> {
-    let runtime = directory.join("runtime");
-
-    fs::create_dir(&runtime).map_err(|error| BuildError::write(&runtime, error))?;
-
-    let runtime = crate::progress::run("Building the native runtime artifacts", || {
-        crate::runtime_artifact::build_for_readiness(target, &runtime)
-    })
+    let (runtime_package, standard_library) = crate::native_toolchain::prepare_bundles(root, target)
     .map_err(|error| BuildError::conformance("native runtime", error))?;
+
+    let runtime = runtime_package.metadata;
 
     let toolchain = directory.join("toolchain");
 
     crate::progress::run("Assembling the native test toolchain", || {
-        crate::native_toolchain::assemble(root, target, &runtime, &toolchain)
+        crate::native_toolchain::assemble_from_bundles(target, &runtime, &standard_library, &toolchain)
     })
     .map_err(|error| BuildError::conformance("native toolchain", error))?;
 
@@ -1343,6 +1339,8 @@ mod tests {
     fn outcome_batch_uses_portable_plan_identities_and_exact_source_filters() {
         let request = super::outcome_batch_request()
             .unwrap_or_else(|error| panic!("outcome batch must build: {error:?}"));
+
+        assert_eq!(request.plans().len(), super::OUTCOME_CASES.len());
 
         for (plan, case) in request.plans().iter().zip(super::OUTCOME_CASES) {
             assert_eq!(plan.identity(), case.plan_identity);

@@ -1,10 +1,12 @@
 @target(target.platform.dynamic_loading)
-module bray.standard_library_tests.dynamic;
+trusted module bray.standard_library_tests.dynamic;
 
 using std.dynamic;
 using std.ffi;
 using std.path;
 using std.testing;
+
+callable CStringLength = @abi(c) func(pos text: DataPointer<std.ffi.c.Char>) -> std.ffi.c.Size;
 
 @test
 trusted func dynamic_libraries_resolve_typed_symbols_and_close_owners() -> Result<unit, std.ffi.ForeignError>
@@ -32,12 +34,12 @@ trusted func dynamic_libraries_resolve_typed_symbols_and_close_owners() -> Resul
 
     let invalid: bytes = b"\0";
 
-    let invalid_result: Result<std.dynamic.DynamicSymbol<u8>, std.ffi.ForeignError> = trusted library.symbol<u8>(
-        &invalid[..]
-    );
+    let invalid_result: Result<std.dynamic.DynamicSymbol<CStringLength>, std.ffi.ForeignError> = trusted library.symbol<
+        CStringLength
+    >(&invalid[..]);
 
     let invalid_error: std.ffi.ForeignError = std.testing.assert_error<
-        std.dynamic.DynamicSymbol<u8>,
+        std.dynamic.DynamicSymbol<CStringLength>,
         std.ffi.ForeignError
     >(invalid_result);
 
@@ -46,12 +48,12 @@ trusted func dynamic_libraries_resolve_typed_symbols_and_close_owners() -> Resul
     {
         let missing_name: bytes = b"bray_missing_symbol";
 
-        let missing: Result<std.dynamic.DynamicSymbol<u8>, std.ffi.ForeignError> = trusted library.symbol<u8>(
-            &missing_name[..]
-        );
+        let missing: Result<std.dynamic.DynamicSymbol<CStringLength>, std.ffi.ForeignError> = trusted library.symbol<
+            CStringLength
+        >(&missing_name[..]);
 
         let missing_error: std.ffi.ForeignError = std.testing.assert_error<
-            std.dynamic.DynamicSymbol<u8>,
+            std.dynamic.DynamicSymbol<CStringLength>,
             std.ffi.ForeignError
         >(missing);
 
@@ -59,8 +61,8 @@ trusted func dynamic_libraries_resolve_typed_symbols_and_close_owners() -> Resul
 
         let name: bytes = b"strlen";
 
-        _ = std.testing.assert_ok<std.dynamic.DynamicSymbol<u8>, std.ffi.ForeignError>(
-            trusted library.symbol<u8>(&name[..])
+        _ = std.testing.assert_ok<std.dynamic.DynamicSymbol<CStringLength>, std.ffi.ForeignError>(
+            trusted library.symbol<CStringLength>(&name[..])
         );
     }
 
@@ -69,8 +71,8 @@ trusted func dynamic_libraries_resolve_typed_symbols_and_close_owners() -> Resul
 
     let name: bytes = b"strlen";
 
-    let error = std.testing.assert_error<std.dynamic.DynamicSymbol<u8>, std.ffi.ForeignError>(
-        trusted library.symbol<u8>(&name[..])
+    let error = std.testing.assert_error<std.dynamic.DynamicSymbol<CStringLength>, std.ffi.ForeignError>(
+        trusted library.symbol<CStringLength>(&name[..])
     );
 
     assert(error.kind() matches std.ffi.ForeignErrorKind.InvalidResource);
@@ -88,8 +90,8 @@ trusted func dynamic_library_handle_transfer_disables_owner_cleanup() -> Result<
         policy = std.dynamic.LoadPolicy.PlatformDefault,
     );
 
-    let handle: u64 = try trusted library.into_handle();
-    let status = trusted internal std.dynamic.platform_dynamic_library_close(handle);
+    let handle: u64 = try library.into_handle();
+    let status = internal std.dynamic.platform_dynamic_library_close(handle);
 
     return internal std.ffi.checked_foreign_status(status);
 }

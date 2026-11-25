@@ -20,6 +20,10 @@ mod tests {
         assert_eq!(partial.children().len(), 1);
         assert_eq!(partial.projected(&1), Mask::all());
         assert_eq!(partial.projected(&0), Mask::none());
+
+        assert_eq!(partial.subtree(&[3, 0]).as_ref(), &Mask::all(),
+            "after selecting an implicit child, sibling overrides cannot reappear deeper in its subtree");
+
         assert_eq!(partial.intersection(&sparse), sparse);
         assert_eq!(partial.intersection(&Mask::none()), Mask::none());
     }
@@ -63,12 +67,24 @@ impl<Projection> DependencyValuePreservation<Projection> {
 }
 
 impl<Projection: Clone + Ord> DependencyValuePreservation<Projection> {
+    /// Selects a subtree without copying explicit child overrides. Missing children inherit only the default.
+    pub fn subtree(&self, path: &[Projection]) -> std::borrow::Cow<'_, Self> {
+        let mut node = self;
+
+        for projection in path {
+            let Some(child) = node.children.get(projection) else {
+                return std::borrow::Cow::Owned(Self { preserved: node.preserved, children: BTreeMap::new() });
+            };
+
+            node = child;
+        }
+
+        std::borrow::Cow::Borrowed(node)
+    }
+
     /// Selects a child subtree, inheriting this node's default when absent.
     pub fn projected(&self, projection: &Projection) -> Self {
-        self.children.get(projection).cloned().unwrap_or(Self {
-            preserved: self.preserved,
-            children: BTreeMap::new(),
-        })
+        self.subtree(std::slice::from_ref(projection)).into_owned()
     }
 
     /// Creates a canonical subtree mask, omitting redundant default leaves.

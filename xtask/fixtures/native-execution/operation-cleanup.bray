@@ -303,6 +303,8 @@ trusted func main() -> i32
     let empty_targets = empty as[Target; 0];
 
     {
+        let mut checked = false;
+
         _ = catch
         {
             let pair = (
@@ -364,13 +366,31 @@ trusted func main() -> i32
             assert(core.atomic.load<usize, 1>(&SOURCES) == 6, "conversion failed to consume each source once");
             assert(core.atomic.load<usize, 1>(&INCIDENTS) == 0, "operation report was destroyed before its owner");
             assert(core.atomic.load<usize, 1>(&EXITS) == 17, "an operation skipped its selected exit");
-            assert(element == 619 && lower == 619 && upper == 619 && bounded == 619, "indexing lost its result");
+            assert(element == 619 && complete == 619 && lower == 619 && upper == 619 && bounded == 619);
             assert(defaulted.value == 619 && constructed.value == 619, "construction lost its result");
 
+            assert(pair.0.value == 1 && pair.1.value == 2);
+            assert(values[0].value == 3 && values[1].value == 4 && values[2].value == 5);
+            assert(converted_absent matches none);
+
+            match converted
+            {
+                case ?value { assert(value.value == 6); }
+                case none { panic("nullable conversion lost its present value"); }
+            }
+
+            match variant
+            {
+                case Value(value = value) { assert(value == 619); }
+            }
+
+            checked = true;
             panic("consume the retained operation reports");
 
             yield unit;
         };
+
+        assert(checked, "operation checks failed before the intended panic");
     }
 
     assert(core.atomic.load<usize, 1>(&SOURCES) == 6, "conversion destroyed a source twice");
@@ -546,14 +566,11 @@ trusted func main() -> i32
     verify_generator_predicates(0);
     verify_generator_predicates(1);
 
-    let allocation_state = trusted deny_allocation();
+    let allocation_state = deny_allocation();
 
     verify_generator_predicates(observed_count());
 
-    assert(
-        trusted restore_allocation(allocation_state) == 0,
-        "predicate generator observation allocated collection storage"
-    );
+    assert(restore_allocation(allocation_state) == 0, "predicate generator observation allocated collection storage");
 
     verify_interrupted_iteration_sources();
 
@@ -880,7 +897,7 @@ trusted func verify_denied_generator_growth(pos completed: usize)
 
                 if item == completed
                 {
-                    allocation_state = trusted deny_allocation();
+                    allocation_state = deny_allocation();
                 }
 
                 yield value;
@@ -890,7 +907,7 @@ trusted func verify_denied_generator_growth(pos completed: usize)
         yield unit;
     };
 
-    let attempts = trusted restore_allocation(allocation_state);
+    let attempts = restore_allocation(allocation_state);
 
     assert(attempts > 0, "generator growth did not reach the denied allocator");
 

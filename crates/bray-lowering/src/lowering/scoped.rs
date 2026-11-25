@@ -1,5 +1,5 @@
 use bray_bound_tree::{
-    BoundCallResult, BoundExecutionSite, BoundExpressionId, BoundPatternId, SelectedReceiver,
+    BoundBlockId, BoundCallResult, BoundExecutionSite, BoundExpressionId, BoundPatternId, SelectedReceiver,
     SemanticSelection, StorageBinding, StorageBindingTarget,
 };
 use bray_compiler_known::RepresentationRole;
@@ -54,6 +54,7 @@ impl Lowerer<'_> {
         let result = scoped.enter().1.result();
         let capability_type = scoped.capability_type();
         let invocation_result = scoped.enter_result();
+        let suspends = matches!(invocation_result, BoundCallResult::LazyFuture(_));
         let receiver_target = receiver.ty();
 
         let callable_type = self
@@ -82,22 +83,6 @@ impl Lowerer<'_> {
             current,
             |lowerer, current, place| {
                 let source = lowerer.expression_source(expression);
-                let current = lowerer.admit_scoped_exit(expression, current, &source)?;
-
-                let entry_owner = matches!(invocation_result, BoundCallResult::LazyFuture(_))
-                    .then_some(bray_ir::MirOutgoingOwner::Invocation {
-                        selection: bray_ir::MirCallableSelection::new(callable, None, None, []),
-                        result: invocation_result,
-                    });
-
-                let current = match &entry_owner {
-                    // The selected async entry uses the ordinary factory admission contract.
-                    Some(owner) => {
-                        lowerer.admit_outgoing(expression, current, &source, owner.clone())?
-                    }
-                    None => current,
-                };
-
                 let mut projections = place.projections().to_vec();
 
                 let reached = lowerer.append_reached_dereference(
@@ -121,6 +106,18 @@ impl Lowerer<'_> {
                     &arguments,
                     None,
                 )?;
+
+                let current = lowerer.admit_scoped_exit(expression, current, &source)?;
+
+                let entry_owner = suspends.then_some(bray_ir::MirOutgoingOwner::Invocation {
+                    selection: bray_ir::MirCallableSelection::new(callable, None, None, []),
+                    result: invocation_result,
+                });
+
+                let current = match &entry_owner {
+                    Some(owner) => lowerer.admit_outgoing(expression, current, &source, owner.clone())?,
+                    None => current,
+                };
 
                 let value = crate::lifecycle_call::lower_lifecycle_call(
                     callable,
@@ -161,7 +158,7 @@ impl Lowerer<'_> {
                 };
 
                 let (current, value) =
-                    if matches!(invocation_result, BoundCallResult::LazyFuture(_)) {
+                    if suspends {
                         let awaited = lowerer.lower_awaited_frame(
                             BoundExecutionSite::ScopedEnter(expression),
                             value,
@@ -191,13 +188,7 @@ impl Lowerer<'_> {
                         (current, value)
                     };
 
-                if !lowerer.invocation_completes(BoundExecutionSite::ScopedEnter(expression)) {
-                    lowerer.set_terminator(
-                        current,
-                        Self::retained_source(&source),
-                        bray_ir::MirTerminatorKind::Unreachable,
-                    )?;
-
+                if lowerer.terminate_noncompleting_invocation(BoundExecutionSite::ScopedEnter(expression), current, &source)? {
                     return Ok(LoweredExpression::terminated(source));
                 }
 
@@ -205,41 +196,28 @@ impl Lowerer<'_> {
                     let (success, capability, error, failure) =
                         lowerer.branch_result_value(current, &source, value, result)?;
 
-                    let failure_type = lowerer.builder.operand_type(&failure);
+                    let representation = lowerer.input.available_compiler_known_symbols().result_representation()
+                        .expect("fallible entry has its checked Result representation");
 
-                    let MirOperand::Value(failure) = failure else {
-                        panic!("Result branch publishes its projected payload value");
-                    };
+                    let occurrence = BoundExecutionSite::ScopedEnter(expression);
 
-                    let (error, failure) = lowerer.discharge_scoped_exit(
-                        error,
-                        &source,
-                        expression,
-                        Some((failure, failure_type)),
-                    )?;
+                    let reached = |variant| lowerer.input.storage_flow().completion(
+                        bray_bound_tree::StorageMutation::ScopedResult { occurrence, variant },
+                    ).is_some();
 
-                    let failure = MirOperand::Value(
-                        failure
-                            .expect("guarded discharge forwards its pending payload")
-                            .0,
-                    );
+                    let [can_enter, can_fail] = [representation.success_variant(), representation.error_variant()].map(reached);
 
-                    let failure = lowerer.construct_result(
-                        error,
-                        &source,
-                        completion_type,
-                        false,
-                        failure,
-                    )?;
+                    if can_fail {
+                        lowerer.lower_scoped_entry_error(expression, error, &source, failure, (completion, completion_type), suspends)?;
+                    } else {
+                        lowerer.set_terminator(error, Self::retained_source(&source), bray_ir::MirTerminatorKind::Unreachable)?;
+                    }
 
-                    lowerer.set_terminator(
-                        error,
-                        Self::retained_source(&source),
-                        bray_ir::MirTerminatorKind::Goto(bray_ir::MirEdge::new(
-                            completion,
-                            [failure],
-                        )),
-                    )?;
+                    if !can_enter {
+                        lowerer.set_terminator(success, Self::retained_source(&source), bray_ir::MirTerminatorKind::Unreachable)?;
+
+                        return Ok(LoweredExpression::terminated(source));
+                    }
 
                     (success, capability)
                 } else {
@@ -251,10 +229,66 @@ impl Lowerer<'_> {
         )
     }
 
+    fn lower_scoped_entry_error(
+        &mut self,
+        expression: BoundExpressionId,
+        error: MirBlockId,
+        source: &MirSourceAnchor,
+        failure: MirOperand,
+        (completion, completion_type): (MirBlockId, TypeId),
+        suspends: bool,
+    ) -> Result<(), LoweringError> {
+        let failure_type = self.builder.operand_type(&failure);
+
+        let MirOperand::Value(failure) = failure else {
+            panic!("Result branch publishes its projected payload value");
+        };
+
+        let (error, failure) = self.discharge_scoped_exit(error, source, expression, Some((failure, failure_type)))?;
+
+        let failure = MirOperand::Value(failure.expect("guarded discharge forwards its pending payload").0);
+        let failure = self.construct_result(error, source, completion_type, false, failure)?;
+
+        let (error, failure) = if suspends {
+            self.continue_scoped_entry_error(expression, error, source, failure)?
+        } else {
+            (error, failure)
+        };
+
+        self.set_terminator(error, Self::retained_source(source),
+            bray_ir::MirTerminatorKind::Goto(bray_ir::MirEdge::new(completion, [failure])))?;
+
+        Ok(())
+    }
+
+    fn continue_scoped_entry_error(
+        &mut self,
+        expression: BoundExpressionId,
+        block: MirBlockId,
+        source: &MirSourceAnchor,
+        error: MirOperand,
+    ) -> Result<(MirBlockId, MirOperand), LoweringError> {
+        let storage = self.input.storage_plan();
+        let region = storage.value_slot(expression).expect("scoped error owns its checked result slot");
+        let access = storage.root_access(region).expect("scoped error owns its checked result access");
+        let place = self.place_for_access(access, false)?;
+
+        self.push_operation(block, Self::retained_source(source), MirOperationKind::Store {
+            kind: MirStoreKind::Initialize, destination: Self::retained_place(&place), value: error,
+        }, None)?;
+
+        let (continued, value) = self.continue_committed_frame(
+            BoundExecutionSite::ScopedEnter(expression), block, source, Some(MirOperand::Move(place)),
+        )?;
+
+        Ok((continued, value.expect("continued scoped entry publishes its error")))
+    }
+
     pub(super) fn bind_scoped_capability(
         &mut self,
         expression: BoundExpressionId,
         pattern: BoundPatternId,
+        body: BoundBlockId,
         value: MirOperand,
         current: MirBlockId,
     ) -> Result<MirBlockId, LoweringError> {
@@ -291,6 +325,22 @@ impl Lowerer<'_> {
 
         self.set_boolean_guard(current, &source, &guard, true)?;
         self.mark_scope_entered(expression);
+
+        let Some(SemanticSelection::ScopedUse(scoped)) = self.input.semantic_selections().expression(expression) else {
+            unreachable!("acquired capability has a selected scoped use");
+        };
+
+        let current = if matches!(scoped.enter_result(), BoundCallResult::LazyFuture(_)) {
+            self.active_scopes.push(body.into());
+
+            let continuation = self.continue_committed_frame(BoundExecutionSite::ScopedEnter(expression), current, &source, None);
+
+            self.active_scopes.pop();
+
+            continuation?.0
+        } else {
+            current
+        };
 
         self.lower_pattern_bindings(pattern, MirOperand::Copy(place), current)
     }
@@ -454,11 +504,18 @@ impl Lowerer<'_> {
                                 expression,
                                 exit,
                             ) {
-                            let pending = pending.expect(
-                            "normal fallible with completion retains its pending result storage",
-                        );
+                            let scope = bray_bound_tree::StorageScope::ScopedResultReplacement(expression);
+                            let exit = exit.expect("local scoped replacement retains its checked exit");
 
-                            lowerer.replace_scoped_result(error, source, pending, failure)?
+                            if let Some(plan) = lowerer.input.scope_exit(scope, exit) {
+                                let pending = pending.expect("normal fallible with completion retains its pending result storage");
+
+                                Some(lowerer.replace_scoped_result(error, source, pending, failure, expression, plan)?)
+                            } else {
+                                lowerer.set_terminator(error, Self::retained_source(source), bray_ir::MirTerminatorKind::Unreachable)?;
+
+                                None
+                            }
                         } else {
                             let local = lowerer.cleanup_outcome.is_none();
 
@@ -481,18 +538,20 @@ impl Lowerer<'_> {
                                 (callable, invocation_result),
                             )?;
 
-                            if local {
-                                lowerer.finish_finalizer_outcome(error, source, &outcome)?
+                            Some(if local {
+                                lowerer.finish_finalizer_outcome(error, source, &outcome, None, &mut None)?
                             } else {
                                 error
-                            }
+                            })
                         };
 
-                        lowerer.set_terminator(
-                            error,
-                            Self::retained_source(source),
-                            bray_ir::MirTerminatorKind::Goto(bray_ir::MirEdge::new(joined, [])),
-                        )?;
+                        if let Some(error) = error {
+                            lowerer.set_terminator(
+                                error,
+                                Self::retained_source(source),
+                                bray_ir::MirTerminatorKind::Goto(bray_ir::MirEdge::new(joined, [])),
+                            )?;
+                        }
 
                         block = joined;
                     }
@@ -525,14 +584,19 @@ impl Lowerer<'_> {
         source: &MirSourceAnchor,
         pending: &bray_ir::MirPlace,
         failure: MirOperand,
+        expression: BoundExpressionId,
+        plan: &bray_bound_tree::StorageExitDecision,
     ) -> Result<MirBlockId, LoweringError> {
-        let previous = self.builder.push_storage(
-            Self::retained_source(source),
-            bray_ir::MirStorageKind::Temporary,
-            pending.ty(),
-        )?;
+        let storage = self.input.storage_plan();
 
-        let previous = bray_ir::MirPlace::new(previous, [], pending.ty());
+        let Some(StorageBinding::Identity(previous)) = storage.binding(StorageBindingTarget::ScopedResultReplacement(expression)) else {
+            unreachable!("scoped replacement owns its checked displaced result storage");
+        };
+
+        let access = storage.root_access(previous).expect("displaced scoped result retains its checked root access");
+        let previous = self.place_for_access(access, false)?;
+
+        assert_eq!(previous.ty(), pending.ty(), "the replacement stages the complete pending result");
 
         self.push_operation(
             error,
@@ -560,18 +624,41 @@ impl Lowerer<'_> {
 
         // Publish ownership before discarding the former success value. A disposal
         // panic then cleans the error through the existing pending-result path.
-        Ok(self
-            .push_guarded_cleanup(
-                error,
-                source,
-                bray_ir::MirCleanupPhase::LifecycleResolution,
-                previous,
-                None,
-                None,
-                false,
-                None,
-            )?
-            .0)
+        assert!(self.cleanup_outcome.is_none(), "normal scoped replacement owns its cleanup collection");
+
+        self.cleanup_outcome = Some(self.create_cleanup_outcome(error, source)?);
+
+        let mut broadcast = self.begin_cleanup_broadcast(error, source)?;
+
+        for &access in plan.cancellation_broadcast() {
+            broadcast = self.push_cleanup_access(broadcast, source, bray_ir::MirCleanupPhase::TaskCancellation, access, false, None)?.0;
+        }
+
+        let mut lifecycle = self.builder.push_block(
+            Self::retained_source(source),
+            bray_ir::MirBlockKind::LifecycleResolution,
+        )?;
+
+        crate::continuation::transfer_cleanup(&mut self.builder, broadcast, source, bray_ir::MirEdge::new(lifecycle, []));
+
+        match plan.lifecycle_schedule() {
+            bray_bound_tree::StorageCleanupSchedule::Fixed(order) => {
+                for &access in order.iter() {
+                    let completed = self.input.finalizer_is_complete(plan.exit(), access);
+
+                    lifecycle = self.push_cleanup_access(lifecycle, source, bray_ir::MirCleanupPhase::LifecycleResolution, access, completed, None)?.0;
+                }
+            }
+            schedule @ bray_bound_tree::StorageCleanupSchedule::Conditional { priority, .. } => {
+                lifecycle = self.push_conditional_lifecycle(lifecycle, source,
+                    plan.point(), schedule, priority)?;
+            }
+        }
+
+        let outcome = self.cleanup_outcome.take()
+            .expect("displaced scoped result retains its cleanup collection");
+
+        self.finish_finalizer_outcome(lifecycle, source, &outcome, None, &mut None)
     }
 
     #[expect(

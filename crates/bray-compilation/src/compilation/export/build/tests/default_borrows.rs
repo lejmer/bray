@@ -403,7 +403,7 @@ fn runtime_defaults_preserve_permanent_literal_borrows() {
             return value;
         }
 
-        struct Text
+        struct Record
         {
             value: &string = &"field text";
         }
@@ -431,6 +431,23 @@ fn runtime_defaults_preserve_permanent_literal_borrows() {
         func read() -> &string
         {
             return example.package.api.text();
+        }
+
+        func read_field() -> &string
+        {
+            let record = example.package.api.Record {};
+
+            return record.value;
+        }
+
+        func read_payload() -> &string
+        {
+            let choice = example.package.api.Choice.Text();
+
+            match consume choice
+            {
+                case Text(value = payload) { return payload; }
+            }
         }
     "#,
     );
@@ -507,10 +524,17 @@ fn imported_runtime_default_keeps_its_borrowed_result_type() {
 
     let result = store.type_data(surface.result());
 
-    assert!(matches!(
-        result.as_ref(),
-        bray_symbols::TypeData::Borrow { .. }
-    ));
+    let bray_symbols::TypeData::Borrow { kind: bray_symbols::BorrowKind::Shared, target } = result.as_ref() else {
+        panic!("the imported default promises a shared borrow: {result:?}");
+    };
+
+    let boolean = consumer.available_compiler_known_symbols()
+        .representation_symbol::<bray_symbols::StructSymbolId>(bray_compiler_known::RepresentationRole::ScalarBool)
+        .expect("the current target provides bool");
+
+    assert!(matches!(store.type_data(*target).as_ref(), bray_symbols::TypeData::Named {
+        definition: bray_symbols::NamedTypeSymbolId::Struct(definition), ..
+    } if *definition == boolean));
 }
 
 #[test]
@@ -595,7 +619,7 @@ fn mutable_default_results_allow_field_writes() {
 fn predicate_contracts_export_reborrowed_inputs() {
     let provider = compilation(
         r#"
-        module api;
+        trusted module api;
         trusted predicate observed(value: &u32);
         func inspect(pos value: &mut u32)
             requires(trusted observed(&value))

@@ -9,15 +9,13 @@ pub type ConditionCallReferences = BTreeMap<
     (bool, Arc<[bray_symbols::DependencyBorrowRelation]>),
 >;
 
-use bray_symbols::AnyLocalSymbolId;
-
 use super::BoundCallDependencyContracts;
 #[cfg(test)]
 use super::BoundCallReference;
 
 use crate::{
-    BorrowCapabilityId, BoundDependencyContract, BoundDependencyContractId, BoundExpression,
-    BoundExpressionId, BoundReferenceTarget, BoundUnit, BoundUnitId, BoundUnitKind,
+    BorrowCapabilityId, BoundDependencyContract, BoundDependencyContractId,
+    BoundUnit, BoundUnitId, BoundUnitKind,
     StorageAccessId, StoragePlan,
 };
 
@@ -81,6 +79,7 @@ pub struct CheckedDependencyContracts {
     borrows: Arc<[ContractEntry<BorrowCapabilityId>]>,
     pub(crate) lifecycle_consumers:
         Arc<BTreeMap<crate::StorageIdentityId, BTreeSet<crate::StorageIdentityId>>>,
+    frame_callees: Arc<BTreeMap<bray_symbols::CapturedCallable, crate::BoundDeferredCallable>>,
     lifecycle_dependencies: Arc<
         BTreeMap<bray_symbols::CallableInstanceData, bray_symbols::DependencyContractTemplateData>,
     >,
@@ -211,7 +210,7 @@ impl CheckedDependencyContracts {
             DependencyContractsBuildError::InvalidBorrow,
         )?;
 
-        let mut result = Self {
+        Ok(Self {
             projection_variants: BTreeMap::new(),
             static_carriers: BTreeMap::new(),
             unit: unit.unit(),
@@ -223,14 +222,11 @@ impl CheckedDependencyContracts {
             accesses: accesses.into(),
             borrows: borrows.into(),
             lifecycle_consumers: Arc::default(),
+            frame_callees: Arc::default(),
             lifecycle_dependencies: Arc::default(),
             condition_references: Arc::default(),
             is_recovered,
-        };
-
-        result.lifecycle_consumers = Arc::new(result.prepare_lifecycle_dependencies(unit, storage));
-
-        Ok(result)
+        })
     }
 
     /// Publishes selected-call contracts after checking their unit-local subjects.
@@ -263,6 +259,18 @@ impl CheckedDependencyContracts {
     /// Returns direct call contracts without inherited child-expression requirements.
     pub fn calls(&self) -> &BTreeMap<crate::BoundExecutionSite, BoundCallDependencyContracts> {
         &self.calls
+    }
+
+    /// Stores the selected bodies of frames exposed by this unit's call contracts.
+    pub fn with_frame_callees(mut self, callees: BTreeMap<bray_symbols::CapturedCallable, crate::BoundDeferredCallable>) -> Self {
+        self.frame_callees = Arc::new(callees);
+
+        self
+    }
+
+    /// Body metadata shared by composite analysis and checked execution replay.
+    pub fn frame_callees(&self) -> &BTreeMap<bray_symbols::CapturedCallable, crate::BoundDeferredCallable> {
+        &self.frame_callees
     }
 
     /// Attaches the checked dependency and mutation summaries for selected cleanup callees.
@@ -321,45 +329,6 @@ impl CheckedDependencyContracts {
         occurrence: impl Into<crate::BoundExecutionSite>,
     ) -> Option<BoundDependencyContractId> {
         find_contract(&self.deferred_expressions, occurrence.into())
-    }
-
-    /// Resolves the deferred contract carried through local reference bindings.
-    pub fn deferred_expression_through_bindings(
-        &self,
-        unit: &BoundUnit,
-        expression: BoundExpressionId,
-    ) -> Option<BoundDependencyContractId> {
-        if self.unit != unit.unit() || expression.unit() != self.unit {
-            return None;
-        }
-
-        let initializers = unit.tree().local_initializers();
-        let mut current = expression;
-        let mut active = BTreeSet::new();
-
-        loop {
-            if let Some(contract) = self.deferred_expression(current) {
-                return Some(contract);
-            }
-
-            if !active.insert(current) {
-                return None;
-            }
-
-            current = match unit.view().expression(current)? {
-                BoundExpression::Name(name) => {
-                    let BoundReferenceTarget::Local(local) = name.target() else {
-                        return None;
-                    };
-
-                    *initializers.get(&local)?
-                }
-                BoundExpression::PatternReference(reference) => {
-                    *initializers.get(&AnyLocalSymbolId::from(reference.binding()))?
-                }
-                _ => return None,
-            };
-        }
     }
 
     /// Returns the contract carried by one evaluated storage access.
@@ -671,10 +640,19 @@ mod tests {
             bray_symbols::DependencyReferenceKind::Borrow,
         );
 
+        let outcome = bray_symbols::CapturedValueOutcome::new(None, [])
+            .with_storage([relation.clone()], []);
+
+        let template = bray_symbols::DependencyContractTemplateData::new([])
+            .with_captured_values([outcome]);
+
+        let phases = phases.with_captured_outcomes(&template);
         let references = vec![super::BoundCallReference::new(relation, true, None)];
 
         let retained = Some(std::collections::BTreeSet::from([expression.into()]));
-        let phases = phases.with_references(references.clone(), retained.clone());
+
+        let phases = phases.with_storage(super::super::BoundCallStorage::new(Default::default(), references.clone(), Default::default()))
+            .with_retained_inputs(retained.clone());
 
         let published = table()
             .try_with_calls([(expression.into(), phases.clone())].into())
@@ -682,11 +660,12 @@ mod tests {
 
         let call = &published.calls()[&expression.into()];
 
+        assert!(std::ptr::eq(call.captured_values(), template.captured_values()));
         assert_eq!(call.invocation(), &invocation);
         assert_eq!(call.result(), &result);
         assert_eq!(call.deferred(), Some(&deferred));
         assert_eq!(call.deferred_result(), Some(&deferred_result));
-        assert_eq!(call.references(), &references);
+        assert_eq!(call.references(), references);
         assert_eq!(call.retained_inputs(), retained.as_ref());
 
         let missing = BoundExpressionId::from_slot(unit, 1);
@@ -695,8 +674,7 @@ mod tests {
             table().try_with_calls(
                 [(
                     expression.into(),
-                    phases.clone().with_references(
-                        references,
+                    phases.clone().with_retained_inputs(
                         Some(std::collections::BTreeSet::from([missing.into()]))
                     )
                 )]

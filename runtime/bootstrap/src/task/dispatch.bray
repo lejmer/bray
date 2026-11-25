@@ -250,6 +250,7 @@ trusted internal func advance_dispatch(
         trusted bray.runtime.bootstrap.host.product.native_host(),
         trusted bray.runtime.bootstrap.pool.protocol_access()
     )
+    ensures(trusted dispatch_acquired(owner = &owner.acquisition))
     uses(intrinsic)
 {
     let initial = trusted snapshot_dispatch(owner);

@@ -91,7 +91,7 @@ fn typed_data_transfers_preserve_borrowed_ownership_markers() {
                 )
                 executes(pure, total) uses(foreign_call)
             {{
-                return trusted native_pointer(core.memory.address_of<Owner>(owner));
+                return native_pointer(core.memory.address_of<Owner>(owner));
             }}
             trusted predicate known_address(address: usize);
             @abi(c)
@@ -107,7 +107,7 @@ fn typed_data_transfers_preserve_borrowed_ownership_markers() {
             trusted func transfer_external()
                 uses(foreign_call, {capabilities})
             {{
-                let destination = trusted external_pointer();
+                let destination = external_pointer();
                 {operation}
             }}
             trusted func transfer_unresolved(pos address: usize)

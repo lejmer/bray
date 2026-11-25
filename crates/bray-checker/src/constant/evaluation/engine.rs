@@ -1392,8 +1392,25 @@ mod tests {
 
         assert_eq!(request.callable(), fulfillment);
         assert_eq!(request.selected_implementation(), Some(witness));
-        assert_eq!(request.arguments().len(), 2);
         assert_eq!(request.result_type(), expected);
+
+        let [left, right] = request.arguments() else {
+            panic!("the selected addition must receive two operands");
+        };
+
+        for (operand, magnitude) in [(*left, 1), (*right, 2)] {
+            let value = constant_value(operand);
+
+            assert_eq!(value.ty(), expected);
+
+            assert_eq!(
+                value.kind(),
+                &ConstantValueKind::Integer(bray_symbols::IntegerConstant::new(
+                    bray_symbols::IntegerSign::NonNegative,
+                    [magnitude],
+                ))
+            );
+        }
 
         let cycle_resolver = CycleCallResolver;
 
@@ -2124,11 +2141,29 @@ mod tests {
             panic!("open tuple must remain an aggregate term");
         };
 
-        assert_eq!(elements[0], parameter);
+        let [first, second] = elements.as_ref() else {
+            panic!("the open tuple must preserve its two elements");
+        };
 
-        let second = semantic_values().constant_term_data(elements[1]);
+        assert_eq!(*first, parameter);
 
-        assert!(matches!(second.as_ref(), ConstantTermData::Value(_)));
+        let second = semantic_values().constant_term_data(*second);
+
+        let ConstantTermData::Value(second) = second.as_ref() else {
+            panic!("the second tuple element must remain a closed integer");
+        };
+
+        let second = constant_value(*second);
+
+        assert_eq!(second.ty(), element);
+
+        assert_eq!(
+            second.kind(),
+            &ConstantValueKind::Integer(bray_symbols::IntegerConstant::new(
+                bray_symbols::IntegerSign::NonNegative,
+                [1],
+            ))
+        );
     }
 
     #[test]

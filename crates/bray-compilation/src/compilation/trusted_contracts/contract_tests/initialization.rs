@@ -187,7 +187,7 @@ fn conditional_initialization_guarantees_from_field_observers() {
             trusted func consume_initialized_field<T>(pos storage: &mut Slots<T>)
                 uses(unchecked_init)
             {{
-                let state: u32 = trusted observe<T>(storage);
+                let state: u32 = observe<T>(storage);
                 {branch}
             }}
         "#
@@ -239,7 +239,7 @@ fn conditional_initialization_guarantees_reach_borrowed_fields() {
             trusted func consume_initialized_field(pos storage: &mut Slots, fail: bool)
                 uses(unchecked_init)
             {{
-                let state: u32 = trusted initialize(storage, fail = fail);
+                let state: u32 = initialize(storage, fail = fail);
                 {mutation}
                 if {guard} {{ _ = trusted core.memory.move_initialized<u8>(&mut storage.value); }}
             }}

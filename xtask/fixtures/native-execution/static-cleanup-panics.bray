@@ -1,4 +1,4 @@
-module static_cleanup_panics;
+trusted module static_cleanup_panics;
 
 using core.target;
 using core.atomic;
@@ -12,7 +12,7 @@ struct Counter
     {
         if core.atomic.load<usize, 1>(&self.visits) != 8
         {
-            trusted core.target.abort();
+            core.target.abort();
         }
     }
 }

@@ -90,14 +90,6 @@ trusted internal func register_task(
     }
 }
 
-trusted internal func scheduler_slot(pos owner: &Reference) -> DataPointer<bray.runtime.bootstrap.scheduler.Reference>
-    requires(trusted retained(owner = owner))
-    ensures(trusted retained(owner = owner), trusted bray.runtime.bootstrap.scheduler.reference_slot(pointer = result))
-    executes(pure, total)
-{
-    return std.memory.address_of<bray.runtime.bootstrap.scheduler.Reference>(trusted scheduler_reference(owner));
-}
-
 trusted internal func withdraw_registration(
     pos owner: &bray.runtime.bootstrap.execution.Reference,
     pos registration: u64

@@ -149,7 +149,7 @@ fn input_contract<C: CheckerRequestContext + ?Sized>(
     ));
 
     let retained = BoundDependencyContract::try_instantiate(&concrete, &mut context)?;
-    let reports = super::contract::instantiate_reports(template, &mut context)?;
+    let reports = super::contract::instantiate_reports(template, None, &mut context)?;
 
     let invocation = BoundDependencyContract::new(inputs.iter().map(|(_, access, _)| {
         BoundDependencyRequirement::Direct {
@@ -160,12 +160,9 @@ fn input_contract<C: CheckerRequestContext + ?Sized>(
 
     let contracts = BoundCallDependencyContracts::new(invocation, retained, None)
         .with_input_count(inputs.len())
-        .with_effects(template.effects().iter().cloned())
+        .with_effects(template.effect_outcomes().clone())
         .with_synchronous_cleanup(template.synchronous_cleanup())
-        .with_carriers(template.carriers().iter().cloned())
-        .with_owned_result(template.owned_result().clone())
         .with_normal_completion(template.normal_completion())
-        .with_normal_storage_preservation(template.preserves_storage_on_normal_return())
         .with_reports(reports);
 
     super::references::with_reference_inputs(
@@ -186,7 +183,10 @@ fn input_contract<C: CheckerRequestContext + ?Sized>(
             };
 
             let Some(access) = access else {
-                return Ok(None);
+                return match crate::storage::static_subject_type(request, subject.subject_root())? {
+                    Some(ty) => super::references::reference_subject_path(request, subject, ty),
+                    None => Ok(None),
+                };
             };
 
             let ty = storage
@@ -295,8 +295,8 @@ fn default_contextual_self<C: CheckerRequestContext + ?Sized>(
     CheckerQueryError<C::UpstreamError>,
 > {
     let Some(context) = request
-        .symbols()
-        .enclosing_self_type_context(provider.symbol())
+        .context()
+        .enclosing_self_type_context(provider.symbol())?
     else {
         return Ok(None);
     };
@@ -310,10 +310,9 @@ fn default_contextual_self<C: CheckerRequestContext + ?Sized>(
                 (None, Some(receiver)) => values.unborrowed_type(receiver.target_type()),
                 (None, None) => {
                     let subject = match context {
-                        bray_symbols::SelfTypeContext::NamedType(definition) => values
-                            .intern_open_named_type(request.symbols(), definition)
-                            .expect("selected default's named Self type is well formed")
-                            .expect("selected default's named Self declaration exists"),
+                        bray_symbols::SelfTypeContext::NamedType(definition) => {
+                            request.context().open_named_type(definition)?
+                        }
                         bray_symbols::SelfTypeContext::Implementation(implementation) => {
                             let subject = request
                                 .context()

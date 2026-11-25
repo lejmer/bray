@@ -235,6 +235,20 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             self.builder.position_at_end(inspect_panic);
         }
 
+        // A proven-complete call has no panic route. Its report stays in the
+        // empty context instead of being copied into a local before `unreachable`.
+        if super::edge::empty_unreachable_target(self.unit, panicked.target()) {
+            let (source, _) = self.take_control_source()?;
+
+            let completed_route =
+                self.route_call_completion(completed, completed_report, context, &moved_reports)?;
+
+            self.builder.position_at_end(source);
+            llvm(self.builder.build_unconditional_branch(completed_route))?;
+
+            return Ok(());
+        }
+
         let pending = native_run_state_is(
             &self.builder,
             state,

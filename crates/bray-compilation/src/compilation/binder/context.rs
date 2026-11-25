@@ -84,6 +84,21 @@ impl<'compilation> CompilationBindingContext<'compilation> {
         self.declarations
     }
 
+    pub(in crate::compilation) fn enclosing_self_type_context(
+        &self,
+        mut symbol: AnySymbolId,
+    ) -> BindingQueryResult<Option<bray_symbols::SelfTypeContext>> {
+        while let Some(owner) = self.containing_symbol(symbol)? {
+            if let Some(context) = bray_symbols::SelfTypeContext::try_new(owner) {
+                return Ok(Some(context));
+            }
+
+            symbol = owner;
+        }
+
+        Ok(None)
+    }
+
     pub(super) fn imported_path_root(
         &self,
         components: &[&str],
@@ -734,8 +749,8 @@ mod tests {
             "    record.value;\n",
             "}\n",
             "\n",
-            "extern func fixed(value: [i32; 4] = [0; 4]) -> [i32; 4];\n",
-            "extern func alternate(value: i32) -> i32;\n",
+            "extern func fixed(pos value: [i32; 4] = [0; 4]) -> [i32; 4];\n",
+            "extern func alternate(pos value: i32) -> i32;\n",
             "overload choose = {fixed, alternate}\n",
             "struct Record\n",
             "{\n",
@@ -926,8 +941,8 @@ mod tests {
                 "{\n",
                 "    choose<Missing>(1);\n",
                 "}\n",
-                "extern func first<T>(value: i32) -> i32;\n",
-                "extern func second<T>(value: i32) -> i32;\n",
+                "extern func first<T>(pos value: i32) -> i32;\n",
+                "extern func second<T>(pos value: i32) -> i32;\n",
                 "overload choose = {first, second}\n",
             ),
             [],

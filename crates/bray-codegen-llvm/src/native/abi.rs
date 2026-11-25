@@ -526,7 +526,13 @@ mod tests {
             let machine = crate::machine::LlvmTargetMachine::create(&target)
                 .expect("native report target creates an LLVM machine");
 
-            for owner in [None, Some(10), Some(16), Some(19), Some(20)] {
+            for owner in [
+                None,
+                Some(bray_runtime_interface::NATIVE_PANIC_REPORT_PRIMARY_PRESENT),
+                Some(bray_runtime_interface::NATIVE_PANIC_REPORT_PROVIDER_CALLBACKS),
+                Some(bray_runtime_interface::NATIVE_PANIC_REPORT_INCIDENT_COUNT),
+                Some(bray_runtime_interface::NATIVE_PANIC_REPORT_RESERVED),
+            ] {
                 for owning_argument in 0..2 {
                     for pointer_arguments in [false, true] {
                         let module = context.create_module("report.suppression");
@@ -1058,6 +1064,7 @@ mod tests {
                                 kind,
                                 bray_runtime_interface::RuntimeAbiType::InactiveFrame
                                     | bray_runtime_interface::RuntimeAbiType::PanicReport
+                                    | bray_runtime_interface::RuntimeAbiType::Configuration
                             )
                         })
                         .count()

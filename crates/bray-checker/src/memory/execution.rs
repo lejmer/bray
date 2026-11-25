@@ -1,6 +1,11 @@
 use bray_bound_tree::{CheckedMemoryOperationKind as Operation, MemoryReadKind};
 use bray_symbols::ExecutionProperty;
 
+/// Buffer cleanup installs its final descriptor before propagating a cleanup incident.
+pub(crate) const fn commits_buffer_cleanup(kind: &Operation) -> bool {
+    matches!(kind, Operation::RawBufferRelease { .. } | Operation::RawBufferReplace { .. })
+}
+
 /// Closed operations whose checked storage domain requires trusted caller evidence.
 pub(crate) const fn requires_trust(kind: &Operation) -> bool {
     matches!(

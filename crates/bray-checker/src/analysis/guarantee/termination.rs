@@ -5,7 +5,7 @@ use bray_bound_tree::BoundOperator;
 
 use super::super::id::AnalysisBlockId;
 use super::super::model::AnalysisEdge;
-use super::flow::ExecutionFlow;
+use super::flow::{ExecutionFlow, ExecutionFlowDomain};
 use super::state::ExecutionState;
 use crate::{CheckerRequestContext, ExecutionCondition, ExecutionPlace};
 
@@ -24,7 +24,7 @@ pub(super) fn bounded_loop_ranks<C: CheckerRequestContext + ?Sized>(
     incoming
         .into_iter()
         .filter_map(|(header, ends)| {
-            let initial = flow.states.state(header)?.as_ref()?;
+            let initial = flow.entry(header)?;
 
             let ends = ends
                 .into_iter()
@@ -45,7 +45,8 @@ pub(super) fn bounded_loop_ranks<C: CheckerRequestContext + ?Sized>(
 
                 for (end, equalities) in &ends {
                     let value = place.value_in(&end.current)?;
-                    let step = strict_step(&value, &start, equalities);
+                    let step = flow.domain.strict_integer_step(end, &value, &start, equalities);
+
                     let step = step?;
 
                     if direction.is_some_and(|previous| previous != step) {
@@ -61,19 +62,58 @@ pub(super) fn bounded_loop_ranks<C: CheckerRequestContext + ?Sized>(
         .collect()
 }
 
+impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
+    fn strict_integer_step(
+        &self,
+        state: &ExecutionState,
+        value: &ExecutionCondition,
+        base: &ExecutionCondition,
+        equalities: &BTreeMap<ExecutionCondition, ExecutionCondition>,
+    ) -> Option<Ordering> {
+        let value = value.computed_value();
+        let base = base.computed_value();
+
+        if value == base {
+            return None;
+        }
+
+        strict_step(value, base, equalities).or_else(|| {
+            // Exact arithmetic can fold to a literal on a refined back edge.
+            // Its progress still follows from the observed pre-step value.
+            if !matches!(value.kind(), crate::ExecutionConditionKind::Literal(_)) {
+                return None;
+            }
+
+            let mut ranges = super::integer::IntegerRanges::new();
+
+            let (minimum, maximum) = self.observed_integer_range(state, base, &mut ranges, &mut { ExecutionCondition::WORK_LIMIT })?;
+
+            let (value, _) = self.observed_integer_range(state, value, &mut ranges, &mut { ExecutionCondition::WORK_LIMIT })?;
+
+            if value > maximum {
+                Some(Ordering::Greater)
+            } else if value < minimum {
+                Some(Ordering::Less)
+            } else {
+                None
+            }
+        })
+    }
+}
+
 /// Returns the direction of a nonzero constant displacement in an established exact value.
 fn strict_step(
     value: &ExecutionCondition,
     base: &ExecutionCondition,
     equalities: &BTreeMap<ExecutionCondition, ExecutionCondition>,
 ) -> Option<Ordering> {
-    displacement(
-        &value.with_equalities(equalities),
-        &base.with_equalities(equalities),
-        &mut { ExecutionCondition::WORK_LIMIT },
-    )
-    .map(|delta| delta.cmp(&num_bigint::BigInt::from(0)))
-    .filter(|direction| *direction != Ordering::Equal)
+    let step = |value: &ExecutionCondition, base: &ExecutionCondition| {
+        displacement(value, base, &mut { ExecutionCondition::WORK_LIMIT })
+            .map(|delta| delta.cmp(&num_bigint::BigInt::from(0)))
+            .filter(|direction| *direction != Ordering::Equal)
+    };
+
+    step(value, base).or_else(|| step(&value.with_equalities(equalities), &base.with_equalities(equalities)))
 }
 
 fn displacement(
@@ -135,7 +175,7 @@ pub(super) fn finite_step<C: CheckerRequestContext + ?Sized>(
         .domain
         .graph
         .completion_exits()
-        .filter_map(|exit| flow.output(exit.block()))
+        .flat_map(|exit| flow.output_states(exit.block()))
         .filter(|state| !absent(&flow.domain.returned_value(state), state))
         .collect::<Vec<_>>();
 
@@ -169,7 +209,7 @@ pub(super) fn finite_step<C: CheckerRequestContext + ?Sized>(
 
                 let equalities = state.proofs.equalities(&state.assumptions, None);
 
-                let Some(step) = strict_step(&value, &base, &equalities) else {
+                let Some(step) = flow.domain.strict_integer_step(state, &value, &base, &equalities) else {
                     return false;
                 };
 
@@ -192,7 +232,7 @@ pub(super) fn finite_step<C: CheckerRequestContext + ?Sized>(
         return;
     };
 
-    for (occurrence, evidence) in &candidate.calls {
+    for (occurrence, admissions) in &candidate.calls {
         let Some(expression) = occurrence.expression() else {
             continue;
         };
@@ -280,10 +320,9 @@ pub(super) fn finite_step<C: CheckerRequestContext + ?Sized>(
             // The next receiver must still be the original input, not a replacement cursor.
             let base = ExecutionCondition::new(crate::ExecutionConditionKind::Input(place.clone()));
 
-            if ExecutionPlace::argument(input)
-                .value_in(&evidence.arguments)
-                .as_ref()
-                != Some(&base)
+            if !admissions.iter().all(|evidence| {
+                ExecutionPlace::argument(input).value_in(&evidence.arguments).as_ref() == Some(&base)
+            })
                 && !finite_prefix(flow, ranks, &exits, &path, *occurrence)
             {
                 continue;
@@ -361,7 +400,7 @@ pub(super) fn finite_protocol_loops<C: CheckerRequestContext + ?Sized>(
     cycles: &[(&AnalysisEdge, ExecutionState)],
     candidate: &mut crate::ExecutionCandidate,
 ) -> std::collections::BTreeSet<AnalysisBlockId> {
-    use super::super::model::{AnalysisCallPhase, AnalysisOperationKind};
+    use super::super::model::AnalysisRefinement;
     use bray_bound_tree::{BoundExecutionSite, SemanticSelection};
 
     let mut proved = std::collections::BTreeSet::new();
@@ -421,10 +460,9 @@ pub(super) fn finite_protocol_loops<C: CheckerRequestContext + ?Sized>(
                             .operations()
                     })
                     .filter_map(|id| flow.domain.graph.operation(*id))
-                    .map(|operation| operation.kind().occurrence())
-                    .any(|site| {
-                        site != occurrence
-                            && flow.domain.refinements.get(&site).is_some_and(|effect| {
+                    .any(|operation| {
+                        operation.kind().occurrence() != occurrence
+                            && body.storage_flow().operation_invalidation(operation.id()).is_some_and(|effect| {
                                 effect.invalidates(access, flow.domain.storage)
                             })
                     });
@@ -433,33 +471,13 @@ pub(super) fn finite_protocol_loops<C: CheckerRequestContext + ?Sized>(
                 continue;
             }
 
-            let completed = flow.domain.graph.blocks().iter().find(|block| {
-                block
-                    .operations()
-                    .iter()
-                    .filter_map(|id| flow.domain.graph.operation(*id))
-                    .any(|operation| {
-                        matches!(operation.kind(),
-                    AnalysisOperationKind::Call { invocation, phase: AnalysisCallPhase::Completion }
-                        if invocation == occurrence)
-                    })
-            });
+            let selects_item = |edge: &AnalysisEdge| matches!(edge.refinement(),
+                Some(AnalysisRefinement::InvocationPresence(invocation, true)) if invocation == occurrence);
 
-            let Some(completed) = completed else {
-                continue;
-            };
-
-            let matching = cycles
-                .iter()
-                .filter(|(edge, _)| edge.target() == header)
-                .collect::<Vec<_>>();
-
-            if matching.iter().any(|(edge, state)| {
-                (header != completed.id()
-                    && path_exists(flow, header, edge.source(), |candidate| {
-                        candidate.source() != completed.id() && candidate.target() != completed.id()
-                    }))
-                    || !next_present(flow, state, occurrence)
+            // The selected item can move or retire before the loop returns.
+            // Its reached presence edge is the progress evidence.
+            if cycles.iter().filter(|(edge, _)| edge.target() == header).any(|(edge, _)| {
+                !selects_item(edge) && path_exists(flow, header, edge.source(), |candidate| !selects_item(candidate))
             }) {
                 continue;
             }
@@ -517,40 +535,6 @@ fn path_exists<C: CheckerRequestContext + ?Sized>(
     }
 
     false
-}
-
-fn next_present<C: CheckerRequestContext + ?Sized>(
-    flow: &ExecutionFlow<'_, '_, C>,
-    state: &ExecutionState,
-    occurrence: bray_bound_tree::BoundExecutionSite,
-) -> bool {
-    let access = flow
-        .domain
-        .storage
-        .invocation_result(occurrence)
-        .expect("next has its actual nullable result");
-
-    let ty = flow
-        .domain
-        .storage
-        .access(access)
-        .expect("next storage has its type")
-        .reached_type();
-
-    let (_, missing) = crate::execution_guarantees::pattern_value(
-        flow.domain.request.semantic_values(),
-        ty,
-        bray_bound_tree::PatternPredicate::NullableAbsent,
-    )
-    .expect("next result has its absence value");
-
-    ExecutionCondition::pattern(
-        flow.domain.invocation_value(state, occurrence),
-        BoundOperator::NotEqual,
-        missing,
-    )
-    .prove_ordinary(&state.assumptions, Some(&state.proofs))
-        == Some(true)
 }
 
 fn loop_members<C: CheckerRequestContext + ?Sized>(
@@ -657,7 +641,7 @@ fn finite_prefix<C: CheckerRequestContext + ?Sized>(
                         return false;
                     };
 
-                    let Some(Some(entry)) = flow.states.state(guard.source()) else {
+                    let Some(entry) = flow.entry(guard.source()) else {
                         return false;
                     };
 
@@ -665,7 +649,7 @@ fn finite_prefix<C: CheckerRequestContext + ?Sized>(
                         return false;
                     };
 
-                    let (_, condition, _) = flow.domain.condition_evidence(entry, expression);
+                    let (_, condition, _) = flow.domain.condition_evidence(&entry, expression);
 
                     if condition
                         .with_equalities(&BTreeMap::from([(current, zero.clone())]))
@@ -692,15 +676,17 @@ fn finite_prefix<C: CheckerRequestContext + ?Sized>(
                                         return false;
                                     }
 
-                                    let cursor_write =
-                                        flow.domain.refinements.get(&site).is_some_and(|effect| {
-                                            effect.invalidates(access, flow.domain.storage)
-                                        });
+                                    let effect = flow.domain.checked_body.and_then(|body| {
+                                        body.storage_flow().operation_invalidation(operation.id())
+                                    });
 
-                                    let phase_effect =
-                                        flow.domain.refinements.get(&site).is_some_and(|effect| {
-                                            effect.invalidates(phase_access, flow.domain.storage)
-                                        });
+                                    let cursor_write = effect.is_some_and(|effect| {
+                                        effect.invalidates(access, flow.domain.storage)
+                                    });
+
+                                    let phase_effect = effect.is_some_and(|effect| {
+                                        effect.invalidates(phase_access, flow.domain.storage)
+                                    });
 
                                     let phase_write = if let AnalysisOperationKind::Bound(
                                         bray_bound_tree::AnyBoundNodeId::Expression(expression),

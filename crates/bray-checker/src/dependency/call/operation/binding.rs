@@ -99,20 +99,15 @@ pub(crate) fn selected_operation_contracts<C: CheckerRequestContext + ?Sized>(
 
     let result = BoundDependencyContract::try_instantiate(&concrete, &mut context)?;
 
-    let reports = super::super::contract::instantiate_reports(&template.template, &mut context)?;
+    let reports = super::super::contract::instantiate_reports(&template.template, None, &mut context)?;
 
     let contracts =
         BoundCallDependencyContracts::new(BoundDependencyContract::new([]), result, None)
             .with_reports(reports)
-            .with_input_count(inputs.len())
-            .with_effects(template.template.effects().iter().cloned())
+            .with_input_count(operands.len())
+            .with_effects(template.template.effect_outcomes().clone())
             .with_synchronous_cleanup(template.template.synchronous_cleanup())
-            .with_carriers(template.template.carriers().iter().cloned())
-            .with_owned_result(template.template.owned_result().clone())
-            .with_normal_completion(template.template.normal_completion())
-            .with_normal_storage_preservation(
-                template.template.preserves_storage_on_normal_return(),
-            );
+            .with_normal_completion(template.template.normal_completion());
 
     let contracts = super::super::references::with_reference_inputs(
         request,

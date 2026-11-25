@@ -3,6 +3,16 @@ use std::sync::Arc;
 use super::{ExecutionCondition, ExecutionConditionKind as K};
 
 impl ExecutionCondition {
+    /// An established tag can rule out a component without observing its payload.
+    pub(crate) fn excludes_component(&self, projection: bray_bound_tree::StorageProjection) -> bool {
+        match projection {
+            bray_bound_tree::StorageProjection::ActiveUnionPayloadField { variant, .. } =>
+                self.known_variant().is_some_and(|active| active != variant),
+            bray_bound_tree::StorageProjection::NullableValue => self.known_presence() == Some(false),
+            _ => false,
+        }
+    }
+
     /// Retain the same physical tag snapshot independently of changed payload data.
     pub(crate) fn common_retained_discriminant(&self, other: &Self) -> Option<Self> {
         fn source(mut value: &ExecutionCondition) -> &ExecutionCondition {
@@ -17,6 +27,10 @@ impl ExecutionCondition {
         }
 
         let (left, right) = (source(self), source(other));
+
+        if !left.is_unknown() && left == right && (self.has_discriminant() || other.has_discriminant()) {
+            return Some(left.discriminant());
+        }
 
         let original = match (left.kind(), right.kind()) {
             (K::Discriminant(original), _) if original.as_ref() == right || left == right => original,
@@ -43,7 +57,7 @@ impl ExecutionCondition {
     /// Select only the retained tag from the actual current snapshot.
     pub(crate) fn discriminant(&self) -> Self {
         match self.kind() {
-            K::Observation { contents, .. } | K::Borrowed(contents)
+            K::CapturedValue { value: contents, .. } | K::DeferredValue { value: contents, .. } | K::Observation { contents, .. } | K::Borrowed(contents)
             | K::Constructed(contents, _) => contents.discriminant(),
             K::Present(_) => Self::new(K::Present(Arc::new(Self::unknown()))),
             K::Tagged(variant, _) => Self::new(K::Tagged(*variant, Arc::new(Self::unknown()))),
@@ -84,13 +98,38 @@ impl ExecutionCondition {
         }
     }
 
+    pub(crate) fn has_discriminant(&self) -> bool {
+        let mut value = self;
+        let mut tagged_layout = false;
+
+        loop {
+            match value.kind() {
+                K::Constructed(base, fields) => {
+                    tagged_layout |= fields.iter().any(|(projection, _)| matches!(*projection,
+                        bray_bound_tree::StorageProjection::NullableValue
+                            | bray_bound_tree::StorageProjection::ActiveUnionPayloadField { .. }));
+
+                    value = base;
+                }
+                K::CapturedValue { value: base, .. } | K::DeferredValue { value: base, .. }
+                | K::Observation { contents: base, .. }
+                | K::Borrowed(base) => value = base,
+                K::Discriminant(_) | K::Present(_) | K::Tagged(_, _) => return true,
+                K::Literal(literal) => return matches!(literal.kind(), bray_symbols::ConstantValueKind::NullableAbsent
+                    | bray_symbols::ConstantValueKind::Union { .. }),
+                K::Unknown => return false,
+                _ => return tagged_layout,
+            }
+        }
+    }
+
     fn tag_source(&self) -> &Self {
         let mut value = self;
 
         loop {
             match value.kind() {
                 K::Constructed(base, _) | K::Discriminant(base) => value = base,
-                K::Observation { contents, .. } | K::Borrowed(contents) => value = contents,
+                K::CapturedValue { value: contents, .. } | K::DeferredValue { value: contents, .. } | K::Observation { contents, .. } | K::Borrowed(contents) => value = contents,
                 _ => return value,
             }
         }
@@ -99,7 +138,7 @@ impl ExecutionCondition {
     pub(crate) fn matches_variant(self, variant: bray_symbols::UnionVariantSymbolId) -> Self {
         match self.kind() {
             K::Unknown => self,
-            K::Borrowed(value) | K::Observation { contents: value, .. } => value.as_ref().clone().matches_variant(variant),
+            K::CapturedValue { value, .. } | K::DeferredValue { value, .. } | K::Borrowed(value) | K::Observation { contents: value, .. } => value.as_ref().clone().matches_variant(variant),
             K::Literal(value)
                 if let bray_symbols::ConstantValueKind::Union {
                     variant: active, ..
@@ -119,4 +158,49 @@ impl ExecutionCondition {
         }
     }
 
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use bray_bound_tree::StorageProjection;
+    use bray_symbols::{ConstantValueData, ConstantValueKind, IntegerConstant, TypeData};
+
+    use super::{ExecutionCondition, K};
+
+    #[test]
+    fn only_tagged_inline_values_supply_discriminants() {
+        let integer = crate::test_support::semantic_values().intern_type(TypeData::ExactInteger {
+            bits: std::num::NonZeroU16::new(32).expect("nonzero integer width"),
+            signed: false,
+        }).expect("integer test type");
+
+        let scalar = ExecutionCondition::new(K::Literal(Arc::new(ConstantValueData::new(
+            integer, ConstantValueKind::Integer(IntegerConstant::from_u64(0)),
+        ))));
+
+        let nullable = ExecutionCondition::constructed(ExecutionCondition::new(K::Result), [
+            (StorageProjection::NullableValue, scalar.clone()),
+        ].into());
+
+        assert!(!scalar.has_discriminant());
+        assert!(nullable.has_discriminant());
+    }
+
+    #[test]
+    fn a_payload_write_retains_its_original_discriminant_at_a_join() {
+        let input = |ordinal| ExecutionCondition::new(K::Input(crate::ExecutionPlace::argument(
+            bray_symbols::SymbolOrdinal::new(ordinal),
+        )));
+
+        let original = input(0);
+
+        let updated = original.with_storage_component(
+            &[StorageProjection::NullableValue], ExecutionCondition::boolean(true),
+        );
+
+        assert_eq!(updated.common_retained_discriminant(&original), Some(original.discriminant()));
+        assert_eq!(updated.common_retained_discriminant(&input(1)), None);
+    }
 }

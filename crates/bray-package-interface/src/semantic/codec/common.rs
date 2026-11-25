@@ -19,7 +19,7 @@ use crate::{
     InterfaceValidationLimits,
 };
 
-pub(in crate::semantic) const DECLARATION_SEMANTICS_FORMAT_VERSION: u32 = 1;
+pub(in crate::semantic) const DECLARATION_SEMANTICS_FORMAT_VERSION: u32 = 2;
 pub(in crate::semantic) const DECLARATION_TEMPLATE_FORMAT_VERSION: u32 = 1;
 
 pub(in crate::semantic::codec) const REFERENCE_EXACT: u32 = 1;
@@ -27,7 +27,29 @@ pub(in crate::semantic::codec) const REFERENCE_INPUT_ABSENT: u32 = 2;
 pub(in crate::semantic::codec) const REFERENCE_INPUT_REGIONS: u32 = 4;
 pub(in crate::semantic::codec) const REFERENCE_ALLOCATION: u32 = 8;
 pub(in crate::semantic::codec) const REFERENCE_EMPTY: u32 = 16;
-pub(in crate::semantic::codec) const REFERENCE_KIND_SHIFT: u32 = 5;
+pub(in crate::semantic::codec) const REFERENCE_NO_PAYLOAD: u32 = 32;
+pub(in crate::semantic::codec) const REFERENCE_BACKING_REGION: u32 = 1 << 31;
+pub(in crate::semantic::codec) const REFERENCE_KIND_SHIFT: u32 = 6;
+
+pub(crate) const fn encode_predicate_domain(domain: bray_symbols::PredicateDomain) -> u32 {
+    match domain {
+        bray_symbols::PredicateDomain::Value => 0,
+        bray_symbols::PredicateDomain::Trusted => 1,
+        bray_symbols::PredicateDomain::Execution => 2,
+    }
+}
+
+pub(crate) fn decode_predicate_domain(
+    raw: u32,
+    field: InterfaceValidationField,
+) -> Result<bray_symbols::PredicateDomain, InterfaceValidationError> {
+    match raw {
+        0 => Ok(bray_symbols::PredicateDomain::Value),
+        1 => Ok(bray_symbols::PredicateDomain::Trusted),
+        2 => Ok(bray_symbols::PredicateDomain::Execution),
+        raw => Err(crate::semantic::codec::invalid_discriminant(field, raw)),
+    }
+}
 
 pub(crate) fn write_symbol_reference(
     encoder: &mut WireEncoder,

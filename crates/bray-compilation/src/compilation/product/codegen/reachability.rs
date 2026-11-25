@@ -506,10 +506,9 @@ impl Compilation {
     }
 
     #[cfg(test)]
-    pub(in crate::compilation) fn codegen_instance_count_for_test(
+    pub(in crate::compilation) fn codegen_graph_for_test(
         &self,
-        mut selected: impl FnMut(&MirUnitKey) -> bool,
-    ) -> Result<usize, NativeProductPlanningError> {
+    ) -> Result<bray_codegen::CodegenReachability, NativeProductPlanningError> {
         let target = self
             .selected_target()
             .target()
@@ -530,8 +529,15 @@ impl Compilation {
             &self.state.cancellation,
         )?;
 
-        Ok(reachability
-            .graph()
+        Ok(reachability.graph().clone())
+    }
+
+    #[cfg(test)]
+    pub(in crate::compilation) fn codegen_instance_count_for_test(
+        &self,
+        mut selected: impl FnMut(&MirUnitKey) -> bool,
+    ) -> Result<usize, NativeProductPlanningError> {
+        Ok(self.codegen_graph_for_test()?
             .instances()
             .iter()
             .filter(|instance| selected(instance.key().template()))

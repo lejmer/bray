@@ -3,6 +3,82 @@ use bray_bound_tree::StorageProjection;
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{DependencyProjection, TypeData, TypeId};
 
+pub(crate) fn paths_at_root<V>(
+    paths: &std::collections::BTreeMap<bray_bound_tree::StoragePath, V>,
+    root: Option<bray_bound_tree::StorageIdentityId>,
+) -> impl Iterator<Item = (&bray_bound_tree::StoragePath, &V)> + Clone {
+    use std::ops::Bound;
+
+    let start = root.map_or(Bound::Unbounded, |root| {
+        Bound::Included(bray_bound_tree::StoragePath::root(root))
+    });
+
+    paths.range((start, Bound::Unbounded))
+        .take_while(move |(path, _)| root.is_none_or(|root| path.root == root))
+}
+
+/// Tests separation of the actual backing selected from two admitted buffer owners.
+pub(crate) fn buffer_backings_disjoint(
+    values: &bray_symbols::SemanticValueStore,
+    storage: &bray_bound_tree::StoragePlan,
+    left: &bray_bound_tree::StorageTarget,
+    right: &bray_bound_tree::StorageTarget,
+) -> bool {
+    use bray_bound_tree::{StorageOrigin, StoragePath, StorageRelationship};
+    use bray_symbols::{BorrowKind, DependencyReferenceKind};
+
+    if !left.is_exact() || !right.is_exact() {
+        return false;
+    }
+
+    if left.relationship_in_slots(right, storage.identities()) == StorageRelationship::Disjoint {
+        return true;
+    }
+
+    let exclusive_input = |target: &bray_bound_tree::StorageTarget| {
+        let StorageOrigin::Entry { reference, layer: 1, kind: DependencyReferenceKind::Borrow, projections } = &target.origin
+        else { return None; };
+
+        let (StorageProjection::OwnedTarget, owner_path) = projections.split_last()? else { return None; };
+
+        let ty = storage.storage_type(reference.root)?;
+
+        (reference.projections.is_empty() && StoragePath::inline_projections(owner_path)
+            && matches!(values.type_data(ty).as_ref(), TypeData::Borrow { kind: BorrowKind::Mutable, .. }))
+            .then_some(reference.root)
+    };
+
+    // Entry permissions separate the inline owners. The selected backings belong
+    // to those linear owners and preserve that separation across the relocation.
+    matches!((exclusive_input(left), exclusive_input(right)), (Some(left), Some(right)) if left != right)
+}
+
+pub(crate) fn static_subject_type<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
+    root: bray_symbols::DependencySubjectRoot,
+) -> crate::CheckerQueryResult<Option<TypeId>, C::UpstreamError> {
+    let values = request.semantic_values();
+
+    let Some(declaration) = root.static_declaration(values) else {
+        return Ok(None);
+    };
+
+    let declared = request.context().storage_declaration_type(declaration.into())?;
+    let constants = request.checked_constant_terms(declared.value())?;
+    let ty = crate::constant::resolve_type_expression_template(values, declared.value(), constants.value());
+
+    if let (Some(ty), bray_symbols::DependencySubjectRoot::StaticInstance(reference, _)) = (ty, root) {
+        let selected = values.static_reference(reference);
+
+        let ty = values.substitute_type(ty, selected.substitution())
+            .expect("selected static type retains its checked specialization");
+
+        return Ok(Some(ty));
+    }
+
+    Ok(ty)
+}
+
 /// Selects a pattern component relative to its already evaluated expression.
 pub(crate) fn expression_storage_projections(
     storage: &bray_bound_tree::StoragePlan,
@@ -170,7 +246,7 @@ pub(crate) fn projected_value_type<C: CheckerRequestContext + ?Sized>(
             };
 
             let queried = member
-                .map(|member| request.context().storage_member_type(member))
+                .map(|member| request.context().storage_declaration_type(member))
                 .transpose()?;
 
             let template = queried.as_ref().map(|queried| {
@@ -222,36 +298,72 @@ pub(crate) fn projected_owned_type<C: CheckerRequestContext + ?Sized>(
 /// A selected access can additionally require dereferencing the final value to its reached type.
 pub(crate) fn reference_path<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
-    mut ty: TypeId,
+    ty: TypeId,
     projections: std::sync::Arc<[StorageProjection]>,
     reached: Option<TypeId>,
 ) -> Result<
     Option<(TypeId, bray_bound_tree::StorageReferencePath)>,
     CheckerQueryError<C::UpstreamError>,
 > {
-    let mut borrows = Vec::new();
+    prepare_reference_path(request, ty, projections, reached, None)
+}
+
+/// A portable effect records the exact number and position of descriptor reads.
+pub(crate) fn effect_reference_path<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
+    ty: TypeId,
+    projections: std::sync::Arc<[StorageProjection]>,
+    reads: &[u32],
+) -> crate::CheckerQueryResult<Option<(TypeId, bray_bound_tree::StorageReferencePath)>, C::UpstreamError> {
+    prepare_reference_path(request, ty, projections, None, Some(reads))
+}
+
+fn prepare_reference_path<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
+    mut ty: TypeId,
+    projections: std::sync::Arc<[StorageProjection]>,
+    reached: Option<TypeId>,
+    reads: Option<&[u32]>,
+) -> crate::CheckerQueryResult<Option<(TypeId, bray_bound_tree::StorageReferencePath)>, C::UpstreamError> {
+    use bray_bound_tree::StorageReferenceStep;
+
+    let mut steps = Vec::new();
+    let mut reads = reads.map(|reads| reads.iter().copied().peekable());
+    let mut address_reads = Vec::new();
 
     for index in 0..=projections.len() {
-        while let TypeData::Borrow { target, .. } = request.semantic_values().type_data(ty).as_ref()
-        {
-            if index == projections.len() && reached.is_none_or(|reached| reached == ty) {
-                break;
-            }
+        if let Some(reads) = &mut reads {
+            while reads.next_if(|position| *position as usize == index).is_some() {
+                let offset = index + address_reads.len();
 
-            ty = *target;
-            borrows.push((index, ty));
+                if let TypeData::Borrow { kind, target } = *request.semantic_values().type_data(ty) {
+                    ty = target;
+                    steps.push(StorageReferenceStep::ReadBorrow { index: offset, target, mode: kind });
+                } else {
+                    let Some(target) = address_target_type(request, ty) else { return Ok(None); };
+
+                    ty = target;
+                    address_reads.push(index);
+                    steps.push(StorageReferenceStep::ReadAddress { index: offset, target });
+                }
+            }
+        } else {
+            while let TypeData::Borrow { kind, target } = *request.semantic_values().type_data(ty) {
+                if index == projections.len() && reached.is_none_or(|reached| reached == ty) { break; }
+
+                ty = target;
+                steps.push(StorageReferenceStep::ReadBorrow { index, target, mode: kind });
+            }
         }
 
         if let Some(projection) = projections.get(index) {
-            if *projection == StorageProjection::AddressTarget {
-                if crate::representation::reference_kind(request, ty) != Some(bray_symbols::DependencyReferenceKind::Address) {
-                    return Ok(None);
-                }
+            let index = index + address_reads.len();
 
-                let Some(target) = crate::representation::reference_target_type(request, ty) else { return Ok(None); };
+            if *projection == StorageProjection::AddressTarget {
+                let Some(target) = address_target_type(request, ty) else { return Ok(None); };
 
                 ty = target;
-                borrows.push((index, ty));
+                steps.push(StorageReferenceStep::ReadAddress { index, target: ty });
                 continue;
             }
 
@@ -261,21 +373,62 @@ pub(crate) fn reference_path<C: CheckerRequestContext + ?Sized>(
                 return Ok(None);
             };
 
+            if *projection == StorageProjection::OwnedTarget {
+                let pointer = crate::representation::raw_buffer_fields(request, ty)?.map(|fields| fields.pointer);
+
+                steps.push(StorageReferenceStep::Backing { index, target: projected, pointer });
+            }
+
             ty = projected;
         }
     }
 
+    assert!(reads.as_mut().is_none_or(|reads| reads.peek().is_none()), "effect reads lie within the checked route");
+
+    let projections = if address_reads.is_empty() {
+        projections
+    } else {
+        let mut reads = address_reads.into_iter().peekable();
+
+        (0..=projections.len()).flat_map(|index| {
+            let count = std::iter::from_fn(|| reads.next_if_eq(&index)).count();
+
+            std::iter::repeat_n(StorageProjection::AddressTarget, count).chain(projections.get(index).copied())
+        }).collect()
+    };
+
     Ok(Some((
         ty,
-        bray_bound_tree::StorageReferencePath::new(projections, borrows.into()),
+        bray_bound_tree::StorageReferencePath::new(projections, steps.into()),
     )))
+}
+
+fn address_target_type<C: CheckerRequestContext + ?Sized>(request: CheckerUnitView<'_, C>, ty: TypeId) -> Option<TypeId> {
+    if crate::representation::reference_kind(request, ty) != Some(bray_symbols::DependencyReferenceKind::Address) { return None; }
+
+    crate::representation::reference_target_type(request, ty)
 }
 
 pub(crate) fn resolve_storage_projections<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     projections: &[DependencyProjection],
 ) -> crate::CheckerQueryResult<Option<Vec<StorageProjection>>, C::UpstreamError> {
-    convert_projections(request.semantic_values(), projections, |field| {
+    resolve_projections(request, projections, false)
+}
+
+pub(crate) fn resolve_effect_projections<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
+    projections: &[DependencyProjection],
+) -> crate::CheckerQueryResult<Option<Vec<StorageProjection>>, C::UpstreamError> {
+    resolve_projections(request, projections, true)
+}
+
+fn resolve_projections<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
+    projections: &[DependencyProjection],
+    bind_inputs: bool,
+) -> crate::CheckerQueryResult<Option<Vec<StorageProjection>>, C::UpstreamError> {
+    convert_projections(request.semantic_values(), projections, bind_inputs, |field| {
         Ok(request
             .union_payload_field(field)?
             .expect("checked field projection retains its declaration")
@@ -290,24 +443,31 @@ pub(crate) fn owned_storage_projections(
     projections.iter().map(|projection| owned_storage_projection(dependencies, *projection)).collect()
 }
 
-/// Resolves a retained-value mask against the checked ownership projection table.
+/// Translates a shared normal-return mask using its already checked projection identities.
 pub(crate) fn owned_storage_preservation(
     dependencies: &bray_bound_tree::CheckedDependencyContracts,
     preservation: &bray_symbols::DependencyValuePreservation<bray_symbols::ConstantProjectionKind>,
 ) -> bray_symbols::DependencyValuePreservation<StorageProjection> {
     preservation.try_map_projections(&mut |projection| {
         Ok::<_, std::convert::Infallible>(owned_storage_projection(dependencies, *projection))
-    }).unwrap_or_else(|error| match error {})
+    }).expect("checked ownership masks retain their prepared projections")
 }
 
 pub(crate) fn resolve_owned_storage_projections<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     projections: &[bray_symbols::ConstantProjectionKind],
 ) -> crate::CheckerQueryResult<Vec<StorageProjection>, C::UpstreamError> {
-    projections.iter().map(|projection| map_owned_storage_projection(*projection, &mut |field| {
+    projections.iter().map(|projection| resolve_owned_storage_projection(request, *projection)).collect()
+}
+
+fn resolve_owned_storage_projection<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
+    projection: bray_symbols::ConstantProjectionKind,
+) -> crate::CheckerQueryResult<StorageProjection, C::UpstreamError> {
+    map_owned_storage_projection(projection, &mut |field| {
         Ok(request.union_payload_field(field)?
             .expect("checked owning field retains its variant").variant())
-    })).collect()
+    })
 }
 
 fn owned_storage_projection(
@@ -340,7 +500,7 @@ pub(crate) fn storage_projections(
     dependencies: &bray_bound_tree::CheckedDependencyContracts,
     projections: &[DependencyProjection],
 ) -> Option<Vec<StorageProjection>> {
-    convert_projections(values, projections, |field| {
+    convert_projections(values, projections, false, |field| {
         Ok::<_, std::convert::Infallible>(dependencies.projection_variant(field))
     })
     .unwrap_or_else(|error| match error {})
@@ -349,6 +509,7 @@ pub(crate) fn storage_projections(
 fn convert_projections<E>(
     values: &bray_symbols::SemanticValueStore,
     projections: &[DependencyProjection],
+    bind_inputs: bool,
     mut variant: impl FnMut(
         bray_symbols::UnionPayloadFieldSymbolId,
     ) -> Result<bray_symbols::UnionVariantSymbolId, E>,
@@ -372,6 +533,11 @@ fn convert_projections<E>(
             }
             DependencyProjection::Element(term) => {
                 let term = values.constant_term_data(term);
+
+                if bind_inputs && let bray_symbols::ConstantTermData::CallableArgument(ordinal) = *term {
+                    result.push(StorageProjection::ElementFromInput(ordinal));
+                    continue;
+                }
 
                 let bray_symbols::ConstantTermData::Value(value) = term.as_ref() else {
                     return Ok(None);
@@ -412,6 +578,7 @@ pub fn projected_storage_type<C: CheckerRequestContext + ?Sized>(
             DependencyProjection::UnionPayloadField(field)
         }
         StorageProjection::Element(_)
+        | StorageProjection::ElementFromInput(_)
         | StorageProjection::AnyElement
         | StorageProjection::ElementFromStart(_)
         | StorageProjection::ElementFromEnd(_) => {
@@ -472,22 +639,22 @@ pub(super) fn element_projection<C: CheckerRequestContext + ?Sized>(
     }
 }
 
-pub(crate) fn dependency_projections(
+pub(crate) fn dependency_projections<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
     projections: &[StorageProjection],
 ) -> Option<Vec<DependencyProjection>> {
     projections
         .iter()
         .copied()
-        .map(dependency_projection)
+        .map(|projection| dependency_projection(request, projection))
         .collect()
 }
 
-pub(crate) fn dependency_projection(
+/// Returns the portable path component of an actual evaluated value.
+pub(crate) fn dependency_projection<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
     projection: StorageProjection,
 ) -> Option<DependencyProjection> {
-    use bray_bound_tree::StorageProjection;
-    use bray_symbols::DependencyProjection;
-
     match projection {
         StorageProjection::ProductField(field) => Some(DependencyProjection::ProductField(field)),
         StorageProjection::TupleElement(index) => Some(DependencyProjection::TupleElement(index)),
@@ -498,6 +665,22 @@ pub(crate) fn dependency_projection(
         StorageProjection::OwnedTarget => Some(DependencyProjection::OwnedTarget),
         StorageProjection::UninitPayload => Some(DependencyProjection::UninitPayload),
         StorageProjection::AddressTarget => Some(DependencyProjection::AddressTarget),
+        StorageProjection::AnyElement => Some(DependencyProjection::AnyElement),
+        StorageProjection::ElementFromStart(index) => {
+            let values = request.semantic_values();
+
+            let value = values
+                .intern_constant_value(bray_symbols::ConstantValueData::new(
+                    crate::representation::representation_type(request, bray_compiler_known::RepresentationRole::ScalarUsize),
+                    bray_symbols::ConstantValueKind::Integer(bray_symbols::IntegerConstant::from_u64(u64::from(index.raw()))),
+                ))
+                .expect("checked array index belongs to the same semantic store");
+
+            let term = values.intern_constant_term(bray_symbols::ConstantTermData::Value(value))
+                .expect("checked array selector belongs to the same semantic store");
+
+            Some(DependencyProjection::Element(term))
+        }
         _ => None,
     }
 }

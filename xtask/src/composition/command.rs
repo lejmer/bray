@@ -118,11 +118,9 @@ fn execute(options: Options) -> Result<(), String> {
         if !options.no_build {
             crate::native_toolchain::build_compiler(&root)?;
 
-            let runtime = crate::progress::run("Preparing composition runtime", || {
-                crate::runtime_artifact::build_for_readiness(target, &directory.join("runtime"))
-            })?;
+            let (runtime, standard_library) = crate::native_toolchain::prepare_bundles(&root, target)?;
 
-            crate::native_toolchain::assemble(&root, target, &runtime, &toolchain)?;
+            crate::native_toolchain::assemble_from_bundles(target, &runtime.metadata, &standard_library, &toolchain)?;
         }
 
         prepare_workspace(&root, &workspace, target)?;

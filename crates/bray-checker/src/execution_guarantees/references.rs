@@ -38,7 +38,7 @@ impl ExecutionCondition {
             remaining = remaining.checked_sub(1).expect("bounded carrier subject traversal retains its finite condition tree");
 
             match subject.kind() {
-                K::Borrowed(value) | K::Observation { contents: value, .. } =>
+                K::CapturedValue { value, .. } | K::DeferredValue { value, .. } | K::Borrowed(value) | K::Observation { contents: value, .. } =>
                     pending.push((value.as_ref().clone(), projections)),
                 K::Projection(projection, value) => {
                     projections.push(*projection);

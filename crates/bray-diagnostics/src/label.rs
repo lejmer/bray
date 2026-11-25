@@ -215,6 +215,8 @@ pub enum DiagnosticLabelKind {
     DependencySelection,
     /// Label for an await whose required semantic state is unavailable.
     UnavailableAwaitDependency,
+    /// Label for a task start that cannot supply its computation's required state.
+    UnavailableTaskStartDependency,
     /// Label for an operation that requires an asynchronous callable body.
     InvalidAsyncOperation,
     /// Label for a trusted capability requirement rejected by callable checking.
@@ -303,6 +305,7 @@ impl DiagnosticLabelKind {
             Self::EscapingStorageDependency => "escaping_storage_dependency",
             Self::DependencySelection => "dependency_selection",
             Self::UnavailableAwaitDependency => "unavailable_await_dependency",
+            Self::UnavailableTaskStartDependency => "unavailable_task_start_dependency",
             Self::InvalidAsyncOperation => "invalid_async_operation",
             Self::InvalidTrustedCapabilityRequirement => "invalid_trusted_capability_requirement",
             Self::ConflictingModuleDeclaration => "conflicting_module_declaration",

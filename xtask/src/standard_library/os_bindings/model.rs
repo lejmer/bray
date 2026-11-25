@@ -4,6 +4,10 @@ use serde::Deserialize;
 
 pub(super) const FORMAT: u32 = 1;
 
+pub(super) fn is_windows_handle(target: &TargetDescription, ty: &str) -> bool {
+    target.target.ends_with("-pc-windows-msvc") && ty == "Handle"
+}
+
 pub(super) fn abi_integer_representation(ty: &str) -> Option<(u64, bool)> {
     match ty {
         "i8" => Some((1, true)),

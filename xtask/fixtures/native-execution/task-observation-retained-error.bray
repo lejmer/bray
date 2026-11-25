@@ -25,6 +25,8 @@ static BODIES: core.atomic.Atomic<usize> = core.atomic.initialize<usize>(0);
 
 static CAPTURES: core.atomic.Atomic<usize> = core.atomic.initialize<usize>(0);
 
+static CHILD_REACHED_OUTCOME: core.atomic.Atomic<bool> = core.atomic.initialize<bool>(false);
+
 struct Capture
 {
     destruct()
@@ -54,22 +56,28 @@ async func prepare(pos outcome: Child) -> Future<unit>
 {
     if outcome matches Child.Panicked
     {
+        core.atomic.store<bool, 2>(&CHILD_REACHED_OUTCOME, true);
         panic("");
     }
 
     if outcome matches Child.Cancelled
     {
+        core.atomic.store<bool, 2>(&CHILD_REACHED_OUTCOME, true);
+
         loop
         {
             await std.task.yield_now();
         }
     }
 
-    return inactive(
+    let captured = inactive(
         Capture
         {
         }
     );
+
+    core.atomic.store<bool, 2>(&CHILD_REACHED_OUTCOME, true);
+    return captured;
 }
 
 struct Failure
@@ -149,7 +157,10 @@ trusted async func fail(pos outcome: Child, pos cancellation: bool, pos denied: 
 {
     let task = prepare(outcome).start();
 
-    await std.task.yield_now();
+    while !core.atomic.load<bool, 1>(&CHILD_REACHED_OUTCOME)
+    {
+        await std.task.yield_now();
+    }
 
     let observation = if cancellation
     {
@@ -171,7 +182,7 @@ trusted async func fail(pos outcome: Child, pos cancellation: bool, pos denied: 
         {
             if denied
             {
-                core.atomic.store<u32, 4>(&ALLOCATIONS, trusted deny_allocation());
+                core.atomic.store<u32, 4>(&ALLOCATIONS, deny_allocation());
             }
 
             panic("");
@@ -187,18 +198,18 @@ trusted async func fail(pos outcome: Child, pos cancellation: bool, pos denied: 
 
     if denied
     {
-        core.atomic.store<u32, 4>(&ALLOCATIONS, trusted deny_allocation());
+        core.atomic.store<u32, 4>(&ALLOCATIONS, deny_allocation());
     }
 
     panic("");
 }
 
-trusted async func handle_failure(pos outcome: Child, pos cancellation: bool, pos denied: bool, pos scoped: bool)
+async func handle_failure(pos outcome: Child, pos cancellation: bool, pos denied: bool, pos scoped: bool)
     requires(main_thread_execution())
 {
     _ = catch
     {
-        await trusted fail(outcome, cancellation, denied, scoped);
+        await fail(outcome, cancellation, denied, scoped);
         yield unit;
     };
 }
@@ -211,6 +222,7 @@ trusted async func verify(pos outcome: Child, pos cancellation: bool, pos denied
     core.atomic.store<usize, 4>(&ERRORS, 0);
     core.atomic.store<usize, 4>(&BODIES, 0);
     core.atomic.store<usize, 4>(&CAPTURES, 0);
+    core.atomic.store<bool, 2>(&CHILD_REACHED_OUTCOME, false);
 
     let captures: usize = if outcome matches Child.Completed
     {
@@ -221,11 +233,11 @@ trusted async func verify(pos outcome: Child, pos cancellation: bool, pos denied
         yield 0;
     };
 
-    await trusted handle_failure(outcome, cancellation, denied, scoped);
+    await handle_failure(outcome, cancellation, denied, scoped);
 
     if denied
     {
-        let attempts = trusted restore_allocation(core.atomic.load<u32, 1>(&ALLOCATIONS));
+        let attempts = restore_allocation(core.atomic.load<u32, 1>(&ALLOCATIONS));
 
         assert(attempts == 0, "retained observation cleanup requested fresh backing");
     }
@@ -236,7 +248,7 @@ trusted async func verify(pos outcome: Child, pos cancellation: bool, pos denied
     assert(core.atomic.load<usize, 1>(&CAPTURES) == captures, "returned future was not destroyed once");
 }
 
-trusted async func main()
+async func main()
     requires(main_thread_execution())
 {
     for mode in 0..8
@@ -245,8 +257,8 @@ trusted async func main()
         let denied = mode % 4 >= 2;
         let cancellation = mode % 2 == 1;
 
-        await trusted verify(Child.Completed, cancellation, denied, scoped);
-        await trusted verify(Child.Panicked, cancellation, denied, scoped);
-        await trusted verify(Child.Cancelled, cancellation, denied, scoped);
+        await verify(Child.Completed, cancellation, denied, scoped);
+        await verify(Child.Panicked, cancellation, denied, scoped);
+        await verify(Child.Cancelled, cancellation, denied, scoped);
     }
 }

@@ -1,0 +1,45 @@
+trusted internal module bray.runtime.bootstrap;
+
+trusted func probe_primary_callbacks_admitted(
+    pos mut primary: bray.runtime.bootstrap.ReportPrimary,
+    pos other: &mut bray.runtime.bootstrap.ReportPrimary,
+)
+    requires(trusted bray.runtime.bootstrap.native_primary_callbacks(primary = &primary))
+{
+    let callbacks = bray.runtime.bootstrap.primary_callbacks(&primary);
+}
+
+trusted func probe_primary_callbacks_independent_mutation(
+    pos mut primary: bray.runtime.bootstrap.ReportPrimary,
+    pos other: &mut bray.runtime.bootstrap.ReportPrimary,
+)
+    requires(trusted bray.runtime.bootstrap.native_primary_callbacks(primary = &primary))
+{
+    other.message_length = 0;
+
+    let callbacks = bray.runtime.bootstrap.primary_callbacks(&primary);
+}
+
+trusted func probe_primary_callbacks_mutated(
+    pos mut primary: bray.runtime.bootstrap.ReportPrimary,
+    pos other: &mut bray.runtime.bootstrap.ReportPrimary,
+)
+    requires(trusted bray.runtime.bootstrap.native_primary_callbacks(primary = &primary))
+{
+    primary.release_message = 0;
+
+    let callbacks = bray.runtime.bootstrap.primary_callbacks(&primary);
+}
+
+trusted func probe_primary_callbacks_copied(
+    pos mut primary: bray.runtime.bootstrap.ReportPrimary,
+    pos other: &mut bray.runtime.bootstrap.ReportPrimary,
+)
+    requires(trusted bray.runtime.bootstrap.native_primary_callbacks(primary = &primary))
+{
+    let mut forged = bray.runtime.bootstrap.empty_primary();
+
+    forged.release_message = primary.release_message;
+
+    let callbacks = bray.runtime.bootstrap.primary_callbacks(&forged);
+}

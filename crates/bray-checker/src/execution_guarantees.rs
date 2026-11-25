@@ -1,15 +1,20 @@
 mod assumptions;
 mod clause;
+mod call_proof;
 mod boolean;
 mod condition;
 mod declaration;
 mod implication;
 mod ordered_facts;
 mod evidence;
+mod outputs;
+pub(crate) use outputs::{ExecutionOutput, ExecutionOutputs, OutputGuard};
+mod deferred;
 mod model;
 mod normalize;
 mod place;
 mod portable;
+mod proof_inputs;
 mod references;
 mod snapshot;
 mod trusted_implication;
@@ -17,17 +22,24 @@ mod witness;
 
 pub(crate) use assumptions::ExecutionAssumptions;
 
-pub(crate) use snapshot::{common_components, owned_snapshot};
+pub(crate) use snapshot::common_components;
+#[cfg(test)]
+pub(crate) use snapshot::owned_snapshot;
 
 pub use bray_symbols::ExecutionProperty;
-pub use condition::{ExecutionCondition, ExecutionConditionKind, ExecutionDescriptorKind, ExecutionOperands, ExecutionObservationKind};
+pub use condition::{ExecutionCondition, ExecutionConditionKind, ExecutionDescriptorKind, ExecutionJoinSite, ExecutionOperands, ExecutionObservationKind};
 pub(crate) use condition::{ ExecutionProof, ExecutionProofCache, ExecutionSubstitution, GuardSubstitution, SnapshotSubstitution, ObservationSet, RetainedSnapshots, memoize_condition, memoize_observations};
+pub(crate) use proof_inputs::{ExecutionProofInputDomain, NormalizedProofInputs};
 pub use declaration::declared_execution_properties;
 pub use implication::{
     execution_condition_is_implied, map_execution_condition_references,
     remap_execution_condition_inputs, substitute_execution_condition,
 };
+pub use call_proof::ExecutionCallProof;
 pub use evidence::{ExecutionCallEvidence, UnprovenExecutionCondition};
+pub(crate) use evidence::{ExecutionFailureRow, MemoryAccessProof};
+pub use deferred::{ExecutionDeferredInvocation, ExecutionDeferredValue};
+pub(crate) use deferred::{FrameReportOwner, deferred_selection, deferred_possible};
 pub use model::{
     DeclaredExecutionProperty, ExecutionCandidate, ExecutionCandidates,
     ExecutionCertification, ExecutionCleanup, ExecutionCompletionContract,

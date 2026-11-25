@@ -9,7 +9,7 @@ use crate::{InterfaceGenericArgument, InterfaceSemantics};
 use super::common::{invalid_symbol, resolve_exact, resolve_symbol};
 use super::{InterfaceSemanticInternError, InterfaceSymbolResolver, InternState};
 
-impl InternState {
+impl InternState<'_> {
     pub(super) fn intern_substitutions(
         &mut self,
         semantics: &InterfaceSemantics,

@@ -145,8 +145,8 @@ fn mutated_nullable_owners_keep_promised_evidence_through_extraction() {
         (false, true, "other", "direct", false), (true, true, "owner", "direct", true),
         (true, false, "owner", "direct", false), (true, true, "other", "direct", false),
         (false, true, "owner", "await", true), (false, false, "owner", "await", false),
-        (false, true, "other", "await", false), (false, true, "owner", "cancel", true),
-        (false, false, "owner", "cancel", false),
+        (false, true, "other", "await", false), (false, true, "owner", "inactive_drop", true),
+        (false, false, "owner", "inactive_drop", false),
     ] {
         let asynchronous = if deferred { "async " } else { "" };
         let caller_async = if deferred || route != "direct" { "async " } else { "" };
@@ -156,10 +156,10 @@ fn mutated_nullable_owners_keep_promised_evidence_through_extraction() {
 
         let extraction = match route {
             "direct" => format!("let outgoing = std.memory.replace_value<(Owner?)>({source_owner}, none);\n                consume_optional(outgoing);"),
-            "await" => format!("let extraction = trusted forward_owner({source_owner});\n                let outgoing = await extraction;\n                consume_optional(outgoing);"),
-            "cancel" => r#"
+            "await" => format!("let extraction = forward_owner({source_owner});\n                let outgoing = await extraction;\n                consume_optional(outgoing);"),
+            "inactive_drop" => r#"
                 {
-                    let extraction = trusted forward_owner(owner);
+                    let extraction = forward_owner(owner);
                     _ = extraction;
                 }
 
@@ -267,6 +267,89 @@ fn mutated_nullable_owners_keep_promised_evidence_through_extraction() {
             bray_testing::assert_goal_state_diagnostic_kind(diagnostics, DiagnosticKind::CheckingTrustedObligationNotProven);
         }
     }
+}
+
+#[test]
+fn nested_nullable_extraction_preserves_selected_entry_carrier() {
+    let source = r#"
+        trusted module app;
+
+        using std.memory;
+
+        struct Marker
+        {
+        }
+
+        struct Owner
+        {
+            marker: Marker;
+        }
+
+        struct Holder
+        {
+            mut token: Owner?;
+        }
+
+        trusted predicate acquired(owner: &Marker);
+
+        const func present_owner(pos token: &(Owner?)) -> &Owner
+            requires(token matches ?_)
+            executes(pure, total)
+        {
+            return match token
+            {
+                case ?value { yield &value; }
+                case none { panic("missing owner"); }
+            };
+        }
+
+        predicate ready(owner: &Holder) = owner.token matches ?_ &&
+            acquired(owner = &present_owner(&owner.token).marker);
+
+        func consume_owner(pos owner: Owner)
+            requires(trusted acquired(owner = &owner.marker)) {}
+
+        trusted func owned_slot(pos holder: &mut Holder)
+            requires(trusted ready(owner = &holder))
+        {
+            let outgoing = trusted std.memory.take_nullable<Owner>(&mut holder.token);
+
+            match consume outgoing
+            {
+                case ?value { consume_owner(value); }
+                case none {}
+            }
+        }
+
+        trusted func unrelated_slot(pos holder: &mut Holder, pos other: &mut Holder)
+            requires(trusted ready(owner = &holder))
+        {
+            let outgoing = trusted std.memory.take_nullable<Owner>(&mut other.token);
+
+            match consume outgoing
+            {
+                case ?value { consume_owner(value); }
+                case none {}
+            }
+        }
+    "#;
+
+    let application = crate::test_support::production_standard_library_compilation(
+        crate::SelectedTarget::baseline(), source,
+    );
+
+    let checked = |name| application.lowered_unit(source_function_body_key(&application, name))
+        .expect("nullable extraction reaches lowering");
+
+    let owned = checked("owned_slot");
+
+    assert!(!owned.diagnostics().has_errors(), "{:#?}", owned.diagnostics());
+    assert!(owned.value().is_some(), "the actual selected owner lowers");
+
+    bray_testing::assert_goal_state_diagnostic_kind(
+        checked("unrelated_slot").diagnostics(),
+        DiagnosticKind::CheckingTrustedObligationNotProven,
+    );
 }
 
 #[test]

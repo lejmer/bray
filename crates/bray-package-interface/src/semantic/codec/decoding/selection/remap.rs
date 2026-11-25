@@ -1,4 +1,3 @@
-use bray_symbols::DependencyStorageEffect;
 use std::sync::Arc;
 
 use super::mapping::RecordMaps;
@@ -243,21 +242,15 @@ pub(super) fn remap_selected_records(
         .with_runtime_requirements(runtime_requirements))
 }
 
-fn remap_dependency_contract(
-    mut contract: crate::InterfaceDependencyContract,
+fn remap_dependency_storage(
+    borrows: &[bray_symbols::DependencyBorrowRelation<crate::InterfaceDependencySubject, crate::InterfaceDependencyProjection>],
+    stored_values: &[bray_symbols::DependencyStoredValue<crate::InterfaceDependencySubject>],
     maps: &RecordMaps,
-) -> Result<crate::InterfaceDependencyContract, InterfaceValidationError> {
-    for requirements in std::iter::once(&mut contract.requirements)
-        .chain(contract.completion_reports.iter_mut())
-        .chain(contract.abnormal_reports.iter_mut())
-        .chain(std::iter::once(&mut contract.synchronous_cleanup))
-    {
-        for requirement in Arc::make_mut(requirements) {
-            remap_dependency_requirement(requirement, maps)?;
-        }
-    }
-
-    let stored_values = contract.stored_values.iter().map(|stored| {
+) -> Result<(
+    Vec<bray_symbols::DependencyBorrowRelation<crate::InterfaceDependencySubject, crate::InterfaceDependencyProjection>>,
+    Vec<bray_symbols::DependencyStoredValue<crate::InterfaceDependencySubject>>,
+), InterfaceValidationError> {
+    let stored_values = stored_values.iter().map(|stored| {
         let mut subject = stored.destination().subject().clone();
 
         remap_dependency_subject(&mut subject, maps)?;
@@ -275,8 +268,7 @@ fn remap_dependency_contract(
         Ok(bray_symbols::DependencyStoredValue::new(destination, sources, stored.is_complete()))
     }).collect::<Result<Vec<_>, InterfaceValidationError>>()?;
 
-    let borrows = contract
-        .borrows
+    let borrows = borrows
         .iter()
         .map(|relation| {
             // The selected record owns remapped paths independently of the decoded table.
@@ -299,12 +291,111 @@ fn remap_dependency_contract(
         })
         .collect::<Result<Vec<_>, InterfaceValidationError>>()?;
 
-    contract.observed_result = contract
-        .observed_result
-        .map(|term| maps.constant_term_id(term))
-        .transpose()?;
+    Ok((borrows, stored_values))
+}
 
-    contract.owned_result = contract.owned_result.try_map(
+fn remap_dependency_contract(
+    mut contract: crate::InterfaceDependencyContract,
+    maps: &RecordMaps,
+) -> Result<crate::InterfaceDependencyContract, InterfaceValidationError> {
+    for requirements in std::iter::once(&mut contract.requirements)
+        .chain(std::iter::once(&mut contract.synchronous_cleanup))
+    {
+        remap_dependency_requirements(requirements, maps)?;
+    }
+
+    let remap_effect = |effect: &crate::InterfaceStorageEffect| effect.try_map(
+        &mut (),
+        |_, subject| {
+            // The selected artifact owns its remapped subject.
+            let mut subject = subject.clone();
+
+            remap_dependency_subject(&mut subject, maps)?;
+
+            Ok(subject)
+        },
+        |_, projections| {
+            let mut projections = projections.to_vec();
+
+            remap_dependency_projections(&mut projections, maps)?;
+
+            Ok(projections.into())
+        },
+        |_, ty| maps.type_id(ty),
+    );
+
+    let remap_binding = |(destination, value): &crate::InterfaceCapturedBinding| {
+        let mut destination = destination.clone();
+
+        remap_dependency_subject(&mut destination, maps)?;
+
+        Ok((destination, value.try_map(&mut |input| maps.constant_term_id(*input), &mut |projection| {
+                let mut projection = projection.clone();
+
+                remap_dependency_projections(std::slice::from_mut(&mut projection), maps)?;
+
+                Ok::<_, InterfaceValidationError>(projection)
+            }, &mut |root| {
+                let mut root = root.clone();
+
+                remap_static_reference(&mut root, maps)?;
+
+                Ok(root)
+            }, &mut |call| Ok(crate::InterfaceCapturedCallable {
+                instance: maps.callable_instance_id(call.instance)?, signature: maps.type_id(call.signature)?,
+                receiver: call.receiver.map(|ty| maps.type_id(ty)).transpose()?,
+                requirement: call.requirement.map(|(ty, app)| Ok((maps.type_id(ty)?, maps.trait_application_id(app)?))).transpose()?,
+                dispatch: call.dispatch.map(|w| maps.implementation_instance_id(w)).transpose()?,
+                witnesses: call.witnesses.iter().map(|w| maps.implementation_instance_id(*w)).collect::<Result<_, _>>()?,
+            }), &mut |variant| Ok(variant.clone()))?))
+    };
+
+    if let Some(rows) = &contract.failure_outcomes {
+        let rows = rows.iter().cloned().map(|mut row| {
+            row.guard = row.guard.map(|term| maps.constant_term_id(term)).transpose()?;
+
+            row.effects = row.effects.as_deref().map(|effects| effects.iter().map(&remap_effect)
+                .collect::<Result<Vec<_>, _>>().map(bray_base::sorted_unique_shared_slice)).transpose()?;
+
+            row.cell_changes = row.cell_changes.as_deref().map(|cells| cells.iter().map(&remap_effect)
+                .collect::<Result<Vec<_>, _>>().map(bray_base::sorted_unique_shared_slice)).transpose()?;
+
+            let (references, stored_values) = remap_dependency_storage(&row.references, &row.stored_values, maps)?;
+
+            row.references = references.into();
+            row.stored_values = stored_values.into();
+
+            row.writes = bray_base::sorted_unique_shared_slice(row.writes.iter().map(&remap_binding)
+                .collect::<Result<Vec<_>, _>>()?);
+
+            if let Some(report) = &mut row.report {
+                remap_dependency_requirements(report, maps)?;
+            }
+
+            Ok(row)
+        }).collect::<Result<Vec<_>, InterfaceValidationError>>()?;
+
+        contract.failure_outcomes = Some(bray_base::sorted_unique_shared_slice(rows));
+    }
+
+    contract.captured_values = contract.captured_values.iter().map(|outcome| {
+        let guard = outcome.guard.map(|term| maps.constant_term_id(term)).transpose()?;
+        let mut report = outcome.report.clone();
+
+        if let Some(requirements) = &mut report {
+            remap_dependency_requirements(requirements, maps)?;
+        }
+
+        let report_payloads = outcome.report_payloads.iter().cloned().map(|mut payload| {
+            remap_dependency_subject(&mut payload.destination, maps)?;
+            remap_dependency_requirements(&mut payload.requirements, maps)?;
+
+            Ok(payload)
+        }).collect::<Result<Vec<_>, InterfaceValidationError>>()?;
+
+        let bindings = outcome.bindings.iter().map(&remap_binding).collect::<Result<Vec<_>, _>>()?;
+
+        let owned_result = outcome.ownership.try_map(
         &mut |transfer| {
             Ok::<_, InterfaceValidationError>(bray_symbols::DependencyOwnedResult::Transfer(
                 bray_symbols::DependencyOwnedTransfer::new(
@@ -323,8 +414,7 @@ fn remap_dependency_contract(
         &mut |condition| maps.constant_term_id(*condition).map(Some),
     )?;
 
-    let carriers = contract
-        .carriers
+    let carriers = outcome.carriers
         .iter()
         .map(|carrier| {
             // Selected records own their remapped paths independently of the decoded table.
@@ -332,50 +422,47 @@ fn remap_dependency_contract(
 
             remap_dependency_projections(&mut path, maps)?;
 
-            Ok(bray_symbols::DependencyWitnessCarrier::new(
-                maps.constant_term_id(carrier.guarantee())?,
-                path,
-            ))
+            let support = carrier.support().map(|support| support.try_map(
+                &mut (),
+                |_, owner| {
+                    // A selected artifact owns its remapped support routes.
+                    let mut owner = owner.clone();
+
+                    remap_dependency_subject(&mut owner, maps)?;
+
+                    Ok(owner)
+                },
+                |_, address| maps.constant_term_id(*address),
+            )).transpose()?;
+
+            Ok(carrier.remap(maps.constant_term_id(carrier.guarantee())?, path).with_support(support))
         })
         .collect::<Result<Vec<_>, InterfaceValidationError>>()?;
 
-    for effect in Arc::make_mut(&mut contract.effects) {
+        let (references, stored_values) = remap_dependency_storage(&outcome.references, &outcome.stored_values, maps)?;
 
-        if let DependencyStorageEffect::Direct { kind, access_type, .. }
-        | DependencyStorageEffect::Indirect { kind, access_type, .. }
-        | DependencyStorageEffect::UnboundedMutation { kind, access_type, .. } = effect
-        {
-            *kind = kind.try_map_type(|ty| maps.type_id(ty))?;
-            *access_type = access_type.map(|ty| maps.type_id(ty)).transpose()?;
+        let mut inactive_payloads = outcome.inactive_payloads.to_vec();
+
+        for payload in &mut inactive_payloads {
+            remap_dependency_subject(payload, maps)?;
         }
 
-        match effect {
-            DependencyStorageEffect::UnboundedMutation { .. }
-                | DependencyStorageEffect::Atomic
-            | DependencyStorageEffect::Ambient
-            | DependencyStorageEffect::Unknown
-            | DependencyStorageEffect::Escape => {}
-            DependencyStorageEffect::Direct { subject, .. } => {
-                remap_dependency_subject(subject, maps)?
-            }
-            DependencyStorageEffect::Indirect {
-                reference,
-                projections,
-                ..
-            } => {
-                remap_dependency_subject(reference, maps)?;
-                remap_dependency_projections(Arc::make_mut(projections), maps)?;
-            }
-        }
-    }
+        let effects = outcome.effects.iter().map(remap_effect).collect::<Result<Vec<_>, _>>()?;
 
-    let effects = Arc::clone(&contract.effects);
+        let cell_changes = outcome.cell_changes.as_deref().map(|cells| cells.iter().map(&remap_effect)
+            .collect::<Result<Vec<_>, _>>().map(bray_base::sorted_unique_shared_slice)).transpose()?;
+
+        Ok(bray_symbols::CapturedValueOutcome::new(guard, bindings).with_effects(effects).with_cell_changes(cell_changes).with_carriers(carriers).with_report(report)
+            .with_report_payloads(report_payloads)
+            .with_ownership(owned_result).with_storage(references, stored_values)
+            .with_inactive_payloads(inactive_payloads))
+    }).collect::<Result<_, InterfaceValidationError>>()?;
+
+    contract.effects = bray_base::sorted_unique_shared_slice(
+        contract.effects.iter().map(remap_effect).collect::<Result<Vec<_>, _>>()?);
 
     Ok(contract
-        .with_borrows(borrows)
-        .with_stored_values(stored_values)
-        .with_carriers(carriers)
-        .with_effects(effects.iter().cloned()))
+)
 }
 
 fn remap_callable_contract(
@@ -667,6 +754,21 @@ fn remap_constant_term(
     Ok(())
 }
 
+fn remap_dependency_requirements(
+    requirements: &mut Arc<[InterfaceDependencyRequirement]>,
+    maps: &RecordMaps,
+) -> Result<(), InterfaceValidationError> {
+    let requirements = Arc::make_mut(requirements);
+
+    for requirement in &mut *requirements {
+        remap_dependency_requirement(requirement, maps)?;
+    }
+
+    requirements.sort_unstable();
+
+    Ok(())
+}
+
 fn remap_dependency_requirement(
     requirement: &mut InterfaceDependencyRequirement,
     maps: &RecordMaps,
@@ -675,9 +777,7 @@ fn remap_dependency_requirement(
         InterfaceDependencyRequirementValue::CleanupDependencies { ty, requirements } => {
             *ty = maps.type_id(*ty)?;
 
-            for nested in Arc::make_mut(requirements) {
-                remap_dependency_requirement(nested, maps)?;
-            }
+            remap_dependency_requirements(requirements, maps)?;
         }
         InterfaceDependencyRequirementValue::SynchronousCleanup(ty)
         | InterfaceDependencyRequirementValue::FinalizerBodyCleanup(ty) => {
@@ -778,7 +878,22 @@ fn remap_dependency_subject(
         *application = maps.trait_application_id(*application)?;
     }
 
+    if let InterfaceDependencySubjectRoot::StaticInstance(reference, _) = &mut subject.root {
+        remap_static_reference(reference, maps)?;
+    }
+
     remap_dependency_projections(Arc::make_mut(&mut subject.projections), maps)
+}
+
+fn remap_static_reference(
+    reference: &mut crate::InterfaceStaticReference, maps: &RecordMaps,
+) -> Result<(), InterfaceValidationError> {
+    reference.substitution = maps.substitution_id(reference.substitution)?;
+
+    reference.selected_witnesses = reference.selected_witnesses.iter().map(|witness|
+        maps.implementation_instance_id(*witness)).collect::<Result<_, _>>()?;
+
+    Ok(())
 }
 
 fn remap_dependency_projections(

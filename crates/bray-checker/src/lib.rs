@@ -37,7 +37,9 @@ mod type_normalization;
 mod type_representation;
 mod unit;
 
-pub use trusted_contracts::{TrustedCallContract, TrustedContractInputs};
+pub use trusted_contracts::{
+    PredicateConditionInput, TrustedAddressSubject, TrustedCallContract, TrustedContractInputs,
+};
 
 #[cfg(test)]
 mod test_support;
@@ -45,7 +47,7 @@ mod test_support;
 pub use analysis::implementation_hook_may_propagate_synchronous_panic;
 pub use analysis::{PreparedBodyAnalysis, prepare_body_analysis};
 pub use analysis::{
-    UnwindCall, UnwindCandidate, check_execution_candidate, check_unwind_candidate,
+    UnwindCall, UnwindCandidate, check_unwind_candidate, with_execution_candidate_checker,
 };
 pub use analysis::{closed_type_is_copyable, type_is_copyable, type_is_copyable_in_context};
 pub use atomic::atomic_target_representation;
@@ -70,10 +72,10 @@ pub use context::{
 pub use dependency::generator_result_dependencies;
 pub use diagnostic::{diagnostic_borrow_kind, diagnostic_type};
 pub use execution_guarantees::{
-    DeclaredExecutionProperty, ExecutionCallEvidence, ExecutionCandidate, ExecutionCandidates, UnprovenExecutionCondition,
+    DeclaredExecutionProperty, ExecutionCallEvidence, ExecutionCallProof, ExecutionCandidate, ExecutionCandidates, UnprovenExecutionCondition,
     ExecutionCertification, ExecutionClauseId, ExecutionCleanup, ExecutionCompletionContract,
-    ExecutionCompletionDependency, ExecutionCondition, ExecutionConditionKind, ExecutionOperands, ExecutionDeclaration, ExecutionDependency,
-    ExecutionDependencyTarget, ExecutionDomain, ExecutionObligation, ExecutionVerificationFailure, ExecutionPlace,
+    ExecutionCompletionDependency, ExecutionCondition, ExecutionConditionKind, ExecutionJoinSite, ExecutionOperands, ExecutionDeclaration, ExecutionDependency,
+    ExecutionDependencyTarget, ExecutionDeferredInvocation, ExecutionDeferredValue, ExecutionDomain, ExecutionObligation, ExecutionVerificationFailure, ExecutionPlace,
     ExecutionProperty, declared_execution_properties, execution_condition_from_term,
     execution_condition_from_type_term, execution_condition_is_implied, execution_condition_term,
     execution_conditions, map_execution_condition_references, predicate_conditions,

@@ -120,8 +120,6 @@ pub enum StorageBindingTarget {
     Parameter(CallableParameterSymbolId),
     /// A callable receiver.
     Receiver(ReceiverParameterSymbolId),
-    /// One static declaration instance.
-    Static(bray_symbols::StaticSymbolId),
     /// An anonymous callable parameter.
     AnonymousParameter(AnonymousCallableParameterSymbolId),
     /// A predicate parameter.
@@ -143,6 +141,10 @@ pub enum StorageBindingTarget {
     },
     /// The result owned by one selected implicit invocation.
     InvocationResult(crate::BoundExecutionSite),
+    /// The displaced owner retained until replacement cleanup resolves.
+    ScopedResultReplacement(BoundExpressionId),
+    /// The typed success payload created by a yield into a fallible with result.
+    ScopedResultPayload(BoundExpressionId),
     /// The value produced by the bound unit.
     Result,
 }
@@ -170,7 +172,6 @@ impl StorageBindingTarget {
             BoundReferenceTarget::Surface(AnySymbolId::PredicateParameter(id)) => {
                 Some(Self::PredicateParameter(id))
             }
-            BoundReferenceTarget::Surface(AnySymbolId::Static(id)) => Some(Self::Static(id)),
             _ => None,
         }
     }
@@ -186,7 +187,6 @@ impl StorageBindingTarget {
             Self::AnonymousParameter(id) => Some(BoundReferenceTarget::Local(id.into())),
             Self::PostconditionResult(id) => Some(BoundReferenceTarget::Local(id.into())),
             Self::PredicateParameter(id) => Some(BoundReferenceTarget::Surface(id.into())),
-            Self::Static(id) => Some(BoundReferenceTarget::Surface(id.into())),
             _ => None,
         }
     }
@@ -266,6 +266,11 @@ pub enum StorageAccessPurpose {
 }
 
 impl StorageAccessPurpose {
+    /// Whether the plan transports a copy or a moved value.
+    pub const fn transfers_value(self) -> bool {
+        matches!(self, Self::Copy | Self::Move | Self::ValueTransfer)
+    }
+
     /// Returns the policy borrow needed to project storage for this access purpose.
     pub const fn projection_borrow_kind(self) -> BorrowKind {
         match self {

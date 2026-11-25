@@ -1,7 +1,9 @@
+use std::sync::Arc;
 use super::Source;
-use super::model::{Origin, Place, References, State, Target, Transfer};
+use super::references::{storage_subtree, take_subtree};
+use super::model::{Place, AddressValue, Contents, Retirement, State, Target, Transfer, ValueBinding};
 use bray_bound_tree::{
-    BoundExpressionId, MemoryOperationStatus, MemoryReadKind, StorageIdentityId,
+    BoundExecutionSite, BoundExpressionId, MemoryOperationStatus, MemoryReadKind, StorageDischarge,
 };
 use bray_symbols::TypeId;
 
@@ -9,16 +11,17 @@ impl State {
     pub(in crate::analysis::storage_flow) fn observe_effect_types(
         &mut self,
         effects: &[super::Effect],
+        occurrence: Option<BoundExecutionSite>,
     ) {
         for effect in effects {
-            if let super::Effect::Mutation(target, bray_symbols::DependencyMutationKind::Replace(ty), _) = effect
+            if let super::Effect::Mutation { address: Some(target), kind: bray_symbols::DependencyMutationKind::Replace(ty), .. } = effect
                 && target
                     .projections()
                     .contains(&bray_bound_tree::StorageProjection::OwnedTarget)
             {
                 // A checked owning-region write retains its backing element type,
                 // without establishing initialized contents or retyping known storage.
-                self.contents
+                self.effect_payloads(target, occurrence)
                     .entry(target.clone())
                     .or_default()
                     .storage_type
@@ -27,32 +30,39 @@ impl State {
         }
     }
 
+    #[cfg(test)]
     pub(in crate::analysis::storage_flow) fn consume_target(&mut self, target: Target, ty: TypeId) {
-        if target
-            .storage_path()
-            .is_some_and(|place| !self.has_addressed_storage(place.root))
-        {
-            return;
-        }
-
-        self.consume_targets(&References::one(target), ty);
+        self.consume_locations(&AddressValue::one(target), ty);
     }
 
+    pub(in crate::analysis::storage_flow) fn consume_locations(&mut self, address: &AddressValue, ty: TypeId) {
+        if self.tracks_locations(address) {
+            self.consume_references(address, ty, true);
+        }
+    }
+
+    #[cfg(test)]
     pub(in crate::analysis::storage_flow) fn write_target(
-        &mut self,
-        target: Target,
-        ty: TypeId,
-        origin: BoundExpressionId,
+        &mut self, target: Target, ty: TypeId, origin: BoundExpressionId,
         invalidation: Option<&bray_bound_tree::StorageInvalidation>,
     ) {
-        if target
-            .storage_path()
-            .is_some_and(|place| !self.has_addressed_storage(place.root))
-        {
-            return;
-        }
+        self.write_locations(&AddressValue::one(target), ty, origin, invalidation);
+    }
 
-        self.write_targets(&References::one(target), ty, origin, invalidation);
+    pub(in crate::analysis::storage_flow) fn write_locations(
+        &mut self, address: &AddressValue, ty: TypeId, origin: BoundExpressionId,
+        invalidation: Option<&bray_bound_tree::StorageInvalidation>,
+    ) {
+        if self.tracks_locations(address) {
+            self.write_references(address, ty, origin, invalidation);
+        }
+    }
+
+    fn tracks_locations(&self, address: &AddressValue) -> bool {
+        // Logical-only admission must retain already prepared reference values. Keep
+        // every alternative when physical tracking is needed, so weak writes stay weak.
+        address.targets.iter().any(|target| target.storage_path().is_none()
+            || self.has_addressed_storage(target))
     }
 
     #[cfg(test)]
@@ -60,19 +70,10 @@ impl State {
         self.consume_target(Target::storage(place), ty);
     }
 
-    fn has_addressed_storage(&self, root: StorageIdentityId) -> bool {
-        if self.contents.is_empty() {
-            return false;
-        }
+    pub(in crate::analysis::storage_flow::memory) fn has_addressed_storage(&self, target: &Target) -> bool {
+        let region = target.exposure_region();
 
-        let start = Target {
-            origin: Origin::Storage(Place::root(root)),
-            previous: false,
-        };
-
-        self.contents.range(start..).next().is_some_and(
-            |(target, _)| matches!(&target.origin, Origin::Storage(place) if place.root == root),
-        )
+        storage_subtree(&self.contents, &region).next().is_some()
     }
 
     #[cfg(test)]
@@ -85,7 +86,8 @@ impl State {
         self.write_target(Target::storage(place), ty, origin, None);
     }
 
-    pub(in crate::analysis::storage_flow) fn write(
+    #[cfg(test)]
+    pub(super) fn write(
         &mut self,
         slot: &Target,
         ty: TypeId,
@@ -96,29 +98,40 @@ impl State {
             return MemoryOperationStatus::InvalidatedAllocation;
         }
 
-        let references = self.references(slot);
+        let pointer = slot.is_exact().then(|| self.values.get(slot)).flatten().cloned();
 
-        self.write_transferred(&references, ty, origin, value);
+        self.write_captured(pointer.as_ref(), ty, origin, value)
+    }
+
+    pub(in crate::analysis::storage_flow) fn write_captured(
+        &mut self,
+        pointer: Option<&ValueBinding>,
+        ty: TypeId,
+        origin: BoundExpressionId,
+        value: Option<Source>,
+    ) -> MemoryOperationStatus {
+        if pointer.is_some_and(|pointer| self.invalidated_capture(pointer)) {
+            return MemoryOperationStatus::InvalidatedAllocation;
+        }
+
+        self.write_transferred(&captured_address(pointer), ty, origin, value);
 
         MemoryOperationStatus::Valid
     }
 
     fn write_transferred(
         &mut self,
-        references: &References,
+        references: &AddressValue,
         ty: TypeId,
         origin: BoundExpressionId,
         source: Option<Source>,
     ) {
-        if references.unknown {
+        if references.is_unknown() {
             // An unlocated write can affect any tracked cell. Collapse the source's
             // possible references instead of inventing a subtree at every possible address.
             let affected = self.affected_targets(references);
 
-            let mut incoming = super::model::StoredValue::from(References {
-                unknown: true,
-                ..References::default()
-            });
+            let mut incoming = ValueBinding::from(AddressValue::unknown());
 
             if let (Some(source), Some(destination)) = (source.as_ref(), affected.first()) {
                 for value in self
@@ -130,14 +143,14 @@ impl State {
                 }
             }
 
-            self.write_targets(references, ty, origin, None);
+            self.write_references(references, ty, origin, None);
 
             for target in affected {
-                let value = self.values.entry(target).or_default();
+                let value = Arc::make_mut(&mut self.values).entry(target).or_default();
 
                 value.merge(&incoming);
 
-                value.complete = false;
+                value.completeness.lose_completeness();
             }
 
             return;
@@ -152,47 +165,168 @@ impl State {
             .map(|(target, source)| (target.clone(), self.capture_source(source, target)))
             .collect::<Vec<_>>();
 
-        self.write_targets(references, ty, origin, None);
+        self.write_references(references, ty, origin, None);
 
         for (target, transfer) in transfers {
             if references.is_exact() {
                 self.clear_value(&target);
-                self.commit_value(transfer);
+                self.commit_value(transfer, None);
             } else {
-                for (slot, mut value) in transfer.values {
-                    if let Some(references) = &mut value.references {
-                        references.unknown = true;
-                    }
-
-                    value.complete = false;
-
-                    self.values.entry(slot).and_modify(|previous| { previous.merge(&value); }).or_insert(value);
-                }
-
-                for (slot, mut contents) in transfer.payloads {
-                    contents.initialized.clear();
-
-                    self.contents
-                        .entry(slot.clone())
-                        .or_default()
-                        .merge(&contents, &slot);
-                }
-
-                super::references::merge_deferred(&mut self.deferred, &transfer.deferred);
-
-                for (reference, bounds) in transfer.returned_inputs {
-                    self.returned_inputs
-                        .entry((reference, false))
-                        .or_default()
-                        .merge(&bounds);
-                }
+                self.commit_weak_value(transfer);
             }
         }
     }
 
-    fn write_targets(
+    pub(in crate::analysis::storage_flow::memory) fn commit_weak_value(&mut self, mut transfer: Transfer) {
+        if self.retire_value_producers(&mut transfer, None) {
+            transfer.commit_producers();
+        }
+
+        for (slot, mut value) in transfer.values {
+            for references in value.references_mut() {
+                references.forget_value();
+            }
+
+            value.completeness.lose_completeness();
+
+            Arc::make_mut(&mut self.values).entry(slot).and_modify(|previous| { previous.merge(&value); }).or_insert(value);
+        }
+
+        for (slot, mut contents) in transfer.payloads {
+            contents.clear_initialization();
+
+            self.contents
+                .entry(slot.clone())
+                .or_default()
+                .merge(&contents, &slot);
+        }
+
+        for (reference, bounds) in transfer.returned_inputs {
+            self.returned_inputs
+                .entry((reference, false))
+                .or_default()
+                .merge(&bounds);
+        }
+    }
+
+    pub(in crate::analysis::storage_flow::memory) fn commit_value(
         &mut self,
-        references: &References,
+        mut transfer: Transfer,
+        occurrence: Option<BoundExecutionSite>,
+    ) {
+        let produced = self.retire_value_producers(&mut transfer, occurrence);
+
+        if occurrence.is_some() {
+            for slot in transfer.values.keys().filter(|target| !target.is_staged()) {
+                self.clear_value(slot);
+            }
+        }
+
+        let mut enclosing: Option<&Target> = None;
+
+        for target in transfer.payloads.keys() {
+            if target.is_staged() || enclosing.is_some_and(|owner| owner.contains_storage(target)) {
+                continue;
+            }
+
+            // Inline replacement can leave an evaluated address to the old contents.
+            self.retire_region(target, Retirement::Storage);
+            enclosing = Some(target);
+
+            for value in transfer.values.values_mut() {
+                value.retire_references(target, Retirement::Storage);
+            }
+
+            for references in transfer.returned_inputs.values_mut() {
+                references.retire(target, Retirement::Storage);
+            }
+        }
+
+        if produced {
+            transfer.commit_producers();
+        }
+
+        let reported = &mut self.may_have_report_values;
+
+        Arc::make_mut(&mut self.values).extend(transfer.values.into_iter().inspect(|(_, value)| {
+            *reported = *reported || value.report_dependencies().is_some();
+        }));
+
+        self.contents.extend(transfer.payloads);
+
+        // Retired bounds stay in their historical epoch. This completion publishes
+        // only the regions of the newly produced reference.
+        for (reference, bounds) in transfer.returned_inputs {
+            self.returned_inputs
+                .entry((reference, false))
+                .or_default()
+                .merge(&bounds);
+        }
+
+        if !transfer.cell_changes.is_empty() {
+            let occurrence = occurrence.expect("checked cell updates retain their producing operation");
+
+            self.apply_cell_changes(transfer.cell_changes, occurrence);
+        }
+
+    }
+
+    fn retire_value_producers(&mut self, transfer: &mut Transfer, occurrence: Option<BoundExecutionSite>) -> bool {
+        let producers = transfer.payloads.keys()
+            .filter(|target| target.is_staged() && target.projections().is_empty())
+            .map(|target| target.clone().commit_producer()).collect::<Vec<_>>();
+
+        for producer in &producers {
+            if let Some(occurrence) = occurrence {
+                // A definite write to the departing cell can change its
+                // outstanding duties before they become historical bounds.
+                let changes = take_subtree(&mut transfer.cell_changes, producer, Retirement::Producer);
+
+                self.apply_cell_changes(changes, occurrence);
+            }
+
+            // Captures still name the previously admitted incarnation.
+            self.retire_region(producer, Retirement::Producer);
+            transfer.retire_dependencies(producer, Retirement::Producer);
+
+            // Call outputs can also write into storage reached through an input.
+            // Those writes belong to the old allocation, even at the same site.
+            for (target, value) in take_subtree(&mut transfer.values, producer, Retirement::Producer) {
+                self.remember_retired_value(target, value);
+            }
+
+            for (target, contents) in take_subtree(&mut transfer.payloads, producer, Retirement::Producer) {
+                self.remember_retired_contents(target, contents);
+            }
+        }
+
+        !producers.is_empty()
+    }
+
+    pub(super) fn remember_retired_value(&mut self, target: Target, mut value: ValueBinding) {
+        for references in value.references_mut() {
+            references.forget_value();
+        }
+
+        value.completeness.lose_completeness();
+
+        self.may_have_report_values |= value.report_dependencies().is_some();
+
+        Arc::make_mut(&mut self.values).entry(Target { previous: true, ..target }).or_default().merge(&value);
+    }
+
+    pub(super) fn remember_retired_contents(&mut self, target: Target, mut contents: Contents) {
+        // Older instances share a summary target, so no definite contents survive.
+        contents.clear_initialization();
+
+        let previous = Target { previous: true, ..target };
+
+        self.contents.entry(previous.clone()).or_default().merge(&contents, &previous);
+    }
+
+    fn write_references(
+        &mut self,
+        references: &AddressValue,
         ty: TypeId,
         origin: BoundExpressionId,
         invalidation: Option<&bray_bound_tree::StorageInvalidation>,
@@ -200,26 +334,31 @@ impl State {
         let exact = references.is_exact();
 
         for target in self.affected_targets(references) {
+            let selected = references.targets.contains(&target);
             let contents = self.contents.entry(target.clone()).or_default();
 
-            contents.initialized.clear();
+            contents.clear_initialization();
 
-            if exact && references.targets.contains(&target) {
-                contents.initialized.insert(ty);
+            if exact && selected {
+                contents.record_write(ty);
 
-                self.values.remove(&target);
+                Arc::make_mut(&mut self.values).remove(&target);
             } else if !invalidation
                 .is_some_and(|invalidation| Self::stable_reference_slot(&target, invalidation))
-                && let Some(stored) = self.values.get_mut(&target)
+                && let Some(stored) = Arc::make_mut(&mut self.values).get_mut(&target)
             {
-                if let Some(references) = &mut stored.references {
-                    references.unknown = true;
+                for references in stored.references_mut() {
+                    references.forget_value();
                 }
 
-                stored.complete = false;
+                stored.completeness.lose_completeness();
             }
 
-            contents.pending.entry(ty).or_default().insert(origin);
+            if !exact || selected {
+                // The duty follows the addressed cell. Its possible aliases
+                // lose facts, while their independently recorded duties remain.
+                contents.pending.entry(ty).or_default().insert(origin);
+            }
         }
     }
 
@@ -230,11 +369,12 @@ impl State {
         origin: BoundExpressionId,
         source: Option<Source>,
     ) -> MemoryOperationStatus {
-        self.write_transferred(&References::one(target), ty, origin, source);
+        self.write_transferred(&AddressValue::one(target), ty, origin, source);
 
         MemoryOperationStatus::Valid
     }
 
+    #[cfg(test)]
     pub(in crate::analysis::storage_flow) fn read_value(
         &mut self,
         target: Target,
@@ -243,9 +383,10 @@ impl State {
         proven: Option<BoundExpressionId>,
         result: Option<Place>,
     ) -> MemoryOperationStatus {
-        self.read_targets(References::one(target), ty, kind, proven, result)
+        self.read_targets(AddressValue::one(target), ty, kind, proven, result)
     }
 
+    #[cfg(test)]
     pub(in crate::analysis::storage_flow) fn read(
         &mut self,
         slot: &Target,
@@ -261,9 +402,26 @@ impl State {
         self.read_targets(self.references(slot), ty, kind, proven, result)
     }
 
+    pub(in crate::analysis::storage_flow) fn read_captured(
+        &mut self,
+        source: Option<&ValueBinding>,
+        ty: TypeId,
+        kind: MemoryReadKind,
+        proven: Option<BoundExpressionId>,
+        result: Option<Place>,
+    ) -> MemoryOperationStatus {
+        if source.is_some_and(|source| self.invalidated_capture(source)) {
+            return MemoryOperationStatus::InvalidatedAllocation;
+        }
+
+        let references = captured_address(source);
+
+        self.read_targets(references, ty, kind, proven, result)
+    }
+
     fn read_targets(
         &mut self,
-        references: References,
+        references: AddressValue,
         ty: TypeId,
         kind: MemoryReadKind,
         proven: Option<BoundExpressionId>,
@@ -294,46 +452,53 @@ impl State {
             // Actual pointer slots retain their captured reference uncertainty below.
             transfer.values.entry(destination).or_default();
 
-            if references.unknown
-                || references.displaced
-                || references.inexact
+            if !references.has_values()
                 || references.targets.iter().any(|target| !target.is_exact())
             {
                 for value in transfer.values.values_mut() {
-                    if let Some(references) = &mut value.references {
-                        references.unknown = true;
+                    for references in value.references_mut() {
+                        references.forget_value();
                     }
 
-                    value.complete = false;
+                    value.completeness.lose_completeness();
                 }
 
                 for contents in transfer.payloads.values_mut() {
-                    contents.initialized.clear();
+                    contents.clear_initialization();
                 }
             }
 
             transfer
         });
 
-        if let Some(origin) = proven {
-            for target in &self.affected_targets(&references) {
+        if kind == MemoryReadKind::Move {
+            // A checked move transfers the witnessed initialized value at this
+            // boundary. Keep its exact discharge without creating duties at aliases.
+            if proven.is_some() && references.is_exact() {
+                for target in &references.targets {
+                    self.contents.entry(target.clone()).or_default();
+                }
+            }
+
+            self.consume_references(&references, ty, true);
+        } else if let Some(origin) = proven {
+            let exact = references.is_exact();
+            let possible = (!exact).then(|| self.affected_targets(&references));
+
+            for target in possible.as_ref().unwrap_or(&references.targets) {
                 let contents = self.contents.entry(target.clone()).or_default();
 
-                if references.is_exact() && references.targets.contains(target) {
-                    contents.initialized.insert(ty);
+                if exact {
+                    contents.observe_initialized(ty);
                 }
 
                 contents.pending.entry(ty).or_default().insert(origin);
             }
         }
 
-        if kind == MemoryReadKind::Move {
-            self.consume_targets(&references, ty);
-        }
-
         if let (Some(result), Some(transfer)) = (result, transferred) {
             self.clear(&result);
-            self.commit_value(transfer);
+            self.commit_value(transfer, None);
         }
 
         MemoryOperationStatus::Valid
@@ -349,19 +514,49 @@ impl State {
             return MemoryOperationStatus::InvalidatedAllocation;
         }
 
-        self.consume_targets(&self.references(slot), ty);
+        self.consume_references(&self.references(slot), ty, true);
 
         MemoryOperationStatus::Valid
     }
 
-    fn consume_targets(&mut self, references: &References, ty: TypeId) {
+    pub(in crate::analysis::storage_flow) fn apply_cell_changes(
+        &mut self,
+        changes: impl IntoIterator<Item = (Target, bray_symbols::DependencyMutationKind)>,
+        occurrence: BoundExecutionSite,
+    ) {
+        use bray_symbols::DependencyMutationKind as Mutation;
+
+        for (target, change) in changes {
+            let ty = match change {
+                Mutation::Replace(ty) | Mutation::Discharge(ty) => ty,
+                _ => unreachable!("published cell changes retain a typed update"),
+            };
+
+            if self.reached_dependency_storage(&target, ty).is_none() {
+                continue;
+            }
+
+            let contents = self.contents.entry(target.clone()).or_default();
+
+            match change {
+                Mutation::Replace(ty) => {
+                    contents.record_write(ty);
+                    contents.pending.entry(ty).or_default().extend(occurrence.expression());
+                }
+                Mutation::Discharge(ty) => self.consume_references(&AddressValue::one(target), ty, false),
+                _ => unreachable!("published cell changes retain a typed update"),
+            }
+        }
+    }
+
+    fn consume_references(&mut self, references: &AddressValue, ty: TypeId, preserve_evaluated: bool) {
         let exact = references.is_exact();
 
         for target in &self.affected_targets(references) {
             if let Some(contents) = self.contents.get_mut(target) {
-                if exact
+                if preserve_evaluated && exact
                     && references.targets.iter().any(|source| {
-                        source.contains(target)
+                        source.contains_storage(target)
                             && target.projections()[source.projections().len()..]
                                 .contains(&bray_bound_tree::StorageProjection::UninitPayload)
                     })
@@ -370,7 +565,7 @@ impl State {
                     self.evaluated.insert(target.clone(), contents.clone());
                 }
 
-                contents.initialized.clear();
+                contents.retain_initialization(true, |_| false);
 
                 // Consumption ends initialized ownership, not the evaluated value's identity.
                 // Normal value transfer still needs its reference fields before slot retirement.
@@ -379,10 +574,10 @@ impl State {
                     && references
                         .targets
                         .iter()
-                        .any(|source| source.contains(target))
+                        .any(|source| source.contains_storage(target))
                 {
                     if references.targets.contains(target) {
-                        contents.pending.remove(&ty);
+                        contents.record_consumption(ty);
                     } else {
                         // Whole-value consumption transfers nested protected ownership as well.
                         contents.pending.clear();
@@ -392,7 +587,8 @@ impl State {
         }
     }
 
-    pub(in crate::analysis::storage_flow) fn copy(
+    #[cfg(test)]
+    pub(super) fn copy(
         &mut self,
         source: &Target,
         destination: &Target,
@@ -404,45 +600,147 @@ impl State {
             return MemoryOperationStatus::InvalidatedAllocation;
         }
 
+        let source = source.is_exact().then(|| self.values.get(source)).flatten().cloned();
+        let destination = destination.is_exact().then(|| self.values.get(destination)).flatten().cloned();
+
+        self.copy_captured(source.as_ref(), destination.as_ref(), ty, origin, proven)
+    }
+
+    pub(in crate::analysis::storage_flow) fn copy_captured(
+        &mut self,
+        source: Option<&ValueBinding>,
+        destination: Option<&ValueBinding>,
+        ty: TypeId,
+        origin: BoundExpressionId,
+        proven: Option<bool>,
+    ) -> MemoryOperationStatus {
+        if source.into_iter().chain(destination).any(|pointer| self.invalidated_capture(pointer)) {
+            return MemoryOperationStatus::InvalidatedAllocation;
+        }
+
         // An empty range has no scalar effect.
         if proven == Some(true) {
             return MemoryOperationStatus::Valid;
         }
 
-        if proven.is_none() && !self.initialized(source, ty) {
+        if proven.is_none() && !self.initialized_targets(&captured_address(source), ty) {
             return MemoryOperationStatus::UninitializedRawStorage;
         }
 
-        self.write(destination, ty, origin, None)
+        self.write_captured(destination, ty, origin, None)
     }
 
     pub(in crate::analysis::storage_flow) fn deallocate(
         &mut self,
-        slot: &Target,
+        pointer: Option<&ValueBinding>,
         origin: BoundExpressionId,
     ) -> MemoryOperationStatus {
-        if self.invalidated(slot) {
+        if pointer.is_some_and(|pointer| self.invalidated_capture(pointer)) {
             return MemoryOperationStatus::InvalidatedAllocation;
         }
 
-        let references = self.references(slot);
+        let references = captured_address(pointer);
         let targets = self.affected_targets(&references);
 
-        if targets.iter().any(|target| {
-            self.contents
-                .get(target)
-                .is_some_and(|contents| !contents.pending.is_empty())
-        }) {
+        if self.outstanding_storage(&targets).next().is_some() {
             return MemoryOperationStatus::OutstandingObligations;
         }
 
         for target in targets {
-            let contents = self.contents.entry(target).or_default();
-
-            contents.initialized.clear();
-            contents.invalidations.insert(origin);
+            self.retire_backing(target, origin.into());
         }
 
         MemoryOperationStatus::Valid
     }
+
+    pub(in crate::analysis::storage_flow::memory) fn retire_backing(&mut self, target: Target,
+        origin: BoundExecutionSite,
+    ) {
+        self.contents.entry(target.clone()).or_default().retire(origin);
+        self.retirements.insert((target, bray_bound_tree::StorageValueRetirement::Backing));
+    }
+
+    #[cfg(test)]
+    pub(super) fn deallocate_slot(&mut self, slot: &Target, origin: BoundExpressionId) -> MemoryOperationStatus {
+        let pointer = self.values.get(slot).cloned();
+
+        self.deallocate(pointer.as_ref(), origin)
+    }
+
+    pub(in crate::analysis::storage_flow) fn deallocation_duty_origins(
+        &self,
+        pointer: Option<&ValueBinding>,
+    ) -> Vec<BoundExpressionId> {
+        let references = captured_address(pointer);
+
+        self.outstanding_storage(&self.affected_targets(&references))
+            .flat_map(|contents| contents.pending.values().flatten().copied())
+            .collect()
+    }
+
+    fn outstanding_storage<'a>(
+        &'a self,
+        targets: &'a std::collections::BTreeSet<Target>,
+    ) -> impl Iterator<Item = &'a Contents> + 'a {
+        targets.iter().filter_map(|target| self.contents.get(target))
+            .filter(|contents| !contents.pending.is_empty())
+    }
+
+    pub(in crate::analysis::storage_flow) fn retirement_discharges<'a>(
+        &'a self,
+        target: &'a Target,
+        occurrence: Option<BoundExecutionSite>,
+    ) -> impl Iterator<Item = StorageDischarge> + 'a {
+        self.retirement_payloads(target, occurrence).iter().flat_map(move |(cell, contents)| {
+            contents.consumed_types().filter(move |_| cell.is_exact()
+                && self.target_relationship(target, cell) != bray_bound_tree::StorageRelationship::Disjoint)
+                .map(move |ty| StorageDischarge { cell: cell.clone(), ty })
+        })
+    }
+
+    /// Retains the actual duties not transferred before this reached retirement.
+    pub(in crate::analysis::storage_flow) fn retirement_obligations(
+        &self,
+        target: &Target,
+        discharged: &[StorageDischarge],
+        occurrence: Option<BoundExecutionSite>,
+    ) -> Option<Vec<BoundExpressionId>> {
+        let mut outstanding = self.retirement_payloads(target, occurrence).iter().filter(|(candidate, contents)| {
+            !contents.pending.is_empty()
+                && self.target_relationship(target, candidate) != bray_bound_tree::StorageRelationship::Disjoint
+        }).flat_map(|(candidate, contents)| {
+            contents.pending.iter().filter(move |(ty, _)| {
+                !(candidate.is_exact() && discharged.iter().any(|duty| {
+                    // The routed discharge is the typed transfer evidence. The
+                    // source cell may already have been retired in this state.
+                    if &duty.cell == candidate {
+                        duty.ty == **ty
+                    } else {
+                        duty.cell.contains_storage(candidate)
+                    }
+                }))
+            }).map(|(_, origins)| origins)
+        }).peekable();
+
+        outstanding.peek()?;
+
+        Some(outstanding.flatten().copied().collect())
+    }
+
+    fn retirement_payloads(&self, target: &Target, occurrence: Option<BoundExecutionSite>)
+        -> &std::collections::BTreeMap<Target, Contents>
+    {
+        if target.is_staged() {
+            let occurrence = occurrence.expect("a private retirement retains its producing operation");
+
+            &self.pending[&occurrence].payloads
+        } else {
+            &self.contents
+        }
+    }
+}
+
+fn captured_address(pointer: Option<&ValueBinding>) -> AddressValue {
+    pointer.and_then(ValueBinding::captured_reference)
+        .unwrap_or_else(AddressValue::unknown)
 }

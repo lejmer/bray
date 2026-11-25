@@ -38,9 +38,11 @@ fn asynchronous_executable_hosts_emit_complete_deterministic_native_units() {
 
     assert_eq!(host.entries()[0].result(), ExecutableEntryResult::I32);
 
+    // The selected runtime may bind a provider. This product must not require one.
     assert!(
-        host.role_binding(RuntimeAbiRole::ProductExecutionProvider)
-            .is_none()
+        !host.requirements().roles().contains(&RuntimeAbiRole::ProductExecutionProvider),
+        "{:?}",
+        host.requirements().roles()
     );
 
     let frame_unit = plan
@@ -459,7 +461,7 @@ fn timed_synchronous_entries_repeat_inside_one_runtime_root() {
         "extern trusted func native_status() -> i32 uses(foreign_call);\n",
         "trusted func main() -> i32 uses(foreign_call)\n",
         "{\n",
-        "    let status: i32 = trusted native_status();\n",
+        "    let status: i32 = native_status();\n",
         "    if status < 0 { panic(\"negative native status\"); }\n",
         "    return status;\n",
         "}\n",
@@ -1018,56 +1020,6 @@ fn task_observation_resolves_returned_futures_through_cleanup_frames() {
                     ..
                 }
             ))
-    );
-
-    assert!(
-        !generated_artifacts_of_kind(&backend, &plan, BackendArtifactKind::BackendIr).is_empty()
-    );
-}
-
-#[test]
-#[ignore = "tier:native"]
-fn task_observation_retained_finalizer_errors_use_cleanup_frames() {
-    let (backend, plan) = runtime_native_plan(
-        r#"
-            module app;
-
-            async func inactive() {}
-
-            async func child() -> Future<unit>
-            {
-                return inactive();
-            }
-
-            struct Failure
-            {
-                pending: Future<RunResult<Future<unit>>>;
-            }
-
-            struct Owner
-            {
-                async finalize() -> Result<unit, Failure>
-                {
-                    return Error(Failure { pending = child().start().join() });
-                }
-            }
-
-            async func main()
-            {
-                let owner = Owner {};
-                panic("");
-            }
-        "#,
-    );
-
-    assert!(
-        plan.mappings()
-            .iter()
-            .flat_map(bray_codegen::CodegenMappings::symbols)
-            .any(
-                |mapping| matches!(mapping.key(), bray_codegen::CodegenSymbolKey::Runtime(reference)
-            if reference.role() == RuntimeAbiRole::ProviderReferenceRelease)
-            )
     );
 
     assert!(

@@ -18,6 +18,7 @@ trusted internal func retire_dispatch(pos owner: &Dispatch) -> u32
         trusted bray.runtime.bootstrap.host.product.native_host(),
         trusted bray.runtime.bootstrap.pool.protocol_access()
     )
+    ensures(trusted dispatch_acquired(owner = &owner.acquisition))
     uses(intrinsic)
 {
     let (mut progress, mut unused, mut incidents, status, mut outcome) = trusted retire_frame(owner);

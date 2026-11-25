@@ -1,0 +1,102 @@
+module app;
+
+using std.memory;
+using internal bray.runtime.bootstrap.host;
+using internal bray.runtime.bootstrap.thread.destruction;
+using internal bray.runtime.bootstrap.host.attachment;
+using internal bray.runtime.bootstrap.entry.bridge;
+
+func probe_explicit_scope()
+{
+    let unadmitted = bray.runtime.bootstrap.thread.destruction.explicit_exit_scope();
+}
+
+func probe_admitted_scope()
+    requires(trusted bray.runtime.bootstrap.thread.destruction.native_attachment_release())
+{
+    let scope = bray.runtime.bootstrap.thread.destruction.explicit_exit_scope();
+
+    _ = bray.runtime.bootstrap.host.finish_attachment(&scope);
+}
+
+func probe_fabricated_scope()
+{
+    let scope: bray.runtime.bootstrap.thread.destruction.ExitScope =
+    {
+        identity = 1,
+        native = true,
+    };
+
+    _ = bray.runtime.bootstrap.host.finish_attachment(&scope);
+}
+
+func probe_copied_scope()
+    requires(trusted bray.runtime.bootstrap.thread.destruction.native_attachment_release())
+{
+    let scope = bray.runtime.bootstrap.thread.destruction.explicit_exit_scope();
+
+    let fake: bray.runtime.bootstrap.thread.destruction.ExitScope =
+    {
+        identity = scope.identity,
+        native = scope.native,
+    };
+
+    _ = bray.runtime.bootstrap.host.finish_attachment(&fake);
+}
+
+func probe_native_scope_without_entry()
+{
+    _ = bray.runtime.bootstrap.thread.destruction.native_exit_scope(std.memory.null<u8>());
+}
+
+func probe_attachment_leave()
+{
+    _ = bray.runtime.bootstrap.host.thread_attachment_leave();
+}
+
+func probe_attachment_enter()
+{
+    _ = bray.runtime.bootstrap.host.thread_attachment_enter();
+}
+
+func probe_acquire_attachment()
+{
+    let owner = bray.runtime.bootstrap.host.attachment.acquire();
+}
+
+func probe_mark_main()
+{
+    _ = bray.runtime.bootstrap.host.thread_attachment_mark_main();
+}
+
+func probe_bridge_install()
+{
+    _ = bray.runtime.bootstrap.entry.bridge.install(
+        std.memory.null<bray.runtime.bootstrap.entry.bridge.NativeCallbacks>(),
+        std.memory.null<bray.runtime.bootstrap.entry.bridge.NativeCallbacks>(),
+    );
+}
+
+func probe_bridge_current()
+{
+    _ = bray.runtime.bootstrap.entry.bridge.current();
+}
+
+func probe_fabricated_owner()
+{
+    let owner: bray.runtime.bootstrap.host.attachment.Owner =
+    {
+        status = 0,
+        identity = 1,
+    };
+}
+
+func probe_thread_storage_exit()
+{
+    bray.runtime.bootstrap.thread.destruction.thread_storage_exit(std.memory.null<u8>());
+}
+
+func probe_finish_native_attachment()
+{
+    bray.runtime.bootstrap.thread.destruction.finish_native_attachment(std.memory.null<u8>());
+}

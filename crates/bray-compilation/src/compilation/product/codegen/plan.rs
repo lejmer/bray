@@ -9,6 +9,8 @@ use bray_runtime_interface::ExecutableHostContract;
 /// Compilation-owned native product inputs consumed by emission.
 #[derive(Clone, Debug, Hash)]
 pub struct NativeProductPlan {
+    #[cfg(test)]
+    pub(super) kind: bray_symbols::ProductKind,
     pub(super) native_links: Arc<[bray_symbols::NativeLinkRequirement]>,
     pub(super) backend: EmissionBackend,
     pub(super) target: CodegenTarget,

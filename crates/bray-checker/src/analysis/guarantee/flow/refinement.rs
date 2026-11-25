@@ -1,4 +1,4 @@
-use super::super::super::model::{AnalysisEdge, AnalysisRefinement};
+use super::super::super::model::{AnalysisEdge, AnalysisPropagationOutcome, AnalysisRefinement};
 use super::super::state::ExecutionState;
 use super::model::ExecutionFlowDomain;
 use crate::{CheckerRequestContext, ExecutionCondition};
@@ -48,7 +48,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 expected,
             );
 
-            if !state.proofs.ordinary_proof(&state.assumptions).can_assume(&condition, value) {
+            if !state.ordinary_proof().can_assume(&condition, value) {
                 return false;
             }
 
@@ -131,6 +131,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     .component(bray_symbols::ConstantProjectionKind::NullableValue),
                 value,
             )),
+            AnalysisRefinement::InvocationVariant(invocation, variant) => {
+                Some((self.invocation_value(state, invocation).matches_variant(variant), true))
+            }
             AnalysisRefinement::PatternOutcome {
                 subject,
                 pattern,
@@ -149,7 +152,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             }
             AnalysisRefinement::PropagationOutcome {
                 expression,
-                succeeded,
+                outcome,
             } => {
                 let bray_bound_tree::SemanticSelection::Propagation(selection) = self
                     .semantics
@@ -171,10 +174,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     .first()
                     .expect("propagation retains its operand");
 
-                match selection.success() {
-                    Some((variant, _)) => Some((
+                match outcome.variant(selection) {
+                    Some((variant, matches)) => Some((
                         self.value(state, subject).matches_variant(variant),
-                        succeeded,
+                        matches,
                     )),
                     None => {
                         let (_, absent) = crate::execution_guarantees::pattern_value(
@@ -194,7 +197,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                                 bray_bound_tree::BoundOperator::Equal,
                                 absent,
                             ),
-                            !succeeded,
+                            outcome == AnalysisPropagationOutcome::Failure,
                         ))
                     }
                 }
@@ -278,7 +281,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     .get(&expression)
                     .expect("propagation retains its selected yield target");
 
-                state.pending_results.insert(*target, value);
+                self.produce_region_result(state, *target, value);
             }
         }
     }

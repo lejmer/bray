@@ -342,14 +342,14 @@ trusted internal func report_records_append(
 {
     let left: ReportRecords = trusted std.memory.read<ReportRecords>(destination);
     let right: ReportRecords = trusted std.memory.read<ReportRecords>(source);
-    let (updated_left, updated_right) = trusted append_record_values(left, right, destination, source);
+    let (updated_left, updated_right) = trusted append_record_pointer_values(left, right, destination, source);
 
     trusted std.memory.write<ReportRecords>(destination, updated_left);
     trusted std.memory.write<ReportRecords>(source, updated_right);
 }
 
-trusted internal func append_record_values(
-    pos mut left: ReportRecords,
+trusted internal func append_record_pointer_values(
+    pos left: ReportRecords,
     pos right: ReportRecords,
     pos destination: DataPointer<ReportRecords>,
     pos source: DataPointer<ReportRecords>
@@ -376,15 +376,49 @@ trusted internal func append_record_values(
     let mut guard = trusted bray.runtime.bootstrap.pool.lock();
     let pool: &mut ReportPool = guard.get();
 
-    if left.count == 0
-    {
-        left.head = right.head;
-    }
-    else
+    if left.count != 0
     {
         let last: &mut ReportRecord = trusted record(pool, left.tail);
 
         last.next = right.head;
+    }
+
+    return append_record_metadata(left, right);
+}
+
+trusted internal func append_record_values(
+    pos left: ReportRecords,
+    pos right: ReportRecords
+) -> (ReportRecords, ReportRecords)
+    requires(trusted bray.runtime.bootstrap.pool.protocol_access())
+{
+    if right.count == 0
+    {
+        return (left, right);
+    }
+
+    let mut guard = trusted bray.runtime.bootstrap.pool.lock();
+    let pool: &mut ReportPool = guard.get();
+
+    if left.count != 0
+    {
+        let last: &mut ReportRecord = trusted record(pool, left.tail);
+
+        last.next = right.head;
+    }
+
+    return append_record_metadata(left, right);
+}
+
+internal func append_record_metadata(
+    pos mut left: ReportRecords,
+    pos right: ReportRecords
+) -> (ReportRecords, ReportRecords)
+    executes(pure, total)
+{
+    if left.count == 0
+    {
+        left.head = right.head;
     }
 
     left.tail = right.tail;

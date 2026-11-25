@@ -25,7 +25,7 @@ where
     Ok(ty)
 }
 
-/// Resolves implementation Self and type-valued members in an instantiated callable signature.
+/// Resolves contextual Self and type-valued members in an instantiated callable signature.
 pub fn normalize_callable_signature<C>(
     request: &C,
     signature: CallableSignature,
@@ -247,12 +247,7 @@ where
                 self.normalize_type(subject)?
             }
             TypeData::ContextualSelf(bray_symbols::SelfTypeContext::NamedType(definition)) => {
-                let subject = self
-                    .request
-                    .semantic_values()
-                    .intern_open_named_type(self.request.symbols(), *definition)
-                    .expect("named Self has a valid generic identity")
-                    .expect("named Self retains its declaration");
+                let subject = self.request.open_named_type(*definition)?;
 
                 let subject = match self.substitution {
                     Some(substitution) => self

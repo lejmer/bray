@@ -44,7 +44,7 @@ trusted internal func domain(pos owner: &Reference) -> &Domain
     return trusted std.memory.borrow_from<Domain, Reference>(owner, trusted owner_pointer(owner));
 }
 
-// Reconstruction requires a live retained owner issued after actual admission.
+// The retained owner supplies access authority for its actual allocation.
 // External names and copied addresses never establish this storage permission.
 trusted internal func owner_pointer(pos owner: &Reference) -> DataPointer<Domain>
     requires(trusted retained(owner = owner))
@@ -59,9 +59,8 @@ trusted internal func owner_pointer(pos owner: &Reference) -> DataPointer<Domain
         trusted core.memory.finalization_pending<Domain>(pointer = result)
     )
     executes(total)
-    uses(intrinsic)
 {
-    return trusted core.target.from_exposed_address<Domain>(address = owner.address);
+    return owner.pointer;
 }
 
 // The resident acquisition protects both coadmitted task links and event state.

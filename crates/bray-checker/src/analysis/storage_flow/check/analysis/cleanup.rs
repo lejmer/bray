@@ -1,296 +1,408 @@
 use crate::analysis::guarantee::CleanupMutation;
 use crate::analysis::storage_flow::memory::Effect;
-use bray_bound_tree::{StorageAccessId, StorageInvalidation, StorageMutation, StoragePath};
-use bray_symbols::{DependencyMutationKind, DependencySubjectRoot};
+use bray_bound_tree::{
+    StorageAccessId, StorageAccessPlan, StorageAccessPurpose, StorageCleanupAction,
+    StorageCleanupActionKind, StorageCleanupRemainder, StorageMutation, StorageReplacementState,
+};
+use bray_symbols::DependencyFailureKind;
+use std::sync::Arc;
 
 use super::core::StorageFlowCollector;
+use super::effect_rows::EffectRows;
+use super::snapshot::ReplacementState;
 use crate::CheckerRequestContext;
-use crate::analysis::guarantee::{ExecutionState, Lifecycle};
-use crate::analysis::model::AnalysisOperationKind;
+use crate::analysis::guarantee::{CleanupObservation, CleanupSelection, CleanupTransition, ExecutionState};
+use crate::analysis::model::{AnalysisOperation, AnalysisOperationKind, AnalysisScopeExitPhase};
+use crate::analysis::outcomes::CleanupProgress;
 use crate::analysis::storage_flow::{
-    memory::{State, Target},
+    memory::{EffectOutcomes, State, Target},
     model::StorageFlowState,
 };
 
+pub(super) struct CleanupOperands<'a> {
+    pub(super) receiver: Option<Target>,
+    pub(super) task_path: Option<std::borrow::Cow<'a, bray_bound_tree::StoragePath>>,
+    pub(super) frame: Option<Arc<crate::ExecutionDeferredValue>>,
+    pub(super) inactive: bool,
+    pub(super) inactive_captures: Option<Vec<bray_symbols::TypeId>>,
+    pub(super) lifecycle_effects: Option<(EffectOutcomes, EffectRows)>,
+}
+
 impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
-    fn prepare_cleanup_receiver(&self, memory: &mut State, mutation: &CleanupMutation<'_>) -> Option<Target> {
-        let (access, path) = match mutation {
-            CleanupMutation::Opaque { access, path, .. } => (*access, *path),
-            CleanupMutation::Lifecycle(call) => (call.access, call.path),
-            CleanupMutation::Unchanged | CleanupMutation::Recovery => return None,
-        };
-
-        let path = path?;
-
-        let producer = self.storage.identity(path.root).expect("cleanup path retains its planned root")
-            .definition_occurrence().and_then(bray_bound_tree::BoundExecutionSite::expression);
-
-        if let Some(producer) = producer
-            && self.storage.value_slot(producer) == Some(path.root)
-            && self.request.view().expression(producer).is_some_and(bray_bound_tree::BoundExpression::has_result_region)
-        {
-            // Cleanup takes the produced private value before normal publication.
-            // Consuming its transfer once gives every cleanup part the same current contents.
-            memory.complete_transition(producer.into());
-        }
-
-        self.cleanup_receiver(memory, access, Some(path))
-    }
-
     pub(super) fn apply_cleanup(
         &mut self,
         state: &mut StorageFlowState,
         execution: &mut ExecutionState,
-        operation: AnalysisOperationKind,
-    ) {
+        point: &AnalysisOperation,
+    ) -> std::collections::BTreeSet<bray_bound_tree::BorrowCapabilityId> {
+        let operation = point.kind();
         let domain = self.execution;
-        let mut memory = std::mem::take(&mut state.memory);
+
+        let scope_exit = match operation {
+            AnalysisOperationKind::ScopeExit { scope, exit, phase: AnalysisScopeExitPhase::LifecycleResolution, .. } => {
+                Some(bray_bound_tree::StorageExitPoint::new(scope, exit))
+            }
+            _ => None,
+        };
+
+        let replacement = match operation {
+            AnalysisOperationKind::Bound(bray_bound_tree::AnyBoundNodeId::Expression(expression))
+            | AnalysisOperationKind::AssignmentInstall(expression) => self.storage.node_plans(expression.into())
+                .find(|plan| plan.purpose() == StorageAccessPurpose::Assignment)
+                .map(|plan| (expression, plan)),
+            _ => None,
+        };
+
+        let destination = replacement.and_then(|(expression, plan)| {
+            self.assignment_destination(&state.memory, expression, plan.access())?.address.single_location().cloned()
+        });
+
+        let pending = CleanupProgress::resume(&mut state.cleanup, scope_exit, point.id());
+
+        let selected = if let Some(remainder) = pending {
+            Some(CleanupSelection { accesses: Some(remainder.accesses), after: Some(remainder.after), recoveries: Vec::new(), replacement: None })
+        } else if let AnalysisOperationKind::ScopeExit { scope, phase, .. } = operation {
+            Some(domain.select_scope_cleanup(state, self.dependencies, scope, phase))
+        } else {
+            replacement.and_then(|(_, plan)| self.select_replacement(state, plan, destination.as_ref()))
+        };
+
+        let Some(mut selected) = selected else {
+            return Default::default();
+        };
+
+        let displaced = destination.as_ref().into_iter().flat_map(|owner| state.memory.value_loans(owner)).collect();
+
         let mut trusted = std::mem::take(&mut self.trusted);
 
         let publish = self.publish;
-        let mut report_outputs = Vec::new();
+        let lifecycle = scope_exit.filter(|_| operation.is_normal_cleanup() || state.cleanup.is_some());
+        let replacement = replacement.map(|(expression, plan)| (expression, plan.access()));
 
-        let mut observe = |_: _,
-                           _: _,
-                           _: _,
-                           lifecycle: &Lifecycle,
-                           _: bool,
-                           _: &crate::ExecutionCallEvidence,
-                           proof: &Result<(), crate::UnprovenExecutionCondition>| {
-            trusted.cleanup(
-                operation.node(),
-                lifecycle,
-                proof,
-            );
+        selected.replacement = destination;
+
+        if publish {
+            self.exits.record_entry(point.id(), &selected);
+        }
+
+        let mut observe = |observation: CleanupObservation<'_>| {
+            if let CleanupObservation::Invocation { lifecycle, proof, .. } = observation {
+                trusted.cleanup(operation.node(), lifecycle, proof);
+            }
         };
 
-        let dependencies = self.dependencies;
+        let mut skipped = None;
 
         let mut mutate =
-            |execution: &mut ExecutionState,
-             identity: bray_bound_tree::StorageMutation,
-             mutation: crate::analysis::guarantee::CleanupMutation<'_>,
-             conditional: bool| {
+            |transition: CleanupTransition<'_>| {
+                let (execution, identity, mutation, completion) = match transition {
+                    CleanupTransition::PartAbsent { access, part, phase, owner } => {
+                        let absent = owner.is_some_and(|owner| state.is_path_absent(owner));
 
-                let receiver = self.prepare_cleanup_receiver(&mut memory, &mutation);
-                let skipped = conditional.then(|| memory.clone());
+                        if publish {
+                            self.exits.record_part_absence(point.id(), selected.after, (access, part, phase), absent);
+                        }
+
+                        return absent;
+                    }
+                    CleanupTransition::BeginConditional(payloads) => {
+                        let mut inactive = state.clone();
+
+                        for payload in payloads {
+                            inactive.mark_path_absent(payload, bray_bound_tree::StorageAbsence::NoPayload);
+                        }
+
+                        assert!(skipped.replace(inactive).is_none(), "cleanup parts cannot nest a selection");
+
+                        return true;
+                    }
+                    CleanupTransition::EndConditional { completes } => {
+                        let inactive = skipped.take().expect("a conditional cleanup part retains its inactive state");
+
+                        if completes {
+                            state.merge(&inactive, crate::analysis::guarantee::ExecutionJoin::Boundary);
+                        } else {
+                            *state = inactive;
+                        }
+
+                        return true;
+                    }
+                    CleanupTransition::Action(execution, identity, mutation, completion) => {
+                        (execution, identity, mutation, completion)
+                    }
+                };
+
+                if let CleanupMutation::Repeat(remaining) = mutation {
+                    let mut continued = state.clone();
+
+                    continued.execution = Some(execution.clone());
+                    continued.cleanup = Some(CleanupProgress::repeat(state.cleanup.as_ref(), remaining));
+                    self.cleanup_continuations.push(continued);
+
+                    return true;
+                }
+
+                let mut operands = self.cleanup_operands(&state.memory, execution, &mutation, replacement);
 
                 if let CleanupMutation::Lifecycle(call) = &mutation {
-                    self.collect_lifecycle_reports(operation, call, &mut report_outputs);
+                    operands.lifecycle_effects = Some(self.lifecycle_effects(&state.memory, operands.receiver.as_ref(), call));
                 }
 
-                let invocation = match &mutation {
-                    CleanupMutation::Lifecycle(call) => Some(call),
-                    _ => None,
-                };
+                if (lifecycle.is_some() || replacement.is_some())
+                    && let (StorageMutation::Cleanup(action), Some(order)) = (identity, &selected.accesses)
+                    && action.kind != StorageCleanupActionKind::Broadcast
+                {
+                    self.capture_cleanup_faults(state, execution, operation, lifecycle, order, action, &mutation, &operands);
 
-                let task_path = match &mutation {
-                    CleanupMutation::Opaque { path, .. } => *path,
-                    _ => None,
-                };
-
-                let task_sources = match &mutation {
-                    CleanupMutation::Opaque { ty, .. } => task_path
-                        .and_then(|path| domain.deferred_cleanup_invocations(execution, *ty, path)),
-                    _ => None,
-                };
-
-                let task_source = task_sources
-                    .as_ref()
-                    .and(receiver.clone())
-                    .map(crate::analysis::storage_flow::memory::Source::Value);
-
-                let inactive_captures = match &mutation {
-                    CleanupMutation::Opaque { ty, .. } => task_path
-                        .and_then(|path| domain.inactive_future_captures(execution, *ty, path)),
-                    _ => None,
-                };
-
-                let inactive_broadcast = inactive_captures.is_some()
-                    && matches!(identity, StorageMutation::Cancellation { .. })
-                    && task_path.is_some_and(|path| {
-                        memory
-                            .unexposed_storage(std::slice::from_ref(path), [])
-                            .next()
-                            .is_some()
-                    });
-
-                let broadcast_frames = if matches!(identity, StorageMutation::Cancellation { .. }) {
-                    task_path
-                        .into_iter()
-                        .flat_map(|path| memory.unexposed_deferred_paths(path))
-                        .collect::<Vec<_>>()
-                } else {
-                    Vec::new()
-                };
-
-                let mut effects = match mutation {
-                    CleanupMutation::Unchanged => Some(Vec::new()),
-                    CleanupMutation::Recovery => None,
-                    CleanupMutation::Opaque { ty, .. } => Some(
-                        inactive_captures
-                            .as_ref()
-                            .and_then(|_| memory.deferred_cleanup_effects(task_source.as_ref()?, task_sources.as_ref()?, false))
-                            .or_else(|| {
-                                super::effects::task_effects(
-                                    memory.deferred_effects(
-                                        task_source.as_ref()?,
-                                        task_sources.as_ref()?,
-                                    ),
-                                    memory.deferred_cleanup_effects(task_source.as_ref()?, task_sources.as_ref()?, true)?,
-                                )
-                            })
-                            .or_else(|| {
-                                self.buffer_cleanup_effects(&memory, receiver.as_ref()?, ty)
-                            })
-                            .unwrap_or_else(|| memory.cleanup_effects(receiver.as_ref(), ty)),
-                    ),
-                    CleanupMutation::Lifecycle(ref call) => {
-                        self.lifecycle_effects(&memory, call.access, call.path, call.lifecycle)
+                    if let CleanupMutation::Lifecycle(call) = &mutation
+                        && (!call.contract.normal_completion()
+                            || (!call.contract.captured_values().is_empty() && call.outcomes.is_empty()))
+                    {
+                        return false;
                     }
-                };
+                }
 
-                let inherited_tail =
-                    self.record_cleanup_obligations(operation, &mutation, effects.as_deref());
-
-                if let Some(report) = self.inactive_cleanup_report(
+                let Some(reached) = self.apply_cleanup_outcomes(
+                    state,
+                    execution,
                     operation,
+                    identity,
                     &mutation,
-                    inactive_captures.as_deref(),
-                    inherited_tail,
-                ) {
-                    report_outputs.push(report);
-                }
-
-                if inherited_tail && matches!(operation, AnalysisOperationKind::ScopeExit {
-                    phase: crate::analysis::model::AnalysisScopeExitPhase::TaskCancellationBroadcast, ..
-                }) {
-                    // Broadcast work can affect external state without invoking the receiver's destructor.
-                    effects = Some(vec![Effect::Unknown, Effect::Escape]);
-                }
-
-                // Remaining receiver parts use the selected tail disposition. Their
-                // ordinary finalizers execute after the body, while abandonment omits them.
-                if !inherited_tail {
-                    self.check_terminal_effects(
-                        state,
-                        &memory,
-                        operation,
-                        effects.as_deref(),
-                        receiver.iter().cloned(),
-                    );
-                }
-
-                let escaped = self.escape_effects(
-                    &memory,
-                    effects.as_deref(),
-                    receiver.as_slice(),
-                    false,
-                    self.on_normal_path,
-                );
-
-                memory.escape_regions(escaped);
-
-                let mut invalidation =
-                    self.cleanup_invalidation(&memory, effects.as_deref(), receiver.as_ref());
-
-                if (task_source.is_some() || inactive_broadcast)
-                    && let Some(path) = task_path
-                    && let Some(effects) = &effects
-                {
-                    preserve_run_descriptor(
-                        &memory,
-                        path,
-                        effects,
-                        inactive_broadcast,
-                        &mut invalidation,
-                    );
-                }
-
-                // Broadcast exposes captures, not the previously unexposed run handles.
-                for frame in &broadcast_frames {
-                    preserve_run_descriptor(&memory, frame, &[], true, &mut invalidation);
-                }
-
-                self.preserve_storage_values(state, &memory, None, effects.as_deref(), &mut invalidation);
-
-                if let Some(call) = &invocation
-                    && call.completes
-                {
-                    self.prepare_cleanup_references(&mut memory, operation.occurrence(), call);
-                }
-
-                if let Some(effects) = &effects {
-                    self.record_resolved_effects(&memory, effects, self.on_normal_path);
-                } else {
-                    self.record_effects(
-                        &StorageInvalidation::unknown(),
-                        DependencyMutationKind::Retire,
-                    );
-                }
-
-                memory.apply_effects(effects.as_deref(), &invalidation, self.storage);
-
-                if invocation.as_ref().is_some_and(|call| call.completes) {
-                    memory.complete_transition(operation.occurrence());
-                }
-
-                let completion = if let (Some(call), Some(effects)) = (&invocation, &effects) {
-                    self.cleanup_observations(&memory, call, effects, &mut invalidation)
-                } else {
-                    bray_bound_tree::StorageCompletion::default()
+                    &operands,
+                ) else {
+                    return false;
                 };
 
-                if publish {
-                    if invocation.is_some() {
-                        self.completions
-                            .entry(identity)
-                            .and_modify(|previous| previous.merge(&completion))
-                            .or_insert_with(|| completion.clone());
-                    }
+                *completion = Some(reached);
 
-                    self.cleanup_mutations
-                        .entry(identity)
-                        .and_modify(|previous| previous.merge(&invalidation))
-                        // Publication owns observations while the current proof transition consumes them.
-                        .or_insert_with(|| invalidation.clone());
-                }
-
-                domain.invalidate_observations(execution, identity, &invalidation, false, false);
-                domain.observe_references(execution, completion.references());
-
-                if let Some(skipped) = skipped {
-                    // Effects are possible updates. The branch that did not run
-                    // cleanup retains its original physical reference contents.
-                    memory.merge(&skipped, &Default::default(), &Default::default());
-                }
+                true
             };
 
-        domain.transition_storage_cleanup(
+        let completes = domain.transition_storage_cleanup(
             execution,
-            state,
-            dependencies,
-            operation,
+            point,
+            &selected,
             publish.then_some(&mut observe as &mut crate::analysis::guarantee::Observer<'_>),
             &mut mutate,
         );
 
-        self.trusted = trusted;
-        state.memory = memory;
+        state.reachable &= completes;
 
-        for (access, requirements, pending) in report_outputs {
-            self.retain_cleanup_reports(state, access, &requirements, pending);
+        if publish && matches!(operation, AnalysisOperationKind::ScopeExit { .. }) {
+            self.exits.record_phase(point, state, selected);
         }
+
+        self.trusted = trusted;
+
+        displaced
+    }
+
+    fn select_replacement(
+        &mut self,
+        state: &StorageFlowState,
+        plan: StorageAccessPlan,
+        destination: Option<&Target>,
+    ) -> Option<CleanupSelection> {
+        let required = self.execution.replacement_cleanup_required(plan.access());
+
+        if !required && !self.publish {
+            return None;
+        }
+
+        let reached = ReplacementState::new(state, plan, self.storage, destination);
+        let selected = required && !reached.recovered && reached.state() != StorageReplacementState::Absent;
+
+        if self.publish {
+            self.record_replacement(plan, reached);
+        }
+
+        selected.then(|| CleanupSelection { accesses: Some([plan.access()].into()), recoveries: Vec::new(), after: None, replacement: None })
+    }
+
+    fn cleanup_operands<'a>(
+        &self,
+        memory: &State,
+        execution: &ExecutionState,
+        mutation: &CleanupMutation<'a>,
+        replacement: Option<(bray_bound_tree::BoundExpressionId, StorageAccessId)>,
+    ) -> CleanupOperands<'a> {
+        match mutation {
+            CleanupMutation::Opaque { ty, access, path, route, .. } => {
+                let receiver = self.cleanup_receiver(memory, *access, *route, replacement);
+
+                let task_path = if replacement.is_some_and(|(_, destination)| destination == *access) {
+                    receiver.as_ref().filter(|target| target.is_exact())
+                        .and_then(Target::value_observation_path).map(std::borrow::Cow::Owned)
+                } else {
+                    path.map(std::borrow::Cow::Borrowed)
+                };
+
+                let frame = task_path.as_deref().and_then(|path| self.execution.deferred_cleanup_frame(execution, *ty, path));
+
+                let inactive = crate::representation::type_representation(self.request, *ty)
+                    == Some(bray_compiler_known::RepresentationRole::Future);
+
+                let inactive_captures = frame.as_ref().filter(|_| inactive)
+                    .and_then(|frame| self.execution.inactive_frame_capture_types(execution, frame));
+
+                CleanupOperands { receiver, task_path, frame, inactive, inactive_captures, lifecycle_effects: None }
+            }
+            CleanupMutation::Lifecycle(call) => CleanupOperands {
+                receiver: self.cleanup_receiver(memory, call.access, call.route, replacement),
+                task_path: None,
+                frame: None,
+                inactive: false,
+                inactive_captures: None,
+                lifecycle_effects: None,
+            },
+            CleanupMutation::Unchanged | CleanupMutation::Recovery => CleanupOperands {
+                receiver: None,
+                task_path: None,
+                frame: None,
+                inactive: false,
+                inactive_captures: None,
+                lifecycle_effects: None,
+            },
+            CleanupMutation::Repeat(_) => unreachable!("a repeated region has no separate physical effect"),
+        }
+    }
+
+    fn apply_cleanup_outcomes(
+        &mut self,
+        state: &mut StorageFlowState,
+        execution: &mut ExecutionState,
+        operation: AnalysisOperationKind,
+        identity: StorageMutation,
+        mutation: &CleanupMutation<'_>,
+        operands: &CleanupOperands<'_>,
+    ) -> Option<bray_bound_tree::StorageCompletion> {
+        let CleanupMutation::Lifecycle(call) = mutation else {
+            return Some(self.apply_cleanup_action(
+                state, execution, operation, identity, mutation, operands,
+            ));
+        };
+
+        let StorageMutation::Cleanup(action) = identity else {
+            unreachable!("normal lifecycle selection begins at the reached cleanup action");
+        };
+
+        if call.contract.captured_values().is_empty() {
+            return Some(self.apply_cleanup_action(
+                state, execution, operation, identity, mutation, operands,
+            ));
+        }
+
+        let domain = self.execution;
+        let mut rows = call.outcomes.iter().map(|(row, _, guard)| (*row, guard.clone()));
+
+        let first = rows.next()?;
+
+        let apply = |collector: &mut Self, state: &mut StorageFlowState, execution: &mut ExecutionState,
+            (row, guard): (usize, crate::ExecutionCondition)| {
+            domain.assume_cleanup_guard(execution, guard);
+
+            collector.apply_cleanup_action(state, execution, operation,
+                    StorageMutation::CleanupOutcome { action, row }, mutation, operands)
+        };
+
+        let Some(last) = rows.next_back() else {
+            return Some(apply(self, state, execution, first));
+        };
+
+        let mut merged = state.clone();
+        let mut first_execution = execution.clone();
+
+        let mut completion = apply(self, &mut merged, &mut first_execution, first);
+
+        merged.execution = Some(first_execution);
+
+        for row in rows {
+            let mut incoming = state.clone();
+            let mut incoming_execution = execution.clone();
+
+            let incoming_completion = apply(self, &mut incoming, &mut incoming_execution, row);
+
+            completion.merge(&incoming_completion);
+            incoming.execution = Some(incoming_execution);
+
+            merged.merge(&incoming, crate::analysis::guarantee::ExecutionJoin::Boundary);
+        }
+
+        let last_completion = apply(self, state, execution, last);
+
+        completion.merge(&last_completion);
+        state.execution = Some(std::mem::take(execution));
+
+        merged.merge(state, crate::analysis::guarantee::ExecutionJoin::Boundary);
+
+        *execution = merged.execution.take().expect("joined lifecycle outcomes retain their execution state");
+        *state = merged;
+
+        Some(completion)
+    }
+
+    #[expect(clippy::too_many_arguments, reason = "a cleanup fault retains the reached action, schedule, and admitted state")]
+    fn capture_cleanup_faults(
+        &mut self,
+        state: &StorageFlowState,
+        execution: &ExecutionState,
+        operation: AnalysisOperationKind,
+        exit: Option<bray_bound_tree::StorageExitPoint>,
+        order: &[StorageAccessId],
+        action: StorageCleanupAction,
+        mutation: &CleanupMutation<'_>,
+        operands: &CleanupOperands<'_>,
+    ) {
+        let (call, failures) = match mutation {
+            CleanupMutation::Lifecycle(call) => (Some(call), DependencyFailureKind::ALL.as_slice()),
+            CleanupMutation::Opaque { .. } if operands.inactive_captures.as_ref().is_some_and(Vec::is_empty) => return,
+            CleanupMutation::Opaque { failures, .. } => (None, *failures),
+            CleanupMutation::Unchanged | CleanupMutation::Recovery | CleanupMutation::Repeat(_) => return,
+        };
+
+        let mut remainder = None;
+
+        for &kind in failures {
+            let bound = call.and_then(|call| call.contract.failure_outcomes());
+
+            let rows = bound.into_iter().flatten().enumerate().filter_map(|(index, row)| {
+                (row.covers(kind) && call.is_some_and(|call| call.entry.admits_failure(index))).then_some(Some(index))
+            }).chain((bound.is_none() && !call.is_some_and(|call| {
+                kind == DependencyFailureKind::Panic && self.request.target_cannot_unwind(
+                    bray_bound_tree::BoundCallableTarget::Declaration(call.lifecycle.call.callable),
+                )
+            })).then_some(None));
+
+            for row in rows {
+                let mut execution = execution.clone();
+
+                if call.is_some_and(|call| !self.execution.assume_cleanup_failure(&mut execution, call.entry, row)) {
+                    continue;
+                }
+
+                let remainder = remainder.get_or_insert_with(|| StorageCleanupRemainder::at(exit, order, action));
+                let mut failure = state.clone();
+                let identity = StorageMutation::CleanupFailure { action, kind, row };
+
+                self.apply_cleanup_action(&mut failure, &mut execution, operation, identity, mutation, operands);
+
+                if self.publish {
+                    self.cleanup_remainders.entry(identity).or_default().insert(remainder.clone());
+                }
+
+                failure.cleanup = Some(CleanupProgress::during(state.cleanup.as_ref(), kind, remainder.clone()));
+                failure.execution = Some(execution);
+
+                self.cleanup_continuations.push(failure);
+            }
+        }
+
     }
 
     pub(super) fn collect_callable_cleanup(
         &mut self,
         expression: bray_bound_tree::BoundExpressionId,
-    ) {
-        if self.query_failure.is_some() {
-            return;
-        }
-
+    ) -> crate::CheckerQueryResult<(), C::UpstreamError> {
         let request = self.request;
 
         let (instance, template) =
@@ -311,30 +423,27 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     request.callable_result_dependencies(instance.definition().callable_symbol()),
                 )
             } else {
-                return;
+                return Ok(());
             };
 
-        match template.and_then(|template| {
-            crate::dependency::resolved_result_template(request, instance, template, None)
-        }) {
-            Ok(template) => self
-                .synchronous_cleanup
-                .extend(template.synchronous_cleanup().iter().cloned()),
-            Err(error) => self.query_failure = Some(error),
-        }
+        let template = crate::dependency::resolved_result_template(request, instance, template?, None)?;
+
+        self.synchronous_cleanup.extend(template.synchronous_cleanup().iter().cloned());
+
+        Ok(())
     }
 
-    fn record_cleanup_obligations(
+    pub(super) fn record_cleanup_obligations(
         &mut self,
         operation: AnalysisOperationKind,
-        mutation: &crate::analysis::guarantee::CleanupMutation<'_>,
+        mutation: &CleanupMutation<'_>,
         effects: Option<&[Effect]>,
     ) -> bool {
 
         let (ty, access) = match mutation {
             CleanupMutation::Opaque { ty, access, .. } => (*ty, *access),
             CleanupMutation::Lifecycle(call) => (call.ty, call.access),
-            CleanupMutation::Unchanged | CleanupMutation::Recovery => return false,
+            CleanupMutation::Unchanged | CleanupMutation::Recovery | CleanupMutation::Repeat(_) => return false,
         };
 
         let inherited_tail = matches!(operation, AnalysisOperationKind::ScopeExit { .. })
@@ -385,357 +494,24 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
             if inherited_tail {
                 if !matches!(operation, AnalysisOperationKind::ScopeExit {
-                    phase: crate::analysis::model::AnalysisScopeExitPhase::TaskCancellationBroadcast, ..
+                    phase: AnalysisScopeExitPhase::TaskCancellationBroadcast, ..
                 }) {
                     self.receiver_cleanup.insert(ty);
                 }
             } else if synchronous {
                 self.synchronous_cleanup
                     .extend(effects.into_iter().flatten().filter_map(|effect| {
-                        match effect {
-                            Effect::Mutation(_, DependencyMutationKind::Dispose(ty) | DependencyMutationKind::Cleanup(ty), _)
-                            | Effect::UnboundedMutation { kind: DependencyMutationKind::Dispose(ty) | DependencyMutationKind::Cleanup(ty), .. } => deferred(*ty)
-                                .map(bray_symbols::DependencyRequirement::SynchronousCleanup),
+                        let ty = match effect {
+                            Effect::Mutation { kind, .. } | Effect::UnboundedMutation { kind, .. } => kind.cleanup_type(),
+                            Effect::CapturedCleanup { ty, .. } => Some(ty),
                             _ => None,
-                        }
+                        };
+
+                        ty.and_then(|&ty| deferred(ty)).map(bray_symbols::DependencyRequirement::SynchronousCleanup)
                     }));
             }
         }
 
         inherited_tail
-    }
-
-    fn prepare_cleanup_references(
-        &self,
-        memory: &mut State,
-        occurrence: bray_bound_tree::BoundExecutionSite,
-        call: &crate::analysis::guarantee::LifecycleInvocation<'_>,
-    ) {
-        memory.begin_transition(occurrence);
-
-        let Some(receiver) = self.cleanup_receiver(memory, call.access, call.path) else {
-            return;
-        };
-
-        for reference in &self.input.lifecycle_references[&call.lifecycle.call.callable] {
-            let relation = reference.relation();
-
-            if relation.exit().subject_root() != DependencySubjectRoot::Receiver
-                || relation.exit().projections().is_empty()
-            {
-                continue;
-            }
-
-            let location = |subject: &bray_symbols::DependencySubject| {
-                let (_, path) = self
-                    .input
-                    .lifecycle_paths
-                    .get(&(call.lifecycle.call.callable, subject.clone()))?;
-
-                self.stored_locations(memory, occurrence, path, None, |prefix| {
-                    Some(vec![memory.reference_location(self.request.semantic_values(), receiver.clone(), prefix, None)?])
-                })
-            };
-
-            let Some(destinations) = location(relation.exit()) else {
-                memory.stage_whole_sources(occurrence, receiver.clone(), [], false, false);
-                continue;
-            };
-
-            let sources = relation.entry().and_then(location);
-
-            let mut logical = call
-                .path
-                .expect("cleanup receiver has its logical path")
-                .clone();
-
-            logical.projections = logical
-                .projections
-                .iter()
-                .copied()
-                .chain(
-                    crate::storage::storage_projections(
-                        self.request.semantic_values(),
-                        self.dependencies,
-                        relation.exit().projections(),
-                    )
-                    .expect("prepared lifecycle reference retains its projections"),
-                )
-                .collect();
-
-            for destination in destinations {
-                if relation.entry().is_none() {
-                    self.stage_independent_reference(memory, occurrence, destination, logical.clone(), reference);
-                } else if let Some(sources) = &sources {
-                    for source in sources {
-                        // Each possible output owns a transfer from the same captured source path.
-                        self.stage_reference(memory, occurrence,
-                            crate::analysis::storage_flow::memory::Source::Value(source.clone()),
-                            destination.clone(), &logical, reference);
-                    }
-                } else {
-                    memory.stage_unknown(occurrence, destination);
-                }
-            }
-        }
-
-        self.prepare_lifecycle_stored_values(memory, occurrence, call.lifecycle.call.callable, &receiver);
-    }
-
-    fn buffer_cleanup_effects(
-        &self,
-        memory: &State,
-        receiver: &Target,
-        ty: bray_symbols::TypeId,
-    ) -> Option<Vec<Effect>> {
-        let (fields, elements) = self.input.raw_buffers.get(&ty)?;
-
-        let targets = memory.owned_regions(
-            receiver,
-            bray_bound_tree::StorageProjection::ProductField(fields.pointer),
-        )?;
-
-        let effects = targets
-            .into_iter()
-            .flat_map(|target| {
-                let mut effects = if *elements {
-                    memory.cleanup_effects(Some(&target), fields.element)
-                } else {
-                    Vec::new()
-                };
-
-                effects.push(Effect::Mutation(target, DependencyMutationKind::Retire, None));
-
-                effects
-            })
-            .collect::<Vec<_>>();
-
-        Some(effects)
-    }
-
-    fn cleanup_receiver(
-        &self,
-        memory: &State,
-        access: StorageAccessId,
-        path: Option<&StoragePath>,
-    ) -> Option<Target> {
-        let path = path?;
-        let base = self.storage.logical_path(access)?;
-
-        Some(
-            self.input
-                .reference_target(self.request.semantic_values(), memory, self.storage, access)?
-                .project(&path.projections[base.projections.len()..]),
-        )
-    }
-
-    fn cleanup_observations(
-        &self,
-        memory: &State,
-        call: &crate::analysis::guarantee::LifecycleInvocation<'_>,
-        effects: &[Effect],
-        invalidation: &mut StorageInvalidation,
-    ) -> bray_bound_tree::StorageCompletion {
-        let mut observations = std::collections::BTreeMap::new();
-
-        let Some(path) = call.path else {
-            return bray_bound_tree::StorageCompletion::default();
-        };
-
-        let contracts = &self.dependencies.lifecycle_dependencies()[&call.lifecycle.call.callable];
-
-        let Some(receiver) = self.cleanup_receiver(memory, call.access, call.path) else {
-            return bray_bound_tree::StorageCompletion::default();
-        };
-
-        for relation in contracts.borrows() {
-            if !relation.is_exact()
-                || relation.kind() != bray_symbols::DependencyReferenceKind::Borrow
-                || relation.dereferences() != 0
-                || !relation.target_projections().is_empty()
-                || relation.exit().subject_root() != DependencySubjectRoot::Receiver
-                || (!call.completes && relation.entry() != Some(relation.exit()))
-            {
-                continue;
-            }
-
-            let Some((_, prepared)) = self
-                .input
-                .lifecycle_paths
-                .get(&(call.lifecycle.call.callable, relation.exit().clone()))
-            else {
-                continue;
-            };
-
-            let Some(location) = memory.reference_location(self.request.semantic_values(), receiver.clone(), prepared, None) else {
-                continue;
-            };
-
-            let observed = StoragePath {
-                root: path.root,
-                projections: path
-                    .projections
-                    .iter()
-                    .chain(prepared.projections())
-                    .copied()
-                    .collect(),
-            };
-
-            self.reference_observation(
-                memory,
-                effects,
-                invalidation,
-                call.access,
-                observed,
-                &crate::analysis::storage_flow::memory::Source::Value(location),
-                call.completes && relation.entry() != Some(relation.exit()),
-            );
-        }
-
-        // A normal destructor can establish facts about a borrowed field even
-        // when it consumes that field instead of forwarding it into another value.
-        if call.completes {
-            for subject in contracts.reference_subjects() {
-                if subject.subject_root() != DependencySubjectRoot::Receiver {
-                    continue;
-                }
-
-                let Some((ty, prepared)) = self
-                    .input
-                    .lifecycle_paths
-                    .get(&(call.lifecycle.call.callable, subject.clone()))
-                else {
-                    continue;
-                };
-
-                if crate::representation::reference_kind(self.request, *ty)
-                    != Some(bray_symbols::DependencyReferenceKind::Borrow)
-                {
-                    continue;
-                }
-
-                let Some(location) = memory.reference_location(self.request.semantic_values(), receiver.clone(), prepared, None)
-                else {
-                    continue;
-                };
-
-                let Some(targets) = memory.value_targets(&location) else {
-                    continue;
-                };
-
-                let [target] = targets.as_slice() else {
-                    continue;
-                };
-
-                observations.insert(
-                    StoragePath {
-                        root: path.root,
-                        projections: path
-                            .projections
-                            .iter()
-                            .chain(prepared.projections())
-                            .copied()
-                            .collect(),
-                    },
-                    target.clone(),
-                );
-            }
-        }
-
-        bray_bound_tree::StorageCompletion::new(observations, Default::default())
-    }
-
-    fn lifecycle_effects(
-        &self,
-        memory: &State,
-        access: StorageAccessId,
-        path: Option<&StoragePath>,
-        lifecycle: &Lifecycle,
-    ) -> Option<Vec<Effect>> {
-        let contracts = &self.dependencies.lifecycle_dependencies()[&lifecycle.call.callable];
-
-        Some(
-            self.resolve_effects(contracts.effects(), |subject, indirect| {
-                if let Some(location) = self.static_location(subject) {
-                    return if indirect {
-                        memory.referenced_regions(&location)
-                    } else {
-                        Some(vec![location])
-                    };
-                }
-
-                if subject.subject_root() != DependencySubjectRoot::Receiver {
-                    return None;
-                }
-
-                let receiver = self.cleanup_receiver(memory, access, path)?;
-
-                if subject.projections().is_empty() {
-                    return Some(vec![receiver]);
-                }
-
-                let (_, prepared) = self
-                    .input
-                    .lifecycle_paths
-                    .get(&(lifecycle.call.callable, subject.clone()))?;
-
-                let location = memory.reference_location(self.request.semantic_values(), receiver, prepared, None)?;
-
-                if indirect {
-                    memory.referenced_regions(&location)
-                } else {
-                    Some(vec![location])
-                }
-            }),
-        )
-    }
-}
-
-fn preserve_run_descriptor(
-    memory: &State,
-    path: &StoragePath,
-    effects: &[Effect],
-    inactive: bool,
-    invalidation: &mut StorageInvalidation,
-) {
-    let StorageInvalidation::All {
-        stable_descriptors,
-        stable_values,
-        ..
-    } = invalidation
-    else {
-        return;
-    };
-
-    if inactive {
-        // The owner token was unexposed before capture effects were applied.
-        // Broadcasting passes only captures to user code, never this token.
-        stable_descriptors.insert(path.clone());
-        stable_values.insert(path.clone(), bray_bound_tree::StorageObservationKind::Value);
-        return;
-    }
-
-    if effects
-        .iter()
-        .any(|effect| matches!(effect, Effect::Escape | Effect::UnboundedMutation { kind: DependencyMutationKind::Dispose(_) | DependencyMutationKind::Cleanup(_), .. }))
-    {
-        return;
-    }
-
-    if memory
-        .unexposed_storage(
-            std::slice::from_ref(path),
-            effects
-                .iter()
-                .filter_map(Effect::mutation)
-                .map(|(target, _)| target.clone()),
-        )
-        .next()
-        .is_some()
-    {
-        // Cancellation changes the task's frame, not its unexposed handle.
-        // The lifecycle phase must retain the same computation identity.
-        stable_descriptors.insert(path.clone());
-        stable_values.insert(path.clone(), bray_bound_tree::StorageObservationKind::Value);
     }
 }

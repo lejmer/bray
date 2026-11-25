@@ -1,5 +1,7 @@
 mod completion;
+mod captured;
 mod deferred;
+mod deferred_reports;
 mod inputs;
 mod invalidation;
 mod joins;
@@ -7,19 +9,17 @@ mod merge;
 mod model;
 mod numeric;
 mod operation;
+mod pointee;
 mod prepare;
 mod preservation;
 mod refinement;
+mod replay;
 mod value;
 mod witnesses;
 
 pub(super) use joins::{merge_returned, return_substitution};
+pub(in crate::analysis) use completion::TaskSelection;
 pub(in crate::analysis) use merge::{ExecutionJoin, merge as merge_execution};
-pub(super) use model::ExecutionFlow;
+pub(super) use model::{ExecutionFlow, OperationDomainEvidence};
 pub(crate) use model::ExecutionFlowDomain;
-pub(super) use prepare::analyze_execution_flow;
 pub(crate) use prepare::prepare_execution_flow;
-
-pub(super) use witnesses::owned_alternatives;
-
-pub(super) use preservation::ValuePreservation;

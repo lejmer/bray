@@ -23,7 +23,6 @@ fn nonidentity_rewrites_keep_unchanged_structure_and_selected_subtrees_shared() 
 
     for unchanged in [
         choice.with_snapshots(&unrelated),
-        choice.with_copy_origins(&unrelated),
         guard_facts(&unrelated).apply(&choice),
         choice.with_equalities(&unrelated),
         choice.with_joined_values(&unrelated, &unrelated),
@@ -44,7 +43,6 @@ fn nonidentity_rewrites_keep_unchanged_structure_and_selected_subtrees_shared() 
 
     for rewritten in [
         choice.with_snapshots(&selected),
-        choice.with_copy_origins(&selected),
         guard_facts(&selected).apply(&choice),
         choice.with_equalities(&selected),
         choice.with_joined_values(&selected, &selected),
@@ -86,12 +84,10 @@ fn observation_walks_visit_shared_nodes_without_expanding_the_tree() {
         visits.set(0);
 
         let query = super::observations::memoize_observations(|_| { visits.set(visits.get() + 1); false }, |_| false);
-        let walked = roots.iter().map(|root| root.observations().count()).sum::<usize>();
 
         for root in &roots { assert!(!query(root)); }
 
         assert_eq!(visits.get(), depth + 1, "shared subtrees are evaluated once across growing roots");
-        eprintln!("observation graph depth={depth} independent_visits={walked} shared_visits={}", visits.get());
     }
 
     let pruned = super::observations::memoize_observations(|_| panic!("excluded subtrees must not be inspected"), |_| true);
@@ -173,7 +169,6 @@ fn identity_substitutions_preserve_the_existing_shared_value_and_qualifiers() {
     for replacements in [BTreeMap::new(), BTreeMap::from([(unrelated.clone(), unrelated)])] {
         for unchanged in [
             value.with_snapshots(&replacements),
-            value.with_copy_origins(&replacements),
             guard_facts(&replacements).apply(&value),
             value.with_equalities(&replacements),
             value.with_joined_values(&replacements, &replacements),
@@ -256,6 +251,136 @@ fn predicate_reference_arguments_keep_referents_owners_and_changed_contents_dist
     let copied = |ordinal| ExecutionCondition::scalar_observation(input(ordinal), ExecutionCondition::boolean(true));
 
     assert_ne!(condition(loan(2, copied(6))), condition(loan(2, copied(7))));
+
+    let nested = loan(3, loan(2, ExecutionCondition::owned_value(input(0), input(1))));
+    let replacement = loan(4, input(5));
+
+    assert_eq!(nested.with_referent(replacement.clone()).current_referent(), Some(&replacement),
+        "updating one reference layer retains the inner loan without transferring its old pointee's ownership");
+
+    let contents = ExecutionCondition::constructed(input(0), [].into());
+
+    assert_eq!(condition(loan(2, ExecutionCondition::scalar_observation(input(0), contents.clone()))),
+        condition(loan(2, contents.clone())), "a same-owner copy view has no separate reached version");
+
+    assert_ne!(condition(loan(2, ExecutionCondition::scalar_observation(input(4), contents.clone()))),
+        condition(loan(2, contents)), "an independent copy context remains a different storage observation");
+
+    let (unit, expressions) = crate::test_support::integer_expression_unit(bray_bound_tree::BoundUnitId::new(0), 2);
+
+    let mut storage = bray_bound_tree::StoragePlanBuilder::new(unit.unit(), unit.key().kind());
+
+    let slots = expressions.iter().map(|expression|
+        storage.push_identity(bray_bound_tree::StorageIdentity::Temporary(*expression)).expect("captured test value has planned storage"))
+        .collect::<Vec<_>>();
+
+    let captured = |slot: usize| input(0).captured_value(bray_bound_tree::StorageCapturedValue::new(
+        bray_bound_tree::StorageTarget::storage(bray_bound_tree::StoragePath::root(slots[slot])),
+        bray_bound_tree::StorageCapturedTransition::default(),
+    ));
+
+    assert_ne!(captured(0), captured(1), "storage propagation retains its actual snapshot coordinates");
+
+    assert_eq!(condition(captured(0).borrowed()), condition(input(0).borrowed()),
+        "a physical capture does not change the same observed predicate argument");
+
+    assert_eq!(condition(captured(0).borrowed()), condition(captured(1).borrowed()));
+
+    let index = bray_symbols::SymbolOrdinal::new(0);
+
+    let aggregate = ExecutionCondition::constructed(input(1),
+        [(bray_bound_tree::StorageProjection::TupleElement(index), captured(0))].into())
+        .captured_value(captured(1).captured_storage().unwrap().clone());
+
+    let selected = ExecutionCondition::new(crate::ExecutionConditionKind::Projection(
+        bray_symbols::ConstantProjectionKind::TupleElement(index), Arc::new(aggregate)));
+
+    let selected = ExecutionCondition::new(crate::ExecutionConditionKind::Borrowed(Arc::new(selected)));
+
+    assert_eq!(condition(selected), condition(input(0).borrowed()),
+        "a delayed projection cannot introduce hidden physical metadata into proof data");
+
+    let root = ExecutionCondition::post_state(
+        bray_bound_tree::StorageMutation::Operation(expressions[0].into()),
+        input(1),
+    );
+
+    let field = bray_bound_tree::StorageProjection::ProductField(
+        bray_symbols::StructFieldSymbolId::from_symbol_id(bray_symbols::SymbolId::new(951)),
+    );
+
+    let snapshot = captured(0).captured_storage().unwrap().clone();
+    let projected = root.clone().project(field).captured_value(snapshot.clone());
+    let published = ExecutionCondition::constructed(root.clone(), [(field, projected.clone())].into());
+
+    assert_eq!(published.clone().project(field), projected);
+    assert_eq!(condition(published.borrowed()), condition(root.clone().borrowed()));
+
+    let changed = ExecutionCondition::constructed(root.clone(),
+        [(field, ExecutionCondition::boolean(false).captured_value(snapshot))].into());
+
+    assert_ne!(condition(changed.borrowed()), condition(root.borrowed()));
+
+    let fields = (0..=ExecutionCondition::WORK_LIMIT).map(|ordinal| {
+        let ordinal = SymbolOrdinal::new(u32::try_from(ordinal).expect("fixture ordinal fits"));
+
+        (bray_bound_tree::StorageProjection::TupleElement(ordinal), input(ordinal.raw()))
+    }).collect::<Vec<_>>();
+
+    let expected = ExecutionCondition::constructed(input(1), fields.clone().into());
+    let snapshot = captured(0).captured_storage().unwrap().clone();
+
+    let observed = ExecutionCondition::owned_value(input(0), input(1)).captured_value(snapshot.clone());
+
+    assert_eq!(ExecutionCondition::owned_value(input(0), observed.clone()), observed);
+    assert_eq!(ExecutionCondition::owned_value(input(2), observed.clone()).owner_identity(), &input(2));
+
+    let copied = ExecutionCondition::scalar_observation(input(0), input(1)).captured_value(snapshot.clone());
+
+    assert_eq!(ExecutionCondition::scalar_observation(input(0), copied.clone()), copied);
+    assert_eq!(copied.storage_contents(), Some((&input(0), &input(1))));
+    assert_eq!(ExecutionCondition::scalar_observation(input(2), copied.clone()).storage_contents(), Some((&input(2), &copied)));
+    assert_eq!(copied.copied_value(), &copied, "copy transport retains the physical snapshot");
+
+    let fresh_snapshot = captured(1).captured_storage().unwrap().clone();
+    let fresh = input(3).captured_value(fresh_snapshot.clone());
+
+    for (previous, role) in [
+        (observed, super::ExecutionObservationKind::Owned),
+        (copied, super::ExecutionObservationKind::Scalar),
+    ] {
+        let loan = input(7).borrowed().with_referent(previous);
+        let updated = loan.with_referent(fresh.clone());
+        let reached = updated.current_referent().expect("the loan retains its reached data");
+
+        assert_eq!(updated.owner_identity(), loan.owner_identity());
+        assert_eq!(reached.owner_identity(), &input(0));
+        assert_eq!(reached.observation_kind(), Some(role));
+        assert_eq!(reached.computed_value(), &input(3));
+        assert_eq!(reached.inline_captured_storage(), Some(&fresh_snapshot));
+        assert_eq!(updated.with_referent(fresh.clone()), updated);
+    }
+
+    let large = ExecutionCondition::constructed(input(1), fields.into_iter()
+        .map(|(field, value)| (field, value.captured_value(snapshot.clone()))).collect());
+
+    assert_eq!(large.without_captured_storage(), expected,
+        "metadata projection preserves every known field beyond the proof-work limit");
+
+    assert_eq!(ExecutionCondition::retiring_storage(
+        &[(
+            bray_bound_tree::StorageTarget::storage(bray_bound_tree::StoragePath::root(slots[1])),
+            bray_bound_tree::StorageValueRetirement::Producer,
+        )],
+    )(&large), large, "retiring unrelated metadata cannot truncate logical data");
+
+    let captured_loan = input(0).borrowed().with_referent(captured(0));
+    let updated = captured_loan.with_referent(captured(1));
+
+    assert_eq!(updated.current_referent(), Some(&captured(1)),
+        "publishing unchanged logical data still installs its current physical snapshot");
+
+    assert_eq!(updated.with_referent(captured(1)), updated, "publication of the same paired value stabilizes");
 
     let callable = crate::test_support::callable_instance(
         bray_symbols::FunctionSymbolId::from_symbol_id(bray_symbols::SymbolId::new(960)).into());
@@ -355,38 +480,6 @@ fn projecting_a_stored_reference_preserves_its_independent_referent() {
     assert_eq!(projected.observation_kind(), Some(crate::execution_guarantees::ExecutionObservationKind::Scalar));
     assert_eq!(projected.copied_value(), &input(1));
     assert_ne!(projected.borrowed().owner_identity(), input(1).borrowed().owner_identity());
-}
-
-#[test]
-fn copy_proof_correlations_preserve_borrowed_storage_identity() {
-    let definition = bray_symbols::FunctionSymbolId::from_symbol_id(bray_symbols::SymbolId::new(900));
-    let substitution = crate::test_support::callable_instance(definition.into()).substitution();
-    let predicate = bray_symbols::PredicateSymbolId::from_symbol_id(bray_symbols::SymbolId::new(901));
-    let source = ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(0))));
-
-    let copied = ExecutionCondition::scalar_observation(
-        ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(1)))), source.clone());
-
-    let place = ExecutionPlace::argument(SymbolOrdinal::new(0));
-
-    let evidence = crate::ExecutionCallEvidence {
-        arguments: BTreeMap::from([(place.clone(), copied.clone())]),
-        copy_sources: BTreeMap::from([(place, source.clone())]),
-        ..Default::default()
-    };
-
-    let condition = |value| ExecutionCondition::predicate(predicate.into(), substitution, vec![value]);
-
-    let facts = BTreeSet::from([
-        (condition(source.clone()), true),
-        (condition(source.clone().borrowed()), true),
-    ]);
-
-    let observed = evidence.proof_facts(&facts).collect::<BTreeSet<_>>();
-
-    assert!(observed.contains(&(condition(copied.clone()), true)));
-    assert!(observed.contains(&(condition(source.borrowed()), true)));
-    assert!(!observed.contains(&(condition(copied.borrowed()), true)));
 }
 
 #[test]
@@ -600,7 +693,8 @@ fn const_calls_observe_current_values_without_loan_identity() {
     let input = ExecutionCondition::new(crate::ExecutionConditionKind::Input(place.clone()));
     let call = |value| ExecutionCondition::call(callable, None, [], vec![value], None);
     let loan = input.clone().borrowed();
-    let contents = ExecutionCondition::new(crate::ExecutionConditionKind::Joined(bray_bound_tree::BoundUnitId::new(0), 1, place));
+    let join = crate::ExecutionJoinSite::Block(bray_bound_tree::BoundUnitId::new(0), 1);
+    let contents = ExecutionCondition::new(crate::ExecutionConditionKind::Joined(join, place));
     let current = loan.with_referent(contents.clone());
 
     assert_eq!(call(loan.clone()), call(input));
@@ -683,6 +777,25 @@ fn aggregate_contents_refresh_does_not_introduce_a_scalar_storage_context() {
 
     let borrowed = allocated.clone().borrowed();
     let stored = ExecutionCondition::owned_value(inline, allocated);
+
+    let outer = ExecutionCondition::reference_value(
+        ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(6)))).borrowed(), borrowed.clone(),
+    );
+
+    let read = ExecutionCondition::storage_value(bray_symbols::CapturedValueOperation::Read, vec![outer].into());
+
+    assert_eq!(read.copied_value(), &borrowed, "one read retains a reference-valued payload instead of following its pointee");
+
+    let observed = ExecutionCondition::scalar_observation(
+        ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(6)))),
+        ExecutionCondition::boolean(true),
+    );
+
+    let loan = changed.clone().borrowed().with_referent(observed.clone());
+    let read = ExecutionCondition::storage_value(bray_symbols::CapturedValueOperation::Read, vec![loan].into());
+
+    assert_eq!(read, observed, "a read preserves the reached context independently of the loan handle");
+    assert!(read.ownership_identity().is_none());
 
     assert_eq!(borrowed.with_referent(stored), borrowed,
         "refreshing unchanged reached contents must not invent a contents transition");
@@ -836,6 +949,68 @@ fn republishing_a_nullable_payload_keeps_one_parent_snapshot() {
     assert_eq!(extraction.owner_identity(), payload.owner_identity());
     assert_eq!(extraction.clone().present(), snapshot);
     assert_eq!(snapshot.with_storage_component(&[field], extraction), snapshot);
+
+    let scalar = ExecutionCondition::scalar_observation(payload, snapshot.clone());
+    let observed = scalar.with_storage_component(&[field], scalar.clone().project(field));
+
+    assert_eq!(observed.with_storage_component(&[field], observed.clone().project(field)), observed);
+
+    let inline = |value: ExecutionCondition| ExecutionCondition::storage_value(
+        bray_symbols::CapturedValueOperation::Inline, vec![value.project(field)].into(),
+    );
+
+    let retained = snapshot.with_storage_component(&[field], inline(snapshot.clone()));
+
+    assert_eq!(retained.with_storage_component(&[field], inline(retained.clone())), retained);
+}
+
+#[test]
+fn republishing_a_captured_nullable_payload_keeps_its_reference() {
+    use bray_bound_tree::{StorageAddressValue, StorageCapturedTransition, StorageCapturedValue, StorageIdentity, StoragePath, StoragePlanBuilder, StorageProjection, StorageTarget, StorageValueBinding};
+
+    let input = |ordinal| ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(ordinal))));
+    let payload = input(1).borrowed();
+    let field = StorageProjection::NullableValue;
+    let enclosing = ExecutionCondition::constructed(input(0), [(field, payload.clone())].into());
+
+    let (unit, expressions) = crate::test_support::integer_expression_unit(bray_bound_tree::BoundUnitId::new(0), 3);
+
+    let mut plan = StoragePlanBuilder::new(unit.unit(), unit.key().kind());
+
+    let mut target = |index: usize| {
+        let id = plan.push_identity(StorageIdentity::Temporary(expressions[index])).expect("fixture target has storage");
+
+        StorageTarget::storage(StoragePath::root(id))
+    };
+
+    let coordinate = target(0);
+    let reached = target(1);
+    let mut binding = StorageValueBinding::default();
+
+    binding.address = Some(StorageAddressValue::one(reached.clone()));
+
+    let capture = StorageCapturedValue::new(coordinate.clone(), StorageCapturedTransition {
+        values: [(coordinate, binding)].into(),
+        ..StorageCapturedTransition::default()
+    });
+
+    let selected = enclosing.clone().project(field).captured_value(capture);
+    let published = enclosing.with_storage_component(&[field], selected);
+    let projected = published.clone().project(field);
+    let stored = projected.nullable_payload_snapshot().expect("the projection selects the stored payload");
+
+    assert_eq!(stored.owner_identity(), payload.owner_identity());
+    assert_eq!(stored.captured_storage().and_then(StorageCapturedValue::known_address), Some(&reached));
+    assert_eq!(published.with_storage_component(&[field], projected.clone()), published);
+
+    let destination = ExecutionCondition::constructed(input(2), [(field, input(3))].into())
+        .captured_value(StorageCapturedValue::new(target(2), StorageCapturedTransition::default()));
+
+    let copied = destination.with_storage_component(&[field], projected);
+    let capture = copied.captured_storage().expect("destination retains its independent capture").project(field);
+
+    assert_eq!(capture.known_address(), Some(&reached));
+    assert_eq!(copied.project(field).into_component_data().owner_identity(), payload.owner_identity());
 }
 
 #[test]
@@ -861,6 +1036,7 @@ fn nullable_extraction_keeps_the_payload_owner_across_snapshots() {
 
     assert_eq!(snapshot.owner_identity(), &identity);
     assert_eq!(extraction.owner_identity(), payload.owner_identity());
+    assert_eq!(extraction.owned_components().collect::<Vec<_>>(), [&payload]);
 }
 
 #[test]
@@ -962,6 +1138,8 @@ fn observation_paths_distinguish_contents_from_containing_identity() {
             .clone()
             .component(ConstantProjectionKind::TupleElement(SymbolOrdinal::new(0)));
 
+        let right_child = right.clone().component(ConstantProjectionKind::TupleElement(SymbolOrdinal::new(0)));
+
         let mut changed = super::ObservationSet::default();
 
         changed.insert(left.clone());
@@ -969,11 +1147,16 @@ fn observation_paths_distinguish_contents_from_containing_identity() {
         assert!(changed.overlaps(&left));
         assert!(changed.overlaps(&child));
         assert!(!changed.overlaps(&right));
+        assert!(!changed.contains(&right_child));
         assert!(!changed.contains(&root));
         assert!(changed.contains(&child));
         assert!(!right.clone().borrowed().observes(&left));
         assert!(root.clone().borrowed().observes(&left));
         assert!(left.clone().borrowed().observes(&root));
+
+        changed.insert(right);
+
+        assert!(changed.contains(&right_child));
 
         assert!(
             !ExecutionCondition::new(crate::ExecutionConditionKind::Entry {
@@ -1002,6 +1185,48 @@ fn retained_borrow_paths_do_not_retain_the_referents_ownership() {
     assert!(!retained.contains(&field));
     assert!(!retained.overlaps(&owner));
     assert!(!retained.overlaps(&field));
+
+    let live = super::RetainedSnapshots::from_iter([owner.clone().borrowed()]);
+
+    assert!(live.retains_witness_carrier(&field, |referent| referent == &field));
+    assert!(!live.retains_owner(&field));
+
+    let unrelated = ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(1))));
+
+    assert!(!live.retains_witness_carrier(&unrelated, |_| true));
+
+    let descriptor = unrelated.clone();
+
+    let reached = super::RetainedSnapshots::from_iter([
+        ExecutionCondition::reference_value(descriptor.clone(), field.clone()),
+    ]);
+
+    assert!(reached.retains_witness_carrier(&descriptor, |referent| referent == &field));
+    assert!(!reached.retains_witness_carrier(&descriptor, |referent| referent == &unrelated));
+    assert!(!reached.retains_owner(&descriptor));
+}
+
+#[test]
+fn predicate_observations_read_nested_reference_context_without_changing_carriers() {
+    let input = |ordinal| ExecutionCondition::new(crate::ExecutionConditionKind::Input(
+        ExecutionPlace::argument(SymbolOrdinal::new(ordinal)),
+    ));
+
+    let owner = input(0);
+    let data = ExecutionCondition::boolean(true);
+
+    let nested = |contents| ExecutionCondition::constructed(input(2), [(
+        bray_bound_tree::StorageProjection::TupleElement(SymbolOrdinal::new(0)),
+        ExecutionCondition::reference_value(owner.clone(), contents),
+    )].into());
+
+    let direct = nested(data.clone());
+    let same = nested(ExecutionCondition::owned_value(owner.clone(), data.clone()));
+    let different = nested(ExecutionCondition::owned_value(input(1), data));
+
+    assert_ne!(direct, same);
+    assert_eq!(direct.predicate_observation(), same.predicate_observation());
+    assert_ne!(direct.predicate_observation(), different.predicate_observation());
 }
 
 #[test]
@@ -1045,6 +1270,30 @@ fn boolean_proofs_keep_decisive_operands_without_equating_unknowns() {
     }
 
     let known = ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(0))));
+
+    let (unit, expressions) = crate::test_support::integer_expression_unit(bray_bound_tree::BoundUnitId::new(0), 2);
+
+    let mut storage = bray_bound_tree::StoragePlanBuilder::new(unit.unit(), unit.key().kind());
+
+    let captured = expressions.iter().map(|expression| {
+        let slot = storage.push_identity(bray_bound_tree::StorageIdentity::Temporary(*expression))
+            .expect("captured Boolean value retains its planned coordinates");
+
+        known.clone().captured_value(bray_bound_tree::StorageCapturedValue::new(
+            bray_bound_tree::StorageTarget::storage(bray_bound_tree::StoragePath::root(slot)), Default::default(),
+        ))
+    }).collect::<Vec<_>>();
+
+    for truth in [false, true] {
+        let mut facts = BTreeSet::new();
+
+        captured[0].clone().assume(truth, &mut facts);
+
+        for value in [&known, &captured[0], &captured[1]] {
+            assert_eq!(value.prove(&facts, &mut { ExecutionCondition::WORK_LIMIT }), Some(truth),
+                "physical capture coordinates do not change the same Boolean data");
+        }
+    }
 
     for (operator, truth) in [
         (BoundOperator::LogicalOr, true),

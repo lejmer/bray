@@ -95,6 +95,7 @@ where
 #[derive(Clone)]
 pub(super) struct SemanticTables {
     pub(super) types: Arc<InternTable<TypeData, TypeId>>,
+    pub(super) statics: Arc<InternTable<crate::StaticReferenceSelection, crate::StaticReferenceId>>,
     pub(super) constant_values: Arc<InternTable<ConstantValueData, ConstantValueId>>,
     pub(super) constant_terms: Arc<InternTable<ConstantTermData, ConstantTermId>>,
     pub(super) substitutions: Arc<InternTable<GenericSubstitutionData, GenericSubstitutionId>>,
@@ -110,6 +111,7 @@ impl SemanticTables {
     pub(super) fn new() -> Self {
         Self {
             types: Arc::new(InternTable::new()),
+            statics: Arc::new(InternTable::new()),
             constant_values: Arc::new(InternTable::new()),
             constant_terms: Arc::new(InternTable::new()),
             substitutions: Arc::new(InternTable::new()),

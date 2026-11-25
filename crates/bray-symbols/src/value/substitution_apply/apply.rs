@@ -134,17 +134,17 @@ impl SemanticValueStore {
 
         let substituted = match data.as_ref() {
             TypeData::ContextualSelf(SelfTypeContext::NamedType(definition)) => {
-                let Some(generic) = substitution.generic() else {
+                let Some(owner) = GenericOwnerId::try_new(definition.into_any()) else {
                     return Ok(ty);
                 };
 
-                let Some(owner) = GenericOwnerId::try_new(definition.into_any()) else {
+                let Some(generic) = substitution.generic().filter(|generic| generic.owner() == owner) else {
                     return Ok(ty);
                 };
 
                 TypeData::Named {
                     definition: *definition,
-                    substitution: self.intern_generic_substitution(generic.with_owner(owner))?,
+                    substitution: self.intern_generic_substitution(generic.clone())?,
                 }
             }
             TypeData::ExactInteger { .. }
@@ -560,7 +560,7 @@ impl SemanticValueStore {
             .collect()
     }
 
-    fn substitute_static_reference(
+    pub(in crate::value) fn substitute_static_reference(
         &self,
         selection: &StaticReferenceSelection,
         substitution: &Substitution<'_>,
@@ -939,8 +939,8 @@ mod tests {
                     source_subject.clone(),
                     DependencyRequirementKind::StorageAlive,
                 )])
-                .with_borrows([projected_reference(source_term)])
-                .with_stored_values([stored_value(source_term)]),
+                .with_captured_values([crate::CapturedValueOutcome::new(None, [])
+                    .with_storage([projected_reference(source_term)], [stored_value(source_term)])]),
             )
             .unwrap_or_else(|error| panic!("invocation contract interning failed: {error:?}"));
 
@@ -1012,8 +1012,8 @@ mod tests {
                 target_subject.clone(),
                 DependencyRequirementKind::StorageAlive,
             )])
-            .with_borrows([projected_reference(target_term)])
-            .with_stored_values([stored_value(target_term)])
+            .with_captured_values([crate::CapturedValueOutcome::new(None, [])
+                .with_storage([projected_reference(target_term)], [stored_value(target_term)])])
         );
 
         assert_eq!(

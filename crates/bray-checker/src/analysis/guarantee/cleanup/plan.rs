@@ -1,23 +1,17 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use bray_bound_tree::{BoundReferenceTarget, CheckedAsync, StorageAccessId, StoragePlan};
+use bray_bound_tree::{BoundReferenceTarget, StorageAccessId, StoragePath, StoragePlan, StorageReferencePath, StorageReferenceStep};
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
-use bray_symbols::{CallableInstanceData, TypeAssociatedLifecycleSlot, TypeData, TypeId};
+use bray_symbols::{CallableInstanceData, DependencyFailureKind, TypeAssociatedLifecycleSlot, TypeData, TypeId};
 
 use crate::{
     CheckerQueryError, CheckerRequestContext, CheckerUnitView, ExecutionCondition, ExecutionPlace,
     TrustedCallContract,
 };
 
-pub(crate) struct Cleanup<'a> {
-    pub(in crate::analysis::guarantee) selected:
-        Option<(&'a CheckedAsync, &'a bray_bound_tree::StorageFlow)>,
-    pub(in crate::analysis) plan: &'a Plan,
-    pub(in crate::analysis::guarantee) borrowed_inputs: BTreeSet<ExecutionPlace>,
-}
-
 #[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
 pub(crate) struct Plan {
+    cleanup_callees: BTreeSet<bray_symbols::CallableSymbolId>,
     pub(crate) expression_cleanup_calls:
         BTreeMap<bray_bound_tree::BoundExpressionId, BTreeSet<bray_bound_tree::BodyBehaviorCall>>,
     suspending: BTreeSet<StorageAccessId>,
@@ -25,12 +19,10 @@ pub(crate) struct Plan {
         bray_bound_tree::BoundExpressionId,
         Vec<TypeId>,
     >,
-    pub(crate) scoped_error_quiescence:
+    pub(crate) scoped_quiescence:
         BTreeMap<bray_bound_tree::StorageScope, bray_bound_tree::BoundExpressionId>,
     pub(in crate::analysis) requirements:
-        std::sync::Arc<[bray_bound_tree::AsyncStorageRequirement]>,
-    pub(super) replacements:
-        BTreeMap<StorageAccessId, bray_bound_tree::AsyncStorageCleanupRequirement>,
+        std::sync::Arc<crate::asynchronous::StorageCleanupRequirements>,
     pub(super) steps: BTreeMap<StorageAccessId, Vec<Step>>,
     pub(in crate::analysis) lifecycles: BTreeMap<(TypeId, TypeAssociatedLifecycleSlot), Lifecycle>,
 }
@@ -40,24 +32,17 @@ pub(super) enum Step {
     Opaque {
         phases: bray_bound_tree::AsyncCleanupPhases,
         ty: TypeId,
-        path: Option<bray_bound_tree::StoragePath>,
-        guards: Vec<(
-            bray_bound_tree::StoragePath,
-            bray_bound_tree::BoundOperator,
-            ExecutionCondition,
-        )>,
+        releases_storage: bool,
+        failures: &'static [DependencyFailureKind],
+        selection: Selection,
     },
     Lifecycle {
         phases: bray_bound_tree::AsyncCleanupPhases,
         ty: TypeId,
         place: Option<ExecutionPlace>,
-        path: Option<bray_bound_tree::StoragePath>,
         whole: bool,
-        guards: Vec<(
-            bray_bound_tree::StoragePath,
-            bray_bound_tree::BoundOperator,
-            ExecutionCondition,
-        )>,
+        represented: bool,
+        selection: Selection,
     },
 }
 
@@ -66,6 +51,34 @@ impl Step {
         match self {
             Self::Opaque { phases, .. } | Self::Lifecycle { phases, .. } => *phases,
         }
+    }
+
+    pub(super) fn selection(&self) -> &Selection {
+        match self {
+            Self::Opaque { selection, .. } | Self::Lifecycle { selection, .. } => selection,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
+pub(super) struct Selection {
+    pub(super) owner: Option<StoragePath>,
+    pub(super) route: Option<StorageReferencePath>,
+    pub(super) guards: Vec<SelectionGuard>,
+    pub(super) repeat_from: Option<usize>,
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub(super) struct SelectionGuard {
+    pub(super) subject: StoragePath,
+    pub(super) operator: bray_bound_tree::BoundOperator,
+    pub(super) expected: ExecutionCondition,
+    pub(super) payload: Option<StoragePath>,
+}
+
+impl Selection {
+    pub(super) fn target(&self) -> Option<&StoragePath> {
+        self.owner.as_ref().filter(|_| self.route.is_some())
     }
 }
 
@@ -76,38 +89,58 @@ pub(in crate::analysis) struct Lifecycle {
     pub(in crate::analysis) contract: TrustedCallContract,
 }
 
-impl<'a> Cleanup<'a> {
-    pub(crate) fn new(
-        plan: &'a Plan,
-        dependencies: &'a bray_bound_tree::CheckedDependencyContracts,
-        values: &bray_symbols::SemanticValueStore,
-    ) -> Self {
-        let references = dependencies.lifecycle_dependencies();
-        let borrowed_inputs = plan.borrowed_inputs(references, values, dependencies);
-
-        Self {
-            plan,
-            borrowed_inputs,
-            selected: None,
-        }
-    }
-
-    pub(crate) fn with_selection(
-        mut self,
-        cleanup: &'a CheckedAsync,
-        flow: &'a bray_bound_tree::StorageFlow,
-    ) -> Self {
-        self.selected = Some((cleanup, flow));
-
-        self
-    }
-}
-
 impl Plan {
+    pub(in crate::analysis) fn storage_scope(&self, identity: bray_bound_tree::StorageIdentityId) -> Option<bray_bound_tree::StorageScope> {
+        self.requirements.get(identity)
+            .and_then(bray_bound_tree::AsyncStorageRequirement::owner)
+    }
+
     pub(in crate::analysis) fn opaque_types(&self) -> impl Iterator<Item = TypeId> + '_ {
         self.steps.values().flatten().filter_map(|step| match step {
             Step::Opaque { ty, .. } => Some(*ty),
             Step::Lifecycle { .. } => None,
+        })
+    }
+
+    pub(in crate::analysis::guarantee) fn repeats_action(&self, action: bray_bound_tree::StorageCleanupAction) -> bool {
+        action.kind != bray_bound_tree::StorageCleanupActionKind::Broadcast
+            && self.steps.get(&action.access).into_iter().flatten().skip(action.part).any(|step| {
+                step.selection().repeat_from.is_some_and(|first| first <= action.part)
+            })
+    }
+
+    pub(in crate::analysis) fn fallible_scope_owners<'a>(
+        &'a self,
+        storage: &'a StoragePlan,
+        dependencies: &'a bray_bound_tree::CheckedDependencyContracts,
+        scope: bray_bound_tree::StorageScope,
+    ) -> impl Iterator<Item = bray_bound_tree::StorageIdentityId> + 'a {
+        self.requirements.scope_candidates(scope).filter(move |&identity| {
+            storage.root_access(identity)
+                .is_none_or(|access| !self.has_infallible_cleanup(dependencies, access))
+        })
+    }
+
+    fn has_infallible_cleanup(
+        &self,
+        dependencies: &bray_bound_tree::CheckedDependencyContracts,
+        access: StorageAccessId,
+    ) -> bool {
+        self.steps.get(&access).is_some_and(|steps| {
+            steps.iter().all(|step| {
+                let ty = match step {
+                    Step::Opaque { failures, .. } => return failures.is_empty(),
+                    Step::Lifecycle { ty, .. } => *ty,
+                };
+
+                let Some(destructor) = self.lifecycles.get(&(ty, TypeAssociatedLifecycleSlot::Destructor)) else {
+                    return false;
+                };
+
+                // Finalization can produce a typed incident independently of call failure.
+                !self.lifecycles.contains_key(&(ty, TypeAssociatedLifecycleSlot::Finalizer))
+                    && destructor.is_infallible_destructor(&dependencies.lifecycle_dependencies()[&destructor.call.callable])
+            })
         })
     }
 
@@ -122,6 +155,7 @@ impl Plan {
         storage: &StoragePlan,
     ) -> BTreeSet<bray_bound_tree::StorageScope> {
         self.requirements
+            .entries()
             .iter()
             .filter_map(|requirement| {
                 let scope = requirement.owner()?;
@@ -129,7 +163,7 @@ impl Plan {
 
                 self.requires_suspension(access).then_some(scope)
             })
-            .chain(self.scoped_error_quiescence.keys().copied())
+            .chain(self.scoped_quiescence.keys().copied())
             .collect()
     }
 
@@ -196,8 +230,14 @@ impl Plan {
     pub(in crate::analysis) fn represented_paths(
         &self,
     ) -> impl Iterator<Item = &bray_bound_tree::StoragePath> {
-        self.steps.values().flatten().filter_map(|step| match step {
-            Step::Opaque { path, .. } | Step::Lifecycle { path, .. } => path.as_ref(),
+        self.steps.values().flatten().filter_map(|step| step.selection().target())
+    }
+
+    pub(in crate::analysis) fn owner_roots(
+        &self,
+    ) -> impl Iterator<Item = bray_bound_tree::StorageIdentityId> + '_ {
+        self.steps.values().flatten().filter_map(|step| {
+            step.selection().owner.as_ref().map(|path| path.root)
         })
     }
 
@@ -223,10 +263,8 @@ impl Plan {
                         let contract =
                             &dependencies.lifecycle_dependencies()[&lifecycle.call.callable];
 
-                        contract
-                            .completion_reports()
-                            .into_iter()
-                            .chain(contract.abnormal_reports())
+                        contract.captured_values().iter().filter_map(|outcome| outcome.report.as_deref())
+                    .chain(contract.failure_outcomes().into_iter().flatten().filter_map(|row| row.report.as_deref()))
                             .any(|requirements| !requirements.is_empty())
                             || (lifecycle
                                 .call
@@ -245,9 +283,7 @@ impl Plan {
     pub(in crate::analysis) fn callees(
         &self,
     ) -> impl Iterator<Item = bray_symbols::CallableSymbolId> + '_ {
-        self.lifecycles
-            .values()
-            .map(|lifecycle| lifecycle.call.callable.definition().callable_symbol())
+        self.cleanup_callees.iter().copied()
     }
 
     pub(crate) fn check_dependencies<C: CheckerRequestContext + ?Sized>(
@@ -281,54 +317,6 @@ impl Plan {
         Ok(references)
     }
 
-    fn borrowed_inputs(
-        &self,
-        references: &BTreeMap<CallableInstanceData, bray_symbols::DependencyContractTemplateData>,
-        values: &bray_symbols::SemanticValueStore,
-        dependencies: &bray_bound_tree::CheckedDependencyContracts,
-    ) -> BTreeSet<ExecutionPlace> {
-        self.steps
-            .values()
-            .flatten()
-            .filter_map(|step| match step {
-                Step::Lifecycle {
-                    ty,
-                    place: Some(place),
-                    ..
-                } if place.is_callable_input() => Some((ty, place)),
-                _ => None,
-            })
-            .flat_map(|(ty, place)| {
-                [
-                    TypeAssociatedLifecycleSlot::Finalizer,
-                    TypeAssociatedLifecycleSlot::Destructor,
-                ]
-                .into_iter()
-                .filter_map(move |slot| self.lifecycles.get(&(*ty, slot)))
-                .flat_map(move |lifecycle| {
-                    references[&lifecycle.call.callable]
-                        .borrows()
-                        .iter()
-                        .filter_map(move |relation| {
-                            (relation.is_exact()
-                                && relation.dereferences() == 0
-                                && relation.target_projections().is_empty()
-                                && relation.entry() == Some(relation.exit())
-                                && relation.exit().subject_root()
-                                    == bray_symbols::DependencySubjectRoot::Receiver)
-                                .then(|| {
-                                    super::super::trusted::project_place(
-                                        values, dependencies, place.clone(),
-                                        relation.exit(),
-                                    )
-                                })
-                                .flatten()
-                        })
-                })
-            })
-            .collect()
-    }
-
     pub(crate) fn prepare<C: CheckerRequestContext + ?Sized>(
         cleanup_shapes: &mut crate::asynchronous::CleanupShapeResolver<'_, C>,
         request: CheckerUnitView<'_, C>,
@@ -342,11 +330,20 @@ impl Plan {
 
         prepared.requirements = cleanup_shapes.storage_requirements(storage)?;
 
+        let abandoned = graph.operations().iter().filter_map(|operation| {
+            let crate::analysis::AnalysisOperationKind::ScopeExit {
+                scope: bray_bound_tree::StorageScope::AbandonedTransfer { value, .. }, ..
+            } = operation.kind() else { return None; };
+
+            Some(value)
+        }).collect::<BTreeSet<_>>();
+
         let mut accesses = storage
             .identity_entries()
             .filter_map(|(identity, slot)| {
                 if !slot.is_invocation_owned(storage.kind())
                     || bray_bound_tree::storage_identity_transfers_at_unit_exit(storage, identity)
+                        && !abandoned.contains(&identity)
                 {
                     return None;
                 }
@@ -358,16 +355,12 @@ impl Plan {
             })
             .collect::<BTreeMap<_, _>>();
 
-        for plan in storage
-            .access_plans()
-            .iter()
-            .filter(|plan| plan.purpose() == bray_bound_tree::StorageAccessPurpose::Assignment)
-        {
-            let access = storage
-                .access(plan.access())
-                .expect("replacement retains its checked access");
+        for access in prepared.requirements.replacement_accesses() {
+            let ty = storage.access(access)
+                .expect("replacement retains its checked access")
+                .reached_type();
 
-            accesses.insert(plan.access(), access.reached_type());
+            accesses.insert(access, ty);
         }
 
         let mut types = BTreeSet::new();
@@ -376,10 +369,6 @@ impl Plan {
             let reached = storage
                 .access(access)
                 .expect("checked cleanup retains its storage access");
-
-            prepared
-                .replacements
-                .insert(access, cleanup_shapes.requirement(ty)?);
 
             if cleanup_shapes.requires_suspension(ty)? {
                 prepared.suspending.insert(access);
@@ -402,43 +391,60 @@ impl Plan {
 
             diagnostics.add_range(additional);
 
-            let mut steps: Vec<_> = parts
-                .into_iter()
-                .map(|(ty, part)| {
-                    let phases = part.as_ref().map_or(bray_bound_tree::AsyncCleanupPhases::CancellationThenLifecycle,
+            let mut steps = Vec::new();
+
+            super::selection::visit_cleanup_parts(request.semantic_values(), &parts, |ty, part, indices, repeat| {
+                    let phases = part.map_or(bray_bound_tree::AsyncCleanupPhases::CancellationThenLifecycle,
                         bray_bound_tree::StorageCleanupPart::phases);
 
-                    let path = part.as_ref().and_then(|part| part.storage_path(storage, access));
-                    let guards = cleanup_guards(request.semantic_values(), storage, access, part.as_ref());
+                    let mut selection = cleanup_selection(request.semantic_values(), storage, access, part, indices);
 
-                    if !has_source_lifecycle(cleanup_shapes, request, ty, part.as_ref())? {
-                        Ok(Step::Opaque { phases, ty, path, guards })
+                    selection.repeat_from = repeat.map(|length| steps.len() + 1 - length);
+
+                    let step = if !cleanup_shapes.has_source_lifecycle(ty, part)? {
+                        let releases_storage = part.is_some_and(|part| part.release().is_some());
+
+                        let failures = if releases_storage {
+                            &DependencyFailureKind::ALL
+                        } else {
+                            opaque_cleanup_failure_kinds(cleanup_shapes, request, ty)?
+                        };
+
+                        Step::Opaque { phases, ty, releases_storage, failures, selection }
                     } else {
                         types.insert(ty);
 
-                        let place = path.as_ref().and_then(|path| ExecutionPlace::storage_path(storage, path));
+                        let place = selection.target().and_then(|path| ExecutionPlace::storage_path(storage, path));
 
-                        Ok(Step::Lifecycle {
+                        Step::Lifecycle {
                             phases,
                             ty,
-                            guards,
-                            path,
+                            selection,
                             place,
-                            whole: part
-                                .as_ref()
-                                .is_some_and(|part| part.projections().is_empty()),
-                        })
-                    }
-                })
-                .collect::<Result<_, CheckerQueryError<C::UpstreamError>>>()?;
+                            whole: part.is_some_and(|part| part.projections().is_empty()),
+                            represented: part.is_some(),
+                        }
+                    };
 
-            if steps.is_empty() {
+                    steps.push(step);
+
+                    Ok::<(), CheckerQueryError<C::UpstreamError>>(())
+            })?;
+
+            if parts.is_empty() {
                 // Opaque native cleanup has no represented lifecycle whose effects we can apply.
+                let failures = opaque_cleanup_failure_kinds(cleanup_shapes, request, ty)?;
+
                 steps.push(Step::Opaque {
                     phases: bray_bound_tree::AsyncCleanupPhases::CancellationThenLifecycle,
                     ty,
-                    path: storage.logical_path(access).cloned(),
-                    guards: Vec::new(),
+                    releases_storage: false,
+                    failures,
+                    selection: Selection {
+                        owner: storage.logical_path(access).cloned(),
+                        route: Some(StorageReferencePath::new([].into(), [].into())),
+                        ..Selection::default()
+                    },
                 });
             }
 
@@ -453,7 +459,24 @@ impl Plan {
             &mut diagnostics,
         )?;
 
+        let future_results = expressions.selections().entries().iter().filter_map(|entry| {
+            let bray_bound_tree::SemanticSelection::Call(call) = entry.selection() else {
+                return None;
+            };
+
+            match call.resolution().result() {
+                bray_bound_tree::BoundCallResult::LazyFuture(future) => Some(future.completion_type()),
+                bray_bound_tree::BoundCallResult::Immediate(_) => None,
+            }
+        });
+
+        prepared.cleanup_callees = crate::dependency::cleanup_callees(request,
+            types.iter().copied().chain(prepared.opaque_types()).chain(input_parts.keys().copied()).chain(future_results))?;
+
         prepared.prepare_lifecycles(request, types, &mut diagnostics)?;
+
+        prepared.cleanup_callees.extend(prepared.lifecycles.values()
+            .map(|lifecycle| lifecycle.call.callable.definition().callable_symbol()));
 
         let mut input_cleanup = BTreeMap::new();
 
@@ -487,7 +510,7 @@ impl Plan {
             &input_cleanup,
         );
 
-        prepared.select_scoped_quiescence(cleanup_shapes, request, expressions.selections())?;
+        prepared.select_scoped_quiescence(cleanup_shapes, request, expressions, graph)?;
         prepared.select_future_cleanup(cleanup_shapes, request, expressions.selections())?;
 
         Ok(DiagnosticResult::new(prepared, diagnostics))
@@ -516,13 +539,15 @@ impl Plan {
                     continue;
                 };
 
-                let lifecycle = lifecycle(
+                let mut lifecycle = lifecycle(
                     request.semantic_values(),
                     request.available_compiler_known_symbols(),
                     *callable,
                     signature,
                 )
                 .expect("selected lifecycle contract uses checked semantic terms");
+
+                request.context().classify_trusted_completion(&mut lifecycle.contract, diagnostics)?;
 
                 self.lifecycles.insert((ty, slot), lifecycle);
             }
@@ -532,25 +557,29 @@ impl Plan {
     }
 }
 
-pub(super) fn has_source_lifecycle<C: CheckerRequestContext + ?Sized>(
+fn opaque_cleanup_failure_kinds<C: CheckerRequestContext + ?Sized>(
     cleanup_shapes: &mut crate::asynchronous::CleanupShapeResolver<'_, C>,
     request: CheckerUnitView<'_, C>,
     ty: TypeId,
-    part: Option<&bray_bound_tree::StorageCleanupPart>,
-) -> Result<bool, CheckerQueryError<C::UpstreamError>> {
-    if part.is_some_and(|part| part.release().is_some() || !part.phases().includes_lifecycle()) {
-        return Ok(false);
+) -> Result<&'static [DependencyFailureKind], CheckerQueryError<C::UpstreamError>> {
+    use bray_compiler_known::RepresentationRole;
+
+    match crate::representation::type_representation(request, ty) {
+        Some(RepresentationRole::PanicReport) => return Ok(&[]),
+        Some(RepresentationRole::String) => return Ok(&[DependencyFailureKind::Panic]),
+        _ => {}
     }
 
-    match request.semantic_values().type_data(ty).as_ref() {
-        TypeData::Named {
-            definition,
-            substitution,
-        } => cleanup_shapes
-            .owns_hidden_cleanup(ty, *definition, *substitution)
-            .map(|hidden| !hidden),
-        _ => Ok(false),
+    if let TypeData::Named { definition, substitution } = request.semantic_values().type_data(ty).as_ref()
+        && let Some(element) = request.context().raw_buffer_element(*definition, *substitution)?
+        && cleanup_shapes.requirement(element)? == bray_bound_tree::AsyncStorageCleanupRequirement::None
+    {
+        // The initialized prefix needs no lifecycle work. The generated
+        // backing release can propagate only its checked panic report.
+        return Ok(&[DependencyFailureKind::Panic]);
     }
+
+    Ok(&DependencyFailureKind::ALL)
 }
 
 fn lifecycle(
@@ -586,38 +615,14 @@ fn lifecycle(
         .deferred_execution()
         .unwrap_or(behavior);
 
-    let mut contract = TrustedCallContract {
-        // Failed finalizer attempts can still be followed by destruction.
-        completes: callable.execution() == bray_symbols::CallableExecution::Synchronous
-            && (!behavior.may_unwind()
-                || behavior
-                    .execution_properties()
-                    .contains(&bray_symbols::ExecutionProperty::Total)),
-        ..Default::default()
-    };
+    // Failed finalizer attempts can still be followed by destruction.
+    let completes = callable.execution() == bray_symbols::CallableExecution::Synchronous
+        && (!behavior.may_unwind()
+            || behavior.execution_properties().contains(&bray_symbols::ExecutionProperty::Total));
 
-    for (predicates, completion) in [
-        (behavior.predicate_requirements(), false),
-        (completion.predicate_guarantees(), true),
-    ] {
-        for predicate in predicates {
-            let condition = {
-                let condition = predicate
-                    .condition()
-                    .map(|term| crate::execution_condition_from_term(values, term, &references))
-                    .transpose()?;
-
-                condition.unwrap_or_else(ExecutionCondition::unknown)
-            };
-
-            match (completion, predicate.is_trusted()) {
-                (false, true) => contract.requirements.push(condition),
-                (false, false) => contract.preconditions.push((condition, predicate.domain())),
-                (true, true) => contract.guarantees.push(condition),
-                (true, false) => contract.postconditions.push(condition),
-            }
-        }
-    }
+    let contract = TrustedCallContract::try_from_phases(values, symbols, behavior, completion, completes,
+        |predicate| predicate.condition().map(|term| crate::execution_condition_from_term(values, term, &references))
+            .transpose().map(|condition| condition.unwrap_or_else(ExecutionCondition::unknown)))?;
 
     Ok(Lifecycle {
         call: bray_bound_tree::LifecycleCallable::from_signature(
@@ -634,41 +639,64 @@ fn lifecycle(
     })
 }
 
-fn cleanup_guards(
+fn cleanup_selection(
     values: &bray_symbols::SemanticValueStore,
     storage: &StoragePlan,
     access: StorageAccessId,
     part: Option<&bray_bound_tree::StorageCleanupPart>,
-) -> Vec<(
-    bray_bound_tree::StoragePath,
-    bray_bound_tree::BoundOperator,
-    ExecutionCondition,
-)> {
+    indices: &[bray_symbols::SymbolOrdinal],
+) -> Selection {
     use bray_bound_tree::{PatternPredicate, StorageCleanupProjectionKind, StorageProjection};
 
     let Some(part) = part else {
-        return Vec::new();
+        return Selection::default();
     };
 
     // Each guard owns its prefix because later projections descend into the selected payload.
     let Some(mut path) = storage.logical_path(access).cloned() else {
-        return Vec::new();
+        return Selection::default();
     };
 
     let mut guards = Vec::new();
+    let base = path.projections.len();
+    let mut steps = Vec::new();
+    let mut indices = indices.iter().copied();
 
     for projection in part.projections() {
-        let StorageCleanupProjectionKind::Component(component) = projection.projection() else {
-            break;
-        };
-
-        let predicate = match component {
-            StorageProjection::NullableValue => Some(PatternPredicate::NullablePresent),
-            StorageProjection::ActiveUnionPayloadField { variant, .. } => {
+        let predicate = match projection.projection() {
+            StorageCleanupProjectionKind::Component(StorageProjection::NullableValue) => {
+                Some(PatternPredicate::NullablePresent)
+            }
+            StorageCleanupProjectionKind::Component(StorageProjection::ActiveUnionPayloadField { variant, .. })
+            | StorageCleanupProjectionKind::UnionPayloadElement { variant, .. } => {
                 Some(PatternPredicate::ActiveUnionVariant(variant))
             }
             _ => None,
         };
+
+        let component = match projection.projection() {
+            StorageCleanupProjectionKind::Component(component) => Some(component),
+            StorageCleanupProjectionKind::OwnedTarget(_) => {
+                steps.push(StorageReferenceStep::Backing {
+                    index: path.projections.len() - base,
+                    target: projection.result_type(),
+                    pointer: None,
+                });
+
+                Some(StorageProjection::OwnedTarget)
+            }
+            StorageCleanupProjectionKind::ArrayElements(_) => Some(indices.next().map_or(
+                StorageProjection::AnyElement, StorageProjection::ElementFromStart,
+            )),
+            _ => None,
+        };
+
+        let payload = component.map(|component| {
+            StoragePath {
+                root: path.root,
+                projections: path.projections.iter().copied().chain([component]).collect(),
+            }
+        });
 
         if let Some(predicate) = predicate {
             let (operator, expected) = crate::execution_guarantees::pattern_value(
@@ -678,16 +706,22 @@ fn cleanup_guards(
             )
             .expect("cleanup presence guards have checked pattern values");
 
-            guards.push((path.clone(), operator, expected));
+            guards.push(SelectionGuard {
+                subject: path.clone(),
+                operator,
+                expected,
+                payload: payload.as_ref().filter(|payload| payload.is_exact()).cloned(),
+            });
         }
 
-        path.projections = path
-            .projections
-            .iter()
-            .copied()
-            .chain([component])
-            .collect();
+        let Some(payload) = payload else {
+            return Selection { owner: Some(path), guards, ..Selection::default() };
+        };
+
+        path = payload;
     }
 
-    guards
+    let route = StorageReferencePath::new(path.projections[base..].into(), steps.into());
+
+    Selection { owner: Some(path), route: Some(route), guards, ..Selection::default() }
 }

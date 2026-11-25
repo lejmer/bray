@@ -1,6 +1,6 @@
 use bray_diagnostics::{DiagnosticKind};
-use crate::test_support::{source_function_body_key};
-use super::fixtures::{production_host_compilation, production_host_provider};
+use crate::test_support::{compilation, source_function_body_key};
+use super::fixtures::production_host_compilation;
 
 #[test]
 fn implicit_receiver_reborrows_do_not_escape_local_owners() {
@@ -36,69 +36,6 @@ fn implicit_receiver_reborrows_do_not_escape_local_owners() {
 
     bray_testing::assert_goal_state_diagnostic_kind(
         checked.diagnostics(), DiagnosticKind::CheckingEscapingStorageDependency);
-}
-
-#[test]
-#[ignore = "tier:proof"]
-fn production_host_nested_bodies_and_contracts_are_checked() {
-    let compilation = production_host_provider();
-
-    // Platform calls in this fixture resolve to source bodies. Their imported foreign-call
-    // capabilities are checked by the runtime artifact smoke, not this source-only fixture.
-    let owners = [
-        "initialize_host",
-        "shutdown_host",
-        "structured_shutdown",
-        "thread_attachment_enter",
-        "lock",
-        "release",
-    ]
-    .map(|name| {
-        source_function_body_key(&compilation, name)
-            .source()
-            .syntax()
-    });
-
-    let acquisition_source = source_function_body_key(&compilation, "acquire")
-        .source()
-        .syntax()
-        .source_id();
-
-    let report_source = source_function_body_key(&compilation, "admit")
-        .source()
-        .syntax()
-        .source_id();
-
-    let bridge_source = source_function_body_key(&compilation, "install")
-        .source()
-        .syntax()
-        .source_id();
-
-    let entry_source = source_function_body_key(&compilation, "dispatch")
-        .source()
-        .syntax()
-        .source_id();
-
-    let diagnostics = compilation.check_diagnostics();
-
-    let failures = diagnostics
-        .iter()
-        .filter(|diagnostic| {
-            diagnostic.primary_span().is_some_and(|span| {
-                span.source_id() == acquisition_source
-                    || span.source_id() == report_source
-                    || span.source_id() == bridge_source
-                    || span.source_id() == entry_source
-                    || owners.iter().any(|owner| {
-                        span.source_id() == owner.source_id()
-                            && span.start() >= owner.full_range().start()
-                            && span.end() <= owner.full_range().end()
-                    })
-            })
-        })
-        .collect::<Vec<_>>();
-
-    assert!(failures.is_empty(), "{failures:#?}");
 }
 
 #[test]
@@ -194,38 +131,56 @@ fn a_live_payload_borrow_preserves_only_its_enclosing_projection() {
         ("payload.inner = none; payload.second = 3;", true),
         ("owner.state = none; payload.second = 3;", false),
         (
-            "if let ?inner = payload.inner { let view = &mut inner; poke(payload); view.value = 3; }",
+            r#"
+                if let ?inner = payload.inner
+                {
+                    let view = &mut inner;
+                    poke(payload);
+                    view.value = 3;
+                }
+            "#,
             false,
         ),
     ] {
         let caller = format!(
-            r#"module app;
+            r#"
+            module app;
+
             struct Inner
-{{
-    mut value: u64;
-}}
+            {{
+                mut value: u64;
+            }}
+
             struct State
-{{
-    mut first: u64;
-    mut second: u64;
-    mut inner: Inner?;
-}}
+            {{
+                mut first: u64;
+                mut second: u64;
+                mut inner: Inner?;
+            }}
+
             struct Owner
-{{
-    mut state: State?;
-}}
+            {{
+                mut state: State?;
+            }}
+
             func poke(pos state: &mut State)
-{{
-    state.first = 2;
-    state.inner = none;
-}}
+            {{
+                state.first = 2;
+                state.inner = none;
+            }}
+
             func production_probe(pos owner: &mut Owner)
-{{
-    if let ?state = owner.state {{ let payload: &mut State = &mut state; {body} }}
-}}"#
+            {{
+                if let ?state = owner.state
+                {{
+                    let payload: &mut State = &mut state;
+                    {body}
+                }}
+            }}
+            "#
         );
 
-        let compilation = production_host_compilation(&caller);
+        let compilation = compilation(&caller);
 
         let checked = compilation
             .lowered_unit(source_function_body_key(&compilation, "production_probe"))

@@ -43,6 +43,8 @@ where
         }
 
         let access = match &expression {
+            _ if let Some(SemanticSelection::StaticReference(selection)) = self.selections.expression(id) =>
+                self.static_access(id, selection)?,
             _ if self
                 .selections
                 .expression(id)
@@ -313,6 +315,12 @@ where
             let purpose = self.operator_operand_purpose(id);
 
             self.plan_invocation_input((*destination).into(), *destination, purpose)?;
+
+            if let Some(SemanticSelection::Operation(SelectedOperation::CompoundAssignment(operator))) = self.selections.expression(id) {
+                let ty = operator.value_type();
+
+                self.protocol_access(id, StorageIdentity::InvocationResult(id.into()), ty)?;
+            }
         }
 
         self.builder_mut()
@@ -406,8 +414,30 @@ where
             && let Some(target) = transfer.target().and_then(|anchor| self.transfer_targets.get(&anchor)).copied()
             && let Some(destination) = self.builder().value_slot(target)
         {
+            let result = self.expression_type(target);
+
+            let scoped_result = self.selections.expression(target).and_then(|selection| {
+                let bray_bound_tree::SemanticSelection::ScopedUse(scoped) = selection else { return None; };
+
+                scoped.failure_type().map(|_| self.request.available_compiler_known_symbols()
+                    .result_payloads(self.request.semantic_values(), result.ty())
+                    .expect("fallible with has the checked Result representation"))
+            });
+
+            if let Some(([body, _], representation)) = scoped_result {
+                let projection = bray_bound_tree::StorageProjection::ActiveUnionPayloadField {
+                    variant: representation.success_variant(), field: representation.success_field(),
+                };
+
+                let payload = self.push_expression_access(id, bray_bound_tree::StorageAccessRoot::Storage(destination),
+                    [projection], bray_bound_tree::ExpressionTypeResult::new(body, result.status()))?;
+
+                self.builder_mut().bind(bray_bound_tree::StorageBindingTarget::ScopedResultPayload(id),
+                    bray_bound_tree::StorageBinding::Access(payload)).expect("scoped yield retains its output payload");
+            }
+
             let access = self.push_expression_access(id,
-                bray_bound_tree::StorageAccessRoot::Storage(destination), [], self.expression_type(target))?;
+                bray_bound_tree::StorageAccessRoot::Storage(destination), [], result)?;
 
             self.record_purpose(id, Some(StorageAccessPurpose::Initialize), access)?;
         }
@@ -493,6 +523,12 @@ where
 
                     self.consume_expression_value(id.into(), StorageValueConsumptionPhase::Completion,
                         *operand, StorageAccessPurpose::ValueTransfer);
+                }
+
+                if matches!(self.selections.expression(id), Some(SemanticSelection::Propagation(selection))
+                    if selection.boundary() == Some(bray_bound_tree::SelectedPropagationBoundary::Callable))
+                {
+                    self.result_access(id, operands.first().copied())?;
                 }
 
                 // Propagation transfers the selected payload out of its container.

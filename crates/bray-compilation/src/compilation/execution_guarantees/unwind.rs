@@ -641,11 +641,6 @@ mod tests {
                 false,
             ),
             (
-                "@abi(c) extern trusted func wait();",
-                "trusted wait();",
-                false,
-            ),
-            (
                 "func checked(pos flag: bool) requires(flag) {}",
                 "checked(false);",
                 true,
@@ -666,13 +661,18 @@ mod tests {
                 false,
             ),
             (
+                "struct Value { value: bool; enter() -> bool { return false; } exit(pos lease: bool) requires(lease) {} }",
+                "let value: Value = { value = true }; with lease = value {}",
+                true,
+            ),
+            (
                 "func fail() -> bool { panic(\"default\"); } func accept(value: bool = fail()) {}",
                 "accept();",
                 true,
             ),
         ] {
             let compilation = compilation(&format!(
-                "module example; {declarations} trusted func root() {{ {body} }}"
+                "module example; {declarations} func root() {{ {body} }}"
             ));
 
             let key = source_function_body_key(&compilation, "root");
@@ -699,27 +699,27 @@ mod tests {
     fn native_unwind_inference_preserves_caller_admission_failures() {
         for (declarations, expected) in [
             (
-                "callable Native = @abi(c) trusted func(); trusted func invoke(pos callback: Native) uses(foreign_call) { trusted callback(); }",
+                "trusted module example; callable Native = @abi(c) trusted func(); trusted func invoke(pos callback: Native) uses(foreign_call) { callback(); }",
                 false,
             ),
             (
-                "callable Native = @abi(c) trusted func(pos flag: bool) requires(flag); trusted func invoke(pos callback: Native) uses(foreign_call) { trusted callback(false); }",
+                "trusted module example; callable Native = @abi(c) trusted func(pos flag: bool) requires(flag); trusted func invoke(pos callback: Native) uses(foreign_call) { callback(false); }",
                 true,
             ),
             (
-                "callable Native = @abi(c) trusted func(pos flag: bool); func fail() -> bool { panic(\"argument\"); } trusted func invoke(pos callback: Native) uses(foreign_call) { trusted callback(fail()); }",
+                "trusted module example; callable Native = @abi(c) trusted func(pos flag: bool); func fail() -> bool { panic(\"argument\"); } trusted func invoke(pos callback: Native) uses(foreign_call) { callback(fail()); }",
                 true,
             ),
             (
-                "@abi(c) trusted func callback() { panic(\"ordinary\"); } trusted func invoke() uses(foreign_call) { trusted callback(); }",
+                "module example; @abi(c) func callback() { panic(\"ordinary\"); } func invoke() { callback(); }",
                 true,
             ),
             (
-                "@abi(c) trusted func callback(pos flag: bool) requires(flag) {} trusted func invoke() uses(foreign_call) { trusted callback(false); }",
+                "module example; @abi(c) func callback(pos flag: bool) requires(flag) {} func invoke() { callback(false); }",
                 true,
             ),
         ] {
-            let compilation = compilation(&format!("module example; {declarations}"));
+            let compilation = compilation(declarations);
             let key = source_function_body_key(&compilation, "invoke");
 
             let result = compilation

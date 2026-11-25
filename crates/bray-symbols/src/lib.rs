@@ -203,6 +203,7 @@ pub use semantic::{
 };
 pub use surface_kind::catalog_declaration_symbol_kind;
 pub use value::{
+    common_cell_changes, CapturedCallable, CapturedDeferredInvocation, CapturedFailureOutcome, CapturedReportPayload, CapturedValueOutcome, CapturedValueOperation, CapturedValueTemplate, DependencyFailureKind,
     AnyConstantDefinitionId, BorrowKind, CallableAbi, CallableConstness, CallableDefinitionId,
     CallableDependencyContracts, CallableExecution, CallableInstanceData, CallableInstanceId,
     CallableParameterData, CallableParameterMode, CallableParameterName, CallablePosition,
@@ -210,16 +211,16 @@ pub use value::{
     ConstantProjectionKind, ConstantTermData, ConstantTermId, ConstantUnaryOperation,
     ConstantValueData, ConstantValueId, ConstantValueKind, DependencyBorrowRelation,
     DependencyCallInput, DependencyCallOutput, DependencyContractTemplateData,
-    DependencyContractTemplateId, DependencyGuard, DependencyMutationKind, DependencyOwnedResult,
+    DependencyContractTemplateId, DependencyEffectOutcomes, DependencyGuard, DependencyMutationKind, DependencyOwnedResult,
     DependencyOwnedTransfer, DependencyValuePreservation, DependencyProjection, DependencyReferenceKind,
     DependencyReferenceProvenance, DependencyRequirement, DependencyRequirementKind,
-    DependencyStorageEffect, DependencyStoredValue, DependencyStoredValuePath, DependencySubject, DependencySubjectRoot, DependencyWitnessCarrier,
+    DependencyStorageEffect, DependencyStoredValue, DependencyStoredValuePath, DependencySubject, DependencySubjectRoot, DependencyWitnessCarrier, DependencyWitnessSupport,
     GenericArgument, GenericArgumentKind, GenericBinding, GenericOwnerId, GenericSubstitutionData,
     GenericSubstitutionId, GenericSubstitutionShapeError, GuardedDependencyRequirement,
     ImplementationInstanceData, ImplementationInstanceId, IntegerConstant, IntegerSign,
     LifecycleObligationKind, NumericTruncation, PredicateInstanceData, RealConstantBits,
     SelfTypeContext, SemanticValueKind, SemanticValueStore, SemanticValueStoreCreateError,
     SemanticValueStoreError, SemanticValueStoreId, TargetSizedIntegerType, TraitApplicationData,
-    TraitApplicationId, TypeData, TypeId,
+    StaticReferenceId, TraitApplicationId, TypeData, TypeId,
 };
 pub use version::PackageVersion;

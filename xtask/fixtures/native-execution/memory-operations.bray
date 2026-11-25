@@ -13,13 +13,13 @@ func alternate() -> never
 trusted func main() -> i32
     uses(device_memory, intrinsic, layout_reinterpret, manual_alloc, raw_memory, unchecked_alias, unchecked_init)
 {
-    let released: DataPointer<u8> = trusted core.memory.allocate(bytes = 16, align = 4);
+    let released: DataPointer<u8> = core.memory.allocate(bytes = 16, align = 4);
     let released_ok = !core.memory.is_null<u8>(released);
 
     trusted core.memory.deallocate(pointer = released, bytes = 16, align = 4);
 
-    let empty: DataPointer<u8> = trusted core.memory.allocate(bytes = 0, align = 64);
-    let empty_address: usize = trusted core.target.expose_address<u8>(empty);
+    let empty: DataPointer<u8> = core.memory.allocate(bytes = 0, align = 64);
+    let empty_address: usize = core.target.expose_address<u8>(empty);
     let empty_ok: bool = !core.memory.is_null<u8>(empty) && empty_address % 64 == 0;
 
     trusted core.memory.deallocate(pointer = empty, bytes = 0, align = 64);
@@ -32,7 +32,6 @@ trusted func main() -> i32
 
     trusted core.memory.write<u8>(pointer, 7);
     trusted core.target.volatile_store<u8>(pointer, 11);
-    trusted increment(pointer);
 
     let volatile: u8 = trusted core.target.volatile_load<u8>(pointer);
 
@@ -54,17 +53,16 @@ trusted func main() -> i32
 
     let bytes: DataPointer<u8> = trusted core.memory.reinterpret<u8, u8>(overlapping_destination);
     let advanced: DataPointer<u8> = core.memory.byte_offset<u8>(bytes, bytes = 0);
-    let address: usize = trusted core.target.expose_address<u8>(advanced);
-    let reconstructed: DataPointer<u8> = trusted core.target.from_exposed_address<u8>(address = address);
+    let address: usize = core.target.expose_address<u8>(advanced);
+    let reconstructed: DataPointer<u8> = core.target.from_exposed_address<u8>(address = address);
     let null: DataPointer<u8> = core.memory.null<u8>();
 
-    trusted core.target.compiler_fence(MemoryOrder.SequentiallyConsistent);
-    trusted core.target.hardware_fence(MemoryOrder.AcquireRelease);
-    trusted core.target.spin_loop_hint();
+    core.target.compiler_fence(MemoryOrder.SequentiallyConsistent);
+    core.target.hardware_fence(MemoryOrder.AcquireRelease);
+    core.target.spin_loop_hint();
+    check_target_instructions();
 
-    let target_feature = trusted core.target.feature_enabled("sse2");
-
-    let assembly: (i32,) = trusted core.target.assembly<(i32,), (i32,)>(
+    let assembly: (i32,) = core.target.assembly<(i32,), (i32,)>(
         template = "",
         constraints = "+reg",
         clobbers = "",
@@ -73,7 +71,7 @@ trusted func main() -> i32
         inputs = (42,),
     );
 
-    let branching: (i32,) = trusted core.target.branching_assembly<(i32,), (i32,), (func() -> never,)>(
+    let branching: (i32,) = core.target.branching_assembly<(i32,), (i32,), (func() -> never,)>(
         template = "",
         constraints = "+reg,label",
         clobbers = "",
@@ -83,7 +81,7 @@ trusted func main() -> i32
         labels = (alternate,),
     );
 
-    trusted core.target.branching_assembly<(DataPointer<u8>,), unit, (func() -> never,)>(
+    core.target.branching_assembly<(DataPointer<u8>,), unit, (func() -> never,)>(
         template = "",
         constraints = "m,label",
         clobbers = "",
@@ -93,12 +91,11 @@ trusted func main() -> i32
         labels = (alternate,),
     );
 
-    let copied_ok = copied == 12 && volatile == 12 && second == 9;
-    let advanced_ok = trusted core.target.address_equal<u8>(advanced, reconstructed);
+    let copied_ok = copied == 12 && volatile == 11 && second == 9;
+    let advanced_ok = core.target.address_equal<u8>(advanced, reconstructed);
     let null_ok = core.memory.is_null<u8>(null);
-    let target_feature_known = target_feature || !target_feature;
 
-    let valid = released_ok && empty_ok && copied_ok && advanced_ok && null_ok && target_feature_known && assembly.0 ==
+    let valid = released_ok && empty_ok && copied_ok && advanced_ok && null_ok && assembly.0 ==
         42 && branching.0 == 42;
 
     if valid
@@ -109,23 +106,16 @@ trusted func main() -> i32
     return 1;
 }
 
-// The fixed instruction changes one initialized byte and cannot change its storage.
-trusted func increment(pos pointer: DataPointer<u8>)
-    requires(
-        trusted core.memory.valid_read<u8>(pointer = pointer, count = 1),
-        trusted core.memory.valid_write<u8>(pointer = pointer, count = 1),
-        trusted core.memory.aligned_for<u8>(pointer = pointer),
-        trusted core.memory.initialized_as<u8>(pointer = pointer),
-    )
-    ensures(
-        trusted core.memory.valid_read<u8>(pointer = pointer, count = 1),
-        trusted core.memory.valid_write<u8>(pointer = pointer, count = 1),
-        trusted core.memory.aligned_for<u8>(pointer = pointer),
-        trusted core.memory.initialized_as<u8>(pointer = pointer),
-    )
+@target(target.identity.ARCH == "x86_64")
+trusted func check_target_instructions()
     uses(device_memory, intrinsic, raw_memory, unchecked_alias, unchecked_init)
 {
-    trusted core.target.assembly<(DataPointer<u8>,), unit>(
+    assert(core.target.feature_enabled("sse2"));
+
+    let mut value: u8 = 11;
+    let pointer = core.memory.address_of_mut<u8>(&mut value);
+
+    core.target.assembly<(DataPointer<u8>,), unit>(
         template = "incb $0",
         constraints = "m",
         clobbers = "memory",
@@ -133,6 +123,14 @@ trusted func increment(pos pointer: DataPointer<u8>)
         options = 0,
         inputs = (pointer,),
     );
+
+    assert(trusted core.memory.read<u8>(pointer) == 12);
+}
+
+@target(target.identity.ARCH != "x86_64")
+func check_target_instructions()
+{
+    assert(!core.target.feature_enabled("sse2"));
 }
 
 // Two overlapping ranges within one three-byte exclusive view. Pointer arithmetic

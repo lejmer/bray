@@ -61,9 +61,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     }
 
     pub(in crate::analysis::storage_flow::check::analysis) fn memory_effects(
-        &self,
+        &mut self,
         state: &mut StorageFlowState,
         expression: BoundExpressionId,
+        execution: &crate::analysis::guarantee::ExecutionState,
     ) -> Option<Vec<Effect>> {
         let operation = self.memory.operation(expression)?;
 
@@ -74,39 +75,37 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         }
 
         match *operation.kind() {
+            CheckedMemoryOperationKind::Copy { .. }
+                if execution.admitted_call(expression.into()).is_some_and(|entry| {
+                    entry.memory_access == Some(crate::execution_guarantees::MemoryAccessProof::EmptyCopy)
+                }) => return Some(Vec::new()),
             CheckedMemoryOperationKind::RawBufferPush { element } => {
-                let effects = self.buffer_prefix_effects(
+                return self.buffer_prefix_effects(
                     state,
+                    execution,
                     operation,
-                    0,
                     Some(bray_symbols::DependencyMutationKind::Replace(element)),
                 );
 
-                self.stage_buffer_payload(state, operation);
-
-                return effects;
             }
             CheckedMemoryOperationKind::RawBufferPop { .. } => {
-                let effects = self.buffer_prefix_effects(
+                return self.buffer_prefix_effects(
                     state,
+                    execution,
                     operation,
-                    0,
                     Some(bray_symbols::DependencyMutationKind::Consume),
                 );
 
-                self.stage_buffer_payload(state, operation);
-
-                return effects;
             }
             CheckedMemoryOperationKind::RawBufferSetInitializedCount => {
-                return self.buffer_prefix_effects(state, operation, 0, None);
+                return self.buffer_prefix_effects(state, execution, operation, None);
             }
             CheckedMemoryOperationKind::RawBufferRelocate { .. }
             | CheckedMemoryOperationKind::RawBufferReplace { .. } => {
-                return self.buffer_transfer_effects(state, operation);
+                return self.buffer_transfer_effects(state, execution, operation);
             }
             CheckedMemoryOperationKind::RawBufferRelease { .. } => {
-                return self.buffer_release_effects(state, operation);
+                return self.buffer_release_effects(state, execution, operation);
             }
             CheckedMemoryOperationKind::RawDeallocate | CheckedMemoryOperationKind::Deallocate => {
                 let ty = if matches!(operation.kind(), CheckedMemoryOperationKind::Deallocate) {
@@ -117,10 +116,18 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 };
 
                 let kind = bray_symbols::DependencyMutationKind::Retire;
-                let targets = self.deallocation_source(state, operation).and_then(|source| source.regions(&state.memory));
+
+                let targets = self.captured_deallocation_pointer(execution, operation)
+                    .and_then(|pointer| pointer.mutation_targets());
 
                 return Some(match targets {
-                    Some(targets) => targets.into_iter().map(|target| Effect::Mutation(target, kind, Some(ty))).collect(),
+                    Some(targets) => targets.into_iter().map(|target| {
+                        let address = target.address.clone();
+
+                        Effect::through(target, kind, Some(ty)).with_retirement_discharges(
+                            address.as_ref().into_iter().flat_map(|address| state.memory.retirement_discharges(address, None)),
+                        )
+                    }).collect(),
                     None => vec![Effect::unbounded(kind, Some(ty), false)],
                 });
             }
@@ -138,9 +145,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 | CheckedMemoryOperationKind::AtomicFetch { .. }
         ) {
             // Atomics update their protected word, never retire its owner or unrelated storage.
-            let targets = self
-                .memory_argument_reference(state, operation, operation.arguments()[0])
-                .and_then(|source| source.targets(&state.memory));
+            let targets = self.captured_memory_operand(execution, operation, operation.arguments()[0])
+                .and_then(bray_bound_tree::StorageCapturedValue::mutation_targets);
 
             let Some(targets) = targets else {
                 return Some(vec![Effect::Atomic]);
@@ -150,7 +156,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 targets
                     .into_iter()
                     .map(|target| {
-                        Effect::Mutation(target, bray_symbols::DependencyMutationKind::Atomic, None)
+                        Effect::through(target, bray_symbols::DependencyMutationKind::Atomic, None)
                     })
                     .collect(),
             );
@@ -176,13 +182,16 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             .expression(argument).expect("checked memory access retains its argument type").ty());
 
         let targets = if protected {
-            self.memory_uninit_target(state, operation, argument).map(|target| vec![target])
+            self.memory_uninit_address(execution, operation, argument).and_then(|address| {
+                Some(crate::analysis::storage_flow::memory::MutationTarget::reference(Some(&address), address.regions()?))
+            })
         } else {
-            self.memory_argument_reference(state, operation, argument).and_then(|source| source.regions(&state.memory))
+            self.captured_memory_operand(execution, operation, argument)
+                .and_then(bray_bound_tree::StorageCapturedValue::mutation_targets)
         };
 
         Some(match targets {
-            Some(targets) => targets.into_iter().map(|target| Effect::Mutation(target, kind, access_type)).collect(),
+            Some(targets) => targets.into_iter().map(|target| Effect::through(target, kind, access_type)).collect(),
             None => vec![Effect::unbounded(kind, access_type, false)],
         })
     }

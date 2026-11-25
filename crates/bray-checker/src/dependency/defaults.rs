@@ -33,34 +33,32 @@ pub(crate) fn expand_result_defaults<C: CheckerRequestContext + ?Sized>(
     }
 
     let mut expanded = expand(request, selection, template, &defaults, false)?;
+    let mut outcomes = expanded.template.captured_values().to_vec();
 
-    for (completion, requirements) in [
-        (true, template.completion_reports()),
-        (false, template.abnormal_reports()),
-    ] {
-        if let Some(requirements) = requirements {
-            let reports = expand(
-                request,
-                selection,
-                &DependencyContractTemplateData::new(requirements.iter().cloned()),
-                &defaults,
-                false,
-            )?;
+    for outcome in &mut outcomes {
+        let Some(requirements) = &outcome.report else { continue; };
 
-            expanded
-                .escaping_evaluation_inputs
-                .extend(reports.escaping_evaluation_inputs);
+        let reports = expand(request, selection, &DependencyContractTemplateData::new(requirements.iter().cloned()), &defaults, false)?;
 
-            expanded.template = if completion {
-                expanded
-                    .template
-                    .with_completion_reports(reports.template.requirements().iter().cloned())
-            } else {
-                expanded
-                    .template
-                    .with_abnormal_reports(reports.template.requirements().iter().cloned())
-            };
+        expanded.escaping_evaluation_inputs.extend(reports.escaping_evaluation_inputs);
+        outcome.report = Some(reports.template.requirements().into());
+    }
+
+    expanded.template = expanded.template.with_captured_values(outcomes);
+
+    if let Some(rows) = template.failure_outcomes() {
+        let mut failures = rows.to_vec();
+
+        for row in &mut failures {
+            let Some(requirements) = &row.report else { continue; };
+
+            let reports = expand(request, selection, &DependencyContractTemplateData::new(requirements.iter().cloned()), &defaults, false)?;
+
+            expanded.escaping_evaluation_inputs.extend(reports.escaping_evaluation_inputs);
+            row.report = Some(reports.template.requirements().into());
         }
+
+        expanded.template = expanded.template.with_failure_outcomes(Some(failures));
     }
 
     expanded.escaping_evaluation_inputs.sort();
@@ -194,10 +192,8 @@ fn expand<C: CheckerRequestContext + ?Sized>(
         );
     }
 
-    let omitted_origins = template
-        .borrows()
-        .iter()
-        .filter(|relation| {
+    let outcomes = template.captured_values().iter().cloned().map(|mut outcome| {
+        let omitted_origins = outcome.references.iter().filter(|relation| {
             relation.entry().is_some_and(|entry| {
                 selection
                     .input_ordinal(entry.subject_root())
@@ -205,18 +201,18 @@ fn expand<C: CheckerRequestContext + ?Sized>(
                     .and_then(|input| input.expression())
                     .is_none()
             })
-        })
-        .map(|relation| relation.exit().clone())
-        .collect::<std::collections::BTreeSet<_>>();
+        }).map(|relation| relation.exit()).collect::<std::collections::BTreeSet<_>>();
+
+        if !omitted_origins.is_empty() {
+            outcome.references = outcome.references.iter().filter(|relation|
+                !omitted_origins.contains(relation.exit())).cloned().collect();
+        }
+
+        outcome
+    });
 
     Ok(CallResultDependencies {
-        template: template.with_requirements(result).with_borrows(
-            template
-                .borrows()
-                .iter()
-                .filter(|relation| !omitted_origins.contains(relation.exit()))
-                .cloned(),
-        ),
+        template: template.with_requirements(result).with_captured_values(outcomes),
         escaping_evaluation_inputs: escaping_evaluation_inputs.into_iter().collect(),
     })
 }

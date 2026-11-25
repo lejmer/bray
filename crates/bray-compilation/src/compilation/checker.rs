@@ -373,23 +373,9 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
         &self,
         symbol: AnySymbolId,
     ) -> CheckerQueryResult<Option<bray_symbols::SelfTypeContext>> {
-        let mut owner = self
-            .binding_context
-            .containing_symbol(symbol)
-            .map_err(checker_binder_error)?;
-
-        while let Some(symbol) = owner {
-            if let Some(context) = bray_symbols::SelfTypeContext::try_new(symbol) {
-                return Ok(Some(context));
-            }
-
-            owner = self
-                .binding_context
-                .containing_symbol(symbol)
-                .map_err(checker_binder_error)?;
-        }
-
-        Ok(None)
+        self.binding_context
+            .enclosing_self_type_context(symbol)
+            .map_err(checker_binder_error)
     }
 
     fn implementation_subject_type(
@@ -461,6 +447,16 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
                 )
             })
             .map_err(checker_binder_error)
+    }
+
+    fn classify_trusted_completion(
+        &self,
+        contract: &mut bray_checker::TrustedCallContract,
+        diagnostics: &mut bray_diagnostics::DiagnosticBag,
+    ) -> CheckerQueryResult<()> {
+        self.binding_context.compilation()
+            .classify_trusted_completion(contract, self.binding_context.cancellation(), diagnostics)
+            .map_err(checker_query_error)
     }
 
     fn callable_result_dependencies(
@@ -575,6 +571,10 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
         self.binding_context
             .structure(id)
             .map_err(checker_binder_error)
+    }
+
+    fn open_named_type(&self, definition: NamedTypeSymbolId) -> CheckerQueryResult<TypeId> {
+        super::substitution::open_named_type(&self.binding_context, definition).map_err(checker_query_error)
     }
 
     fn struct_field(
@@ -940,7 +940,7 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
         Ok(DiagnosticResult::new(ty, diagnostics))
     }
 
-    fn storage_member_type(
+    fn storage_declaration_type(
         &self,
         member: AnySymbolId,
     ) -> CheckerQueryResult<Arc<DiagnosticResult<bray_symbols::TypeExpressionTemplate>>> {
@@ -955,7 +955,12 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
                     bray_symbols::UnionPayloadFieldTypeQuery,
                 >::new(field))
             }
-            _ => panic!("storage member type requires a checked field: {member:?}"),
+            AnySymbolId::Static(declaration) => {
+                self.resolve_symbol_query(bray_symbols::SymbolQueryRequest::<
+                    bray_symbols::StaticDeclaredTypeQuery,
+                >::new(declaration))
+            }
+            _ => panic!("storage declaration type requires a checked field or static: {member:?}"),
         }
     }
 

@@ -143,6 +143,12 @@ and retain an exact identity only when all normal outcomes agree. Recursive summ
 never publish a partial origin set as a complete bound. Substitution and package interfaces preserve these established
 results for downstream consumers.
 
+Function summaries retain outcome-specific effects as one shared contract. Its transitions determine storage
+preservation at normal return. Each transition binds its identities once and shares them across the outcomes that
+refer to it. Source, imported and deferred calls preserve this relationship through substitution and publication.
+Cleanup and failure handling consume the selected outcome's effects, while normal-result transport remains guarded
+by normal completion.
+
 Storage observations retain their classified kind and borrow context through effect resolution. Physical preservation
 precedes projection into shared views, so aliases use the same established storage facts. Ownership guarantees and
 non-owning access bounds retain their distinct classifications when completion publishes them. Consumers use that
@@ -195,6 +201,14 @@ using the same classifications for active loans and stored views.
 Dependency analysis infers the requirements carried by values and accesses from established storage, capability,
 refinement, and witness results. Portable templates use formal subjects, while bound contracts refer to unit-local
 subjects. Aggregate guards and transfer requirements remain explicit.
+
+Memory value bindings capture evaluated addresses together with their carried dependencies. Conservative address bounds
+remain separate from evaluated addresses, so attaching generic dependency information cannot create or replace an
+address identity. Nullable empty alternatives remain explicit through joins and portable publication. Invalidation,
+retirement and deferred relocation update both parts of the binding at the same boundary.
+Inactive payloads contribute no value to a join. Their absence remains distinct from a live reference with a null address.
+Private production retains invocation captures until an outcome completes. Ordered cleanup changes the current private
+value, and normal publication uses the surviving result.
 
 Effects and contract validation consume selected operations and finalized flow results to establish the body summary and
 its relation to the declaration's surface. They do not rerun lifecycle state transfer.

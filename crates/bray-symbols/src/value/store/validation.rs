@@ -1,4 +1,3 @@
-use crate::DependencyStorageEffect;
 use super::{
     super::{
         CallableInstanceData, ConstantTermData, ConstantValueData, ConstantValueKind,
@@ -316,20 +315,92 @@ fn validate_application_owner(
     assert_eq!(actual, expected, "application substitution owner mismatch");
 }
 
+fn validate_captured_bindings(tables: &SemanticTables, store: SemanticValueStoreId,
+    bindings: &[(crate::DependencySubject, crate::CapturedValueTemplate)],
+) {
+    assert!(bindings.windows(2).all(|pair| pair[0].0 < pair[1].0), "outcome destinations are unique and ordered");
+
+    for (destination, value) in bindings {
+        validate_dependency_projections(tables, store, destination.projections());
+
+        for input in value.terms() { tables.constant_terms.get(store, *input); }
+
+        for root in value.static_roots() {
+            tables.substitutions.get(store, root.substitution());
+
+            for witness in root.selected_witnesses() { tables.implementation_instances.get(store, *witness); }
+        }
+
+        for projection in value.projections() {
+            validate_dependency_projections(tables, store, std::slice::from_ref(projection));
+        }
+
+        for node in value.nodes() {
+            match node {
+                super::super::CapturedValueTemplate::Operation(operation, values) => {
+                    assert_eq!(operation.operand_count(), values.len(), "checked captured-value operation retains its operands");
+                }
+                super::super::CapturedValueTemplate::Deferred { alternatives, unknown } => {
+                    assert!(!alternatives.is_empty() || *unknown, "a formed deferred value retains a feasible producer");
+
+                    for alternative in alternatives.iter() {
+                        assert!(alternative.owned_inputs.windows(2).all(|pair| pair[0] < pair[1])
+                            && alternative.owned_inputs.iter().all(|ordinal| ordinal.to_index().is_some_and(|index| index < alternative.captures.len())),
+                            "owned deferred inputs name distinct captured values");
+
+                        if let Some(call) = &alternative.call {
+                            tables.callable_instances.get(store, call.instance);
+
+                            let crate::TypeData::Callable(signature) = tables.types.get(store, call.signature) else {
+                                panic!("a deferred selection carries its callable signature");
+                            };
+
+                            if let Some(receiver) = call.receiver { tables.types.get(store, receiver); }
+
+                            let required = signature.parameters().len() + usize::from(call.receiver.is_some());
+
+                            assert!(alternative.captures.len() == required || signature.is_variadic() && alternative.captures.len() >= required,
+                                "captured arguments match the selected deferred signature");
+
+                            if let Some(r) = call.requirement {
+                                tables.types.get(store, r.subject());
+                                tables.trait_applications.get(store, r.trait_application());
+                            }
+
+                            for witness in call.dispatch.iter().chain(&*call.witnesses) { tables.implementation_instances.get(store, *witness); }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+}
+
 pub(super) fn validate_dependency_template_data(
     tables: &SemanticTables,
     store: SemanticValueStoreId,
     data: &DependencyContractTemplateData,
 ) {
-    if let Some(result) = data.observed_result() {
-        tables.constant_terms.get(store, result);
+    for outcome in data.captured_values() {
+        if let Some(guard) = outcome.guard { tables.constant_terms.get(store, guard); }
+        assert!(outcome.carriers.windows(2).all(|pair| pair[0] < pair[1]), "outcome witness carriers are unique and ordered");
+        validate_captured_bindings(tables, store, &outcome.bindings);
     }
 
-    for condition in data.owned_result().conditions() {
+    for outcome in data.failure_outcomes().into_iter().flatten() {
+        assert!(outcome.writes.iter().all(|(destination, _)| matches!(destination.subject_root(),
+            crate::DependencySubjectRoot::Receiver | crate::DependencySubjectRoot::Parameter(_))),
+            "abnormal exits publish only caller-visible writes");
+
+        validate_captured_bindings(tables, store, &outcome.writes);
+    }
+
+    for condition in data.captured_values().iter().flat_map(|row| row.ownership.conditions()) {
         tables.constant_terms.get(store, *condition);
     }
 
-    for transfer in data.owned_result().transfers() {
+    for transfer in data.captured_values().iter().flat_map(|row| row.ownership.transfers()) {
         tables.constant_terms.get(store, transfer.input());
 
         assert!(
@@ -345,18 +416,42 @@ pub(super) fn validate_dependency_template_data(
         );
     }
 
-    for carrier in data.carriers() {
+    for carrier in data.captured_values().iter().flat_map(|row| row.carriers.iter()) {
         tables.constant_terms.get(store, carrier.guarantee());
         validate_dependency_projections(tables, store, carrier.path());
+
+        if let Some(support) = carrier.support() {
+            for owner in support.owner_subjects() {
+                assert!(matches!(owner.subject_root(),
+                    crate::DependencySubjectRoot::Receiver | crate::DependencySubjectRoot::Parameter(_)
+                    | crate::DependencySubjectRoot::Result | crate::DependencySubjectRoot::StaticInstance(..)),
+                    "a portable witness owner has an exact external storage root");
+
+                validate_dependency_subject(tables, store, owner);
+            }
+
+            for address in support.addresses().keys() { tables.constant_terms.get(store, *address); }
+        }
     }
 
-    for stored in data.stored_values() {
+    for payload in data.captured_values().iter().flat_map(|row| row.inactive_payloads.iter()) {
+        validate_dependency_subject(tables, store, payload);
+    }
+
+    let storage_rows = data.captured_values().iter().map(|row| {
+        (row.references.as_ref(), row.stored_values.as_ref())
+    }).chain(data.failure_outcomes().into_iter().flatten().map(|row| {
+        (row.references.as_ref(), row.stored_values.as_ref())
+    }));
+
+    for stored in storage_rows.clone().flat_map(|(_, stored)| stored) {
         for (endpoint, destination) in std::iter::once((stored.destination(), true))
             .chain(stored.sources().iter().map(|source| (source, false))) {
             let root = endpoint.subject().subject_root();
 
             assert!(matches!(root, crate::DependencySubjectRoot::Receiver | crate::DependencySubjectRoot::Parameter(_)
-                    | crate::DependencySubjectRoot::ProductStatic(_) | crate::DependencySubjectRoot::ExactThreadStatic(_))
+                    | crate::DependencySubjectRoot::ProductStatic(_) | crate::DependencySubjectRoot::ExactThreadStatic(_)
+                    | crate::DependencySubjectRoot::StaticInstance(..))
                 || destination && matches!(root, crate::DependencySubjectRoot::Result),
                 "stored value {} has a nonphysical root: {root:?}", if destination { "destination" } else { "source" });
 
@@ -367,7 +462,7 @@ pub(super) fn validate_dependency_template_data(
         }
     }
 
-    for relation in data.borrows() {
+    for relation in storage_rows.flat_map(|(references, _)| references) {
         if let Some(entry) = relation.entry() {
             validate_dependency_subject(tables, store, entry);
         }
@@ -376,55 +471,47 @@ pub(super) fn validate_dependency_template_data(
         validate_dependency_projections(tables, store, relation.target_projections());
     }
 
-    for effect in data.effects() {
+    assert!(data.cell_changes().all(crate::DependencyStorageEffect::is_cell_change), "an exit establishes only exact typed cell changes");
+    assert!(!data.effects().iter().any(crate::DependencyStorageEffect::is_discharge), "possible effects cannot establish a definite discharge");
+
+    for effect in data.effects().iter().chain(data.cell_changes()) {
+        assert!(effect.is_valid_route(), "invalid storage effect route: {effect:?}");
 
         for ty in effect.referenced_types() {
             tables.types.get(store, *ty);
         }
 
-        match effect {
-            DependencyStorageEffect::UnboundedMutation { .. }
-                | DependencyStorageEffect::Atomic
-            | DependencyStorageEffect::Ambient
-            | DependencyStorageEffect::Unknown
-            | DependencyStorageEffect::Escape => {}
-            DependencyStorageEffect::Direct { subject, .. } => {
-                validate_dependency_subject(tables, store, subject)
-            }
-            DependencyStorageEffect::Indirect {
-                reference,
-                projections,
-                ..
-            } => {
-                validate_dependency_subject(tables, store, reference);
-                validate_dependency_projections(tables, store, projections);
-            }
+        for subject in effect.subjects() {
+            validate_dependency_subject(tables, store, subject);
+        }
+
+        for projections in effect.projection_paths() {
+            validate_dependency_projections(tables, store, projections);
         }
     }
 
     validate_dependency_variables(data.requirements(), &mut Vec::new());
     validate_dependency_variables(data.synchronous_cleanup(), &mut Vec::new());
 
-    for requirements in [data.completion_reports(), data.abnormal_reports()]
-        .into_iter()
-        .flatten()
-    {
+    use crate::DependencyCallOutput as Output;
+
+    let reports = data.captured_values().iter().filter_map(|row| row.report.as_deref());
+    let failures = data.failure_outcomes().into_iter().flatten();
+    let abnormal_reports = failures.clone().filter_map(|row| row.report.as_deref());
+
+    for guard in failures.filter_map(|row| row.guard) {
+        tables.constant_terms.get(store, guard);
+    }
+
+    for requirements in reports.clone().chain(abnormal_reports.clone()) {
         validate_dependency_variables(requirements, &mut Vec::new());
     }
 
-    let mut pending = [
-        crate::DependencyCallOutput::Value,
-        crate::DependencyCallOutput::CompletionReport,
-        crate::DependencyCallOutput::AbnormalReport,
-        crate::DependencyCallOutput::SynchronousCleanup,
-    ]
-    .into_iter()
-    .flat_map(|output| {
-        data.output_requirements(output)
-            .iter()
-            .map(move |item| (output, item))
-    })
-    .collect::<Vec<_>>();
+    let mut pending = data.requirements().iter().map(|item| (Output::Value, item))
+        .chain(reports.flatten().map(|item| (Output::CompletionReport, item)))
+        .chain(abnormal_reports.flatten().map(|item| (Output::AbnormalReport, item)))
+        .chain(data.synchronous_cleanup().iter().map(|item| (Output::SynchronousCleanup, item)))
+        .collect::<Vec<_>>();
 
     while let Some((output, requirement)) = pending.pop() {
         let cleanup = match requirement {
@@ -598,6 +685,10 @@ fn validate_dependency_subject(
         tables
             .trait_applications
             .get(store, requirement.trait_application());
+    }
+
+    if let DependencySubjectRoot::StaticInstance(reference, _) = subject.subject_root() {
+        tables.statics.get(store, reference);
     }
 
     validate_dependency_projections(tables, store, subject.projections());

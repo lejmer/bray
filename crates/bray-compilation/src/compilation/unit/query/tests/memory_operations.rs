@@ -98,7 +98,7 @@ fn compiler_known_callable_parameters_supply_default_templates() {
 using core.memory;
 trusted func main() uses(manual_alloc)
 {
-    let pointer = trusted core.memory.allocate(bytes = 16, align = 4);
+    let pointer = core.memory.allocate(bytes = 16, align = 4);
 }
 "#;
 
@@ -229,9 +229,9 @@ trusted func main() -> u8 uses(raw_memory)
 using core.memory;
 trusted func main() uses(manual_alloc, raw_memory, unchecked_init)
 {
-    let pointer = trusted core.memory.allocate(bytes = 0, align = 1);
+    let pointer = core.memory.allocate(bytes = 1, align = 1);
 
-    trusted core.memory.deallocate(pointer = pointer, bytes = 0, align = 1);
+    trusted core.memory.deallocate(pointer = pointer, bytes = 1, align = 1);
     trusted core.memory.write<u8>(pointer, 1);
 }
 "#,
@@ -243,7 +243,7 @@ trusted func main() uses(manual_alloc, raw_memory, unchecked_init)
 using core.memory;
 trusted func main() uses(manual_alloc, raw_memory, unchecked_init)
 {
-    let pointer = trusted core.memory.allocate(bytes = 1, align = 1);
+    let pointer = core.memory.allocate(bytes = 1, align = 1);
 
     trusted core.memory.write<u8>(pointer, 1);
     trusted core.memory.deallocate(pointer = pointer, bytes = 1, align = 1);
@@ -260,39 +260,7 @@ trusted func main() uses(manual_alloc, raw_memory, unchecked_init)
             .storage_flow(source_callable_body_key(&compilation))
             .unwrap_or_else(|error| panic!("invalid memory storage flow must publish: {error:?}"));
 
-        assert!(
-            flow.diagnostics().by_kind(expected).next().is_some(),
-            "{expected:?} must be reported: {:?}",
-            flow.diagnostics()
-        );
-
-        match expected {
-            DiagnosticKind::CheckingMissingTrustedMemoryGuarantees => {
-                assert_goal_state_diagnostic_kind(
-                    flow.diagnostics(),
-                    DiagnosticKind::CheckingMissingTrustedMemoryGuarantees,
-                );
-            }
-            DiagnosticKind::CheckingUninitializedRawStorage => {
-                assert_goal_state_diagnostic_kind(
-                    flow.diagnostics(),
-                    DiagnosticKind::CheckingUninitializedRawStorage,
-                );
-            }
-            DiagnosticKind::CheckingMemoryOperationAfterDeallocation => {
-                assert_goal_state_diagnostic_kind(
-                    flow.diagnostics(),
-                    DiagnosticKind::CheckingMemoryOperationAfterDeallocation,
-                );
-            }
-            DiagnosticKind::CheckingDeallocationWithOutstandingObligations => {
-                assert_goal_state_diagnostic_kind(
-                    flow.diagnostics(),
-                    DiagnosticKind::CheckingDeallocationWithOutstandingObligations,
-                );
-            }
-            _ => unreachable!("memory-obligation table contains only exact memory kinds"),
-        }
+        assert_goal_state_diagnostic_kind(flow.diagnostics(), expected);
     }
 }
 
@@ -304,16 +272,16 @@ fn invalidated_memory_reports_every_branch_deallocation_origin() {
 using core.memory;
 trusted func main(pos condition: bool) uses(manual_alloc, raw_memory, unchecked_init)
 {
-    let allocated = trusted core.memory.allocate(bytes = 0, align = 1);
+    let allocated = core.memory.allocate(bytes = 1, align = 1);
     let forwarded = allocated;
     let pointer = forwarded;
     if condition
     {
-        trusted core.memory.deallocate(pointer = pointer, bytes = 0, align = 1);
+        trusted core.memory.deallocate(pointer = pointer, bytes = 1, align = 1);
     }
     else
     {
-        trusted core.memory.deallocate(pointer = pointer, bytes = 0, align = 1);
+        trusted core.memory.deallocate(pointer = pointer, bytes = 1, align = 1);
     }
     trusted core.memory.write<u8>(pointer, 1);
 }
@@ -399,7 +367,7 @@ fn call_results_transfer_raw_state_only_from_checked_reference_inputs() {
             }}
             trusted func main() -> u8 uses(manual_alloc, raw_memory, unchecked_init)
             {{
-                let pointer = trusted core.memory.allocate(bytes = 1, align = 1);
+                let pointer = core.memory.allocate(bytes = 1, align = 1);
                 trusted core.memory.write<u8>(pointer, 1);
                 let returned = forward(core.memory.null<u8>(), pointer);
                 return trusted core.memory.read<u8>(returned);
@@ -465,7 +433,7 @@ fn checked_writes_preserve_unrelated_raw_initialization() {
             using core.memory;
             struct Cell {{ mut value: u8; }}
             func rewrite(pos cell: &mut Cell) {{ cell.value = 2; }}
-            trusted func main() -> u8 uses(raw_memory, unchecked_init) {{
+            trusted func main() -> u8 uses(raw_memory) {{
                 let mut left: Cell = {{ value = 1 }};
                 let mut right: Cell = {{ value = 1 }};
                 let pointer = core.memory.address_of_mut(&mut left.value);
@@ -502,44 +470,48 @@ fn checked_writes_preserve_unrelated_raw_initialization() {
 fn raw_memory_aliases_share_consumption_and_retirement() {
     use bray_bound_tree::MemoryOperationStatus;
 
-    for (body, expected) in [
+    for (body, capabilities, expected) in [
         (
             r#"
-            let pointer = trusted core.memory.allocate(bytes = 1, align = 1);
+            let pointer = core.memory.allocate(bytes = 1, align = 1);
             let alias = pointer;
             trusted core.memory.deallocate(pointer = alias, bytes = 1, align = 1);
             trusted core.memory.write<u8>(pointer, 1);
         "#,
+            "manual_alloc, raw_memory, unchecked_init",
             MemoryOperationStatus::InvalidatedAllocation,
         ),
         (
             r#"
-            let allocated = trusted core.memory.allocate(bytes = 1, align = 1);
+            let allocated = core.memory.allocate(bytes = 1, align = 1);
             let pointer = trusted core.memory.reinterpret<Payload, u8>(allocated);
             let alias = pointer;
             trusted core.memory.write<Payload>(pointer, { value = 1 });
             let first = trusted core.memory.read<Payload>(alias);
             let second = trusted core.memory.read<Payload>(pointer);
         "#,
+            "manual_alloc, raw_memory, unchecked_init, layout_reinterpret",
             MemoryOperationStatus::UninitializedRawStorage,
         ),
         (
             r#"
-            let mut pointer = trusted core.memory.allocate(bytes = 1, align = 1);
+            let mut pointer = core.memory.allocate(bytes = 1, align = 1);
             let alias = pointer;
             trusted core.memory.write<u8>(pointer, 1);
             pointer = core.memory.null<u8>();
             let value = trusted core.memory.read<u8>(alias);
         "#,
+            "manual_alloc, raw_memory, unchecked_init",
             MemoryOperationStatus::Valid,
         ),
         (
             r#"
-            let pointer = trusted core.memory.allocate(bytes = 2, align = 1);
+            let pointer = core.memory.allocate(bytes = 2, align = 1);
             let alias = core.memory.offset<u8>(pointer, elements = 1);
             trusted core.memory.deallocate(pointer = pointer, bytes = 2, align = 1);
             trusted core.memory.write<u8>(alias, 1);
         "#,
+            "manual_alloc, raw_memory, unchecked_init",
             MemoryOperationStatus::InvalidatedAllocation,
         ),
     ] {
@@ -549,7 +521,7 @@ fn raw_memory_aliases_share_consumption_and_retirement() {
 
             using core.memory;
             struct Payload {{ value: u8; }}
-            trusted func main() uses(manual_alloc, raw_memory, unchecked_init, layout_reinterpret)
+            trusted func main() uses({capabilities})
             {{
                 {body}
             }}
@@ -639,7 +611,7 @@ fn moving_raw_payloads_retires_initialization_evidence_for_every_alias() {
             trusted func main()
                 uses(manual_alloc, raw_memory, unchecked_init, layout_reinterpret)
             {{
-                let allocated = trusted core.memory.allocate(bytes = 1, align = 1);
+                let allocated = core.memory.allocate(bytes = 1, align = 1);
                 let pointer = trusted core.memory.reinterpret<Payload, u8>(allocated);
                 let alias = pointer;
 
@@ -668,7 +640,7 @@ fn moving_raw_payloads_retires_initialization_evidence_for_every_alias() {
             assert!(!flow.diagnostics().has_errors(), "{:?}", flow.diagnostics());
         } else {
             bray_testing::assert_goal_state_diagnostic_kind(flow.diagnostics(), DiagnosticKind::CheckingUninitializedRawStorage);
-            bray_testing::assert_goal_state_diagnostic_kind(flow.diagnostics(), DiagnosticKind::CheckingTrustedObligationNotProven);
+            assert_eq!(flow.diagnostics().len(), 1, "{:?}", flow.diagnostics());
         }
     }
 }
@@ -681,7 +653,7 @@ fn conditional_raw_initialization_retains_the_possible_cleanup_obligation() {
         using core.memory;
         trusted func main(pos initialize: bool) uses(manual_alloc, raw_memory, unchecked_init)
         {
-            let pointer = trusted core.memory.allocate(bytes = 1, align = 1);
+            let pointer = core.memory.allocate(bytes = 1, align = 1);
             if initialize
             {
                 trusted core.memory.write<u8>(pointer, 1);
@@ -721,7 +693,7 @@ fn conditional_raw_initialization_retains_the_possible_cleanup_obligation() {
 
 #[test]
 fn ordinary_ownership_observes_raw_target_transitions() {
-    for (body, moved) in [
+    for (body, capabilities, moved) in [
         (
             r#"
             let mut payload: Payload = { value = 1 };
@@ -731,6 +703,7 @@ fn ordinary_ownership_observes_raw_target_transitions() {
             trusted core.memory.write<u8>(byte, 2);
             let second = payload;
         "#,
+            "raw_memory, unchecked_init, layout_reinterpret",
             true,
         ),
         (
@@ -741,6 +714,7 @@ fn ordinary_ownership_observes_raw_target_transitions() {
             let first = trusted core.memory.read<Payload>(alias);
             let second = payload;
         "#,
+            "raw_memory",
             true,
         ),
         (
@@ -751,6 +725,7 @@ fn ordinary_ownership_observes_raw_target_transitions() {
             trusted core.memory.write<Payload>(pointer, { value = 2 });
             let second = payload;
         "#,
+            "raw_memory, unchecked_init",
             false,
         ),
         (
@@ -760,6 +735,7 @@ fn ordinary_ownership_observes_raw_target_transitions() {
             let first = trusted core.memory.read<Payload>(pointer);
             let second = pair.right;
         "#,
+            "raw_memory",
             false,
         ),
         (
@@ -769,6 +745,7 @@ fn ordinary_ownership_observes_raw_target_transitions() {
             let first = trusted core.memory.read<Payload>(pointer);
             let second = pair.left;
         "#,
+            "raw_memory",
             true,
         ),
     ] {
@@ -779,7 +756,7 @@ fn ordinary_ownership_observes_raw_target_transitions() {
             using core.memory;
             struct Payload {{ value: u8; }}
             struct Pair {{ mut left: Payload; mut right: Payload; }}
-            trusted func main() uses(raw_memory, unchecked_init, layout_reinterpret)
+            trusted func main() uses({capabilities})
             {{
                 {body}
             }}
@@ -833,7 +810,7 @@ fn raw_moves_through_stored_borrows_reach_the_original_fields() {
             using core.memory;
             struct Payload {{ value: u8; }}
             struct Pair {{ mut left: Payload; mut right: Payload; }}
-            trusted func main() uses(raw_memory, unchecked_init)
+            trusted func main() uses(raw_memory)
             {{
                 let mut pair: Pair = {{ left = {{ value = 1 }}, right = {{ value = 2 }} }};
                 let alias = &mut pair;
@@ -875,15 +852,11 @@ fn raw_moves_through_stored_borrows_reach_the_original_fields() {
             let key = crate::test_support::source_function_body_key(&compilation, "main");
 
             let storage = compilation
-                .storage_plan(key.clone())
+                .storage_plan(key)
                 .expect("derived target plan");
 
-            let refinements = compilation
-                .refinements(key)
-                .expect("derived target effects");
-
             assert!(
-                refinements.value().invalidations().values().any(|effect| {
+                flow.value().operation_invalidations().any(|(_, effect)| {
                     matches!(effect, bray_bound_tree::StorageInvalidation::Observed { accesses, .. }
                     if accesses.values().flatten().any(|path| path.access_id(storage.value()).is_none()))
                 }),
@@ -908,8 +881,8 @@ fn cleanup_without_external_mutation_preserves_raw_initialization() {
         trusted module app;
 
         using core.memory;
-        struct Guard { flag: bool; consume func destroy() {} }
-        trusted func main() -> u8 uses(raw_memory, unchecked_init) {
+        struct Guard { mut flag: bool; destruct() { self.flag = true; } }
+        trusted func main() -> u8 uses(raw_memory) {
             let mut value: u8 = 1;
             let pointer = core.memory.address_of_mut(&mut value);
             { let guard: Guard = { flag = false }; }

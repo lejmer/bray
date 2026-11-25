@@ -319,61 +319,30 @@ impl Compilation {
         cancellation: &CancellationToken,
         diagnostics: &mut DiagnosticBag,
     ) -> Result<TrustedCallContract, FactQueryError> {
-        let mut requirements = Vec::new();
-        let mut preconditions = Vec::new();
-        let mut execution_requirements = Vec::new();
+        let mut contract = TrustedCallContract::try_from_phases(
+            self.semantic_value_store()?, self.available_compiler_known_symbols(),
+            behavior, completion, result.is_some(), |predicate| decode(predicate, diagnostics),
+        )?;
 
-        for predicate in behavior.predicate_requirements() {
-            let condition = decode(predicate, diagnostics)?;
+        self.classify_trusted_completion(&mut contract, cancellation, diagnostics)?;
 
-            if predicate.domain() == bray_symbols::PredicateDomain::Execution
-                && predicate
-                    .execution_requirement(
-                        self.semantic_value_store()?,
-                        self.available_compiler_known_symbols(),
-                    )
-                    .is_none()
-            {
-                // Compound lane conditions are not a runtime Boolean or an unconditional lane requirement.
-                execution_requirements.push(condition.clone());
-            }
+        Ok(contract)
+    }
 
-            if predicate.is_trusted() {
-                requirements.push(condition);
-            } else {
-                preconditions.push((condition, predicate.domain()));
-            }
+    pub(in crate::compilation) fn classify_trusted_completion(
+        &self,
+        contract: &mut TrustedCallContract,
+        cancellation: &CancellationToken,
+        diagnostics: &mut DiagnosticBag,
+    ) -> Result<(), FactQueryError> {
+        if !contract.guarantees.is_empty() {
+            let (witness_subjects, address_subjects) =
+                self.trusted_predicate_subjects(&contract.guarantees, cancellation, diagnostics)?;
+
+            contract.witness_subjects = witness_subjects;
+            contract.address_subjects = address_subjects;
         }
 
-        let mut guarantees = Vec::new();
-        let mut postconditions = Vec::new();
-
-        for predicate in completion.predicate_guarantees() {
-            let conditions = if predicate.is_trusted() {
-                &mut guarantees
-            } else {
-                &mut postconditions
-            };
-
-            conditions.push(decode(predicate, diagnostics)?);
-        }
-
-        let (witness_subjects, address_subjects) =
-            self.trusted_predicate_subjects(&guarantees, cancellation, diagnostics)?;
-
-        Ok(TrustedCallContract {
-            arguments: Default::default(),
-            transferred_inputs: Vec::new(),
-            completes: result.is_some(),
-            checks_preconditions: behavior.has_runtime_requirements(),
-            preserves_inputs: false,
-            witness_subjects,
-            address_subjects,
-            requirements,
-            execution_requirements,
-            preconditions,
-            guarantees,
-            postconditions,
-        })
+        Ok(())
     }
 }

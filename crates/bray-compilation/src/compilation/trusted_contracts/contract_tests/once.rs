@@ -7,6 +7,7 @@ use super::fixtures::{body_belongs_to, production_sync_compilation};
 fn production_once_declarations_check_their_own_bodies() {
     let application = production_sync_compilation("module app;");
     let mut failures = Vec::new();
+    let mut missing = ["Once", "Lazy"].into_iter().collect::<std::collections::BTreeSet<_>>();
 
     for key in application
         .declared_unit_keys_for_test()
@@ -22,6 +23,8 @@ fn production_once_declarations_check_their_own_bodies() {
         {
             continue;
         }
+
+        missing.retain(|name| !body_belongs_to(&application, &key, &[], &[*name]));
 
         let certified = application
             .execution_properties(key.clone())
@@ -48,6 +51,7 @@ fn production_once_declarations_check_their_own_bodies() {
         }
     }
 
+    assert!(missing.is_empty(), "no checked body for {missing:?}");
     assert!(failures.is_empty(), "{failures:#?}");
 }
 

@@ -3,8 +3,11 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use subprocess::Exec;
 
+use bray_diagnostics::DiagnosticLlvmToolRole;
+use bray_native_artifact::NativeUnitKind;
 use bray_symbols::{NativeLinkKind, NativeLinkRequirement};
-use bray_target::NativeTarget;
+use bray_target::{NativeTarget, TargetOutputKind, TargetOutputName};
+use bray_tooling::llvm_tool_path;
 
 use super::command::{CommandError, Package, PackageComponent, RuntimeArchiveKind};
 
@@ -31,6 +34,8 @@ pub(super) fn smoke_test(
     target: NativeTarget,
     directory: &Path,
 ) -> Result<(), CommandError> {
+    crate::progress::message("Compiling the allocation probe smoke executable");
+
     let (executable, _) = compile_c_smoke(
         ALLOCATION_PROBE_SMOKE_SOURCE,
         "allocation-probe-smoke",
@@ -40,6 +45,8 @@ pub(super) fn smoke_test(
         &[],
         &[],
     )?;
+
+    crate::progress::message("Running the allocation probe smoke executable");
 
     let output = crate::validation_process::success(
         Exec::cmd(&executable),
@@ -64,6 +71,8 @@ pub(super) fn smoke_test(
         ],
     )?;
 
+    crate::progress::message("Compiling the asynchronous runtime smoke executable");
+
     let executable = compile_smoke(
         SMOKE_SOURCE,
         "runtime-smoke",
@@ -73,6 +82,8 @@ pub(super) fn smoke_test(
         None,
         &package.native_links,
     )?;
+
+    crate::progress::message("Running the asynchronous runtime smoke executable");
 
     let output = crate::validation_process::success(
         Exec::cmd(&executable),
@@ -101,6 +112,8 @@ pub(super) fn smoke_test(
         ],
     )?;
 
+    crate::progress::message("Compiling the synchronous runtime smoke executable");
+
     let executable = compile_smoke(
         SYNC_SMOKE_SOURCE,
         "runtime-sync-smoke",
@@ -111,6 +124,8 @@ pub(super) fn smoke_test(
         &package.native_links,
     )?;
 
+    crate::progress::message("Running the synchronous runtime smoke executable");
+
     crate::validation_process::success(Exec::cmd(&executable), crate::validation_process::TIMEOUT)
         .map_err(|error| CommandError::SmokeExecution {
             name: "synchronous",
@@ -118,11 +133,26 @@ pub(super) fn smoke_test(
         })?;
 
     audit_synchronous_link_map(&map)?;
-    smoke_test_bootstrap(package, target, directory)?;
-    super::observation_smoke::smoke_test(package, target, directory)?;
-    super::entry_smoke::smoke_test(package, target, directory)?;
-    super::execution::smoke_test(package, target, directory)?;
-    super::synchronous::smoke_test(package, target, directory)?;
+
+    crate::progress::run("Running bootstrap smoke tests", || {
+        smoke_test_bootstrap(package, target, directory)
+    })?;
+
+    crate::progress::run("Running observation smoke tests", || {
+        super::observation_smoke::smoke_test(package, target, directory)
+    })?;
+
+    crate::progress::run("Running entry smoke tests", || {
+        super::entry_smoke::smoke_test(package, target, directory)
+    })?;
+
+    crate::progress::run("Running execution smoke tests", || {
+        super::execution::smoke_test(package, target, directory)
+    })?;
+
+    crate::progress::run("Running synchronous smoke tests", || {
+        super::synchronous::smoke_test(package, target, directory)
+    })?;
 
     Ok(())
 }
@@ -176,9 +206,43 @@ pub(super) fn add_package_dependencies(
         .filter(|link| !bundled.contains(link.name()))
         .collect();
 
+    // Plain objects always link. One archive lets each smoke executable retain
+    // only the dependency members its own runtime components reach. Fallback
+    // providers stay plain objects because an archive index cannot select them,
+    // and the linker discards their unreferenced definitions.
+    let (objects, inputs): (Vec<_>, Vec<_>) = inputs
+        .into_iter()
+        .partition(|(kind, _, fallback)| *kind == NativeUnitKind::Object && !fallback);
+
+    if !objects.is_empty() {
+        let members = objects
+            .iter()
+            .map(|(_, path, _)| fs::read(path).map_err(|error| CommandError::read(path, error)))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let archiver = llvm_tool_path(DiagnosticLlvmToolRole::Archiver)
+            .map_err(CommandError::NativeCompilerToolUnavailable)?;
+
+        let bytes = crate::native_archive::archive_bytes(&archiver, &members, "o")
+            .map_err(CommandError::RuntimePartitionTool)?;
+
+        let archive = directory.join(
+            TargetOutputName::for_native(target.object_format(), TargetOutputKind::StaticLibrary)
+                .file_name("bray_smoke_dependencies")
+                .expect("smoke dependency library name is valid"),
+        );
+
+        fs::write(&archive, bytes).map_err(|error| CommandError::write(&archive, error))?;
+
+        package.components.push(PackageComponent {
+            kind: None,
+            archive,
+        });
+    }
+
     package
         .components
-        .extend(inputs.into_iter().map(|(_, archive)| PackageComponent {
+        .extend(inputs.into_iter().map(|(_, archive, _)| PackageComponent {
             kind: None,
             archive,
         }));
@@ -191,6 +255,8 @@ fn smoke_test_bootstrap(
     target: NativeTarget,
     directory: &Path,
 ) -> Result<(), CommandError> {
+    crate::progress::message("Preparing the bootstrap smoke executable");
+
     let resident = resident_host_object(target, directory)?;
     let mut archives = component_archives(package, &[RuntimeArchiveKind::Bootstrap])?;
 
@@ -211,6 +277,8 @@ fn smoke_test_bootstrap(
             &[]
         },
     )?;
+
+    crate::progress::message("Running the bootstrap smoke executable");
 
     let output = crate::validation_process::success(
         Exec::cmd(&executable).env("BRAY_NUMERIC_VECTORS", numeric_vectors),

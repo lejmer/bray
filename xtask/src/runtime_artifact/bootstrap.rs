@@ -4,8 +4,8 @@ use std::path::{Path, PathBuf};
 use bray_base::NonEmptySharedStr;
 use bray_compilation::{BuildConfiguration, WorkerBudget};
 use bray_driver::{
-    DriverBackend, DriverCompilationConfiguration, DriverOptions, DriverProductConfiguration,
-    OutputFormat, run_build_request,
+    BuildPhase, DriverBackend, DriverCompilationConfiguration, DriverOptions,
+    DriverProductConfiguration, OutputFormat, run_build_request,
 };
 use bray_emitter::ArtifactKind;
 use bray_project::{PackageRole, ProjectGraph, ProjectPackage, ProjectProduct, load_project_graph};
@@ -103,7 +103,7 @@ pub(super) fn cache_identity(
     super::reuse::content_identity(input, &paths)
 }
 
-pub(super) fn standard_library_directory(root: &Path, target: NativeTarget) -> PathBuf {
+pub(crate) fn standard_library_directory(root: &Path, target: NativeTarget) -> PathBuf {
     crate::workspace::cargo_target(root)
         .join("runtime-bootstrap-standard-library")
         .join(target.as_str())
@@ -167,7 +167,7 @@ pub fn build(
     let archive_name =
         TargetOutputName::for_native(target.object_format(), TargetOutputKind::StaticLibrary);
 
-    for (kind, input) in inputs {
+    for (kind, input, _) in inputs {
         match kind {
             bray_native_artifact::NativeUnitKind::Object => {
                 members.push(fs::read(&input).map_err(|error| {
@@ -256,14 +256,19 @@ fn build_components(
         .map_err(|error| format!("could not load bootstrap project: {error:?}"))?;
 
     for (component, destination) in components {
-        build_component(
-            &workspace,
-            &graph,
-            &standard_library,
-            target,
-            support.path(),
-            *component,
-            destination,
+        crate::progress::run(
+            &format!("Building the {} product", component.product()),
+            || {
+                build_component(
+                    &workspace,
+                    &graph,
+                    &standard_library,
+                    target,
+                    support.path(),
+                    *component,
+                    destination,
+                )
+            },
         )?;
     }
 
@@ -333,7 +338,16 @@ fn build_component(
         Vec::new(),
     );
 
-    let result = run_build_request(&options, build, sources);
+    let result = run_build_request(&options, build, sources, |phase| {
+        let activity = match phase {
+            BuildPhase::Planning => "Planning",
+            BuildPhase::ExportingInterface => "Exporting the interface for",
+            BuildPhase::Checking => "Checking",
+            BuildPhase::Emitting => "Emitting",
+        };
+
+        crate::progress::message(&format!("{activity} the {} product", component.product()));
+    });
 
     if result.exit_code() != std::process::ExitCode::SUCCESS {
         let detail = result

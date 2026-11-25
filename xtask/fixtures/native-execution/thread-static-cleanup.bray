@@ -1,5 +1,7 @@
 module thread_static_cleanup_execution;
 
+using std.io;
+
 internal struct Provider
 {
     mut value: i32;
@@ -7,6 +9,7 @@ internal struct Provider
     finalize()
     {
         self.value = 0;
+        std.io.print_line("provider");
     }
 }
 
@@ -17,6 +20,7 @@ internal struct Consumer
     destruct()
     {
         assert(self.provider.value == 17);
+        std.io.print_line("consumer");
     }
 }
 

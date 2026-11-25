@@ -31,7 +31,7 @@ pub(crate) fn expression_condition(
     expression: BoundExpressionId,
     budget: &mut usize,
     predicates: Option<
-        &BTreeMap<bray_symbols::PredicateInstanceData, bray_symbols::PredicateSemanticSummary>,
+        &BTreeMap<bray_symbols::PredicateInstanceData, crate::PredicateConditionInput>,
     >,
 ) -> ExecutionCondition {
     let Some(next) = budget.checked_sub(1) else {

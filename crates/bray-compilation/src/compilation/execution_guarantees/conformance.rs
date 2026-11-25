@@ -412,7 +412,7 @@ mod tests {
     fn unreachable_storage_projections_do_not_create_proof_cycles() {
         for (condition, valid) in [("false", true), ("true", false)] {
             let source = r#"
-                module app;
+                trusted module app;
 
                 struct Policy
                 {
@@ -534,7 +534,7 @@ mod tests {
         ] {
             let source = format!(
                 r#"
-                module app;
+                trusted module app;
 
                 struct Policy {{ mut value: i32; }}
 

@@ -118,7 +118,7 @@ impl ExecutionCondition {
         for argument in &mut arguments {
             // Const calls compute from current values, independently of the
             // loan that supplies them. Flow values retain that loan separately.
-            *argument = argument.computed_value().clone();
+            *argument = argument.computed_value().without_captured_storage();
 
             if argument.contains_unknown() {
                 return ExecutionCondition::unknown();
@@ -222,6 +222,27 @@ impl ExecutionCondition {
             .map(|(_, value)| value)
     }
 
+    /// Reads inline component data with its evaluated physical information.
+    pub(crate) fn into_component_data(self) -> Self {
+        self.component_data_replacement().unwrap_or(self)
+    }
+
+    fn component_data_replacement(&self) -> Option<Self> {
+        use bray_symbols::CapturedValueOperation;
+
+        Some(match self.kind() {
+            K::CapturedValue { value, storage } =>
+                value.component_data_replacement()?.captured_value(storage.clone()),
+            K::DeferredValue { value, frame } =>
+                value.component_data_replacement()?.with_deferred_value(Arc::clone(frame)),
+            K::Observation { owner, contents, kind } =>
+                Self::observation(owner.as_ref().clone(), contents.component_data_replacement()?, *kind),
+            K::StorageValue(CapturedValueOperation::Inline, operands) =>
+                Self::storage_value(CapturedValueOperation::Inline, vec![operands[0].component_data_replacement()?].into()),
+            _ => return self.nullable_payload_snapshot().cloned(),
+        })
+    }
+
     pub(crate) fn present(self) -> Self {
         match self.kind() {
             K::Unknown => ExecutionCondition::unknown(),
@@ -283,6 +304,10 @@ impl ExecutionCondition {
 
     /// Refresh reached data while retaining the reference value and its existing access.
     pub(crate) fn with_referent(&self, contents: Self) -> Self {
+        if let K::CapturedValue { value, storage } = self.kind() {
+            return value.with_referent(contents).captured_value(storage.clone());
+        }
+
         if self == &contents { return self.clone(); }
 
         let identity = self.owner_identity();
@@ -291,15 +316,17 @@ impl ExecutionCondition {
 
         // The observed physical context survives a contents update. The enclosing
         // reference retains access to that context without acquiring ownership.
-        let previous = self.clone().into_referent();
+        let previous = match self.kind() {
+            K::Borrowed(contents) | K::Observation { contents, kind: ObservationKind::Reference, .. } => contents.as_ref().clone(),
+            _ => self.clone(),
+        };
 
-        if previous.has_same_owner(&contents)
-            && super::retained::RetainedSnapshots::same_contents(&previous, &contents)
-        {
+        if previous.has_same_owner(&contents) && previous.inline_contents() == contents.inline_contents() {
             return self.clone();
         }
 
-        let contents = match previous.kind() {
+        let contents = match previous.value_inside_capture().kind() {
+            K::Observation { owner, kind: ObservationKind::Owned, .. } if owner.as_ref() == identity => contents,
             K::Observation { owner, kind: kind @ (ObservationKind::Owned | ObservationKind::Scalar), .. } => {
                 Self::observation(owner.as_ref().clone(), contents, *kind)
             }
@@ -327,8 +354,18 @@ impl ExecutionCondition {
     /// Structural overlays retain the existing value's identity and ownership role.
     pub(crate) fn constructed(
         base: Self,
-        mut fields: Arc<[(bray_bound_tree::StorageProjection, Self)]>,
+        fields: Arc<[(bray_bound_tree::StorageProjection, Self)]>,
     ) -> Self {
+        Self::construct_retaining(base, fields, None)
+    }
+
+    pub(super) fn construct_retaining(
+        base: Self,
+        mut fields: Arc<[(bray_bound_tree::StorageProjection, Self)]>,
+        previous: Option<&Self>,
+    ) -> Self {
+        if fields.is_empty() { return base; }
+
         if let K::Present(payload) = base.kind()
             && matches!(fields.as_ref(), [(bray_bound_tree::StorageProjection::NullableValue, value)] if value == payload.as_ref())
         {
@@ -340,6 +377,15 @@ impl ExecutionCondition {
         }
 
         match base.kind() {
+            K::DeferredValue { value, frame } => Self::constructed(value.as_ref().clone(), fields)
+                .with_deferred_value(Arc::clone(frame)),
+            K::CapturedValue { value, storage } => {
+                let mut updated = storage.as_ref().clone();
+
+                for (field, value) in fields.iter() { updated = updated.with_component(&[*field], value.inline_captured_storage()); }
+
+                Self::constructed(value.as_ref().clone(), fields).captured_value(updated)
+            }
             K::Constructed(base, previous) => {
                 // Compose existing immutable snapshots once. Later fields replace
                 // earlier contents while preserving untouched components.
@@ -355,7 +401,32 @@ impl ExecutionCondition {
                 ExecutionCondition::new(K::Borrowed(Arc::clone(contents))),
                 Self::constructed(contents.as_ref().clone(), fields),
             ),
-            _ => ExecutionCondition::new(K::Constructed(Arc::new(base), fields)),
+            _ => {
+                // A field with its own storage snapshot is explicit until proof
+                // drops that metadata. The underlying projection is already
+                // represented by the base's data.
+                let implicit = |(field, value): &(bray_bound_tree::StorageProjection, Self)| {
+                    matches!((field, value.kind()),
+                        (bray_bound_tree::StorageProjection::ProductField(field),
+                         K::Projection(bray_symbols::ConstantProjectionKind::ProductField(projected), owner))
+                            if field == projected && owner.as_ref() == &base)
+                };
+
+                if fields.iter().any(implicit) {
+                    fields = fields.iter().filter(|field| !implicit(field)).cloned().collect();
+                }
+
+                if fields.is_empty() {
+                    base
+                } else if let Some(previous) = previous
+                    && matches!(previous.kind(), K::Constructed(old_base, old_fields)
+                        if old_base.as_ref() == &base && Arc::ptr_eq(old_fields, &fields))
+                {
+                    previous.clone()
+                } else {
+                    Self::new(K::Constructed(Arc::new(base), fields))
+                }
+            }
         }
     }
 
@@ -373,8 +444,8 @@ impl ExecutionCondition {
     }
 
     pub(crate) fn value_alias(left: Self, right: Self) -> Self {
-        let left = left.copied_value().clone();
-        let right = right.copied_value().clone();
+        let left = left.argument_value(false);
+        let right = right.argument_value(false);
 
         if left.contains_unknown() || right.contains_unknown() {
             return ExecutionCondition::unknown();
@@ -404,6 +475,15 @@ impl ExecutionCondition {
     }
 
     pub(crate) fn observation(owner: Self, contents: Self, kind: ObservationKind) -> Self {
+        Self::observe_retaining(owner, contents, kind, None)
+    }
+
+    pub(super) fn observe_retaining(
+        owner: Self,
+        contents: Self,
+        kind: ObservationKind,
+        previous: Option<&Self>,
+    ) -> Self {
         let owner = owner.owner_identity();
 
         if kind == ObservationKind::Owned && owner == &contents
@@ -412,8 +492,22 @@ impl ExecutionCondition {
             return owner.clone();
         }
 
-        if matches!(contents.kind(), K::Observation { owner: current, kind: current_kind, .. } if current.as_ref() == owner && *current_kind == kind) {
+        // A physical capture retains the underlying inline observation.
+        let observed = if kind == ObservationKind::Reference {
+            &contents
+        } else {
+            contents.value_inside_capture()
+        };
+
+        if matches!(observed.kind(), K::Observation { owner: current, kind: current_kind, .. } if current.as_ref() == owner && *current_kind == kind) {
             return contents;
+        }
+
+        if let Some(previous) = previous
+            && matches!(previous.kind(), K::Observation { owner: old_owner, contents: old_contents, kind: old_kind }
+                if old_owner.as_ref() == owner && old_contents.as_ref() == &contents && *old_kind == kind)
+        {
+            return previous.clone();
         }
 
         ExecutionCondition::new(K::Observation { owner: Arc::new(owner.clone()), contents: Arc::new(contents), kind })
@@ -421,6 +515,7 @@ impl ExecutionCondition {
 
     pub(crate) fn observation_kind(&self) -> Option<ObservationKind> {
         match self.kind() {
+            K::CapturedValue { value, .. } | K::DeferredValue { value, .. } => value.observation_kind(),
             K::Observation { kind, .. } => Some(*kind),
             _ => None,
         }
@@ -429,12 +524,29 @@ impl ExecutionCondition {
     /// Reached data does not own storage. The reference value retains its access capability.
     pub(crate) fn current_referent(&self) -> Option<&Self> {
         match self.kind() {
+            K::CapturedValue { value, .. } | K::DeferredValue { value, .. } => value.current_referent(),
             K::Observation { contents, kind: ObservationKind::Reference, .. } => Some(contents),
             _ => None,
         }
     }
 
+    /// Read one stored loan layer, keeping any descriptor in its referent.
+    pub(crate) fn loan_contents(&self) -> Option<&Self> {
+        let mut value = self;
+
+        loop {
+            match value.kind() {
+                K::CapturedValue { value: contents, .. } | K::DeferredValue { value: contents, .. }
+                | K::Observation { contents, kind: ObservationKind::Scalar, .. } => value = contents,
+                K::Borrowed(contents) | K::Observation { contents, kind: ObservationKind::Reference, .. } => return Some(contents),
+                _ => return None,
+            }
+        }
+    }
+
     pub(crate) fn is_reference(&self) -> bool {
+        if let K::CapturedValue { value, .. } | K::DeferredValue { value, .. } = self.kind() { return value.is_reference(); }
+
         matches!(self.kind(), K::Borrowed(_)) || self.current_referent().is_some()
     }
 
@@ -444,7 +556,7 @@ impl ExecutionCondition {
 
         loop {
             match value.kind() {
-                K::Borrowed(contents) | K::Observation { contents, .. } => value = contents,
+                K::Borrowed(contents) | K::Observation { contents, .. } | K::CapturedValue { value: contents, .. } | K::DeferredValue { value: contents, .. } => value = contents,
                 _ => return value,
             }
         }
@@ -452,17 +564,44 @@ impl ExecutionCondition {
 
     /// A scalar storage context and its current copied contents are distinct observations.
     pub(crate) fn storage_contents(&self) -> Option<(&Self, &Self)> {
-        match self.kind() {
+        match self.value_inside_capture().kind() {
             K::Observation { owner, contents, kind: ObservationKind::Scalar } => Some((owner, contents)),
             _ => None,
         }
     }
 
-    /// The immutable value copied into a new context, without renaming its source owner.
+    /// The immutable data retained by a scalar copy, independent of its source slot.
+    pub(crate) fn retained_scalar_data(&self) -> Option<Self> {
+        let (_, contents) = self.storage_contents()?;
+
+        let copied = contents.clone().argument_value(false);
+
+        (!copied.is_unknown()).then_some(copied)
+    }
+
+    pub(crate) fn value_inside_capture(&self) -> &Self {
+        match self.kind() {
+            K::CapturedValue { value, .. } => value,
+            _ => self,
+        }
+    }
+
+    /// Current inline data behind its owning or copy context, retaining captures and loan boundaries.
+    pub(super) fn inline_contents(&self) -> &Self {
+        let mut value = self;
+
+        while let K::Observation { contents, kind: ObservationKind::Owned | ObservationKind::Scalar, .. } = value.kind() {
+            value = contents;
+        }
+
+        value
+    }
+
+    /// The immutable value copied into a new context, retaining its physical capture.
     pub(crate) fn copied_value(&self) -> &Self {
         let mut value = self;
 
-        while let Some((_, contents)) = value.storage_contents() {
+        while let K::Observation { contents, kind: ObservationKind::Scalar, .. } = value.kind() {
             value = contents;
         }
 
@@ -472,6 +611,7 @@ impl ExecutionCondition {
     /// Observe the current reached value. Only checked ownership transitions may move it.
     pub(crate) fn into_referent(self) -> Self {
         match self.kind() {
+            K::CapturedValue { value, .. } | K::DeferredValue { value, .. } if value.is_reference() => value.as_ref().clone().into_referent(),
             K::Borrowed(value) | K::Observation { contents: value, kind: ObservationKind::Reference, .. } => {
                 value.as_ref().clone().into_referent()
             }
@@ -485,15 +625,18 @@ impl ExecutionCondition {
             return self.borrowed();
         }
 
-        let mut value = self;
+        match self.kind() {
+            K::DeferredValue { value, frame } => value.as_ref().clone().argument_value(false)
+                .with_deferred_value(Arc::clone(frame)),
+            K::CapturedValue { value, storage } => {
+                let actual = value.as_ref().clone().argument_value(false);
 
-        loop {
-            match value.kind() {
-                K::Borrowed(contents) | K::Observation {
-                    contents, kind: ObservationKind::Reference | ObservationKind::Scalar, ..
-                } => value = contents.as_ref().clone(),
-                _ => return value,
+                if value.is_reference() { actual } else { actual.captured_value(storage.clone()) }
             }
+            K::Borrowed(contents) | K::Observation {
+                contents, kind: ObservationKind::Reference | ObservationKind::Scalar, ..
+            } => contents.as_ref().clone().argument_value(false),
+            _ => self,
         }
     }
 
@@ -517,24 +660,7 @@ impl ExecutionCondition {
         mut arguments: Vec<Self>,
     ) -> Self {
         for argument in &mut arguments {
-            // A by-value predicate observes copied data. A borrowed argument
-            // retains its storage context even when the contents are equal.
-            *argument = argument.copied_value().clone();
-
-            if let K::Present(payload) = argument.kind() {
-                // Predicate arguments name the nullable value. Structural visitors
-                // separately retain its explicit initialized payload snapshot.
-                *argument = payload.as_ref().clone().present();
-            }
-
-            if let K::Observation { contents, kind: ObservationKind::Reference, .. } = argument.kind()
-                && (contents.ownership_identity().is_some_and(|(role, _)| role == ObservationKind::Owned)
-                    || contents.is_reference_computation())
-            {
-                // Retain the actual referent or checked reference computation,
-                // independently of the loan handle. Scalar contexts remain distinct.
-                *argument = contents.as_ref().clone().borrowed();
-            }
+            *argument = argument.predicate_observation();
         }
 
         for argument in &arguments {
@@ -544,6 +670,50 @@ impl ExecutionCondition {
         }
 
         ExecutionCondition::new(K::Predicate(predicate, substitution, arguments.into()))
+    }
+
+    /// Canonicalizes the reached observation shared by predicates and their preservation checks.
+    pub(crate) fn predicate_observation(&self) -> Self {
+        let value = self.predicate_value();
+
+        // A by-value predicate observes copied data. A borrowed argument
+        // retains its storage context even when the contents are equal.
+        let mut argument = value.copied_value().clone();
+
+        if let K::Present(payload) = argument.kind() {
+            // Predicate arguments name the nullable value. Structural visitors
+            // separately retain its explicit initialized payload snapshot.
+            argument = payload.as_ref().clone().present();
+        }
+
+        if let K::Observation { owner, contents, kind: ObservationKind::Reference } = argument.kind() {
+            let reached = contents.storage_contents().and_then(|(context, data)| {
+                (context == data.owner_identity()).then_some(data)
+            });
+
+            if let Some(reached) = reached {
+                argument = Self::reference_value(owner.as_ref().clone(), reached.clone());
+            }
+        }
+
+        if let K::Observation { contents, kind: ObservationKind::Reference, .. } = argument.kind()
+            && (contents.ownership_identity().is_some_and(|(role, _)| role == ObservationKind::Owned)
+                || contents.is_reference_computation())
+        {
+            // Retain the actual referent or checked reference computation.
+            argument = contents.as_ref().clone().borrowed();
+        }
+
+        argument
+    }
+
+    /// A reference already identifies the same storage context used by its reached data.
+    pub(super) fn redundant_reference_contents<'a>(owner: &Self, contents: &'a Self) -> Option<&'a Self> {
+        match contents.value_inside_capture().kind() {
+            K::Observation { owner: context, contents, kind: ObservationKind::Owned }
+                if context.as_ref() == owner => Some(contents),
+            _ => None,
+        }
     }
 
     fn is_reference_computation(&self) -> bool {
@@ -575,8 +745,27 @@ impl ExecutionCondition {
     pub(crate) fn project(self, projection: bray_bound_tree::StorageProjection) -> Self {
         use bray_bound_tree::StorageProjection;
 
+        if let K::CapturedValue { value, storage } = self.kind() {
+            let selected = value.as_ref().clone().project(projection);
+
+            return if selected.captured_storage().is_some() { selected }
+                else { selected.captured_value(storage.project(projection)) };
+        }
+
         if projection == StorageProjection::AddressTarget {
             return self.into_referent();
+        }
+
+        if let (K::StorageValue(bray_symbols::CapturedValueOperation::OwningStorage(_), _), StorageProjection::ElementFromEnd(index)) =
+            (self.computed_value().kind(), projection)
+        {
+            let mut prefix = self;
+
+            for _ in 0..index.raw() {
+                prefix = Self::storage_value(bray_symbols::CapturedValueOperation::Remainder, vec![prefix].into());
+            }
+
+            return Self::storage_value(bray_symbols::CapturedValueOperation::Last, vec![prefix].into());
         }
 
         if let (K::Constructed(_, fields), StorageProjection::ElementFromEnd(index)) =
@@ -649,6 +838,25 @@ impl ExecutionCondition {
         }
 
         match self.kind() {
+            K::CapturedValue { value, storage } => {
+                let selected = value.as_ref().clone().component(projection);
+
+                let field = match projection {
+                    ConstantProjectionKind::ProductField(field) => Some(StorageProjection::ProductField(field)),
+                    ConstantProjectionKind::TupleElement(index) => Some(StorageProjection::TupleElement(index)),
+                    ConstantProjectionKind::ArrayElementOrdinal(index) => Some(StorageProjection::ElementFromStart(index)),
+                    ConstantProjectionKind::NullableValue => Some(StorageProjection::NullableValue),
+                    ConstantProjectionKind::UnionPayloadField(field) => storage.component_projections().find(|projection|
+                        matches!(projection, StorageProjection::ActiveUnionPayloadField { field: candidate, .. } if *candidate == field)),
+                    _ => None,
+                };
+
+                return if selected.captured_storage().is_some() { selected }
+                    else if let Some(field) = field { selected.captured_value(storage.project(field)) }
+                    else { selected };
+            }
+            K::StorageValue(bray_symbols::CapturedValueOperation::Inline, values) => Self::storage_value(
+                bray_symbols::CapturedValueOperation::Inline, vec![values[0].clone().component(projection)].into()),
             K::Present(value) if projection == ConstantProjectionKind::NullableValue => {
                 value.as_ref().clone()
             }
@@ -740,7 +948,7 @@ impl ExecutionCondition {
                         let mut observed = &current;
 
                         loop {
-                            if let K::Observation { contents, .. } = observed.kind() {
+                            if let K::CapturedValue { value: contents, .. } | K::DeferredValue { value: contents, .. } | K::Observation { contents, .. } = observed.kind() {
                                 observed = contents;
                             } else if let Some(payload) = observed.nullable_payload_snapshot() {
                                 observed = payload;
@@ -776,6 +984,16 @@ impl ExecutionCondition {
         path: &[bray_bound_tree::StorageProjection],
         value: Self,
     ) -> Self {
+        if path.is_empty() { return value; }
+
+        self.replace_component_data(path, value.into_component_data())
+    }
+
+    fn replace_component_data(
+        &self,
+        path: &[bray_bound_tree::StorageProjection],
+        value: Self,
+    ) -> Self {
         use bray_bound_tree::StorageProjection;
         use bray_symbols::ConstantProjectionKind;
 
@@ -783,16 +1001,22 @@ impl ExecutionCondition {
             return value;
         };
 
+        if let K::CapturedValue { value: current, storage } = self.kind() {
+            let updated = storage.with_component(path, value.inline_captured_storage());
+
+            return current.replace_component_data(path, value).captured_value(updated);
+        }
+
         if let Some(data) = self.current_referent() {
-            return self.with_referent(data.with_storage_component(path, value));
+            return self.with_referent(data.replace_component_data(path, value));
         }
 
         if let K::Observation { owner, contents, kind } = self.kind() {
-            return Self::observation(owner.as_ref().clone(), contents.with_storage_component(path, value), *kind);
+            return Self::observation(owner.as_ref().clone(), contents.replace_component_data(path, value), *kind);
         }
 
         if let Some(snapshot) = self.nullable_payload_snapshot() {
-            let updated = snapshot.with_storage_component(path, value);
+            let updated = snapshot.replace_component_data(path, value);
 
             if updated == *snapshot {
                 return self.clone();
@@ -803,19 +1027,16 @@ impl ExecutionCondition {
             };
 
             return owner
-                .with_storage_component(&[StorageProjection::NullableValue], updated)
+                .replace_component_data(&[StorageProjection::NullableValue], updated)
                 .component(ConstantProjectionKind::NullableValue);
         }
 
-        let previous = self.clone().project(*projection);
-
         // Stored components contain payload data. The extraction view retains
         // its owner separately and must not become its own payload's backing.
-        let previous = previous.nullable_payload_snapshot().unwrap_or(&previous);
-        let value = value.nullable_payload_snapshot().cloned().unwrap_or(value);
-        let child = previous.with_storage_component(rest, value);
+        let previous = self.clone().project(*projection).into_component_data();
+        let child = previous.replace_component_data(rest, value);
 
-        if child == *previous {
+        if child == previous {
             return self.clone();
         }
 

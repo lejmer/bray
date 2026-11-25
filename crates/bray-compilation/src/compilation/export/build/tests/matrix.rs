@@ -33,17 +33,18 @@ impl Phase {
             std::thread::panicking()
         );
 
-        eprint!("{line}");
+        let _ = std::io::stderr().lock().write_all(line.as_bytes());
 
         if let Some(directory) = std::env::var_os("BRAY_TEST_PROFILE_OUTPUT") {
-            std::fs::create_dir_all(&directory).expect("matrix progress directory must be writable");
-
             let path = std::path::Path::new(&directory).join("matrix-progress.log");
 
-            let mut file = std::fs::OpenOptions::new().create(true).append(true).open(path)
-                .expect("matrix progress log must open");
+            let written = std::fs::create_dir_all(&directory)
+                .and_then(|()| std::fs::OpenOptions::new().create(true).append(true).open(&path))
+                .and_then(|mut file| file.write_all(line.as_bytes()));
 
-            file.write_all(line.as_bytes()).expect("matrix progress must be recorded");
+            if let Err(error) = written {
+                let _ = writeln!(std::io::stderr().lock(), "unable to write {} ({error})", path.display());
+            }
         }
     }
 }

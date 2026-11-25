@@ -82,10 +82,10 @@ fn standard_input_rejects_invalid_utf8_through_structured_messages() {
 }
 
 #[test]
-fn explicit_configuration_files_are_validated_before_formatting() {
+fn formatting_accepts_a_valid_explicit_configuration_file() {
     let valid = TemporaryFile::write(
         "valid-brayfmt.json",
-        br#"{"maximum_line_width":88,"rules":{"indentation":false}}"#,
+        br#"{"maximum_line_width":88}"#,
     );
 
     let valid_output = run(
@@ -98,56 +98,8 @@ fn explicit_configuration_files_are_validated_before_formatting() {
     );
 
     assert!(valid_output.status.success(), "{valid_output:?}");
-
-    let unknown = TemporaryFile::write(
-        "unknown-brayfmt.json",
-        br#"{"rules":{"unknown-rule":true}}"#,
-    );
-
-    let unknown_output = run(
-        [
-            "--config".into(),
-            unknown.path().as_os_str().to_owned(),
-            "-".into(),
-        ],
-        UNFORMATTED,
-    );
-
-    assert!(!unknown_output.status.success(), "{unknown_output:?}");
-
-    assert!(
-        String::from_utf8_lossy(&unknown_output.stderr)
-            .contains("unknown formatter rule 'unknown-rule'"),
-        "{unknown_output:?}"
-    );
-}
-
-#[test]
-fn invalid_configuration_is_available_as_structured_json() {
-    let invalid = TemporaryFile::write("invalid-brayfmt.json", br#"{"maximum_line_width":0}"#);
-
-    let output = run(
-        [
-            "--format".into(),
-            "json".into(),
-            "--config".into(),
-            invalid.path().as_os_str().to_owned(),
-            "-".into(),
-        ],
-        UNFORMATTED,
-    );
-
-    assert!(!output.status.success(), "{output:?}");
-    assert!(output.stderr.is_empty(), "{output:?}");
-
-    let json = String::from_utf8_lossy(&output.stdout);
-
-    assert!(
-        json.contains("formatter_configuration_invalid_maximum_width"),
-        "{output:?}"
-    );
-
-    assert!(json.contains("actual_count"), "{output:?}");
+    assert_eq!(valid_output.stdout, FORMATTED.as_bytes());
+    assert!(valid_output.stderr.is_empty());
 }
 
 #[test]

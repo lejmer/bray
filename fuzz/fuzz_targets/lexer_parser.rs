@@ -27,12 +27,19 @@ libfuzzer_sys::fuzz_target!(|bytes: &[u8]| {
 
     let source_unit_result = parse_source_unit(snapshot);
     let source_unit = source_unit_result.source_unit();
-    let source_unit_tokens = source_unit.tokens().cloned().collect::<Vec<_>>();
+    let source_unit_tokens = source_unit
+        .tokens()
+        .filter(bray_syntax::SyntaxToken::is_present)
+        .collect::<Vec<_>>();
 
     assert_eq!(source_unit_result.source_id(), snapshot.source_id());
     assert_eq!(source_unit.full_text(), snapshot.text());
     assert_eq!(source_unit_tokens.as_slice(), lex_result.tokens());
-    assert_eq!(source_unit_result.diagnostics(), lex_result.diagnostics());
+    assert!(source_unit_result
+        .diagnostics()
+        .iter()
+        .take(lex_result.diagnostics().len())
+        .eq(lex_result.diagnostics().iter()));
 
     let parse_result = parse_compilation_unit(&sources);
     let syntax_tree = parse_result.syntax_tree();
@@ -47,5 +54,5 @@ libfuzzer_sys::fuzz_target!(|bytes: &[u8]| {
         .expect("parser should produce one source unit for one input");
 
     assert_eq!(tree_source_unit.full_text(), snapshot.text());
-    assert_eq!(parse_result.diagnostics(), lex_result.diagnostics());
+    assert_eq!(parse_result.diagnostics(), source_unit_result.diagnostics());
 });

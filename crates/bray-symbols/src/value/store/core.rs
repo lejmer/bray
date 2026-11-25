@@ -59,8 +59,6 @@ impl SemanticValueStore {
         symbols: &SymbolGraph,
         definition: NamedTypeSymbolId,
     ) -> Result<Option<TypeId>, SemanticValueStoreError> {
-        let owner = definition.into_any();
-
         let (type_parameters, const_parameters) = match definition {
             NamedTypeSymbolId::Struct(id) => {
                 let Some(symbol) = symbols.structure(id) else {
@@ -105,48 +103,23 @@ impl SemanticValueStore {
                 .map(|parameter| parameter.ordinal()),
         });
 
-        let arguments = parameters
-            .iter()
-            .copied()
+        self.intern_open_named_type_from_parameters(definition, &parameters).map(Some)
+    }
+
+    /// Interns a named type with the exact generic parameters of its checked declaration in declaration order.
+    pub fn intern_open_named_type_from_parameters(
+        &self,
+        definition: NamedTypeSymbolId,
+        parameters: &[GenericParameterSymbolId],
+    ) -> Result<TypeId, SemanticValueStoreError> {
+        let owner = GenericOwnerId::try_new(definition.into_any()).expect("named type symbols are generic owners");
+
+        let arguments = parameters.iter().copied()
             .map(|parameter| self.intern_generic_parameter_argument(parameter))
             .collect::<Result<Vec<_>, _>>()?;
 
-        let Some(owner) = GenericOwnerId::try_new(owner) else {
-            return Ok(None);
-        };
-
-        let Ok(substitution) = GenericSubstitutionData::try_new(owner, parameters, arguments)
-        else {
-            return Ok(None);
-        };
-
-        let substitution = self.intern_generic_substitution(substitution)?;
-
-        let ty = self.intern_type(TypeData::Named {
-            definition,
-            substitution,
-        })?;
-
-        Ok(Some(ty))
-    }
-
-    /// Interns a named type whose declaration has no generic parameters.
-    pub fn intern_non_generic_named_type(
-        &self,
-        definition: NamedTypeSymbolId,
-    ) -> Result<TypeId, SemanticValueStoreError> {
-        let Some(owner) = GenericOwnerId::try_new(definition.into_any()) else {
-            unreachable!("named type symbols are generic owners");
-        };
-
-        let substitution = match GenericSubstitutionData::try_new(
-            owner,
-            std::iter::empty::<GenericParameterSymbolId>(),
-            std::iter::empty::<GenericArgument>(),
-        ) {
-            Ok(substitution) => substitution,
-            Err(_) => unreachable!("empty substitutions are valid for non-generic named types"),
-        };
+        let substitution = GenericSubstitutionData::try_new(owner, parameters.iter().copied(), arguments)
+            .expect("declared generic parameters match their open arguments");
 
         let substitution = self.intern_generic_substitution(substitution)?;
 
@@ -154,6 +127,14 @@ impl SemanticValueStore {
             definition,
             substitution,
         })
+    }
+
+    /// Interns a named type whose declaration has no generic parameters.
+    pub fn intern_non_generic_named_type(
+        &self,
+        definition: NamedTypeSymbolId,
+    ) -> Result<TypeId, SemanticValueStoreError> {
+        self.intern_open_named_type_from_parameters(definition, &[])
     }
 
     /// Creates an empty semantic value store with a process-unique checking identity.
@@ -288,6 +269,18 @@ impl SemanticValueStore {
             }
             _ => None,
         }
+    }
+
+    /// Interns the full specialization and target of one selected static.
+    pub fn intern_static_reference(
+        &self, selection: crate::StaticReferenceSelection,
+    ) -> Result<crate::StaticReferenceId, SemanticValueStoreError> {
+        Arc::make_mut(&mut self.tables().statics).intern(self.id, selection)
+    }
+
+    /// Returns the selected static reference issued by this store.
+    pub fn static_reference(&self, id: crate::StaticReferenceId) -> Arc<crate::StaticReferenceSelection> {
+        self.tables().statics.get_shared(self.id, id)
     }
 
     /// Interns one canonical ordered generic substitution.

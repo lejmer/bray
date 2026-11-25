@@ -19,7 +19,7 @@ use std::fs;
 #[ignore = "tier:native"]
 fn native_exports_and_opaque_storage_survive_reachability_and_codegen() {
     let source = concat!(
-        "module app;\n",
+        "trusted module app;\n",
         "@layout(c, size = 40, align = 8)\n",
         "struct NativeMutex;\n",
         "@link(name = \"native\")\n",
@@ -422,7 +422,7 @@ fn library_publication_preserves_named_native_dependencies() {
                         r#"
                         trusted func get_{suffix}_{index}() -> i32 uses(foreign_call)
                         {{
-                            return trusted {storage}();
+                            return {storage}();
                         }}
                     "#
                     )

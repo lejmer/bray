@@ -2,58 +2,82 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::super::flow::ExecutionFlowDomain;
 use super::super::state::ExecutionState;
-use crate::analysis::fixed_point::FixedPointDomain;
+use crate::analysis::id::AnalysisBlockId;
 use crate::{CheckerRequestContext, CheckerUnitView, ExecutionCondition};
-use bray_bound_tree::{AnyBoundNodeId, BoundExpressionId, CheckedExpressionSemantics};
+use bray_bound_tree::{AnyBoundNodeId, BoundExpressionId, CheckedExpressionSemantics, MemoryOperationStatus};
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticExpressionCategory, DiagnosticKind,
     DiagnosticLabel, DiagnosticLabelKind, DiagnosticNote, DiagnosticNoteKind, SeverityKind,
 };
 
-/// Call requirements and initialized storage are independent proof results.
-pub(in crate::analysis) struct MemoryCallEvidence {
+/// Requirements checked on reached operands before the invocation changes storage.
+pub(in crate::analysis) struct CallAdmissionChecks {
     pub(in crate::analysis) requirements: Result<(), crate::UnprovenExecutionCondition>,
-    pub(in crate::analysis) initialized: bool,
-    pub(in crate::analysis) empty_copy: bool,
+    execution_requirements: Result<(), crate::UnprovenExecutionCondition>,
+}
+
+type Failures<Key, Cause> = BTreeMap<Key, (Option<AnalysisBlockId>, Cause)>;
+
+fn record_failure<Key: Ord, Cause>(
+    failures: &mut Failures<Key, Cause>,
+    block: Option<AnalysisBlockId>,
+    key: Key,
+    cause: impl FnOnce() -> Cause,
+) {
+    use std::collections::btree_map::Entry;
+
+    match failures.entry(key) {
+        Entry::Vacant(entry) => { entry.insert((block, cause())); }
+        Entry::Occupied(mut entry) if block < entry.get().0 => { entry.insert((block, cause())); }
+        Entry::Occupied(_) => {}
+    }
+}
+
+fn merge_failures<Key: Ord, Cause>(failures: &mut Failures<Key, Cause>, incoming: Failures<Key, Cause>) {
+    for (key, (block, cause)) in incoming {
+        record_failure(failures, block, key, || cause);
+    }
 }
 
 #[derive(Default)]
 pub(in crate::analysis) struct TrustedChecks {
-    failed: BTreeMap<bray_bound_tree::BoundExecutionSite, crate::UnprovenExecutionCondition>,
-    failed_execution: BTreeMap<bray_bound_tree::BoundExecutionSite, crate::UnprovenExecutionCondition>,
-    transfers: BTreeMap<BoundExpressionId, super::transfers::WitnessTransferFailure>,
+    pub(in crate::analysis) block: Option<AnalysisBlockId>,
+    failed: Failures<bray_bound_tree::BoundExecutionSite, crate::UnprovenExecutionCondition>,
+    failed_execution: Failures<bray_bound_tree::BoundExecutionSite, crate::UnprovenExecutionCondition>,
+    transfers: Failures<BoundExpressionId, super::transfers::WitnessTransferFailure>,
+    transferred: BTreeSet<BoundExpressionId>,
     pending_transfers: Vec<(
         bray_bound_tree::BoundExecutionSite,
         Option<ExecutionCondition>,
         super::transfers::WitnessTransferFailure,
     )>,
-    cleanup_failures: BTreeMap<(AnyBoundNodeId, bray_symbols::CallableInstanceData), crate::UnprovenExecutionCondition>,
+    cleanup_failures: Failures<(AnyBoundNodeId, bray_symbols::CallableInstanceData), crate::UnprovenExecutionCondition>,
     pub(super) guarantees: Vec<(ExecutionCondition, bray_source::SourceSpan)>,
     guarantee_failures: Vec<Option<crate::UnprovenExecutionCondition>>,
-    pub(super) owned_returns: Vec<super::owned::OwnedReturn>,
     pub(super) owned_entry_conditions: BTreeSet<(ExecutionCondition, bool)>,
-    pub(in crate::analysis) observed_result: Option<Option<bray_symbols::ConstantTermId>>,
-    pub(super) inferred: Option<
-        BTreeSet<bray_symbols::DependencyWitnessCarrier<bray_bound_tree::StorageProjection>>,
-    >,
-    pub(super) carriers: Vec<Option<BTreeSet<Vec<bray_bound_tree::StorageProjection>>>>,
+
 }
 
 impl TrustedChecks {
+    pub(in crate::analysis) fn merge_block_failures(&mut self, incoming: Self) {
+        merge_failures(&mut self.failed, incoming.failed);
+        merge_failures(&mut self.failed_execution, incoming.failed_execution);
+        merge_failures(&mut self.transfers, incoming.transfers);
+        merge_failures(&mut self.cleanup_failures, incoming.cleanup_failures);
+    }
+
     pub(in crate::analysis) fn new<C: CheckerRequestContext + ?Sized>(
         domain: &ExecutionFlowDomain<'_, '_, C>,
+        boundary: Option<&ExecutionState>,
     ) -> Self {
-        let boundary = domain.boundary();
-
         let guarantees = boundary
-            .as_ref()
             .into_iter()
             .flat_map(|boundary| {
                 domain
                     .request
                     .trusted_contracts()
                     .into_iter()
-                    .flat_map(|contracts| &contracts.guarantees)
+                    .flat_map(crate::TrustedContractInputs::proof_guarantees)
                     .map(|(condition, span)| {
                         let condition = condition.capture_entry(
                             &|place| {
@@ -72,9 +96,8 @@ impl TrustedChecks {
             .collect::<Vec<_>>();
 
         Self {
-            owned_entry_conditions: boundary.as_ref().into_iter().flat_map(|state| state.assumptions.iter()).filter(|(condition, _)| matches!(condition.kind(), crate::ExecutionConditionKind::Input(place) if place.is_callable_input())).cloned().collect(),
+            owned_entry_conditions: boundary.into_iter().flat_map(|state| state.assumptions.iter()).filter(|(condition, _)| matches!(condition.kind(), crate::ExecutionConditionKind::Input(place) if place.is_callable_input())).cloned().collect(),
             guarantee_failures: vec![None; guarantees.len()],
-            carriers: vec![None; guarantees.len()],
             guarantees,
             ..Self::default()
         }
@@ -87,7 +110,7 @@ impl TrustedChecks {
         operation: crate::analysis::model::AnalysisOperationKind,
         current_access: &impl Fn(bray_bound_tree::StorageAccessPlan) -> Option<bray_bound_tree::StoragePath>,
     ) {
-        super::transfers::check_witness_transfers(
+        self.transferred = super::transfers::check_witness_transfers(
             domain.request,
             domain.storage,
             domain,
@@ -95,9 +118,16 @@ impl TrustedChecks {
             operation.storage_plans(domain.storage).filter(|plan|
                 !domain.storage.access_is_produced_at(plan.access(), operation.occurrence())),
             current_access,
-            &mut self.transfers,
+            |expression, failure| record_failure(&mut self.transfers, self.block, expression, || failure),
         );
+    }
 
+    pub(in crate::analysis) fn capture_returned_witness_transfers<C: CheckerRequestContext + ?Sized>(
+        &mut self,
+        domain: &ExecutionFlowDomain<'_, '_, C>,
+        state: &ExecutionState,
+        operation: crate::analysis::model::AnalysisOperationKind,
+    ) {
         self.pending_transfers.clear();
 
         super::transfers::collect_returned_witness_transfers(
@@ -115,7 +145,7 @@ impl TrustedChecks {
         proof: &Result<(), crate::UnprovenExecutionCondition>,
     ) {
         if !lifecycle.contract.requirements.is_empty() && let Err(failure) = proof {
-            self.cleanup_failures.entry((node, lifecycle.call.callable)).or_insert_with(|| failure.clone());
+            record_failure(&mut self.cleanup_failures, self.block, (node, lifecycle.call.callable), || failure.clone());
         }
     }
 
@@ -124,10 +154,10 @@ impl TrustedChecks {
         domain: &ExecutionFlowDomain<'_, '_, C>,
         state: &ExecutionState,
         operation: crate::analysis::model::AnalysisOperationKind,
-        evidence: Option<&Result<(), crate::UnprovenExecutionCondition>>,
+        admission: Option<&CallAdmissionChecks>,
         current_access: &impl Fn(bray_bound_tree::StorageAccessPlan) -> Option<bray_bound_tree::StoragePath>,
     ) {
-        super::transfers::check_witness_transfers(
+        let produced_transfers = super::transfers::check_witness_transfers(
             domain.request,
             domain.storage,
             domain,
@@ -135,11 +165,15 @@ impl TrustedChecks {
             operation.storage_plans(domain.storage).filter(|plan|
                 domain.storage.access_is_produced_at(plan.access(), operation.occurrence())),
             current_access,
-            &mut self.transfers,
+            |expression, failure| record_failure(&mut self.transfers, self.block, expression, || failure),
         );
 
+        let mut transferred = std::mem::take(&mut self.transferred);
+
+        transferred.extend(produced_transfers);
+
         // Completion facts can prove that a potential extraction never occurred.
-        let proof = state.proofs.ordinary_proof(&state.assumptions);
+        let proof = state.ordinary_proof();
 
         for (invocation, condition, failure) in self.pending_transfers.drain(..) {
             let active = condition.is_none_or(|condition| {
@@ -153,12 +187,15 @@ impl TrustedChecks {
                 proof.prove_trusted(&condition) != Some(false)
             });
 
-            if active {
-                self.transfers.entry(
-                    invocation
-                        .expression()
-                        .expect("pending ownership transfer has its source expression"),
-                ).or_insert(failure);
+            let expression = invocation
+                .expression()
+                .expect("pending ownership transfer has its source expression");
+
+            if active && !transferred.contains(&expression) {
+                record_failure(&mut self.transfers, self.block,
+                    expression,
+                    || failure,
+                );
             }
         }
 
@@ -179,28 +216,27 @@ impl TrustedChecks {
                 .expect("checked repetition retains its type")
                 .ty();
 
-            let singleton =
+            let no_copies =
                 crate::constant::known_array_length(domain.request.semantic_values(), ty)
-                    .is_some_and(|count| count <= 1);
+                    .is_some_and(|count| count == 0);
 
-            if !singleton {
-                self.transfers.entry(expression).or_insert_with(||
+            if !no_copies {
+                record_failure(&mut self.transfers, self.block, expression, ||
                     super::transfers::copied_witness(state, domain.value(state, *value)));
             }
         }
 
         let invocation = operation.occurrence();
 
-        if let Some(contract) = domain.request.trusted_contracts()
-            .and_then(|contracts| contracts.calls.get(&invocation))
-            && let Some(entry) = state.entries.get(&invocation)
-            && let Err(failure) = entry.prove_requirements(&contract.execution_requirements)
-        {
-            self.failed_execution.entry(invocation).or_insert(failure);
+        if let Some(Err(failure)) = admission.map(|admission| &admission.execution_requirements) {
+            record_failure(&mut self.failed_execution, self.block, invocation, || failure.clone());
         }
 
-        if let Some(Err(failure)) = evidence {
-            self.failed.entry(invocation).or_insert_with(|| failure.clone());
+        if let Some(Err(failure)) = admission.map(|admission| &admission.requirements) {
+            // Acknowledgement is local to execution. Certification still checks
+            // that the enclosing callable establishes or exposes the obligation.
+
+            record_failure(&mut self.failed, self.block, invocation, || failure.clone());
         }
     }
 
@@ -208,7 +244,9 @@ impl TrustedChecks {
         &mut self,
         domain: &ExecutionFlowDomain<'_, '_, C>,
         state: &ExecutionState,
-    ) {
+        result: &ExecutionCondition,
+        writes: &crate::analysis::storage_flow::ReachedInputWrites,
+    ) -> Option<super::owned::NormalReturn> {
         super::super::postcondition::check_postconditions(
             domain,
             state,
@@ -216,31 +254,36 @@ impl TrustedChecks {
             &mut self.guarantee_failures,
         );
 
-        let result = match domain.request.unit().root() {
-            bray_bound_tree::BoundUnitRoot::Expression(expression) => {
-                domain.value(state, expression)
-            }
-            _ => domain.returned_value(state),
-        };
+        self.normal_return(domain, state, result, writes)
+    }
 
-        self.collect_carriers(domain.request, state, &result);
+    pub(in crate::analysis) fn failure_outcome<C: CheckerRequestContext + ?Sized>(
+        &self,
+        domain: &ExecutionFlowDomain<'_, '_, C>,
+        state: &ExecutionState,
+        kind: bray_symbols::DependencyFailureKind,
+        writes: &crate::analysis::storage_flow::ReachedInputWrites,
+    ) -> bray_symbols::CapturedFailureOutcome {
+        let result = ExecutionCondition::unknown();
+        let return_substitution = super::super::flow::return_substitution(&result);
+        let guards = super::captured::exit_guards(domain, state, &result, &self.owned_entry_conditions, &return_substitution);
 
-        if domain.request.unit().key().kind() == bray_bound_tree::BoundUnitKind::RuntimeDefault {
-            let observed = super::carriers::portable(domain.request, result.copied_value());
-
-            match &mut self.observed_result {
-                Some(previous) if *previous != observed => *previous = None,
-                Some(_) => {}
-                None => self.observed_result = Some(observed),
-            }
+        bray_symbols::CapturedFailureOutcome {
+            kind: Some(kind),
+            guard: super::captured::conjunction(domain.request.semantic_values(), guards),
+            effects: None,
+            cell_changes: None,
+            writes: super::captured::captured_bindings(domain, state, None, writes).into_iter().collect(),
+            references: Default::default(),
+            stored_values: Default::default(),
+            report: None,
         }
-
-        self.collect_owned_return(domain, state, &result);
     }
 
     pub(in crate::analysis) fn finish<C: CheckerRequestContext + ?Sized>(
         self,
         domain: &ExecutionFlowDomain<'_, '_, C>,
+        memory_decisions: &BTreeMap<BoundExpressionId, MemoryOperationStatus>,
     ) -> crate::CheckerQueryResult<DiagnosticBag, C::UpstreamError> {
         let mut diagnostics = DiagnosticBag::new();
 
@@ -265,7 +308,7 @@ impl TrustedChecks {
             )?);
         }
 
-        for ((node, callable), failure) in self.cleanup_failures {
+        for ((node, callable), (_, failure)) in self.cleanup_failures {
             diagnostics.add(super::diagnostic::failed_obligation(
                 domain, node, DiagnosticKind::CheckingTrustedObligationNotProven,
                 bray_diagnostics::DiagnosticContractObligationKind::CleanupRequirement,
@@ -273,7 +316,7 @@ impl TrustedChecks {
             )?);
         }
 
-        for (expression, failure) in self.transfers {
+        for (expression, (_, failure)) in self.transfers {
             diagnostics.add(contract_diagnostic(
                 domain.request,
                 domain.semantics,
@@ -284,7 +327,7 @@ impl TrustedChecks {
             )?)));
         }
 
-        for (invocation, failure) in self.failed_execution {
+        for (invocation, (_, failure)) in self.failed_execution {
             diagnostics.add(super::diagnostic::failed_obligation(
                 domain, invocation.node(), DiagnosticKind::CheckingExecutionRequirementNotProven,
                 bray_diagnostics::DiagnosticContractObligationKind::ExecutionRequirement,
@@ -292,7 +335,15 @@ impl TrustedChecks {
             )?);
         }
 
-        for (invocation, failure) in self.failed {
+        for (invocation, (_, failure)) in self.failed {
+            if let bray_bound_tree::BoundExecutionSite::Node(AnyBoundNodeId::Expression(expression)) = invocation
+                && memory_decisions.get(&expression) == Some(&MemoryOperationStatus::UninitializedRawStorage)
+                && domain.initialization_requirement(["InitializedAs", "InitializedRangeAs"])(failure.actual())
+            {
+                // The physical initialization diagnostic carries this failure and its origin.
+                continue;
+            }
+
             let kind = if matches!(invocation, bray_bound_tree::BoundExecutionSite::ScopedExit(_)) {
                 bray_diagnostics::DiagnosticContractObligationKind::CleanupRequirement
             } else {
@@ -312,65 +363,149 @@ impl TrustedChecks {
 }
 
 impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
-    pub(in crate::analysis) fn preconditions_proven(
+    pub(in crate::analysis) fn admits_normal_effect_bound(
         &self,
-        state: &ExecutionState,
+        invocation: bray_bound_tree::BoundExecutionSite,
+        entry: &crate::ExecutionCallEvidence,
+    ) -> bool {
+        let contract = self.request.trusted_contracts().and_then(|contracts| contracts.calls.get(&invocation));
+
+        contract.is_none_or(|contract| {
+            entry.prove_requirements_with_cache(&self.proofs, contract.preconditions.iter().map(|(condition, _)| condition)).is_ok()
+                && (entry.trusted_boundary || self.prove_trusted_requirements(entry, &contract.requirements).is_ok())
+        })
+    }
+
+    pub(in crate::analysis) fn capture_entry_check(
+        &self,
+        state: &mut ExecutionState,
         invocation: bray_bound_tree::BoundExecutionSite,
     ) -> Option<bool> {
         let contract = self.request.trusted_contracts()?.calls.get(&invocation)?;
 
-        if contract.preconditions.is_empty() {
+        if !contract.checks_preconditions {
             return None;
         }
 
         let evidence = state
             .entries
             .get(&invocation)
-            .expect("invocation attempt retains its entry evidence");
+            .expect("runtime preconditions retain the captured input evidence");
 
-        Some(
-            evidence.prove_requirements(
-                contract
-                    .preconditions
-                    .iter()
-                    .map(|(condition, _)| condition),
-            ).is_ok(),
-        )
+        let equalities = self.proofs.equalities(&evidence.assumptions, None);
+
+        let conditions = contract.preconditions.iter()
+            .filter(|(_, domain)| *domain == bray_symbols::PredicateDomain::Value)
+            .map(|(condition, _)| evidence.bind_entry_condition(condition, &equalities)).collect();
+
+        let guard = ExecutionCondition::operation(bray_bound_tree::BoundOperator::LogicalAnd, conditions);
+        let proven = guard.prove_ordinary(&evidence.assumptions, Some(&self.proofs));
+
+        state.entry_check = Some((invocation, proven.map_or(guard, ExecutionCondition::boolean)));
+
+        Some(proven == Some(true))
     }
 
-    pub(in crate::analysis) fn trusted_memory_evidence(
+    pub(in crate::analysis::guarantee) fn refine_invocation_entry(
         &self,
-        state: &ExecutionState,
+        state: &mut ExecutionState,
         invocation: bray_bound_tree::BoundExecutionSite,
-    ) -> Option<MemoryCallEvidence> {
-        let contract = self.request.trusted_contracts()?.calls.get(&invocation)?;
-        let evidence = state.entries.get(&invocation)?;
-        let requirements = self.prove_trusted_requirements(evidence, &contract.requirements);
-        let empty_copy = self.empty_memory_copy(state, invocation);
+        admitted: bool,
+    ) -> bool {
+        let Some((site, condition)) = state.entry_check.take() else {
+            // Some implicit CFG calls reserve an admission fork before evidence is available.
+            return admitted || self.request.trusted_contracts().and_then(|contracts| contracts.calls.get(&invocation))
+                .is_none_or(|contract| contract.checks_preconditions);
+        };
 
-        let initialized = requirements.is_ok() || empty_copy || {
+        assert_eq!(site, invocation, "admission consumes its evaluated check");
+
+        if !state.ordinary_proof().can_assume(&condition, admitted) {
+            return false;
+        }
+
+        let evidence = state.admitted_call_mut(invocation).expect("guarded admission retains its evidence");
+
+        condition.clone().assume(admitted, &mut evidence.assumptions);
+        condition.assume(admitted, &mut state.assumptions);
+
+        true
+    }
+
+    pub(in crate::analysis) fn call_admission_checks(
+        &self,
+        state: &mut ExecutionState,
+        invocation: bray_bound_tree::BoundExecutionSite,
+        protected_initialized: bool,
+    ) -> Option<CallAdmissionChecks> {
+        let contract = self.request.trusted_contracts()?.calls.get(&invocation)?;
+
+        if protected_initialized {
+            state.admitted_call_mut(invocation).expect("a checked protected read retains its admission")
+                .memory_access = Some(crate::execution_guarantees::MemoryAccessProof::ProtectedCellInitialized);
+        }
+
+        let evidence = state.entries.get(&invocation)?;
+        let execution_requirements = evidence.prove_requirements_with_cache(&self.proofs, &contract.execution_requirements);
+        let requirements = self.prove_trusted_requirements(evidence, &contract.requirements);
+
+        if !matches!(invocation, bray_bound_tree::BoundExecutionSite::Node(AnyBoundNodeId::Expression(expression))
+            if self.memory.operation(expression).is_some()) {
+            return Some(CallAdmissionChecks { requirements, execution_requirements });
+        }
+
+        let empty_copy = self.empty_memory_copy(state, invocation);
+        let protected = evidence.memory_access == Some(crate::execution_guarantees::MemoryAccessProof::ProtectedCellInitialized);
+
+        let initialized = requirements.is_ok() || empty_copy || protected || {
             // Failure of another requirement must not erase established initialization.
             // Resolve these identities only on the failing path.
-            let provider = self.request.context().available_compiler_known_symbols().provider();
-
-            let predicates = ["InitializedAs", "InitializedRangeAs"].map(|name| {
-                provider.declaration_symbol::<bray_symbols::PredicateSymbolId>(
-                    &bray_compiler_known::CompilerKnownDeclarationKey::try_new(name)
-                        .expect("closed initialization predicate key must be valid"),
-                ).map(bray_symbols::PredicateDefinitionSymbolId::from)
-            });
+            let is_initialization = self.initialization_requirement(["InitializedAs", "InitializedRangeAs"]);
 
             // Conditions share their immutable operand trees with the call contract.
-            let initialization = contract.requirements.iter().filter(|condition| {
-                matches!(condition.kind(), crate::ExecutionConditionKind::Trusted(value)
-                    if matches!(value.as_ref().kind(), crate::ExecutionConditionKind::Predicate(predicate, _, _)
-                        if predicates.contains(&Some(*predicate))))
-            }).cloned().collect::<Vec<_>>();
+            let initialization = contract.requirements.iter()
+                .filter(|condition| is_initialization(condition))
+                .cloned().collect::<Vec<_>>();
 
             !initialization.is_empty() && self.prove_trusted_requirements(evidence, &initialization).is_ok()
         };
 
-        Some(MemoryCallEvidence { requirements, initialized, empty_copy })
+        let memory_access = initialized.then_some(if empty_copy {
+            crate::execution_guarantees::MemoryAccessProof::EmptyCopy
+        } else if protected {
+            crate::execution_guarantees::MemoryAccessProof::ProtectedCellInitialized
+        } else {
+            crate::execution_guarantees::MemoryAccessProof::Initialized
+        });
+
+        if evidence.memory_access != memory_access {
+            state.admitted_call_mut(invocation).expect("memory completion retains its checked admission").memory_access = memory_access;
+        }
+
+        Some(CallAdmissionChecks { requirements, execution_requirements })
+    }
+
+    pub(super) fn initialization_requirement<const N: usize>(&self, predicates: [&str; N]) -> impl Fn(&ExecutionCondition) -> bool {
+        use crate::ExecutionConditionKind as Kind;
+
+        let provider = self.request.context().available_compiler_known_symbols().provider();
+
+        let predicates = predicates.map(|name| {
+            let key = bray_compiler_known::CompilerKnownDeclarationKey::try_new(name)
+                .expect("closed initialization predicate key must be valid");
+
+            provider.declaration_symbol::<bray_symbols::PredicateSymbolId>(&key)
+                .map(bray_symbols::PredicateDefinitionSymbolId::from)
+        });
+
+        move |condition| {
+            let predicate = match condition.kind() {
+                Kind::Trusted(value) => value.as_ref(),
+                _ => condition,
+            };
+
+            matches!(predicate.kind(), Kind::Predicate(predicate, _, _) if predicates.contains(&Some(*predicate)))
+        }
     }
 }
 

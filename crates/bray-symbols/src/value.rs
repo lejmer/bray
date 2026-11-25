@@ -1,6 +1,7 @@
 mod effect;
-pub use effect::{DependencyMutationKind, DependencyStorageEffect};
+pub use effect::{DependencyEffectOutcomes, DependencyMutationKind, DependencyStorageEffect};
 mod application;
+mod captured;
 mod constant;
 mod contextual_self;
 mod dependency;
@@ -13,11 +14,13 @@ mod store;
 mod substitution;
 mod substitution_apply;
 mod ty;
+mod witness;
 
 pub use application::{
     CallableDefinitionId, CallableInstanceData, ImplementationInstanceData, PredicateInstanceData,
     TraitApplicationData,
 };
+pub use captured::{common_cell_changes, CapturedCallable, CapturedDeferredInvocation, CapturedFailureOutcome, CapturedReportPayload, CapturedValueOutcome, CapturedValueOperation, CapturedValueTemplate, DependencyFailureKind};
 pub use constant::{
     AnyConstantDefinitionId, ConstantBinaryOperation, ConstantField, ConstantProjection,
     ConstantProjectionKind, ConstantTermData, ConstantUnaryOperation, ConstantValueData,
@@ -27,14 +30,15 @@ pub use dependency::{
     DependencyBorrowRelation, DependencyCallInput, DependencyCallOutput,
     DependencyContractTemplateData, DependencyGuard, DependencyProjection, DependencyReferenceKind,
     DependencyReferenceProvenance, DependencyRequirement, DependencyRequirementKind,
-    DependencyStoredValue, DependencyStoredValuePath, DependencySubject, DependencySubjectRoot, DependencyWitnessCarrier,
+    DependencyStoredValue, DependencyStoredValuePath, DependencySubject, DependencySubjectRoot,
     GuardedDependencyRequirement, LifecycleObligationKind,
 };
+pub use witness::{DependencyWitnessCarrier, DependencyWitnessSupport};
 pub use error::{SemanticValueStoreCreateError, SemanticValueStoreError};
 pub use id::{
     CallableInstanceId, ConstantTermId, ConstantValueId, DependencyContractTemplateId,
     GenericSubstitutionId, ImplementationInstanceId, SemanticValueKind, SemanticValueStoreId,
-    TraitApplicationId, TypeId,
+    StaticReferenceId, TraitApplicationId, TypeId,
 };
 pub use store::SemanticValueStore;
 pub use substitution::{

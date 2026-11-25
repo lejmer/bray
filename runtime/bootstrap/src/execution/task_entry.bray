@@ -133,7 +133,14 @@ trusted internal func task_wake(pos handle: u64) -> u32
 
     _ = trusted bray.runtime.bootstrap.task.dispose_reference(owner);
 
-    return awakened;
+    // The wake result reports whether the task was queued. Only a registration
+    // that its scheduler no longer holds is a failure.
+    if awakened == 2
+    {
+        return bray.runtime.bootstrap.STATUS_RUNTIME_FAILURE;
+    }
+
+    return bray.runtime.bootstrap.STATUS_SUCCESS;
 }
 
 @abi(c)
@@ -186,9 +193,10 @@ trusted internal func request_cancellation(pos owner: &bray.runtime.bootstrap.ta
 {
     let requested = trusted bray.runtime.bootstrap.task.cancellation_change(owner, 1);
 
+    // The wake result reports whether the task was queued, not a request failure.
     if (requested & 2) != 0
     {
-        return trusted wake_reference(owner, bray.runtime.bootstrap.scheduler.WAKE_CANCELLATION);
+        _ = trusted wake_reference(owner, bray.runtime.bootstrap.scheduler.WAKE_CANCELLATION);
     }
 
     return 0;

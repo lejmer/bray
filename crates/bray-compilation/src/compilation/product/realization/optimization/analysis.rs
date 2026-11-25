@@ -354,9 +354,12 @@ impl<'a> ScalarAnalysis<'a> {
             } else {
                 let mut scalar_operands = true;
 
+                // A nullable query only reads a staged receiver out of its temporary.
+                let reads_staged = matches!(kind, MirOperationKind::NullableQuery(_));
+
                 kind.for_each_operand(|operand| {
                     scalar_operands &= match operand {
-                        MirOperand::Move(_) => false,
+                        MirOperand::Move(place) => reads_staged && self.staged_value(place).is_some(),
                         MirOperand::Copy(_) => {
                             !matches!(self.operand(operand, &local), Scalar::Overdefined)
                         }
@@ -449,11 +452,36 @@ impl<'a> ScalarAnalysis<'a> {
         }
     }
 
+    /// The value a lowered call stored once into an unprojected temporary.
+    fn staged_value(&self, place: &bray_ir::MirPlace) -> Option<MirValueId> {
+        if !place.projections().is_empty()
+            || !self.unit.storage(place.storage()).is_some_and(|storage| matches!(storage.kind(), MirStorageKind::Temporary))
+        {
+            return None;
+        }
+
+        let mut stores = self.unit.operations().iter().filter_map(|operation| match operation.kind() {
+            MirOperationKind::Store { destination, value, .. } if destination.storage() == place.storage() => Some(value),
+            _ => None,
+        });
+
+        match (stores.next(), stores.next()) {
+            (Some(MirOperand::Value(value)), None) => Some(*value),
+            _ => None,
+        }
+    }
+
     pub(super) fn nullable_operand(
         &self,
         operand: &MirOperand,
         local: &BTreeMap<MirStorageId, Scalar>,
     ) -> Scalar {
+        if let MirOperand::Move(place) = operand
+            && let Some(value) = self.staged_value(place)
+        {
+            return self.nullable_operand(&MirOperand::Value(value), local);
+        }
+
         if let MirOperand::Value(value) = operand
             && let MirValueOrigin::Operation(operation) =
                 self.unit.value(*value).expect("valid MIR value").origin()

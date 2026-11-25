@@ -175,6 +175,29 @@ impl Lowerer<'_> {
         let (function, receiver) =
             self.lower_trait_view_lookup(id, current, source, view, slot, callable, pointer)?;
 
+        let (function, receiver) = if matches!(
+            selection.resolution().result(),
+            bray_bound_tree::BoundCallResult::LazyFuture(_)
+        ) {
+            let function = self.materialize_synthetic_place(
+                current,
+                Self::retained_source(source),
+                function,
+                callable,
+            )?;
+
+            let receiver = self.materialize_synthetic_place(
+                current,
+                Self::retained_source(source),
+                receiver,
+                pointer,
+            )?;
+
+            (MirOperand::Copy(function), MirOperand::Copy(receiver))
+        } else {
+            (function, receiver)
+        };
+
         let target = MirCallTarget::Indirect {
             callee: function,
             abi: selection.abi(),

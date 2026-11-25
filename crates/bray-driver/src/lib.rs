@@ -13,4 +13,4 @@ pub use command::{
     DriverCompilationConfiguration, DriverInspectionArtifact, DriverInvocation, DriverOptions,
     DriverProductConfiguration, DriverRuntimeProfile, DriverRuntimeSelection,
 };
-pub use run::{DriverRunResult, run, run_build_request, run_result};
+pub use run::{BuildPhase, DriverRunResult, run, run_build_request, run_result};

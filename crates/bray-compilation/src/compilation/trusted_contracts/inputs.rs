@@ -30,6 +30,8 @@ impl Compilation {
 
         let trusted = callable_body && self.trusted_predicate_producer(key)?;
 
+        inputs.declared_guarantees_are_authoritative = trusted;
+
         if key.callable_type_header().is_some() {
             inputs.inputs = self.execution_unit_inputs(key, cancellation)?;
         }
@@ -61,53 +63,9 @@ impl Compilation {
                 }
             }
 
-            if !trusted {
-                for domain in declared
-                    .value()
-                    .domains()
-                    .iter()
-                    .filter(|domain| !domain.postconditions.is_empty())
-                {
-                    let guards =
-                        self.predicate_condition_inputs(key, &domain.guards, cancellation)?;
-
-                    let guarantees =
-                        self.predicate_condition_inputs(key, &domain.postconditions, cancellation)?;
-
-                    diagnostics.add_range(guards.diagnostics().iter().cloned());
-                    diagnostics.add_range(guarantees.diagnostics().iter().cloned());
-
-                    inputs
-                        .guarantees
-                        .extend(guarantees.into_parts().0.into_iter().filter_map(
-                            |(mut condition, domain, span)| {
-                                if domain != bray_symbols::PredicateDomain::Trusted {
-                                    return None;
-                                }
-
-                                for (guard, _, _) in guards.value() {
-                                    condition = ExecutionCondition::new(bray_checker::ExecutionConditionKind::Operation(
-                                        bray_bound_tree::BoundOperator::LogicalOr,
-                                        vec![
-                                            ExecutionCondition::new(bray_checker::ExecutionConditionKind::Operation(
-                                                bray_bound_tree::BoundOperator::LogicalNot,
-                                                vec![ExecutionCondition::new(bray_checker::ExecutionConditionKind::Entry {
-                                                    condition: std::sync::Arc::new(guard.clone()),
-                                                    captured: false,
-                                                })]
-                                                .into(),
-                                            )),
-                                            condition,
-                                        ]
-                                        .into(),
-                                    ));
-                                }
-
-                                Some((condition, span))
-                            },
-                        ));
-                }
-            }
+            inputs.declared_guarantees = self.declared_trusted_guarantees(
+                key, declared.value(), cancellation, &mut diagnostics,
+            )?;
         }
 
         if key.kind() == bray_bound_tree::BoundUnitKind::RuntimeDefault {
@@ -226,7 +184,7 @@ impl Compilation {
 
         let needs_predicate_flow = !inputs.requirements.is_empty()
             || !inputs.preconditions.is_empty()
-            || !inputs.guarantees.is_empty()
+            || !inputs.declared_guarantees.is_empty()
             || !inputs.calls.is_empty();
 
         inputs.constants.extend(self.execution_constant_inputs(
@@ -247,12 +205,78 @@ impl Compilation {
                 }));
         }
 
+        let guarantees = inputs
+            .declared_guarantees
+            .iter()
+            .map(|(condition, _)| condition.clone())
+            .collect::<Vec<_>>();
+
+        let (subjects, _) =
+            self.trusted_predicate_subjects(&guarantees, cancellation, &mut diagnostics)?;
+
+        inputs.guarantee_witness_subjects = subjects;
+
         let witnesses = self.trusted_required_witnesses(&inputs.requirements, cancellation)?;
 
         diagnostics.add_range(witnesses.diagnostics().iter().cloned());
         inputs.required_witnesses = witnesses.into_parts().0;
 
         Ok(DiagnosticResult::new(inputs, diagnostics))
+    }
+
+    fn declared_trusted_guarantees(
+        &self,
+        key: &BoundUnitKey,
+        declaration: &bray_checker::ExecutionDeclaration,
+        cancellation: &CancellationToken,
+        diagnostics: &mut DiagnosticBag,
+    ) -> Result<Vec<(ExecutionCondition, bray_source::SourceSpan)>, FactQueryError> {
+        let mut declared = Vec::new();
+
+        for domain in declaration
+            .domains()
+            .iter()
+            .filter(|domain| !domain.postconditions.is_empty())
+        {
+            let guards =
+                self.predicate_condition_inputs(key, &domain.guards, cancellation)?;
+
+            let guarantees =
+                self.predicate_condition_inputs(key, &domain.postconditions, cancellation)?;
+
+            diagnostics.add_range(guards.diagnostics().iter().cloned());
+            diagnostics.add_range(guarantees.diagnostics().iter().cloned());
+
+            declared.extend(guarantees.into_parts().0.into_iter().filter_map(
+                    |(mut condition, domain, span)| {
+                        if domain != bray_symbols::PredicateDomain::Trusted {
+                            return None;
+                        }
+
+                        for (guard, _, _) in guards.value() {
+                            condition = ExecutionCondition::new(bray_checker::ExecutionConditionKind::Operation(
+                                bray_bound_tree::BoundOperator::LogicalOr,
+                                vec![
+                                    ExecutionCondition::new(bray_checker::ExecutionConditionKind::Operation(
+                                        bray_bound_tree::BoundOperator::LogicalNot,
+                                        vec![ExecutionCondition::new(bray_checker::ExecutionConditionKind::Entry {
+                                            condition: std::sync::Arc::new(guard.clone()),
+                                            captured: false,
+                                        })]
+                                        .into(),
+                                    )),
+                                    condition,
+                                ]
+                                .into(),
+                            ));
+                        }
+
+                        Some((condition, span))
+                    },
+                ));
+        }
+
+        Ok(declared)
     }
 
     fn trusted_call_input_count(

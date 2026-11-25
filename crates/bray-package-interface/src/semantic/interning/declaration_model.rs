@@ -74,6 +74,7 @@ impl ImportedCallableParameterDefault {
 pub struct ImportedPredicateDefinition {
     pub(super) owner: PredicateDefinitionSymbolId,
     pub(super) state: InterfacePredicateDefinitionState,
+    pub(super) domain: bray_symbols::PredicateDomain,
     pub(super) signature: bray_symbols::PredicateSignatureTemplate,
     pub(super) condition: Option<bray_symbols::ConstantTermId>,
 }
@@ -87,6 +88,11 @@ impl ImportedPredicateDefinition {
     /// Returns the predicate's exported definition state.
     pub const fn state(&self) -> InterfacePredicateDefinitionState {
         self.state
+    }
+
+    /// Returns the predicate's exported checking authority.
+    pub const fn domain(&self) -> bray_symbols::PredicateDomain {
+        self.domain
     }
 
     /// Returns the checked meaning of the imported ordinary predicate.

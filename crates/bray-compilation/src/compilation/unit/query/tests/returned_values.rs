@@ -1057,11 +1057,12 @@ fn returned_static_borrows_preserve_their_owner_through_calls() {
 
         assert!(
             template.borrows().iter().any(|reference| {
-                reference.entry().is_none()
+                reference.entry().is_some_and(|entry| matches!(entry.subject_root(),
+                        bray_symbols::DependencySubjectRoot::StaticInstance(..)))
                     && reference.kind() == bray_symbols::DependencyReferenceKind::Borrow
                     && reference.exit().subject_root()
                         == bray_symbols::DependencySubjectRoot::Result
-                    && !reference.is_exact()
+                    && reference.is_exact()
             }),
             "static physical origin must remain independent of call inputs: {template:#?}"
         );
@@ -1072,15 +1073,9 @@ fn returned_static_borrows_preserve_their_owner_through_calls() {
                 else {
                     return false;
                 };
-                matches!(
-                    subject.subject_root(),
-                    bray_symbols::DependencySubjectRoot::ExactThreadStatic(_)
-                ) == exact_thread
-                    && matches!(
-                        subject.subject_root(),
-                        bray_symbols::DependencySubjectRoot::ProductStatic(_)
-                            | bray_symbols::DependencySubjectRoot::ExactThreadStatic(_)
-                    )
+                subject.subject_root().static_duration()
+                    == Some(if exact_thread { bray_symbols::StaticStorageDuration::ExactThread }
+                        else { bray_symbols::StaticStorageDuration::Product })
             }),
             "{template:#?}"
         );
@@ -1160,8 +1155,10 @@ fn exact_returned_borrow_origins_follow_replacements_and_require_path_agreement(
             "test",
         );
 
-        let returns = template
-            .borrows()
+        let borrows = template
+            .borrows();
+
+        let returns = borrows
             .iter()
             .filter(|relation| relation.is_exact())
             .filter(|relation| {
@@ -1316,8 +1313,10 @@ fn nullable_borrow_origins_preserve_payload_paths() {
             "test",
         );
 
-        let returned = template
-            .borrows()
+        let borrows = template
+            .borrows();
+
+        let returned = borrows
             .iter()
             .filter(|relation| relation.is_exact())
             .filter(|relation| {
@@ -1461,10 +1460,6 @@ fn returned_borrow_storage_uses_exact_relations_instead_of_lifetime_anchors() {
             .storage_flow(key.clone())
             .expect("fixture callable must complete storage-flow analysis");
 
-        let refinements = application
-            .refinements(key.clone())
-            .expect("fixture callable must have checked refinements");
-
         let storage = application
             .storage_plan(key)
             .expect("fixture callable must have a storage plan");
@@ -1492,31 +1487,30 @@ fn returned_borrow_storage_uses_exact_relations_instead_of_lifetime_anchors() {
             "storage planning leaves call results symbolic"
         );
 
-        let observed = refinements
+        let observed = flow
             .value()
-            .invalidations()
-            .values()
-            .filter_map(|invalidation| {
+            .operation_invalidations()
+            .filter_map(|(_, invalidation)| {
                 let bray_bound_tree::StorageInvalidation::Observed { accesses, .. } = invalidation
                 else {
                     return None;
                 };
 
-                accesses.values().flatten().find(|path| {
+                Some(accesses.values().flatten().filter(|path| {
                     matches!(
                         storage.identity(path.root),
                         Some(bray_bound_tree::StorageIdentity::Parameter(_))
                     ) && path.projections.len() == 2
-                })
+                }))
             })
+            .flatten()
             .collect::<Vec<_>>();
 
-        assert_eq!(
-            !observed.is_empty(),
-            exact,
-            "{source}\n{:?}",
-            refinements.value().invalidations()
-        );
+        let observed_fields = observed.iter().map(|path| path.projections[0].clone())
+            .collect::<std::collections::BTreeSet<_>>();
+
+        assert_eq!(observed_fields.len(), if exact { 1 } else { 2 },
+            "{source}\n{:?}", flow.value().operation_invalidations().collect::<Vec<_>>());
 
         if exact {
             let bray_symbols::DependencyProjection::ProductField(expected) =
@@ -1638,6 +1632,56 @@ fn reading_through_a_stored_reference_retains_its_loan() {
 }
 
 #[test]
+fn compound_assignments_install_through_their_destination_loan() {
+    // A consumed reborrow precedes the final write through the same owner loan.
+    // The install keeps that loan until it writes, then releases it like any use.
+    for (tail, valid) in [
+        ("storage.active -= 1; host.storage = none;", true),
+        ("storage.active = 0; host.storage = none;", true),
+        ("host.storage = none; storage.active -= 1;", false),
+    ] {
+        let source = r#"
+            module app;
+            struct Record { mut depth: usize; }
+            struct Table { mut active: usize; mut entry: Record; }
+            struct Host { mut storage: Table?; }
+            func find(pos storage: &mut Table) -> (&mut Record)? {
+                let mut result: (&mut Record)? = none;
+                result = &mut storage.entry;
+                return result;
+            }
+            func caller(pos host: &mut Host) -> bool {
+                let storage: &mut Table = if let ?storage = host.storage {
+                    yield &mut storage;
+                } else {
+                    return false;
+                };
+                storage.active += 1;
+                {
+                    let selected = find(storage);
+                    match consume selected {
+                        case ?entry { entry.depth = 0; }
+                        case none {}
+                    }
+                }
+                Tail
+                return true;
+            }
+        "#
+        .replace("Tail", tail);
+
+        let application = compilation(&source);
+        let diagnostics = application.check_diagnostics();
+
+        if valid {
+            assert!(!diagnostics.has_errors(), "{tail}: {diagnostics:#?}");
+        } else {
+            assert_goal_state_diagnostic_kind(diagnostics, DiagnosticKind::CheckingConflictingBorrow);
+        }
+    }
+}
+
+#[test]
 fn normal_exit_references_follow_constructed_fields_and_nullable_conversion() {
     for (result_type, body, depth) in [
         ("&bool", "return value;", 0),
@@ -1718,10 +1762,12 @@ fn normal_exit_references_keep_original_stored_inputs() {
             flow.diagnostics()
         );
 
-        let references = flow
+        let borrows = flow
             .value()
             .dependencies()
-            .borrows()
+            .borrows();
+
+        let references = borrows
             .iter()
             .filter(|relation| {
                 relation.exit().subject_root() == bray_symbols::DependencySubjectRoot::Result
@@ -1759,7 +1805,7 @@ fn absent_return_payload_does_not_invent_a_conflicting_reference() {
     assert!(!flow.diagnostics().has_errors(), "{:?}", flow.diagnostics());
 
     assert_eq!(
-        flow.value().dependencies().borrows(),
+        flow.value().dependencies().borrows().as_ref(),
         &[bray_symbols::DependencyBorrowRelation::new(
             Some(bray_symbols::DependencySubject::root(
                 bray_symbols::DependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(0))
@@ -1801,8 +1847,10 @@ fn returned_field_addresses_differ_from_stored_reference_values() {
             name,
         );
 
-        let references = dependencies
-            .borrows()
+        let borrows = dependencies
+            .borrows();
+
+        let references = borrows
             .iter()
             .filter(|relation| {
                 relation.exit().subject_root() == bray_symbols::DependencySubjectRoot::Result
@@ -1849,13 +1897,13 @@ fn mutation_observations_preserve_siblings_and_exclusive_input_referents() {
         .storage_plan(key.clone())
         .expect("fixture callable must have a storage plan");
 
-    let refinements = application
-        .refinements(key)
-        .expect("fixture callable must have checked refinements");
+    let flow = application
+        .storage_flow(key)
+        .expect("fixture callable must have checked storage flow");
 
     let storage = storage.value();
 
-    let mutation = refinements.value().invalidations().values().find(|invalidation| {
+    let (_, mutation) = flow.value().operation_invalidations().find(|(_, invalidation)| {
         matches!(invalidation, bray_bound_tree::StorageInvalidation::Observed { accesses, .. } if !accesses.is_empty())
     }).expect("assignment publishes resolved observations");
 
@@ -1994,8 +2042,10 @@ fn protected_payload_addresses_preserve_their_storage_origin() {
             name,
         );
 
-        let relations = dependencies
-            .borrows()
+        let borrows = dependencies
+            .borrows();
+
+        let relations = borrows
             .iter()
             .filter(|relation| {
                 relation.exit().subject_root() == bray_symbols::DependencySubjectRoot::Result
@@ -2118,8 +2168,10 @@ fn call_summary_reference_fields_follow_replacement_and_require_path_agreement()
             "caller",
         );
 
-        let origins = dependencies
-            .borrows()
+        let borrows = dependencies
+            .borrows();
+
+        let origins = borrows
             .iter()
             .filter(|relation| relation.is_exact())
             .filter(|relation| {
@@ -2159,8 +2211,10 @@ fn nested_borrow_results_keep_the_selected_reference_layer() {
             name,
         );
 
-        let relations = dependencies
-            .borrows()
+        let borrows = dependencies
+            .borrows();
+
+        let relations = borrows
             .iter()
             .filter(|relation| {
                 relation.exit().subject_root() == bray_symbols::DependencySubjectRoot::Result
@@ -2526,10 +2580,12 @@ fn construction_inputs_preserve_exact_nullable_reference_origins() {
 
         assert!(!flow.diagnostics().has_errors(), "{source}\n{flow:#?}");
 
-        let references = flow
+        let borrows = flow
             .value()
             .dependencies()
-            .borrows()
+            .borrows();
+
+        let references = borrows
             .iter()
             .filter(|relation| {
                 relation.exit().subject_root() == bray_symbols::DependencySubjectRoot::Result
@@ -2575,8 +2631,12 @@ fn conditional_null_pointer_returns_export_only_a_bounded_origin() {
         "selected",
     );
 
-    assert_eq!(summary.borrows().len(), 1, "{summary:#?}");
-    assert!(!summary.borrows()[0].is_exact(), "{summary:#?}");
+    let borrows = summary.borrows();
+
+    assert_eq!(borrows.len(), 2, "{summary:#?}");
+    assert!(borrows.iter().any(|relation| relation.is_empty_reference()));
+    assert!(borrows.iter().any(|relation| relation.entry().is_some() && !relation.is_exact()));
+    assert!(summary.captured_values().iter().any(|row| row.references.iter().any(|relation| relation.is_exact())));
 }
 
 #[test]

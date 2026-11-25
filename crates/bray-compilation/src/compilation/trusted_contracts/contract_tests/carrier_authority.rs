@@ -15,6 +15,11 @@ fn immutable_guard_fields_keep_acquisition_permits_paired() {
             Some(DiagnosticKind::CheckingTrustedObligationNotProven),
         ),
         (
+            "wrong owner through an intact permit",
+            "let guard = acquire(&first); observe_pair(&guard.permit, &second);",
+            Some(DiagnosticKind::CheckingTrustedObligationNotProven),
+        ),
+        (
             "detached",
             "let original = acquire(&first); let guard: Guard = { owner = &second, permit = original.permit }; observe(&guard);",
             Some(DiagnosticKind::CheckingIncompleteLifecycleStorage),
@@ -60,17 +65,17 @@ fn immutable_guard_fields_keep_acquisition_permits_paired() {
             struct Permit
             {{
             }}
-            trusted predicate held(permit: &Permit);
+            trusted predicate held(permit: &Permit, owner: &Lock);
             struct Guard
             {{
                 owner: &Lock;
                 permit: Permit;
-                destruct() requires(trusted held(&self.permit)) executes(pure, total)
+                destruct() requires(trusted held(permit = &self.permit, owner = self.owner)) executes(pure, total)
                 {{
                 }}
             }}
             trusted func acquire(pos owner: &Lock) -> Guard
-                ensures(trusted held(&result.permit))
+                ensures(trusted held(permit = &result.permit, owner = result.owner))
             {{
                 return
                 {{
@@ -78,7 +83,9 @@ fn immutable_guard_fields_keep_acquisition_permits_paired() {
                 }};
             }}
             func observe(pos guard: &Guard)
-                requires(trusted held(&guard.permit)) executes(pure, total) {{}}
+                requires(trusted held(permit = &guard.permit, owner = guard.owner)) executes(pure, total) {{}}
+            func observe_pair(pos permit: &Permit, pos owner: &Lock)
+                requires(trusted held(permit = permit, owner = owner)) executes(pure, total) {{}}
             func caller()
             {{
                 let first: Lock = {{ tag = 1 }};
@@ -99,6 +106,17 @@ fn immutable_guard_fields_keep_acquisition_permits_paired() {
 
         if let Some(expected) = expected {
             bray_testing::assert_goal_state_diagnostic_kind(diagnostics, expected);
+
+            if body.contains("observe_pair") {
+                let key = crate::test_support::source_function_body_key(&application, "caller");
+                let source_id = key.source().syntax().source_id();
+
+                assert!(diagnostics.by_kind(expected).any(|diagnostic|
+                    crate::test_support::diagnostic_at_call(
+                        diagnostic, source_id, &source, "observe_pair(&guard.permit, &second)",
+                    )
+                ), "{diagnostics:#?}");
+            }
         }
     }
 }

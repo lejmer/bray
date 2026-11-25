@@ -1,7 +1,7 @@
 use bray_bound_tree::BoundOperator;
 use bray_symbols::ConstantValueData;
 use std::sync::{Arc, OnceLock};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::cmp::Ordering;
 
 use super::traversal::{NodeIdentity, visit_once};
@@ -27,6 +27,15 @@ pub enum ExecutionDescriptorKind {
     Value,
 }
 
+/// The control-flow boundary that joins observations of current storage.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum ExecutionJoinSite {
+    /// A CFG block with converging predecessors.
+    Block(bray_bound_tree::BoundUnitId, u32),
+    /// A publication that joins possible outcomes of the same expression.
+    Publication(bray_bound_tree::BoundExpressionId),
+}
+
 /// A bounded, source-independent value used to compare entry and completion conditions.
 #[derive(Clone, Debug, Eq, Hash, PartialEq, PartialOrd)]
 pub enum ExecutionConditionKind {
@@ -50,12 +59,6 @@ pub enum ExecutionConditionKind {
     Result,
     /// The value produced by one runtime expression, without inventing its contents.
     Expression(bray_bound_tree::BoundExpressionId),
-    /// An input captured by one deferred producer in the actual future owner.
-    CapturedInput {
-        owner: Arc<ExecutionCondition>,
-        invocation: bray_bound_tree::BoundExecutionSite,
-        ordinal: bray_symbols::SymbolOrdinal,
-    },
     /// The capability produced by successful entry at one actual with occurrence.
     ScopedCapability(bray_bound_tree::BoundExpressionId),
     /// The present branch of a nullable value, retaining its contained owner.
@@ -66,6 +69,21 @@ pub enum ExecutionConditionKind {
         Arc<ExecutionCondition>,
         Arc<[(bray_bound_tree::StorageProjection, ExecutionCondition)]>,
     ),
+    /// A checked whole-value storage operation over actual captured operands.
+    StorageValue(
+        bray_symbols::CapturedValueOperation<bray_bound_tree::StorageProjection>,
+        ExecutionOperands,
+    ),
+    /// One evaluated value and the inline physical information captured with it.
+    CapturedValue {
+        value: Arc<ExecutionCondition>,
+        storage: Arc<bray_bound_tree::StorageCapturedValue>,
+    },
+    /// The actual future or task value and its complete latent environment.
+    DeferredValue {
+        value: Arc<ExecutionCondition>,
+        frame: Arc<crate::execution_guarantees::ExecutionDeferredValue>,
+    },
     /// Current data retains its identity independently of its observation role.
     /// Reference contents never transfer ownership of the reached storage.
     Observation {
@@ -81,8 +99,7 @@ pub enum ExecutionConditionKind {
     ),
     /// The current value of storage where control-flow predecessors meet.
     Joined(
-        bray_bound_tree::BoundUnitId,
-        u32,
+        ExecutionJoinSite,
         crate::execution_guarantees::ExecutionPlace,
     ),
     /// A produced opaque scalar datum with an immutable execution identity and no owner authority.
@@ -141,6 +158,11 @@ type ComparisonForms = [[OnceLock<Box<PreparedCondition>>; 2]; 6];
 pub(in crate::execution_guarantees) struct ConditionNode {
     kind: ExecutionConditionKind,
     hash: u64,
+    contains_deferred: bool,
+    contains_storage: bool,
+    contains_redundant_reference_context: bool,
+    may_observe_live_value: bool,
+    prefix_starts_empty: bool,
     comparisons: OnceLock<Box<ComparisonForms>>,
 }
 
@@ -153,8 +175,42 @@ impl std::fmt::Debug for ConditionNode {
 impl ConditionNode {
     fn new(kind: ExecutionConditionKind) -> Self {
         let hash = super::hashing::structural_hash(&kind);
+        let may_observe_live_value = kind.may_observe_live_value();
 
-        Self { kind, hash, comparisons: OnceLock::new() }
+        let mut contains_deferred = matches!(kind, ExecutionConditionKind::DeferredValue { .. });
+        let mut contains_storage = contains_deferred || matches!(kind, ExecutionConditionKind::CapturedValue { .. });
+
+        let mut contains_redundant_reference_context = match &kind {
+            ExecutionConditionKind::Observation { owner, contents, kind: super::ExecutionObservationKind::Reference } =>
+                ExecutionCondition::redundant_reference_contents(owner, contents).is_some(),
+            ExecutionConditionKind::DeferredValue { value, .. } => value.contains_redundant_reference_context(),
+            _ => false,
+        };
+
+        if !(contains_deferred && contains_storage) {
+            for child in kind.structural_children() {
+                contains_deferred |= child.contains_deferred();
+                contains_storage |= child.contains_storage();
+                contains_redundant_reference_context |= child.contains_redundant_reference_context();
+
+                if contains_deferred && contains_storage && contains_redundant_reference_context { break; }
+            }
+        }
+
+        let prefix_starts_empty = match &kind {
+            ExecutionConditionKind::StorageValue(bray_symbols::CapturedValueOperation::EmptyPrefix, _) => true,
+            ExecutionConditionKind::StorageValue(bray_symbols::CapturedValueOperation::Append, operands) => {
+                operands[0].prefix_starts_empty()
+            }
+            _ => false,
+        };
+
+        Self { kind, hash, contains_deferred, contains_storage, contains_redundant_reference_context, may_observe_live_value, prefix_starts_empty, comparisons: OnceLock::new() }
+    }
+
+    #[cfg(test)]
+    fn with_test_hash(kind: ExecutionConditionKind, hash: u64) -> Self {
+        Self { hash, ..Self::new(kind) }
     }
 }
 
@@ -187,7 +243,7 @@ impl PreparedCondition {
 
     #[cfg(test)]
     pub(super) fn with_test_hash(kind: ExecutionConditionKind, hash: u64) -> Self {
-        Self::Unpublished(ConditionNode { kind, hash, comparisons: OnceLock::new() })
+        Self::Unpublished(ConditionNode::with_test_hash(kind, hash))
     }
 }
 
@@ -209,6 +265,16 @@ impl ExecutionCondition {
 
     /// Returns the condition's structural kind.
     pub fn kind(&self) -> &ExecutionConditionKind { &self.0.kind }
+
+    pub(super) fn contains_deferred(&self) -> bool { self.0.contains_deferred }
+
+    pub(super) fn contains_storage(&self) -> bool { self.0.contains_storage }
+
+    pub(super) fn contains_redundant_reference_context(&self) -> bool { self.0.contains_redundant_reference_context }
+    pub(super) fn may_observe_live_value(&self) -> bool { self.0.may_observe_live_value }
+
+    /// The prefix was built from an empty buffer, so it covers all initialized elements.
+    pub(crate) fn prefix_starts_empty(&self) -> bool { self.computed_value().0.prefix_starts_empty }
 
     /// Returns a shared Boolean condition.
     pub fn boolean(value: bool) -> Self {
@@ -266,7 +332,7 @@ impl ExecutionCondition {
 
     #[cfg(test)]
     pub(super) fn with_test_hash(kind: ExecutionConditionKind, hash: u64) -> Self {
-        Self(Arc::new(ConditionNode { kind, hash, comparisons: OnceLock::new() }))
+        Self(Arc::new(ConditionNode::with_test_hash(kind, hash)))
     }
 }
 
@@ -293,18 +359,22 @@ impl ConditionNode {
             | (C::ScalarValue(a), C::ScalarValue(b)) | (C::Trusted(a), C::Trusted(b))
             | (C::Borrowed(a), C::Borrowed(b)) => child(a, b),
             (C::Descriptor(kind, a), C::Descriptor(other_kind, b)) => kind.cmp(other_kind).then_with(|| child(a, b)),
-            (C::CapturedInput { owner, invocation, ordinal }, C::CapturedInput { owner: other_owner, invocation: other_invocation, ordinal: other_ordinal }) =>
-                child(owner, other_owner).then_with(|| (invocation, ordinal).cmp(&(other_invocation, other_ordinal))),
             (C::Constructed(base, fields), C::Constructed(other_base, other_fields)) =>
                 child(base, other_base).then_with(|| fields.iter().zip(other_fields.iter())
                     .map(|((field, value), (other_field, other_value))| field.cmp(other_field).then_with(|| child(value, other_value)))
                     .find(|order| !order.is_eq()).unwrap_or_else(|| fields.len().cmp(&other_fields.len()))),
             (C::Observation { owner, contents, kind }, C::Observation { owner: other_owner, contents: other_contents, kind: other_kind }) =>
                 child(owner, other_owner).then_with(|| child(contents, other_contents)).then_with(|| kind.cmp(other_kind)),
+            (C::StorageValue(operation, operands), C::StorageValue(other_operation, other_operands)) =>
+                operation.cmp(other_operation).then_with(|| compare_operands(operands, other_operands, child)),
+            (C::CapturedValue { value, storage }, C::CapturedValue { value: other_value, storage: other_storage }) =>
+                child(value, other_value).then_with(|| storage.cmp(other_storage)),
+            (C::DeferredValue { value, frame }, C::DeferredValue { value: other_value, frame: other_frame }) =>
+                child(value, other_value).then_with(|| frame.cmp(other_frame)),
             (C::PostState(mutation, owner), C::PostState(other_mutation, other_owner)) =>
                 mutation.cmp(other_mutation).then_with(|| child(owner, other_owner)),
-            (C::Joined(unit, block, place), C::Joined(other_unit, other_block, other_place)) =>
-                (unit, block, place).cmp(&(other_unit, other_block, other_place)),
+            (C::Joined(site, place), C::Joined(other_site, other_place)) =>
+                (site, place).cmp(&(other_site, other_place)),
             (C::ValueAlias(left, right), C::ValueAlias(other_left, other_right)) =>
                 child(left, other_left).then_with(|| child(right, other_right)),
             (C::InitializedSnapshot(place, join, value), C::InitializedSnapshot(other_place, other_join, other_value)) =>
@@ -322,16 +392,16 @@ impl ConditionNode {
             // Different variants need only their derived declaration order, with no operand traversal.
             (C::Boolean(_) | C::Variant(_) | C::Literal(_) | C::Input(_) | C::Expression(_) | C::ScopedCapability(_)
                 | C::Result | C::Unknown | C::Tagged(..) | C::VariantTest(..) | C::Discriminant(_) | C::Present(_)
-                | C::ScalarValue(_) | C::Trusted(_) | C::Borrowed(_) | C::Descriptor(..) | C::CapturedInput { .. }
+                | C::ScalarValue(_) | C::Trusted(_) | C::Borrowed(_) | C::Descriptor(..)
                 | C::Constructed(..) | C::Observation { .. } | C::PostState(..) | C::Joined(..) | C::ValueAlias(..)
                 | C::InitializedSnapshot(..) | C::Operation(..) | C::Predicate(..) | C::Call(..) | C::Projection(..)
-                | C::Entry { .. }, _) => self.kind.partial_cmp(&other.kind).expect("execution condition variants retain their declaration order"),
+                | C::Entry { .. } | C::StorageValue(..) | C::CapturedValue { .. } | C::DeferredValue { .. }, _) => self.kind.partial_cmp(&other.kind).expect("execution condition variants retain their declaration order"),
         }
     }
 }
 
 // Input nodes and their children remain alive throughout one comparison.
-type ComparedPairs = HashMap<(*const ConditionNode, *const ConditionNode), Ordering>;
+type ComparedPairs = HashSet<(*const ConditionNode, *const ConditionNode)>;
 
 fn compare_nodes(left: &ConditionNode, right: &ConditionNode, equality_only: bool, pairs: &mut ComparedPairs) -> Ordering {
     if std::ptr::eq(left, right) {
@@ -344,8 +414,8 @@ fn compare_nodes(left: &ConditionNode, right: &ConditionNode, equality_only: boo
 
     let pair = (left as *const ConditionNode, right as *const ConditionNode);
 
-    if let Some(result) = pairs.get(&pair) {
-        return *result;
+    if pairs.contains(&pair) {
+        return Ordering::Equal;
     }
 
     let mut descended = false;
@@ -356,9 +426,9 @@ fn compare_nodes(left: &ConditionNode, right: &ConditionNode, equality_only: boo
         compare_nodes(&left.0, &right.0, equality_only, pairs)
     });
 
-    // Leaf comparisons do no recursive work, so retain only recursive results.
-    if descended {
-        pairs.insert(pair, result);
+    // Only equal pairs can be visited again. A difference ends the comparison.
+    if descended && result.is_eq() {
+        pairs.insert(pair);
     }
 
     result
@@ -399,6 +469,8 @@ impl ExecutionCondition {
             match condition.kind() {
                 ExecutionConditionKind::Unknown => return true,
                 ExecutionConditionKind::Trusted(value)
+                | ExecutionConditionKind::CapturedValue { value, .. }
+                | ExecutionConditionKind::DeferredValue { value, .. }
                 | ExecutionConditionKind::Borrowed(value)
                 | ExecutionConditionKind::Discriminant(value)
                 | ExecutionConditionKind::Descriptor(_, value)
@@ -408,7 +480,7 @@ impl ExecutionCondition {
                 | ExecutionConditionKind::Entry {
                     condition: value, ..
                 }
-                | ExecutionConditionKind::CapturedInput { owner: value, .. } => condition = value,
+                => condition = value,
                 _ => return false,
             }
         }
@@ -428,9 +500,12 @@ impl ExecutionCondition {
             ExecutionConditionKind::ValueAlias(left, right) => left.contains_trusted_in(seen, true) || right.contains_trusted_in(seen, pending),
             ExecutionConditionKind::Trusted(_) => true,
             ExecutionConditionKind::Operation(_, operands)
+            | ExecutionConditionKind::StorageValue(_, operands)
             | ExecutionConditionKind::Predicate(_, _, operands)
             | ExecutionConditionKind::Call(_, _, _, operands, _) => operands.contains_trusted(),
             ExecutionConditionKind::Tagged(_, value)
+            | ExecutionConditionKind::CapturedValue { value, .. }
+            | ExecutionConditionKind::DeferredValue { value, .. }
             | ExecutionConditionKind::VariantTest(_, value)
             | ExecutionConditionKind::Discriminant(value)
             | ExecutionConditionKind::Descriptor(_, value)
@@ -440,7 +515,7 @@ impl ExecutionCondition {
             | ExecutionConditionKind::Entry {
                 condition: value, ..
             }
-            | ExecutionConditionKind::CapturedInput { owner: value, .. } => value.contains_trusted_in(seen, pending),
+            => value.contains_trusted_in(seen, pending),
             ExecutionConditionKind::Observation { owner, contents: value, .. } => owner.contains_trusted_in(seen, true) || value.contains_trusted_in(seen, pending),
             ExecutionConditionKind::Constructed(base, fields) => {
                 base.contains_trusted_in(seen, pending || !fields.is_empty())
@@ -454,7 +529,7 @@ impl ExecutionCondition {
             | ExecutionConditionKind::Expression(_)
             | ExecutionConditionKind::ScopedCapability(_)
             | ExecutionConditionKind::PostState(_, _)
-            | ExecutionConditionKind::Joined(_, _, _)
+            | ExecutionConditionKind::Joined(..)
             | ExecutionConditionKind::ScalarValue(_)
             | ExecutionConditionKind::InitializedSnapshot(_, _, _)
             | ExecutionConditionKind::Unknown => false,
@@ -473,8 +548,11 @@ impl ExecutionCondition {
         match self.kind() {
             ExecutionConditionKind::ValueAlias(left, right) => left.contains_unknown_in(seen, true) || right.contains_unknown_in(seen, pending),
             ExecutionConditionKind::Operation(_, operands) => operands.contains_unknown(),
+            ExecutionConditionKind::StorageValue(_, operands) => operands.contains_unknown(),
             ExecutionConditionKind::Observation { owner, contents: value, .. } => owner.contains_unknown_in(seen, true) || value.contains_unknown_in(seen, pending),
             ExecutionConditionKind::Trusted(value)
+            | ExecutionConditionKind::CapturedValue { value, .. }
+            | ExecutionConditionKind::DeferredValue { value, .. }
             | ExecutionConditionKind::Borrowed(value)
             | ExecutionConditionKind::Discriminant(value)
             | ExecutionConditionKind::Descriptor(_, value)
@@ -484,7 +562,7 @@ impl ExecutionCondition {
             | ExecutionConditionKind::Entry {
                 condition: value, ..
             }
-            | ExecutionConditionKind::CapturedInput { owner: value, .. } => value.contains_unknown_in(seen, pending),
+            => value.contains_unknown_in(seen, pending),
             _ => self.is_unknown(),
         }
     }

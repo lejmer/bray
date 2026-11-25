@@ -586,7 +586,7 @@ impl Compilation {
                     continue;
                 }
 
-                for (original, requested, site) in candidate_dependencies(candidate) {
+                for (original, requested, site, preserving) in candidate_dependencies(candidate) {
                     let requested = if required == ExecutionObligation::Observation
                         && requested
                             == ExecutionObligation::Property(
@@ -647,92 +647,97 @@ impl Compilation {
                         continue;
                     }
 
-                    let evidence = candidate.dependency_evidence(site, original_callable);
+                    let mut admissions = preserving.or_else(|| candidate.dependency_evidence(site, original_callable))
+                        .into_iter().flatten().map(std::sync::Arc::as_ref).peekable();
 
-                    if matches!(
-                        original_callable,
-                        BoundCallableTarget::Anonymous(_) | BoundCallableTarget::Indirect(_)
-                    ) && let Some(body) =
-                        evidence.and_then(bray_checker::ExecutionCallEvidence::anonymous_target)
-                    {
-                        let declared = self.execution_unit_declaration(body)?;
+                    let absent = admissions.peek().is_none().then_some(None);
 
-                        diagnostics.add_range(declared.diagnostics().iter().cloned());
+                    for evidence in absent.into_iter().chain(admissions.map(Some)) {
+                        if matches!(
+                            original_callable,
+                            BoundCallableTarget::Anonymous(_) | BoundCallableTarget::Indirect(_)
+                        ) && let Some(body) =
+                            evidence.and_then(bray_checker::ExecutionCallEvidence::anonymous_target)
+                        {
+                            let declared = self.execution_unit_declaration(body)?;
 
-                        let selected = self.select_source_execution_obligation(
-                            Some(body),
-                            None,
-                            declared.value(),
+                            diagnostics.add_range(declared.diagnostics().iter().cloned());
+
+                            let selected = self.select_source_execution_obligation(
+                                Some(body),
+                                None,
+                                declared.value(),
+                                requested,
+                                evidence,
+                                diagnostics,
+                                cancellation,
+                            )?;
+
+                            if let Some(selected) = selected {
+                                let target =
+                                    ExecutionProofOwner::Source(body.source().syntax(), instance);
+
+                                dependencies.insert((target, selected));
+
+                                pending.push((
+                                    target,
+                                    Some(body.clone()),
+                                    selected,
+                                    exported_owner,
+                                    false,
+                                    depth + 1,
+                                ));
+                            } else {
+                                valid = false;
+                            }
+
+                            continue;
+                        }
+
+                        let target = self
+                            .execution_dependency_target(
+                                original,
+                                instance.map(|instance| instance.substitution()),
+                                cancellation,
+                            )?
+                            .expect(
+                                "checked named or opaque dependency normalizes to its semantic target",
+                            );
+
+                        if let Some((target, selected, body)) = self.selected_execution_target(
+                            target,
                             requested,
-                            evidence,
+                            ExecutionProofEntry::Invocation(evidence),
+                            permit_premises,
+                            &mut graph,
+                            &mut assertions,
                             diagnostics,
                             cancellation,
-                        )?;
-
-                        if let Some(selected) = selected {
-                            let target =
-                                ExecutionProofOwner::Source(body.source().syntax(), instance);
+                        )? {
+                            if let Some((anchor, obligation)) = exported_owner {
+                                selected_dependencies.insert((anchor, obligation, original, selected));
+                            }
 
                             dependencies.insert((target, selected));
 
-                            pending.push((
-                                target,
-                                Some(body.clone()),
-                                selected,
-                                exported_owner,
-                                false,
-                                depth + 1,
-                            ));
+                            if body.is_some() || matches!(target, ExecutionProofOwner::Imported(_)) {
+                                let exported = match target {
+                                    ExecutionProofOwner::Source(anchor, _) => Some((anchor, selected)),
+                                    _ => exported_owner,
+                                };
+
+                                pending.push((target, body, selected, exported, false, depth + 1));
+                            }
                         } else {
+                            let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
+                            let source = super::failure::execution_site_span(bound.result().value(), &key, site);
+
+                            failure.get_or_insert(ExecutionVerificationFailure {
+                                condition: None, source: Some(source), cause: FailureCause::MissingEvidence,
+                            });
+
                             valid = false;
                         }
-
-                        continue;
-                    }
-
-                    let target = self
-                        .execution_dependency_target(
-                            original,
-                            instance.map(|instance| instance.substitution()),
-                            cancellation,
-                        )?
-                        .expect(
-                            "checked named or opaque dependency normalizes to its semantic target",
-                        );
-
-                    if let Some((target, selected, body)) = self.selected_execution_target(
-                        target,
-                        requested,
-                        ExecutionProofEntry::Invocation(evidence),
-                        permit_premises,
-                        &mut graph,
-                        &mut assertions,
-                        diagnostics,
-                        cancellation,
-                    )? {
-                        if let Some((anchor, obligation)) = exported_owner {
-                            selected_dependencies.insert((anchor, obligation, original, selected));
-                        }
-
-                        dependencies.insert((target, selected));
-
-                        if body.is_some() || matches!(target, ExecutionProofOwner::Imported(_)) {
-                            let exported = match target {
-                                ExecutionProofOwner::Source(anchor, _) => Some((anchor, selected)),
-                                _ => exported_owner,
-                            };
-
-                            pending.push((target, body, selected, exported, false, depth + 1));
-                        }
-                    } else {
-                        let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
-                        let source = super::failure::execution_site_span(bound.result().value(), &key, site);
-
-                        failure.get_or_insert(ExecutionVerificationFailure {
-                            condition: None, source: Some(source), cause: FailureCause::MissingEvidence,
-                        });
-
-                        valid = false;
                     }
                 }
             }
@@ -757,6 +762,7 @@ fn candidate_dependencies(
         bray_checker::ExecutionDependencyTarget,
         ExecutionObligation,
         bray_bound_tree::BoundExecutionSite,
+        Option<&BTreeSet<std::sync::Arc<bray_checker::ExecutionCallEvidence>>>,
     ),
 > + '_ {
     let execution = candidate.dependencies().iter().map(|dependency| {
@@ -764,6 +770,7 @@ fn candidate_dependencies(
             dependency.target,
             dependency.obligation,
             dependency.occurrence,
+            None,
         )
     });
 
@@ -775,9 +782,14 @@ fn candidate_dependencies(
                 dependency.target.into(),
                 ExecutionObligation::Postcondition(dependency.source),
                 dependency.node.into(),
+                None,
             )
         });
 
-    execution.chain(completion)
+    let preservation = candidate.preservation_dependencies().iter().map(|(dependency, admissions)| {
+        (dependency.target, dependency.obligation, dependency.occurrence, Some(admissions))
+    });
+
+    execution.chain(completion).chain(preservation)
 }
 

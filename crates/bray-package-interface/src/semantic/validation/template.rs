@@ -420,15 +420,13 @@ fn validate_template(
         .to_index()
         .expect("validated template result dependency index")];
 
-    if let Some(term) = result_dependencies.observed_result {
-        semantics.validate_execution_term(term, template.inputs().len(), false, surface)?;
-    }
+    semantics.validate_captured_execution(result_dependencies, template.inputs().len(), surface)?;
 
-    for condition in result_dependencies.owned_result.conditions() {
+    for condition in result_dependencies.captured_values.iter().flat_map(|row| row.ownership.conditions()) {
         semantics.validate_execution_term(*condition, template.inputs().len(), true, surface)?;
     }
 
-    for transfer in result_dependencies.owned_result.transfers() {
+    for transfer in result_dependencies.captured_values.iter().flat_map(|row| row.ownership.transfers()) {
         semantics.validate_owned_transfer(transfer, template.inputs().len(), surface)?;
 
         semantics.validate_owned_preservation(
@@ -438,7 +436,7 @@ fn validate_template(
         )?;
     }
 
-    for carrier in &*result_dependencies.carriers {
+    for carrier in result_dependencies.captured_values.iter().flat_map(|row| row.carriers.iter()) {
         semantics.validate_execution_term(
             carrier.guarantee(),
             template.inputs().len(),

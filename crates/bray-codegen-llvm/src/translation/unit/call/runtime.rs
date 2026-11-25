@@ -56,12 +56,17 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
     ) -> Result<Option<BasicValueEnum<'context>>, CodegenFailure> {
         let key = bray_codegen::CodegenSymbolKey::Runtime(runtime);
 
-        let function = self
-            .request
-            .mappings()
-            .symbol(&key)
-            .and_then(|symbol| self.module.get_function(symbol.name().as_str()))
-            .expect("checked MIR call translation requires an established mapping or value");
+        let symbol = self.request.mappings().symbol(&key).unwrap_or_else(|| {
+            panic!("native runtime call {runtime:?} lacks its established mapping in {:?}", self.unit.key())
+        });
+
+        let function = self.module.get_function(symbol.name().as_str()).unwrap_or_else(|| {
+            panic!(
+                "native runtime call {runtime:?} lacks its declaration `{}` in {:?}",
+                symbol.name().as_str(),
+                self.unit.key(),
+            )
+        });
 
         let native_arguments = arguments
             .iter()

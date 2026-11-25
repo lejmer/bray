@@ -1,11 +1,13 @@
-use super::super::model::{Origin, Place, References, State, Target};
+use std::sync::Arc;
+use super::super::model::{AddressValue, Contents, Origin, Place, RetainedBorrow, State, Target, Transfer, ValueBinding};
+use super::slots::storage_subtree;
 use bray_bound_tree::{BorrowCapabilityId, StorageIdentityId, StorageProjection};
 use bray_symbols::TypeId;
 
 impl State {
     pub(in crate::analysis::storage_flow) fn for_storage(
         storage: &bray_bound_tree::StoragePlan,
-        cleanup_free: &std::collections::BTreeSet<bray_bound_tree::StorageIdentityId>,
+        cleanup: &crate::asynchronous::StorageCleanupRequirements,
         complete_reference_types: &std::sync::Arc<std::collections::BTreeMap<TypeId, bool>>,
     ) -> Self {
         let borrowed = storage
@@ -46,10 +48,11 @@ impl State {
         let unaddressed_storage = owned_storage
             .iter()
             .copied()
-            .filter(|identity| cleanup_free.contains(identity) && !borrowed.contains(identity))
+            .filter(|identity| cleanup.ends_at_last_use(*identity) && !borrowed.contains(identity))
             .collect();
 
         Self {
+            storage_slots: storage.shared_identities(),
             complete_reference_types: std::sync::Arc::clone(complete_reference_types),
             entry_borrows: std::sync::Arc::new(entry_borrows),
             owned_storage,
@@ -75,8 +78,7 @@ impl State {
         // reached separately, including during the call that first publishes them.
         let root = Target::storage(Place::root(path.root));
 
-        self.contents.range(root.clone()..)
-            .take_while(|(candidate, _)| root.contains(candidate))
+        storage_subtree(&self.contents, &root)
             .any(|(_, contents)| contents.exposed || contents.escaped)
     }
 
@@ -94,12 +96,23 @@ impl State {
     }
 
     pub(super) fn is_owned_inline_storage(&self, path: &Place) -> bool {
-        self.owned_storage.binary_search(&path.root).is_ok()
-            && !path.projections.contains(&StorageProjection::OwnedTarget)
+        Self::owned_inline_path(&self.owned_storage, path)
+    }
+
+    fn owned_inline_path(owned: &[StorageIdentityId], path: &Place) -> bool {
+        owned.binary_search(&path.root).is_ok() && !path.projections.contains(&StorageProjection::OwnedTarget)
+    }
+
+    pub(in crate::analysis::storage_flow) fn unlocated_deallocation_may_reach(&self, target: &Target) -> bool {
+        Self::deallocation_may_reach(&self.owned_storage, target)
+    }
+
+    pub(super) fn deallocation_may_reach(owned: &[StorageIdentityId], target: &Target) -> bool {
+        target.storage_path().is_none_or(|path| !Self::owned_inline_path(owned, path))
     }
 
     #[track_caller]
-    pub(super) fn returned_reference_bounds(&self, reference: &Place, previous: bool) -> &References {
+    pub(super) fn returned_reference_bounds(&self, reference: &Place, previous: bool) -> &AddressValue {
         let Some(bounds) = self.returned_inputs.get(&(reference.clone(), previous)) else {
             panic!("returned reference {reference:?} (previous={previous}) has no complete input-region bound");
         };
@@ -107,59 +120,130 @@ impl State {
         bounds
     }
 
-    pub(super) fn bounded_reference_contents<C: crate::CheckerRequestContext + ?Sized>(
+    pub(in crate::analysis::storage_flow) fn actual_borrow_choices(&self, target: &Target, staged: Option<(&Transfer, &Target)>) -> Option<Vec<Target>> {
+        if !self.current_route_target(target, staged) { return None; }
+
+        let Origin::Returned { projections, .. } = &target.origin else {
+            return Some(vec![target.clone()]);
+        };
+
+        let bounds = self.route_returned_bounds(target, staged)?;
+
+        if !Place::inline_projections(projections) || !bounds.has_values() || bounds.targets.is_empty() {
+            return None;
+        }
+
+        bounds.targets.iter().map(|choice| {
+            (self.current_route_target(choice, staged)
+                && !matches!(choice.origin, Origin::Returned { .. })).then(|| choice.project(projections))
+        }).collect()
+    }
+
+    pub(super) fn route_returned_bounds<'a>(&'a self, target: &Target, staged: Option<(&'a Transfer, &Target)>) -> Option<&'a AddressValue> {
+        let Origin::Returned { reference, staged: private, .. } = &target.origin else { return None; };
+
+        if *private {
+            staged?.0.returned_inputs.get(reference)
+        } else {
+            self.returned_inputs.get(&(reference.clone(), target.previous))
+        }
+    }
+
+    pub(super) fn forwarded_reference_contents(
         &self,
-        request: crate::CheckerUnitView<'_, C>,
         location: &Target,
-    ) -> crate::CheckerQueryResult<Option<References>, C::UpstreamError> {
-        if location.previous {
-            return Ok(None);
-        }
+        staged: Option<(&Transfer, &Target)>,
+    ) -> Option<AddressValue> {
+        if location.previous || !location.is_exact() { return None; }
 
-        let Origin::Returned { reference, projections } = &location.origin
-        else {
-            return Ok(None);
+        let Origin::Returned { projections, .. } = &location.origin else {
+            return None;
         };
 
-        let bounds = self.returned_reference_bounds(reference, location.previous);
-
-        if projections.is_empty() || bounds.unknown || bounds.displaced || bounds.inexact || bounds.targets.is_empty() {
-            return Ok(None);
+        if projections.is_empty() || !Place::inline_projections(projections) {
+            return None;
         }
 
-        let parent = Target {
-            previous: false,
-            origin: Origin::Returned {
-                reference: reference.clone(),
-                projections: [].into()
-            }
-        };
+        let parent = location.prefix(0);
 
-        let Some(ty) = self.declared_type(&parent)
-        else {
-            return Ok(None);
-        };
+        let bounds = self.route_returned_bounds(location, staged)?;
 
-        let mut contents = References::default();
+        if !bounds.has_values() || bounds.targets.is_empty() { return None; }
 
-        for target in &bounds.targets {
-            if target.previous || !target.is_exact() || self.projected_type(request, target)? != Some(ty) {
-                return Ok(None);
+        let ty = self.route_declared_type(&parent, staged)?;
+
+        let mut addresses = bounds.targets.iter().map(|target| {
+            if !self.current_route_target(target, staged) || self.route_declared_type(target, staged) != Some(ty) {
+                return None;
             }
 
-            let Some(value) = self.values.get(&target.project(projections)).and_then(|value| value.references.as_ref())
-            else {
-                return Ok(None);
-            };
+            self.direct_route_binding(&target.project(projections), staged)?.address.as_ref()
+                .filter(|value| !value.is_unknown() && !value.is_displaced())
+        });
 
-            if value.unknown || value.displaced {
-                return Ok(None);
+        let first = addresses.next().flatten()?;
+        let mut contents = first.clone();
+
+        for address in addresses {
+            let address = address?;
+
+            if address != first {
+                contents.merge(address);
+                contents.bound();
             }
-
-            contents.merge(value);
         }
 
-        Ok(Some(contents))
+        Some(contents)
+    }
+
+    fn direct_route_binding<'a>(
+        &'a self, target: &Target, staged: Option<(&'a Transfer, &Target)>,
+    ) -> Option<&'a ValueBinding> {
+        if let Some((transfer, root)) = staged {
+            transfer.values.get(target).or_else(|| {
+                (!Self::staged_target(root, target)).then(|| self.values.get(target)).flatten()
+            })
+        } else {
+            self.values.get(target)
+        }
+    }
+
+    pub(super) fn route_declared_type(&self, target: &Target, staged: Option<(&Transfer, &Target)>) -> Option<TypeId> {
+        self.route_contents(target, staged)?.storage_type
+    }
+
+    fn route_contents<'a>(&'a self, target: &Target, staged: Option<(&'a Transfer, &Target)>) -> Option<&'a Contents> {
+        if let Some((transfer, root)) = staged {
+            if let Some(contents) = transfer.payloads.get(target) {
+                return Some(contents);
+            }
+
+            if Self::staged_target(root, target) {
+                return None;
+            }
+        }
+
+        self.contents.get(target)
+    }
+
+    fn current_route_target(&self, target: &Target, staged: Option<(&Transfer, &Target)>) -> bool {
+        !target.previous && target.is_exact()
+            && self.route_contents(target, staged).is_none_or(|contents| contents.invalidations.is_empty())
+            && target.allocation_region().is_none_or(|allocation| {
+                self.route_contents(&allocation, staged).is_none_or(|contents| contents.invalidations.is_empty())
+            })
+    }
+
+    fn staged_target(root: &Target, target: &Target) -> bool {
+        root.contains_storage(target) || target.is_staged()
+    }
+
+    pub(super) fn reached_route_binding<'a>(
+        &'a self, target: &Target, staged: Option<(&'a Transfer, &Target)>,
+    ) -> Option<std::borrow::Cow<'a, ValueBinding>> {
+        self.direct_route_binding(target, staged).map(std::borrow::Cow::Borrowed).or_else(|| {
+            self.forwarded_reference_contents(target, staged).map(|address| std::borrow::Cow::Owned(address.into()))
+        })
     }
 
     pub(super) fn reachable_inline_roots(
@@ -171,7 +255,7 @@ impl State {
             Origin::Returned { reference, .. } => {
                 (None, Some(self.returned_reference_bounds(reference, target.previous)))
             }
-            Origin::Entry { .. } | Origin::Allocation { .. } | Origin::Static { .. } => (None, None),
+            Origin::Entry { .. } | Origin::Allocation { .. } | Origin::Static { .. } | Origin::BackingRegion => (None, None),
         };
 
         storage.into_iter().chain(
@@ -195,11 +279,41 @@ impl State {
         Self::effect_origins_from(target, returned)
     }
 
+    /// A current reference with one bounded physical pointee can be observed
+    /// through that pointee, even when its descriptor has a symbolic origin.
+    pub(in crate::analysis::storage_flow) fn unique_effect_origin(
+        &self,
+        targets: &[Target],
+    ) -> Option<Target> {
+        let mut unique: Option<Target> = None;
+
+        for target in targets {
+            let (origins, unknown) = self.effect_origins(target);
+
+            if unknown {
+                return None;
+            }
+
+            for origin in origins {
+                if !origin.is_exact() || origin.previous {
+                    return None;
+                }
+
+                match &unique {
+                    Some(existing) if existing != origin => return None,
+                    _ => unique = Some(origin.clone()),
+                }
+            }
+        }
+
+        unique
+    }
+
     pub(super) fn effect_origins_from<'a>(
         target: &'a Target,
-        returned: Option<&'a References>,
+        returned: Option<&'a AddressValue>,
     ) -> (impl Iterator<Item = &'a Target>, bool) {
-        let unbounded = returned.is_some_and(|bounds| bounds.unknown || target.previous
+        let unbounded = target.origin.is_backing_region() || returned.is_some_and(|bounds| bounds.is_unknown() || target.previous
             || target.projections().contains(&StorageProjection::OwnedTarget));
 
         let origins = std::iter::once(target)
@@ -214,9 +328,20 @@ impl State {
         left: &Target,
         right: &Target,
     ) -> bray_bound_tree::StorageRelationship {
+        if left.is_staged() || right.is_staged() {
+            return left.relationship_in_slots(right, &self.storage_slots);
+        }
+
+        if [(left, right), (right, left)].iter().any(|(backing, other)| {
+            backing.origin.is_backing_region()
+                && other.storage_path().is_some_and(|path| self.is_owned_inline_storage(path))
+        }) {
+            return bray_bound_tree::StorageRelationship::Disjoint;
+        }
+
         if !left.previous && !right.previous {
             for (returned, other) in [(left, right), (right, left)] {
-                if let Origin::Returned { reference, projections } = &returned.origin
+                if let Origin::Returned { reference, projections, .. } = &returned.origin
                     && !projections.contains(&StorageProjection::OwnedTarget)
                 {
                     let bounds = self.returned_reference_bounds(reference, returned.previous);
@@ -224,7 +349,7 @@ impl State {
                     // Complete producer bounds exclude unrelated storage, without
                     // equating the returned address to any one possible source.
                     // Reaching another owner requires its own physical bounds.
-                    if !bounds.unknown && !bounds.targets.is_empty()
+                    if !bounds.is_unknown() && !bounds.targets.is_empty()
                         && bounds.targets.iter().all(|region| self.target_relationship(region, other)
                             == bray_bound_tree::StorageRelationship::Disjoint)
                     {
@@ -296,13 +421,17 @@ impl State {
             _ => None,
         };
 
-        if slot.is_some_and(|slot| self.is_owned_inline_storage(slot)) {
-            // An original input cannot address this invocation's inline slots. Owned
-            // heap storage can predate the invocation and already have incoming aliases.
+        if slot.is_some_and(|slot| {
+            self.is_owned_inline_storage(slot) || slot.is_inline()
+                && usize::try_from(slot.root.ordinal()).ok().and_then(|index| self.storage_slots.get(index))
+                    .is_some_and(|identity| matches!(identity, bray_bound_tree::StorageIdentity::PostconditionResult(_)))
+        }) {
+            // Entry references predate both local inline slots and the produced
+            // result observed by a postcondition. Reached pointees keep their own origins.
             return bray_bound_tree::StorageRelationship::Disjoint;
         }
 
-        left.relationship(right)
+        left.relationship_in_slots(right, &self.storage_slots)
     }
 
     pub(super) fn addressed_target(
@@ -310,15 +439,25 @@ impl State {
         target: Target,
         ty: TypeId,
         kind: bray_symbols::DependencyReferenceKind,
-    ) -> References {
+    ) -> AddressValue {
+        self.observe_addressed_target(&target, ty, kind);
+
+        AddressValue::one(target)
+    }
+
+    pub(super) fn observe_addressed_target(
+        &mut self,
+        target: &Target,
+        ty: TypeId,
+        kind: bray_symbols::DependencyReferenceKind,
+    ) {
         let contents = self.contents.entry(target.clone()).or_default();
 
         contents.storage_type.get_or_insert(ty);
         contents.exposed |= kind == bray_symbols::DependencyReferenceKind::Address;
-
-        References::one(target)
     }
 
+    #[cfg(test)]
     pub(in crate::analysis::storage_flow) fn reference_location(
         &self,
         values: &bray_symbols::SemanticValueStore,
@@ -326,170 +465,102 @@ impl State {
         path: &bray_bound_tree::StorageReferencePath,
         root_borrow: Option<Target>,
     ) -> Option<Target> {
-        self.reference_location_in(values, target, path, root_borrow, |target| self.values.get(target).and_then(|value| value.references.as_ref()))
-    }
+        let locations = self.reference_locations(values, target, path, root_borrow)?;
 
-    pub(in crate::analysis::storage_flow) fn staged_reference_location(
-        &self,
-        invocation: bray_bound_tree::BoundExecutionSite,
-        values: &bray_symbols::SemanticValueStore,
-        root: &Target,
-        start: &Target,
-        path: &bray_bound_tree::StorageReferencePath,
-    ) -> Option<Target> {
-        let staged = self.pending.get(&invocation)?;
-
-        self.reference_location_in(values, start.clone(), path, None, |target| {
-            staged.values.get(target).or_else(|| (!root.contains(target)).then(|| self.values.get(target)).flatten())
-                .and_then(|value| value.references.as_ref())
-        })
-    }
-
-    pub(in crate::analysis::storage_flow) fn captured_input_target(
-        &self,
-        invocation: bray_bound_tree::BoundExecutionSite,
-        values: &bray_symbols::SemanticValueStore,
-        root: &Target,
-        path: &bray_bound_tree::StorageReferencePath,
-    ) -> Option<Target> {
-        let captured = &self.pending.get(&invocation)?.inputs;
-
-        let lookup = |target: &Target| {
-            (if root.contains(target) { captured.get(target) } else { self.values.get(target) }).and_then(|value| value.references.as_ref())
+        let [location] = locations.as_slice() else {
+            return None;
         };
 
-        let location = self.reference_location_in(values, root.clone(), path, None, lookup)?;
-
-        let references = lookup(&location)?;
-
-        references.is_exact().then(|| references.targets.first()
-            .expect("exact captured input has one referent").clone())
-    }
-
-    pub(in crate::analysis::storage_flow) fn staged_reference_regions(
-        &self,
-        invocation: bray_bound_tree::BoundExecutionSite,
-        root: &Target,
-        location: &Target,
-    ) -> Option<Vec<Target>> {
-        let staged = self.pending.get(&invocation)?;
-
-        staged.values.get(location)
-            .or_else(|| (!root.contains(location)).then(|| self.values.get(location)).flatten())?
-            .references.as_ref()?.regions()
-    }
-
-    pub(in crate::analysis::storage_flow) fn staged_contained_regions(
-        &self,
-        invocation: bray_bound_tree::BoundExecutionSite,
-        value: &Target,
-    ) -> (std::collections::BTreeSet<Target>, bool) {
-        let staged = self.pending.get(&invocation).expect("captured completion references retain their prepared transfer");
-        let mut targets = std::collections::BTreeSet::new();
-        let mut unknown = false;
-
-        for references in staged.values.range(value.clone()..).take_while(|(slot, _)| value.contains(slot)).filter_map(|(_, value)| value.references.as_ref()) {
-            targets.extend(references.targets.iter().cloned());
-            unknown |= references.unknown || references.displaced;
-        }
-
-        (targets, unknown)
-    }
-
-    fn reference_location_in<'a>(
-        &'a self,
-        values: &bray_symbols::SemanticValueStore,
-        mut target: Target,
-        path: &bray_bound_tree::StorageReferencePath,
-        mut root_borrow: Option<Target>,
-        lookup: impl Fn(&Target) -> Option<&'a References>,
-    ) -> Option<Target> {
-        let mut copied = 0;
-
-        for (step, (index, ty)) in path.borrows().iter().enumerate() {
-            target = target.project(&path.projections()[copied..*index]);
-
-            let address = path.is_address_load(step);
-
-            target = match root_borrow.take().filter(|_| step == 0 && *index == 0 && !address) {
-                Some(root) => root,
-                None => lookup(&target).and_then(|reference| self.typed_target(reference, *ty)).or_else(|| {
-                    let data = values.type_data(*ty);
-
-                    let bray_symbols::TypeData::Slice(element) = data.as_ref() else {
-                        return None;
-                    };
-
-                    let reference = lookup(&target)?;
-
-                    if reference.unknown || reference.displaced || reference.targets.len() != 1 {
-                        return None;
-                    }
-
-                    let reached = reference.targets.first().expect("one bounded slice target");
-                    let declared = self.contents.get(reached)?.storage_type;
-
-                    // A buffer view reaches its existing element allocation. A
-                    // dynamic owner projection remains inexact in the target itself.
-                    // Never turn a merely inexact view into an exact cell identity.
-                    (!reached.previous
-                        && (!reference.inexact || !reached.is_exact())
-                        && (declared == Some(*ty) || declared == Some(*element)))
-                    .then(|| reached.clone())
-                })?,
-            };
-
-            copied = *index + usize::from(address);
-        }
-
-        Some(target.project(&path.projections()[copied..]))
+        Some(location.clone())
     }
 
     pub(in crate::analysis::storage_flow) fn referenced_regions(
         &self,
         location: &Target,
     ) -> Option<Vec<Target>> {
-        self.values.get(location)?.references.as_ref()?.regions()
+        self.reached_route_binding(location, None)?.reference_regions()
     }
 
     pub(in crate::analysis::storage_flow) fn value_targets(
         &self,
         location: &Target,
     ) -> Option<Vec<Target>> {
-        let references = self.values.get(location)?.references.as_ref()?;
+        let binding = self.reached_route_binding(location, None)?;
+        let references = binding.address.as_ref()?;
 
-        (!references.unknown
-            && !references.displaced
-            && !references.inexact
-            && references.targets.iter().all(Target::is_exact))
-        .then(|| references.targets.iter().cloned().collect())
+        references.actual_targets()
     }
 
     pub(in crate::analysis::storage_flow) fn borrow_regions(
         &self,
         capability: BorrowCapabilityId,
     ) -> Option<Vec<Target>> {
-        self.borrows.get(&capability)?.regions()
+        self.borrow_address(capability)?.regions()
+    }
+
+    pub(in crate::analysis::storage_flow) fn borrow_address(
+        &self,
+        capability: BorrowCapabilityId,
+    ) -> Option<&AddressValue> {
+        self.borrows.get(&capability).map(|borrow| &borrow.address)
+    }
+
+    pub(in crate::analysis::storage_flow) fn borrow_ancestors(
+        &self,
+        capability: BorrowCapabilityId,
+    ) -> Option<&[BorrowCapabilityId]> {
+        let borrow = self.borrows.get(&capability)?;
+
+        (!borrow.address.is_unknown() && borrow.address.targets.iter().all(|target| !target.previous))
+            .then_some(borrow.ancestors.as_ref())
+    }
+
+    pub(in crate::analysis::storage_flow) fn borrow_relationship<'target>(
+        &self,
+        capability: BorrowCapabilityId,
+        targets: impl Iterator<Item = &'target Target> + Clone,
+        located: bool,
+    ) -> bray_bound_tree::StorageRelationship {
+        use bray_bound_tree::StorageRelationship;
+
+        let Some(borrow) = self.borrow_address(capability) else {
+            return StorageRelationship::PotentiallyOverlapping;
+        };
+
+        if targets.clone().next().is_none() || borrow.targets.is_empty() || borrow.is_unknown() || borrow.is_displaced() {
+            return StorageRelationship::PotentiallyOverlapping;
+        }
+
+        let mut relationship = StorageRelationship::Disjoint;
+
+        for region in &borrow.targets {
+            for target in targets.clone() {
+                match self.target_relationship(region, target) {
+                    StorageRelationship::Identical if located && borrow.has_values()
+                        && region.is_exact() && target.is_exact() => return StorageRelationship::Identical,
+                    StorageRelationship::Disjoint => {}
+                    _ => relationship = StorageRelationship::PotentiallyOverlapping,
+                }
+            }
+        }
+
+        relationship
     }
 
     pub(in crate::analysis::storage_flow) fn borrow_targets(
         &self,
         capability: BorrowCapabilityId,
     ) -> Option<Vec<Target>> {
-        let references = self.borrows.get(&capability)?;
+        let references = self.borrow_address(capability)?;
 
-        (!references.unknown
-            && !references.displaced
-            && !references.inexact
-            && references.targets.iter().all(Target::is_exact))
-        .then(|| references.targets.iter().cloned().collect())
+        references.actual_targets()
     }
 
     pub(in crate::analysis::storage_flow) fn borrow_observation(
         &self,
         capability: BorrowCapabilityId,
     ) -> Option<Place> {
-        let references = self.borrows.get(&capability)?;
+        let references = self.borrow_address(capability)?;
 
         if !references.is_exact() {
             return None;
@@ -525,23 +596,14 @@ impl State {
             .or_default()
             .storage_type = ty;
 
-        self.values.insert(location, References::one(target).into());
+        Arc::make_mut(&mut self.values).insert(location, AddressValue::one(target).into());
     }
 
     pub(in crate::analysis::storage_flow) fn has_value(&self, target: &Target) -> bool {
-        self.values
-            .range(target.clone()..)
-            .take_while(|(candidate, _)| target.contains(candidate))
-            .any(|(_, value)| value.references.is_some() || value.tracked)
-            || self
-                .deferred
-                .range(target.clone()..)
-                .next()
-                .is_some_and(|(candidate, _)| target.contains(candidate))
-            || self
-                .contents
-                .range(target.clone()..)
-                .take_while(|(candidate, _)| target.contains(candidate))
+        storage_subtree(&self.values, target)
+            .any(|(_, value)| value.reference().is_some() || value.owned_backing().is_some()
+                || value.whole_sources().is_some() || value.report_dependencies().is_some())
+            || storage_subtree(&self.contents, target)
                 .any(|(candidate, _)| {
                     candidate.projections()[target.projections().len()..]
                         .contains(&StorageProjection::UninitPayload)
@@ -564,10 +626,10 @@ impl State {
             .or_default()
             .storage_type = Some(ty);
 
-        self.values
-            .insert(Target::storage(reference), References::one(target.clone()).into());
+        Arc::make_mut(&mut self.values).insert(Target::storage(reference),
+            super::super::model::ValueBinding::borrowed(AddressValue::one(target.clone()), capability));
 
-        self.borrows.insert(capability, References::one(target));
+        self.borrows.insert(capability, RetainedBorrow { address: AddressValue::one(target), ancestors: Default::default() });
     }
 
     pub(in crate::analysis::storage_flow) fn borrow_target(
@@ -575,19 +637,163 @@ impl State {
         capability: BorrowCapabilityId,
         ty: TypeId,
     ) -> Option<Target> {
-        self.typed_target(self.borrows.get(&capability)?, ty)
+        self.typed_target(self.borrow_address(capability)?, ty)
     }
 
+    #[cfg(test)]
     pub(in crate::analysis::storage_flow) fn value_target(
         &self,
         location: &Target,
         ty: TypeId,
     ) -> Option<Target> {
-        self.typed_target(self.values.get(location)?.references.as_ref()?, ty)
+        self.typed_target(self.values.get(location)?.address.as_ref()?, ty)
+    }
+
+    pub(in crate::analysis::storage_flow) fn captured_value_target(
+        &self,
+        binding: &super::super::model::ValueBinding,
+        ty: TypeId,
+    ) -> Option<Target> {
+        self.typed_target(binding.reference()?, ty)
     }
 
     pub(in crate::analysis::storage_flow) fn declared_type(&self, target: &Target) -> Option<TypeId> {
         self.contents.get(target)?.storage_type
+    }
+
+    pub(in crate::analysis::storage_flow) fn enclosing_typed_view<C: crate::CheckerRequestContext + ?Sized>(
+        &self,
+        request: crate::CheckerUnitView<'_, C>,
+        target: &Target,
+        ty: TypeId,
+    ) -> crate::CheckerQueryResult<Option<bray_bound_tree::StorageObservedTarget>, C::UpstreamError> {
+        if target.previous || !target.is_exact() || target.value_observation_path().is_some()
+            || !self.contents.get(target)
+                .is_some_and(|contents| contents.storage_type == Some(ty) && contents.invalidations.is_empty())
+        {
+            return Ok(None);
+        }
+
+        for length in (0..target.projections().len()).rev() {
+            let path = &target.projections()[length..];
+
+            if !bray_bound_tree::StoragePath::inline_projections(path) {
+                break;
+            }
+
+            let ancestor = target.prefix(length);
+
+            let Some(contents) = self.contents.get(&ancestor) else { continue; };
+
+            let Some(owner) = contents.storage_type else { continue; };
+
+            if !contents.invalidations.is_empty()
+                || matches!(ancestor.projections().last(), Some(StorageProjection::OwnedTarget | StorageProjection::SliceRange { .. }))
+            {
+                break;
+            }
+
+            let mut projected = owner;
+
+            for projection in path {
+                // An inline view cannot pass through a stored loan descriptor.
+                if request.semantic_values().unborrowed_type(projected) != projected {
+                    return Ok(None);
+                }
+
+                let checked = crate::storage::projected_storage_type(request, projected, *projection)?;
+
+                let Some(component) = *checked.value() else { return Ok(None); };
+
+                projected = component;
+            }
+
+            return Ok((projected == ty).then(|| bray_bound_tree::StorageObservedTarget::borrowed(ancestor, owner)));
+        }
+
+        Ok(None)
+    }
+
+    pub(in crate::analysis::storage_flow) fn affected_pointee_paths<'target>(
+        &self,
+        mutations: impl Iterator<Item = &'target Target> + Clone,
+    ) -> std::collections::BTreeMap<Target, bray_bound_tree::StoragePointeeChange> {
+        use bray_bound_tree::{StoragePointeeChange, StorageRelationship};
+        use std::collections::{BTreeMap, BTreeSet};
+
+        let mut changes = BTreeMap::new();
+
+        for (target, ty) in self.typed_storage() {
+            let mut paths = BTreeSet::new();
+
+            for mutation in mutations.clone().filter(|mutation| {
+                self.target_relationship(target, mutation) != StorageRelationship::Disjoint
+            }) {
+                let extent = target.projections().len();
+
+                let relative = if target.contains_storage(mutation) && mutation.prefix(extent) == *target {
+                    &mutation.projections()[extent..]
+                } else {
+                    &[]
+                };
+
+                let length = relative.iter().take_while(|projection| {
+                    projection.is_exact() && Place::inline_projections(std::slice::from_ref(*projection))
+                }).count();
+
+                if length == 0 {
+                    changes.insert(target.clone(), StoragePointeeChange::Whole);
+                    paths.clear();
+                    break;
+                }
+
+                paths.insert(relative[..length].into());
+            }
+
+            if !paths.is_empty() {
+                changes.insert(target.clone(), StoragePointeeChange::Components { ty, paths });
+            }
+        }
+
+        changes
+    }
+
+    pub(in crate::analysis::storage_flow) fn typed_storage(&self) -> impl Iterator<Item = (&Target, TypeId)> {
+        self.contents.iter().filter(|(target, _)| !target.previous && target.is_exact())
+            .filter_map(|(target, contents)| contents.storage_type.map(|ty| (target, ty)))
+    }
+
+    pub(in crate::analysis::storage_flow) fn entry_observations(&self, raw_addresses: bool)
+        -> Vec<bray_bound_tree::StorageObservedTarget>
+    {
+        use bray_symbols::DependencyReferenceKind::{Address, Borrow};
+
+        let addresses = raw_addresses.then(|| self.typed_storage()).into_iter().flatten()
+            .filter(|(target, _)| matches!(target.origin, Origin::Entry { kind: Address, .. }));
+
+        let loans = self.values.iter().filter_map(|(slot, binding)| {
+            let path = slot.storage_path()?;
+
+            if path.projections.is_empty() || !path.is_exact() || !path.is_inline()
+                || path.projections.iter().any(|projection| matches!(projection,
+                    StorageProjection::NullableValue | StorageProjection::ActiveUnionPayloadField { .. })) {
+                return None;
+            }
+
+            let target = binding.reference()?.single_location()?;
+
+            let Origin::Entry { reference, layer: 1, kind: Borrow, projections } = &target.origin else { return None; };
+
+            if reference != path || !projections.is_empty() { return None; }
+
+            let pointee = self.contents.get(target)?.storage_type?;
+
+            Some((target, pointee))
+        });
+
+        addresses.chain(loans).map(|(target, pointee)| bray_bound_tree::StorageObservedTarget {
+            target: target.clone(), pointee: Some(pointee),
+        }).collect()
     }
 
     pub(in crate::analysis::storage_flow) fn projected_type<C: crate::CheckerRequestContext + ?Sized>(
@@ -612,6 +818,7 @@ impl State {
                 for projection in &target.projections()[ancestor.projections().len()..] {
                     if element_region && !matches!(projection,
                         StorageProjection::Element(_) | StorageProjection::ElementFromStart(_)
+                            | StorageProjection::ElementFromInput(_)
                             | StorageProjection::AnyElement
                             | StorageProjection::ElementFromEnd(_) | StorageProjection::SliceRange { .. }) {
                         ty = Self::owned_element_type(request.semantic_values(), ty);
@@ -642,52 +849,60 @@ impl State {
                 return Ok(None);
             }
 
-            match &mut ancestor.origin {
-                Origin::Entry { projections, .. }
-                | Origin::Returned { projections, .. }
-                | Origin::Static { projections, .. } | Origin::Allocation { projections, .. } => {
-                    *projections = projections[..length - 1].into();
-                }
-                Origin::Storage(path) => {
-                    path.projections = path.projections[..length - 1].into();
-                }
-            }
+            ancestor = target.prefix(length - 1);
         }
     }
 
-    fn typed_target(&self, references: &References, ty: TypeId) -> Option<Target> {
-        if !references.is_exact() {
-            return None;
-        }
-
-        let target = references
-            .targets
-            .first()
-            .expect("exact reference has one target");
-
-        (self.contents.get(target)?.storage_type == Some(ty)).then(|| target.clone())
+    pub(super) fn typed_targets<'a>(&self, references: &'a AddressValue, ty: TypeId) -> Option<&'a std::collections::BTreeSet<Target>> {
+        self.typed_route_targets(references, ty, None)
     }
 
+    pub(super) fn typed_route_targets<'a>(
+        &self, references: &'a AddressValue, ty: TypeId, staged: Option<(&Transfer, &Target)>,
+    ) -> Option<&'a std::collections::BTreeSet<Target>> {
+        (references.has_values() && !references.targets.is_empty()
+            && references.targets.iter().all(|target| !target.previous
+                && self.route_declared_type(target, staged) == Some(ty)))
+            .then_some(&references.targets)
+    }
+
+    fn typed_target(&self, references: &AddressValue, ty: TypeId) -> Option<Target> {
+        let targets = self.typed_targets(references, ty)?;
+
+        // A typed dynamic selection supplies a location, without making it an exact cell.
+        (targets.len() == 1).then(|| targets.first().expect("one current typed reference has one target").clone())
+    }
+
+    #[cfg(test)]
     pub(in crate::analysis::storage_flow) fn borrow_target_storage(
         &mut self,
         values: &bray_symbols::SemanticValueStore,
         capability: BorrowCapabilityId,
-        target: Target,
+        targets: impl IntoIterator<Item = Target>,
         ty: TypeId,
     ) {
-        let ty = if target.projections().last() == Some(&StorageProjection::OwnedTarget) {
-            Self::owned_element_type(values, ty)
-        } else {
-            ty
-        };
+        self.borrow_reached_storage(values, capability, AddressValue::from_targets(targets), ty, Default::default());
+    }
 
-        self.contents
-            .entry(target.clone())
-            .or_default()
-            .storage_type
-            .get_or_insert(ty);
+    pub(in crate::analysis::storage_flow) fn borrow_reached_storage(
+        &mut self,
+        values: &bray_symbols::SemanticValueStore,
+        capability: BorrowCapabilityId,
+        address: AddressValue,
+        ty: TypeId,
+        ancestors: std::sync::Arc<[BorrowCapabilityId]>,
+    ) {
+        for target in address.targets.iter().filter(|_| address.has_values()) {
+            let cell = if target.projections().last() == Some(&StorageProjection::OwnedTarget) {
+                Self::owned_element_type(values, ty)
+            } else {
+                ty
+            };
 
-        self.borrows.insert(capability, References::one(target));
+            self.contents.entry(target.clone()).or_default().storage_type.get_or_insert(cell);
+        }
+
+        self.borrows.insert(capability, RetainedBorrow { address, ancestors });
     }
 
     fn owned_element_type(values: &bray_symbols::SemanticValueStore, ty: TypeId) -> TypeId {
@@ -697,26 +912,5 @@ impl State {
             bray_symbols::TypeData::Slice(element) => *element,
             _ => ty,
         }
-    }
-}
-
-impl References {
-    pub(super) fn regions(&self) -> Option<Vec<Target>> {
-        if self.unknown {
-            return None;
-        }
-
-        self.targets
-            .iter()
-            .map(|target| {
-                // Closed allocations bound displaced pointers. Ordinary address arithmetic
-                // has no such region proof and cannot narrow an unknown mutation.
-                if self.displaced {
-                    target.allocation_region()
-                } else {
-                    Some(target.clone())
-                }
-            })
-            .collect()
     }
 }

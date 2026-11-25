@@ -86,6 +86,26 @@ pub struct InterfaceCallableInstance {
     pub(crate) substitution: InterfaceGenericSubstitutionId,
 }
 
+/// One exact selected static reference, with artifact-local semantic identities.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct InterfaceStaticReference {
+    pub(crate) declaration: InterfaceSymbolReference,
+    pub(crate) substitution: InterfaceGenericSubstitutionId,
+    pub(crate) selected_witnesses: Arc<[super::InterfaceImplementationInstanceId]>,
+    pub(crate) target: bray_target::TargetIdentity,
+    pub(crate) closed: bool,
+}
+
+impl InterfaceStaticReference {
+    /// Retains every identity component of an already selected static instance.
+    pub fn new(declaration: InterfaceSymbolReference, substitution: InterfaceGenericSubstitutionId,
+        selected_witnesses: impl IntoIterator<Item = super::InterfaceImplementationInstanceId>,
+        target: bray_target::TargetIdentity, closed: bool,
+    ) -> Self {
+        Self { declaration, substitution, selected_witnesses: selected_witnesses.into_iter().collect(), target, closed }
+    }
+}
+
 impl InterfaceCallableInstance {
     /// Creates a substituted callable instance.
     pub const fn new(

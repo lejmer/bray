@@ -1,4 +1,4 @@
-module bray.standard_library_tests.memory;
+trusted module bray.standard_library_tests.memory;
 
 using std.memory;
 using internal std.memory;
@@ -6,6 +6,34 @@ using internal std.memory;
 struct BorrowOutput
 {
     value: &u32;
+}
+
+@test
+func exact_growth_reports_length_overflow()
+{
+    let extra: usize = 3;
+    let maximum: usize = ~0;
+
+    let capacity: Result<usize, std.memory.MemoryLayoutError> = internal std.memory.growth_capacity(
+        current_length = maximum - extra,
+        current_capacity = maximum - extra,
+        additional = extra,
+        growth = internal std.memory.CapacityGrowth.Exact,
+    );
+
+    let overflow: Result<usize, std.memory.MemoryLayoutError> = internal std.memory.growth_capacity(
+        current_length = maximum - extra + 1,
+        current_capacity = maximum - extra + 1,
+        additional = extra,
+        growth = internal std.memory.CapacityGrowth.Exact,
+    );
+
+    assert(std.testing.assert_ok<usize, std.memory.MemoryLayoutError>(capacity) == maximum);
+
+    assert(
+        std.testing.assert_error<usize, std.memory.MemoryLayoutError>(overflow) matches
+            std.memory.MemoryLayoutError.SizeOverflow
+    );
 }
 
 @test

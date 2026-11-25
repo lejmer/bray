@@ -202,7 +202,7 @@ pub(super) fn standard_library_compilation(
         .with_standard_library_source_authority()
         .with_standard_library_root(
             bray_standard_library::StandardLibraryRoot::try_new(
-                super::core::standard_library_root(root),
+                crate::runtime_artifact::standard_library_directory(root, target),
             )
             .expect("native fixtures must have a nonempty standard-library root"),
         );

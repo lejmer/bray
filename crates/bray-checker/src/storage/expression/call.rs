@@ -228,6 +228,9 @@ impl<C: CheckerRequestContext + ?Sized> Planner<'_, C> {
             .expect("selected enter has a receiver");
 
         let capability_type = scoped.capability_type();
+        let entry_type = scoped.enter_result().completion_type();
+        let exit_type = scoped.exit_result().completion_type();
+        let fallible_entry = entry_type != capability_type;
 
         self.plan_invocation_input(
             bray_bound_tree::BoundExecutionSite::ScopedEnter(id),
@@ -235,11 +238,38 @@ impl<C: CheckerRequestContext + ?Sized> Planner<'_, C> {
             Self::call_receiver_purpose(receiver.mode()),
         )?;
 
+        if fallible_entry {
+            self.protocol_access(
+                id,
+                StorageIdentity::InvocationResult(bray_bound_tree::BoundExecutionSite::ScopedEnter(id)),
+                entry_type,
+            )?;
+        }
+
+        if crate::representation::type_representation(self.request, exit_type)
+            == Some(bray_compiler_known::RepresentationRole::Result)
+        {
+            self.protocol_access(
+                id,
+                StorageIdentity::InvocationResult(bray_bound_tree::BoundExecutionSite::ScopedExit(id)),
+                exit_type,
+            )?;
+
+            let slot = self.bind_identity(
+                bray_bound_tree::StorageBindingTarget::ScopedResultReplacement(id),
+                StorageIdentity::ScopedResultReplacement(id),
+                Some(self.expression_type(id).ty()),
+            )?.expect("fallible exit retains one displaced result owner");
+
+            self.direct_access(id, slot)?;
+        }
+
         let capability = self.protocol_access(
             id,
             StorageIdentity::ScopedCapability {
                 expression: id,
                 pattern: *pattern,
+                fallible_entry,
             },
             capability_type,
         )?;
@@ -256,7 +286,7 @@ impl<C: CheckerRequestContext + ?Sized> Planner<'_, C> {
             .plan_occurrence_access(
                 bray_bound_tree::BoundExecutionSite::ScopedExit(id),
                 id,
-                StorageAccessPurpose::ValueTransfer,
+                StorageAccessPurpose::Move,
                 capability,
             ).unwrap_or_else(|error| panic!("The storage-plan builder rejected one exact relationship. in plan_scoped_use: {error:?}"));
 

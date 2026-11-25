@@ -71,6 +71,15 @@ fn caught_results_preserve_only_the_successful_owner() {
             valid,
             "{source}: {diagnostics:#?}"
         );
+
+        if !valid {
+            let caller = crate::test_support::source_function_body_key(&application, "caller");
+            let source_id = caller.source().syntax().source_id();
+
+            assert!(diagnostics.by_kind(DiagnosticKind::CheckingTrustedObligationNotProven).any(|diagnostic|
+                crate::test_support::diagnostic_at_call(diagnostic, source_id, &source, "forward(fake)")
+            ), "{source}: {diagnostics:#?}");
+        }
     }
 }
 
@@ -220,7 +229,7 @@ fn forwarding_a_union_owner_preserves_the_checked_payload_projection() {
                 requires(trusted retained(owner))
                 ensures(trusted retained(owner), trusted core.memory.owned_allocation(pointer = result, bytes = 1, align = 1))
             {{
-                return trusted native_allocate();
+                return native_allocate();
             }}
             extern func replace(pos owner: &mut Backing);
             func consume_owner(pos owner: Backing)

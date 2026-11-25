@@ -24,11 +24,11 @@ fn borrowed_atomic_lock_loop_lowers() {
 
 using core.atomic;
 
-trusted func wait(pos lock: &core.atomic.Atomic<u32>, pos expected: u32)
+func wait(pos lock: &core.atomic.Atomic<u32>, pos expected: u32)
 {
 }
 
-trusted func acquire(pos lock: &core.atomic.Atomic<u32>) -> bool
+func acquire(pos lock: &core.atomic.Atomic<u32>) -> bool
 {
     let (_, acquired) = core.atomic.compare_exchange<u32, 1, 0>(lock, expected = 0, desired = 1);
 
@@ -41,7 +41,7 @@ trusted func acquire(pos lock: &core.atomic.Atomic<u32>) -> bool
 
     while observed != 0
     {
-        trusted wait(lock, expected = 2);
+        wait(lock, 2);
         observed = core.atomic.exchange<u32, 1>(lock, value = 2);
     }
 

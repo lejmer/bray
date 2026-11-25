@@ -8,6 +8,7 @@ use bray_bound_tree::{
 use bray_symbols::TypeId;
 
 use super::build::{ControlFlowGraphBuildOutcome, build_storage_control_flow_graph};
+use super::id::AnalysisEdgeId;
 use super::model::ControlFlowGraph;
 use crate::asynchronous::{CleanupShape, CleanupShapeResolver};
 use crate::{CheckerOutcome, CheckerRequestContext, CheckerUnitView};
@@ -16,11 +17,14 @@ use crate::{CheckerOutcome, CheckerRequestContext, CheckerUnitView};
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct PreparedBodyAnalysis {
     pub(crate) graph: ControlFlowGraph,
+    pub(in crate::analysis) result_edges: BTreeSet<AnalysisEdgeId>,
+    pub(crate) invocation_failures: BTreeSet<(bray_bound_tree::BoundExecutionSite, bray_symbols::DependencyFailureKind)>,
     pub(crate) generator_observations: bray_bound_tree::GeneratorObservations,
     pub(crate) values: super::liveness::ValueRetention,
     pub(crate) cleanup: super::guarantee::CleanupPlan,
     pub(crate) has_bounds_checks: bool,
     pub(crate) observed_types: Arc<BTreeMap<crate::ExecutionPlace, Option<TypeId>>>,
+    pub(in crate::analysis) absent_at_entry: Arc<BTreeSet<crate::ExecutionPlace>>,
     pub(crate) borrowed_inputs: BTreeSet<crate::ExecutionPlace>,
     pub(crate) input_invariants: Vec<crate::ExecutionCondition>,
     pub(crate) union_variants: BTreeMap<TypeId, Arc<[bray_symbols::UnionVariantSymbolId]>>,
@@ -36,6 +40,7 @@ pub struct PreparedBodyAnalysis {
     >,
     kind: BoundUnitKind,
     cleanup_shapes: Arc<BTreeMap<TypeId, CleanupShape>>,
+    storage_cleanup_types: Arc<BTreeMap<TypeId, bray_bound_tree::StorageCleanupType>>,
 }
 
 impl PreparedBodyAnalysis {
@@ -122,6 +127,8 @@ impl PreparedBodyAnalysis {
         let mut resolver = CleanupShapeResolver::new(request);
 
         resolver.completed = Arc::clone(&self.cleanup_shapes);
+        resolver.requirements = Some(Arc::clone(&self.cleanup.requirements));
+        resolver.storage_cleanup_types = Arc::clone(&self.storage_cleanup_types);
 
         resolver
     }
@@ -183,10 +190,15 @@ pub fn prepare_body_analysis<C: CheckerRequestContext + ?Sized>(
         }
     };
 
+    if let Err(error) = cleanup_shapes.prepare_lowering_types(expressions.selections(), expressions.types(), storage) {
+        return CheckerOutcome::from_query_error(error);
+    }
+
     graph.select_cleanup_suspensions(
         &cleanup.asynchronous_scopes(storage),
         &cleanup.asynchronous_replacements(storage),
         &cleanup.expression_cleanup_calls,
+        |value| storage.root_access(value).is_some_and(|access| cleanup.requires_suspension(access)),
     );
 
     let Some(values) =
@@ -201,11 +213,20 @@ pub fn prepare_body_analysis<C: CheckerRequestContext + ?Sized>(
             expressions,
         ),
         values,
+        result_edges: super::outcomes::result_production_edges(&graph, storage),
+        invocation_failures: graph.edges().iter().filter_map(|edge| match edge.refinement() {
+            Some(super::model::AnalysisRefinement::InvocationFailure(site, kind)) => Some((site, kind)),
+            _ => None,
+        }).collect(),
         graph,
         cleanup,
         kind: request.unit().key().kind(),
         has_bounds_checks: false,
         observed_types: Arc::default(),
+        absent_at_entry: Arc::new(storage.identity_entries()
+            .filter(|(_, identity)| crate::ExecutionPlace::tracks_local_storage(identity))
+            .filter_map(|(identity, _)| crate::ExecutionPlace::storage_identity(storage, identity))
+            .collect()),
         borrowed_inputs: BTreeSet::new(),
         input_invariants: Vec::new(),
         union_variants: BTreeMap::new(),
@@ -221,6 +242,7 @@ pub fn prepare_body_analysis<C: CheckerRequestContext + ?Sized>(
             request.semantic_values(),
         ),
         cleanup_shapes: cleanup_shapes.completed,
+        storage_cleanup_types: Arc::new(cleanup_shapes.cleanup_types),
     };
 
     prepared.prepare_observations(request, expressions);
@@ -279,23 +301,29 @@ impl PreparedBodyAnalysis {
                 yields.push((expression, target));
             }
 
+            if matches!(node, BoundExpression::Structured(operation) if matches!(
+                operation.kind(),
+                bray_bound_tree::BoundStructuredExpressionKind::Borrow
+                    | bray_bound_tree::BoundStructuredExpressionKind::Condition
+                    | bray_bound_tree::BoundStructuredExpressionKind::TrustBoundary
+            )) {
+                // The operand has its own observation. This wrapper is not a stored value.
+                continue;
+            }
+
             if let Some(place) = crate::execution_guarantees::expression_place(
                 request.unit(),
                 semantics,
                 request.semantic_values(),
                 expression,
             ) {
-                let mut ty = semantics
-                    .types()
-                    .expression(expression)
-                    .map(|entry| entry.ty());
-
-                while let Some(current) = ty
-                    && let bray_symbols::TypeData::Borrow { target, .. } =
-                        request.semantic_values().type_data(current).as_ref()
-                {
-                    ty = Some(*target);
-                }
+                let ty = match semantics.selections().expression(expression) {
+                    Some(bray_bound_tree::SemanticSelection::Operation(bray_bound_tree::SelectedOperation::Member(member)))
+                        if matches!(member.member(), bray_symbols::AnySymbolId::StructField(_) | bray_symbols::AnySymbolId::UnionPayloadField(_)) =>
+                        Some(member.result_type()),
+                    _ => semantics.types().expression(expression)
+                        .map(|entry| request.semantic_values().unborrowed_type(entry.ty())),
+                };
 
                 Arc::make_mut(&mut self.observed_types)
                     .entry(place)
@@ -310,7 +338,8 @@ impl PreparedBodyAnalysis {
 
         self.yield_targets = yields
             .into_iter()
-            .filter_map(|(id, target)| targets.get(&target).copied().map(|target| (id, target)))
+            .filter_map(|(id, target)| self.graph.generator_yield(id).or_else(|| targets.get(&target).copied())
+                .map(|target| (id, target)))
             .collect();
     }
 
@@ -320,8 +349,9 @@ impl PreparedBodyAnalysis {
         storage: &StoragePlan,
         expressions: &CheckedExpressionSemantics,
     ) -> Result<(), crate::CheckerQueryError<C::UpstreamError>> {
-        // Contracts can observe parameters that the body never reads. Keep
-        // their checked entry types without walking arbitrary aggregate fields.
+        // Cleanup and contracts can read inputs that the body never observes.
+        let cleanup_roots = self.cleanup.owner_roots().collect::<BTreeSet<_>>();
+
         for (identity, _) in storage.identity_entries() {
             let Some(place) = crate::ExecutionPlace::storage_identity(storage, identity)
                 .filter(|place| input_invariant_subject(place).is_some())
@@ -335,9 +365,10 @@ impl PreparedBodyAnalysis {
 
             let ty = request.semantic_values().unborrowed_type(ty);
 
-            if crate::representation::type_representation(request, ty)
-                .and_then(bray_compiler_known::RepresentationRole::integer_representation)
-                .is_some()
+            if cleanup_roots.contains(&identity)
+                || crate::representation::type_representation(request, ty)
+                    .and_then(bray_compiler_known::RepresentationRole::integer_representation)
+                    .is_some()
                 || matches!(request.semantic_values().type_data(ty).as_ref(),
                     bray_symbols::TypeData::Named { definition: bray_symbols::NamedTypeSymbolId::Union(_), .. })
             {
@@ -355,11 +386,11 @@ impl PreparedBodyAnalysis {
                 continue;
             };
 
-            let Some(ty) = ty else {
+            let Some(ty) = ty.map(|ty| request.semantic_values().unborrowed_type(ty)) else {
                 continue;
             };
 
-            if let Some(variants) = self.union_variants.get(ty) {
+            if let Some(variants) = self.union_variants.get(&ty) {
 
                 // A typed union always has one declared variant, independently
                 // of which patterns this body happens to test.
@@ -373,12 +404,12 @@ impl PreparedBodyAnalysis {
                 continue;
             }
 
-            let fields = if let Some(fields) = types.get(ty) {
+            let fields = if let Some(fields) = types.get(&ty) {
                 *fields
             } else {
-                let fields = crate::representation::raw_buffer_fields(request, *ty)?;
+                let fields = crate::representation::raw_buffer_fields(request, ty)?;
 
-                types.insert(*ty, fields);
+                types.insert(ty, fields);
 
                 fields
             };
@@ -455,9 +486,6 @@ impl PreparedBodyAnalysis {
         request: CheckerUnitView<'_, C>,
         storage: &StoragePlan,
     ) {
-        let owners = bray_bound_tree::StorageScopeOwners::collect(request.unit())
-            .expect("checked bound unit must have balanced lexical scopes");
-
         for (target, binding) in storage.bindings() {
             let identity = match binding {
                 bray_bound_tree::StorageBinding::Identity(identity) => Some(*identity),
@@ -501,7 +529,8 @@ impl PreparedBodyAnalysis {
             }
 
             if let Some(scope) =
-                identity.and_then(|identity| owners.identity_scope(storage, identity))
+                identity.and_then(|identity| self.cleanup.requirements.get(identity))
+                    .filter(|requirement| !requirement.transfers()).and_then(|requirement| requirement.owner())
                 && let Some(place) = crate::ExecutionPlace::binding(storage, *target)
             {
                 self.scope_places.entry(scope).or_default().push((
@@ -511,11 +540,13 @@ impl PreparedBodyAnalysis {
             }
         }
 
-        for (_, identity) in storage.value_slots() {
-            if let Some(scope) = owners.identity_scope(storage, identity)
-                && let Some(place) = crate::ExecutionPlace::storage_identity(storage, identity)
-            {
-                self.scope_places.entry(scope).or_default().push((place, identity));
+        for (scope, identities) in self.cleanup.requirements.retiring_scopes() {
+            for &identity in identities {
+                if let Some(place) = crate::ExecutionPlace::storage_identity(storage, identity)
+                    && !self.borrowed_inputs.contains(&place)
+                {
+                    self.scope_places.entry(scope).or_default().push((place, identity));
+                }
             }
         }
 

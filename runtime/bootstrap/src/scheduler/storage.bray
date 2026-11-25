@@ -255,7 +255,9 @@ trusted internal func destroy_reference(pos reference: Reference)
 
     let value = trusted take(&owner);
 
-    _ = value;
+    {
+        _ = value;
+    }
 
     trusted bray.runtime.bootstrap.heap.deallocate_bytes(
         std.memory.byte_address<Domain>(owner.pointer),

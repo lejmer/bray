@@ -48,7 +48,9 @@ impl BooleanGraph {
             ExecutionConditionKind::Operation(BoundOperator::LogicalAnd | BoundOperator::LogicalOr, operands) if operands.len() == 2 =>
                 vec![self.intern(&operands[0]), self.intern(&operands[1])],
             ExecutionConditionKind::ValueAlias(left, right) => vec![self.intern(left), self.intern(right)],
-            ExecutionConditionKind::Entry { condition, .. } | ExecutionConditionKind::Borrowed(condition) => vec![self.intern(condition)],
+            ExecutionConditionKind::CapturedValue { value: condition, .. }
+            | ExecutionConditionKind::DeferredValue { value: condition, .. }
+            | ExecutionConditionKind::Entry { condition, .. } | ExecutionConditionKind::Borrowed(condition) => vec![self.intern(condition)],
             ExecutionConditionKind::Observation { owner, contents, .. } => {
                 self.intern(owner);
 
@@ -96,7 +98,7 @@ impl BooleanGraph {
         match (term.condition.kind(), term.children.as_slice()) {
             (ExecutionConditionKind::Boolean(value), _) => Some(*value),
             (ExecutionConditionKind::Operation(BoundOperator::LogicalNot, _), [child]) => value(*child).map(|value| !value),
-            (ExecutionConditionKind::Entry { .. } | ExecutionConditionKind::Observation { .. } | ExecutionConditionKind::Borrowed(_), [child]) => value(*child),
+            (ExecutionConditionKind::CapturedValue { .. } | ExecutionConditionKind::DeferredValue { .. } | ExecutionConditionKind::Entry { .. } | ExecutionConditionKind::Observation { .. } | ExecutionConditionKind::Borrowed(_), [child]) => value(*child),
             (ExecutionConditionKind::Operation(operator @ (BoundOperator::LogicalAnd | BoundOperator::LogicalOr), _), [left, right]) =>
                 prove_boolean(*operator, value(*left), || value(*right)),
             (ExecutionConditionKind::ValueAlias(_, _), [left, right]) => alias_value(value(*left), || value(*right)),

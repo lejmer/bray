@@ -139,30 +139,26 @@ fn transfers(
                     transfer.generated.insert(subject);
                 }
                 Some(AnalysisRefinement::CaughtResult {
-                    expression,
-                    succeeded,
+                    outcome,
+                    ..
                 }) => {
-                    if succeeded {
-                        transfer.generated.extend(
-                            unit.view()
-                                .expression(expression)
-                                .expect("catch edge retains its expression")
-                                .child_expressions(),
-                        );
+                    if let crate::analysis::model::AnalysisCaughtResult::Completed(operand) = outcome {
+                        transfer.generated.extend(operand);
                     }
                 }
                 // Invocation operands remain live through the sibling admission continuation.
-                Some(AnalysisRefinement::PreconditionFailure(_)) => {}
+                Some(AnalysisRefinement::InvocationEntry { .. } | AnalysisRefinement::InvocationBackingFailure(_)) => {}
                 // These edges select control flow without reading another cached value.
                 Some(
                     AnalysisRefinement::TrustBoundary(_)
                     | AnalysisRefinement::GeneratorStorageFailure(_)
-                    | AnalysisRefinement::InvocationFailure(_)
-                    | AnalysisRefinement::InvocationCancellation(_)
+                    | AnalysisRefinement::InvocationFailure(..)
                     | AnalysisRefinement::InvocationCompletion(_)
                     | AnalysisRefinement::InvocationPresence(_, _)
+                    | AnalysisRefinement::InvocationVariant(_, _)
                     | AnalysisRefinement::InvocationBoolean(_, _)
-                    | AnalysisRefinement::CleanupRequired { .. },
+                    | AnalysisRefinement::CleanupOutcome { .. }
+                    | AnalysisRefinement::BeginCleanup(_),
                 )
                 | None => {}
             }
@@ -182,7 +178,7 @@ fn transfers(
                     transfer.generated.remove(&expression);
                     transfer.killed.insert(expression);
                 }
-                AnalysisOperationKind::ScopeExit { .. } => {}
+                AnalysisOperationKind::ScopeExit { .. } | AnalysisOperationKind::ScopedResult(_) => {}
                 AnalysisOperationKind::Call {
                     invocation:
                         occurrence @ (bray_bound_tree::BoundExecutionSite::CallInput { .. }

@@ -1,8 +1,30 @@
 use super::fixtures::{assert_complete_artifact, contribution, file_bytes, never_cancelled};
 use super::plans::{filesystem_plan, test_generation_store};
 
-use crate::test_support::wait_for_lease_release;
+use crate::test_support::{product_identity, wait_for_lease_release};
 use crate::{ArtifactKind, ArtifactPublisher, EmissionPlan, ReplacementPolicy};
+
+#[test]
+fn a_live_product_reader_excludes_publication_until_it_releases_the_lock() {
+    let output = tempfile::tempdir().expect("temporary fixture directory must be created");
+    let plan = filesystem_plan(output.path(), ReplacementPolicy::ReplaceExisting);
+    let product = product_identity();
+
+    let publication = ArtifactPublisher::new(&never_cancelled)
+        .publish(&plan, [contribution(&plan, b"current", None)]);
+
+    assert_complete_artifact(&publication, b"current");
+
+    let reader = crate::lock_published_product(output.path().to_owned(), &product)
+        .expect("the published product must be readable");
+
+    let lock = test_generation_store(output.path()).join("publication.lock");
+    let writer = crate::storage::open_lock(&lock).expect("the publication lock must exist");
+
+    assert!(matches!(writer.try_lock(), Err(std::fs::TryLockError::WouldBlock)));
+    drop(reader);
+    writer.try_lock().expect("publication resumes when the reader releases its lock");
+}
 
 #[test]
 fn storage_clean_respects_live_pins_dry_runs_and_unmanaged_files() {
@@ -69,8 +91,22 @@ fn active_product_storage_respects_every_context_filter() {
     let output = tempfile::tempdir().expect("temporary fixture directory must be created");
     let plan = filesystem_plan(output.path(), ReplacementPolicy::ReplaceExisting);
 
-    let _active = ArtifactPublisher::new(&never_cancelled)
+    let active = ArtifactPublisher::new(&never_cancelled)
         .publish(&plan, [contribution(&plan, b"active", None)]);
+
+    assert_complete_artifact(&active, b"active");
+
+    let unfiltered = crate::inspect_storage(
+        output.path(),
+        &crate::StorageSelection::default(),
+        crate::StoragePolicy::default(),
+        &never_cancelled,
+    )
+    .expect("the active product is inspectable without a filter");
+
+    // The held publication keeps its entry lease, so the product is still active work.
+    assert!(unfiltered.iter().any(|entry| entry.active
+        && entry.category == crate::StorageCategory::ActiveWork), "{unfiltered:?}");
 
     let selections = [
         crate::StorageSelection {

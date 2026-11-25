@@ -92,6 +92,7 @@ fn resolve_borrowed_access(
             projections: logical_projections,
         },
         paths,
+        reference: None,
     })
 }
 
@@ -144,5 +145,6 @@ fn resolve_storage_access(
             projections: shared_slice(access.projections().iter().copied()),
         },
         paths: paths.into(),
+        reference: None,
     })
 }

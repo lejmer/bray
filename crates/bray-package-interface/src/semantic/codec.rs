@@ -1,4 +1,5 @@
 mod coherence;
+mod captured;
 mod common;
 pub(in crate::semantic) use common::{invalid_discriminant, invalid_value};
 mod decoding;

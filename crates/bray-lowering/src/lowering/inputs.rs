@@ -1,6 +1,6 @@
 use bray_bound_tree::{
     AsyncCleanupPhases, AsyncStorageCleanupRequirement, BoundCallableTarget, BoundExpressionId,
-    SelectedArgument,
+    SelectedArgument, StorageAccessId,
 };
 use bray_compiler_known::RepresentationRole;
 use bray_ir::{
@@ -18,6 +18,7 @@ pub(super) struct InputTemporary {
     pub(super) place: MirPlace,
     source: MirSourceAnchor,
     pub(super) scope_depth: usize,
+    pub(super) planned_access: Option<StorageAccessId>,
     catch_depth: usize,
     action: InputCleanup,
 }
@@ -68,12 +69,12 @@ impl Lowerer<'_> {
     pub(super) fn lower_default_call_input(
         &mut self,
         id: BoundExpressionId,
-        mut current: MirBlockId,
+        current: MirBlockId,
         source: &MirSourceAnchor,
         selection: &bray_bound_tree::SelectedCall,
         argument: &SelectedArgument,
         arguments: &mut Vec<MirCallArgument>,
-    ) -> Result<MirBlockId, LoweringError> {
+    ) -> Result<Option<MirBlockId>, LoweringError> {
         let SelectedArgument::Default {
             parameter,
             ordinal,
@@ -143,29 +144,11 @@ impl Lowerer<'_> {
             ))
             .expect("selected default has its input ordinal");
 
-        let (continued, value) = self.push_checked_value_operation(
-            bray_bound_tree::BoundExecutionSite::CallInput {
-                expression: id,
-                ordinal: input,
-            },
-            current,
-            Self::retained_source(source),
-            MirOperationKind::Call(default),
-            *ty,
-        )?;
+        let site = bray_bound_tree::BoundExecutionSite::CallInput { expression: id, ordinal: input };
 
-        current = continued;
-
-        let value = self.materialize_call_input(
-            bray_bound_tree::BoundExecutionSite::CallInput {
-                expression: id,
-                ordinal: input,
-            },
-            current,
-            source,
-            value,
-            *ty,
-        )?;
+        let Some((current, value)) = self.lower_default_value(site, current, source, default, *ty)? else {
+            return Ok(None);
+        };
 
         arguments.push(MirCallArgument::Explicit {
             parameter: Some(*parameter),
@@ -173,7 +156,29 @@ impl Lowerer<'_> {
             value,
         });
 
-        Ok(current)
+        Ok(Some(current))
+    }
+
+    pub(super) fn lower_default_value(
+        &mut self,
+        site: bray_bound_tree::BoundExecutionSite,
+        current: MirBlockId,
+        source: &MirSourceAnchor,
+        call: MirCall,
+        ty: TypeId,
+    ) -> Result<Option<(MirBlockId, MirOperand)>, LoweringError> {
+        let (current, value) = self.push_checked_value_operation(
+            site, current, Self::retained_source(source), MirOperationKind::Call(call), ty,
+        )?;
+
+        if self.terminate_noncompleting_invocation(site, current, source)? {
+            return Ok(None);
+        }
+
+        let ty = self.builder.operand_type(&value);
+        let value = self.materialize_call_input(site, current, source, value, ty)?;
+
+        Ok(Some((current, value)))
     }
 
     fn default_callable_owner(
@@ -372,13 +377,22 @@ impl Lowerer<'_> {
             None,
         )?;
 
-        let phases = self.input_cleanup_phases(ty);
+        // The staged slot owns the checked input's duty. An inline assembly input
+        // stores only its runtime operands, which carry no additional cleanup.
+        let planned = self
+            .input
+            .storage_plan()
+            .identity_type(identity)
+            .expect("staged input retains its planned type");
+
+        let phases = self.input_cleanup_phases(planned);
 
         self.track_input(
             block,
             source,
             Self::retained_place(&place),
             InputCleanup::Value(phases),
+            None,
         )?;
 
         self.initialized_temporaries.insert(identity);
@@ -429,6 +443,7 @@ impl Lowerer<'_> {
             source,
             Self::retained_place(&place),
             InputCleanup::Value(phases),
+            None,
         )?;
 
         Ok(MirOperand::Move(place))
@@ -456,7 +471,26 @@ impl Lowerer<'_> {
                 first,
                 end,
             },
+            None,
         )
+    }
+
+    pub(super) fn track_generator_input(
+        &mut self,
+        block: MirBlockId,
+        source: &MirSourceAnchor,
+        access: StorageAccessId,
+        place: MirPlace,
+        range: Option<(TypeId, [MirOperand; 2])>,
+    ) -> Result<(), LoweringError> {
+        let phases = self.input_cleanup_phases(place.ty());
+
+        let action = match range {
+            Some((element, [first, end])) => InputCleanup::Array { phases, element, first, end },
+            None => InputCleanup::Value(phases),
+        };
+
+        self.track_input(block, source, place, action, Some(access))
     }
 
     fn track_input(
@@ -465,6 +499,7 @@ impl Lowerer<'_> {
         source: &MirSourceAnchor,
         place: MirPlace,
         action: InputCleanup,
+        planned_access: Option<StorageAccessId>,
     ) -> Result<(), LoweringError> {
         // A partial array is owned exactly by its range. It has no whole-value
         // initialization flag. Ordinary inputs need a guard because a call can
@@ -481,7 +516,7 @@ impl Lowerer<'_> {
                 place.storage(),
                 InitializationState {
                     guard,
-                    parts: Vec::new(),
+                    parts: Default::default(),
                 },
             );
         }
@@ -490,6 +525,7 @@ impl Lowerer<'_> {
             place,
             source: Self::retained_source(source),
             scope_depth: self.active_scopes.len(),
+            planned_access,
             catch_depth: self.catch_targets.len(),
             action,
         });
@@ -507,6 +543,7 @@ impl Lowerer<'_> {
             place: admitted,
             source: Self::retained_source(source),
             scope_depth: self.active_scopes.len() + 1,
+            planned_access: None,
             catch_depth: self.catch_targets.len(),
             action: InputCleanup::ScopeAdmission(expression),
         });
@@ -523,18 +560,17 @@ impl Lowerer<'_> {
         temporary.action = InputCleanup::ScopedUse(expression);
     }
 
+    #[track_caller]
     pub(super) fn input_cleanup_phases(&self, ty: TypeId) -> Option<AsyncCleanupPhases> {
-        let cleanup = self
-            .input
-            .cleanup_type(ty)
-            .unwrap_or_else(|| {
-                panic!(
-                    "checked temporary {ty:?} ({:?}) retains its cleanup shape in {:?}",
-                    self.input.semantic_values().type_data(ty),
-                    self.input.unit().key()
-                )
-            })
-            .cleanup();
+        let Some(shape) = self.input.cleanup_type(ty) else {
+            panic!(
+                "checked temporary {ty:?} ({:?}) retains its cleanup shape in {:?}",
+                self.input.semantic_values().type_data(ty),
+                self.input.unit().key()
+            )
+        };
+
+        let cleanup = shape.cleanup();
 
         match cleanup {
             AsyncStorageCleanupRequirement::None => None,
@@ -579,37 +615,12 @@ impl Lowerer<'_> {
             .collect()
     }
 
-    pub(super) fn push_input_cleanup(
-        &mut self,
-        mut block: MirBlockId,
-        phase: MirCleanupPhase,
-        temporaries: &mut std::iter::Peekable<std::iter::Rev<std::slice::Iter<'_, InputTemporary>>>,
-        scope_depth: usize,
-    ) -> Result<MirBlockId, LoweringError> {
-        while temporaries
-            .peek()
-            .is_some_and(|temporary| temporary.scope_depth >= scope_depth)
-        {
-            let Some(temporary) = temporaries.next() else {
-                break;
-            };
-
-            block = self.push_input_cleanup_temporary(block, phase, temporary)?;
-        }
-
-        Ok(block)
-    }
-
     pub(super) fn push_input_cleanup_temporary(
         &mut self,
         block: MirBlockId,
         phase: MirCleanupPhase,
         temporary: &InputTemporary,
     ) -> Result<MirBlockId, LoweringError> {
-        if !temporary.requires_cleanup(phase) {
-            return Ok(block);
-        }
-
         match temporary.action {
             InputCleanup::ScopeAdmission(expression) => {
                 return self
@@ -646,7 +657,7 @@ impl Lowerer<'_> {
                 block,
                 phase,
                 temporary,
-                guard,
+                guard.filter(|_| temporary.planned_access.is_none()),
                 element,
                 [first, end],
             );
@@ -698,6 +709,8 @@ impl Lowerer<'_> {
                     None,
                 )?;
 
+                let cursor = MirOperand::Copy(Self::retained_place(&cleanup.counter));
+
                 let projected = MirPlace::new(
                     place.storage(),
                     place
@@ -705,24 +718,31 @@ impl Lowerer<'_> {
                         .iter()
                         .cloned()
                         .chain([bray_ir::MirProjection::new(
-                            bray_ir::MirProjectionKind::Index(MirOperand::Copy(
-                                Self::retained_place(&cleanup.counter),
-                            )),
+                            bray_ir::MirProjectionKind::Index(Self::retained_operand(&cursor)),
                             place.ty(),
                             element,
                         )]),
                     element,
                 );
 
-                let (completed, _) = lowerer.push_guarded_cleanup(
-                    cleanup.body,
-                    source,
-                    phase,
-                    projected,
-                    None,
-                    None,
-                    false,
-                    None,
+                let occurrence = lowerer.cleanup_occurrence;
+
+                let (completed, _) = lowerer.with_cleanup_remainder(
+                    || {
+                        let mut remaining = temporary.clone();
+
+                        let InputCleanup::Array { end, .. } = &mut remaining.action else {
+                            unreachable!("array cleanup retains an initialized range");
+                        };
+
+                        // The counter names the current element after the decrement.
+                        *end = cursor;
+
+                        Some(super::cleanup::CleanupStep::temporary(occurrence, remaining))
+                    },
+                    |lowerer| lowerer.push_guarded_cleanup(
+                        cleanup.body, source, phase, projected, None, None, false, None,
+                    ),
                 )?;
 
                 cleanup.close(&mut lowerer.builder, completed, source, None)?;
@@ -764,6 +784,7 @@ mod tests {
             place: MirPlace::new(MirStorageId::from_slot(MirUnitId::new(1), 0), [], ty),
             source: bray_ir::MirSourceAnchor::from(bray_testing::test_bound_unit(1).key().source()),
             scope_depth: 2,
+            planned_access: None,
             catch_depth: 1,
             action: InputCleanup::Value(Some(AsyncCleanupPhases::Lifecycle)),
         };

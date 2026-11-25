@@ -5,28 +5,6 @@ use bray_diagnostics::DiagnosticKind;
 use bray_testing::assert_goal_state_diagnostic_kind;
 
 #[test]
-fn pattern_conditions_lower_with_guarded_temporary_cleanup() {
-    let compilation = compilation(include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../xtask/fixtures/native-execution/pattern-conditions.bray"
-    )));
-
-    assert!(
-        compilation.check_diagnostics().is_empty(),
-        "{:?}",
-        compilation.check_diagnostics()
-    );
-
-    for name in ["next_value", "probe_return", "main"] {
-        let lowered = compilation
-            .lowered_unit(source_function_body_key(&compilation, name))
-            .expect("fixture callable must lower successfully");
-
-        assert!(lowered.value().is_some(), "{name}: {lowered:?}");
-    }
-}
-
-#[test]
 fn observed_call_result_patterns_evaluate_their_subject_once() {
     for body in [
         "match make() { case ?value { let (first, second) = value; return first; } case none { return 0; } }",
@@ -40,8 +18,14 @@ fn observed_call_result_patterns_evaluate_their_subject_once() {
         ] {
             let body = body.replace("make()", subject);
 
+            let (module, requirement) = if subject.contains("trusted") {
+                ("trusted module app; trusted predicate available();", "requires(trusted available())")
+            } else {
+                ("module app;", "")
+            };
+
             let source = format!(
-                "trusted module app; internal func make() -> (i32, bool)? {{ return (7, true); }} func main() -> i32 {{ {body} }}"
+                "{module} internal func make() -> (i32, bool)? {requirement} {{ return (7, true); }} func main() -> i32 {requirement} {{ {body} }}"
             );
 
             let compilation = compilation(&source);
@@ -176,11 +160,11 @@ fn singleton_member_moves_preserve_containing_lifecycle_obligations() {
                     DiagnosticKind::CheckingIncompleteLifecycleStorage,
                 );
 
-                assert!(analysis.value().scope_exits().iter().flat_map(|exit| exit.storage()).any(|decision|
+                assert!(flow.value().exits().iter().flat_map(|exit| exit.cleanup_recoveries()).any(|decision|
                         decision.identity() == root && decision.disposition() ==
                             bray_bound_tree::AsyncStorageExitDisposition::Recovered(
                                 bray_bound_tree::AsyncStorageExitRecoveryCause::UnavailablePartialCleanup)),
-                        "{source}: {:?}", analysis.value());
+                        "{source}: {:?}", flow.value().exits());
             }
         }
     }
@@ -247,29 +231,28 @@ fn literal_string_cleanup_publishes_its_proven_empty_effect() {
     let key = source_function_body_key(&compilation, "main");
 
     let flow = compilation
-        .storage_flow(key.clone())
+        .storage_flow(key)
         .expect("fixture callable must complete storage-flow analysis");
-
-    let cleanup = compilation
-        .async_analysis(key)
-        .expect("fixture callable must complete async analysis");
 
     let mut checked = 0;
 
-    for plan in cleanup.value().scope_exits() {
+    for plan in flow.value().exits() {
         for access in plan.lifecycle_resolution() {
-            let mutation = bray_bound_tree::StorageMutation::Cleanup {
-                occurrence: bray_bound_tree::BoundExecutionSite::Cleanup(plan.exit()),
-                access: *access,
-                part: 0,
-            };
+            let occurrence = bray_bound_tree::BoundExecutionSite::Cleanup(plan.exit());
+            let mut mutations = flow.value().opaque_cleanup_mutations(occurrence, *access).peekable();
 
-            assert!(matches!(
-                flow.value().cleanup_mutation(mutation),
-                bray_bound_tree::StorageInvalidation::Observed { accesses, .. } if accesses.is_empty()
-            ));
+            assert!(mutations.peek().is_some(), "scheduled literal cleanup must reach a mutation");
 
-            checked += 1;
+            for (_, part, invalidation) in mutations {
+                assert_eq!(part, 0);
+
+                assert!(matches!(
+                    invalidation,
+                    bray_bound_tree::StorageInvalidation::Observed { accesses, .. } if accesses.is_empty()
+                ));
+
+                checked += 1;
+            }
         }
     }
 

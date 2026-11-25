@@ -1,10 +1,11 @@
+use std::borrow::Cow;
 use std::collections::BTreeSet;
 use std::sync::{Arc, LazyLock};
 
 use super::ExecutionCondition;
 
 /// Shared evidence snapshots detach only when their established conditions change.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub(crate) struct ExecutionAssumptions(Arc<BTreeSet<(ExecutionCondition, bool)>>);
 
 impl Default for ExecutionAssumptions {
@@ -23,7 +24,7 @@ impl std::ops::Deref for ExecutionAssumptions {
 }
 
 impl ExecutionAssumptions {
-    pub(in crate::execution_guarantees) fn storage_key(&self) -> usize { Arc::as_ptr(&self.0).addr() }
+    pub(in crate::execution_guarantees) fn snapshot(&self) -> &Arc<BTreeSet<(ExecutionCondition, bool)>> { &self.0 }
 
     #[cfg(test)]
     pub(crate) fn shares_storage(&self, other: &Self) -> bool { Arc::ptr_eq(&self.0, &other.0) }
@@ -36,6 +37,19 @@ impl ExecutionAssumptions {
         if self.0.contains(&condition) { return false; }
 
         Arc::make_mut(&mut self.0).insert(condition)
+    }
+
+    /// Extends a proof context without copying an already sufficient snapshot.
+    pub(crate) fn joined_with<'a>(&'a self, other: &'a Self) -> Cow<'a, Self> {
+        if Arc::ptr_eq(&self.0, &other.0) || other.is_subset(self) {
+            return Cow::Borrowed(self);
+        }
+
+        if self.is_subset(other) {
+            return Cow::Borrowed(other);
+        }
+
+        Cow::Owned(self.union(other).cloned().collect())
     }
 
     pub(crate) fn retain(&mut self, mut keep: impl FnMut(&(ExecutionCondition, bool)) -> bool) {

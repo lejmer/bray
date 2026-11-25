@@ -14,6 +14,7 @@ where
 {
     pub(super) fn build_branches(
         &mut self,
+        expression: BoundExpressionId,
         branches: &[BoundBlockId],
         conditions: &[BoundExpressionId],
         mut current: AnalysisBlockId,
@@ -33,11 +34,11 @@ where
                 (next, AnalysisEdgeKind::ConditionalFalse),
             )?;
 
-            let completion = self.build_result_branch(branch, entry, join, depth)?;
+            let completion = self.build_result_branch(expression, branch, entry, join, depth)?;
 
             if let Some(completion) = completion {
                 let completion = scope.map_or(completion, |scope| {
-                    self.push_scope_exit(completion, scope.into(), branch.into())
+                    self.push_scope_exit(completion, scope.into(), branch.into(), None)
                 });
 
                 self.push_edge(completion, join, AnalysisEdgeKind::Sequential, None);
@@ -46,7 +47,7 @@ where
             current = if let Some(scope) = scope {
                 self.scopes.pop();
 
-                self.push_scope_exit(next, scope.into(), condition.into())
+                self.push_scope_exit(next, scope.into(), condition.into(), None)
             } else {
                 next
             };
@@ -54,7 +55,7 @@ where
 
         if let Some(branch) = branches.get(conditions.len()) {
             if let Some(completion) =
-                self.build_result_branch(*branch, current, join, self.scope_depth())?
+                self.build_result_branch(expression, *branch, current, join, self.scope_depth())?
             {
                 self.push_edge(completion, join, AnalysisEdgeKind::Sequential, None);
             }
@@ -271,6 +272,7 @@ where
 
     pub(super) fn build_result_branch(
         &mut self,
+        expression: BoundExpressionId,
         branch: BoundBlockId,
         entry: AnalysisBlockId,
         completion: AnalysisBlockId,
@@ -282,6 +284,7 @@ where
             target,
             completion,
             scope_depth,
+            destination: self.checked_storage().and_then(|storage| storage.value_slot(expression)),
         });
 
         let result = self.build_block(branch, entry);

@@ -1,15 +1,43 @@
-use bray_bound_tree::{AsyncStorageCleanupRequirement, BoundExpressionId, StorageReplacementPlan};
+use bray_bound_tree::{AsyncStorageCleanupRequirement, BoundExpressionId, StorageReplacementDecision};
 use bray_compiler_known::RepresentationRole;
 use bray_ir::{
     MirBlockId, MirBlockKind, MirCleanupEdge, MirCleanupPhase, MirEdge, MirOperand,
-    MirOperationKind, MirPlace, MirSourceAnchor, MirStorageKind, MirStoreKind, MirTerminatorKind,
+    MirOperationKind, MirPlace, MirProjection, MirProjectionKind, MirSourceAnchor, MirStorageKind, MirStoreKind, MirTerminatorKind,
 };
+use bray_symbols::{BorrowKind, TypeData};
 
 use super::LoweringError;
-use super::initialization::{InitializedPart, part_guard_for_place};
+use super::initialization::part_guard_for_place;
 use super::lowerer::Lowerer;
 
 impl Lowerer<'_> {
+    pub(super) fn capture_replacement_place(
+        &mut self,
+        expression: BoundExpressionId,
+        block: MirBlockId,
+        place: MirPlace,
+    ) -> Result<MirPlace, LoweringError> {
+        if !place.projections().iter().any(|projection| projection.kind() == &MirProjectionKind::Dereference) {
+            return Ok(place);
+        }
+
+        let original = self.ownership_place(&place);
+        let ty = place.ty();
+        let source = self.expression_source(expression);
+        let kind = BorrowKind::Mutable;
+        let address_type = self.input.semantic_values().intern_type(TypeData::Borrow { kind, target: ty })?;
+
+        let address = self.push_typed_value_operation(expression, block, Self::retained_source(&source),
+            MirOperationKind::Borrow { kind, place }, address_type)?;
+
+        let address = self.materialize_synthetic_place(block, source, address, address_type)?;
+        let storage = address.storage();
+
+        self.owned_targets.insert(storage, original);
+
+        Ok(MirPlace::new(storage, [MirProjection::new(MirProjectionKind::Dereference, address_type, ty)], ty))
+    }
+
     pub(super) fn replace_value(
         &mut self,
         expression: BoundExpressionId,
@@ -79,23 +107,11 @@ impl Lowerer<'_> {
 
         self.cleanup_outcome = Some(self.create_cleanup_outcome(block, source)?);
 
-        let broadcast = self.builder.push_block(
-            Self::retained_source(source),
-            MirBlockKind::CleanupBroadcast,
-        )?;
+        let broadcast = self.begin_cleanup_broadcast(block, source)?;
 
         let lifecycle = self.builder.push_block(
             Self::retained_source(source),
             MirBlockKind::LifecycleResolution,
-        )?;
-
-        self.set_terminator(
-            block,
-            Self::retained_source(source),
-            MirTerminatorKind::BeginCleanup(MirCleanupEdge::new(
-                MirCleanupPhase::TaskCancellation,
-                MirEdge::new(broadcast, []),
-            )),
         )?;
 
         let broadcast = if phases.includes_cancellation() {
@@ -221,10 +237,20 @@ impl Lowerer<'_> {
         source: &MirSourceAnchor,
         phase: MirCleanupPhase,
         place: &MirPlace,
-        plan: &StorageReplacementPlan,
+        plan: &StorageReplacementDecision,
     ) -> Result<MirBlockId, LoweringError> {
         let owned = self.ownership_place(place);
         let state = self.initialization_guards.get(&owned.storage());
+
+        if let Some(range) = plan.part_range() {
+            let state = state.expect("represented replacement retains its prepared guard partition");
+
+            let cursor = super::arrays::CleanupPartCursor::new(
+                plan.access(), Self::retained_place(place), std::sync::Arc::clone(&state.parts), owned.projections().len(),
+            ).with_range(range);
+
+            return self.push_part_cleanup(block, source, phase, cursor, None, None).map(|(block, _)| block);
+        }
 
         let guard = state.map(|state| {
             state
@@ -240,53 +266,14 @@ impl Lowerer<'_> {
                 .unwrap_or_else(|| Self::retained_place(&state.guard))
         });
 
-        if plan.parts().is_none() {
-            return self
-                .push_guarded_cleanup(
-                    block,
-                    source,
-                    phase,
-                    Self::retained_place(place),
-                    guard,
-                    None,
-                    self.input
-                        .finalizer_is_complete(plan.expression().into(), plan.access()),
-                    None,
-                )
-                .map(|(block, _)| block);
-        }
-
-        // Keep checked part paths borrowed and flag descriptors owned while constructing their cleanup blocks.
-        let parts = state
-            .map(|state| {
-                state
-                    .parts
-                    .iter()
-                    .filter(|part| part_guard_for_place(part, state.guard.ty(), &owned).is_some())
-                    .map(|part| InitializedPart {
-                        plan: part.plan,
-                        guard: Self::retained_place(&part.guard),
-                        array_types: std::sync::Arc::clone(&part.array_types),
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
-
-        if parts.is_empty() {
-            panic!(
-                "lowering contract violation: UnsupportedStorageAccess {value:?}",
-                value = plan.access()
-            );
-        }
-
-        self.push_part_cleanup(
+        self.push_guarded_cleanup(
             block,
             source,
             phase,
-            plan.access(),
             Self::retained_place(place),
-            &parts,
-            owned.projections().len(),
+            guard,
+            None,
+            self.input.finalizer_is_complete(plan.expression().into(), plan.access()),
             None,
         )
         .map(|(block, _)| block)

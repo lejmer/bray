@@ -422,7 +422,36 @@ mod tests {
 
     #[test]
     fn foreign_aggregate_atomic_members_use_target_required_alignment() {
-        let compilation = compilation(
+        use bray_target::{TargetAtomicRepresentation as Atomic, TargetAtomicRepresentationSupport, TargetAtomicSupport};
+
+        let target = crate::SelectedTarget::baseline();
+        let profile = target.profile();
+        let properties = profile.properties();
+        let atomic = |kind| properties.atomics().representation(kind);
+        let alignment = std::num::NonZeroU64::new(16).expect("fixture alignment is nonzero");
+
+        let over_aligned = TargetAtomicRepresentationSupport::try_new(
+            bray_target::TargetAtomicOperations::integer(), alignment, false, false, false,
+        ).expect("fixture target supports an over-aligned atomic representation");
+
+        let properties = bray_target::TargetProperties::new(
+            properties.identity().clone(),
+            properties.scalars(),
+            TargetAtomicSupport::new(
+                atomic(Atomic::U8), atomic(Atomic::U16), atomic(Atomic::U32), over_aligned,
+                atomic(Atomic::U128), atomic(Atomic::Pointer),
+            ),
+            properties.abis(),
+            properties.c_abi(),
+            properties.address_spaces(),
+            properties.alignments(),
+            properties.operations(),
+        );
+
+        let profile = bray_target::TargetProfile::try_new(profile.identity().clone(), profile.machine().clone(), properties)
+            .expect("fixture target profile is valid");
+
+        let compilation = crate::test_support::compilation_with_target_profile(
             r#"module app;
 
 using core.atomic;
@@ -431,45 +460,38 @@ struct SharedState
 {
     value: core.atomic.Atomic<u64>;
 }
+@layout(c)
+struct PlainState
+{
+    value: u64;
+}
 "#,
+            profile,
         );
 
         let symbols = compilation
             .symbol_graph()
             .unwrap_or_else(|error| panic!("test symbol graph must build: {error:?}"));
 
-        let definition = symbols
-            .structures()
-            .iter()
-            .find(|structure| structure.origin() == SymbolOrigin::Source)
-            .map(|structure| NamedTypeSymbolId::Struct(structure.id()))
-            .unwrap_or_else(|| panic!("test source must declare SharedState"));
-
         let values = compilation
             .semantic_value_store()
             .unwrap_or_else(|error| panic!("semantic values must resolve: {error:?}"));
 
-        let substitution = empty_substitution(values, definition.into_any())
-            .unwrap_or_else(|error| panic!("empty substitution must intern: {error:?}"));
+        for (name, expected) in [("SharedState", 16), ("PlainState", 8)] {
+            let definition = symbols.structures().iter().find(|structure| {
+                structure.origin() == SymbolOrigin::Source
+                    && symbols.member_name(structure.id().into()).is_some_and(|found| found.as_str() == name)
+            }).map(|structure| NamedTypeSymbolId::Struct(structure.id()))
+                .unwrap_or_else(|| panic!("fixture must declare {name}"));
 
-        let alignment = aggregate_alignment(
-            &compilation,
-            definition,
-            substitution,
-            &CancellationToken::new(),
-        )
-        .unwrap_or_else(|error| panic!("atomic aggregate alignment must resolve: {error:?}"));
+            let substitution = empty_substitution(values, definition.into_any())
+                .expect("empty substitution must intern");
 
-        let expected = compilation
-            .selected_target()
-            .target()
-            .profile()
-            .properties()
-            .atomics()
-            .representation(bray_target::TargetAtomicRepresentation::U64)
-            .required_alignment();
+            let actual = aggregate_alignment(&compilation, definition, substitution, &CancellationToken::new())
+                .expect("aggregate alignment resolves").map(std::num::NonZeroU64::get);
 
-        assert_eq!(alignment, Some(expected));
+            assert_eq!(actual, Some(expected), "{name}");
+        }
     }
 
     #[test]

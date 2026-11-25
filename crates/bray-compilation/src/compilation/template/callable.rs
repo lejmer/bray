@@ -16,6 +16,19 @@ impl Compilation {
         predicate: bray_symbols::PredicateDefinitionSymbolId,
         cancellation: &CancellationToken,
     ) -> Result<bray_diagnostics::DiagnosticResult<Option<CheckedTemplate>>, FactQueryError> {
+        let definition =
+            self.predicate_definition_with_cancellation(predicate, cancellation)?;
+
+        if !matches!(
+            definition.value(),
+            bray_symbols::PredicateDefinitionState::Defined(_)
+        ) {
+            return Ok(bray_diagnostics::DiagnosticResult::new(
+                None,
+                definition.diagnostics().clone(),
+            ));
+        }
+
         if let Some(key) = self.predicate_definition_key(predicate)? {
             let template = self.constant_body_template(key, cancellation)?;
 
@@ -27,7 +40,7 @@ impl Compilation {
         let address = context
             .imported_semantic_address(predicate.into_any())
             .map_err(binding_query_error)?
-            .expect("selected imported predicate retains its semantic address");
+            .expect("defined non-source predicate retains its imported semantic address");
 
         let template = crate::compilation::binder::imported_declaration_template(
             &context,

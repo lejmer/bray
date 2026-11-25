@@ -135,7 +135,10 @@ internal const func present_retired_cell(pos owner: &(RetiredCell?)) -> &Retired
 trusted internal func dispose_retired_cell(pos owner: RetiredCell) -> u32
     requires(trusted retired_cell(owner = &owner))
 {
-    _ = owner.control;
+    {
+        _ = owner.control;
+    }
+
     let status = trusted bray.runtime.bootstrap.execution.release_task_pin(owner.execution);
 
     trusted release_arena(owner.arena);
@@ -245,11 +248,14 @@ trusted internal func released_slot_access(
         lease.active,
         trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition)
     )
-    ensures(trusted released(owner = reference), trusted link_access(owner = &result))
+    ensures(trusted released(owner = reference), trusted link_access(owner = &result.acquisition))
     executes(pure, total)
 {
     return
     {
+        acquisition = LinkAcquisition
+        {
+        },
         lease = lease,
         pointer = reference.pointer
     };

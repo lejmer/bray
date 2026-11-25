@@ -1,4 +1,4 @@
-module bray.standard_library_tests.real_power;
+trusted module bray.standard_library_tests.real_power;
 
 func power_32(pos base: r32, pos exponent: r32) -> r32
 {

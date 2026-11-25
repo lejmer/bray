@@ -1,6 +1,6 @@
 use bray_diagnostics::{DiagnosticKind};
 use crate::compilation::result_dependencies::{callable_dependencies};
-use crate::test_support::{compilation, source_function_body_key};
+use crate::test_support::{compilation, source_function, source_function_body_key};
 use super::fixtures::{diagnostic_at_call, production_sync_compilation};
 
 #[test]
@@ -108,7 +108,7 @@ fn returned_address_origin_is_independent_of_its_lifetime_anchor() {
     let template = callable_dependencies(&application, callable.into());
 
     assert_eq!(
-        template.borrows(),
+        template.borrows().as_ref(),
         &[bray_symbols::DependencyBorrowRelation::new(
             Some(bray_symbols::DependencySubject::root(
                 bray_symbols::DependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(1))
@@ -283,7 +283,7 @@ trusted func pointer(pos owner: &Owner) -> DataPointer<$POINTEE>
     )
     executes(pure, total) uses(foreign_call)
 {
-    return trusted native_pointer(core.memory.address_of<Owner>(owner));
+    return native_pointer(core.memory.address_of<Owner>(owner));
 }
 func observe(pos owner: &Owner)
     requires(trusted live(owner))
@@ -306,6 +306,69 @@ trusted func caller(pos owner: &Owner)
         let valid = valid && field == "u64";
 
         assert_eq!(!diagnostics.has_errors(), valid, "{source}: {diagnostics:#?}");
+        }
+    }
+}
+
+#[test]
+fn raw_write_admission_retains_the_permit_of_an_initialized_payload() {
+    for (storage, retained) in [
+        ("core.memory.uninit_from<State>(state)", true),
+        ("{ _ = core.memory.uninit_from<State>(state); yield core.memory.uninit<State>(); }", false),
+    ] {
+        let source = format!(
+            r#"
+            trusted module app;
+
+            using core.memory;
+            using core.target;
+
+            struct State
+            {{
+                address: usize;
+            }}
+
+            struct Context
+            {{
+                storage: Uninit<State>;
+            }}
+
+            trusted predicate owns(state: &State);
+
+            trusted func probe(pos state: State)
+                requires(trusted owns(&state))
+                uses(intrinsic, raw_memory, unchecked_init)
+            {{
+                let pointer = trusted core.target.from_exposed_address<Context>(address = state.address);
+                let permit = trusted lambda(pos state: &State, pos pointer: DataPointer<Context>)
+                    requires(trusted owns(state))
+                    ensures(
+                        trusted core.memory.valid_write<Context>(pointer = pointer, count = 1),
+                        trusted core.memory.aligned_for<Context>(pointer = pointer)
+                    )
+                    executes(pure, total) {{}};
+
+                trusted permit(&state, pointer);
+                trusted core.memory.write<Context>(pointer, {{ storage = {storage} }});
+            }}
+        "#
+        );
+
+        let application = compilation(&source);
+
+        let lowered = application
+            .lowered_unit(source_function_body_key(&application, "probe"))
+            .expect("protected storage probe can be lowered");
+
+        let diagnostics = lowered.diagnostics();
+
+        assert_eq!(!diagnostics.has_errors(), retained, "{source}: {diagnostics:#?}");
+
+        if !retained {
+            assert!(diagnostics.by_kind(DiagnosticKind::CheckingTrustedObligationNotProven).any(|diagnostic| {
+                diagnostic.primary_span().is_some_and(|span|
+                    diagnostic_at_call(diagnostic, span.source_id(), &source, "core.memory.write<Context>"))
+            }), "{diagnostics:#?}");
         }
     }
 }
@@ -378,10 +441,10 @@ fn raw_writes_invalidate_only_the_reached_witness_observations() {
 
 #[test]
 fn raw_retirement_distinguishes_private_descriptors_from_borrowed_storage() {
-    for (parameter, operation, valid) in [
-        ("Owner", "", true),
-        ("&Owner", "", false),
-        ("Owner", "_ = trusted core.memory.read<u8>(owner.pointer);", false),
+    for (parameter, operation, expected) in [
+        ("Owner", "", None),
+        ("&Owner", "", Some(DiagnosticKind::CheckingTrustedObligationNotProven)),
+        ("Owner", "_ = trusted core.memory.read<u8>(owner.pointer);", Some(DiagnosticKind::CheckingMemoryOperationAfterDeallocation)),
     ] {
         let source = r#"
             trusted module app;
@@ -431,13 +494,353 @@ fn raw_retirement_distinguishes_private_descriptors_from_borrowed_storage() {
         let checked = application.lowered_unit(source_function_body_key(&application, "probe"))
             .expect("raw retirement probe lowers");
 
-        assert_eq!(!checked.diagnostics().has_errors(), valid, "{parameter}, {operation}: {:?}", checked.diagnostics());
+        assert_eq!(!checked.diagnostics().has_errors(), expected.is_none(), "{parameter}, {operation}: {:?}", checked.diagnostics());
 
-        if !valid {
-            bray_testing::assert_goal_state_diagnostic_kind(checked.diagnostics(),
-                DiagnosticKind::CheckingTrustedObligationNotProven);
+        if let Some(expected) = expected {
+            bray_testing::assert_goal_state_diagnostic_kind(checked.diagnostics(), expected);
         }
     }
+}
+
+#[test]
+fn nested_raw_retirement_carries_only_definite_prior_consumption() {
+    for (body, capabilities, valid) in [
+        (
+            "let value = trusted core.memory.read<Value>(pointer); _ = value;",
+            "manual_alloc, raw_memory, unchecked_init",
+            true,
+        ),
+        (
+            "if should_consume { _ = trusted core.memory.read<Value>(pointer); }",
+            "manual_alloc, raw_memory, unchecked_init",
+            false,
+        ),
+        (
+            "let value = trusted core.memory.read<Value>(pointer); trusted core.memory.write<Value>(pointer, value);",
+            "manual_alloc, raw_memory, unchecked_init",
+            false,
+        ),
+    ] {
+        let source = format!(
+            r#"
+            trusted module app;
+
+            using core.memory;
+
+            struct Value
+            {{
+                payload: u64;
+
+                destruct() executes(pure, total)
+                {{
+                }}
+            }}
+
+            trusted func retire(pos pointer: DataPointer<u8>)
+                requires(trusted core.memory.owned_allocation(
+                    pointer = pointer,
+                    bytes = 1,
+                    align = 1
+                ))
+                uses(manual_alloc)
+            {{
+                trusted core.memory.deallocate(
+                    pointer,
+                    bytes = 1,
+                    align = 1
+                );
+            }}
+
+            trusted func probe(pos pointer: DataPointer<Value>, pos should_consume: bool)
+                requires(
+                    trusted core.memory.owned_allocation(
+                        pointer = core.memory.byte_address<Value>(pointer),
+                        bytes = 1,
+                        align = 1
+                    ),
+                    trusted core.memory.valid_read<Value>(pointer = pointer, count = 1),
+                    trusted core.memory.valid_write<Value>(pointer = pointer, count = 1),
+                    trusted core.memory.aligned_for<Value>(pointer = pointer)
+                )
+                uses({capabilities})
+            {{
+                trusted core.memory.write<Value>(pointer, {{ payload = 1 }});
+                {body}
+                trusted retire(core.memory.byte_address<Value>(pointer));
+            }}
+            "#
+        );
+
+        let application = compilation(&source);
+
+        let checked = application
+            .lowered_unit(source_function_body_key(&application, "probe"))
+            .expect("nested retirement fixture lowers");
+
+        assert_eq!(
+            !checked.diagnostics().has_errors(),
+            valid,
+            "{source}: {:?}",
+            checked.diagnostics()
+        );
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                checked.diagnostics(),
+                DiagnosticKind::CheckingDeallocationWithOutstandingObligations,
+            );
+        }
+    }
+}
+
+#[test]
+fn returned_raw_allocation_retains_the_exact_preceding_discharge() {
+    let source = r#"
+        trusted module app;
+
+        using core.memory;
+
+        struct Value
+        {
+            payload: u64;
+
+            destruct() executes(pure, total)
+            {
+            }
+        }
+
+        struct Allocation
+        {
+            pointer: DataPointer<u8>;
+
+            trusted destruct()
+                uses(manual_alloc)
+            {
+                trusted core.memory.deallocate(self.pointer, bytes = 1, align = 1);
+            }
+        }
+
+        trusted func take(pos pointer: DataPointer<Value>) -> Allocation
+            requires(
+                trusted core.memory.owned_allocation(
+                    pointer = core.memory.byte_address<Value>(pointer),
+                    bytes = 1,
+                    align = 1
+                ),
+                trusted core.memory.valid_read<Value>(pointer = pointer, count = 1),
+                trusted core.memory.initialized_as<Value>(pointer = pointer),
+                trusted core.memory.aligned_for<Value>(pointer = pointer)
+            )
+            ensures(trusted core.memory.owned_allocation(
+                pointer = result.pointer,
+                bytes = 1,
+                align = 1
+            ))
+            uses(raw_memory)
+        {
+            let value = trusted core.memory.read<Value>(pointer);
+            _ = value;
+
+            return
+            {
+                pointer = core.memory.byte_address<Value>(pointer)
+            };
+        }
+
+        trusted func probe(pos pointer: DataPointer<Value>)
+            requires(
+                trusted core.memory.owned_allocation(
+                    pointer = core.memory.byte_address<Value>(pointer),
+                    bytes = 1,
+                    align = 1
+                ),
+                trusted core.memory.valid_read<Value>(pointer = pointer, count = 1),
+                trusted core.memory.valid_write<Value>(pointer = pointer, count = 1),
+                trusted core.memory.aligned_for<Value>(pointer = pointer)
+            )
+            uses(manual_alloc, raw_memory, unchecked_init)
+        {
+            trusted core.memory.write<Value>(pointer, { payload = 1 });
+            _ = trusted take(pointer);
+        }
+    "#;
+
+    let application = compilation(source);
+
+    let checked = application
+        .lowered_unit(source_function_body_key(&application, "probe"))
+        .expect("returned raw allocation probe lowers");
+
+    assert!(!checked.diagnostics().has_errors(), "{:?}", checked.diagnostics());
+}
+
+#[test]
+fn nullable_allocation_publication_uses_its_declared_result_owner() {
+    let source = r#"
+        trusted module app;
+
+        using core.memory;
+
+        struct Allocation
+        {
+            pointer: DataPointer<u8>;
+
+            trusted destruct()
+                requires(trusted core.memory.owned_allocation(
+                    pointer = self.pointer,
+                    bytes = 1,
+                    align = 1
+                ))
+                uses(manual_alloc)
+            {
+                trusted core.memory.deallocate(self.pointer, bytes = 1, align = 1);
+            }
+        }
+
+        trusted func allocate() -> DataPointer<u8>
+            ensures(trusted core.memory.owned_allocation(
+                pointer = result,
+                bytes = 1,
+                align = 1
+            ))
+            uses(manual_alloc)
+        {
+            return trusted core.memory.allocate(bytes = 1, align = 1);
+        }
+
+        const func allocation_value(pos owner: &(Allocation?)) -> &Allocation
+            requires(owner matches ?_)
+            executes(pure, total)
+        {
+            return match owner
+            {
+                case ?value { yield &value; }
+                case none { panic("missing allocation"); }
+            };
+        }
+
+        trusted func try_allocation(pos present: bool) -> Allocation?
+            ensures(
+                result matches none || trusted core.memory.owned_allocation(
+                    pointer = allocation_value(&result).pointer,
+                    bytes = 1,
+                    align = 1
+                )
+            )
+            uses(manual_alloc)
+        {
+            if !present
+            {
+                return none;
+            }
+
+            return
+            {
+                pointer = trusted allocate()
+            };
+        }
+
+        trusted func release(pos allocation: Allocation)
+            requires(trusted core.memory.owned_allocation(
+                pointer = allocation.pointer,
+                bytes = 1,
+                align = 1
+            ))
+            uses(manual_alloc)
+        {
+            _ = allocation;
+        }
+
+        extern trusted func opaque();
+
+        func caller(pos present: bool, pos other_present: bool)
+            uses(manual_alloc)
+        {
+            let allocation = match consume trusted try_allocation(present)
+            {
+                case ?value { yield value; }
+                case none { return; }
+            };
+
+            trusted opaque();
+
+            let other = match consume trusted try_allocation(other_present)
+            {
+                case ?value { yield value; }
+                case none
+                {
+                    trusted release(allocation);
+                    return;
+                }
+            };
+
+            trusted release(allocation);
+            trusted release(other);
+        }
+    "#;
+
+    let application = compilation(source);
+    let producer = callable_dependencies(&application, source_function(&application, "try_allocation").into());
+
+    assert!(
+        producer.captured_values().iter().flat_map(|row| row.carriers.iter()).any(|carrier| {
+            carrier.path().first() == Some(&bray_symbols::DependencyProjection::NullableValue)
+        }),
+        "the trusted producer publishes its declared nullable allocation owner: {producer:#?}"
+    );
+
+    let checked = application
+        .lowered_unit(source_function_body_key(&application, "caller"))
+        .expect("nullable allocation consumer lowers");
+
+    assert!(!checked.diagnostics().has_errors(), "{:?}", checked.diagnostics());
+}
+
+#[test]
+fn copyable_access_from_an_owner_survives_the_temporary_loan() {
+    let source = r#"
+        trusted module app;
+
+        using core.memory;
+
+        struct Value
+        {
+            payload: u64;
+        }
+
+        struct Owner
+        {
+            pointer: DataPointer<Value>;
+        }
+
+        trusted predicate retained(owner: &Owner);
+
+        trusted func probe(pos owner: Owner)
+            requires(trusted retained(owner = &owner))
+            uses(raw_memory, unchecked_init)
+        {
+            let pointer = owner.pointer;
+
+            let permit = trusted lambda(pos owner: &Owner, pos pointer: DataPointer<Value>)
+                requires(trusted retained(owner = owner))
+                ensures(
+                    trusted core.memory.valid_write<Value>(pointer = pointer, count = 1),
+                    trusted core.memory.aligned_for<Value>(pointer = pointer)
+                )
+                executes(pure, total) {};
+
+            trusted permit(&owner, pointer);
+            trusted core.memory.write<Value>(pointer, { payload = 1 });
+        }
+    "#;
+
+    let application = compilation(source);
+
+    let checked = application
+        .lowered_unit(source_function_body_key(&application, "probe"))
+        .expect("copyable access probe lowers");
+
+    assert!(!checked.diagnostics().has_errors(), "{:?}", checked.diagnostics());
 }
 
 #[test]
@@ -601,32 +1004,41 @@ fn checked_raw_primitives_complete_only_on_their_required_storage_domains() {
             trusted func read_byte(pos pointer: DataPointer<u8>) -> u8
                 requires({requirements}) executes(pure, total) uses(raw_memory)
             {{
-                return trusted core.memory.read<u8>(pointer);
+                return core.memory.read<u8>(pointer);
             }}
         "#
         );
 
         let compilation = compilation(&source);
+        let diagnostics = compilation.check_diagnostics();
 
         assert_eq!(
-            !compilation.check_diagnostics().has_errors(),
+            !diagnostics.has_errors(),
             valid,
-            "{source}: {:?}",
-            compilation.check_diagnostics()
+            "{source}: {diagnostics:?}",
         );
+
+        if !valid {
+            assert!(diagnostics.by_kind(DiagnosticKind::CheckingTrustedObligationNotProven).any(|diagnostic| {
+                diagnostic.primary_span().is_some_and(|span|
+                    crate::test_support::diagnostic_at_call(diagnostic, span.source_id(), &source, "core.memory.read<u8>(pointer)"))
+            }), "{diagnostics:?}");
+        }
     }
 
-    for (pointee, result, access, body) in [
+    for (pointee, result, access, capabilities, body) in [
         (
             "u8",
             "u8",
             "write",
+            "raw_memory, unchecked_init",
             "trusted core.memory.write<u8>(pointer, 1); return 0;",
         ),
         (
             "Owner",
             "Owner",
             "read",
+            "raw_memory",
             "return trusted core.memory.read<Owner>(pointer);",
         ),
     ] {
@@ -645,7 +1057,7 @@ fn checked_raw_primitives_complete_only_on_their_required_storage_domains() {
                     trusted core.memory.aligned_for<{pointee}>(pointer = pointer),
                     trusted core.memory.initialized_as<{pointee}>(pointer = pointer),
                 )
-                executes(pure, total) uses(raw_memory, unchecked_init)
+                executes(pure, total) uses({capabilities})
             {{
                 {body}
             }}
@@ -669,7 +1081,7 @@ fn checked_raw_primitives_complete_only_on_their_required_storage_domains() {
             executes(total)
             uses(manual_alloc)
         {
-            return trusted core.memory.allocate(bytes = 1, align = 1);
+            return core.memory.allocate(bytes = 1, align = 1);
         }
     "#,
     );

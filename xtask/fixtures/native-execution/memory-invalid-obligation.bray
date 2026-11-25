@@ -2,10 +2,10 @@ trusted module application;
 
 using core.memory;
 
-trusted func main() -> u8
+trusted func main()
     uses(raw_memory)
 {
     let pointer = core.memory.null<u8>();
 
-    return trusted core.memory.read<u8>(pointer);
+    _ = trusted core.memory.read<u8>(pointer);
 }

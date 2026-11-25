@@ -15,6 +15,7 @@ mod matrix;
 mod lifecycle;
 mod numeric;
 mod owned_transfers;
+mod platform;
 mod requirements;
 mod returned_dependencies;
 mod standard_library;

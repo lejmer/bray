@@ -2,11 +2,12 @@ use std::collections::BTreeMap;
 
 use bray_bound_tree::{
     BoundDependencyContract, BoundDependencyRequirement, BoundDependencyRequirementKind,
-    BoundDependencySubject, CheckedDependencyContracts, CheckedSemanticSelections,
-    DependencyContractInstantiationError, SemanticSelection, StoragePlan,
+    BoundDependencySubject, CheckedDependencyContracts,
+    CheckedSemanticSelections, DependencyContractInstantiationError, SemanticSelection,
+    StoragePlan,
 };
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
-use bray_symbols::CallableSignatureQuery;
+use bray_symbols::{CallableSignatureQuery, ExactSymbolId};
 
 use super::call::{selected_call_contracts, selected_implicit_contracts};
 use super::operation::{operation_access_requirements, operation_requirements};
@@ -270,6 +271,23 @@ where
         Err(CheckerQueryError::Upstream(error)) => return CheckerOutcome::UpstreamFailure(error),
     };
 
+    let trusted = request.trusted_contracts();
+
+    for (&site, contracts) in &mut calls {
+        let declared = matches!(
+            site,
+            bray_bound_tree::BoundExecutionSite::Node(bray_bound_tree::AnyBoundNodeId::Expression(expression))
+                if matches!(selections.expression(expression),
+                    Some(SemanticSelection::Call(call)) if call.phase_behaviors().invocation()
+                        .execution_properties().contains(&crate::ExecutionProperty::Pure))
+        );
+
+        let requires_only_valid_inputs = trusted.and_then(|trusted| trusted.calls.get(&site))
+            .is_some_and(|contract| contract.preserves_inputs);
+
+        contracts.set_pure_normal_effect_bound(declared || requires_only_valid_inputs);
+    }
+
     let contracts = CheckedDependencyContracts::try_new(
         request.unit(),
         storage,
@@ -283,11 +301,15 @@ where
     .expect(
         "checked source access plans and selected invocations define valid dependency contracts",
     )
-    .with_lifecycle_dependencies(lifecycle_dependencies);
+    .with_lifecycle_dependencies(lifecycle_dependencies)
+    .with_lifecycle_dependencies_from_storage(storage, crate::storage::value_transfer_destinations(request, storage));
 
     let prepared = super::conditions::references(request).and_then(|references| {
         prepare_static_carriers(request, contracts.with_condition_references(references))
     }).and_then(|contracts| {
+        let callees = frame_callees(request, &contracts)?;
+        let contracts = contracts.with_frame_callees(callees);
+
         let variants = super::projection::prepare_variants(
             request,
             &contracts,
@@ -403,8 +425,109 @@ fn prepare_static_carriers<C: CheckerRequestContext + ?Sized>(
 
         let template = values.dependency_contract_template_data(template);
 
-        static_carriers.insert(selection.clone(), template.carriers().into());
+        static_carriers.insert(selection.clone(), template.common_carriers());
     }
 
     Ok(contracts.with_static_carriers(static_carriers))
+}
+
+/// Resolve only callees named in a produced value. Their own results remain demand-driven.
+fn frame_callees<C>(
+    request: CheckerUnitView<'_, C>,
+    contracts: &CheckedDependencyContracts,
+) -> crate::CheckerQueryResult<BTreeMap<bray_symbols::CapturedCallable, bray_bound_tree::BoundDeferredCallable>, C::UpstreamError>
+where C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized {
+    let mut callees = BTreeMap::new();
+    let values = request.semantic_values();
+
+    let bindings = contracts.calls().values().flat_map(|call| {
+        call.captured_values().iter().flat_map(|row| row.bindings.iter())
+            .chain([Some(call.reports()), call.deferred_reports()].into_iter().flatten()
+                .flat_map(|reports| reports.failures().into_iter().flatten()).flat_map(|row| row.writes.iter()))
+    }).chain(contracts.lifecycle_dependencies().values().flat_map(|contract| {
+        contract.captured_values().iter().flat_map(|row| row.bindings.iter())
+            .chain(contract.failure_outcomes().into_iter().flatten().flat_map(|row| row.writes.iter()))
+    }));
+
+    for callee in bindings.flat_map(|(_, value)| value.callees()) {
+        if callees.contains_key(callee) { continue; }
+
+        let instance = values.callable_instance_data(callee.instance);
+
+        let (instance, contextual_self) = match callee.requirement {
+            Some(requirement) if bray_symbols::TraitCallableMemberSymbolId::try_from_any(instance.definition().symbol()).is_some() => {
+                let witnesses = callee.dispatch.iter().chain(&*callee.witnesses).copied().collect::<Vec<_>>();
+
+                let Some((selected, context, _)) = request.context().witness_callable(callee.instance, requirement, &witnesses)? else { continue; };
+
+                (selected, Some((context, requirement.subject())))
+            }
+            _ => (*instance, None),
+        };
+
+        let summary = request.callable_result_dependencies(instance.definition().callable_symbol())?;
+
+        let summary = super::witness::instantiate_template(request, summary, super::parameters::ResultKey {
+            callable: instance, contextual_self, output: bray_symbols::DependencyCallOutput::Value,
+        })?;
+
+        let selected_type = values.type_data(callee.signature);
+
+        let bray_symbols::TypeData::Callable(signature) = selected_type.as_ref() else {
+            panic!("a carried selection retains its checked callable signature");
+        };
+
+        let execution = signature.dependency_contracts().deferred_execution()
+            .map(|contract| values.dependency_contract_template_data(contract));
+
+        use bray_symbols::DependencySubjectRoot;
+
+        let captures = callee.receiver.map(|ty| (DependencySubjectRoot::Receiver, ty))
+            .into_iter()
+            .chain(signature.parameters().iter().enumerate().map(|(index, parameter)| {
+                let ordinal = bray_symbols::SymbolOrdinal::new(u32::try_from(index).expect("checked parameter ordinal fits"));
+
+                (DependencySubjectRoot::Parameter(ordinal), parameter.ty())
+            })).collect::<Vec<_>>();
+
+        let (capture_cleanup, result_cleanup) = super::cleanup::prepare_future_effects(
+            request, captures.iter().copied(), signature.result(),
+        )?;
+
+        let execution_subjects = execution.iter().flat_map(|contract| contract.requirement_subjects());
+
+        let cleanup = capture_cleanup.iter().chain(&result_cleanup);
+
+        let storage = super::prepare_call_storage(request, &summary, cleanup, execution_subjects, [], None, |subject| {
+
+            let root = subject.subject_root();
+
+            let ty = match root {
+                DependencySubjectRoot::Receiver => callee.receiver,
+                DependencySubjectRoot::Parameter(ordinal) => ordinal.to_index()
+                    .and_then(|index| signature.parameters().get(index)).map(|parameter| parameter.ty()),
+                DependencySubjectRoot::Result => Some(signature.result()),
+                root => crate::storage::static_subject_type(request, root)?,
+            };
+
+            match ty {
+                Some(ty) => super::reference_subject_path(request, subject, ty),
+                None => Ok(None),
+            }
+        })?;
+
+        callees.insert(callee.clone(), bray_bound_tree::BoundDeferredCallable {
+            instance,
+            storage,
+            capture_types: captures.iter().map(|(_, ty)| *ty).collect(),
+            capture_cleanup: capture_cleanup.into(),
+            result_cleanup: result_cleanup.into(),
+            summary,
+            execution,
+            hook: request.implementation_hook(instance.definition().symbol())?
+                .filter(|resolution| resolution.is_available()).map(|resolution| resolution.hook()),
+        });
+    }
+
+    Ok(callees)
 }

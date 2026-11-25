@@ -1,4 +1,4 @@
-module bray.standard_library_tests.format_real_conversion;
+trusted module bray.standard_library_tests.format_real_conversion;
 
 using std.bytes;
 using std.format;

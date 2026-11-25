@@ -1,28 +1,81 @@
 use crate::analysis::storage_flow::memory::Effect;
 use bray_symbols::DependencyMutationKind;
 use std::borrow::Cow;
-use std::collections::{BTreeMap, BTreeSet};
 
 use super::super::core::StorageFlowCollector;
+use super::{ReachedReferenceRegions, ResolvedEscapes};
 use crate::CheckerRequestContext;
 use crate::analysis::storage_flow::memory::{Origin, Place, Source, Target};
-use crate::analysis::storage_flow::model::StorageFlowState;
-use bray_bound_tree::{BoundExecutionSite, BoundExpressionId, SemanticSelection};
+use crate::analysis::storage_flow::model::{EffectPrefix, StorageFlowState};
+use bray_bound_tree::{
+    BoundExecutionSite, BoundExpressionId, SemanticSelection, StorageMutationScope,
+};
 use bray_symbols::DependencySubjectRoot;
 
 impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
+    pub(in crate::analysis::storage_flow::check::analysis) fn operation_escapes(
+        &mut self,
+        state: &StorageFlowState,
+        execution: &crate::analysis::guarantee::ExecutionState,
+        operation: crate::analysis::model::AnalysisOperationKind,
+        (assignment, assignment_effects): (Option<&ReachedReferenceRegions>, Option<&[Effect]>),
+        (inputs, call_effects): (Option<&ReachedReferenceRegions>, Option<&[Effect]>),
+        scheduled: bool,
+    ) -> (ResolvedEscapes, EffectPrefix) {
+        let mut prefix = EffectPrefix::default();
+
+        let mut escaped = assignment
+            .map(|roots| {
+                self.address_escapes(
+                    state,
+                    execution,
+                    operation,
+                    assignment_effects,
+                    roots,
+                    &mut prefix,
+                )
+            })
+            .unwrap_or_default();
+
+        if let Some(roots) = inputs {
+            let mut concurrent = EffectPrefix::default();
+
+            let call_prefix = if scheduled {
+                &mut concurrent
+            } else {
+                &mut prefix
+            };
+
+            let incoming = self.address_escapes(
+                state,
+                execution,
+                operation,
+                call_effects,
+                roots,
+                call_prefix,
+            );
+
+            escaped.reached.extend(incoming.reached);
+            escaped.published.extend(incoming.published);
+        }
+
+        (escaped, prefix)
+    }
+
     pub(in crate::analysis::storage_flow::check::analysis) fn address_escapes(
         &mut self,
-        state: &mut StorageFlowState,
+        state: &StorageFlowState,
+        execution: &crate::analysis::guarantee::ExecutionState,
         operation: crate::analysis::model::AnalysisOperationKind,
         effects: Option<&[crate::analysis::storage_flow::memory::Effect]>,
-        roots: &[Target],
-        normal_effects: bool,
-    ) -> BTreeSet<Target> {
-        let memory = matches!(operation.occurrence(), BoundExecutionSite::Node(_))
+        roots: &ReachedReferenceRegions,
+        prefix: &mut EffectPrefix,
+    ) -> ResolvedEscapes {
+        let occurrence = operation.occurrence();
+
+        let memory = matches!(occurrence, BoundExecutionSite::Node(_))
             .then(|| {
-                operation
-                    .occurrence()
+                occurrence
                     .expression()
                     .and_then(|expression| self.memory.operation(expression))
             })
@@ -39,7 +92,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         }) {
             // These compiler-owned operations retire backing, extract an element,
             // or update its live prefix without publishing an input address.
-            return BTreeSet::new();
+            return ResolvedEscapes::default();
         }
 
         let exposed_integer = memory.is_some_and(|operation| {
@@ -50,23 +103,33 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         });
 
         if memory.is_some_and(|operation| match operation.kind() {
-            bray_bound_tree::CheckedMemoryOperationKind::Copy { pointee, .. } =>
-                self.input.footprint.complete_reference_types.get(pointee) == Some(&true),
+            bray_bound_tree::CheckedMemoryOperationKind::Copy { pointee, .. } => {
+                self.input.footprint.complete_reference_types.get(pointee) == Some(&true)
+            }
             bray_bound_tree::CheckedMemoryOperationKind::ByteBufferFill => true,
             _ => false,
         }) {
             // Storing reference-free data publishes neither the source nor the
             // destination pointer. Its destination mutation is modeled separately.
-            return BTreeSet::new();
+            return ResolvedEscapes::default();
         }
 
-        if memory.is_some_and(|operation| matches!(operation.kind(),
-            bray_bound_tree::CheckedMemoryOperationKind::RawBufferRelocate { .. }
-                | bray_bound_tree::CheckedMemoryOperationKind::RawBufferReplace { .. }
-                | bray_bound_tree::CheckedMemoryOperationKind::RawBufferRelease { .. }
-        )) {
+        if memory.is_some_and(|operation| {
+            matches!(
+                operation.kind(),
+                bray_bound_tree::CheckedMemoryOperationKind::RawBufferRelocate { .. }
+                    | bray_bound_tree::CheckedMemoryOperationKind::RawBufferReplace { .. }
+                    | bray_bound_tree::CheckedMemoryOperationKind::RawBufferRelease { .. }
+            )
+        }) {
             // The owning primitive supplies the stored payload's exact escape roots.
-            return self.escape_effects(&state.memory, effects, &[], false, normal_effects);
+            return self.escape_effects(
+                &state.memory,
+                effects,
+                &ReachedReferenceRegions::default(),
+                false,
+                (occurrence, Some(prefix)),
+            );
         }
 
         let direct_write = memory.is_some()
@@ -79,7 +142,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             && effects.is_none_or(|effects| {
                 effects
                     .iter()
-                    .any(|effect| effect.may_retain_address(&state.memory))
+                    .any(|effect| state.memory.may_retain_address(effect))
             });
 
         if let Some(operation) = memory
@@ -94,24 +157,31 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             // Dereferencing the destination does not publish its address. Only
             // references contained in the stored value can escape through this write.
             let value = operation.arguments()[1];
-            let mut stored = Vec::new();
+            let capture = self.captured_memory_operand(execution, operation, value);
 
-            self.append_reference_roots(
-                state,
-                value.into(),
-                self.memory_argument_target(state, operation, value).and_then(|target| target.storage_path().cloned()),
-                self.memory_argument_reference(state, operation, value),
-                &mut stored,
-            );
+            let stored = ReachedReferenceRegions::new(capture.into_iter().flat_map(|capture| {
+                capture.carried_reference_regions().chain(
+                    capture
+                        .carried_sources()
+                        .cloned()
+                        .map(|target| (target, bray_symbols::DependencyReferenceKind::Address)),
+                )
+            }));
 
-            self.escape_effects(&state.memory, Some(&[]), &stored, may_store, normal_effects)
+            self.escape_effects(
+                &state.memory,
+                Some(&[]),
+                &stored,
+                may_store,
+                (occurrence, Some(prefix)),
+            )
         } else {
             self.escape_effects(
                 &state.memory,
                 effects,
                 roots,
                 exposed_integer || may_store,
-                normal_effects,
+                (occurrence, Some(prefix)),
             )
         }
     }
@@ -120,393 +190,307 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         &mut self,
         memory: &crate::analysis::storage_flow::memory::State,
         effects: Option<&[crate::analysis::storage_flow::memory::Effect]>,
-        roots: &[Target],
+        roots: &ReachedReferenceRegions,
         retain_inputs: bool,
-        normal_effects: bool,
-    ) -> BTreeSet<Target> {
-
+        (occurrence, mut prefix): (BoundExecutionSite, Option<&mut EffectPrefix>),
+    ) -> ResolvedEscapes {
         let all_inputs = retain_inputs
             || effects.is_none_or(|effects| {
                 effects
                     .iter()
-                    .any(|effect| matches!(effect, Effect::Escape))
+                    .any(|effect| matches!(effect, Effect::Escape(_) | Effect::BorrowedReach(_)))
             });
 
         let targets = effects
             .into_iter()
             .flatten()
-            .filter_map(|effect| match effect {
-                Effect::Mutation(target, DependencyMutationKind::Escape, _) => Some(target),
-                _ => None,
-            })
-            .chain(roots.iter().filter(|_| all_inputs))
+            .flat_map(Effect::escape_regions)
             .cloned()
-            .collect::<Vec<_>>();
+            .map(|target| (target, bray_symbols::DependencyReferenceKind::Address))
+            .chain(roots.classified().filter(|_| all_inputs))
+            .chain(
+                Effect::borrowed_reach_regions(effects.unwrap_or_default())
+                    .cloned()
+                    .map(|target| (target, bray_symbols::DependencyReferenceKind::Borrow)),
+            );
 
         // Cleanup can publish references stored in the disposed value. Its own
         // receiver address remains governed by the terminal receiver contract.
         let cleanup_references = effects.into_iter().flatten().flat_map(|effect| {
             match effect {
-                Effect::Mutation(target, kind @ (DependencyMutationKind::Dispose(_) | DependencyMutationKind::Cleanup(_)), _) => {
-                    Some(matches!(kind, DependencyMutationKind::Cleanup(_)).then_some(target).into_iter().chain(memory.contained_regions(target)))
-                }
+                Effect::Mutation {
+                    footprint: target,
+                    kind,
+                    ..
+                } if kind.cleanup_type().is_some() => Some(
+                    matches!(kind, DependencyMutationKind::Cleanup(_))
+                        .then_some((
+                            target.clone(),
+                            bray_symbols::DependencyReferenceKind::Address,
+                        ))
+                        .into_iter()
+                        .chain(memory.contained_reference_regions(target)),
+                ),
                 _ => None,
-            }.into_iter().flatten().cloned()
+            }
+            .into_iter()
+            .flatten()
         });
 
-        let roots = targets.into_iter().chain(cleanup_references).collect::<Vec<_>>();
+        let roots = ReachedReferenceRegions::new(
+            targets.chain(cleanup_references).chain(
+                Effect::captured_cleanup_reference_regions(effects.unwrap_or_default())
+                    .map(|(target, kind)| (target.clone(), kind)),
+            ),
+        );
 
-        // A possible alias inside this body is not an unconditional input escape.
-        // Retain the operands so callers resolve aliases using their actual storage.
-        for target in memory.escape_roots(roots.iter().cloned()) {
+        // A possible alias inside this body is not an unconditional raw-address
+        // publication. Retain both safe-borrow operands and published raw operands
+        // so callers resolve the effect using their actual storage.
+        let borrowed = roots.classified().filter_map(|(target, kind)| {
+            (kind == bray_symbols::DependencyReferenceKind::Borrow).then_some(target)
+        });
+
+        let portable = memory
+            .escape_roots(roots.classified(), Some(occurrence))
+            .into_iter()
+            .chain(borrowed)
+            .collect::<std::collections::BTreeSet<_>>();
+
+        for target in portable {
             self.record_target_effect(
                 memory,
                 &target,
+                false,
                 DependencyMutationKind::Escape,
                 None,
-                normal_effects,
+                &[],
+                prefix.as_deref_mut(),
             );
         }
 
-        memory.escaped_regions(roots)
+        let (reached, published, borrowed) =
+            memory.escaped_regions(roots.classified(), Some(occurrence));
+
+        ResolvedEscapes { reached, published, borrowed }
     }
 
-    pub(in crate::analysis::storage_flow::check::analysis) fn invocation_roots(
+    pub(in crate::analysis::storage_flow::check::analysis) fn invocation_state_roots(
         &self,
         state: &StorageFlowState,
         occurrence: BoundExecutionSite,
-    ) -> Vec<Target> {
+        entry: Option<&crate::ExecutionCallEvidence>,
+    ) -> ReachedReferenceRegions {
         let mut roots = Vec::new();
+        let memory = &state.memory;
+        let mut has_planned_inputs = false;
+        let mut unresolved_inputs = std::collections::BTreeSet::new();
 
-        if matches!(
-            occurrence,
-            BoundExecutionSite::Iterate(_)
-                | BoundExecutionSite::Next(_)
-                | BoundExecutionSite::ScopedEnter(_)
-                | BoundExecutionSite::ScopedExit(_)
-        ) {
-            let selection = self
-                .execution
-                .semantics
-                .selections()
-                .expression(
-                    occurrence
-                        .expression()
-                        .expect("implicit invocation has its owner"),
-                )
-                .expect("implicit invocation retains its selected protocol");
+        let borrow_kind = |capability: Option<bray_bound_tree::BorrowCapabilityId>| {
+            capability
+                .and_then(|capability| self.storage.borrow_capability(capability))
+                .map(bray_bound_tree::PlannedBorrowCapability::kind)
+        };
 
-            let root = selection
-                .invocation_input_root(occurrence, bray_symbols::SymbolOrdinal::new(0))
-                .expect("implicit invocation retains its sole formal input");
-
-            let input = selection
-                .invocation_input_site(occurrence, root)
-                .expect("implicit invocation retains its sole actual input");
-
-            self.append_reference_roots(
-                state,
-                input,
-                self.invocation_place(occurrence, root),
-                self.invocation_reference(state, occurrence, root),
-                &mut roots,
-            );
-
-            return roots;
-        }
-
-        if let Some(expression) = occurrence.expression()
-            && let Some(selection) = self.execution.semantics.selections().expression(expression)
-            && selection.stages_inputs()
+        if let Some(selection) = occurrence
+            .expression()
+            .and_then(|expression| self.execution.semantics.selections().expression(expression))
         {
-            if let BoundExecutionSite::CallInput { ordinal, .. } = occurrence {
-                let input = selection
-                    .input(ordinal)
-                    .expect("input roots retain their selected input");
-
-                if let Some(argument) = input.expression() {
-                    self.append_reference_roots(
-                        state,
-                        argument.into(),
-                        self.argument_storage(argument),
-                        self.invocation_reference(
-                            state,
-                            occurrence,
-                            DependencySubjectRoot::Receiver,
-                        ),
-                        &mut roots,
-                    );
-
-                    return roots;
-                }
-
-                if !matches!(
-                    input.default_provider(),
-                    Some(bray_symbols::DefaultValueProvider::CallableParameter(_))
-                ) {
-                    return roots;
-                }
-            }
-
             for input in selection.inputs() {
+                has_planned_inputs = true;
+
                 let root = input.root();
 
                 let ordinal = selection
                     .input_ordinal(root)
-                    .expect("selected input has an ordinal");
+                    .expect("a selected input retains its receiver-first ordinal");
 
-                if matches!(occurrence, BoundExecutionSite::CallInput { ordinal: current, .. } if ordinal >= current)
-                {
+                let first_root = roots.len();
+
+                let Some(source) = self.invocation_reference(state, occurrence, root) else {
+                    unresolved_inputs.insert(ordinal);
+
                     continue;
-                }
-
-                self.append_reference_roots(
-                    state,
-                    BoundExecutionSite::CallInput {
-                        expression,
-                        ordinal,
-                    },
-                    self.invocation_place(occurrence, root),
-                    self.invocation_reference(state, occurrence, root),
-                    &mut roots,
-                );
-            }
-
-            return roots;
-        }
-
-        if let Some(expression) = occurrence
-            .expression()
-            .and_then(|id| self.request.view().expression(id))
-        {
-            // An awaited task retains inputs even though its invocation is deferred.
-            let receiver = invocation_argument(
-                self.request.view(),
-                self.execution.semantics.selections(),
-                occurrence,
-                DependencySubjectRoot::Receiver,
-            );
-
-            let callee = match expression {
-                bray_bound_tree::BoundExpression::Call(call) => Some(call.callee()),
-                bray_bound_tree::BoundExpression::ErrorCall(call) => Some(call.callee()),
-                _ => None,
-            };
-
-            // Callable values are capture-free. Their code address is not a data
-            // input. An explicit receiver still contributes its own storage.
-            for argument in expression
-                .child_expressions()
-                .filter(|argument| Some(*argument) != callee)
-                .chain(receiver)
-            {
-                // An implicit receiver borrow already names its physical target. Its
-                // retained lifetime anchor can be a different object, such as a guard.
-                let source = if receiver == Some(argument) {
-                    self.invocation_reference(state, occurrence, DependencySubjectRoot::Receiver)
-                } else {
-                    self.expression_reference(state, argument)
                 };
 
-                self.append_reference_roots(
-                    state,
-                    argument.into(),
-                    self.argument_storage(argument),
-                    source,
-                    &mut roots,
+                let values = self.request.semantic_values();
+
+                let input_borrow_kind = match values.type_data(input.ty(values)).as_ref() {
+                    bray_symbols::TypeData::Borrow { kind, .. } => Some(*kind),
+                    _ => None,
+                };
+
+                let regions = source.regions(memory);
+
+                if let Some(regions) = &regions {
+                    let kind = if input_borrow_kind.is_some() {
+                        bray_symbols::DependencyReferenceKind::Borrow
+                    } else {
+                        source.reference_kind(memory)
+                    };
+
+                    roots.extend(
+                        regions
+                            .iter()
+                            .cloned()
+                            .map(|target| (target, kind, input_borrow_kind)),
+                    );
+                }
+
+                let locations = match &source {
+                    Source::Value(location) => std::slice::from_ref(location),
+                    Source::Borrow(_) => regions.as_deref().unwrap_or_default(),
+                    Source::Captured(_) => &[],
+                };
+
+                for location in locations {
+                    for (slot, target, kind, capability) in
+                        memory.contained_reference_bindings(location)
+                    {
+                        if input_borrow_kind.is_some()
+                            && matches!(&source, Source::Value(source) if source == slot)
+                        {
+                            continue;
+                        }
+
+                        roots.push((target, kind, borrow_kind(capability)));
+                    }
+                }
+
+                if roots.len() == first_root {
+                    unresolved_inputs.insert(ordinal);
+                }
+            }
+        }
+
+        roots.extend(self.captured_invocation_root_bindings(
+            memory,
+            entry,
+            has_planned_inputs.then_some(&unresolved_inputs),
+        ));
+
+        ReachedReferenceRegions::with_borrow_kinds(roots)
+    }
+
+    pub(in crate::analysis::storage_flow::check::analysis) fn invocation_roots(
+        &self,
+        memory: &crate::analysis::storage_flow::memory::State,
+        entry: Option<&crate::ExecutionCallEvidence>,
+    ) -> ReachedReferenceRegions {
+        ReachedReferenceRegions::with_borrow_kinds(
+            self.captured_invocation_root_bindings(memory, entry, None),
+        )
+    }
+
+    fn captured_invocation_root_bindings(
+        &self,
+        memory: &crate::analysis::storage_flow::memory::State,
+        entry: Option<&crate::ExecutionCallEvidence>,
+        unresolved_inputs: Option<&std::collections::BTreeSet<bray_symbols::SymbolOrdinal>>,
+    ) -> Vec<(
+        Target,
+        bray_symbols::DependencyReferenceKind,
+        Option<bray_symbols::BorrowKind>,
+    )> {
+        let mut roots = Vec::new();
+
+        let borrow_kind = |capability: Option<bray_bound_tree::BorrowCapabilityId>| {
+            capability
+                .and_then(|capability| self.storage.borrow_capability(capability))
+                .map(bray_bound_tree::PlannedBorrowCapability::kind)
+        };
+
+        let mut capture =
+            |argument: &crate::ExecutionCondition,
+             input_borrow_kind: Option<bray_symbols::BorrowKind>| {
+                let Some(value) = argument.inline_captured_storage() else {
+                    return;
+                };
+
+                if let Some(regions) = value.address_regions() {
+                    let binding = value.binding();
+
+                    let kind = if input_borrow_kind.is_some() {
+                        bray_symbols::DependencyReferenceKind::Borrow
+                    } else {
+                        binding.map_or(
+                            bray_symbols::DependencyReferenceKind::Address,
+                            bray_bound_tree::StorageValueBinding::reference_kind,
+                        )
+                    };
+
+                    let capability =
+                        binding.and_then(bray_bound_tree::StorageValueBinding::borrow_capability);
+
+                    roots.extend(regions.into_iter().map(|target| {
+                        (
+                            target,
+                            kind,
+                            input_borrow_kind.or_else(|| borrow_kind(capability)),
+                        )
+                    }));
+
+                    return;
+                }
+
+                roots.extend(
+                    value
+                        .carried_reference_bindings()
+                        .map(|(target, kind, capability)| (target, kind, borrow_kind(capability))),
+                );
+
+                roots.extend(
+                    value.carried_sources().cloned().map(|target| {
+                        (target, bray_symbols::DependencyReferenceKind::Address, None)
+                    }),
+                );
+
+                // A value with an opaque layout can still carry actual loan support.
+                for support in value.dependency_support() {
+                    for subject in &support.subjects {
+                        if let bray_bound_tree::BoundDependencySubject::BorrowCapability(loan) =
+                            *subject
+                        {
+                            roots.extend(memory.borrow_regions(loan).into_iter().flatten().map(
+                                |target| {
+                                    (
+                                        target,
+                                        bray_symbols::DependencyReferenceKind::Borrow,
+                                        borrow_kind(Some(loan)),
+                                    )
+                                },
+                            ));
+                        }
+                    }
+                }
+            };
+
+        for (ordinal, argument) in entry
+            .into_iter()
+            .flat_map(crate::ExecutionCallEvidence::positional_arguments)
+        {
+            if unresolved_inputs.is_none_or(|inputs| inputs.contains(&ordinal)) {
+                capture(
+                    argument,
+                    entry.and_then(|entry| entry.argument_borrow_kind(ordinal)),
                 );
             }
         }
 
-        roots
-    }
-
-    pub(in crate::analysis::storage_flow::check::analysis) fn assignment_roots(
-        &self,
-        state: &StorageFlowState,
-        operation: crate::analysis::model::AnalysisOperationKind,
-    ) -> Vec<Target> {
-        let Some(bray_bound_tree::BoundExpression::Assignment(assignment)) = operation
-            .occurrence()
-            .expression()
-            .and_then(|expression| self.request.view().expression(expression))
-        else {
-            return Vec::new();
-        };
-
-        let [_, value] = assignment.operands() else {
-            unreachable!("checked assignment has a destination and stored value");
-        };
-
-        let mut roots = Vec::new();
-
-        self.append_reference_roots(
-            state,
-            (*value).into(),
-            self.argument_storage(*value),
-            self.expression_reference(state, *value),
-            &mut roots,
-        );
-
-        roots
-    }
-
-    fn append_reference_roots(
-        &self,
-        state: &StorageFlowState,
-        argument: BoundExecutionSite,
-        place: Option<Place>,
-        source: Option<Source>,
-        roots: &mut Vec<Target>,
-    ) {
-        let regions = source.and_then(|source| source.regions(&state.memory));
-
-        if regions.is_none()
-            && let Some(regions) = place.as_ref().and_then(|place| {
-                self.input
-                    .inline_regions(&state.memory, self.storage, place)
-            })
+        for (_, argument) in entry
+            .into_iter()
+            .flat_map(crate::ExecutionCallEvidence::positional_arguments)
         {
-            roots.extend(regions);
-            return;
-        }
-
-        if let Some(place) = &place {
-            roots.extend(
-                state
-                    .memory
-                    .contained_regions(&Target::storage(place.clone()))
-                    .cloned(),
-            );
-
-            if regions.is_none() && self.input.reference_free(self.storage, place).is_none() {
-                // Unknown value contents remain symbolic entry values until instantiation.
-                roots.push(Target::storage(place.clone()));
-            }
-        }
-
-        if let Some(regions) = regions {
-            // The physical target is authoritative. Its lifetime anchor need
-            // not be reachable through the reference, as with a lock guard.
-            roots.extend(regions);
-        } else {
-            // Opaque task representations can retain a loan without
-            // publishing a physical field. Its possible targets bound effects,
-            // but never establish exact reference equality.
-            for dependency in self.liveness.retained_by(argument) {
-                if let bray_bound_tree::BoundDependencySubject::BorrowCapability(capability) =
-                    dependency
-                {
-                    roots.extend(
-                        state
-                            .memory
-                            .borrow_regions(capability)
-                            .into_iter()
-                            .flatten(),
-                    );
+            for frame in argument.deferred_values() {
+                for producer in frame.producers.values() {
+                    for (ordinal, input) in producer.entry.positional_arguments() {
+                        capture(input, producer.entry.argument_borrow_kind(ordinal));
+                    }
                 }
             }
         }
-    }
 
-    pub(in crate::analysis::storage_flow::check::analysis) fn invocation_borrow_origins(
-        &self,
-        occurrence: BoundExecutionSite,
-    ) -> BTreeMap<BoundExecutionSite, std::collections::BTreeSet<Place>> {
-        let mut borrow_origins = BTreeMap::new();
-
-        if let Some(expression) = occurrence.expression()
-            && let Some(selection) = self.execution.semantics.selections().expression(expression)
-        {
-            let current = match occurrence {
-                BoundExecutionSite::CallInput { ordinal, .. } => Some((
-                    ordinal,
-                    selection
-                        .input(ordinal)
-                        .expect("borrow origins retain the exact input"),
-                )),
-                _ => None,
-            };
-
-            let source = current.and_then(|(_, input)| {
-                input
-                    .expression()
-                    .map(|source| (source.into(), input.ty(self.request.semantic_values())))
-            });
-
-            let prefix = current.is_none_or(|(_, input)| {
-                matches!(
-                    input.default_provider(),
-                    Some(bray_symbols::DefaultValueProvider::CallableParameter(_))
-                )
-            });
-
-            let inputs =
-                source
-                    .into_iter()
-                    .chain(selection.inputs().filter(|_| prefix).filter_map(|input| {
-                        let ordinal = selection
-                            .input_ordinal(input.root())
-                            .expect("selected input has its ordinal");
-
-                        if current.is_some_and(|(current, _)| ordinal >= current) {
-                            return None;
-                        }
-
-                        Some((
-                            selection.input_site(expression, input.root())?,
-                            input.ty(self.request.semantic_values()),
-                        ))
-                    }));
-
-            for (argument, ty) in inputs {
-                if !matches!(
-                    self.request.semantic_values().type_data(ty).as_ref(),
-                    bray_symbols::TypeData::Borrow { .. }
-                ) {
-                    continue;
-                }
-
-                let owners = self
-                    .liveness
-                    .retained_by(argument)
-                    .filter_map(|subject| {
-                        let access = match subject {
-                            bray_bound_tree::BoundDependencySubject::BorrowCapability(borrow) => {
-                                let capability = self
-                                    .storage
-                                    .borrow_capability(borrow)
-                                    .expect("checked lifetime dependency retains its loan");
-
-                                if capability.entry_binding().is_some() {
-                                    return None;
-                                }
-
-                                capability.access()
-                            }
-                            bray_bound_tree::BoundDependencySubject::StorageAccess(access)
-                                if self.input.retained_storage.contains(&access) =>
-                            {
-                                access
-                            }
-                            _ => return None,
-                        };
-
-                        if self.borrow_reaches_external_storage(access) {
-                            return None;
-                        }
-
-                        self.storage.logical_path(access).cloned()
-                    })
-                    .collect();
-
-                // Physical provenance can differ from the lifetime anchor of a trusted borrow.
-                // Consume the ordinary dependency analysis instead of reconstructing ownership.
-                borrow_origins.insert(argument, owners);
-            }
-        }
-
-        borrow_origins
+        roots
     }
 
     pub(in crate::analysis::storage_flow::check::analysis) fn invocation_place(
@@ -514,22 +498,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         occurrence: BoundExecutionSite,
         root: DependencySubjectRoot,
     ) -> Option<Place> {
-        if let DependencySubjectRoot::ProductStatic(declaration)
-        | DependencySubjectRoot::ExactThreadStatic(declaration) = root
-        {
-            return self
-                .storage
-                .binding(bray_bound_tree::StorageBindingTarget::Static(declaration))
-                .map(|binding| match binding {
-                    bray_bound_tree::StorageBinding::Identity(identity) => Place::root(identity),
-                    bray_bound_tree::StorageBinding::Access(access) => self
-                        .storage
-                        .logical_path(access)
-                        .expect("planned static binding has a logical path")
-                        .clone(),
-                });
-        }
-
         if root == DependencySubjectRoot::Result {
             return self.invocation_result(occurrence);
         }
@@ -551,8 +519,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
             return self
                 .storage
-                .occurrence_plans(occurrence)
-                .find(|plan| plan.purpose() != bray_bound_tree::StorageAccessPurpose::Initialize)
+                .implicit_input_plan(occurrence)
                 .and_then(|plan| self.storage.logical_path(plan.access()))
                 .cloned();
         }
@@ -591,9 +558,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         occurrence: BoundExecutionSite,
         root: DependencySubjectRoot,
     ) -> Vec<bray_bound_tree::StorageProjection> {
-        let Some(selection) = occurrence.expression().and_then(|expression| {
-            self.execution.semantics.selections().expression(expression)
-        }) else {
+        let Some(selection) = occurrence
+            .expression()
+            .and_then(|expression| self.execution.semantics.selections().expression(expression))
+        else {
             return Vec::new();
         };
 
@@ -610,13 +578,18 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         };
 
         if !input.conversion().is_some_and(|conversion| {
-            matches!(conversion.target(), bray_bound_tree::ConversionTarget::NullablePresent)
+            matches!(
+                conversion.target(),
+                bray_bound_tree::ConversionTarget::NullablePresent
+            )
         }) {
             return Vec::new();
         }
 
         self.reference_wrapping(
-            input.expression().expect("an adapted input retains its source"),
+            input
+                .expression()
+                .expect("an adapted input retains its source"),
             input.ty(self.request.semantic_values()),
         )
         .expect("a checked nullable adaptation retains its complete wrapping")
@@ -636,16 +609,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         // These projections belong to the formal value. They do not name cells
         // in the caller's unwrapped argument, including beneath raw pointers.
-        let projections = path.projections().strip_prefix(wrapping.as_slice())?;
-
-        let borrows = path.borrows().iter().map(|(index, ty)| {
-            Some((index.checked_sub(wrapping.len())?, *ty))
-        }).collect::<Option<Vec<_>>>()?;
-
-        Some(Cow::Owned(bray_bound_tree::StorageReferencePath::new(
-            projections.into(),
-            borrows.into(),
-        )))
+        Some(Cow::Owned(path.strip_prefix(&wrapping)?))
     }
 
     pub(in crate::analysis::storage_flow::check::analysis) fn invocation_logical_path(
@@ -654,19 +618,34 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         subject: &bray_symbols::DependencySubject,
     ) -> Option<Place> {
         let mut base = self.invocation_place(occurrence, subject.subject_root())?;
-        let path = self.dependencies.calls().get(&occurrence)?.reference_path(subject)?;
+
+        let (_, path) = self
+            .dependencies
+            .calls()
+            .get(&occurrence)?
+            .storage()
+            .subject(subject)?;
+
         let path = self.invocation_reference_path(occurrence, subject.subject_root(), path)?;
 
-        base.projections = base.projections.iter().chain(path.projections()).copied().collect();
+        base.projections = base
+            .projections
+            .iter()
+            .chain(path.projections())
+            .copied()
+            .collect();
 
         Some(base)
     }
 
     pub(in crate::analysis::storage_flow::check::analysis) fn record_input_targets(
         &mut self,
-        state: &StorageFlowState,
-        occurrence: BoundExecutionSite,
+        memory: &crate::analysis::storage_flow::memory::State,
+        operation: &crate::analysis::model::AnalysisOperation,
+        captures: &[bray_bound_tree::StorageValueCapture],
     ) {
+        let occurrence = operation.kind().occurrence();
+
         let Some(selection) = occurrence
             .expression()
             .and_then(|expression| self.execution.semantics.selections().expression(expression))
@@ -674,18 +653,15 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             return;
         };
 
-        let mut mutable_targets = Vec::new();
-        let mut complete = true;
+        let mut scope = StorageMutationScope::Invocation;
 
-        for (ordinal, root, ty) in
+        for (ordinal, _, ty) in
             selection.invocation_reference_inputs(occurrence, self.request.semantic_values())
         {
-            let target = self
-                .invocation_reference(state, occurrence, root)
-                .and_then(|source| match source {
-                    Source::Borrow(capability) => state.memory.borrow_target(capability, ty),
-                    Source::Value(slot) => state.memory.value_target(&slot, ty),
-                });
+            let target = captures
+                .iter()
+                .find(|capture| capture.input == ordinal)
+                .and_then(|capture| memory.captured_value_target(capture.value.binding()?, ty));
 
             let mutable = matches!(occurrence, BoundExecutionSite::Next(_))
                 || matches!(selection, SemanticSelection::Iteration(iteration)
@@ -704,13 +680,17 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 });
 
             if mutable {
-                match target.as_ref() {
-                    Some(target) => mutable_targets.push(target.clone()),
-                    None => complete = false,
-                }
+                let reached = target
+                    .as_ref()
+                    .map_or(StorageMutationScope::Unbounded, |target| {
+                        target.mutation_scope(self.storage, self.request.semantic_values())
+                    });
+
+                scope = scope.max(reached);
             }
 
             self.record_state_target(
+                (operation.id(), None),
                 bray_bound_tree::StorageStateTarget::Input {
                     invocation: occurrence,
                     ordinal,
@@ -727,16 +707,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 .invoked_callable(occurrence)
                 .is_some()
         {
-            let invalidation = if complete {
-                self.target_observations(&state.memory, mutable_targets.iter())
-            } else {
-                bray_bound_tree::StorageInvalidation::unknown()
-            };
-
-            self.observation_invalidations
-                .entry(occurrence)
-                .and_modify(|previous| previous.merge(&invalidation))
-                .or_insert(invalidation);
+            self.input_observation_scopes
+                .record(self.block(), occurrence, scope);
         }
     }
 
@@ -769,8 +741,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
             let plan = self
                 .storage
-                .occurrence_plans(occurrence)
-                .find(|plan| plan.purpose() != bray_bound_tree::StorageAccessPurpose::Initialize)
+                .implicit_input_plan(occurrence)
                 .expect("implicit invocation retains its actual input");
 
             if let Some(capability) = self.storage.borrow_for_plan(plan)
@@ -849,125 +820,144 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             .map(|place| Source::Value(Target::storage(place)))
     }
 
-    pub(in crate::analysis::storage_flow::check::analysis) fn invocation_sources(
+    pub(in crate::analysis::storage_flow::check::analysis) fn admitted_reference_sources(
         &self,
         state: &StorageFlowState,
         occurrence: BoundExecutionSite,
+        entry: Option<&crate::ExecutionCallEvidence>,
         subject: &bray_symbols::DependencySubject,
     ) -> Option<Vec<Source>> {
+        let root = subject.subject_root();
+
+        if root.is_static() || root == DependencySubjectRoot::Result {
+            let locations = match self
+                .dependencies
+                .calls()
+                .get(&occurrence)?
+                .storage()
+                .subject(subject)
+            {
+                Some((_, path)) => {
+                    self.invocation_stored_locations(state, occurrence, subject, path, false)
+                }
+                None => self.static_location(subject).map(|target| vec![target]),
+            }?;
+
+            return Some(locations.into_iter().map(Source::Value).collect());
+        }
+
+        let captured = self
+            .execution
+            .invocation_capture(entry?, occurrence, root)?;
+
         let contracts = self.dependencies.calls().get(&occurrence)?;
 
-        if contracts
-            .reference_type(subject)
-            .is_some_and(|ty| crate::representation::reference_kind(self.request, ty).is_some())
-            && let Some(path) = contracts.reference_path(subject).and_then(|path| {
-                self.invocation_reference_path(occurrence, subject.subject_root(), path)
-            })
-            && path.projections().is_empty()
-            && path.borrows().is_empty()
-        {
-            // Keep the actual reference source after removing formal wrapping.
-            // In particular, a borrow denotes its referent rather than a slot
-            // containing another reference value.
-            return self
-                .invocation_reference(state, occurrence, subject.subject_root())
-                .map(|source| vec![source]);
-        }
+        let (_, path) = contracts.storage().subject(subject)?;
 
-        self.invocation_locations(state, occurrence, subject)
-            .map(|locations| locations.into_iter().map(Source::Value).collect())
-    }
+        let path = self.invocation_reference_path(occurrence, root, path)?;
 
-    pub(in crate::analysis::storage_flow::check::analysis) fn invocation_locations(
-        &self,
-        state: &StorageFlowState,
-        occurrence: BoundExecutionSite,
-        subject: &bray_symbols::DependencySubject,
-    ) -> Option<Vec<Target>> {
-        if let Some(target) = self.static_location(subject) {
-            return Some(vec![target]);
-        }
-
-        let path = self
-            .dependencies
-            .calls()
-            .get(&occurrence)?
-            .reference_path(subject)?;
-
-        self.invocation_path_locations(state, occurrence, subject, path)
-    }
-
-    pub(in crate::analysis::storage_flow::check::analysis) fn invocation_path_locations(
-        &self,
-        state: &StorageFlowState,
-        occurrence: BoundExecutionSite,
-        subject: &bray_symbols::DependencySubject,
-        path: &bray_bound_tree::StorageReferencePath,
-    ) -> Option<Vec<Target>> {
-        if let Some(start) = self.static_location(&bray_symbols::DependencySubject::root(subject.subject_root())) {
-            return Some(vec![state.memory.reference_location(self.request.semantic_values(), start, path, None)?]);
-        }
-
-        let path = self.invocation_reference_path(occurrence, subject.subject_root(), path)?;
-
-        let start = self.invocation_place(occurrence, subject.subject_root());
-
-        if let Some(place) = &start
-            && matches!(
-                self.storage.identity(place.root),
-                Some(bray_bound_tree::StorageIdentity::InvocationInput { .. })
-            )
-        {
-            return Some(vec![state.memory.reference_location(
-                self.request.semantic_values(),
-                Target::storage(place.clone()),
-                &path,
-                None,
-            )?]);
-        }
-
-        if let Some(argument) = invocation_argument(
-            self.request.view(),
-            self.execution.semantics.selections(),
-            occurrence,
-            subject.subject_root(),
-        ) {
-            return self.call_reference_locations(state, argument, &path);
-        }
-
-        let start = Target::storage(start?);
-
-        Some(vec![state.memory.reference_location(self.request.semantic_values(), start, &path, None)?])
+        state
+            .memory
+            .captured_reference_sources(self.request.semantic_values(), captured, &path)
     }
 
     pub(in crate::analysis::storage_flow::check::analysis) fn static_location(
         &self,
         subject: &bray_symbols::DependencySubject,
     ) -> Option<Target> {
+        self.static_target(subject, false)
+    }
+
+    fn static_target(
+        &self,
+        subject: &bray_symbols::DependencySubject,
+        owned_region: bool,
+    ) -> Option<Target> {
         let root = subject.subject_root();
 
-        let (DependencySubjectRoot::ProductStatic(declaration)
-        | DependencySubjectRoot::ExactThreadStatic(declaration)) = root else {
+        if !root.is_static() {
             return None;
+        }
+
+        let values = self.request.semantic_values();
+
+        let selection = if let DependencySubjectRoot::StaticInstance(id, _) = root {
+            Some(values.static_reference(id))
+        } else {
+            None
         };
 
-        let target = match self.storage.binding(bray_bound_tree::StorageBindingTarget::Static(declaration)) {
-            Some(bray_bound_tree::StorageBinding::Identity(identity)) => Target::storage(Place::root(identity)),
-            Some(bray_bound_tree::StorageBinding::Access(access)) => Target::storage(
-                self.storage.logical_path(access).expect("planned static binding has a logical path").clone()
-            ),
-            None => Target {
+        let planned = selection
+            .as_deref()
+            .and_then(|selection| self.storage.static_slot(selection));
+
+        let target = planned.map_or_else(
+            || Target {
                 previous: false,
-                origin: Origin::Static { root, projections: [].into() },
+                origin: Origin::Static {
+                    root,
+                    selection,
+                    projections: [].into(),
+                },
             },
-        };
+            |slot| Target::storage(Place::root(slot)),
+        );
 
-        // A selector unknown to the caller widens only within this static.
+        if subject.projections().iter().any(|projection| {
+            *projection == bray_symbols::DependencyProjection::AddressTarget
+                || (*projection == bray_symbols::DependencyProjection::OwnedTarget && !owned_region)
+        }) {
+            return None;
+        }
+
         let projections = crate::storage::storage_projections(
-            self.request.semantic_values(), self.dependencies, subject.projections(),
-        ).unwrap_or_default();
+            self.request.semantic_values(),
+            self.dependencies,
+            subject.projections(),
+        )?;
 
         Some(target.project(&projections))
+    }
+
+    pub(in crate::analysis::storage_flow::check::analysis) fn static_effect_targets(
+        &self,
+        subject: &bray_symbols::DependencySubject,
+        owned_region: bool,
+    ) -> Option<Vec<bray_bound_tree::StorageMutationTarget>> {
+        // The checked static owner names its backing region even when this
+        // body has no evaluated descriptor for the allocation.
+        let target = self.static_target(subject, owned_region)?;
+
+        if matches!(
+            subject.subject_root(),
+            DependencySubjectRoot::StaticInstance(..)
+        ) {
+            let target = if owned_region {
+                bray_bound_tree::StorageMutationTarget::bounded(target)
+            } else {
+                bray_bound_tree::StorageMutationTarget::location(target)
+            };
+
+            return Some(vec![target]);
+        }
+
+        let declaration = subject
+            .subject_root()
+            .static_declaration(self.request.semantic_values())?;
+
+        let projections = target.projections().to_vec();
+
+        let selected = self
+            .storage
+            .static_slots(declaration)
+            .map(|slot| Target::storage(Place::root(slot)).project(&projections));
+
+        Some(
+            selected
+                .chain([target])
+                .map(bray_bound_tree::StorageMutationTarget::bounded)
+                .collect(),
+        )
     }
 
     pub(in crate::analysis::storage_flow::check::analysis) fn invocation_result(
@@ -975,24 +965,50 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         occurrence: BoundExecutionSite,
     ) -> Option<Place> {
         match occurrence {
-            BoundExecutionSite::CallInput { expression, ordinal } => {
-                let access = self.storage.invocation_input(expression, ordinal)
+            BoundExecutionSite::CallInput {
+                expression,
+                ordinal,
+            } => {
+                let access = self
+                    .storage
+                    .invocation_input(expression, ordinal)
                     .expect("input completion retains its exact slot");
 
                 self.storage.logical_path(access).cloned()
             }
-            site @ (BoundExecutionSite::Iterate(_) | BoundExecutionSite::Next(_) | BoundExecutionSite::ScopedEnter(_)) => {
-                let access = self.storage.invocation_result(site)
+            site @ (BoundExecutionSite::Iterate(_)
+            | BoundExecutionSite::Next(_)
+            | BoundExecutionSite::ScopedEnter(_)) => {
+                let access = self
+                    .storage
+                    .invocation_result(site)
                     .expect("implicit completion retains its planned result slot");
 
-                Some(self.storage.logical_path(access)
-                    .expect("implicit result slot has its logical path").clone())
+                Some(
+                    self.storage
+                        .logical_path(access)
+                        .expect("implicit result slot has its logical path")
+                        .clone(),
+                )
             }
-            BoundExecutionSite::ScopedExit(_) => None,
+            BoundExecutionSite::ScopedExit(_) => {
+                self.storage.invocation_result(occurrence).map(|access| {
+                    self.storage
+                        .logical_path(access)
+                        .expect("scoped exit result owns its complete path")
+                        .clone()
+                })
+            }
             BoundExecutionSite::Cleanup(_) => panic!("cleanup suspension has no invocation result"),
-            BoundExecutionSite::Node(_) => self.storage.invocation_result(occurrence)
-                .map(|access| self.storage.logical_path(access)
-                    .expect("explicit invocation result retains its complete path").clone())
+            BoundExecutionSite::Node(_) => self
+                .storage
+                .invocation_result(occurrence)
+                .map(|access| {
+                    self.storage
+                        .logical_path(access)
+                        .expect("explicit invocation result retains its complete path")
+                        .clone()
+                })
                 .or_else(|| self.expression_result_storage(occurrence.expression()?)),
         }
     }
@@ -1016,9 +1032,8 @@ pub(super) fn invocation_argument(
     }
 
     match selection {
-        SemanticSelection::Call(call) => {
-            crate::dependency::result_input(call, root).and_then(bray_bound_tree::SelectedInput::expression)
-        }
+        SemanticSelection::Call(call) => crate::dependency::result_input(call, root)
+            .and_then(bray_bound_tree::SelectedInput::expression),
         SemanticSelection::Operation(operation) => {
             crate::dependency::operation_inputs(view, occurrence.expression()?, operation)
                 .into_iter()

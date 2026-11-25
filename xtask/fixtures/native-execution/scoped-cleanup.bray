@@ -40,6 +40,10 @@ internal static INVALID_ORDER: core.atomic.Atomic<bool> = core.atomic.initialize
 
 internal static ENTERED_INACTIVE: core.atomic.Atomic<bool> = core.atomic.initialize<bool>(false);
 
+internal static ABNORMAL_ENTRY_BODY: core.atomic.Atomic<bool> = core.atomic.initialize<bool>(false);
+
+internal static DISPLACED_PANIC_STARTED: core.atomic.Atomic<bool> = core.atomic.initialize<bool>(false);
+
 internal static ALLOCATIONS: core.atomic.Atomic<u32> = core.atomic.initialize<u32>(0);
 
 struct Capture
@@ -55,7 +59,7 @@ struct Capture
         {
             assert(core.atomic.load<usize, 1>(&ERRORS) == 20, "report sink lost an error payload");
             assert(core.atomic.load<usize, 1>(&CAPTURES) == 20, "report sink lost an inactive capture");
-            trusted observe_cleanup();
+            observe_cleanup();
         }
     }
 }
@@ -79,7 +83,7 @@ struct Failure
 
     destruct()
     {
-        assert(self.marker == 619, "scoped error payload was not retained");
+        assert(self.marker == 619 || self.marker == 739, "scoped error payload was not retained");
 
         _ = core.atomic.fetch_add<usize, 0>(&ERRORS, value = 1);
     }
@@ -104,11 +108,11 @@ struct Capability
     panic_exit: bool;
 }
 
-async func prepared_failure(verify_totals: bool = false) -> Failure
+async func prepared_failure(marker: usize = 619, verify_totals: bool = false) -> Failure
 {
     return Failure
     {
-        marker = 619,
+        marker = marker,
         pending = inactive(
             Capture
             {
@@ -268,7 +272,7 @@ trusted async func transfer_sync(pos mode: usize) -> Result<i32, Failure>
                 previous_exits = core.atomic.load<usize, 1>(&EXITS)
             };
 
-            core.atomic.store<u32, 4>(&ALLOCATIONS, trusted deny_allocation());
+            core.atomic.store<u32, 4>(&ALLOCATIONS, deny_allocation());
 
             if mode == 0
             {
@@ -310,7 +314,7 @@ trusted async func transfer_async(pos mode: usize) -> Result<i32, Failure>
                 previous_exits = core.atomic.load<usize, 1>(&EXITS)
             };
 
-            core.atomic.store<u32, 4>(&ALLOCATIONS, trusted deny_allocation());
+            core.atomic.store<u32, 4>(&ALLOCATIONS, deny_allocation());
 
             if mode == 0
             {
@@ -346,6 +350,82 @@ async func normal_unit()
     }
 }
 
+struct ReplacingTaskScope
+{
+    enter() -> bool
+    {
+        return true;
+    }
+
+    exit(pos capability: bool) -> Result<unit, u32>
+    {
+        assert(capability);
+        return Error(83);
+    }
+}
+
+async func wait_for_displaced_task_cancellation()
+{
+    loop
+    {
+        await std.task.yield_now();
+    }
+}
+
+async func panic_before_displacement()
+{
+    core.atomic.store<bool, 4>(&DISPLACED_PANIC_STARTED, true);
+    panic("displaced task panicked");
+}
+
+async func replace_task_result(pos panics: bool)
+{
+    let observed = catch
+    {
+        let scope = ReplacingTaskScope
+        {
+        };
+
+        let outcome: Result<Task<unit>, u32> = with capability = scope
+        {
+            assert(capability);
+
+            if panics
+            {
+                let task = panic_before_displacement().start();
+
+                while !core.atomic.load<bool, 1>(&DISPLACED_PANIC_STARTED)
+                {
+                    await std.task.yield_now();
+                }
+
+                yield task;
+            }
+
+            yield wait_for_displaced_task_cancellation().start();
+        };
+
+        let replaced = match consume outcome
+        {
+            case Error(marker) { yield marker == 83; }
+            case Ok(task)
+            {
+                _ = await task.cancel();
+
+                yield false;
+            }
+        };
+
+        yield replaced;
+    };
+
+    match consume observed
+    {
+        case Ok(replaced) { assert(!panics && replaced); }
+        case Error(_) { assert(panics && core.atomic.load<bool, 1>(&DISPLACED_PANIC_STARTED)); }
+    }
+}
+
 async func nullable() -> Result<unit, Failure>?
 {
     let scope = AsyncScope
@@ -362,7 +442,7 @@ async func nullable() -> Result<unit, Failure>?
         yield unit;
     };
 
-    return none;
+    panic("nullable propagation continued past the with expression");
 }
 
 async func propagate_error() -> Result<unit, Failure>
@@ -372,7 +452,7 @@ async func propagate_error() -> Result<unit, Failure>
         entry = await prepared_entry(false, true, false)
     };
 
-    let failed: Result<unit, Failure> = Error(await prepared_failure());
+    let failed: Result<unit, Failure> = Error(await prepared_failure(marker = 739));
 
     return with capability = scope
     {
@@ -446,7 +526,9 @@ struct AbnormalEntry
 
     exit(pos capability: bool) -> Result<unit, Failure>
     {
-        panic("failed entry invoked exit");
+        _ = core.atomic.fetch_add<usize, 0>(&EXITS, value = 1);
+
+        return Ok(unit);
     }
 }
 
@@ -459,14 +541,16 @@ async func abnormal_entry(pos cancel: bool)
 
     _ = with capability = scope
     {
-        panic("failed entry reached its body");
+        core.atomic.store<bool, 4>(&ABNORMAL_ENTRY_BODY, true);
+
+        yield unit;
     };
 }
 
 trusted async func main()
     uses(foreign_call)
 {
-    trusted expect_cleanup();
+    expect_cleanup();
 
     await normal(false, false, false);
     await normal(false, false, true);
@@ -484,6 +568,8 @@ trusted async func main()
     assert(core.atomic.load<usize, 1>(&FINALIZERS) == 6);
 
     await normal_unit();
+    await replace_task_result(false);
+    await replace_task_result(true);
 
     let mut variant: usize = 0;
 
@@ -502,11 +588,11 @@ trusted async func main()
             {
                 let outcome = if asynchronous
                 {
-                    yield await trusted transfer_async(mode);
+                    yield await transfer_async(mode);
                 }
                 else
                 {
-                    yield await trusted transfer_sync(mode);
+                    yield await transfer_sync(mode);
                 };
 
                 let value = match consume outcome
@@ -515,7 +601,7 @@ trusted async func main()
                     case Error(error) { panic("exit error replaced the pending return"); }
                 };
 
-                let attempts = trusted restore_allocation(core.atomic.load<u32, 1>(&ALLOCATIONS));
+                let attempts = restore_allocation(core.atomic.load<u32, 1>(&ALLOCATIONS));
 
                 assert(attempts == 0, "scoped cleanup allocated after admission");
 
@@ -575,7 +661,7 @@ trusted async func main()
                 case Ok(_) { panic("result propagation lost its original error"); }
             };
 
-            assert(error.marker == 619);
+            assert(error.marker == 739);
 
             result_checked = true;
             panic("");
@@ -611,6 +697,7 @@ trusted async func main()
 
     std.testing.assert_cancelled<unit>(await abnormal_entry(true).start().join());
 
+    assert(!core.atomic.load<bool, 1>(&ABNORMAL_ENTRY_BODY), "failed entry ran its body");
     assert(!core.atomic.load<bool, 1>(&INVALID_ORDER), "body locals ended before their selected exit");
     assert(!core.atomic.load<bool, 1>(&ENTERED_INACTIVE), "quiescence entered an inactive Future body");
     assert(core.atomic.load<usize, 1>(&ENTRIES) == 23);

@@ -4,6 +4,33 @@ use bray_bound_tree::BoundExecutionSite;
 
 use crate::ExecutionCondition;
 
+/// Predicate meaning needed while normalizing execution conditions.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct PredicateConditionInput {
+    condition: Option<bray_symbols::ConstantTermId>,
+    domain: bray_symbols::PredicateDomain,
+}
+
+impl PredicateConditionInput {
+    /// Creates one predicate input from its retained meaning and checking authority.
+    pub const fn new(
+        condition: Option<bray_symbols::ConstantTermId>,
+        domain: bray_symbols::PredicateDomain,
+    ) -> Self {
+        Self { condition, domain }
+    }
+
+    /// Returns the predicate body term when the declaration defines one.
+    pub const fn condition(self) -> Option<bray_symbols::ConstantTermId> {
+        self.condition
+    }
+
+    /// Returns the authority required to establish the predicate.
+    pub const fn domain(self) -> bray_symbols::PredicateDomain {
+        self.domain
+    }
+}
+
 /// Checked predicate conditions supplied to one body analysis.
 #[derive(Debug, Default)]
 pub struct TrustedContractInputs {
@@ -16,19 +43,52 @@ pub struct TrustedContractInputs {
     pub statics: std::collections::BTreeSet<bray_symbols::StaticReferenceSelection>,
     /// Closed declaration constants used by this body's conditions.
     pub constants: BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
-    /// Checked ordinary predicate bodies in positional argument form.
+    /// Checked predicate meanings and opaque declaration authority.
     pub predicates:
-        BTreeMap<bray_symbols::PredicateInstanceData, bray_symbols::PredicateSemanticSummary>,
+        BTreeMap<bray_symbols::PredicateInstanceData, PredicateConditionInput>,
     /// Trusted conditions the caller must supply at entry.
     pub requirements: Vec<ExecutionCondition>,
     /// Borrowed or owning subjects whose established entry authority cannot be copied.
     pub required_witnesses: Vec<(ExecutionCondition, ExecutionCondition, bool)>,
     /// Ordinary entry conditions that guard the trusted guarantees.
     pub preconditions: Vec<ExecutionCondition>,
-    /// Guarantees a safe body must establish on every normal completion.
-    pub guarantees: Vec<(ExecutionCondition, bray_source::SourceSpan)>,
+    /// Whether the declaration itself establishes its guarantees without body proof.
+    pub declared_guarantees_are_authoritative: bool,
+    /// Guarantees published by the declaration on every normal completion.
+    pub declared_guarantees: Vec<(ExecutionCondition, bray_source::SourceSpan)>,
+    /// Declared result owners that carry each established guarantee.
+    pub guarantee_witness_subjects: Vec<(ExecutionCondition, ExecutionCondition)>,
     /// Predicate contracts on selected calls, retaining declaration identity.
     pub calls: BTreeMap<BoundExecutionSite, TrustedCallContract>,
+}
+
+impl TrustedContractInputs {
+    /// The declared guarantees that require proof from this body.
+    pub(crate) fn proof_guarantees(&self) -> &[(ExecutionCondition, bray_source::SourceSpan)] {
+        if self.declared_guarantees_are_authoritative {
+            &[]
+        } else {
+            &self.declared_guarantees
+        }
+    }
+
+    /// Whether the selected invocation can fail its runtime entry check.
+    pub(crate) fn checks_preconditions(&self, invocation: &BoundExecutionSite) -> bool {
+        self.calls.get(invocation).is_some_and(|contract| contract.checks_preconditions)
+    }
+}
+
+/// One typed address subject of a normal-completion clause.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct TrustedAddressSubject {
+    /// Clause that observes this address.
+    pub condition: ExecutionCondition,
+    /// Address expression in the formal completion context.
+    pub subject: ExecutionCondition,
+    /// Representation of the observed address.
+    pub ty: bray_symbols::TypeId,
+    /// Whether the clause establishes owning authority.
+    pub owning: bool,
 }
 
 /// Trusted requirements and guarantees on one selected call.
@@ -47,7 +107,7 @@ pub struct TrustedCallContract {
     /// Checked witness carriers paired with their conditional completion guarantee.
     pub witness_subjects: Vec<(ExecutionCondition, ExecutionCondition)>,
     /// Typed raw-address subjects, their completion guarantee, and whether they carry owning authority.
-    pub address_subjects: Vec<(ExecutionCondition, ExecutionCondition, bool)>,
+    pub address_subjects: Vec<TrustedAddressSubject>,
     /// Conditions required before invocation.
     pub requirements: Vec<ExecutionCondition>,
     /// Compiler-only compound execution conditions that require ordinary caller evidence.
@@ -58,4 +118,44 @@ pub struct TrustedCallContract {
     pub guarantees: Vec<ExecutionCondition>,
     /// Ordinary completion predicates used for path and equality reasoning.
     pub postconditions: Vec<ExecutionCondition>,
+}
+
+impl TrustedCallContract {
+    /// Decodes the checked predicates at one invocation boundary and its selected completion phase.
+    pub fn try_from_phases<E>(
+        values: &bray_symbols::SemanticValueStore,
+        symbols: &bray_symbols::AvailableCompilerKnownSymbols,
+        invocation: &bray_symbols::CallablePhaseBehavior,
+        completion: &bray_symbols::CallablePhaseBehavior,
+        completes: bool,
+        mut decode: impl FnMut(&bray_symbols::PredicateSemanticSummary) -> Result<ExecutionCondition, E>,
+    ) -> Result<Self, E> {
+        let mut contract = Self {
+            completes,
+            checks_preconditions: invocation.has_runtime_requirements(),
+            ..Self::default()
+        };
+
+        for predicate in invocation.predicate_requirements() {
+            let condition = decode(predicate)?;
+
+            if predicate.domain() == bray_symbols::PredicateDomain::Execution
+                && predicate.execution_requirement(values, symbols).is_none()
+            {
+                contract.execution_requirements.push(condition.clone());
+            }
+
+            if predicate.is_trusted() { contract.requirements.push(condition); }
+            else { contract.preconditions.push((condition, predicate.domain())); }
+        }
+
+        for predicate in completion.predicate_guarantees() {
+            let condition = decode(predicate)?;
+
+            if predicate.is_trusted() { contract.guarantees.push(condition); }
+            else { contract.postconditions.push(condition); }
+        }
+
+        Ok(contract)
+    }
 }

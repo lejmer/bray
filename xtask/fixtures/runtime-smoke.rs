@@ -256,7 +256,6 @@ unsafe extern "C" {
     safe fn bray_runtime_panic_report_destruction(report: &mut PanicReport) -> Status;
     safe fn bray_runtime_entry_failure_reporting(payload: usize, size: usize) -> Status;
     safe fn bray_runtime_wake(task: TaskHandle) -> Status;
-    safe fn bray_runtime_main_thread_lane_startup(configuration: Configuration) -> Status;
     safe fn bray_runtime_task_allocation() -> TaskAllocation;
     safe fn bray_runtime_task_start(
         task: TaskHandle,
@@ -359,6 +358,8 @@ extern "C-unwind" fn suspend_then_fail(destination: &mut FrameProgress, _: usize
     })();
 }
 
+// Without a native invocation adapter, a provider contains its panic in the
+// published progress instead of unwinding through the runtime.
 extern "C-unwind" fn panic_frame(destination: &mut FrameProgress, _: usize) {
     *destination = FrameProgress {
         kind: FrameProgressKind(3),
@@ -366,8 +367,26 @@ extern "C-unwind" fn panic_frame(destination: &mut FrameProgress, _: usize) {
         payload: 0,
         report: panic_report(),
     };
+}
 
-    panic!("callback unwinds after publishing its Bray report");
+extern "C-unwind" fn fail_frame(destination: &mut FrameProgress, _: usize) {
+    *destination = FrameProgress {
+        kind: FrameProgressKind(4),
+        state: 0,
+        payload: 0,
+        report: PanicReport::empty(),
+    };
+}
+
+// A cleanup panic after a runtime failure cannot replace that failure, so the
+// runtime retains it as a cleanup incident.
+extern "C-unwind" fn panic_resolution(destination: &mut FrameProgress, _: usize, _: FrameExit) {
+    *destination = FrameProgress {
+        kind: FrameProgressKind(3),
+        state: 0,
+        payload: 0,
+        report: panic_report(),
+    };
 }
 
 fn panic_report() -> PanicReport {
@@ -401,11 +420,6 @@ extern "C-unwind" fn ignore_action(context: usize) {
 }
 
 extern "C-unwind" fn ignore_broadcast(_: &mut FrameProgress, _: usize) {}
-
-extern "C-unwind" fn fail_action(context: usize) {
-    ignore_action(context);
-    panic!("cleanup callback failure");
-}
 
 extern "C-unwind" fn ignore_resolution(_: &mut FrameProgress, _: usize, _: FrameExit) {}
 
@@ -564,8 +578,9 @@ fn main() {
 
     let mut outcome = bray_runtime_root_terminal_observation(root);
 
+    // The contained report carries no suppressed native unwind payload.
     assert!(outcome.state == RunState::PANICKED);
-    assert_eq!(outcome.report.count, 1);
+    assert_eq!(outcome.report.count, 0);
     assert!(bray_runtime_root_completion_resolution(root) == Status::SUCCESS);
     assert!(bray_runtime_panic_reporting(&mut outcome.report) == Status::SUCCESS);
     assert!(bray_runtime_panic_report_destruction(&mut panic_report()) == Status::SUCCESS);
@@ -592,12 +607,14 @@ fn main() {
     assert!(bray_runtime_execution_shutdown() == Status::SUCCESS);
     assert!(bray_runtime_structured_shutdown() == Status::SUCCESS);
 
-    let descriptor = protected_frame(10, resume_frame, cancel_frame, fail_action);
-    let root = start_root(&descriptor);
+    let mut descriptor = protected_frame(10, fail_frame, cancel_frame, ignore_action);
 
+    descriptor.resolve = panic_resolution;
+
+    let root = start_root(&descriptor);
     let outcome = bray_runtime_root_terminal_observation(root);
 
-    assert!(outcome.state == RunState::COMPLETED);
+    assert!(outcome.state == RunState::RUNTIME_FAILURE);
     assert!(bray_runtime_root_completion_resolution(root) == Status::SUCCESS);
     assert!(bray_runtime_cleanup_incident_reporting() == Status::SUCCESS);
     assert!(bray_runtime_execution_shutdown() == Status::SUCCESS);

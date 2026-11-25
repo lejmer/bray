@@ -383,6 +383,22 @@ mod tests {
             bray_tooling::OutputFormat::Text,
         );
 
-        assert!(!result.diagnostics().is_empty());
+        let diagnostic = result
+            .diagnostics()
+            .by_kind(bray_diagnostics::DiagnosticKind::ProjectCommandFailed)
+            .next()
+            .expect("profile validation must reject the unsupported revision");
+
+        assert!(diagnostic.args().iter().any(|argument| matches!(
+            argument.value(),
+            bray_diagnostics::DiagnosticArgValue::ProjectCommandFailure(
+                bray_diagnostics::DiagnosticProjectCommandFailure::ProfileValidation {
+                    path,
+                    problem: bray_diagnostics::DiagnosticProfileValidationProblem::SchemaRevision { actual, expected },
+                },
+            ) if path == file.path()
+                && *actual == unsupported.schema_revision
+                && *expected == COMPILATION_PROFILE_SCHEMA_REVISION
+        )));
     }
 }

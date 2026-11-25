@@ -269,7 +269,12 @@ pub(crate) fn report_has_ownership<'context>(
     let mut present = context.bool_type().const_zero();
 
     // Primary, provider, incident chain and unused reservation own independent resources.
-    for index in [10, 16, 19, 20] {
+    for index in [
+        bray_runtime_interface::NATIVE_PANIC_REPORT_PRIMARY_PRESENT,
+        bray_runtime_interface::NATIVE_PANIC_REPORT_PROVIDER_CALLBACKS,
+        bray_runtime_interface::NATIVE_PANIC_REPORT_INCIDENT_COUNT,
+        bray_runtime_interface::NATIVE_PANIC_REPORT_RESERVED,
+    ] {
         let value = field(index)?;
 
         let owned = match value {

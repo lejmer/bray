@@ -9,6 +9,7 @@ use bray_symbols::{
 
 use super::super::super::binder::{CompilationBindingContext, binding_query_error};
 use super::super::super::implementation::implementation_instance_requirement;
+use super::super::super::substitution::open_named_type;
 use super::super::specialization::ConcreteCodegenInstance;
 use crate::compilation::{
     CodegenPreparationError, Compilation, ProductDataKind, ProductQueryContext, ProductQueryFailure,
@@ -173,39 +174,40 @@ pub(in crate::compilation::product) fn codegen_instance_contextual_self(
         }
     };
 
-    let context = SelfTypeContext::try_new(declaration).or_else(|| {
-        binding_context
-            .symbols()
-            .enclosing_self_type_context(declaration)
-    });
-
-    match context {
-        Some(SelfTypeContext::Implementation(implementation)) => {
-            let subject = implementation_subject(binding_context, implementation)?;
-
-            let subject = match instance.substitution() {
-                Some(substitution) => values
-                    .substitute_type(subject, substitution)
-                    .map_err(FactQueryError::SemanticValueStore)?,
-                None => subject,
+    let context = match SelfTypeContext::try_new(declaration) {
+        Some(context) => context,
+        None => {
+            let Some(context) = binding_context.enclosing_self_type_context(declaration)
+                .map_err(binding_query_error)? else {
+                return Ok(None);
             };
 
-            return Ok(Some((
-                SelfTypeContext::Implementation(implementation),
-                subject,
-            )));
+            context
         }
-        Some(SelfTypeContext::Trait(_)) => {
+    };
+
+    let subject = match context {
+        SelfTypeContext::NamedType(definition) => open_named_type(binding_context, definition)?,
+        SelfTypeContext::Implementation(implementation) => {
+            implementation_subject(binding_context, implementation)?
+        }
+        SelfTypeContext::Trait(_) => {
             return Err(ProductQueryFailure::missing(
                 ProductQueryContext::Instance(instance.key().clone()),
                 ProductDataKind::ContextualSelfWitness,
             )
             .into());
         }
-        Some(SelfTypeContext::NamedType(_)) | None => {}
-    }
+    };
 
-    Ok(None)
+    let subject = match instance.substitution() {
+        Some(substitution) => values
+            .substitute_type(subject, substitution)
+            .map_err(FactQueryError::SemanticValueStore)?,
+        None => subject,
+    };
+
+    Ok(Some((context, subject)))
 }
 
 pub(super) fn implementation_subject(

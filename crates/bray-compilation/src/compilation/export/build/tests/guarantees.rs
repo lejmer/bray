@@ -14,9 +14,92 @@ use crate::{
 };
 
 use super::fixtures::{
-    compilation, compilation_from_sources_for_product_with_platform_services_and_worker_budget,
+    compilation, compilation_from_sources, compilation_from_sources_for_product_with_platform_services_and_worker_budget,
     execution_bundle_dependency, execution_consumer, execution_dependency, export,
 };
+
+#[test]
+fn exclusive_entry_tags_require_bounded_effects_or_private_storage() {
+    let api = r#"
+        trusted module api;
+
+        struct Owner
+        {
+            mut registration: usize?;
+            sibling: usize;
+        }
+
+        extern trusted func observe(pos sibling: &usize);
+        extern trusted func opaque(pos owner: &mut Owner);
+        extern trusted func publish_tag(pos pointer: DataPointer<(usize?)>);
+        extern trusted func publish_owner(pos pointer: DataPointer<Owner>);
+
+        func checked_observe(pos sibling: &usize)
+        {
+        }
+
+        func clear(pos owner: &mut Owner)
+        {
+            owner.registration = none;
+        }
+    "#;
+
+    let provider = compilation(api);
+
+    assert!(!provider.check_diagnostics().has_errors(), "{:#?}", provider.check_diagnostics());
+
+    for (operation, capabilities, valid) in [
+        ("API.checked_observe(&owner.sibling);", "", true),
+        ("API.observe(&owner.sibling);", "", true),
+        ("API.opaque(owner);", "", false),
+        ("API.publish_tag(core.memory.address_of_mut<(usize?)>(&mut owner.registration));", "", false),
+        ("API.publish_owner(core.memory.address_of_mut<API.Owner>(owner));", "", false),
+        ("API.clear(owner);", "", false),
+        (r#"let pointer = core.memory.address_of_mut<(usize?)>(&mut owner.registration);
+                    trusted core.memory.write<(usize?)>(pointer, none);"#,
+            "uses(raw_memory, unchecked_init)", false),
+    ] {
+        for imported in [false, true] {
+            let prefix = if imported { "example.package.api" } else { "api" };
+
+            let memory_import = if operation.contains("core.memory.") {
+                "using core.memory;"
+            } else {
+                ""
+            };
+
+            let caller = format!(r#"
+                trusted module app;
+
+                {memory_import}
+                using API;
+
+                trusted func caller(pos owner: &mut API.Owner)
+                    ensures(owner.registration matches ?_)
+                    {capabilities}
+                {{
+                    owner.registration = 1;
+
+                    {operation}
+                }}
+            "#).replace("API", prefix);
+
+            let application = if imported {
+                execution_consumer(&provider, &caller)
+            } else {
+                compilation_from_sources([api, &caller])
+            };
+
+            let diagnostics = application.check_diagnostics();
+
+            bray_testing::assert_goal_state_diagnostic_outcome(diagnostics,
+                (!valid).then_some(bray_diagnostics::DiagnosticKind::CheckingPostconditionNotProven), &caller);
+
+            assert!(diagnostics.iter().all(|diagnostic| diagnostic.kind()
+                == bray_diagnostics::DiagnosticKind::CheckingPostconditionNotProven), "{diagnostics:#?}");
+        }
+    }
+}
 
 #[test]
 fn imported_domain_selection_is_independent_of_collected_diagnostics() {
@@ -100,13 +183,13 @@ fn renewed_loan_guarantees_survive_loop_joins_in_source_and_imported_calls() {
         {
         }
 
-        trusted func obtain(pos owner: &Owner) -> &Owner
+        trusted func obtain(pos owner: &mut Owner) -> &mut Owner
             ensures(trusted held(owner = &result.acquisition))
         {
             return owner;
         }
 
-        trusted func renew(pos owner: &Owner)
+        trusted func renew(pos owner: &mut Owner)
             requires(trusted held(owner = &owner.acquisition))
             ensures(trusted held(owner = &owner.acquisition))
             uses(raw_memory, unchecked_init)
@@ -117,13 +200,13 @@ fn renewed_loan_guarantees_survive_loop_joins_in_source_and_imported_calls() {
                 pointer = owner.pointer
             };
 
-            let pointer = core.memory.address_of<Owner>(owner);
+            let pointer = core.memory.address_of_mut<Owner>(owner);
             authorize(pointer);
             trusted core.memory.write<Owner>(pointer, replacement);
         }
 
-        func observe(pos owner: &Owner)
-            requires(trusted held(owner = &owner.acquisition))
+        func observe(pos marker: &Marker)
+            requires(trusted held(owner = marker))
         {
         }
     "#;
@@ -152,16 +235,18 @@ fn renewed_loan_guarantees_survive_loop_joins_in_source_and_imported_calls() {
             ] {
                 let api = if imported { "example.package.api" } else { "api" };
                 let borrowed = origin == "borrowed";
-                let source_type = if borrowed { "&" } else { "" };
-                let source_borrow = if borrowed { "" } else { "&" };
+                let source_type = if borrowed { "&mut " } else { "" };
+                let source_borrow = if borrowed { "" } else { "&mut " };
 
                 let parameter = if origin == "fresh" { String::new() } else {
-                    format!("pos source: {source_type}{api}.Owner, ")
+                    let binding = if borrowed { "source" } else { "mut source" };
+
+                    format!("pos {binding}: {source_type}{api}.Owner, ")
                 };
 
                 let initial = if origin == "fresh" {
                     format!(r#"
-                        let source: {api}.Owner =
+                        let mut source: {api}.Owner =
                         {{
                             acquisition = {api}.Marker {{}},
                             pointer = core.memory.null<u64>()
@@ -191,11 +276,11 @@ fn renewed_loan_guarantees_survive_loop_joins_in_source_and_imported_calls() {
 
                         while again
                         {{
-                            {api}.observe(owner);
+                            {api}.observe(&owner.acquisition);
                             {api}.renew(owner);
                         }}
 
-                        {api}.observe(owner);
+                        {api}.observe(&owner.acquisition);
                     }}
                 "#);
 
@@ -267,8 +352,7 @@ fn bodyless_execution_promises_require_an_external_assertion() {
 
 #[test]
 fn disjoint_raw_slot_moves_still_invalidate_opaque_reachable_observations() {
-    let provider = compilation(
-        r"
+    let source = r"
         trusted module api;
         using core.memory;
         struct Header { value: usize; }
@@ -289,17 +373,24 @@ fn disjoint_raw_slot_moves_still_invalidate_opaque_reachable_observations() {
             uses(raw_memory)
         {
             let first = trusted core.memory.read<Header>(primary);
-            trusted inspect(incident);
+            inspect(incident);
             let second = trusted core.memory.read<Header>(incident);
             return first.value + second.value;
         }
-    ",
-    );
+    ";
+
+    let provider = compilation(source);
+    let diagnostics = provider.check_diagnostics();
 
     bray_testing::assert_goal_state_diagnostic_kind(
-        provider.check_diagnostics(),
+        diagnostics,
         bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven,
     );
+
+    assert!(diagnostics.by_kind(bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven).any(|diagnostic| {
+        diagnostic.primary_span().is_some_and(|span|
+            crate::test_support::diagnostic_at_call(diagnostic, span.source_id(), source, "inspect(incident)"))
+    }), "{diagnostics:?}");
 }
 
 #[test]
@@ -975,11 +1066,11 @@ fn imported_execution_domains_require_live_authority_and_ordinary_conditions() {
 
     for (body, valid) in [
         (
-            "let owner = trusted produce(1); return trusted observe(&owner);",
+            "let owner = produce(1); return trusted observe(&owner);",
             true,
         ),
         (
-            "let owner = trusted produce(2); return trusted observe(&owner);",
+            "let owner = produce(2); return trusted observe(&owner);",
             false,
         ),
         (
@@ -987,7 +1078,7 @@ fn imported_execution_domains_require_live_authority_and_ordinary_conditions() {
             false,
         ),
         (
-            "let mut owner = trusted produce(1); change(&mut owner); return trusted observe(&owner);",
+            "let mut owner = produce(1); change(&mut owner); return trusted observe(&owner);",
             false,
         ),
     ] {
@@ -1359,6 +1450,129 @@ fn execution_guarantees_preserve_selected_predicate_guards() {
 }
 
 #[test]
+fn total_scope_cleanup_certifies_the_reached_owners() {
+    let owners = r#"
+        extern func observe();
+        struct Payload { destruct() { observe(); } }
+        struct Remaining { destruct() executes(total) {} }
+        struct Pair { boxed: box Payload; remaining: Remaining; }
+        struct Finalized
+        {
+            child: (box Payload)?;
+            finalize() executes(total) {}
+        }
+    "#;
+
+    let provider = compilation(&format!("module api; {owners}"));
+    let dependency = execution_dependency(&provider);
+
+    for (guard, valid) in [("keep", true), ("!keep", false)] {
+        for imported in [false, true] {
+            let (prefix, module) = if imported {
+                ("using example.package.api;", "example.package.api.")
+            } else {
+                (owners, "")
+            };
+
+            let source = format!(r#"
+                module app;
+                {prefix}
+                func relay(pos value: box {module}Payload, pos keep: bool, pos remaining: {module}Remaining)
+                    -> (box {module}Payload)?
+                    when({guard}) {{ executes(total) }}
+                {{
+                    let result: (box {module}Payload)? = if keep {{ yield value; }} else {{ yield none; }};
+                    return result;
+                }}
+
+                func relay_field(pos value: {module}Pair, pos keep: bool)
+                    -> (box {module}Payload)?
+                    when({guard}) {{ executes(total) }}
+                {{
+                    let result: (box {module}Payload)? = if keep {{ yield value.boxed; }} else {{ yield none; }};
+                    return result;
+                }}
+
+                func finalize_without_child(pos value: {module}Finalized)
+                    when(value.child matches none) {{ executes(total) }}
+                {{}}
+            "#);
+
+            let compilation = if imported {
+                crate::test_support::compilation_with_dependencies(&source, [dependency.clone()])
+            } else {
+                compilation(&source)
+            };
+
+            let diagnostics = compilation.check_diagnostics();
+
+            if valid {
+                assert!(diagnostics.is_empty(), "{source}: {}", super::fixtures::diagnostic_messages(diagnostics));
+            } else {
+                bray_testing::assert_goal_state_diagnostic_kind(
+                    diagnostics,
+                    bray_diagnostics::DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn successful_admission_keeps_guarded_completion_evidence() {
+    let definition = r#"
+        func observe(pos flag: bool)
+            requires(flag)
+            when(flag) { executes(pure, total) }
+        {}
+    "#;
+
+    let provider = compilation(&format!("module api; {definition}"));
+    let dependency = execution_dependency(&provider);
+
+    for (property, requires, valid) in [
+        ("pure", "", true),
+        ("total", "requires(flag)", true),
+        ("total", "", false),
+    ] {
+        for imported in [false, true] {
+            let (prefix, observe) = if imported {
+                ("using example.package.api;".to_owned(), "example.package.api.observe")
+            } else {
+                (definition.to_owned(), "observe")
+            };
+
+            let source = format!(r#"
+                module app;
+                {prefix}
+                func root(pos flag: bool) {requires} executes({property})
+                {{
+                    let choice: i32 = if flag {{ yield 1; }} else {{ yield 2; }};
+                    {observe}(flag);
+                }}
+            "#);
+
+            let checked = if imported {
+                crate::test_support::compilation_with_dependencies(&source, [dependency.clone()])
+            } else {
+                compilation(&source)
+            };
+
+            let diagnostics = checked.check_diagnostics();
+
+            if valid {
+                assert!(diagnostics.is_empty(), "{source}: {}", super::fixtures::diagnostic_messages(diagnostics));
+            } else {
+                bray_testing::assert_goal_state_diagnostic_kind(
+                    diagnostics,
+                    bray_diagnostics::DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn execution_guarantees_round_trip_and_reject_result_as_an_entry_guard() {
     let provider = compilation(
         r#"
@@ -1416,34 +1630,64 @@ fn execution_guarantees_round_trip_and_reject_result_as_an_entry_guard() {
         original.semantics().callable_contracts()
     );
 
-    let contracts = decoded
-        .callable_contracts()
-        .iter()
-        .map(|contract| {
-            let mut execution = contract.execution_contract().clone();
+    use bray_package_interface::{
+        InterfaceConstantTerm, InterfaceMalformedCause, InterfaceSemanticRecordKind,
+        InterfaceValidationContext, InterfaceValidationError, InterfaceValidationField,
+        PackageInterfaceExportBuildError,
+    };
 
-            for domain in Arc::make_mut(&mut execution.domains) {
-                if let Some((_, post)) = domain.postconditions.first() {
-                    domain.entry = Arc::from([*post]);
-                }
-            }
+    let checked = original.surface().exports().iter()
+        .find(|edge| edge.name().as_str() == "checked")
+        .expect("fixture function is exported")
+        .target();
 
-            contract.clone().with_execution_contract(execution)
-        })
-        .collect::<Vec<_>>();
+    let mut contracts = decoded.callable_contracts().to_vec();
+
+    let index = contracts.iter().position(|contract| contract.owner() == checked)
+        .expect("fixture function has a decoded contract");
+
+    let mut execution = contracts[index].execution_contract().clone();
+
+    let domain = Arc::make_mut(&mut execution.domains).iter_mut()
+        .find(|domain| !domain.entry.is_empty())
+        .expect("fixture function has a guarded domain");
+
+    // The result follows the selected function's one input in execution terms.
+    let result_term = InterfaceConstantTerm::CallableArgument(bray_symbols::SymbolOrdinal::new(1));
+
+    let result_index = decoded.constant_terms().iter().position(|term| *term == result_term)
+        .expect("fixture exports a one-argument callable result term");
+
+    let result = bray_package_interface::InterfaceConstantTermId::new(
+        u32::try_from(result_index).expect("fixture result term index"),
+    );
+
+    domain.entry = Arc::from([result]);
+    contracts[index] = contracts[index].clone().with_execution_contract(execution);
 
     let semantics = decoded
         .clone()
         .with_contracts(decoded.constraints().iter().cloned(), contracts);
 
-    assert!(
-        PackageInterfaceExportBundle::try_new(
-            original.surface().clone(),
-            semantics,
-            original.language_revision(),
-            original.implementation_configuration().clone()
-        )
-        .is_err()
+    let error = PackageInterfaceExportBundle::try_new(
+        original.surface().clone(),
+        semantics,
+        original.language_revision(),
+        original.implementation_configuration().clone(),
+    )
+    .expect_err("an entry guard cannot read the callable result");
+
+    assert_eq!(
+        error,
+        PackageInterfaceExportBuildError::Validation(InterfaceValidationError::Malformed {
+            context: InterfaceValidationContext::SemanticRecord {
+                kind: InterfaceSemanticRecordKind::CallableContracts,
+                index: u64::try_from(index).expect("fixture contract index"),
+            },
+            cause: InterfaceMalformedCause::InvalidValue {
+                field: InterfaceValidationField::Reference,
+            },
+        }),
     );
 }
 
@@ -1742,7 +1986,7 @@ fn imported_trusted_contracts_preserve_requirements_and_live_witnesses() {
             &provider,
             &format!(
                 r#"
-            trusted module app;
+            module app;
             using example.package.api;
             func caller() {{ {body} }}
         "#
@@ -1831,7 +2075,7 @@ fn imported_mixed_predicate_conditions_preserve_trusted_occurrences() {
 
         let source = format!(
             r#"
-            trusted module app;
+            module app;
             using example.package.api;
             func caller(pos value: u64, pos flag: bool) {precondition} {{ {body} }}
         "#
@@ -1873,7 +2117,7 @@ fn imported_mixed_predicate_conditions_preserve_trusted_occurrences() {
     ] {
         let source = format!(
             r#"
-            trusted module app;
+            module app;
             using example.package.api;
             func caller(pos mut value: u8) requires(example.package.api.borrow_ready(&value)) {{ {body} }}
         "#
@@ -1904,7 +2148,7 @@ fn imported_mixed_predicate_conditions_preserve_trusted_occurrences() {
     ] {
         let source = format!(
             r#"
-            trusted module app;
+            module app;
             using example.package.api;
             func caller(pos value: &(bool, bool)) {precondition} {{ example.package.api.observe_component(value); }}
         "#
@@ -1935,7 +2179,7 @@ fn imported_mixed_predicate_conditions_preserve_trusted_occurrences() {
     ] {
         let source = format!(
             r#"
-            trusted module app;
+            module app;
             using example.package.api;
             func caller(pos value: &[u8; 1]) {precondition} {{ example.package.api.observe_array(value); }}
         "#
@@ -2112,6 +2356,7 @@ fn imported_union_variant_contracts_preserve_checked_tags() {
         r#"
         module api;
         func create() -> Result<u32, u32> ensures(result matches Ok(_)) executes(total) { return Ok(7); }
+        func inferred() -> Result<u32, u32> executes(total) { return Ok(7); }
         const func observe(pos value: &Result<u32, u32>) -> u32
             requires(value matches Ok(_)) executes(pure, total)
         {
@@ -2129,12 +2374,18 @@ fn imported_union_variant_contracts_preserve_checked_tags() {
             true,
         ),
         (
+            "let value = relay(); _ = example.package.api.observe(&value);",
+            true,
+        ),
+        (
             "let value: Result<u32, u32> = Error(7); _ = example.package.api.observe(&value);",
             false,
         ),
     ] {
         let source = format!(
-            "module app; using example.package.api; func root() executes(total) {{ {body} }}"
+            "module app; using example.package.api;
+             func relay() -> Result<u32, u32> executes(total) {{ return example.package.api.inferred(); }}
+             func root() executes(total) {{ {body} }}"
         );
 
         let consumer = execution_consumer(&provider, &source);
@@ -2145,6 +2396,13 @@ fn imported_union_variant_contracts_preserve_checked_tags() {
             "{body}: {:?}",
             consumer.check_diagnostics()
         );
+
+        if valid {
+            let summary = crate::compilation::result_dependencies::source_function_dependencies(&consumer, "relay");
+
+            assert!(summary.captured_values().iter().flat_map(|row| row.bindings.iter())
+                .any(|(_, value)| value.variants().next().is_some()), "{summary:#?}");
+        }
     }
 }
 
@@ -2595,7 +2853,7 @@ fn imported_checked_edges_preserve_the_selected_conditional_property() {
 #[test]
 fn checked_total_calls_support_imported_static_termination() {
     let declarations = r"
-        trusted module api;
+        module api;
 
         using core.memory;
 
@@ -2655,7 +2913,7 @@ fn checked_total_calls_support_imported_static_termination() {
     let consumer = execution_consumer(
         &provider,
         r"
-        trusted module app;
+        module app;
 
         using core.memory;
         using example.package.api;
@@ -3306,7 +3564,7 @@ fn imported_input_and_sibling_address_guarantees_keep_their_storage_bounds() {
                 r#"
             module app;
             using example.package.api;
-            func caller() {{ let mut receipt = trusted example.package.api.empty(); {body} }}
+            func caller() {{ let mut receipt = example.package.api.empty(); {body} }}
         "#
             ),
         );
@@ -3382,11 +3640,9 @@ fn imported_address_store_keeps_destination_initialization_independent_of_the_po
 
     for (after, valid) in [
         ("_ = bits;", true),
-        ("_ = trusted core.memory.read<u32>(bits);", false),
+        ("_ = core.memory.read<u32>(bits);", false),
     ] {
-        let consumer = execution_consumer(
-            &provider,
-            &format!(
+        let source = format!(
                 r#"
                 trusted module app;
                 using core.memory;
@@ -3402,9 +3658,9 @@ fn imported_address_store_keeps_destination_initialization_independent_of_the_po
                     {after}
                 }}
                 "#
-            ),
         );
 
+        let consumer = execution_consumer(&provider, &source);
         let diagnostics = consumer.check_diagnostics();
 
         assert_eq!(
@@ -3414,10 +3670,15 @@ fn imported_address_store_keeps_destination_initialization_independent_of_the_po
         );
 
         if !valid {
-            bray_testing::assert_goal_state_diagnostic_kind(
-                diagnostics,
-                bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven,
-            );
+            let caller = crate::test_support::source_function_body_key(&consumer, "caller");
+            let source_id = caller.source().syntax().source_id();
+
+            assert!(diagnostics.iter().any(|diagnostic| {
+                diagnostic.kind() == bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven
+                    && crate::test_support::diagnostic_at_call(
+                        diagnostic, source_id, &source, "core.memory.read<u32>(bits)",
+                    )
+            }), "{diagnostics:#?}");
         }
     }
 }
@@ -3566,7 +3827,7 @@ trusted func derive_borrowed(pos values: &mut Addresses, pos sources: &Addresses
             let consumer = execution_consumer(
                 &provider,
                 &format!(
-                    "trusted module app; using core.memory; using example.package.api; func caller() {{ {body} }}"
+                    "module app; using core.memory; using example.package.api; func caller() {{ {body} }}"
                 ),
             );
 
@@ -3662,7 +3923,7 @@ impl Addresses {
                 let consumer = execution_consumer(
                     &provider,
                     &format!(
-                        "trusted module app; using example.package.api; func caller() {{ {body} }}"
+                        "module app; using example.package.api; func caller() {{ {body} }}"
                     ),
                 );
 

@@ -20,7 +20,7 @@ use super::{
     ImportedDeclarationTemplate, InterfaceSemanticInternError, InterfaceSymbolResolver, InternState,
 };
 
-impl InternState {
+impl InternState<'_> {
     pub(super) fn convert_declaration_templates(
         &self,
         semantics: &InterfaceSemantics,

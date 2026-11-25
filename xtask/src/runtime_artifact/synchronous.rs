@@ -80,7 +80,7 @@ pub(super) fn smoke_test(
             "thread-static",
             include_str!("../../fixtures/native-execution/thread-static-cleanup.bray"),
             42,
-            "",
+            "consumer\nprovider\n",
             "",
         ),
         (

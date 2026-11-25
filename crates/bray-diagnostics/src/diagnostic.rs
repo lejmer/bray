@@ -47,6 +47,13 @@ impl Diagnostic {
         self
     }
 
+    /// Assigns the identity in the diagnostic producer's publication order.
+    pub const fn with_id(mut self, id: DiagnosticId) -> Self {
+        self.id = id;
+
+        self
+    }
+
     /// Adds one typed argument to the diagnostic.
     pub fn with_arg(mut self, arg: DiagnosticArg) -> Self {
         self.args.push(arg);

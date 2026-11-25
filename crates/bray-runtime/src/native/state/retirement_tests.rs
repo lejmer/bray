@@ -85,7 +85,9 @@ fn independent_entry_restores_the_complete_source_context_after_unwind() {
                 });
             }));
 
-            assert!(result.is_err());
+            let panic = result.expect_err("the independent context must unwind");
+
+            assert_eq!(bray_testing::panic_payload_text(panic.as_ref()), "exercise complete context restoration");
 
             let restored =
                 crate::current_task_execution_context().expect("the same Source owner is restored");

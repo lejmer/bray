@@ -610,27 +610,28 @@ fn build_target(
         })?;
 
     let native_plan = crate::progress::run("Planning the standard library native product", || {
-        compilation
-            .native_product_plan(
-                product.identity().clone(),
-                BuildConfiguration::ObjectRelease,
-                None,
-                [],
-                Some((
-                    linker.linker(),
-                    bray_linker::LinkedProductKind::StaticLibrary,
-                )),
-            )
-            .map_err(|error| {
-                BuildError::compilation_failed(
-                    target.clone(),
-                    format!("{error:?}"),
-                    [Some(compilation.check_diagnostics()), error.diagnostics()]
-                        .into_iter()
-                        .flatten(),
-                    compilation.sources(),
-                )
-            })
+        compilation.native_product_plan(
+            product.identity().clone(),
+            BuildConfiguration::ObjectRelease,
+            None,
+            [],
+            Some((
+                linker.linker(),
+                bray_linker::LinkedProductKind::StaticLibrary,
+            )),
+        )
+    })
+    .map_err(|error| {
+        crate::progress::message("Collecting standard-library diagnostics");
+
+        BuildError::compilation_failed(
+            target.clone(),
+            format!("{error:?}"),
+            [Some(compilation.check_diagnostics()), error.diagnostics()]
+                .into_iter()
+                .flatten(),
+            compilation.sources(),
+        )
     })?;
 
     let output_description = TargetOutputDescription::for_native(

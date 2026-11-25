@@ -1,0 +1,13 @@
+trusted internal module bray.runtime.bootstrap;
+
+using internal bray.runtime.bootstrap.report.incident;
+
+func probe_distinct_incident_destinations(pos outcome: &mut ReportOutcome, pos other: &mut ReportOutcome)
+{
+    let pair = bray.runtime.bootstrap.report.incident.destinations(outcome, other);
+}
+
+func probe_aliased_incident_destinations(pos outcome: &mut ReportOutcome)
+{
+    let pair = bray.runtime.bootstrap.report.incident.destinations(outcome, outcome);
+}

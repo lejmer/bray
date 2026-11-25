@@ -226,6 +226,7 @@ impl InspectionStorageProvenance {
             | StorageIdentity::Evaluated(expression)
             | StorageIdentity::CustomIndexBorrow(expression)
             | StorageIdentity::ScopedCapability { expression, .. }
+            | StorageIdentity::ScopedResultReplacement(expression)
             | StorageIdentity::Allocation(expression) => Ok(Self::Expression {
                 expression: expression.ordinal(),
             }),
@@ -245,8 +246,8 @@ impl InspectionStorageProvenance {
             StorageIdentity::Receiver(symbol) => Ok(Self::SurfaceSymbol {
                 symbol: InspectionSymbolIdentity::from_symbol(symbols, symbol.into()),
             }),
-            StorageIdentity::Static(symbol) => Ok(Self::SurfaceSymbol {
-                symbol: InspectionSymbolIdentity::from_symbol(symbols, symbol.into()),
+            StorageIdentity::Static(reference) => Ok(Self::SurfaceSymbol {
+                symbol: InspectionSymbolIdentity::from_symbol(symbols, reference.template().declaration().into()),
             }),
             StorageIdentity::PredicateParameter(symbol) => Ok(Self::SurfaceSymbol {
                 symbol: InspectionSymbolIdentity::from_symbol(symbols, symbol.into()),
@@ -434,6 +435,9 @@ enum InspectionStorageProjection {
     ElementFromEnd {
         ordinal: u32,
     },
+    ElementFromInput {
+        ordinal: u32,
+    },
     ActiveUnionPayloadField {
         variant: InspectionSymbolIdentity,
         field: InspectionSymbolIdentity,
@@ -468,6 +472,9 @@ impl InspectionStorageProjection {
             StorageProjection::ElementFromEnd(ordinal) => Self::ElementFromEnd {
                 ordinal: ordinal.raw(),
             },
+            StorageProjection::ElementFromInput(ordinal) => Self::ElementFromInput {
+                ordinal: ordinal.raw(),
+            },
             StorageProjection::ActiveUnionPayloadField { variant, field } => {
                 Self::ActiveUnionPayloadField {
                     variant: InspectionSymbolIdentity::from_symbol(symbols, variant.into()),
@@ -495,6 +502,7 @@ impl InspectionStorageProjection {
             Self::TupleElement { ordinal } => format!("tuple:{ordinal}"),
             Self::ElementFromStart { ordinal } => format!("from_start:{ordinal}"),
             Self::ElementFromEnd { ordinal } => format!("from_end:{ordinal}"),
+            Self::ElementFromInput { ordinal } => format!("from_input:{ordinal}"),
             Self::ActiveUnionPayloadField { variant, field } => {
                 format!("{}:{}", variant.display_name(), field.display_name())
             }
@@ -623,6 +631,8 @@ enum InspectionStorageBindingTarget {
     LocalSymbol { symbol_kind: &'static str, id: u32 },
     InvocationInput { expression: u32, ordinal: u32 },
     InvocationResult { occurrence: InspectionExecutionSite },
+    ScopedResultReplacement { expression: u32 },
+    ScopedResultPayload { expression: u32 },
     Result,
 }
 
@@ -635,10 +645,6 @@ impl From<StorageBindingTarget> for InspectionStorageBindingTarget {
             },
             StorageBindingTarget::Receiver(symbol) => Self::SurfaceSymbol {
                 symbol_kind: "receiver_parameter",
-                id: symbol.symbol_id().raw(),
-            },
-            StorageBindingTarget::Static(symbol) => Self::SurfaceSymbol {
-                symbol_kind: "static",
                 id: symbol.symbol_id().raw(),
             },
             StorageBindingTarget::PredicateParameter(symbol) => Self::SurfaceSymbol {
@@ -667,6 +673,12 @@ impl From<StorageBindingTarget> for InspectionStorageBindingTarget {
             },
             StorageBindingTarget::InvocationResult(occurrence) => Self::InvocationResult {
                 occurrence: occurrence.into(),
+            },
+            StorageBindingTarget::ScopedResultReplacement(expression) => Self::ScopedResultReplacement {
+                expression: expression.ordinal(),
+            },
+            StorageBindingTarget::ScopedResultPayload(expression) => Self::ScopedResultPayload {
+                expression: expression.ordinal(),
             },
             StorageBindingTarget::InvocationInput {
                 expression,

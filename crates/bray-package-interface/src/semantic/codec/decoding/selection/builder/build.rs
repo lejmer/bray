@@ -1,7 +1,5 @@
 // rust-style: allow(module-too-large, reason = "selective decoding shares one recursive dependency traversal and remapping state")
 
-use bray_symbols::DependencyStorageEffect;
-
 use std::collections::BTreeSet;
 
 use bray_symbols::InterfaceSymbolId;
@@ -238,7 +236,7 @@ impl<'bytes, 'records> SelectionBuilder<'bytes, 'records> {
 
         if !self.records.callable_signatures.values().is_empty()
             && self.records.dependency_contracts.values().values().any(|contract| {
-            contract.owned_result.transfers().any(|transfer| !transfer.preservation().children().is_empty())
+            contract.captured_values.iter().flat_map(|row| row.ownership.transfers()).any(|transfer| !transfer.preservation().children().is_empty())
         }) {
             self.include_preservation_representations()?;
         }
@@ -1037,7 +1035,17 @@ impl<'bytes, 'records> SelectionBuilder<'bytes, 'records> {
             self.include_dependency_requirement(requirement);
         }
 
-        for stored in &*contract.stored_values {
+        for guard in contract.failure_outcomes.as_deref().into_iter().flatten().filter_map(|row| row.guard) {
+            self.enqueue(PendingRecord::ConstantTerm(guard.raw()));
+        }
+
+        let storage_rows = contract.captured_values.iter().map(|outcome| {
+            (outcome.references.as_ref(), outcome.stored_values.as_ref())
+        }).chain(contract.failure_outcomes.as_deref().into_iter().flatten().map(|outcome| {
+            (outcome.references.as_ref(), outcome.stored_values.as_ref())
+        }));
+
+        for stored in storage_rows.clone().flat_map(|(_, stored)| stored) {
             self.include_dependency_subject(stored.destination().subject());
 
             for source in stored.sources() {
@@ -1045,7 +1053,7 @@ impl<'bytes, 'records> SelectionBuilder<'bytes, 'records> {
             }
         }
 
-        for relation in &*contract.borrows {
+        for relation in storage_rows.flat_map(|(references, _)| references) {
             if let Some(entry) = relation.source_subject() {
                 self.include_dependency_subject(entry);
             }
@@ -1054,46 +1062,82 @@ impl<'bytes, 'records> SelectionBuilder<'bytes, 'records> {
             self.include_dependency_projections(relation.target_projections());
         }
 
-        if let Some(term) = contract.observed_result {
-            self.enqueue(PendingRecord::ConstantTerm(term.raw()));
+        for binding in &*contract.captured_values {
+            for payload in &*binding.report_payloads {
+                self.include_dependency_subject(&payload.destination);
+            }
+
+            for payload in binding.inactive_payloads.iter() {
+                self.include_dependency_subject(payload);
+            }
+
+            if let Some(guard) = binding.guard { self.enqueue(PendingRecord::ConstantTerm(guard.raw())); }
         }
 
-        for condition in contract.owned_result.conditions() {
+        let values = contract.captured_values.iter().flat_map(|row| row.bindings.iter())
+            .chain(contract.failure_outcomes.as_deref().into_iter().flatten().flat_map(|row| row.writes.iter()));
+
+        for (destination, value) in values {
+            self.include_dependency_subject(destination);
+
+            for input in value.terms() { self.enqueue(PendingRecord::ConstantTerm(input.raw())); }
+
+            for call in value.callees() {
+                self.enqueue(PendingRecord::CallableInstance(call.instance.raw()));
+                self.enqueue(PendingRecord::Type(call.signature.raw()));
+
+                if let Some(receiver) = call.receiver { self.enqueue(PendingRecord::Type(receiver.raw())); }
+
+                if let Some((ty, application)) = call.requirement {
+                    self.enqueue(PendingRecord::Type(ty.raw()));
+                    self.enqueue(PendingRecord::TraitApplication(application.raw()));
+                }
+
+                for w in call.dispatch.iter().chain(&*call.witnesses) { self.enqueue(PendingRecord::ImplementationInstance(w.raw())); }
+            }
+
+            for root in value.static_roots() {
+                self.include_static_reference(root);
+            }
+
+            self.include_dependency_projections(&value.projections().cloned().collect::<Vec<_>>());
+        }
+
+        for condition in contract.captured_values.iter().flat_map(|row| row.ownership.conditions()) {
             self.enqueue(PendingRecord::ConstantTerm(condition.raw()));
         }
 
-        for transfer in contract.owned_result.transfers() {
+        for transfer in contract.captured_values.iter().flat_map(|row| row.ownership.transfers()) {
             self.enqueue(PendingRecord::ConstantTerm(transfer.input().raw()));
         }
 
-        for carrier in &*contract.carriers {
+        for carrier in contract.captured_values.iter().flat_map(|row| row.carriers.iter()) {
             self.enqueue(PendingRecord::ConstantTerm(carrier.guarantee().raw()));
             self.include_dependency_projections(carrier.path());
+
+            if let Some(support) = carrier.support() {
+                for owner in support.owners() { self.include_dependency_subject(owner); }
+
+                for (address, owners) in support.addresses() {
+                    self.enqueue(PendingRecord::ConstantTerm(address.raw()));
+
+                    for owner in owners { self.include_dependency_subject(owner); }
+                }
+            }
         }
 
-        for effect in &*contract.effects {
+        for effect in contract.effects.iter().chain(contract.cell_changes()) {
 
             for ty in effect.referenced_types() {
                 self.enqueue(PendingRecord::Type(ty.raw()));
             }
 
-            match effect {
-                DependencyStorageEffect::UnboundedMutation { .. }
-                | DependencyStorageEffect::Atomic
-                | DependencyStorageEffect::Ambient
-                | DependencyStorageEffect::Unknown
-                | DependencyStorageEffect::Escape => {}
-                DependencyStorageEffect::Direct { subject, .. } => {
-                    self.include_dependency_subject(subject)
-                }
-                DependencyStorageEffect::Indirect {
-                    reference,
-                    projections,
-                    ..
-                } => {
-                    self.include_dependency_subject(reference);
-                    self.include_dependency_projections(projections);
-                }
+            for subject in effect.subjects() {
+                self.include_dependency_subject(subject);
+            }
+
+            for projections in effect.projection_paths() {
+                self.include_dependency_projections(projections);
             }
         }
 
@@ -1186,7 +1230,19 @@ impl<'bytes, 'records> SelectionBuilder<'bytes, 'records> {
             self.enqueue(PendingRecord::TraitApplication(application.raw()));
         }
 
+        if let InterfaceDependencySubjectRoot::StaticInstance(reference, _) = &subject.root {
+            self.include_static_reference(reference);
+        }
+
         self.include_dependency_projections(&subject.projections);
+    }
+
+    fn include_static_reference(&mut self, reference: &crate::InterfaceStaticReference) {
+        self.enqueue(PendingRecord::Substitution(reference.substitution.raw()));
+
+        for witness in reference.selected_witnesses.iter() {
+            self.enqueue(PendingRecord::ImplementationInstance(witness.raw()));
+        }
     }
 
     fn include_dependency_projections(&mut self, projections: &[InterfaceDependencyProjection]) {

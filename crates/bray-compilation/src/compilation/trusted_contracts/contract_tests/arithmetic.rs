@@ -92,7 +92,7 @@ fn machine_products_retain_proven_bounds_across_boolean_joins() {
         ("supplied", "", false),
         ("supplied", compound, true),
         ("supplied", split, true),
-        ("trusted opaque_stride()", compound, true),
+        ("opaque_stride()", compound, true),
     ] {
         let source = format!(r"
             trusted module app;

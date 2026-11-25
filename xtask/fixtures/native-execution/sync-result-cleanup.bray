@@ -1,4 +1,4 @@
-module sync_result_cleanup;
+trusted module sync_result_cleanup;
 
 using core.target;
 using core.atomic;
@@ -12,7 +12,7 @@ struct Counter
     {
         if core.atomic.load<u32, 1>(&self.visits) != 2
         {
-            trusted core.target.abort();
+            core.target.abort();
         }
     }
 }

@@ -8,6 +8,7 @@ use bray_symbols::BorrowKind;
 use super::super::availability::projection_is_available;
 use super::core::StorageFlowCollector;
 use crate::CheckerRequestContext;
+use crate::analysis::storage_flow::memory::{ReachedAccess, borrow_chain_from};
 use crate::analysis::storage_flow::model::StorageFlowState;
 
 #[derive(Clone)]
@@ -16,15 +17,101 @@ pub(super) enum BorrowConflict {
     Borrows(Vec<BorrowCapabilityId>),
 }
 
+pub(super) fn overlapping_borrow_conflict<'target>(
+    storage: &bray_bound_tree::StoragePlan,
+    state: &StorageFlowState,
+    access: StorageAccessId,
+    targets: Option<(impl Iterator<Item = &'target bray_bound_tree::StorageTarget> + Clone, bool)>,
+    requested: BorrowKind,
+    authorizing_borrows: &[BorrowCapabilityId],
+) -> Option<BorrowConflict> {
+    let mut conflicts = Vec::new();
+
+    for active in state.active_borrows.iter().copied() {
+        if authorizing_borrows.contains(&active) {
+            continue;
+        }
+
+        let Some(capability) = storage.borrow_capability(active) else {
+            return Some(BorrowConflict::Unlocated);
+        };
+
+        if requested == BorrowKind::Shared && capability.kind() == BorrowKind::Shared {
+            continue;
+        }
+
+        let reached = targets.clone().map(|(targets, located)| state.memory.borrow_relationship(active, targets, located));
+
+        let overlaps = match reached {
+            Some(StorageRelationship::Disjoint) => false,
+            Some(StorageRelationship::Identical) => true,
+            // Physical regions can be wider than a checked language loan. The
+            // plan still supplies separation between checked capability paths.
+            _ => storage.relationship(capability.access(), access) != StorageRelationship::Disjoint,
+        };
+
+        if overlaps {
+            conflicts.push(active);
+        }
+    }
+
+    (!conflicts.is_empty()).then_some(BorrowConflict::Borrows(conflicts))
+}
+
 impl<'analysis, C> StorageFlowCollector<'analysis, C>
 where
     C: CheckerRequestContext + ?Sized,
 {
+    pub(super) fn prepare_formed_borrow(
+        &self,
+        state: &StorageFlowState,
+        plan: StorageAccessPlan,
+        loan: BorrowCapabilityId,
+        reached: &mut Option<ReachedAccess>,
+    ) -> Option<bray_symbols::TypeId> {
+        let capability = self.storage.borrow_capability(loan).expect("checked borrow has its capability");
+
+        if capability.occurrence() != Some(plan.occurrence()) {
+            return None;
+        }
+
+        let source = self.storage.access(capability.access()).expect("checked loan has a source").reached_type();
+        let output = self.storage.access(plan.access()).expect("checked loan has its produced type").reached_type();
+        let values = self.request.semantic_values();
+
+        let referent = match (values.type_data(source).as_ref(), values.type_data(output).as_ref()) {
+            (bray_symbols::TypeData::Borrow { target: source, .. }, bray_symbols::TypeData::Borrow { target: output, .. })
+                if source == output => Some(*source),
+            _ => None,
+        };
+
+        if let Some(mut access) = reached.take() {
+            access.loan = access.loan.or(capability.parent());
+
+            if referent.is_some() {
+                access = state.memory.reborrow_access(access);
+            }
+
+            access.loan = access.loan.filter(|parent| parent.unit() == self.storage.unit());
+
+            // A descriptor produced at the same site can still carry that site's
+            // previous capability. Its existing parent can authorize a fresh loan.
+            if access.loan == Some(loan) {
+                access.loan = state.memory.borrow_ancestors(loan).and_then(|ancestors| ancestors.first().copied());
+            }
+
+            *reached = Some(access);
+        }
+
+        Some(referent.unwrap_or(source))
+    }
+
     pub(super) fn borrow_conflict(
         &self,
         state: &StorageFlowState,
         plan: StorageAccessPlan,
         purpose: StorageAccessPurpose,
+        reached: Option<&ReachedAccess>,
     ) -> Option<BorrowConflict> {
         let requested = match purpose {
             StorageAccessPurpose::Borrow(kind) => Some(kind),
@@ -46,7 +133,7 @@ where
         let access = self.operation_access(plan, purpose);
 
         if requested == BorrowKind::Mutable
-            && self.projected_storage_borrow_kind(access) == Some(BorrowKind::Shared)
+            && self.storage.projected_borrow_kind(access) == Some(BorrowKind::Shared)
         {
             let origin = self
                 .storage
@@ -58,16 +145,12 @@ where
             }));
         }
 
-        let authority = match purpose {
-            StorageAccessPurpose::Borrow(_) => plan.access(),
-            _ => access,
-        };
+        let created_borrow = self.storage.borrow_for_plan(plan);
+        let authority = self.authorizing_borrow(state, plan, purpose, reached)?;
 
-        let Some(authorizing_borrows) = self.borrow_chain(authority) else {
+        let Some(authorizing_borrows) = borrow_chain_from(self.storage, Some(&state.memory), authority) else {
             return Some(BorrowConflict::Unlocated);
         };
-
-        let created_borrow = self.storage.borrow_for_plan(plan);
 
         let inactive_authorizing_borrows = authorizing_borrows
             .iter()
@@ -78,32 +161,41 @@ where
             .collect::<Vec<_>>();
 
         if !inactive_authorizing_borrows.is_empty() {
+
             return Some(BorrowConflict::Borrows(inactive_authorizing_borrows));
         }
 
-        let mut conflicts = Vec::new();
+        let targets = reached.map(|access| &access.address).filter(|address| !address.is_unknown() && !address.is_displaced())
+            .map(|address| (address.targets.iter(), address.has_values()));
 
-        for active in state.active_borrows.iter().copied() {
-            if authorizing_borrows.contains(&active) {
-                continue;
-            }
+        overlapping_borrow_conflict(self.storage, state, access, targets, requested, &authorizing_borrows)
+    }
 
-            let Some(capability) = self.storage.borrow_capability(active) else {
-                return Some(BorrowConflict::Unlocated);
-            };
+    /// The loan that authorizes one planned access. A planned loan derived from the
+    /// reached loan keeps its own identity. `None` means the access is unplanned.
+    pub(super) fn authorizing_borrow(
+        &self,
+        state: &StorageFlowState,
+        plan: StorageAccessPlan,
+        purpose: StorageAccessPurpose,
+        reached: Option<&ReachedAccess>,
+    ) -> Option<Option<BorrowCapabilityId>> {
+        let authority = match purpose {
+            StorageAccessPurpose::Borrow(_) => plan.access(),
+            _ => self.operation_access(plan, purpose),
+        };
 
-            if requested == BorrowKind::Shared && capability.kind() == BorrowKind::Shared {
-                continue;
-            }
+        let planned = self.storage.access(authority)?.root().borrow_capability();
+        let actual = reached.and_then(|access| access.loan).filter(|loan| loan.unit() == self.storage.unit());
+        let created_borrow = self.storage.borrow_for_plan(plan);
 
-            if self.storage.relationship(capability.access(), access)
-                != StorageRelationship::Disjoint
-            {
-                conflicts.push(active);
-            }
-        }
-
-        (!conflicts.is_empty()).then_some(BorrowConflict::Borrows(conflicts))
+        Some(match (planned, actual) {
+            (Some(planned), Some(actual)) if created_borrow != Some(planned)
+                && state.memory.borrow_ancestors(planned).is_some_and(|ancestors| ancestors.contains(&actual)) =>
+                Some(planned),
+            (_, Some(actual)) => Some(actual),
+            (planned, None) => planned,
+        })
     }
 
     pub(super) fn has_mutation_authority(&self, access: StorageAccessId) -> bool {
@@ -126,7 +218,7 @@ where
             StorageAccessRoot::Recovery(_) => false,
             StorageAccessRoot::Storage(storage)
             | StorageAccessRoot::OwnedIndirection { storage, .. } => {
-                self.projected_storage_borrow_kind(access) == Some(BorrowKind::Mutable)
+                self.storage.projected_borrow_kind(access) == Some(BorrowKind::Mutable)
                     || self.owned_storage_is_mutable(storage)
             }
             StorageAccessRoot::Borrow(_) | StorageAccessRoot::BorrowedStorage { .. } => false,
@@ -187,47 +279,7 @@ where
                 identity.borrows_input_storage(self.request.unit().key().kind())
             })
             || record.root().borrow_capability().is_some()
-            || self.projected_storage_borrow_kind(access).is_some()
-    }
-
-    pub(super) fn projected_storage_borrow_kind(
-        &self,
-        access: StorageAccessId,
-    ) -> Option<BorrowKind> {
-        let access = self.storage.access(access)?;
-
-        let StorageAccessRoot::Storage(storage) = access.root() else {
-            return None;
-        };
-
-        let root_type = self.storage.storage_type(storage)?;
-
-        for depth in 0..=access.projections().len() {
-            let ty = if depth == 0 {
-                Some(root_type)
-            } else {
-                self.storage
-                    .access_at(storage, &access.projections()[..depth])
-                    .and_then(|prefix| self.storage.access(prefix))
-                    .map(|prefix| prefix.reached_type())
-            };
-
-            let Some(ty) = ty else {
-                continue;
-            };
-
-            if depth == access.projections().len() && ty == access.reached_type() {
-                continue;
-            }
-
-            let data = self.request.semantic_values().type_data(ty);
-
-            if let bray_symbols::TypeData::Borrow { kind, .. } = data.as_ref() {
-                return Some(*kind);
-            }
-        }
-
-        None
+            || self.storage.projected_borrow_kind(access).is_some()
     }
 
     pub(super) fn type_is_borrow(&self, ty: bray_symbols::TypeId) -> bool {
@@ -291,18 +343,7 @@ where
     }
 
     pub(super) fn borrow_chain(&self, access: StorageAccessId) -> Option<Vec<BorrowCapabilityId>> {
-        let mut capability = self.storage.access(access)?.root().borrow_capability();
-
-        let mut chain = Vec::new();
-
-        while let Some(current) = capability {
-            let borrow = self.storage.borrow_capability(current)?;
-
-            chain.push(current);
-            capability = borrow.parent();
-        }
-
-        Some(chain)
+        borrow_chain_from(self.storage, None, self.storage.access(access)?.root().borrow_capability())
     }
 
     pub(super) fn owned_storage_is_mutable(&self, storage: StorageIdentityId) -> bool {
@@ -325,6 +366,7 @@ where
                 | StorageIdentity::CustomIndexBorrow(_)
                 | StorageIdentity::InvocationResult(_)
                 | StorageIdentity::ScopedCapability { .. }
+                | StorageIdentity::ScopedResultReplacement(_)
                 | StorageIdentity::Allocation(_)
                 | StorageIdentity::CompilerCreated(_),
             ) => true,

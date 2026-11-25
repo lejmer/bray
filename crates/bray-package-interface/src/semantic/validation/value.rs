@@ -1,4 +1,3 @@
-use bray_symbols::DependencyStorageEffect;
 use crate::validation::is_strictly_sorted;
 use crate::{
     InterfaceLimit, InterfaceSemantics, InterfaceTypeId, InterfaceValidationError,
@@ -73,79 +72,47 @@ impl InterfaceSemantics {
         }
 
         for contract in &*self.dependency_contracts {
+            self.validate_captured_value_graph(contract, symbol_count, dependency_count, limits)?;
+            self.validate_failure_outcomes(contract)?;
+
             if !is_strictly_sorted(&contract.requirements)
                 || !is_strictly_sorted(&contract.synchronous_cleanup)
-                || contract
-                    .completion_reports
-                    .as_deref()
-                    .is_some_and(|requirements| !is_strictly_sorted(requirements))
-                || contract
-                    .abnormal_reports
-                    .as_deref()
-                    .is_some_and(|requirements| !is_strictly_sorted(requirements))
+                || contract.captured_values.iter().flat_map(|row| row.report.iter())
+                    .any(|report| !is_strictly_sorted(report))
             {
                 return Err(crate::semantic::codec::invalid_value(
                     crate::InterfaceValidationField::Constant,
                 ));
             }
 
-            if let Some(term) = contract.observed_result {
-                validate_index(term.to_index(), self.constant_terms.len())?;
-
-                if !contract.normal_completion || !contract.normal_storage_preserved {
-                    return Err(crate::semantic::codec::invalid_value(
-                        crate::InterfaceValidationField::Constant,
-                    ));
-                }
-            }
-
-            self.validate_owned_result_graph(
-                &contract.owned_result, symbol_count, dependency_count, limits,
-            )?;
-
-            for carrier in &*contract.carriers {
-                validate_index(carrier.guarantee().to_index(), self.constant_terms.len())?;
-
-                for projection in carrier.path() {
-                    if let InterfaceDependencyProjection::Element(term) = projection {
-                        let ordinal = term
-                            .to_index()
-                            .and_then(|index| self.constant_terms.get(index))
-                            .and_then(|term| match term {
-                                InterfaceConstantTerm::Value(value) => value
-                                    .to_index()
-                                    .and_then(|index| self.constant_values.get(index)),
-                                _ => None,
-                            })
-                            .and_then(|value| match value.kind() {
-                                InterfaceConstantValueKind::Integer(index) => {
-                                    index.to_u64().and_then(|index| u32::try_from(index).ok())
-                                }
-                                _ => None,
-                            });
-
-                        if ordinal.is_none() {
-                            return Err(crate::semantic::codec::invalid_value(
-                                crate::InterfaceValidationField::Reference,
-                            ));
-                        }
-                    }
+            for outcome in &*contract.captured_values {
+                if !outcome.effects.windows(2).all(|pair| pair[0] < pair[1])
+                    || outcome.effects.iter().any(|effect| contract.effects.binary_search(effect).is_err())
+                {
+                    return Err(crate::semantic::codec::invalid_value(crate::InterfaceValidationField::Dependency));
                 }
 
-                self.validate_dependency_projections(
-                    carrier.path(),
-                    symbol_count,
-                    dependency_count,
-                )?;
+                for payload in outcome.inactive_payloads.iter() {
+                    self.validate_dependency_subject(payload, symbol_count, dependency_count)?;
+                }
+
+                self.validate_owned_result_graph(&outcome.ownership, symbol_count, dependency_count, limits)?;
             }
 
-            for stored in &*contract.stored_values {
+            let storage_rows = contract.captured_values.iter().map(|outcome| {
+                (outcome.references.as_ref(), outcome.stored_values.as_ref())
+            }).chain(contract.failure_outcomes.as_deref().into_iter().flatten().map(|outcome| {
+                (outcome.references.as_ref(), outcome.stored_values.as_ref())
+            }));
+
+            for stored in storage_rows.clone().flat_map(|(_, stored)| stored) {
                 for (endpoint, destination) in std::iter::once((stored.destination(), true))
                     .chain(stored.sources().iter().map(|source| (source, false))) {
                     let root = endpoint.subject().subject_root();
 
                     if !(matches!(root, crate::InterfaceDependencySubjectRoot::Receiver | crate::InterfaceDependencySubjectRoot::Parameter(_)
-                            | crate::InterfaceDependencySubjectRoot::ProductStatic(_) | crate::InterfaceDependencySubjectRoot::ExactThreadStatic(_))
+                            | crate::InterfaceDependencySubjectRoot::ProductStatic(_) | crate::InterfaceDependencySubjectRoot::ExactThreadStatic(_)
+                            | crate::InterfaceDependencySubjectRoot::StaticInstance(..))
                         || destination && matches!(root, crate::InterfaceDependencySubjectRoot::Result)) {
                         return Err(crate::semantic::codec::invalid_value(crate::InterfaceValidationField::Dependency));
                     }
@@ -159,7 +126,7 @@ impl InterfaceSemantics {
                 }
             }
 
-            for relation in &*contract.borrows {
+            for relation in storage_rows.flat_map(|(references, _)| references) {
                 if let Some(entry) = relation.source_subject() {
                     self.validate_dependency_subject(entry, symbol_count, dependency_count)?;
                 }
@@ -173,57 +140,31 @@ impl InterfaceSemantics {
                 )?;
             }
 
-            for effect in &*contract.effects {
+            if !contract.cell_changes().all(bray_symbols::DependencyStorageEffect::is_cell_change)
+                || contract.effects.iter().any(bray_symbols::DependencyStorageEffect::is_discharge)
+            {
+                return Err(crate::semantic::codec::invalid_value(crate::InterfaceValidationField::Dependency));
+            }
+
+            for effect in contract.effects.iter().chain(contract.cell_changes()) {
+                if !effect.is_valid_route() {
+                    return Err(crate::semantic::codec::invalid_value(crate::InterfaceValidationField::Dependency));
+                }
 
                 for ty in effect.referenced_types() {
                     validate_index(ty.to_index(), self.types.len())?;
                 }
 
-                match effect {
-                    DependencyStorageEffect::UnboundedMutation { .. }
-                | DependencyStorageEffect::Atomic
-                    | DependencyStorageEffect::Ambient
-                    | DependencyStorageEffect::Unknown
-                    | DependencyStorageEffect::Escape => {}
-                    DependencyStorageEffect::Direct { subject, .. } => {
-                        self.validate_dependency_subject(subject, symbol_count, dependency_count)?
-                    }
-                    DependencyStorageEffect::Indirect {
-                        reference,
-                        projections,
-                        ..
-                    } => {
-                        self.validate_dependency_subject(
-                            reference,
-                            symbol_count,
-                            dependency_count,
-                        )?;
+                for subject in effect.subjects() {
+                    self.validate_dependency_subject(subject, symbol_count, dependency_count)?;
+                }
 
-                        self.validate_dependency_projections(
-                            projections,
-                            symbol_count,
-                            dependency_count,
-                        )?;
-                    }
+                for projections in effect.projection_paths() {
+                    self.validate_dependency_projections(projections, symbol_count, dependency_count)?;
                 }
             }
 
-            for requirement in contract
-                .requirements
-                .iter()
-                .chain(
-                    contract
-                        .completion_reports
-                        .iter()
-                        .flat_map(|items| items.iter()),
-                )
-                .chain(
-                    contract
-                        .abnormal_reports
-                        .iter()
-                        .flat_map(|items| items.iter()),
-                )
-            {
+            for requirement in contract.output_requirements() {
                 self.validate_dependency_requirement(
                     requirement,
                     symbol_count,
@@ -793,7 +734,7 @@ impl InterfaceSemantics {
         Ok(())
     }
 
-    fn validate_dependency_subject(
+    pub(in crate::semantic::validation) fn validate_dependency_subject(
         &self,
         subject: &InterfaceDependencySubject,
         symbol_count: usize,
@@ -807,6 +748,10 @@ impl InterfaceSemantics {
         | InterfaceDependencySubjectRoot::ExactThreadStatic(symbol) = &subject.root
         {
             validate_symbol(symbol, symbol_count, dependency_count)?;
+        }
+
+        if let InterfaceDependencySubjectRoot::StaticInstance(reference, _) = &subject.root {
+            self.validate_static_reference(reference, symbol_count, dependency_count)?;
         }
 
         if let InterfaceDependencySubjectRoot::ImplementationRequirement(ty, application) =
@@ -825,7 +770,23 @@ impl InterfaceSemantics {
         self.validate_dependency_projections(&subject.projections, symbol_count, dependency_count)
     }
 
-    fn validate_dependency_projections(
+    pub(in crate::semantic::validation) fn validate_static_reference(
+        &self,
+        reference: &crate::InterfaceStaticReference,
+        symbol_count: usize,
+        dependency_count: usize,
+    ) -> Result<(), InterfaceValidationError> {
+        validate_symbol(&reference.declaration, symbol_count, dependency_count)?;
+        validate_index(reference.substitution.to_index(), self.substitutions.len())?;
+
+        for witness in reference.selected_witnesses.iter() {
+            validate_index(witness.to_index(), self.implementation_instances.len())?;
+        }
+
+        Ok(())
+    }
+
+    pub(in crate::semantic::validation) fn validate_dependency_projections(
         &self,
         projections: &[InterfaceDependencyProjection],
         symbol_count: usize,
@@ -1015,7 +976,8 @@ mod tests {
 
             let semantics = InterfaceSemantics {
                 dependency_contracts: vec![InterfaceDependencyContract::new([])
-                    .with_stored_values([DependencyStoredValue::new(path(destination), [path(source)], true)])].into(),
+                    .with_captured_values([crate::InterfaceNormalOutcome::new(None, [])
+                        .with_storage([], [DependencyStoredValue::new(path(destination), [path(source)], true)])])].into(),
                 ..InterfaceSemantics::default()
             };
 
@@ -1055,12 +1017,14 @@ mod tests {
                     0,
                 ))]
                 .into(),
-                dependency_contracts: vec![InterfaceDependencyContract::new([]).with_owned_result(
-                    bray_symbols::DependencyOwnedResult::Transfer(
-                        bray_symbols::DependencyOwnedTransfer::new(input, [projection]),
-                    ),
-                )]
-                .into(),
+                dependency_contracts: vec![InterfaceDependencyContract {
+                    captured_values: [crate::InterfaceNormalOutcome::new(None, []).with_ownership(
+                        bray_symbols::DependencyOwnedResult::Transfer(
+                            bray_symbols::DependencyOwnedTransfer::new(input, [projection]),
+                        ),
+                    )].into(),
+                    ..InterfaceDependencyContract::new([])
+                }].into(),
                 ..InterfaceSemantics::default()
             };
 
@@ -1070,6 +1034,25 @@ mod tests {
                     .is_ok(),
                 valid
             );
+        }
+    }
+
+    #[test]
+    fn outcome_witness_carriers_require_canonical_wire_order() {
+        let term = InterfaceConstantTermId::new;
+
+        for (ids, accepted) in [([0, 1], true), ([1, 0], false), ([0, 0], false)] {
+            let mut row = crate::InterfaceNormalOutcome::new(None, []);
+
+            row.carriers = ids.map(|id| DependencyWitnessCarrier::new(term(id), [])).into();
+
+            let semantics = InterfaceSemantics {
+                constant_terms: [0, 1].map(|index| InterfaceConstantTerm::CallableArgument(SymbolOrdinal::new(index))).into(),
+                dependency_contracts: [InterfaceDependencyContract::new([]).with_captured_values([row])].into(),
+                ..Default::default()
+            };
+
+            assert_eq!(semantics.validate_value_graph(0, 0, InterfaceValidationLimits::default()).is_ok(), accepted);
         }
     }
 
@@ -1112,14 +1095,14 @@ mod tests {
                 constant_values: vec![InterfaceConstantValue::new(InterfaceTypeId::new(0), kind)]
                     .into(),
                 constant_terms: vec![term].into(),
-                dependency_contracts: vec![InterfaceDependencyContract::new([]).with_carriers([
+                dependency_contracts: vec![InterfaceDependencyContract::new([]).with_captured_values([crate::InterfaceNormalOutcome::new(None, []).with_carriers([
                     DependencyWitnessCarrier::new(
                         InterfaceConstantTermId::new(0),
                         [InterfaceDependencyProjection::Element(
                             InterfaceConstantTermId::new(0),
                         )],
                     ),
-                ])]
+                ])])]
                 .into(),
                 ..InterfaceSemantics::default()
             };

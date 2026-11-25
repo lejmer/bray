@@ -26,7 +26,7 @@ impl Compilation {
     ) -> Result<
         std::collections::BTreeMap<
             bray_symbols::PredicateInstanceData,
-            bray_symbols::PredicateSemanticSummary,
+            bray_checker::PredicateConditionInput,
         >,
         FactQueryError,
     > {
@@ -57,28 +57,54 @@ impl Compilation {
 
             diagnostics.add_range(definition.diagnostics().iter().cloned());
 
-            if let bray_symbols::PredicateDefinitionState::Defined(definition) = definition.value()
-            {
-                let values = self.semantic_value_store()?;
-                let semantic = definition.semantic();
+            let input = match definition.value() {
+                bray_symbols::PredicateDefinitionState::Defined(definition) => {
+                    let values = self.semantic_value_store()?;
+                    let semantic = definition.semantic();
 
-                let condition = semantic
-                    .condition()
-                    .map(|condition| {
-                        values.substitute_constant_term(condition, predicate.substitution())
-                    })
-                    .transpose()?;
+                    let condition = semantic
+                        .condition()
+                        .map(|condition| {
+                            values.substitute_constant_term(condition, predicate.substitution())
+                        })
+                        .transpose()?;
 
-                let dependency = values.substitute_dependency_contract(
-                    semantic.dependency_contract(),
-                    predicate.substitution(),
-                )?;
+                    Some(bray_checker::PredicateConditionInput::new(
+                        condition,
+                        semantic.domain(),
+                    ))
+                }
+                bray_symbols::PredicateDefinitionState::OpaqueTrusted => {
+                    Some(bray_checker::PredicateConditionInput::new(
+                        None,
+                        bray_symbols::PredicateDomain::Trusted,
+                    ))
+                }
+                bray_symbols::PredicateDefinitionState::Required => {
+                    let context = self.binding_context(cancellation)?;
 
-                meanings.insert(
-                    predicate,
-                    bray_symbols::PredicateSemanticSummary::new(dependency)
-                        .with_condition(condition, semantic.domain()),
-                );
+                    let signature = context
+                        .resolve_symbol_query(bray_symbols::SymbolQueryRequest::<
+                            bray_symbols::PredicateSignatureTemplateQuery,
+                        >::new(predicate.definition()))
+                        .map_err(crate::compilation::binder::binding_query_error)?;
+
+                    diagnostics.add_range(signature.diagnostics().iter().cloned());
+
+                    Some(bray_checker::PredicateConditionInput::new(
+                        None,
+                        if signature.value().is_trusted() {
+                            bray_symbols::PredicateDomain::Trusted
+                        } else {
+                            bray_symbols::PredicateDomain::Value
+                        },
+                    ))
+                }
+                bray_symbols::PredicateDefinitionState::Error(_) => None,
+            };
+
+            if let Some(input) = input {
+                meanings.insert(predicate, input);
             }
         }
 
@@ -553,8 +579,8 @@ impl Compilation {
 
         let mut diagnostics = DiagnosticBag::new();
 
-        let evidence = self.instantiate_execution_evidence(
-            evidence.unwrap_or(&bray_checker::ExecutionCallEvidence::default()),
+        let evidence = self.instantiate_execution_proof(
+            evidence,
             cancellation,
             &mut diagnostics,
         )?;
@@ -1022,20 +1048,22 @@ mod tests {
 
     #[test]
     fn completion_after_opaque_execution_requires_a_terminal_state() {
-        for (completion, valid) in [
-            ("value.open = false;", false),
-            ("value = { open = false, pending = false };", true),
+        for (call, completion, valid) in [
+            ("opaque(&mut value);", "value.open = false;", false),
+            ("opaque(&mut value);", "value = { open = false, pending = false };", true),
+            ("opaque_unrelated();", "value.open = false;", true),
         ] {
             let source = format!(
                 r#"
                 trusted module app;
                 struct Resource {{ mut open: bool; mut pending: bool; }}
-                extern trusted func opaque();
+                extern trusted func opaque(pos value: &mut Resource);
+                extern trusted func opaque_unrelated();
                 trusted func close(pos value: &mut Resource)
                     ensures(!value.open && !value.pending)
                 {{
                     value.pending = false;
-                    opaque();
+                    {call}
                     {completion}
                 }}
             "#

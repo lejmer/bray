@@ -547,7 +547,19 @@ mod tests {
                         crate::SelectedTarget::for_native(target),
                     );
 
-                let key = crate::test_support::source_function_body_key(&compilation, function);
+                // Several bootstrap modules reuse short names. The role names its own declaration.
+                let declaration = role.source_declaration().expect("bootstrap role names its declaration");
+
+                let (module, name) = declaration.rsplit_once('.').unwrap_or(("", declaration));
+
+                assert_eq!(name, function, "{role:?}");
+
+                let path = ["bray", "runtime", "bootstrap"]
+                    .into_iter()
+                    .chain(module.split('.').filter(|segment| !segment.is_empty()))
+                    .collect::<Vec<_>>();
+
+                let key = crate::test_support::source_module_function_body_key(&compilation, &path, name);
 
                 assert!(
                     super::runtime_source_contract_matches(
@@ -557,7 +569,7 @@ mod tests {
                         &CancellationToken::new()
                     )
                     .expect("fixture `super::runtime_source_contract_matches` call must succeed"),
-                    "{target:?}"
+                    "{role:?} {function} {target:?}"
                 );
             }
         }
@@ -745,6 +757,12 @@ mod tests {
                     false,
                 );
 
+                let signature = if bray_runtime_interface::NativeEntryKind::for_runtime_role(role).is_some() {
+                    signature.with_panic_report_context()
+                } else {
+                    signature
+                };
+
                 assert_eq!(
                     runtime_source_signature_matches(
                         &compilation,
@@ -826,9 +844,17 @@ mod tests {
                 .symbol_graph()
                 .expect("fixture compilation must build its symbol graph");
 
+            // The numeric runtime declares its own `Product`. Host layouts live elsewhere.
+            let host_structure = |symbol: bray_symbols::AnySymbolId| {
+                symbols.containing_module(symbol).is_some_and(|module| {
+                    !module.path().segments().any(|segment| segment == "numeric")
+                })
+            };
+
             let types = symbols
                 .structures()
                 .iter()
+                .filter(|symbol| host_structure(symbol.id().into()))
                 .filter(|symbol| {
                     symbols.member_name(symbol.id().into()).is_some_and(|name| {
                         [
@@ -877,9 +903,10 @@ mod tests {
                     .structures()
                     .iter()
                     .find(|symbol| {
-                        symbols
-                            .member_name(symbol.id().into())
-                            .is_some_and(|actual| actual.as_str() == name)
+                        host_structure(symbol.id().into())
+                            && symbols
+                                .member_name(symbol.id().into())
+                                .is_some_and(|actual| actual.as_str() == name)
                     })
                     .expect("fixture lookup must find its expected value");
 

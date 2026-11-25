@@ -334,6 +334,9 @@ mod tests {
     fn generated_bindings_declare_their_source_dependencies() {
         let loaded = super::load().expect("checked-in binding descriptions must render");
 
+        assert_eq!(loaded.rendered.len(), bray_target::NativeTarget::ALL.len());
+        assert_eq!(loaded.description.targets.len(), loaded.rendered.len());
+
         for (target, rendered) in loaded.description.targets.iter().zip(&loaded.rendered) {
             assert_eq!(target.target, rendered.target);
             assert!(target.usings.contains("core.memory"));

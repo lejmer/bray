@@ -1,9 +1,20 @@
+use std::collections::BTreeMap;
+
 use bray_bound_tree::{AnyBoundNodeId, StorageAccessId, StorageCleanupPart, StoragePlan};
 use bray_diagnostics::DiagnosticBag;
+use bray_symbols::{TypeAssociatedLifecycleSlot, TypeId};
 
 use crate::asynchronous::{ExecutionCleanupMode, execution_cleanup_dependencies};
 use crate::execution_guarantees::{ExecutionDependency, ExecutionProperty};
 use crate::{CheckerQueryError, CheckerRequestContext, CheckerUnitView};
+
+#[derive(Default)]
+pub(in crate::analysis::guarantee) struct ReachedScopeCleanup {
+    pub(in crate::analysis::guarantee) cancels_tasks: bool,
+    pub(in crate::analysis::guarantee) parts: BTreeMap<(StorageAccessId, TypeId, bool), bool>,
+    pub(in crate::analysis::guarantee) calls:
+        BTreeMap<(StorageAccessId, usize, TypeAssociatedLifecycleSlot), Option<Vec<ExecutionDependency>>>,
+}
 
 #[expect(
     clippy::too_many_arguments,
@@ -11,44 +22,34 @@ use crate::{CheckerQueryError, CheckerRequestContext, CheckerUnitView};
 )]
 pub(in crate::analysis::guarantee) fn check_scope_cleanup<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
-    storage: &StoragePlan,
-    cleanup: &bray_bound_tree::CheckedAsync,
+    flow: &bray_bound_tree::StorageFlow,
     scope: bray_bound_tree::StorageScope,
     exit: AnyBoundNodeId,
-    phase: super::super::super::model::AnalysisScopeExitPhase,
+    reached: Option<&ReachedScopeCleanup>,
     property: ExecutionProperty,
     inert: impl Fn(StorageAccessId) -> bool,
     dependencies: &mut Vec<ExecutionDependency>,
     diagnostics: &mut DiagnosticBag,
 ) -> Result<bool, CheckerQueryError<C::UpstreamError>> {
-    let mut valid = true;
+    let mut valid = flow.exit(bray_bound_tree::StorageExitPoint::new(scope, exit)).is_none_or(|plan| !plan.is_recovered());
 
-    if let Some(plan) = cleanup.scope_exit_plan(scope, exit) {
-        valid &= !plan.is_recovered() && plan.cancellation_broadcast().is_empty();
+    let Some(reached) = reached else {
+        return Ok(valid);
+    };
 
-        if phase == super::super::super::model::AnalysisScopeExitPhase::LifecycleResolution {
-            for access in plan.lifecycle_resolution() {
-                let identity = storage.root_identity(*access);
+    valid &= !reached.cancels_tasks;
 
-                if inert(*access) {
-                    continue;
-                }
+    for (&(access, _, _), dependency) in &reached.calls {
+        if !inert(access) {
+            valid &= dependency.is_some();
+            dependencies.extend(dependency.iter().flatten().copied());
+        }
+    }
 
-                let parts = identity
-                    .and_then(|identity| cleanup.storage_requirement(identity))
-                    .and_then(|requirement| requirement.parts());
-
-                valid &= check_cleanup(
-                    request,
-                    storage,
-                    *access,
-                    parts,
-                    property,
-                    exit,
-                    dependencies,
-                    diagnostics,
-                )?;
-            }
+    for (&(access, ty, releases_storage), &preserves_inputs) in &reached.parts {
+        if !(preserves_inputs || inert(access)) {
+            valid &= !releases_storage;
+            valid &= check_cleanup_type(request, ty, property, exit, dependencies, diagnostics)?;
         }
     }
 
@@ -95,23 +96,31 @@ pub(in crate::analysis::guarantee) fn check_cleanup<C: CheckerRequestContext + ?
     };
 
     for ty in types {
-        let checked = execution_cleanup_dependencies(
-            request,
-            ty,
-            property,
-            ExecutionCleanupMode::Disposal,
-            node,
-        )?;
-
-        let (proof, owned) = checked.into_parts();
-
-        diagnostics.add_range(owned);
-
-        match proof {
-            Some(proof) => dependencies.extend(proof),
-            None => valid = false,
-        }
+        valid &= check_cleanup_type(request, ty, property, node, dependencies, diagnostics)?;
     }
 
     Ok(valid)
+}
+
+fn check_cleanup_type<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
+    ty: TypeId,
+    property: ExecutionProperty,
+    node: AnyBoundNodeId,
+    dependencies: &mut Vec<ExecutionDependency>,
+    diagnostics: &mut DiagnosticBag,
+) -> Result<bool, CheckerQueryError<C::UpstreamError>> {
+    let checked = execution_cleanup_dependencies(request, ty, property, ExecutionCleanupMode::Disposal, node)?;
+
+    let (proof, owned) = checked.into_parts();
+
+    diagnostics.add_range(owned);
+
+    let Some(proof) = proof else {
+        return Ok(false);
+    };
+
+    dependencies.extend(proof);
+
+    Ok(true)
 }

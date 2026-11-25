@@ -60,7 +60,7 @@ pub fn predicate_conditions_with_inputs(
     inputs: &BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
     storage: Option<(&bray_bound_tree::StoragePlan, &bray_bound_tree::StorageFlow)>,
     predicates: Option<
-        &BTreeMap<bray_symbols::PredicateInstanceData, bray_symbols::PredicateSemanticSummary>,
+        &BTreeMap<bray_symbols::PredicateInstanceData, crate::PredicateConditionInput>,
     >,
 ) -> Result<
     Vec<(
@@ -160,7 +160,7 @@ fn predicate_domain(
     semantics: &CheckedExpressionSemantics,
     root: BoundExpressionId,
     predicates: Option<
-        &BTreeMap<bray_symbols::PredicateInstanceData, bray_symbols::PredicateSemanticSummary>,
+        &BTreeMap<bray_symbols::PredicateInstanceData, crate::PredicateConditionInput>,
     >,
 ) -> bray_symbols::PredicateDomain {
     use bray_bound_tree::{AnyBoundNodeId, BoundWalkControl, BoundWalkEvent, SemanticSelection};
@@ -242,9 +242,7 @@ fn reference_conditions(
             continue;
         };
 
-        let Some(completion) = flow.completion(bray_bound_tree::StorageMutation::Operation(
-            expression.into(),
-        )) else {
+        let Some(completion) = flow.normal_completion(expression.into()) else {
             continue;
         };
 
@@ -253,7 +251,7 @@ fn reference_conditions(
             projections: [].into(),
         };
 
-        let Some(target) = completion.references().get(&path) else {
+        let Some(observation) = completion.references().get(&path) else {
             continue;
         };
 
@@ -261,7 +259,7 @@ fn reference_conditions(
         // reference even when that reference has no direct invocation-local slot.
         // Clause entry values are supplied by the enclosing evaluation frame.
         // Nested borrowed inputs name that frame, while raw pointees stay distinct.
-        let place = match &target.origin {
+        let place = match &observation.target.origin {
             bray_bound_tree::StorageOrigin::Entry {
                 reference,
                 projections,
@@ -272,9 +270,10 @@ fn reference_conditions(
             bray_bound_tree::StorageOrigin::Returned {
                 reference,
                 projections,
+                ..
             } => crate::ExecutionPlace::storage_path(storage, reference)
                 .and_then(|place| place.project(projections)),
-            _ => (target).value_observation_path()
+            _ => observation.target.value_observation_path()
                 .and_then(|path| crate::ExecutionPlace::storage_path(storage, &path)),
         };
 

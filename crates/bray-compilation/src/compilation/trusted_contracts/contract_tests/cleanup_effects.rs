@@ -413,7 +413,314 @@ fn conditional_cleanup_cannot_publish_unconditional_guarantees() {
 }
 
 #[test]
+#[ignore = "tier:proof"]
+fn conditional_cleanup_keeps_the_address_written_by_its_finalizer() {
+    use bray_symbols::{
+        DependencyMutationKind, DependencyProjection, DependencyStorageEffect,
+        DependencySubjectRoot, SymbolOrdinal,
+    };
+
+    let application = production_sync_compilation(
+        r#"
+        trusted module app;
+
+        using core.atomic;
+
+        struct Writer
+        {
+            mut destination: &core.atomic.Atomic<u32>;
+            replacement: &core.atomic.Atomic<u32>;
+
+            finalize()
+            {
+                self.destination = self.replacement;
+            }
+
+            destruct()
+            {
+                core.atomic.store<u32, 0>(self.destination, 1);
+            }
+        }
+
+        func dispose_present(pos writer: Writer)
+        {
+        }
+
+        func dispose_optional(pos writer: Writer?)
+        {
+        }
+
+        trusted predicate live(destination: &core.atomic.Atomic<u32>);
+
+        struct Child
+        {
+            mut destination: &core.atomic.Atomic<u32>;
+
+            trusted destruct() requires(trusted live(self.destination))
+            {
+                core.atomic.store<u32, 0>(self.destination, 1);
+            }
+        }
+
+        struct Parent
+        {
+            mut child: Child;
+            replacement: &core.atomic.Atomic<u32>;
+
+            trusted finalize()
+                ensures(trusted live(self.child.destination))
+                executes(total)
+            {
+                self.child.destination = self.replacement;
+            }
+        }
+
+        func dispose_parent(pos owner: Parent)
+        {
+        }
+
+        func dispose_optional_parent(pos owner: Parent?)
+        {
+        }
+
+        struct Outer
+        {
+            parent: Parent?;
+        }
+
+        func dispose_nested_optional_parent(pos owner: Outer?)
+        {
+        }
+
+        struct UnprovenParent
+        {
+            mut child: Child;
+            replacement: &core.atomic.Atomic<u32>;
+
+            finalize() executes(total)
+            {
+                self.child.destination = self.replacement;
+            }
+        }
+
+        func dispose_unproven_parent(pos owner: UnprovenParent?)
+        {
+        }
+
+        struct InstalledChild
+        {
+            destination: &core.atomic.Atomic<u32>;
+
+            destruct()
+            {
+                core.atomic.store<u32, 0>(self.destination, 1);
+            }
+        }
+
+        struct Installer
+        {
+            mut child: InstalledChild?;
+            replacement: &core.atomic.Atomic<u32>;
+
+            finalize()
+                requires(self.child matches none)
+            {
+                self.child = InstalledChild { destination = self.replacement };
+            }
+        }
+
+        func dispose_installed_child(pos replacement: &core.atomic.Atomic<u32>)
+        {
+            let mut owner = Installer { child = none, replacement = replacement };
+            owner.child = none;
+        }
+
+        struct EmptyOwner
+        {
+            child: InstalledChild?;
+
+            finalize()
+            {
+            }
+        }
+
+        func dispose_empty_child()
+        {
+            let owner = EmptyOwner { child = none };
+        }
+        "#,
+    );
+
+    let cancellation = crate::CancellationToken::new();
+    let binding = application.binding_context(&cancellation).expect("fixture symbols bind");
+
+    let atomic = |effect: &DependencyStorageEffect| matches!(effect,
+        DependencyStorageEffect::Atomic
+        | DependencyStorageEffect::Indirect { kind: DependencyMutationKind::Atomic, .. }
+        | DependencyStorageEffect::UnboundedMutation { kind: DependencyMutationKind::Atomic, .. }
+    );
+
+    let cases = [
+        ("dispose_present", Some(0)),
+        ("dispose_optional", Some(1)),
+        ("dispose_parent", Some(0)),
+        ("dispose_optional_parent", Some(1)),
+        ("dispose_nested_optional_parent", Some(2)),
+        ("dispose_installed_child", None),
+        ("dispose_empty_child", None),
+    ].map(|(name, nullable_boundaries)| {
+        let key = source_function_body_key(&application, name);
+
+        let lowered = application.lowered_unit(key.clone())
+            .expect("fixture callable reaches lowering");
+
+        (name, nullable_boundaries, key, lowered)
+    });
+
+    let failed_lowering = cases.iter().filter_map(|(name, _, _, lowered)| {
+        (lowered.value().is_none() || lowered.diagnostics().has_errors())
+            .then_some((*name, lowered.diagnostics()))
+    }).collect::<Vec<_>>();
+
+    assert!(failed_lowering.is_empty(), "{failed_lowering:#?}");
+
+    let unproven = application.lowered_unit(source_function_body_key(&application, "dispose_unproven_parent"))
+        .expect("the unproven child is checked before lowering");
+
+    assert!(unproven.value().is_none());
+
+    bray_testing::assert_goal_state_diagnostic_kind(
+        unproven.diagnostics(), DiagnosticKind::CheckingTrustedObligationNotProven,
+    );
+
+    for (name, nullable_boundaries, key, _) in cases {
+        if nullable_boundaries.is_none() {
+            let dependencies = application.dependency_contracts(key.clone()).expect("the installer has checked lifecycle contracts");
+
+            let finalizer = dependencies.value().lifecycle_dependencies().iter()
+                .find(|(instance, _)| instance.definition().callable_symbol().kind() == bray_symbols::SymbolKind::Finalizer)
+                .expect("the installer selects a finalizer").1;
+
+            assert!(!finalizer.effects().iter().any(atomic),
+                "installing into the empty slot cannot invoke the child's destructor inside the finalizer: {finalizer:#?}");
+        }
+
+        let summary = crate::compilation::result_dependencies::source_function_dependencies(&application, name);
+
+        let observed = summary.effects().iter().filter(|effect| atomic(effect)).collect::<Vec<_>>();
+
+        if name == "dispose_empty_child" {
+            assert!(observed.is_empty(), "the empty child performs no destructor effects: {summary:#?}");
+
+            continue;
+        }
+
+        let [DependencyStorageEffect::Indirect { addressed: true, reference, .. }] = observed.as_slice() else {
+            if nullable_boundaries.is_none() {
+                let flow = application.storage_flow(key).expect("the installer publishes reached cleanup");
+
+                panic!("{name} performs one atomic store through the installed descriptor: {summary:#?} with flow {:#?}", flow.value());
+            }
+
+            panic!("{name} performs one atomic store through the installed descriptor: {summary:#?}");
+        };
+
+        assert_eq!(reference.subject_root(), DependencySubjectRoot::Parameter(SymbolOrdinal::new(0)));
+
+        let Some(nullable_boundaries) = nullable_boundaries else {
+            assert!(reference.projections().is_empty(), "the installed child uses the caller's reference");
+
+            continue;
+        };
+
+        let field = match (nullable_boundaries, reference.projections()) {
+            (0, [DependencyProjection::ProductField(field)])
+            | (1, [DependencyProjection::NullableValue, DependencyProjection::ProductField(field)])
+            | (2, [DependencyProjection::NullableValue, DependencyProjection::ProductField(_),
+                DependencyProjection::NullableValue, DependencyProjection::ProductField(field)]) => *field,
+            _ => panic!("{name} retains the original field supplying the replacement: {reference:?}"),
+        };
+
+        let name = binding.member_name(field.into()).expect("fixture field name");
+
+        assert_eq!(name.map(|name| name.as_str()), Some("replacement"));
+    }
+
+}
+
+#[test]
+#[ignore = "tier:proof"]
+fn finalizer_address_guarantee_expires_with_the_backing_storage() {
+    let application = production_sync_compilation(
+        r#"
+        trusted module app;
+        using core.memory;
+
+        struct Receipt
+        {
+            mut pointer: DataPointer<u32>;
+        }
+
+        struct Writer
+        {
+            receipt: &mut Receipt;
+            backing: &u32;
+
+            trusted finalize()
+                ensures(trusted core.memory.valid_read<u32>(pointer = self.receipt.pointer, count = 1))
+            {
+                self.receipt.pointer = core.memory.address_of<u32>(self.backing);
+            }
+        }
+
+        func observe(pos pointer: DataPointer<u32>)
+            requires(trusted core.memory.valid_read<u32>(pointer = pointer, count = 1))
+        {
+        }
+
+        func before_backing_ends()
+        {
+            let mut receipt = Receipt { pointer = core.memory.null<u32>() };
+            let backing: u32 = 7;
+            {
+                let writer = Writer { receipt = &mut receipt, backing = &backing };
+            };
+            observe(receipt.pointer);
+        }
+
+        func after_backing_ends()
+        {
+            let mut receipt = Receipt { pointer = core.memory.null<u32>() };
+            {
+                let backing: u32 = 7;
+                {
+                    let writer = Writer { receipt = &mut receipt, backing = &backing };
+                };
+            };
+            observe(receipt.pointer);
+        }
+        "#,
+    );
+
+    let live = application.lowered_unit(source_function_body_key(&application, "before_backing_ends"))
+        .expect("check the address while its backing lives");
+
+    assert!(live.value().is_some() && !live.diagnostics().has_errors(), "{:?}", live.diagnostics());
+
+    let expired = application.lowered_unit(source_function_body_key(&application, "after_backing_ends"))
+        .expect("check the address after its backing retires");
+
+    assert!(expired.value().is_none());
+
+    bray_testing::assert_goal_state_diagnostic_kind(
+        expired.diagnostics(), DiagnosticKind::CheckingTrustedObligationNotProven,
+    );
+}
+
+#[test]
 fn consuming_cleanup_retains_only_proven_external_borrow_identity() {
+    use bray_diagnostics::{DiagnosticArgValue, DiagnosticContractObligationKind};
+
     for (cleanup, valid) in [("", true), ("self.reference = self.other;", false)] {
         let source = format!(
             r#"
@@ -428,11 +735,11 @@ fn consuming_cleanup_retains_only_proven_external_borrow_identity() {
             {{
                 mut reference: &Payload;
                 other: &Payload;
-                trusted destruct()
-                    requires(trusted acquired(&self))
+                destruct()
+                    requires(trusted acquired(&self), trusted live(self.reference))
                     ensures(trusted live(self.reference)) {{ let reference = self.reference; {cleanup} }}
                 consume func release()
-                    requires(trusted acquired(&self))
+                    requires(trusted acquired(&self), trusted live(self.reference))
                     ensures(trusted live(self.reference)) {{}}
             }}
         "#
@@ -452,6 +759,11 @@ fn consuming_cleanup_retains_only_proven_external_borrow_identity() {
                 diagnostics,
                 DiagnosticKind::CheckingTrustedObligationNotProven,
             );
+
+            assert!(diagnostics.iter().any(|diagnostic| diagnostic.args().iter().any(|argument| {
+                matches!(argument.value(), DiagnosticArgValue::ContractObligation(obligation)
+                    if obligation.kind == DiagnosticContractObligationKind::Postcondition)
+            })), "{diagnostics:#?}");
         }
     }
 }

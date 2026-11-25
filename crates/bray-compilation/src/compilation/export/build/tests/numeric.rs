@@ -591,7 +591,7 @@ fn numeric_truncation_inherits_predicates_through_type_equalities() {
         }
 
         impl Holder<T, U>
-            with (T == T, U: Copyable, std.numeric.supports_truncation<usize, U>())
+            with (U: Copyable, std.numeric.supports_truncation<usize, T>())
         {
             consume func convert() -> usize
                 with (T == U)

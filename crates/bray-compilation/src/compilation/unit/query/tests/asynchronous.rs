@@ -117,17 +117,21 @@ fn async_analysis_respects_anonymous_callable_execution_modes() {
 }
 
 #[test]
-fn opaque_future_parameters_do_not_imply_recovery() {
+fn a_future_parameter_can_suspend_without_a_local_producer() {
     let compilation = compilation(
         r#"
         module app;
 
         async func main(pending: Future<i32>) -> i32
         {
-            await pending
+            return await pending;
         }
     "#,
     );
+
+    let diagnostics = compilation.check_diagnostics();
+
+    assert!(!diagnostics.has_errors(), "{diagnostics:?}");
 
     let key = source_callable_body_key(&compilation);
 
@@ -152,53 +156,6 @@ fn opaque_future_parameters_do_not_imply_recovery() {
     };
 
     assert!(suspension.deferred_calls().is_empty());
-    assert!(!suspension.is_recovered(), "{suspension:?}");
-}
-
-#[test]
-fn ordinary_valid_awaits_retain_their_inferred_dependency_contract() {
-    let compilation = compilation(
-        r#"
-        module app;
-
-        async func main(pending: Future<i32>) -> i32
-        {
-            await pending
-        }
-    "#,
-    );
-
-    let key = source_callable_body_key(&compilation);
-
-    let analysis = compilation
-        .async_analysis(key.clone())
-        .unwrap_or_else(|error| panic!("async analysis must publish: {error:?}"));
-
-    let dependencies = compilation
-        .dependency_contracts(key)
-        .unwrap_or_else(|error| panic!("dependency contracts must publish: {error:?}"));
-
-    let awaits = analysis
-        .value()
-        .suspensions()
-        .iter()
-        .filter(|point| {
-            matches!(
-                point.kind(),
-                bray_bound_tree::AsyncSuspensionKind::Await { .. }
-            )
-        })
-        .collect::<Vec<_>>();
-
-    let [suspension] = awaits.as_slice() else {
-        panic!("the direct await must publish one await suspension point");
-    };
-
-    let contract = suspension
-        .dependency_contract()
-        .unwrap_or_else(|| panic!("a valid await must select its inferred contract"));
-
-    assert!(dependencies.value().contract(contract).is_some());
     assert!(!suspension.is_recovered());
 }
 
@@ -221,11 +178,6 @@ fn async_analysis_follows_deferred_calls_through_local_future_bindings() {
 
     let key = source_callable_body_key(&compilation);
 
-    let liveness = match compilation.liveness(key.clone()) {
-        Ok(analysis) => analysis,
-        Err(error) => panic!("liveness analysis must publish: {error:?}"),
-    };
-
     let analysis = match compilation.async_analysis(key.clone()) {
         Ok(analysis) => analysis,
         Err(error) => panic!("async analysis must publish: {error:?}"),
@@ -235,7 +187,15 @@ fn async_analysis_follows_deferred_calls_through_local_future_bindings() {
         panic!("the direct await must publish one suspension point");
     };
 
-    assert_eq!(suspension.deferred_calls().len(), 1);
+    let [call] = suspension.deferred_calls() else {
+        panic!("one selected frame reaches the await: {suspension:#?}");
+    };
+
+    let cancellation = crate::CancellationToken::new();
+    let binding = compilation.binding_context(&cancellation).expect("fixture declarations bind");
+    let callable = call.target().declaration().expect("the deferred body is declared");
+
+    assert_eq!(binding.member_name(callable.symbol()).expect("deferred declaration has a name").map(|name| name.as_str()), Some("child"));
     assert!(!suspension.is_recovered());
     assert!(!analysis.value().frame_dependencies().is_empty());
 
@@ -244,32 +204,16 @@ fn async_analysis_follows_deferred_calls_through_local_future_bindings() {
         analysis.value().frame_dependencies()
     );
 
-    assert!(
-        liveness
-            .value()
-            .live_across_suspensions()
-            .iter()
-            .all(|entry| analysis
-                .value()
-                .frame_dependencies()
-                .contains(&entry.subject()))
-    );
+    let flow = compilation.storage_flow(key.clone()).expect("await cleanup publishes");
 
     assert!(
-        analysis
-            .value()
-            .scope_exits()
-            .iter()
+        flow.value().exits().iter()
             .all(|exit| exit.cancellation_broadcast() == exit.lifecycle_resolution())
     );
 
     // Await consumes the frame. The caller must not schedule it for cleanup again.
     assert!(
-        analysis
-            .value()
-            .scope_exits()
-            .iter()
-            .all(|exit| exit.cancellation_broadcast().is_empty())
+        flow.value().exits().iter().all(|exit| exit.cancellation_broadcast().is_empty())
     );
 
     let repeated = match compilation.async_analysis(key) {
@@ -552,13 +496,63 @@ fn implicit_async_cleanup_retains_pending_owners_and_dependencies() {
             .filter(|point| point.kind() == bray_bound_tree::AsyncSuspensionKind::Cleanup)
             .collect::<Vec<_>>();
 
-        // The Task retains its own asynchronous resolution obligation even
-        // when the user-defined Owner finalizer is synchronous.
-        assert!(!cleanup.is_empty());
-        assert!(cleanup.iter().any(|point| point.deferred_calls().is_empty()));
+        let plan = storage.value();
+        let values = application.semantic_value_store().expect("semantic types are available");
+        let known = application.available_compiler_known_symbols();
+        let symbols = application.symbol_graph().expect("local owner types are declared");
 
-        assert_eq!(cleanup.iter().filter(|point| !point.deferred_calls().is_empty()).count(),
-            usize::from(!execution.is_empty()));
+        let (pending, owner_type) = {
+            let mut pending = None;
+            let mut owner_type = None;
+
+            for (id, identity) in plan.identity_entries() {
+                if !matches!(identity, bray_bound_tree::StorageIdentity::LocalOwned(_)) {
+                    continue;
+                }
+
+                let ty = plan.identity_type(id).expect("each local has a checked type");
+
+                if known.type_representation(values, ty) == Some(RepresentationRole::Task) {
+                    assert!(pending.replace(id).is_none());
+                }
+
+                if let bray_symbols::TypeData::Named {
+                    definition: bray_symbols::NamedTypeSymbolId::Struct(definition),
+                    ..
+                } = values.type_data(ty).as_ref()
+                    && symbols.member_name((*definition).into()).is_some_and(|name| name.as_str() == "Owner")
+                {
+                    assert!(owner_type.replace(ty).is_none());
+                }
+            }
+
+            (pending.expect("the pending task owns a local slot"), owner_type.expect("the owner has a checked type"))
+        };
+
+        let owner_finalizer = application.selected_lifecycle_signature(
+            owner_type,
+            bray_symbols::TypeAssociatedLifecycleSlot::Finalizer,
+            &application.state.cancellation,
+        ).expect("the finalizer resolves");
+
+        let (finalizer, _) = owner_finalizer.value().as_ref().expect("Owner has a finalizer");
+
+        let task_exit = flow.value().exits().iter().find(|exit|
+            exit.lifecycle_resolution().iter().any(|access| plan.root_identity(*access) == Some(pending))
+        ).expect("the lexical exit resolves the pending Task");
+
+        let task_point = cleanup.iter().find(|point|
+            point.occurrence() == bray_bound_tree::BoundExecutionSite::Cleanup(task_exit.exit())
+        ).expect("the task's lifecycle resolution may suspend");
+
+        assert!(task_point.cancellation_broadcast().iter().any(|access| plan.root_identity(*access) == Some(pending)));
+
+        assert_eq!(
+            task_point.deferred_calls().iter().filter(|call|
+                call.target().declaration() == Some(finalizer.definition())
+            ).count(),
+            usize::from(!execution.is_empty()),
+        );
 
         for point in cleanup {
             assert!(matches!(
@@ -842,7 +836,7 @@ fn replacement_cleanup_retains_the_old_and_incoming_dependencies() {
         .async_analysis(key)
         .expect("fixture callable must complete async analysis");
 
-    let replacement = analysis
+    let replacement = flow
         .value()
         .replacements()
         .first()

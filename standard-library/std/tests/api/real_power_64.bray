@@ -1,4 +1,4 @@
-module bray.standard_library_tests.real_power;
+trusted module bray.standard_library_tests.real_power;
 
 using std.format;
 
@@ -79,5 +79,5 @@ trusted func real_power_boundaries_preserve_ieee_bits()
     assert(power_64(-1.0, infinity) == 1.0);
     assert(power_64(nan, -0.0) == 1.0);
     assert(power_64(1.0, nan) == 1.0);
-    assert(nan != nan);
+    assert(internal std.format.real64_bits(&nan) == 0x7ff8000000000000);
 }

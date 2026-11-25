@@ -1835,6 +1835,7 @@ mod tests {
                 [InterfacePredicateDefinition::new(
                     symbol_reference(surface, SymbolKind::Predicate),
                     InterfacePredicateDefinitionState::Defined,
+                    bray_symbols::PredicateDomain::Value,
                 )],
             )
             .with_templates(templates, declarations, support)

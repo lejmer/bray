@@ -1,3 +1,6 @@
+use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
+
 use super::evidence::ExecutionCallEvidence;
 use bray_bound_tree::{AnyBoundNodeId, BoundCallableTarget};
 use bray_source::SourceSpan;
@@ -121,7 +124,7 @@ impl From<BoundCallableTarget> for ExecutionDependencyTarget {
 }
 
 /// A selected implementation and the exact property required from it.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ExecutionDependency {
     /// The selected callable or default provider.
     pub target: ExecutionDependencyTarget,
@@ -134,14 +137,12 @@ pub struct ExecutionDependency {
 /// Locally checked behavior whose dependencies still require certification.
 #[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
 pub struct ExecutionCandidate {
-    pub(crate) inert_cleanup:
-        std::collections::BTreeMap<(AnyBoundNodeId, bray_bound_tree::StorageAccessId), bool>,
     pub(crate) disposal: std::collections::BTreeMap<
         (
             bray_bound_tree::BoundExecutionSite,
             bray_symbols::CallableInstanceData,
         ),
-        ExecutionCallEvidence,
+        std::collections::BTreeSet<std::sync::Arc<ExecutionCallEvidence>>,
     >,
     pub(crate) cleanup: std::collections::BTreeMap<
         (
@@ -155,8 +156,11 @@ pub struct ExecutionCandidate {
     >,
     pub(crate) result_variant: Option<bray_symbols::UnionVariantSymbolId>,
     pub(crate) completion_dependencies: Vec<ExecutionCompletionDependency>,
-    pub(crate) calls:
-        std::collections::BTreeMap<bray_bound_tree::BoundExecutionSite, ExecutionCallEvidence>,
+    pub(crate) calls: std::collections::BTreeMap<
+        bray_bound_tree::BoundExecutionSite,
+        std::collections::BTreeSet<std::sync::Arc<ExecutionCallEvidence>>,
+    >,
+    pub(crate) preservation: BTreeMap<ExecutionDependency, BTreeSet<Arc<ExecutionCallEvidence>>>,
     pub(crate) failure: Option<ExecutionVerificationFailure<SourceSpan>>,
     pub(crate) constant_failure: Option<SourceSpan>,
     pub(crate) observation_failure: Option<SourceSpan>,
@@ -168,19 +172,25 @@ pub struct ExecutionCandidate {
 }
 
 impl ExecutionCandidate {
-    /// Returns the receiver evidence for an implicit lifecycle invocation, or the explicit call evidence.
+    /// Returns the reached admissions for a selected dependency.
     pub fn dependency_evidence(
         &self,
         occurrence: bray_bound_tree::BoundExecutionSite,
         target: BoundCallableTarget,
-    ) -> Option<&ExecutionCallEvidence> {
-        if let BoundCallableTarget::Declaration(callable) = target
-            && let Some(evidence) = self.disposal.get(&(occurrence, callable))
-        {
-            return Some(evidence);
-        }
+    ) -> Option<&BTreeSet<Arc<ExecutionCallEvidence>>> {
+        let disposal = match target {
+            BoundCallableTarget::Declaration(callable) => self.disposal.get(&(occurrence, callable)),
+            _ => None,
+        };
 
-        self.call_evidence(occurrence)
+        disposal.or_else(|| self.calls.get(&occurrence))
+    }
+
+    /// Returns the admissions whose purity established input preservation.
+    pub fn preservation_dependencies(
+        &self,
+    ) -> &BTreeMap<ExecutionDependency, BTreeSet<Arc<ExecutionCallEvidence>>> {
+        &self.preservation
     }
 
     /// Returns selected lifecycle actions with their receiver facts. The key retains the
@@ -222,8 +232,8 @@ impl ExecutionCandidate {
     pub fn call_evidence(
         &self,
         occurrence: bray_bound_tree::BoundExecutionSite,
-    ) -> Option<&ExecutionCallEvidence> {
-        self.calls.get(&occurrence)
+    ) -> impl Iterator<Item = &ExecutionCallEvidence> {
+        self.calls.get(&occurrence).into_iter().flatten().map(std::sync::Arc::as_ref)
     }
 
     /// Returns the first operation preventing a local proof, if any.
@@ -289,8 +299,8 @@ pub struct ExecutionCleanup {
     pub caller_continuation: bool,
     /// Whether this action finalizes the complete owner rather than a represented part.
     pub whole: bool,
-    /// Facts available immediately before this invocation.
-    pub evidence: ExecutionCallEvidence,
+    /// Reached receivers and their facts immediately before each invocation.
+    pub evidence: std::collections::BTreeSet<std::sync::Arc<ExecutionCallEvidence>>,
 }
 
 /// Certified properties and the opaque assertions required by their proofs.
@@ -375,12 +385,14 @@ mod tests {
             let value = |value| if borrowed { snapshot(value).borrowed() } else { snapshot(value) };
 
             let mut entry = ExecutionCallEvidence {
+                outputs: Default::default(),
                 arguments: [(input.clone(), value(true))].into(),
                 owned_inputs: if borrowed { Arc::from([]) } else { Arc::from([ordinal]) },
                 ..ExecutionCallEvidence::default()
             };
 
             let incoming = ExecutionCallEvidence {
+                outputs: Default::default(),
                 arguments: [(input.clone(), value(false))].into(),
                 owned_inputs: Arc::clone(&entry.owned_inputs),
                 ..ExecutionCallEvidence::default()

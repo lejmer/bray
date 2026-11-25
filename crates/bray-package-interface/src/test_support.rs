@@ -270,21 +270,7 @@ pub(crate) fn identity_surface(
     symbols: impl IntoIterator<Item = ExternalSymbolKey>,
     exports: impl IntoIterator<Item = ExportLookupInput>,
 ) -> PackageInterfaceSurface {
-    let mut keys = BTreeSet::new();
-
-    for symbol in symbols {
-        insert_key_and_owners(&mut keys, symbol);
-    }
-
-    keys.insert(ExternalSymbolKey::package(package.clone()));
-
-    let records = keys.iter().map(|key| {
-        ExportSymbolInput::new(
-            key.clone(),
-            key.owner().cloned(),
-            bray_symbols::MemberVisibility::Public,
-        )
-    });
+    let (keys, records) = public_symbol_records(&package, symbols);
 
     let mut relationship_ordinals = BTreeMap::new();
 
@@ -402,9 +388,7 @@ fn template_semantics(
         checked_template(CheckedTemplateKind::GenericConstraint, generic_type.clone());
 
     let predicate = InterfacePredicateSummary::new(crate::InterfaceDependencyContractId::new(0));
-
     let invocation_behavior = callable_phase_behavior();
-
     let declaration_templates = declaration_templates(&owner, &defined_predicate, &implementation);
 
     InterfaceSemantics::new()
@@ -529,14 +513,17 @@ fn template_semantics(
                 InterfacePredicateDefinition::new(
                     opaque_predicate,
                     InterfacePredicateDefinitionState::OpaqueTrusted,
+                    bray_symbols::PredicateDomain::Trusted,
                 ),
                 InterfacePredicateDefinition::new(
                     required_predicate,
                     InterfacePredicateDefinitionState::Required,
+                    bray_symbols::PredicateDomain::Value,
                 ),
                 InterfacePredicateDefinition::new(
                     defined_predicate.clone(),
                     InterfacePredicateDefinitionState::Defined,
+                    bray_symbols::PredicateDomain::Value,
                 ),
             ],
         )
@@ -735,6 +722,32 @@ fn local_by_key(
         .symbol_by_external_key(key)
         .map(InterfaceSymbolReference::Local)
         .unwrap_or_else(|| panic!("test symbol key must be present: {key:?}"))
+}
+
+pub(crate) fn public_symbol_records(
+    package: &PackageIdentity,
+    symbols: impl IntoIterator<Item = ExternalSymbolKey>,
+) -> (BTreeSet<ExternalSymbolKey>, Vec<ExportSymbolInput>) {
+    let mut keys = BTreeSet::new();
+
+    for symbol in symbols {
+        insert_key_and_owners(&mut keys, symbol);
+    }
+
+    keys.insert(ExternalSymbolKey::package(package.clone()));
+
+    let records = keys
+        .iter()
+        .map(|key| {
+            ExportSymbolInput::new(
+                key.clone(),
+                key.owner().cloned(),
+                bray_symbols::MemberVisibility::Public,
+            )
+        })
+        .collect();
+
+    (keys, records)
 }
 
 pub(crate) fn insert_key_and_owners(

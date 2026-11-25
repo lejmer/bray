@@ -286,8 +286,9 @@ mod tests {
         InterfaceDependencyRequirement, InterfaceDependencyRequirementKind,
         InterfaceDependencySubject, InterfaceDependencySubjectRoot, InterfaceGenericDeclaration,
         InterfaceGenericSubstitutionId, InterfaceMalformedCause, InterfacePredicateDefinitionState,
-        InterfaceRuntimeRequirement, InterfaceSectionTag, InterfaceSemanticRecordKind,
-        InterfaceSemantics, InterfaceStorageMember, InterfaceStorageShape,
+        InterfacePredicateDefinition, InterfaceRuntimeRequirement, InterfaceSectionTag,
+        InterfaceSemanticRecordKind, InterfaceSemantics, InterfaceStorageMember,
+        InterfaceStorageShape,
         InterfaceSymbolReference, InterfaceType, InterfaceTypeId, InterfaceTypeRepresentation,
         InterfaceValidationContext, InterfaceValidationError, InterfaceValidationField,
         InterfaceValidationLimits, PackageInterfaceSurface,
@@ -632,14 +633,17 @@ mod tests {
             (
                 SymbolKind::Predicate,
                 InterfacePredicateDefinitionState::OpaqueTrusted,
+                bray_symbols::PredicateDomain::Trusted,
             ),
             (
                 SymbolKind::TraitPredicateMember,
                 InterfacePredicateDefinitionState::Required,
+                bray_symbols::PredicateDomain::Value,
             ),
             (
                 SymbolKind::TraitPredicateFulfillment,
                 InterfacePredicateDefinitionState::Defined,
+                bray_symbols::PredicateDomain::Value,
             ),
         ];
 
@@ -684,7 +688,7 @@ mod tests {
         assert!(default.types().is_empty());
         assert!(default.constant_terms().is_empty());
 
-        for (kind, expected_state) in predicate_owners {
+        for (kind, expected_state, expected_domain) in predicate_owners {
             let InterfaceSymbolReference::Local(owner) = local_by_kind(&surface, kind) else {
                 panic!("test predicate must be local");
             };
@@ -700,7 +704,60 @@ mod tests {
 
             assert_eq!(predicate.predicate_definitions().len(), 1);
             assert_eq!(predicate.predicate_definitions()[0].state(), expected_state);
+            assert_eq!(predicate.predicate_definitions()[0].domain(), expected_domain);
             assert!(predicate.declaration_templates().is_empty());
+        }
+    }
+
+    #[test]
+    fn predicate_definition_states_reject_incompatible_authority() {
+        let bundle = package_interface_export_bundle();
+        let surface = bundle.surface();
+        let base = bundle.semantics();
+
+        for (state, invalid_domain, expected_index) in [
+            (
+                InterfacePredicateDefinitionState::OpaqueTrusted,
+                bray_symbols::PredicateDomain::Value,
+                0,
+            ),
+            (
+                InterfacePredicateDefinitionState::Required,
+                bray_symbols::PredicateDomain::Execution,
+                1,
+            ),
+        ] {
+            let definitions = base.predicate_definitions().iter().map(|definition| {
+                if definition.state() == state {
+                    InterfacePredicateDefinition::new(
+                        definition.owner().clone(),
+                        definition.state(),
+                        invalid_domain,
+                    )
+                } else {
+                    definition.clone()
+                }
+            });
+
+            let invalid = base.clone().with_declarations(
+                base.callable_signatures().iter().cloned(),
+                base.generic_declarations().iter().cloned(),
+                base.callable_parameter_defaults().iter().cloned(),
+                definitions,
+            );
+
+            assert_eq!(
+                encode_semantics(&invalid, surface, InterfaceValidationLimits::default()),
+                Err(InterfaceValidationError::Malformed {
+                    context: InterfaceValidationContext::SemanticRecord {
+                        kind: InterfaceSemanticRecordKind::PredicateDefinition,
+                        index: expected_index,
+                    },
+                    cause: InterfaceMalformedCause::InvalidValue {
+                        field: InterfaceValidationField::Declaration,
+                    },
+                })
+            );
         }
     }
 
@@ -896,18 +953,18 @@ mod tests {
                 access_type: Some(access),
                 ambient: true,
             },
-            DependencyStorageEffect::Direct {
+            DependencyStorageEffect::Direct { addressed: true,
                 subject: subject.clone(),
                 kind: DependencyMutationKind::Replace(replacement),
                 access_type: Some(access),
             },
-            DependencyStorageEffect::Indirect {
+            DependencyStorageEffect::Indirect { addressed: true, reads: [].into(),
                 reference: subject,
                 projections: [].into(),
                 kind: DependencyMutationKind::Replace(replacement),
                 access_type: Some(access),
             },
-        ]).with_stored_values(stored);
+        ]).with_captured_values([crate::InterfaceNormalOutcome::new(None, []).with_storage([], stored)]);
 
         let semantics = base.clone().with_values(
             [contract],
@@ -936,7 +993,7 @@ mod tests {
         )
         .expect("fixture `decode_semantic_graph` call must succeed");
 
-        let stored = &decoded.dependency_contracts[0].stored_values;
+        let stored = &decoded.dependency_contracts[0].captured_values[0].stored_values;
 
         assert_eq!(stored.len(), 3);
         assert!(stored.iter().any(|value| value.destination() == &path(empty.clone(), 0) && value.is_complete() && value.sources().is_empty()));

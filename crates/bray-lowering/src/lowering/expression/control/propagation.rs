@@ -232,9 +232,8 @@ impl Lowerer<'_> {
         value: MirOperand,
         result_type: TypeId,
     ) -> Result<(MirBlockId, MirOperand, MirBlockId, MirOperand), LoweringError> {
-        let (types, representation) = crate::operand::result_payloads(
+        let (types, representation) = self.input.available_compiler_known_symbols().result_payloads(
             self.input.semantic_values(),
-            self.input.available_compiler_known_symbols(),
             result_type,
         )
         .expect("checked Result branch retains its payload representation");
@@ -262,15 +261,16 @@ impl Lowerer<'_> {
         operand_type: TypeId,
         current: MirBlockId,
     ) -> Result<LoweredExpression, LoweringError> {
-        if !matches!(
-            self.selected_propagation(id),
-            SelectedPropagation::CurrentRun { .. }
-        ) {
+        let &SelectedPropagation::CurrentRun {
+            success: (completed_variant, completed_field),
+            panicked: (panicked_variant, panicked_field),
+            cancelled: cancelled_variant,
+        } = self.selected_propagation(id) else {
             panic!(
                 "lowering contract violation: MissingSemanticSelection {value:?}",
                 value = id
             );
-        }
+        };
 
         let arguments = self.named_type_arguments(operand_type);
 
@@ -280,8 +280,6 @@ impl Lowerer<'_> {
                 value = id
             );
         };
-
-        let representation = self.run_result_representation();
 
         let report_type =
             self.representation_type(bray_compiler_known::RepresentationRole::PanicReport)?;
@@ -315,7 +313,7 @@ impl Lowerer<'_> {
             MirTerminatorKind::PatternBranch {
                 subject: Self::retained_operand(&operand),
                 predicate: MirPatternPredicate::ActiveUnionVariant(
-                    representation.completed_variant,
+                    completed_variant,
                 ),
                 matched: MirEdge::new(completed, [Self::retained_operand(&operand)]),
                 unmatched: MirEdge::new(incomplete, [operand]),
@@ -328,7 +326,7 @@ impl Lowerer<'_> {
             MirTerminatorKind::PatternBranch {
                 subject: Self::retained_operand(&incomplete_operand),
                 predicate: MirPatternPredicate::ActiveUnionVariant(
-                    representation.cancelled_variant,
+                    cancelled_variant,
                 ),
                 matched: MirEdge::new(cancelled, [Self::retained_operand(&incomplete_operand)]),
                 unmatched: MirEdge::new(panicked, [incomplete_operand]),
@@ -341,8 +339,8 @@ impl Lowerer<'_> {
             &source,
             completed_operand,
             PatternProjection::ActiveUnionPayloadField {
-                variant: representation.completed_variant,
-                field: representation.completed_field,
+                variant: completed_variant,
+                field: completed_field,
             },
             *value_type,
         )?;
@@ -353,8 +351,8 @@ impl Lowerer<'_> {
             &source,
             panicked_operand,
             PatternProjection::ActiveUnionPayloadField {
-                variant: representation.panicked_variant,
-                field: representation.panicked_field,
+                variant: panicked_variant,
+                field: panicked_field,
             },
             report_type,
         )?;

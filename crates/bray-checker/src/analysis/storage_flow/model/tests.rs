@@ -114,6 +114,50 @@ fn guard_observations_do_not_create_ownership_and_join_by_intersection() {
 }
 
 #[test]
+fn input_write_joins_keep_the_narrower_subtree_written_on_both_paths() {
+    use bray_bound_tree::{StorageObservedTarget, StoragePath, StorageProjection, StorageTarget};
+    use bray_symbols::{DependencyProjection, DependencySubject, DependencySubjectRoot, SymbolOrdinal};
+
+    let (identity, _) = storage_and_expressions(93);
+
+    let ordinal = SymbolOrdinal::new(0);
+    let root = DependencySubjectRoot::Parameter(SymbolOrdinal::new(0));
+    let root_subject = DependencySubject::root(root);
+    let child_subject = DependencySubject::new(root, [DependencyProjection::TupleElement(ordinal)]);
+    let root_target = StorageTarget::storage(StoragePath::root(identity));
+    let child_target = root_target.project(&[StorageProjection::TupleElement(ordinal)]);
+
+    let mut parent_write = reachable_state();
+
+    parent_write.record_written_input(
+        root_subject,
+        StorageObservedTarget::borrowed(root_target, error_type()),
+    );
+
+    let mut child_write = reachable_state();
+
+    child_write.record_written_input(
+        child_subject.clone(),
+        StorageObservedTarget::borrowed(child_target.clone(), error_type()),
+    );
+
+    assert!(parent_write.merge(&child_write, None));
+
+    assert_eq!(
+        parent_write.written_inputs,
+        [(
+            child_subject,
+            StorageObservedTarget::borrowed(child_target, error_type()),
+        )]
+        .into_iter()
+        .collect()
+    );
+
+    assert!(parent_write.merge(&reachable_state(), None));
+    assert!(parent_write.written_inputs.is_empty());
+}
+
+#[test]
 fn fully_moved_storage_survives_only_when_every_incoming_path_moves_it() {
     let (identity, _) = storage_and_expressions(79);
 
@@ -166,7 +210,7 @@ fn control_flow_joins_retain_maybe_live_storage_and_intersect_initialization() {
 
 #[test]
 fn absence_provenance_survives_mutation_and_joins_conservatively() {
-    use super::StorageAbsence;
+    use bray_bound_tree::StorageAbsence;
     use bray_bound_tree::{StorageAccess, StorageAccessRoot, StorageInvalidation};
 
     let (unit, expressions) = expression_unit(BoundUnitId::new(82), |tree, origin| {
@@ -228,14 +272,13 @@ fn absence_provenance_survives_mutation_and_joins_conservatively() {
 
     let mut state = reachable_state();
 
-    state.definitely_absent.extend([
+    std::sync::Arc::make_mut(&mut state.definitely_absent).extend([
         (moved.clone(), StorageAbsence::Moved),
         (observed, StorageAbsence::NoPayload),
     ]);
 
     state.invalidate_observed_absence(
         &StorageInvalidation::unknown(),
-        &storage,
         &Default::default(),
     );
 
@@ -246,16 +289,13 @@ fn absence_provenance_survives_mutation_and_joins_conservatively() {
 
     let mut incoming = reachable_state();
 
-    incoming
-        .definitely_absent
-        .insert(moved, StorageAbsence::NoPayload);
+    std::sync::Arc::make_mut(&mut incoming.definitely_absent).insert(moved, StorageAbsence::NoPayload);
 
     assert!(state.merge(&incoming, None));
     assert!(!state.merge(&incoming, None));
 
     state.invalidate_observed_absence(
         &StorageInvalidation::unknown(),
-        &storage,
         &Default::default(),
     );
 
@@ -306,6 +346,55 @@ fn reachable_state() -> StorageFlowState {
     state
 }
 
+#[test]
+fn completed_call_payload_absence_reaches_cleanup_and_is_replaced_by_a_later_output() {
+    use bray_bound_tree::{StoragePath, StorageProjection};
+
+    let (identity, expressions) = storage_and_expressions(141);
+
+    let payload = StoragePath {
+        root: identity,
+        projections: [StorageProjection::NullableValue].into(),
+    };
+
+    let mut state = reachable_state();
+
+    state.memory.stage_no_payload_alternative(
+        expressions[1].into(),
+        super::super::memory::Target::storage(payload.clone()),
+    );
+
+    state.memory.complete_transition(expressions[1].into());
+
+    assert!(state.has_absent_path(&payload));
+    assert!(state.absent_paths(Some(identity)).any(|path| path == &payload));
+    assert!(!state.has_absent_path(&StoragePath::root(identity)));
+    assert!(state.no_payload_paths(identity).any(|path| path == &payload));
+    assert!(state.definitely_absent.is_empty());
+
+    let field = StoragePath {
+        root: identity,
+        projections: [
+            StorageProjection::NullableValue,
+            StorageProjection::TupleElement(bray_symbols::SymbolOrdinal::new(0)),
+        ].into(),
+    };
+
+    assert!(state.is_path_absent(&field));
+    assert!(!state.is_path_absent(&StoragePath::root(identity)));
+
+    state.memory.stage_unknown(
+        expressions[2].into(),
+        super::super::memory::Target::storage(payload.clone()),
+    );
+
+    state.memory.complete_transition(expressions[2].into());
+
+    assert!(!state.has_absent_path(&payload));
+    assert!(!state.absent_paths(Some(identity)).any(|path| path == &payload));
+    assert!(!state.is_path_absent(&field));
+}
+
 fn storage_and_expressions(
     raw_unit: u32,
 ) -> (
@@ -336,7 +425,7 @@ fn storage_and_expressions(
 
 #[test]
 fn payload_absence_survives_contents_changes_but_not_discriminant_replacement() {
-    use super::StorageAbsence;
+    use bray_bound_tree::StorageAbsence;
 
     use bray_bound_tree::{
         StorageAccess, StorageAccessRoot, StorageInvalidation, StoragePath, StorageProjection,
@@ -374,7 +463,6 @@ fn payload_absence_survives_contents_changes_but_not_discriminant_replacement() 
         ))
         .expect("fixture access must fit its identity space");
 
-    let storage = builder.finish();
     let parent = StoragePath::root(root);
 
     let payload = StoragePath {
@@ -385,39 +473,48 @@ fn payload_absence_survives_contents_changes_but_not_discriminant_replacement() 
     let discriminants = BTreeMap::from([(root, BTreeSet::from([parent.clone()]))]);
 
     let observed = |changed| StorageInvalidation::Observed {
+        transition: Default::default(),
         scope: bray_bound_tree::StorageMutationScope::Unbounded,
+        affected_pointees: None,
         accesses: BTreeMap::from([(access, vec![changed])]),
         snapshots: BTreeMap::new(),
         referents: BTreeSet::new(),
         stable_descriptors: BTreeSet::new(),
         stable_values: BTreeMap::new(),
-        stable_reference_slots: Default::default(), normal_snapshots: Default::default(),
+        stable_reference_slots: Default::default(), normal_snapshots: Default::default(), stable_pointees: Default::default(),
     };
 
     let opaque = StorageInvalidation::All {
         stable_descriptors: [parent.clone()].into(),
         stable_values: BTreeMap::new(),
-        stable_reference_slots: Default::default(), normal_snapshots: Default::default(),
+        stable_allocation_addresses: Default::default(),
+        stable_reference_slots: Default::default(), normal_snapshots: Default::default(), stable_pointees: Default::default(),
+    };
+
+    let opaque_value = |kind| StorageInvalidation::All {
+        stable_descriptors: Default::default(),
+        stable_values: [(parent.clone(), kind)].into(),
+        stable_allocation_addresses: Default::default(),
+        stable_reference_slots: Default::default(), normal_snapshots: Default::default(), stable_pointees: Default::default(),
     };
 
     for (invalidation, inline, retained) in [
         (observed(payload.clone()), true, true),
-        (observed(parent), true, false),
+        (observed(parent.clone()), true, false),
         (opaque.clone(), true, true),
         (opaque, false, false),
+        (opaque_value(bray_bound_tree::StorageObservationKind::Discriminant), true, true),
+        (opaque_value(bray_bound_tree::StorageObservationKind::Address), true, false),
         (StorageInvalidation::unknown(), true, false),
     ] {
         let mut state = reachable_state();
 
-        state
-            .definitely_absent
-            .insert(payload.clone(), StorageAbsence::NoPayload);
+        std::sync::Arc::make_mut(&mut state.definitely_absent).insert(payload.clone(), StorageAbsence::NoPayload);
 
         let no_discriminants = BTreeMap::new();
 
         state.invalidate_observed_absence(
             &invalidation,
-            &storage,
             if inline {
                 &discriminants
             } else {
@@ -436,14 +533,33 @@ fn abnormal_reports_retain_dependencies_without_requesting_pending_storage() {
     let subject = bray_bound_tree::BoundDependencySubject::Storage(identity);
     let boundary = expressions[0];
     let mut abnormal = reachable_state();
+    let mut empty = reachable_state();
 
-    abnormal.retain_reports(Some(boundary), [subject], false);
-    assert!(abnormal.report_retains(subject));
+    empty.retain_reports(Some(boundary), Default::default(), false);
+    assert_eq!(empty.pending_report_boundaries().count(), 0);
+    assert_eq!(empty.completed_report().as_deref(), Some(&[][..]));
+
+    assert!(empty.transfer_report_boundary(boundary, None, false).is_none());
+    assert_eq!(empty.completed_report().as_deref(), Some(&[][..]));
+
+    let requirement = bray_symbols::DependencyRequirement::direct(
+        bray_symbols::DependencySubject::root(bray_symbols::DependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(0))),
+        bray_symbols::DependencyRequirementKind::ValueDependencies,
+    );
+
+    let dependencies = bray_bound_tree::ReportDependencies {
+        subjects: [subject].into(),
+        requirements: [requirement.clone()].into(),
+        ..Default::default()
+    };
+
+    abnormal.retain_reports(Some(boundary), std::sync::Arc::new(dependencies), false);
+    assert!(abnormal.retained_report_value_requires(subject));
     assert_eq!(abnormal.pending_report_boundaries().count(), 0);
 
     let mut normal = reachable_state();
 
-    normal.retain_reports(Some(boundary), [], true);
+    normal.retain_reports(Some(boundary), Default::default(), true);
     assert!(abnormal.merge(&normal, None));
     assert!(!abnormal.merge(&normal, None));
 
@@ -452,22 +568,28 @@ fn abnormal_reports_retain_dependencies_without_requesting_pending_storage() {
         [Some(boundary)]
     );
 
-    assert!(abnormal.report_retains(subject));
+    assert!(abnormal.retained_report_value_requires(subject));
 
     let mut caught = abnormal.clone();
 
-    caught.transfer_report_boundary(boundary, None, true);
-    assert_eq!(caught.pending_report_boundaries().count(), 0);
-    assert!(!caught.report_retains(subject));
+    let transferred = caught.transfer_report_boundary(boundary, None, true)
+        .expect("catch owns the transferred report");
 
-    abnormal.transfer_report_boundary(boundary, None, false);
+    assert!(transferred.subjects.contains(&subject));
+    assert!(transferred.requirements.contains(&requirement));
+    assert_eq!(caught.pending_report_boundaries().count(), 0);
+    assert!(!caught.retained_report_value_requires(subject));
+    assert!(caught.completed_report().is_none());
+
+    assert!(abnormal.transfer_report_boundary(boundary, None, false).is_none());
 
     assert_eq!(
         abnormal.pending_report_boundaries().collect::<Vec<_>>(),
         [None]
     );
 
-    assert!(abnormal.report_retains(subject));
+    assert!(abnormal.retained_report_value_requires(subject));
+    assert_eq!(abnormal.completed_report().as_deref(), Some(&[requirement][..]));
 }
 
 #[test]

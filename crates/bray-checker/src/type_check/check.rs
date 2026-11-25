@@ -988,16 +988,19 @@ mod tests {
 
         assert!(result.diagnostics().is_empty());
 
-        assert_ne!(
-            result
-                .value()
-                .expression(expressions[0])
-                .map(|result| result.ty()),
-            result
-                .value()
-                .expression(expressions[1])
-                .map(|result| result.ty())
-        );
+        let context = crate::test_support::TestCheckerContext::new(false);
+        let entry = callable_entry(unit.key());
+        let request = CheckerUnitView::new(&unit, &entry, &context);
+
+        for (expression, role) in expressions
+            .into_iter()
+            .zip([RepresentationRole::Unit, RepresentationRole::Never])
+        {
+            assert_eq!(
+                result.value().expression(expression).map(|result| result.ty()),
+                Some(crate::representation::representation_type(request, role))
+            );
+        }
     }
 
     #[test]
@@ -1035,12 +1038,19 @@ mod tests {
             Some(iterable_type)
         );
 
-        assert_ne!(
+        let context = crate::test_support::TestCheckerContext::new(false);
+        let entry = callable_entry(unit.key());
+        let request = CheckerUnitView::new(&unit, &entry, &context);
+
+        let bool_type =
+            crate::representation::representation_type(request, RepresentationRole::ScalarBool);
+
+        assert_eq!(
             result
                 .value()
                 .expression(expressions[1])
                 .map(|result| result.ty()),
-            Some(iterable_type)
+            Some(bool_type)
         );
     }
 

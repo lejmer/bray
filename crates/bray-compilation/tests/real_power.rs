@@ -1,3 +1,6 @@
+#[path = "support/scalar_target.rs"]
+mod scalar_target;
+
 use bray_bound_tree::{BoundSourceAnchor, BoundUnitKey};
 use bray_compilation::{Compilation, CompilationRequest};
 use bray_compiler_known::RepresentationRole;
@@ -16,9 +19,10 @@ fn compilation(source: &str) -> Compilation {
         source,
     );
 
-    let request = CompilationRequest::new(
+    let request = CompilationRequest::with_options(
         PackageIdentity::try_new("real.power.test").expect("test package identity is valid"),
         vec![source],
+        scalar_target::extended_options(),
     );
 
     Compilation::load(request).expect("real power source loads")
@@ -97,13 +101,13 @@ fn real_power_constants_preserve_selected_precision_and_ieee_boundaries() {
 
         let compilation = compilation(&source);
 
-        if compilation
-            .available_compiler_known_symbols()
-            .representation_symbol::<bray_symbols::StructSymbolId>(role)
-            .is_none()
-        {
-            continue;
-        }
+        assert!(
+            compilation
+                .available_compiler_known_symbols()
+                .representation_symbol::<bray_symbols::StructSymbolId>(role)
+                .is_some(),
+            "{role:?} must be available in the extended scalar profile"
+        );
 
         assert!(
             compilation.check_diagnostics().is_empty(),
@@ -219,13 +223,13 @@ fn ordinary_and_compound_real_powers_demand_the_selected_helper() {
 
         let compilation = compilation(&source);
 
-        if compilation
-            .available_compiler_known_symbols()
-            .representation_symbol::<bray_symbols::StructSymbolId>(role)
-            .is_none()
-        {
-            continue;
-        }
+        assert!(
+            compilation
+                .available_compiler_known_symbols()
+                .representation_symbol::<bray_symbols::StructSymbolId>(role)
+                .is_some(),
+            "{role:?} must be available in the extended scalar profile"
+        );
 
         assert!(
             compilation.check_diagnostics().is_empty(),

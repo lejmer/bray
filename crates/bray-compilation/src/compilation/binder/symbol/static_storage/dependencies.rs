@@ -79,10 +79,7 @@ fn requirement_reaches_exact_thread(requirement: &bray_symbols::DependencyRequir
                     .any(requirement_reaches_exact_thread)
             })
         }
-        bray_symbols::DependencyRequirement::Direct { subject, .. } => matches!(
-            subject.subject_root(),
-            bray_symbols::DependencySubjectRoot::ExactThreadStatic(_)
-        ),
+        bray_symbols::DependencyRequirement::Direct { subject, .. } => subject.subject_root().static_duration() == Some(StaticStorageDuration::ExactThread),
         bray_symbols::DependencyRequirement::Guarded(guarded) => {
             guard_reaches_exact_thread(guarded.guard())
                 || guarded
@@ -99,10 +96,7 @@ fn guard_reaches_exact_thread(guard: &bray_symbols::DependencyGuard) -> bool {
         | bray_symbols::DependencyGuard::ActiveUnionVariant { subject, .. } => subject,
     };
 
-    matches!(
-        subject.subject_root(),
-        bray_symbols::DependencySubjectRoot::ExactThreadStatic(_)
-    )
+    subject.subject_root().static_duration() == Some(StaticStorageDuration::ExactThread)
 }
 
 pub(in crate::compilation) fn static_dependencies_from_contract(
@@ -116,7 +110,7 @@ pub(in crate::compilation) fn static_dependencies_from_contract(
     let mut dependencies = Vec::new();
 
     for requirement in contract.requirements() {
-        collect_static_requirement_dependencies(requirement, &mut dependencies);
+        collect_static_requirement_dependencies(context.semantic_values(), requirement, &mut dependencies);
     }
 
     dependencies.sort_unstable();
@@ -248,6 +242,7 @@ fn collect_witness_subject_requirement(
 }
 
 fn collect_static_requirement_dependencies(
+    values: &bray_symbols::SemanticValueStore,
     requirement: &bray_symbols::DependencyRequirement,
     dependencies: &mut Vec<StaticSymbolId>,
 ) {
@@ -261,12 +256,12 @@ fn collect_static_requirement_dependencies(
                 .flat_map(|definition| definition.iter())
                 .chain(result.iter())
             {
-                collect_static_requirement_dependencies(nested, dependencies);
+                collect_static_requirement_dependencies(values, nested, dependencies);
             }
         }
         bray_symbols::DependencyRequirement::CleanupDependencies { requirements, .. } => {
             for requirement in requirements.iter() {
-                collect_static_requirement_dependencies(requirement, dependencies);
+                collect_static_requirement_dependencies(values, requirement, dependencies);
             }
         }
         bray_symbols::DependencyRequirement::Variable { .. }
@@ -278,11 +273,11 @@ fn collect_static_requirement_dependencies(
                 .iter()
                 .flat_map(|input| input.values().iter().chain(input.storage()))
             {
-                collect_static_requirement_dependencies(nested, dependencies);
+                collect_static_requirement_dependencies(values, nested, dependencies);
             }
         }
         bray_symbols::DependencyRequirement::Direct { subject, .. } => {
-            collect_static_subject_dependency(subject.subject_root(), dependencies);
+            dependencies.extend(subject.subject_root().static_declaration(values));
         }
         bray_symbols::DependencyRequirement::Guarded(guarded) => {
             let subject = match guarded.guard() {
@@ -290,30 +285,11 @@ fn collect_static_requirement_dependencies(
                 | bray_symbols::DependencyGuard::ActiveUnionVariant { subject, .. } => subject,
             };
 
-            collect_static_subject_dependency(subject.subject_root(), dependencies);
+            dependencies.extend(subject.subject_root().static_declaration(values));
 
             for requirement in guarded.requirements() {
-                collect_static_requirement_dependencies(requirement, dependencies);
+                collect_static_requirement_dependencies(values, requirement, dependencies);
             }
         }
-    }
-}
-
-fn collect_static_subject_dependency(
-    root: bray_symbols::DependencySubjectRoot,
-    dependencies: &mut Vec<StaticSymbolId>,
-) {
-    match root {
-        bray_symbols::DependencySubjectRoot::ProductStatic(dependency)
-        | bray_symbols::DependencySubjectRoot::ExactThreadStatic(dependency) => {
-            dependencies.push(dependency);
-        }
-        bray_symbols::DependencySubjectRoot::Receiver
-        | bray_symbols::DependencySubjectRoot::Parameter(_)
-        | bray_symbols::DependencySubjectRoot::EvaluationStorage
-        | bray_symbols::DependencySubjectRoot::Result
-        | bray_symbols::DependencySubjectRoot::ScopedCapability(_)
-        | bray_symbols::DependencySubjectRoot::ImplementationWitness(_)
-        | bray_symbols::DependencySubjectRoot::ImplementationRequirement(_) => {}
     }
 }

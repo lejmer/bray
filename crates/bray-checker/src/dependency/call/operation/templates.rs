@@ -166,7 +166,7 @@ fn construction_dependencies<C: CheckerRequestContext + ?Sized>(
                 DependencyRequirementKind::ValueDependencies,
             )
         }))
-        .with_effects([])
+        .with_possible_effects([])
     };
 
     Ok(direct_dependencies(template))

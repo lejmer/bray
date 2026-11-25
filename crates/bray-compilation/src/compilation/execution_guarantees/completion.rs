@@ -130,14 +130,21 @@ impl Compilation {
                 continue;
             }
 
-            let evidence = dependencies_verified.then_some(&cleanup.evidence);
+            assert!(!cleanup.evidence.is_empty(), "a reached finalizer retains its receiver evidence");
 
-            let completion = self.finalizer_completion(
-                cleanup.callable,
-                cleanup.result,
-                evidence,
-                cancellation,
-            )?;
+            let admissions = cleanup.evidence.iter().filter(|_| dependencies_verified);
+            let fallback = (!dependencies_verified).then_some(None);
+            let mut completion = FinalizerCompletion::Completed;
+
+            for evidence in fallback.into_iter().chain(admissions.map(|entry| Some(entry.as_ref()))) {
+                completion = completion.min(self.finalizer_completion(
+                    cleanup.callable, cleanup.result, evidence, cancellation,
+                )?);
+
+                if completion == FinalizerCompletion::Unresolved {
+                    break;
+                }
+            }
 
             let complete = completion == FinalizerCompletion::Completed;
 
@@ -303,16 +310,21 @@ impl Compilation {
                 return Ok(false);
             };
 
-            if self
-                .verified_execution_obligation(
-                    callable,
-                    ExecutionObligation::Postcondition(dependency.source),
-                    candidate.call_evidence(dependency.node.into()),
-                    cancellation,
-                )?
-                .is_none()
-            {
-                return Ok(false);
+            let mut admissions = candidate.call_evidence(dependency.node.into()).peekable();
+            let fallback = admissions.peek().is_none().then_some(None);
+
+            for evidence in fallback.into_iter().chain(admissions.map(Some)) {
+                if self
+                    .verified_execution_obligation(
+                        callable,
+                        ExecutionObligation::Postcondition(dependency.source),
+                        evidence,
+                        cancellation,
+                    )?
+                    .is_none()
+                {
+                    return Ok(false);
+                }
             }
         }
 
@@ -395,8 +407,8 @@ impl Compilation {
 
         let mut diagnostics = DiagnosticBag::new();
 
-        let evidence = self.instantiate_execution_evidence(
-            evidence.unwrap_or(&ExecutionCallEvidence::default()),
+        let proof = self.instantiate_execution_proof(
+            evidence,
             cancellation,
             &mut diagnostics,
         )?;
@@ -407,7 +419,7 @@ impl Compilation {
 
         let contracts = self.callable_completion_contracts(
             callable,
-            evidence.implementation_witnesses(),
+            proof.implementation_witnesses(),
             cancellation,
         )?;
 
@@ -418,7 +430,7 @@ impl Compilation {
         let mut postconditions = Vec::new();
 
         for contract in contracts.into_parts().0 {
-            if !evidence.prove_trusted_requirements(&contract.entry).is_ok() {
+            if !proof.prove_trusted_requirements(&contract.entry).is_ok() {
                 continue;
             }
 
@@ -427,7 +439,7 @@ impl Compilation {
                     .verified_execution_obligation(
                         callable,
                         ExecutionObligation::Postcondition(clause),
-                        Some(&evidence),
+                        evidence,
                         cancellation,
                     )?
                     .is_some()
@@ -1508,7 +1520,7 @@ mod tests {
             !selected.result().value().is_empty(),
             completed,
             "{source}: {selected:?}; invalidations: {:?}",
-            body.result().value().refinements().invalidations(),
+            body.result().value().storage_flow().operation_invalidations().collect::<Vec<_>>(),
         );
 
         let symbols = compilation

@@ -8,7 +8,7 @@ use bray_symbols::TypeId;
 
 use crate::input::ScopeExitCleanupStatus;
 use crate::lowering::LoweringError;
-use crate::lowering::inputs::{InputExit, InputTemporary};
+use crate::lowering::inputs::InputExit;
 use crate::lowering::lowerer::Lowerer;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -31,7 +31,7 @@ pub(in crate::lowering) enum TerminalState {
     Cancelled,
 }
 
-impl Lowerer<'_> {
+impl<'unit> Lowerer<'unit> {
     pub(in crate::lowering) fn finish_iteration_scope(
         &mut self,
         expression: bray_bound_tree::BoundExpressionId,
@@ -369,7 +369,7 @@ impl Lowerer<'_> {
         match entry {
             CleanupEntry::Panic(report) => {
                 return self.finish_abnormal_cleanup(
-                    MirCleanupPhase::TaskCancellation,
+                    super::CleanupStart::Broadcast,
                     current,
                     source,
                     crate::cleanup_outcome::CleanupFailure::Panic(report),
@@ -380,7 +380,7 @@ impl Lowerer<'_> {
             }
             CleanupEntry::Cancellation(report) => {
                 return self.finish_abnormal_cleanup(
-                    MirCleanupPhase::TaskCancellation,
+                    super::CleanupStart::Broadcast,
                     current,
                     source,
                     crate::cleanup_outcome::CleanupFailure::Cancellation(Some(report)),
@@ -407,7 +407,7 @@ impl Lowerer<'_> {
         &self,
         scope_depth: usize,
         exit: AnyBoundNodeId,
-    ) -> Vec<bray_bound_tree::AsyncScopeExitPlan> {
+    ) -> Vec<&'unit bray_bound_tree::StorageExitDecision> {
         self.input
             .cleanup_plans(&self.active_scopes, scope_depth, exit)
     }
@@ -420,80 +420,7 @@ impl Lowerer<'_> {
         self.input.scope_cleanup_status(scope, exit)
     }
 
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "cleanup emission joins checked scope plans, temporaries, pending values, and failure continuations"
-    )]
-    pub(super) fn push_cleanup_operations(
-        &mut self,
-        mut block: MirBlockId,
-        source: &MirSourceAnchor,
-        phase: MirCleanupPhase,
-        plans: &[bray_bound_tree::AsyncScopeExitPlan],
-        temporaries: &[InputTemporary],
-        pending: Option<&bray_ir::MirPlace>,
-        failures: &std::collections::BTreeMap<
-            StorageScope,
-            (MirBlockId, MirBlockId, bray_ir::MirPlace),
-        >,
-    ) -> Result<MirBlockId, LoweringError> {
-        let pending_inputs = temporaries;
-        let mut temporaries = temporaries.iter().rev().peekable();
-        let previous_occurrence = self.cleanup_occurrence;
-
-        for plan in plans {
-            self.cleanup_occurrence =
-                Some(bray_bound_tree::BoundExecutionSite::Cleanup(plan.exit()));
-
-            self.cleanup_failure_targets = failures.get(&plan.scope()).cloned();
-
-            if phase == MirCleanupPhase::LifecycleResolution
-                && let Some(expression) = plan.scoped_exit()
-            {
-                block =
-                    self.push_scope_exit(block, source, expression, Some(plan.exit()), pending)?;
-            }
-
-            let depth = self
-                .active_scopes
-                .iter()
-                .position(|scope| *scope == plan.scope())
-                .unwrap_or_else(|| {
-                    panic!(
-                        "lowering contract violation: MissingBoundNode {value:?}",
-                        value = plan.scope()
-                    )
-                })
-                + 1;
-
-            block = self.push_input_cleanup(block, phase, &mut temporaries, depth)?;
-
-            for access in match phase {
-                MirCleanupPhase::TaskCancellation => plan.cancellation_broadcast(),
-                MirCleanupPhase::LifecycleResolution => plan.lifecycle_resolution(),
-            } {
-                if self.input.elides_generator_storage(*access)
-                    || self.input_cleanup_owns(*access, phase, pending_inputs)
-                {
-                    continue;
-                }
-
-                let completed = self.input.finalizer_is_complete(plan.exit(), *access);
-
-                block = self
-                    .push_cleanup_access(block, source, phase, *access, completed, None)?
-                    .0;
-            }
-        }
-
-        block = self.push_input_cleanup(block, phase, &mut temporaries, 0)?;
-        self.cleanup_failure_targets = None;
-        self.cleanup_occurrence = previous_occurrence;
-
-        Ok(block)
-    }
-
-    pub(super) fn push_cleanup_access(
+    pub(in crate::lowering) fn push_cleanup_access(
         &mut self,
         block: MirBlockId,
         source: &MirSourceAnchor,
@@ -542,17 +469,7 @@ impl Lowerer<'_> {
         let guard = state.map(|state| Self::retained_place(&state.guard));
 
         let parts = state
-            .map(|state| {
-                state
-                    .parts
-                    .iter()
-                    .map(|part| crate::lowering::initialization::InitializedPart {
-                        plan: part.plan,
-                        guard: Self::retained_place(&part.guard),
-                        array_types: std::sync::Arc::clone(&part.array_types),
-                    })
-                    .collect::<Vec<_>>()
-            })
+            .map(|state| std::sync::Arc::clone(&state.parts))
             .unwrap_or_default();
 
         if parts.is_empty() {
@@ -579,11 +496,9 @@ impl Lowerer<'_> {
                     block,
                     &cleanup_source,
                     phase,
-                    access,
-                    place,
-                    &parts,
-                    0,
+                    crate::lowering::arrays::CleanupPartCursor::new(access, place, parts, 0),
                     value,
+                    None,
                 )
             },
         )
@@ -730,6 +645,25 @@ impl Lowerer<'_> {
                     .map_err(Into::into)
             })
             .transpose()
+    }
+
+    pub(in crate::lowering) fn begin_cleanup_broadcast(
+        &mut self,
+        current: MirBlockId,
+        source: &MirSourceAnchor,
+    ) -> Result<MirBlockId, LoweringError> {
+        let broadcast = self.builder.push_block(Self::retained_source(source), MirBlockKind::CleanupBroadcast)?;
+
+        self.set_terminator(
+            current,
+            Self::retained_source(source),
+            MirTerminatorKind::BeginCleanup(MirCleanupEdge::new(
+                MirCleanupPhase::TaskCancellation,
+                MirEdge::new(broadcast, []),
+            )),
+        )?;
+
+        Ok(broadcast)
     }
 
     fn set_direct_exit(

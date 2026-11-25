@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use bray_binder::SymbolQueryProvider;
-use bray_checker::{ExecutionCallEvidence, ExecutionCondition, TypeNormalizer};
+use bray_checker::{ExecutionCallEvidence, ExecutionCallProof, ExecutionCondition, TypeNormalizer};
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{
     CallableInstanceData, CheckedConstraintKind, GenericConstraintsQuery, GenericOwnerId,
@@ -158,13 +158,17 @@ impl Compilation {
         Ok(())
     }
 
-    pub(super) fn instantiate_execution_evidence(
+    pub(super) fn instantiate_execution_proof<'entry>(
         &self,
-        evidence: &ExecutionCallEvidence,
+        evidence: Option<&'entry ExecutionCallEvidence>,
         cancellation: &CancellationToken,
         diagnostics: &mut DiagnosticBag,
-    ) -> Result<ExecutionCallEvidence, FactQueryError> {
-        evidence.try_map_conditions(|condition| {
+    ) -> Result<ExecutionCallProof<'entry>, FactQueryError> {
+        let Some(evidence) = evidence else {
+            return Ok(ExecutionCallProof::default());
+        };
+
+        evidence.proof_inputs().try_map_conditions(|condition| {
             self.instantiate_execution_condition_calls(
                 condition,
                 evidence.implementation_witnesses(),

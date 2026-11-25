@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use bray_runtime_interface::RuntimeArtifactMetadata;
@@ -45,20 +45,22 @@ pub(crate) fn compiler_executable(root: &Path, name: &str) -> std::path::PathBuf
         .join(executable_name(name))
 }
 
-pub(crate) fn assemble(
+pub(crate) fn prepare_bundles(
     root: &Path,
     target: NativeTarget,
-    runtime: &Path,
-    toolchain: &Path,
-) -> Result<(), String> {
-    let library_root = toolchain.join("lib").join("bray");
-    let standard_library = library_root.join("standard-library");
+) -> Result<(crate::runtime_artifact::Package, PathBuf), String> {
+    let standard_library = crate::runtime_artifact::standard_library_directory(root, target);
 
-    crate::progress::run("Building the standard library bundle", || {
-        build_standard_library(root, target, &standard_library)
+    crate::progress::run("Preparing the standard library bundle", || {
+        crate::standard_library::build_target_bundle(&root.join("standard-library"), &standard_library, target)
+            .map(|_| ())
     })?;
 
-    install_runtime(runtime, target, &library_root)
+    let runtime = crate::progress::run("Preparing the native runtime artifacts", || {
+        crate::runtime_artifact::build_for_readiness(target, &crate::runtime_artifact::readiness_directory(root, target))
+    })?;
+
+    Ok((runtime, standard_library))
 }
 
 pub(crate) fn assemble_from_bundles(
@@ -72,11 +74,6 @@ pub(crate) fn assemble_from_bundles(
     copy_directory(standard_library, &library_root.join("standard-library"))?;
 
     install_runtime(runtime, target, &library_root)
-}
-
-fn build_standard_library(root: &Path, target: NativeTarget, output: &Path) -> Result<(), String> {
-    crate::standard_library::build_target_bundle(&root.join("standard-library"), output, target)
-        .map(|_| ())
 }
 
 fn install_runtime(

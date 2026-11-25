@@ -283,23 +283,6 @@ mod tests {
     }
 
     #[test]
-    fn native_thread_completion_can_leave_the_failure_header_untouched() {
-        extern "C-unwind" fn completed(_: usize, _: &mut NativeRunOutcome) {}
-
-        let mut report = std::mem::MaybeUninit::uninit();
-
-        let state = bray_runtime_native_thread_execution(
-            completed,
-            0,
-            cancellation_not_requested,
-            0,
-            &mut report,
-        );
-
-        assert_eq!(state, NativeRunState::COMPLETED.code());
-    }
-
-    #[test]
     fn native_thread_execution_uses_typed_cancellation_observation() {
         let mut payload = std::mem::MaybeUninit::uninit();
 

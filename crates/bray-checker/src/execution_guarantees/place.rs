@@ -8,9 +8,29 @@ pub(crate) trait ExecutionValues {
     fn get_value(&self, place: &ExecutionPlace) -> Option<&super::ExecutionCondition>;
     fn get_value_mut(&mut self, place: &ExecutionPlace) -> Option<&mut super::ExecutionCondition>;
 
+    fn value_at(&self, place: &ExecutionPlace) -> Option<super::ExecutionCondition> {
+        for length in (0..=place.projections.len()).rev() {
+            let prefix = ExecutionPlace {
+                root: place.root.clone(),
+                projections: place.projections[..length].into(),
+            };
+
+            if let Some(value) = self.get_value(&prefix) {
+                return Some(place.projections[length..].iter().copied()
+                    .fold(value.clone(), super::ExecutionCondition::component));
+            }
+        }
+
+        None
+    }
+
     /// Declaration normalization may introduce an unbound formal once. An
     /// execution-state reader must not recover an entry after losing its value.
     fn formal_input(&self, place: &ExecutionPlace) -> Option<super::ExecutionCondition> {
+        if place.is_pointee() {
+            return None;
+        }
+
         Some(super::ExecutionCondition::new(super::ExecutionConditionKind::Input(place.clone())))
     }
 }
@@ -45,7 +65,17 @@ pub(crate) enum ExecutionInput {
     Constant(bray_symbols::ConstantTermId),
     Static(Arc<bray_symbols::StaticReferenceSelection>),
     Argument(bray_symbols::SymbolOrdinal),
+    FrameInput {
+        holder: Arc<ExecutionPlace>,
+        argument: bray_symbols::SymbolOrdinal,
+        source: Arc<super::ExecutionCondition>,
+    },
     Storage(bray_bound_tree::StorageIdentityId),
+    Pointee {
+        target: bray_bound_tree::StorageTarget,
+        ty: bray_symbols::TypeId,
+        producer: Option<bray_bound_tree::BoundExecutionSite>,
+    },
 }
 
 impl From<BoundReferenceTarget> for ExecutionPlace {
@@ -58,6 +88,35 @@ impl From<BoundReferenceTarget> for ExecutionPlace {
 }
 
 impl ExecutionPlace {
+    pub(crate) fn pointee(
+        storage: &bray_bound_tree::StoragePlan,
+        target: &bray_bound_tree::StorageTarget,
+        ty: bray_symbols::TypeId,
+    ) -> Self {
+        let identity = match &target.origin {
+            bray_bound_tree::StorageOrigin::Returned { reference, .. } => Some(reference.root),
+            bray_bound_tree::StorageOrigin::Allocation { allocation, .. } => Some(allocation.root),
+            _ => None,
+        };
+
+        let producer = identity.and_then(|identity| storage.identity(identity))
+            .and_then(|identity| identity.definition_occurrence());
+
+        Self {
+            root: ExecutionInput::Pointee { target: target.clone(), ty, producer },
+            projections: Arc::new([]),
+        }
+    }
+
+    pub(crate) fn is_pointee(&self) -> bool {
+        matches!(self.root, ExecutionInput::Pointee { .. })
+    }
+
+    pub(crate) fn depends_on(&self, mutation: bray_bound_tree::StorageMutation) -> bool {
+        matches!(&self.root, ExecutionInput::Pointee { producer: Some(producer), .. }
+            if mutation == bray_bound_tree::StorageMutation::Operation(*producer))
+    }
+
     /// Selects retained inline data without extending its place into reached storage.
     /// Unresolved selectors name only the containing view, never a guessed child.
     pub(crate) fn select_storage_value(
@@ -131,13 +190,6 @@ impl ExecutionPlace {
         }
     }
 
-    pub(crate) fn selected_static(&self) -> Option<bray_symbols::StaticSymbolId> {
-        match &self.root {
-            ExecutionInput::Static(selection) => Some(selection.template().declaration()),
-            _ => None,
-        }
-    }
-
     pub(crate) fn argument(ordinal: bray_symbols::SymbolOrdinal) -> Self {
         Self {
             root: ExecutionInput::Argument(ordinal),
@@ -150,8 +202,10 @@ impl ExecutionPlace {
             ExecutionInput::Reference(reference) => Some(*reference),
             ExecutionInput::Constant(_)
             | ExecutionInput::Argument(_)
+            | ExecutionInput::FrameInput { .. }
             | ExecutionInput::Static(_)
-            | ExecutionInput::Storage(_) => None,
+            | ExecutionInput::Storage(_)
+            | ExecutionInput::Pointee { .. } => None,
         }
     }
     pub(crate) fn is_callable_input(&self) -> bool {
@@ -209,11 +263,7 @@ impl ExecutionPlace {
         storage: &bray_bound_tree::StoragePlan,
         path: &bray_bound_tree::StoragePath,
     ) -> Option<Self> {
-        let mut owner = Self::storage_identity(storage, path.root)?;
-
-        owner.projections = path.projections.iter().copied().map_while(Self::projection_kind).collect();
-
-        Some(owner)
+        Some(Self::storage_identity(storage, path.root)?.project_observation(&path.projections).0)
     }
 
     pub(crate) fn storage_identity(
@@ -221,6 +271,9 @@ impl ExecutionPlace {
         identity: bray_bound_tree::StorageIdentityId,
     ) -> Option<Self> {
         let root = match storage.identity(identity)? {
+            bray_bound_tree::StorageIdentity::Static(selection) => {
+                return Some(Self { root: ExecutionInput::Static(selection), projections: Arc::new([]) });
+            }
             bray_bound_tree::StorageIdentity::Parameter(parameter) => {
                 BoundReferenceTarget::Surface(parameter.into())
             }
@@ -249,16 +302,7 @@ impl ExecutionPlace {
                     }))
                 {
                     reference
-                } else if matches!(
-                    kind,
-                    bray_bound_tree::StorageIdentity::LocalOwned(_)
-                        | bray_bound_tree::StorageIdentity::Temporary(_)
-                        | bray_bound_tree::StorageIdentity::Evaluated(_)
-                        | bray_bound_tree::StorageIdentity::Result(_)
-                        | bray_bound_tree::StorageIdentity::InvocationInput { .. }
-                        | bray_bound_tree::StorageIdentity::InvocationResult(_)
-                        | bray_bound_tree::StorageIdentity::ScopedCapability { .. }
-                ) {
+                } else if Self::tracks_local_storage(&kind) {
                     return Some(Self {
                         root: ExecutionInput::Storage(identity),
                         projections: Arc::new([]),
@@ -272,32 +316,42 @@ impl ExecutionPlace {
         Some(Self::from(root))
     }
 
-    pub(crate) fn project(
-        mut self,
-        projections: &[bray_bound_tree::StorageProjection],
-    ) -> Option<Self> {
-        for projection in projections {
-            self = self.component(Self::projection_kind(*projection)?);
-        }
-
-        Some(self)
+    pub(crate) fn tracks_local_storage(kind: &bray_bound_tree::StorageIdentity) -> bool {
+        matches!(kind,
+            bray_bound_tree::StorageIdentity::LocalOwned(_)
+                | bray_bound_tree::StorageIdentity::Temporary(_)
+                | bray_bound_tree::StorageIdentity::Evaluated(_)
+                | bray_bound_tree::StorageIdentity::Result(_)
+                | bray_bound_tree::StorageIdentity::InvocationInput { .. }
+                | bray_bound_tree::StorageIdentity::InvocationResult(_)
+                | bray_bound_tree::StorageIdentity::ScopedCapability { .. }
+                | bray_bound_tree::StorageIdentity::ScopedResultReplacement(_)
+        )
     }
 
-    pub(crate) fn storage_observation(
-        storage: &bray_bound_tree::StoragePlan,
-        path: &bray_bound_tree::StoragePath,
+    pub(crate) fn project(
+        self,
+        projections: &[bray_bound_tree::StorageProjection],
     ) -> Option<Self> {
-        let mut place = Self::storage_identity(storage, path.root)?;
+        let (place, observed) = self.project_observation(projections);
 
-        for projection in path.projections.iter() {
-            let Some(projection) = Self::projection_kind(*projection) else {
-                break;
-            };
+        (observed.len() == projections.len()).then_some(place)
+    }
 
-            place = place.component(projection);
+    /// Selects the nearest observable prefix of a checked physical path.
+    pub(crate) fn project_observation<'path>(
+        self,
+        path: &'path [bray_bound_tree::StorageProjection],
+    ) -> (Self, &'path [bray_bound_tree::StorageProjection]) {
+        if path.is_empty() {
+            return (self, path);
         }
 
-        Some(place)
+        let mut length = 0;
+        let components = path.iter().copied().map_while(Self::projection_kind).inspect(|_| length += 1);
+        let projections = self.projections.iter().copied().chain(components).collect();
+
+        (Self { root: self.root, projections }, &path[..length])
     }
 
     pub(crate) fn projection_kind(
@@ -325,25 +379,7 @@ impl ExecutionPlace {
         &self,
         values: &(impl ExecutionValues + ?Sized),
     ) -> Option<super::ExecutionCondition> {
-        for length in (0..=self.projections.len()).rev() {
-            let prefix = Self {
-                root: self.root.clone(),
-                projections: self.projections[..length].into(),
-            };
-
-            if let Some(value) = values.get_value(&prefix) {
-                // Component projections retain the same immutable snapshot as their containing value.
-                let mut value = value.clone();
-
-                for projection in self.projections.iter().skip(length) {
-                    value = value.component(*projection);
-                }
-
-                return Some(value);
-            }
-        }
-
-        None
+        values.value_at(self)
     }
 
     pub(crate) fn component(mut self, projection: ConstantProjectionKind) -> Self {
@@ -382,15 +418,12 @@ impl ExecutionPlace {
             places.contains(&prefix)
         })
     }
-
-    pub(crate) fn overlaps(&self, other: &Self) -> bool {
-        self.contains(other) || other.contains(self)
-    }
 }
 
 fn literal_array_extent(mut value: &super::ExecutionCondition) -> Option<usize> {
     for _ in 0..super::ExecutionCondition::WORK_LIMIT {
         match value.kind() {
+            super::ExecutionConditionKind::CapturedValue { value: contents, .. } | super::ExecutionConditionKind::DeferredValue { value: contents, .. } => value = contents,
             super::ExecutionConditionKind::Observation { contents, kind: super::ExecutionObservationKind::Owned | super::ExecutionObservationKind::Scalar, .. } => value = contents,
             super::ExecutionConditionKind::Constructed(base, _) => value = base,
             super::ExecutionConditionKind::Literal(value) => return match value.kind() {

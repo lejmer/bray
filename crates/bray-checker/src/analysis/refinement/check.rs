@@ -22,7 +22,6 @@ pub(crate) fn prepare_refinements<C: CheckerRequestContext + ?Sized>(
     expressions: &CheckedExpressionSemantics,
     storage: &StoragePlan,
     graph: &ControlFlowGraph,
-    memory: &bray_bound_tree::CheckedMemoryOperations,
 ) -> CheckerOutcome<RefinementUniverse, C::UpstreamError> {
     match RefinementUniverse::new(
         graph,
@@ -30,8 +29,6 @@ pub(crate) fn prepare_refinements<C: CheckerRequestContext + ?Sized>(
         patterns,
         expressions,
         storage,
-        memory,
-        storage.copyable_types(),
     ) {
         Ok(universe) => CheckerOutcome::without_diagnostics(universe),
         Err(RefinementUniverseError::Cancelled) => CheckerOutcome::Cancelled,
@@ -56,10 +53,6 @@ pub(crate) fn publish_refinements<C: CheckerRequestContext + ?Sized>(
     graph: &ControlFlowGraph,
     universe: &RefinementUniverse,
     occurrences: BTreeMap<AnyBoundNodeId, RefinementSet>,
-    invalidations: BTreeMap<
-        bray_bound_tree::BoundExecutionSite,
-        bray_bound_tree::StorageInvalidation,
-    >,
 ) -> CheckerOutcome<CheckedRefinements, C::UpstreamError> {
     let count = occurrences.values().fold(0usize, |count, set| {
         count
@@ -102,17 +95,10 @@ pub(crate) fn publish_refinements<C: CheckerRequestContext + ?Sized>(
             .collect()
     };
 
-    // Unvisited operations retain their conservative prepared effects. Reachable operations
-    // replace them with the effects established on every converged incoming path.
-    let mut effects = universe.invalidating_accesses.clone();
-
-    effects.extend(invalidations);
-
     let refinements = CheckedRefinements::try_new(
         graph.unit(),
         request.view().kind(),
         occurrences,
-        effects,
         recovered,
     )
     .expect("composite flow publishes valid refinement occurrences");
@@ -156,6 +142,7 @@ pub(crate) fn transfer_operation(
         }
         AnalysisOperationKind::Recovery(_) => state.clear(),
         AnalysisOperationKind::PatternObservation(_)
+        | AnalysisOperationKind::ScopedResult(_)
         | AnalysisOperationKind::Call {
             phase: AnalysisCallPhase::Input,
             ..
@@ -164,21 +151,17 @@ pub(crate) fn transfer_operation(
             phase: AnalysisScopeExitPhase::LifecycleResolution,
             ..
         } => {}
-        AnalysisOperationKind::Bound(node) => {
-            universe.invalidate_for_operation(state, node, storage, invalidation, discriminants);
+        AnalysisOperationKind::Bound(_) | AnalysisOperationKind::AssignmentInstall(_) => {
+            let node = operation.kind().node();
+
+            universe.invalidate_for_operation(state, storage, invalidation, discriminants);
             universe.finish_operation(state, node);
         }
         AnalysisOperationKind::Call {
-            invocation,
             phase: AnalysisCallPhase::Attempt,
+            ..
         } => {
-            universe.invalidate_for_operation(
-                state,
-                invocation,
-                storage,
-                invalidation,
-                discriminants,
-            );
+            universe.invalidate_for_operation(state, storage, invalidation, discriminants);
         }
         AnalysisOperationKind::Call {
             invocation,
@@ -189,13 +172,7 @@ pub(crate) fn transfer_operation(
             }
         }
         AnalysisOperationKind::Suspension { occurrence, .. } => {
-            universe.invalidate_for_operation(
-                state,
-                occurrence,
-                storage,
-                invalidation,
-                discriminants,
-            );
+            universe.invalidate_for_operation(state, storage, invalidation, discriminants);
 
             if let bray_bound_tree::BoundExecutionSite::Node(node) = occurrence {
                 universe.finish_operation(state, node);

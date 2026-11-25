@@ -1,4 +1,3 @@
-use super::super::storage_invalidation::invalidating_operation_accesses;
 use bray_bound_tree::StorageInvalidation;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -10,7 +9,7 @@ use bray_diagnostics::{DiagnosticRefinementCapacity, DiagnosticRefinementCapacit
 
 use crate::{CheckerRequestContext, CheckerUnitView};
 
-use super::super::model::{AnalysisRefinement, ControlFlowGraph};
+use super::super::model::{AnalysisPropagationOutcome, AnalysisRefinement, ControlFlowGraph};
 use super::evidence::{
     condition_refinements, equivalent_pattern_accesses, expression_dependencies,
     pattern_refinements,
@@ -29,18 +28,9 @@ pub(crate) struct RefinementUniverse {
     equivalent_accesses: BTreeMap<StorageAccessId, StorageAccessId>,
     edge_refinements: BTreeMap<AnalysisRefinement, Box<[usize]>>,
     trust_boundaries: BTreeMap<BoundExpressionId, usize>,
-    pub(crate) invalidating_accesses:
-        BTreeMap<bray_bound_tree::BoundExecutionSite, StorageInvalidation>,
 }
 
 impl RefinementUniverse {
-    pub(crate) fn invalidation_at(
-        &self,
-        site: bray_bound_tree::BoundExecutionSite,
-    ) -> Option<&StorageInvalidation> {
-        self.invalidating_accesses.get(&site)
-    }
-
     pub(crate) fn is_recovered(&self) -> bool {
         self.is_recovered
     }
@@ -51,16 +41,11 @@ impl RefinementUniverse {
         patterns: &CheckedPatterns,
         expressions: &bray_bound_tree::CheckedExpressionSemantics,
         storage: &StoragePlan,
-        memory: &bray_bound_tree::CheckedMemoryOperations,
-        copied_types: &BTreeSet<bray_symbols::TypeId>,
     ) -> Result<Self, RefinementUniverseError>
     where
         C: CheckerRequestContext + ?Sized,
     {
         let direct_dependencies = direct_expression_dependencies(storage);
-
-        let invalidating_accesses =
-            invalidating_operation_accesses(request, expressions, storage, memory, copied_types);
 
         let mut universe = Self {
             is_recovered: false,
@@ -70,7 +55,6 @@ impl RefinementUniverse {
             equivalent_accesses: equivalent_pattern_accesses(storage),
             edge_refinements: BTreeMap::new(),
             trust_boundaries: BTreeMap::new(),
-            invalidating_accesses,
         };
 
         for edge in graph.edges() {
@@ -132,12 +116,13 @@ impl RefinementUniverse {
         dependencies: &BTreeMap<BoundExpressionId, BTreeSet<StorageAccessId>>,
     ) -> Result<Vec<Refinement>, RefinementUniverseError> {
         Ok(match refinement {
-            AnalysisRefinement::CleanupRequired { .. }
+            AnalysisRefinement::CleanupOutcome { .. }
+            | AnalysisRefinement::BeginCleanup(_)
             | AnalysisRefinement::CaughtResult { .. }
             | AnalysisRefinement::GeneratorStorageFailure(_)
-            | AnalysisRefinement::InvocationFailure(_)
-            | AnalysisRefinement::InvocationCancellation(_)
-            | AnalysisRefinement::PreconditionFailure(_)
+            | AnalysisRefinement::InvocationFailure(..)
+            | AnalysisRefinement::InvocationEntry { .. }
+            | AnalysisRefinement::InvocationBackingFailure(_)
             | AnalysisRefinement::InvocationCompletion(_) => Vec::new(),
             AnalysisRefinement::InvocationPresence(invocation, value) => {
                 let access = storage
@@ -157,9 +142,23 @@ impl RefinementUniverse {
                 )]
             }
             AnalysisRefinement::InvocationBoolean(_, _) => Vec::new(),
+            AnalysisRefinement::InvocationVariant(invocation, variant) => {
+                let access = storage.invocation_result(invocation)
+                    .expect("variant edge selects the actual invocation result");
+
+                vec![Refinement::new(
+                    RefinementKind::Pattern {
+                        subject: invocation.expression().expect("protocol result has an expression owner"),
+                        access,
+                        predicate: PatternPredicate::ActiveUnionVariant(variant),
+                        value: true,
+                    },
+                    [access],
+                )]
+            }
             AnalysisRefinement::PropagationOutcome {
                 expression,
-                succeeded,
+                outcome,
             } => {
                 let Some(bray_bound_tree::SemanticSelection::Propagation(selection)) =
                     expressions.selections().expression(expression)
@@ -178,11 +177,11 @@ impl RefinementUniverse {
                     .first()
                     .expect("propagation retains its operand");
 
-                let Some((variant, _)) = selection.success() else {
+                let Some((variant, matches)) = outcome.variant(selection) else {
                     return Ok(vec![Refinement::new(
                         RefinementKind::NullablePresence {
                             expression: subject,
-                            is_present: succeeded,
+                            is_present: outcome == AnalysisPropagationOutcome::Success,
                         },
                         expression_dependencies(view, dependencies, subject),
                     )]);
@@ -207,7 +206,7 @@ impl RefinementUniverse {
                                 subject,
                                 access: plan.access(),
                                 predicate: PatternPredicate::ActiveUnionVariant(variant),
-                                value: succeeded,
+                                value: matches,
                             },
                             [plan.access()],
                         )
@@ -353,7 +352,6 @@ impl RefinementUniverse {
     pub(crate) fn invalidate_for_operation(
         &self,
         set: &mut RefinementSet,
-        occurrence: impl Into<bray_bound_tree::BoundExecutionSite>,
         storage: &StoragePlan,
         invalidation: Option<&StorageInvalidation>,
         discriminants: &BTreeMap<
@@ -361,9 +359,7 @@ impl RefinementUniverse {
             BTreeSet<bray_bound_tree::StoragePath>,
         >,
     ) {
-        let Some(mutations) =
-            invalidation.or_else(|| self.invalidating_accesses.get(&occurrence.into()))
-        else {
+        let Some(mutations) = invalidation else {
             return;
         };
 
@@ -386,12 +382,9 @@ impl RefinementUniverse {
                 };
 
                 if let Some(path) = descriptor.and_then(|access| storage.logical_path(access)) {
-                    return !crate::analysis::storage_invalidation::discriminant_invalidated(
-                        mutations,
-                        path,
-                        storage,
-                        discriminants,
-                    );
+                    let observed = discriminants.get(&path.root).is_some_and(|paths| paths.contains(path));
+
+                    return !mutations.invalidates_discriminant(path, observed);
                 }
 
                 refinement

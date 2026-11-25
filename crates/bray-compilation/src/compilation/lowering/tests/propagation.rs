@@ -72,13 +72,13 @@ struct Probe
     bytes: std.bytes.Buffer;
 }
 
-trusted func main() -> Result<unit, std.memory.MemoryLayoutError>
+func main() -> Result<unit, std.memory.MemoryLayoutError>
 {
     {
         let bytes: [u8; 1] = [7];
-        let mut values: std.collection.Deque<Probe> = try trusted std.collection.Deque<Probe>();
+        let mut values: std.collection.Deque<Probe> = try std.collection.Deque<Probe>();
 
-        try trusted values.push_back(
+        try values.push_back(
             {
                 bytes = try std.bytes.Buffer.from_slice(&bytes[..]),
             }
@@ -100,7 +100,21 @@ trusted func main() -> Result<unit, std.memory.MemoryLayoutError>
         lowered.diagnostics()
     );
 
-    assert!(lowered.value().is_some(), "{lowered:#?}");
+    let mir = lowered_mir(&lowered);
+    let symbols = compilation.symbol_graph().expect("the fixture has checked Result variants");
+
+    let failure_edges = mir.blocks().iter().filter_map(|block| match block.terminator().kind() {
+        MirTerminatorKind::PatternBranch {
+            predicate: bray_ir::MirPatternPredicate::ActiveUnionVariant(variant), matched, unmatched, ..
+        } => match symbols.member_name((*variant).into()).map(|name| name.as_str()) {
+            Some("Ok") => Some(unmatched.target()),
+            Some("Error") => Some(matched.target()),
+            _ => None,
+        },
+        _ => None,
+    });
+
+    assert!(propagation_destroys_local(mir, failure_edges), "the failed nested Result must destroy the live Deque");
 }
 
 #[test]
@@ -180,7 +194,32 @@ func main(pos value: i32?) -> i32?
         lowered.diagnostics()
     );
 
-    assert!(lowered.value().is_some(), "{lowered:#?}");
+    let mir = lowered_mir(&lowered);
+
+    let failure_edges = mir.blocks().iter().filter_map(|block| match block.terminator().kind() {
+        MirTerminatorKind::PatternBranch { predicate: bray_ir::MirPatternPredicate::NullablePresent, unmatched, .. } =>
+            Some(unmatched.target()),
+        MirTerminatorKind::PatternBranch { predicate: bray_ir::MirPatternPredicate::NullableAbsent, matched, .. } =>
+            Some(matched.target()),
+        _ => None,
+    });
+
+    assert!(propagation_destroys_local(mir, failure_edges), "propagating none must destroy Probe");
+}
+
+fn propagation_destroys_local(mir: &bray_ir::MirUnit, failure_edges: impl Iterator<Item = bray_ir::MirBlockId>) -> bool {
+    bray_ir::reachable_blocks(mir, failure_edges, &Default::default()).into_iter()
+        .filter_map(|block| mir.block(block)).flat_map(|block| block.operations())
+        .filter_map(|operation| mir.operation(*operation)).any(|operation| {
+            let place = match operation.kind() {
+                MirOperationKind::Destroy { place, .. }
+                | MirOperationKind::Cleanup { phase: bray_ir::MirCleanupPhase::LifecycleResolution, place, .. } => place,
+                _ => return false,
+            };
+
+            place.projections().is_empty() && mir.storage(place.storage())
+                .is_some_and(|storage| storage.kind() == &bray_ir::MirStorageKind::Local)
+        })
 }
 
 #[test]
@@ -387,6 +426,10 @@ fn patterns_observe_the_transferred_propagation_payload() {
             "both payload observers must be present: {mir:?}"
         );
 
+        let symbols = application.symbol_graph().expect("fixture exposes its selected fields");
+        let subject = observed[0].storage();
+        let mut names = Vec::new();
+
         for place in observed {
             assert_eq!(
                 place.projections().len(),
@@ -394,11 +437,24 @@ fn patterns_observe_the_transferred_propagation_payload() {
                 "borrow must start at the transferred Choice, not its old container: {mir:?}"
             );
 
-            assert!(mir.operations().iter().any(|operation| matches!(
-                operation.kind(), MirOperationKind::Store { destination, .. }
-                    if destination.storage() == place.storage() && destination.projections().is_empty()
-            )), "the observed result storage must be initialized: {mir:?}");
+            assert_eq!(place.storage(), subject);
+
+            let bray_ir::MirProjectionKind::ActiveUnionPayloadField { variant, field } = place.projections()[0].kind() else {
+                unreachable!("only active payload field borrows were selected");
+            };
+
+            assert_eq!(symbols.member_name((*variant).into()).map(|name| name.as_str()), Some("Pair"));
+            names.push(symbols.member_name((*field).into()).expect("declared payload field has its name").as_str());
         }
+
+        names.sort_unstable();
+
+        assert_eq!(names, ["first", "second"]);
+
+        assert!(mir.operations().iter().any(|operation| matches!(
+            operation.kind(), MirOperationKind::Store { destination, .. }
+                if destination.storage() == subject && destination.projections().is_empty()
+        )), "the observed result storage must be initialized: {mir:?}");
     }
 }
 

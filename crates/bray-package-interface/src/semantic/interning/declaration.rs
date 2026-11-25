@@ -16,7 +16,7 @@ use super::{
 };
 use crate::InterfaceSemantics;
 
-impl InternState {
+impl InternState<'_> {
     pub(super) fn convert_declared_types(
         &self,
         semantics: &InterfaceSemantics,
@@ -180,6 +180,7 @@ impl InternState {
                 Ok(ImportedPredicateDefinition {
                     owner,
                     state: input.state(),
+                    domain: input.domain(),
                     condition: input
                         .condition()
                         .map(|term| {
@@ -204,7 +205,10 @@ impl InternState {
                                 ))
                             })
                             .collect::<Result<Vec<_>, InterfaceSemanticInternError>>()?,
-                        input.state() == crate::InterfacePredicateDefinitionState::OpaqueTrusted,
+                        input.state() == crate::InterfacePredicateDefinitionState::OpaqueTrusted
+                            || input.state()
+                                == crate::InterfacePredicateDefinitionState::Required
+                                && input.domain() == bray_symbols::PredicateDomain::Trusted,
                     ),
                 })
             })

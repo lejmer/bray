@@ -51,6 +51,51 @@ trusted internal func retain_incident(
     );
 }
 
+// Retaining a primary needs a report record. A provider that contained its
+// panic in Progress published none, so the report takes one of the frame's
+// admitted records.
+trusted internal func retain_progress_incident(
+    pos header: &mut bray.runtime.bootstrap.activation.Header,
+    pos progress: &mut bray.runtime.bootstrap.activation.Progress,
+)
+    requires(
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
+        trusted bray.runtime.bootstrap.native_report_callbacks(report = &progress.report),
+    )
+    ensures(trusted bray.runtime.bootstrap.native_report_callbacks(report = &progress.report))
+{
+    let report = trusted admitted_report(trusted take_report(progress), &mut header.outgoing);
+
+    trusted retain_incident(&mut header.incidents, report);
+}
+
+trusted internal func admitted_report(
+    pos mut report: bray.runtime.bootstrap.PanicReportData,
+    pos admitted: &mut bray.runtime.bootstrap.ReportRecords,
+) -> bray.runtime.bootstrap.PanicReportData
+    requires(
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
+        trusted bray.runtime.bootstrap.native_report_callbacks(report = &report),
+    )
+    ensures(trusted bray.runtime.bootstrap.native_report_callbacks(report = &result))
+{
+    if report.primary_present != 0 && report.reserved == 0
+    {
+        report.reserved = trusted admitted_record(admitted);
+    }
+
+    return report;
+}
+
+trusted internal func admitted_record(pos admitted: &mut bray.runtime.bootstrap.ReportRecords) -> usize
+    requires(trusted bray.runtime.bootstrap.pool.protocol_access())
+{
+    let mut guard = trusted bray.runtime.bootstrap.pool.lock();
+    let pool: &mut bray.runtime.bootstrap.ReportPool = guard.get();
+
+    return trusted bray.runtime.bootstrap.detach_record(pool, admitted);
+}
+
 // A cleanup panic takes precedence over normal completion or cancellation. An
 // existing panic remains primary and owns the later report as a suppressed entry.
 trusted internal func merge_panic(
@@ -133,7 +178,7 @@ trusted internal func accept_progress(
         }
         else
         {
-            trusted retain_incident(&mut header.incidents, trusted take_report(&mut progress));
+            trusted retain_progress_incident(header, &mut progress);
         }
 
         return;
@@ -142,7 +187,7 @@ trusted internal func accept_progress(
     if suspended(progress.kind)
     {
         header.state = progress.state;
-        trusted retain_incident(&mut header.incidents, trusted take_report(&mut progress));
+        trusted retain_progress_incident(header, &mut progress);
 
         if operation == 3
         {
@@ -193,7 +238,7 @@ trusted internal func accept_progress(
     }
     else
     {
-        trusted retain_incident(&mut header.incidents, trusted take_report(&mut progress));
+        trusted retain_progress_incident(header, &mut progress);
     }
 
     header.phase = bray.runtime.bootstrap.activation.TERMINAL;

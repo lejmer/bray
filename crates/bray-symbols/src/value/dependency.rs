@@ -2,6 +2,8 @@ use super::DependencyOwnedResult;
 use crate::DependencyStorageEffect;
 use std::sync::Arc;
 
+use super::DependencyWitnessCarrier;
+
 use bray_base::{shared_slice, sorted_unique_shared_slice};
 
 use crate::{
@@ -28,10 +30,48 @@ pub enum DependencySubjectRoot {
     ImplementationWitness(ImplementationInstanceId),
     /// An implementation witness selected when its generic subject becomes concrete.
     ImplementationRequirement(crate::ImplementationRequirementKey),
-    /// Storage owned by one product-static instance.
+    /// Declaration-wide region for a product static.
     ProductStatic(StaticSymbolId),
-    /// Storage owned by one exact native-thread static instance.
+    /// Declaration-wide region for a native-thread static.
     ExactThreadStatic(StaticSymbolId),
+    /// Exact selected storage in the product or thread domain.
+    StaticInstance(crate::StaticReferenceId, crate::StaticStorageDuration),
+}
+
+impl DependencySubjectRoot {
+    /// Whether this root names a static declaration region or an exact selection.
+    pub const fn is_static(self) -> bool {
+        self.static_duration().is_some()
+    }
+
+    /// Returns the ownership domain of a static region or selection.
+    pub const fn static_duration(self) -> Option<crate::StaticStorageDuration> {
+        match self {
+            Self::ProductStatic(_) => Some(crate::StaticStorageDuration::Product),
+            Self::ExactThreadStatic(_) => Some(crate::StaticStorageDuration::ExactThread),
+            Self::StaticInstance(_, duration) => Some(duration),
+            _ => None,
+        }
+    }
+
+    /// Returns the declaration that can bound this static region.
+    pub fn static_declaration(self, values: &crate::SemanticValueStore) -> Option<StaticSymbolId> {
+        match self {
+            Self::ProductStatic(declaration) | Self::ExactThreadStatic(declaration) => Some(declaration),
+            Self::StaticInstance(reference, _) => Some(values.static_reference(reference).template().declaration()),
+            _ => None,
+        }
+    }
+
+    /// Position of this formal among the evaluated receiver and arguments.
+    pub fn input_ordinal(self, has_receiver: bool) -> Option<SymbolOrdinal> {
+        match self {
+            Self::Receiver if has_receiver => Some(SymbolOrdinal::new(0)),
+            Self::Parameter(ordinal) => Some(SymbolOrdinal::new(ordinal.raw().checked_add(u32::from(has_receiver))
+                .expect("formal ordinal fits receiver-first order"))),
+            _ => None,
+        }
+    }
 }
 
 /// One source-independent projection from a formal dependency subject.
@@ -89,6 +129,11 @@ impl DependencySubject {
     /// Returns the ordered projection path.
     pub fn projections(&self) -> &[DependencyProjection] {
         &self.projections
+    }
+
+    /// Whether the other subject is the same subtree or a descendant with the same formal root.
+    pub fn contains(&self, other: &Self) -> bool {
+        self.root == other.root && other.projections.starts_with(&self.projections)
     }
 }
 
@@ -421,7 +466,7 @@ pub enum DependencyReferenceProvenance {
     Exact,
     /// The output forwards one of the established input origins.
     Alternatives,
-    /// The output may reach these input regions without forwarding their authority.
+    /// The output may reach these input or allocation regions without forwarding address authority.
     InputRegions,
 }
 
@@ -429,8 +474,10 @@ pub enum DependencyReferenceProvenance {
 enum ReferenceSource<Subject> {
     Input(Subject),
     Independent,
+    BackingRegion,
     Allocation(Subject),
     Empty,
+    NoPayload,
 }
 
 /// Checked origin information across one callable's normal completion.
@@ -478,7 +525,17 @@ impl<Subject, Projection> DependencyBorrowRelation<Subject, Projection> {
         }
     }
 
-    /// Records a slot with no reference target, including null and inactive payloads.
+    /// Records a possible address in owning backing, including backing carried by an input.
+    pub fn new_backing_region(exit: Subject, kind: DependencyReferenceKind) -> Self {
+        Self { source: ReferenceSource::BackingRegion, ..Self::new(None, exit, kind) }
+    }
+
+    /// Whether the output identifies a backing region without an actual address.
+    pub const fn is_backing_region(&self) -> bool {
+        matches!(self.source, ReferenceSource::BackingRegion)
+    }
+
+    /// Records a live reference with a null address.
     pub fn new_empty(exit: Subject, kind: DependencyReferenceKind) -> Self {
         Self { source: ReferenceSource::Empty, ..Self::new(None, exit, kind) }
     }
@@ -486,6 +543,16 @@ impl<Subject, Projection> DependencyBorrowRelation<Subject, Projection> {
     /// Whether the producer established that this slot has no reference target.
     pub const fn is_empty_reference(&self) -> bool {
         matches!(self.source, ReferenceSource::Empty)
+    }
+
+    /// Records an inactive slot that contributes no reference value.
+    pub fn new_no_payload(exit: Subject, kind: DependencyReferenceKind) -> Self {
+        Self { source: ReferenceSource::NoPayload, ..Self::new(None, exit, kind) }
+    }
+
+    /// Whether the slot contributes no live payload to this normal outcome.
+    pub const fn is_no_payload(&self) -> bool {
+        matches!(self.source, ReferenceSource::NoPayload)
     }
 
     /// Retains a complete origin bound without claiming one exact address.
@@ -511,8 +578,8 @@ impl<Subject, Projection> DependencyBorrowRelation<Subject, Projection> {
 
     /// Records whether the relation forwards a value or only bounds possible reachability.
     pub fn with_provenance(mut self, provenance: DependencyReferenceProvenance) -> Self {
-        assert!(!self.is_empty_reference() || provenance == DependencyReferenceProvenance::Alternatives,
-            "an empty reference has no input provenance");
+        assert!(!(self.is_empty_reference() || self.is_no_payload()) || provenance == DependencyReferenceProvenance::Alternatives,
+            "an empty address or inactive slot has no input provenance");
 
         assert!(
             provenance != DependencyReferenceProvenance::Exact || self.entry().is_some(),
@@ -575,7 +642,7 @@ impl<Subject, Projection> DependencyBorrowRelation<Subject, Projection> {
     pub const fn entry(&self) -> Option<&Subject> {
         match &self.source {
             ReferenceSource::Input(subject) => Some(subject),
-            ReferenceSource::Independent | ReferenceSource::Allocation(_) | ReferenceSource::Empty => None,
+            ReferenceSource::Independent | ReferenceSource::BackingRegion | ReferenceSource::Allocation(_) | ReferenceSource::Empty | ReferenceSource::NoPayload => None,
         }
     }
 
@@ -583,7 +650,7 @@ impl<Subject, Projection> DependencyBorrowRelation<Subject, Projection> {
     pub const fn allocation(&self) -> Option<&Subject> {
         match &self.source {
             ReferenceSource::Allocation(subject) => Some(subject),
-            ReferenceSource::Independent | ReferenceSource::Input(_) | ReferenceSource::Empty => None,
+            ReferenceSource::Independent | ReferenceSource::BackingRegion | ReferenceSource::Input(_) | ReferenceSource::Empty | ReferenceSource::NoPayload => None,
         }
     }
 
@@ -591,7 +658,7 @@ impl<Subject, Projection> DependencyBorrowRelation<Subject, Projection> {
     pub const fn source_subject(&self) -> Option<&Subject> {
         match &self.source {
             ReferenceSource::Allocation(subject) | ReferenceSource::Input(subject) => Some(subject),
-            ReferenceSource::Independent | ReferenceSource::Empty => None,
+            ReferenceSource::Independent | ReferenceSource::BackingRegion | ReferenceSource::Empty | ReferenceSource::NoPayload => None,
         }
     }
 
@@ -605,10 +672,20 @@ impl<Subject, Projection> DependencyBorrowRelation<Subject, Projection> {
 
                 ReferenceSource::Independent
             }
+            ReferenceSource::BackingRegion => {
+                assert!(source.is_none(), "an unresolved backing region has no source subject");
+
+                ReferenceSource::BackingRegion
+            }
             ReferenceSource::Empty => {
                 assert!(source.is_none(), "empty reference has no source subject");
 
                 ReferenceSource::Empty
+            }
+            ReferenceSource::NoPayload => {
+                assert!(source.is_none(), "inactive slot has no source subject");
+
+                ReferenceSource::NoPayload
             }
         };
 
@@ -625,84 +702,41 @@ impl<Subject, Projection> DependencyBorrowRelation<Subject, Projection> {
     }
 }
 
-/// A checked trusted condition carried by a complete returned owner.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct DependencyWitnessCarrier<Projection = DependencyProjection, Condition = ConstantTermId> {
-    guarantee: Condition,
-    path: Arc<[Projection]>,
-}
-
-impl<Projection, Condition: Copy> DependencyWitnessCarrier<Projection, Condition> {
-    /// Records a checked carrier path relative to the complete returned value.
-    pub fn new(guarantee: Condition, path: impl IntoIterator<Item = Projection>) -> Self {
-        Self {
-            guarantee,
-            path: path.into_iter().collect(),
-        }
-    }
-
-    /// Returns the portable condition independently supported by this owner.
-    pub const fn guarantee(&self) -> Condition {
-        self.guarantee
-    }
-
-    /// Returns the complete carrier's owned path within the result.
-    pub fn path(&self) -> &[Projection] {
-        &self.path
-    }
-}
-
 /// A normalized source-independent dependency-contract template.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct DependencyContractTemplateData {
     requirements: Arc<[DependencyRequirement]>,
-    completion_reports: Option<Arc<[DependencyRequirement]>>,
-    abnormal_reports: Option<Arc<[DependencyRequirement]>>,
-    borrows: Arc<[DependencyBorrowRelation]>,
-    owned_result: DependencyOwnedResult,
-    stored_values: Arc<[DependencyStoredValue]>,
-    observed_result: Option<ConstantTermId>,
-    carriers: Arc<[DependencyWitnessCarrier]>,
-    effects: Arc<[DependencyStorageEffect]>,
+    failure_outcomes: Option<Arc<[super::CapturedFailureOutcome]>>,
+    captured_values: Arc<[super::CapturedValueOutcome]>,
+    effects: super::DependencyEffectOutcomes<DependencyStorageEffect>,
     synchronous_cleanup: Arc<[DependencyRequirement]>,
     normal_completion: bool,
-    normal_storage_preserved: bool,
 }
 
 impl DependencyContractTemplateData {
-    /// Records possible captured values stored in normal-output subtrees.
-    pub fn with_stored_values(mut self, values: impl IntoIterator<Item = DependencyStoredValue>) -> Self {
-        self.stored_values = DependencyStoredValue::normalize(values);
+    /// Records the actual whole-value expression produced by normal completion.
+    pub fn with_captured_values(mut self, values: impl IntoIterator<Item = super::CapturedValueOutcome>) -> Self {
+        self.captured_values = sorted_unique_shared_slice(values);
 
-        self
+        self.refresh_normal_effects()
     }
 
-    /// Returns normal-output stored-value bounds.
-    pub fn stored_values(&self) -> &[DependencyStoredValue] { &self.stored_values }
+    /// Returns the whole-value expression, with explicit unknown for lost precision.
+    pub fn captured_values(&self) -> &[super::CapturedValueOutcome] { &self.captured_values }
 
-    /// Records a value observation shared by every mutation-free normal completion.
-    /// This carries no ownership, storage identity or trusted authority.
-    pub fn with_observed_result(mut self, result: Option<ConstantTermId>) -> Self {
-        self.observed_result = result;
-
-        self
+    /// Shares the normalized outcome rows with a bound invocation.
+    pub fn shared_captured_values(&self) -> Arc<[super::CapturedValueOutcome]> {
+        Arc::clone(&self.captured_values)
     }
 
-    /// Returns the checked value observation in receiver-first formal argument order.
-    pub const fn observed_result(&self) -> Option<ConstantTermId> {
-        self.observed_result
+    /// Derives possible stored-value dependencies across normal outcomes.
+    pub fn stored_values(&self) -> Arc<[DependencyStoredValue]> {
+        super::CapturedValueOutcome::stored_dependencies(self.captured_values.iter(), DependencySubject::contains)
     }
 
-    /// Records complete owning layouts retained by normal completion.
-    pub fn with_owned_result(mut self, result: DependencyOwnedResult) -> Self {
-        self.owned_result = result;
-
-        self
-    }
-
-    /// Returns the owning result contract, without introducing trusted guarantees.
-    pub const fn owned_result(&self) -> &DependencyOwnedResult {
-        &self.owned_result
+    /// Derives the ownership layout before selecting one normal exit.
+    pub fn owned_result(&self) -> DependencyOwnedResult {
+        super::CapturedValueOutcome::ownership_layout(&self.captured_values)
     }
 
     /// Attaches dependencies of reports that can accompany normal completion.
@@ -711,39 +745,73 @@ impl DependencyContractTemplateData {
         mut self,
         requirements: impl IntoIterator<Item = DependencyRequirement>,
     ) -> Self {
-        self.completion_reports = Some(sorted_unique_shared_slice(requirements));
+        let report = sorted_unique_shared_slice(requirements);
+
+        if self.captured_values.is_empty() {
+            self.captured_values = [super::CapturedValueOutcome::new(None, [])
+                .with_effects(self.normal_effects().iter().cloned()).with_report(Some(report))].into();
+        } else {
+            self.captured_values = sorted_unique_shared_slice(self.captured_values.iter().cloned()
+                .map(|row| row.with_report(Some(Arc::clone(&report)))));
+        }
 
         self
     }
 
     /// Returns report dependencies for normal completion, absent when no report is produced.
-    pub fn completion_reports(&self) -> Option<&[DependencyRequirement]> {
-        self.completion_reports.as_deref()
+    pub fn completion_reports(&self) -> Option<Arc<[DependencyRequirement]>> {
+        super::CapturedValueOutcome::possible_report(self.captured_values.iter())
     }
 
-    /// Attaches dependencies of reports propagated with panic or cancellation.
-    /// An empty set still records that an independently owned report can be produced.
+    /// Describes a possible report from a callable whose failure prefix is opaque.
     pub fn with_abnormal_reports(
-        mut self,
+        self,
         requirements: impl IntoIterator<Item = DependencyRequirement>,
     ) -> Self {
-        self.abnormal_reports = Some(sorted_unique_shared_slice(requirements));
-
-        self
+        self.with_failure_outcomes(Some([super::CapturedFailureOutcome {
+            kind: None,
+            guard: None,
+            report: Some(sorted_unique_shared_slice(requirements)),
+            effects: None,
+            cell_changes: None,
+            writes: Arc::new([]),
+            references: Arc::new([]),
+            stored_values: Arc::new([]),
+        }]))
     }
 
-    /// Returns report dependencies for abnormal completion, absent when no report is produced.
-    pub fn abnormal_reports(&self) -> Option<&[DependencyRequirement]> {
-        self.abnormal_reports.as_deref()
+    /// Records checked failure prefixes. An empty list proves no abnormal exit.
+    pub fn with_failure_outcomes(mut self, outcomes: Option<impl IntoIterator<Item = super::CapturedFailureOutcome>>) -> Self {
+        self.failure_outcomes = outcomes.map(sorted_unique_shared_slice);
+
+        self.refresh_normal_effects()
+    }
+
+    /// Returns reached failure rows, absent when the body's failure path is opaque.
+    pub fn failure_outcomes(&self) -> Option<&[super::CapturedFailureOutcome]> {
+        self.failure_outcomes.as_deref()
+    }
+
+    /// Derives possible report dependencies across failure outcomes.
+    pub fn abnormal_reports(&self) -> Option<Arc<[DependencyRequirement]>> {
+        let mut reports = self.failure_outcomes.as_deref()?.iter().filter_map(|row| row.report.as_ref());
+        let first = reports.next()?;
+
+        Some(sorted_unique_shared_slice(first.iter().chain(reports.flat_map(|report| report.iter())).cloned()))
     }
 
     /// Removes implicit report outputs consumed by a native ABI boundary.
     /// Explicit value dependencies, reference relations and effects remain unchanged.
     pub fn without_reports(mut self) -> Self {
-        self.completion_reports = None;
-        self.abnormal_reports = None;
+        if self.captured_values.iter().any(|row| row.report.is_some()) {
+            self.captured_values = sorted_unique_shared_slice(self.captured_values.iter().cloned()
+                .map(|row| row.with_report(None)));
+        }
 
-        self
+        let failures = self.failure_outcomes.as_deref().map(|rows|
+            rows.iter().cloned().map(|row| super::CapturedFailureOutcome { report: None, ..row }).collect::<Vec<_>>());
+
+        self.with_failure_outcomes(failures)
     }
 
     /// Transforms requirements in every output while preserving report presence.
@@ -757,16 +825,36 @@ impl DependencyContractTemplateData {
         let mut result =
             self.with_requirements(map(DependencyCallOutput::Value, self.requirements())?);
 
-        if let Some(requirements) = self.completion_reports() {
-            result = result.with_completion_reports(map(
-                DependencyCallOutput::CompletionReport,
-                requirements,
-            )?);
+        if self.captured_values.iter().any(|row| row.report.is_some() || !row.report_payloads.is_empty()) {
+            let rows = self.captured_values.iter().cloned().map(|row| {
+                let report = row.report.as_deref().map(|requirements|
+                    map(DependencyCallOutput::CompletionReport, requirements).map(sorted_unique_shared_slice)
+                ).transpose()?;
+
+                let payloads = row.report_payloads.iter().map(|payload| {
+                    Ok(super::CapturedReportPayload {
+                        destination: payload.destination.clone(),
+                        requirements: sorted_unique_shared_slice(map(DependencyCallOutput::Value, &payload.requirements)?),
+                        complete: payload.complete,
+                    })
+                }).collect::<Result<Vec<_>, E>>()?;
+
+                Ok(row.with_report(report).with_report_payloads(payloads))
+            }).collect::<Result<Vec<_>, E>>()?;
+
+            result = result.with_captured_values(rows);
         }
 
-        if let Some(requirements) = self.abnormal_reports() {
-            result = result
-                .with_abnormal_reports(map(DependencyCallOutput::AbnormalReport, requirements)?);
+        if let Some(rows) = self.failure_outcomes() {
+            let rows = rows.iter().cloned().map(|row| {
+                let report = row.report.as_deref().map(|requirements|
+                    map(DependencyCallOutput::AbnormalReport, requirements).map(sorted_unique_shared_slice)
+                ).transpose()?;
+
+                Ok(super::CapturedFailureOutcome { report, ..row })
+            }).collect::<Result<Vec<_>, E>>()?;
+
+            result = result.with_failure_outcomes(Some(rows));
         }
 
         result = result.with_synchronous_cleanup(map(
@@ -782,14 +870,12 @@ impl DependencyContractTemplateData {
         self.requirements
             .iter()
             .chain(
-                self.completion_reports
-                    .iter()
-                    .flat_map(|requirements| requirements.iter()),
+                self.captured_values.iter().flat_map(|row| row.report.iter().flat_map(|requirements| requirements.iter())),
             )
+            .chain(self.captured_values.iter().flat_map(|row| row.report_payloads.iter())
+                .flat_map(|payload| payload.requirements.iter()))
             .chain(
-                self.abnormal_reports
-                    .iter()
-                    .flat_map(|requirements| requirements.iter()),
+                self.failure_outcomes().into_iter().flatten().filter_map(|row| row.report.as_deref()).flatten(),
             )
             .chain(self.synchronous_cleanup.iter())
     }
@@ -797,28 +883,67 @@ impl DependencyContractTemplateData {
     /// Enumerates paths needed to prepare references, effects and stored-value bounds.
     /// A stored-value path does not itself establish reference authority.
     pub fn reference_subjects(&self) -> impl Iterator<Item = &DependencySubject> {
-        self.borrows()
-            .iter()
+        let storage_rows = self.captured_values().iter().map(|row| {
+            (row.references.as_ref(), row.stored_values.as_ref())
+        }).chain(self.failure_outcomes().into_iter().flatten().map(|row| {
+            (row.references.as_ref(), row.stored_values.as_ref())
+        }));
+
+        storage_rows.clone().flat_map(|(references, _)| references)
             .flat_map(|relation| {
                 relation
                     .source_subject()
                     .into_iter()
                     .chain(std::iter::once(relation.exit()))
             })
-            .chain(self.effects().iter().filter_map(DependencyStorageEffect::subject))
-            .chain(self.stored_values().iter().flat_map(|stored| {
+            .chain(self.effects().iter().chain(self.cell_changes()).flat_map(DependencyStorageEffect::subjects))
+            .chain(storage_rows.flat_map(|(_, stored)| stored).flat_map(|stored| {
                 std::iter::once(stored.destination().subject()).chain(stored.sources().iter().map(DependencyStoredValuePath::subject))
             }))
+            .chain(self.captured_values().iter().flat_map(|outcome| {
+                outcome.bindings.iter().map(|(subject, _)| subject).chain(outcome.inactive_payloads.iter())
+            }))
+            .chain(self.failure_outcomes().into_iter().flatten().flat_map(|row| row.writes.iter().map(|(subject, _)| subject)))
+            .chain(self.captured_values().iter().flat_map(|row| row.report_payloads.iter())
+                .map(|payload| &payload.destination))
+            .chain(self.captured_values().iter().flat_map(|row| row.carriers.iter())
+                .filter_map(DependencyWitnessCarrier::support).flat_map(super::DependencyWitnessSupport::owner_subjects))
+    }
+
+    /// Visits the exact cell changes present in a guarded normal or abnormal outcome.
+    pub fn cell_changes(&self) -> impl Iterator<Item = &DependencyStorageEffect> {
+        self.captured_values().iter().flat_map(|row| row.cell_changes.as_deref().into_iter().flatten())
+            .chain(self.failure_outcomes().into_iter().flatten()
+                .flat_map(|row| row.cell_changes.as_deref().into_iter().flatten()))
+    }
+
+    /// Visits the declared subjects of phase requirements, including their guards.
+    pub fn requirement_subjects(&self) -> impl Iterator<Item = &DependencySubject> {
+        let mut pending = self.requirements().iter().rev().collect::<Vec<_>>();
+
+        std::iter::from_fn(move || loop {
+            match pending.pop()? {
+                DependencyRequirement::Direct { subject, .. } => return Some(subject),
+                DependencyRequirement::Guarded(guarded) => {
+                    pending.extend(guarded.requirements().iter().rev());
+
+                    return Some(match guarded.guard() {
+                        DependencyGuard::NullablePresent(subject) | DependencyGuard::ActiveUnionVariant { subject, .. } => subject,
+                    });
+                }
+                _ => {}
+            }
+        })
     }
 
     /// Returns requirements for one selected output.
     /// Absence and an independent report both have no lifetime requirements.
-    pub fn output_requirements(&self, output: DependencyCallOutput) -> &[DependencyRequirement] {
+    pub fn output_requirements(&self, output: DependencyCallOutput) -> Arc<[DependencyRequirement]> {
         match output {
-            DependencyCallOutput::Value => self.requirements(),
-            DependencyCallOutput::CompletionReport => self.completion_reports().unwrap_or(&[]),
-            DependencyCallOutput::AbnormalReport => self.abnormal_reports().unwrap_or(&[]),
-            DependencyCallOutput::SynchronousCleanup => self.synchronous_cleanup(),
+            DependencyCallOutput::Value => Arc::clone(&self.requirements),
+            DependencyCallOutput::CompletionReport => self.completion_reports().unwrap_or_default(),
+            DependencyCallOutput::AbnormalReport => self.abnormal_reports().unwrap_or_default(),
+            DependencyCallOutput::SynchronousCleanup => Arc::clone(&self.synchronous_cleanup),
         }
     }
 
@@ -826,17 +951,11 @@ impl DependencyContractTemplateData {
     pub fn new(requirements: impl IntoIterator<Item = DependencyRequirement>) -> Self {
         Self {
             requirements: sorted_unique_shared_slice(requirements),
-            completion_reports: None,
-            abnormal_reports: None,
-            borrows: Arc::new([]),
-            owned_result: DependencyOwnedResult::default(),
-            stored_values: Arc::new([]),
-            observed_result: None,
-            carriers: Arc::new([]),
-            effects: Arc::new(DependencyStorageEffect::opaque_call()),
+            failure_outcomes: None,
+            captured_values: Arc::new([]),
+            effects: super::DependencyEffectOutcomes::new(DependencyStorageEffect::opaque_call()),
             synchronous_cleanup: Arc::new([]),
             normal_completion: true,
-            normal_storage_preserved: false,
         }
     }
 
@@ -847,42 +966,25 @@ impl DependencyContractTemplateData {
     ) -> Self {
         Self {
             requirements: sorted_unique_shared_slice(requirements),
-            // Each output retains the same immutable report summary during value-only refinement.
-            completion_reports: self.completion_reports.as_ref().map(Arc::clone),
-            abnormal_reports: self.abnormal_reports.as_ref().map(Arc::clone),
+            failure_outcomes: self.failure_outcomes.as_ref().map(Arc::clone),
             // Transformations own a new contract while retaining the immutable checked summary.
-            borrows: Arc::clone(&self.borrows),
-            owned_result: self.owned_result.clone(),
-            stored_values: Arc::clone(&self.stored_values),
-            observed_result: self.observed_result,
-            carriers: Arc::clone(&self.carriers),
-            effects: Arc::clone(&self.effects),
+            captured_values: Arc::clone(&self.captured_values),
+            effects: self.effects.clone(),
             synchronous_cleanup: Arc::clone(&self.synchronous_cleanup),
             normal_completion: self.normal_completion,
-            normal_storage_preserved: self.normal_storage_preserved,
         }
     }
 
-    /// Attaches complete carrier paths proved by the owning body analysis.
-    pub fn with_carriers(
-        mut self,
-        carriers: impl IntoIterator<Item = DependencyWitnessCarrier>,
-    ) -> Self {
-        self.carriers = sorted_unique_shared_slice(carriers);
-
-        self
-    }
-
-    /// Returns the proven returned carriers of declared trusted guarantees.
-    pub fn carriers(&self) -> &[DependencyWitnessCarrier] {
-        &self.carriers
+    /// Guarantees supported by the same returned owner on every normal exit.
+    pub fn common_carriers(&self) -> Arc<[DependencyWitnessCarrier]> {
+        super::CapturedValueOutcome::common_carriers(&self.captured_values)
     }
 
     /// Records whether the checked body can produce a normal result.
     pub fn with_normal_completion(mut self, possible: bool) -> Self {
         self.normal_completion = possible;
 
-        self
+        self.refresh_normal_effects()
     }
 
     /// False proves that execution has no normal result. Unknown callees default to true.
@@ -890,60 +992,41 @@ impl DependencyContractTemplateData {
         self.normal_completion
     }
 
-    /// Records the owning analysis's proof that normal return preserves external storage.
-    /// Ownership transfers and effects on abnormal outcomes remain independent.
-    pub fn with_normal_storage_preservation(mut self, preserved: bool) -> Self {
-        self.normal_storage_preserved = preserved;
+    fn refresh_normal_effects(mut self) -> Self {
+        let mut effects = self.effects.with_unselected_outcomes();
+
+        if !self.normal_completion {
+            effects = effects.with_normal([]);
+        } else if !self.captured_values.is_empty() {
+            effects = effects.with_normal(self.captured_values.iter().flat_map(|row| row.effects.iter().cloned()));
+        }
+
+        if let Some(rows) = self.failure_outcomes()
+            && rows.iter().all(|row| row.effects.is_some())
+        {
+            effects = effects.with_abnormal(rows.iter().filter_map(|row| row.effects.as_deref()).flatten().cloned());
+        }
+
+        self.effects = effects;
 
         self
     }
 
     /// Whether normal return preserves storage, independently of input ownership transfers.
     pub fn preserves_storage_on_normal_return(&self) -> bool {
-        self.normal_storage_preserved || self.effects.is_empty()
+        self.effects.preserves_storage_on_normal_return()
     }
 
-    /// Attaches complete entry-to-exit origin bounds and exact identities in deterministic order.
-    pub fn with_borrows(
-        mut self,
-        borrows: impl IntoIterator<Item = DependencyBorrowRelation>,
-    ) -> Self {
-        let borrows = sorted_unique_shared_slice(borrows);
-
-        if borrows.len() < 2 {
-            self.borrows = borrows;
-
-            return self;
-        }
-
-        let mut alternatives = std::collections::BTreeMap::new();
-
-        for relation in borrows.iter() {
-            *alternatives.entry(relation.exit()).or_insert(0usize) += 1;
-        }
-
-        self.borrows = sorted_unique_shared_slice(borrows.iter().cloned().map(|relation| {
-            let exact = relation.is_exact() && alternatives[relation.exit()] == 1;
-
-            relation.with_exactness(exact)
-        }));
-
-        self
+    /// Derives established origins before selecting a normal outcome.
+    pub fn borrows(&self) -> Arc<[DependencyBorrowRelation]> {
+        super::CapturedValueOutcome::reference_origins(self.captured_values.iter(), DependencySubject::contains)
     }
 
-    /// Returns checked origin bounds and exact identities, independently of lifetime requirements.
-    pub fn borrows(&self) -> &[DependencyBorrowRelation] {
-        &self.borrows
-    }
+    /// Attaches the conservative transition envelope, retaining every normal row.
+    pub fn with_possible_effects(mut self, effects: impl IntoIterator<Item = DependencyStorageEffect>) -> Self {
+        self.effects = super::DependencyEffectOutcomes::new(DependencyStorageEffect::normalize(effects).iter().cloned());
 
-    /// Attaches the complete may-mutation summary proved by the owning body analysis.
-    pub fn with_effects(
-        mut self,
-        effects: impl IntoIterator<Item = DependencyStorageEffect>,
-    ) -> Self {
-        self.effects = DependencyStorageEffect::normalize(effects);
-
-        self
+        self.refresh_normal_effects()
     }
 
     /// Records remaining cleanup that must be admissible in a synchronous callee.
@@ -964,8 +1047,14 @@ impl DependencyContractTemplateData {
 
     /// Returns possible mutations. An empty slice proves storage is unchanged.
     pub fn effects(&self) -> &[DependencyStorageEffect] {
-        &self.effects
+        self.effects.possible()
     }
+
+    /// Returns possible transitions on normal completion.
+    pub fn normal_effects(&self) -> &[DependencyStorageEffect] { self.effects.normal() }
+
+    /// Returns the connected effect contract for every completion boundary.
+    pub const fn effect_outcomes(&self) -> &super::DependencyEffectOutcomes<DependencyStorageEffect> { &self.effects }
 
     /// Returns the normalized requirements.
     pub fn requirements(&self) -> &[DependencyRequirement] {
@@ -1039,19 +1128,21 @@ mod tests {
             crate::DependencyReferenceKind::Borrow,
         );
 
+        let write = crate::DependencyStorageEffect::Direct { addressed: true,
+            subject: subject.clone(),
+            kind: crate::DependencyMutationKind::Write,
+            access_type: None,
+        };
+
         let template = DependencyContractTemplateData::new([])
-            .with_borrows([relation])
-            .with_effects([crate::DependencyStorageEffect::Direct {
-                subject: subject.clone(),
-                kind: crate::DependencyMutationKind::Write,
-                access_type: None,
-            }])
+            .with_possible_effects([write.clone()])
+            .with_captured_values([crate::CapturedValueOutcome::new(None, [])
+                .with_effects([write]).with_storage([relation], [])])
             .with_completion_reports([])
             .with_abnormal_reports([DependencyRequirement::direct(
                 subject.clone(),
                 DependencyRequirementKind::StorageAlive,
-            )])
-            .with_normal_completion(false);
+            )]);
 
         let requirement =
             DependencyRequirement::direct(subject, DependencyRequirementKind::StorageAlive);
@@ -1061,9 +1152,9 @@ mod tests {
         assert_eq!(changed.requirements(), &[requirement]);
         assert_eq!(changed.borrows(), template.borrows());
         assert_eq!(changed.effects(), template.effects());
-        assert_eq!(changed.completion_reports(), Some([].as_slice()));
+        assert_eq!(changed.completion_reports().as_deref(), Some([].as_slice()));
         assert_eq!(changed.abnormal_reports(), template.abnormal_reports());
-        assert!(!changed.normal_completion());
+        assert!(changed.normal_completion());
         assert!(template.requirements().is_empty());
     }
 }

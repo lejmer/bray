@@ -284,10 +284,10 @@ mod tests {
     }
 
     #[test]
-    fn native_address_resolution_retains_all_host_results() {
+    fn native_address_resolution_preserves_the_exact_literal_endpoint() {
         let addresses = resolve_socket_addresses(("127.0.0.1", 80))
             .unwrap_or_else(|error| panic!("literal address must resolve: {error:?}"));
 
-        assert!(!addresses.is_empty());
+        assert_eq!(addresses, [std::net::SocketAddr::from(([127, 0, 0, 1], 80))]);
     }
 }

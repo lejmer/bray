@@ -95,6 +95,9 @@ pub fn demanded_runtime_references_for_mir(
             [
                 RuntimeAbiRole::OutgoingAdmission,
                 RuntimeAbiRole::OutgoingDischarge,
+                // A rejected root frame still broadcasts and resolves its inactive cleanup.
+                RuntimeAbiRole::InactiveFrameBroadcast,
+                RuntimeAbiRole::InactiveFrameResolution,
             ]
             .into_iter()
             .filter(|_| asynchronous_root)

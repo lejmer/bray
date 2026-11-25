@@ -1,30 +1,77 @@
-use std::collections::BTreeMap;
+use std::sync::Arc;
 
-use bray_bound_tree::{AnyBoundNodeId, StorageAccessId, StorageMutation};
+use bray_bound_tree::{
+    AnyBoundNodeId, AsyncStorageExitDecision, AsyncStorageExitDisposition,
+    AsyncStorageExitRecoveryCause, StorageAccessId, StorageCleanupAction, StorageCleanupEntry,
+    StorageExitPoint, StorageMutation,
+};
 use bray_symbols::TypeAssociatedLifecycleSlot;
 
-use super::super::super::model::{AnalysisOperationKind, AnalysisScopeExitPhase};
+use super::super::super::model::{AnalysisOperation, AnalysisOperationKind, AnalysisScopeExitPhase};
 use super::super::flow::ExecutionFlowDomain;
 use super::super::state::ExecutionState;
-use super::plan::{Lifecycle, Step};
+use super::plan::Lifecycle;
 use crate::{CheckerRequestContext, ExecutionCallEvidence, ExecutionPlace};
 
-pub(in crate::analysis) type Observer<'a> = dyn FnMut(
-        StorageAccessId,
-        usize,
-        TypeAssociatedLifecycleSlot,
-        &Lifecycle,
-        bool,
-        &ExecutionCallEvidence,
-        &Result<(), crate::UnprovenExecutionCondition>,
-    ) + 'a;
+pub(in crate::analysis) type Observer<'a> = dyn FnMut(CleanupObservation<'_>) + 'a;
+
+pub(in crate::analysis) enum CleanupObservation<'a> {
+    Cancellation,
+    Continuation(Box<ExecutionState>),
+    Part {
+        access: StorageAccessId,
+        ty: bray_symbols::TypeId,
+        releases_storage: bool,
+        before: &'a ExecutionState,
+    },
+    Invocation {
+        access: StorageAccessId,
+        part: usize,
+        slot: TypeAssociatedLifecycleSlot,
+        lifecycle: &'a Lifecycle,
+        whole: bool,
+        represented: bool,
+        evidence: &'a Arc<ExecutionCallEvidence>,
+        proof: &'a Result<(), crate::UnprovenExecutionCondition>,
+    },
+}
 
 pub(in crate::analysis) struct LifecycleInvocation<'a> {
     pub(in crate::analysis) ty: bray_symbols::TypeId,
     pub(in crate::analysis) access: StorageAccessId,
     pub(in crate::analysis) lifecycle: &'a Lifecycle,
+    pub(in crate::analysis) entry: &'a ExecutionCallEvidence,
+    pub(in crate::analysis) contract: &'a bray_symbols::DependencyContractTemplateData,
     pub(in crate::analysis) completes: bool,
     pub(in crate::analysis) path: Option<&'a bray_bound_tree::StoragePath>,
+    pub(in crate::analysis) route: Option<&'a bray_bound_tree::StorageReferencePath>,
+    pub(in crate::analysis) outcomes: Vec<(usize, &'a bray_symbols::CapturedValueOutcome, crate::ExecutionCondition)>,
+}
+
+impl<'a> LifecycleInvocation<'a> {
+    pub(in crate::analysis) fn normal_outcomes(&self, selected: Option<usize>) -> impl Iterator<Item = &'a bray_symbols::CapturedValueOutcome> + Clone + '_ {
+        self.outcomes.iter().filter_map(move |(index, row, _)| selected.is_none_or(|selected| *index == selected).then_some(*row))
+    }
+
+    pub(in crate::analysis) fn failure_outcomes(
+        &self,
+        kind: bray_symbols::DependencyFailureKind,
+        selected: Option<usize>,
+    ) -> impl Iterator<Item = &'a bray_symbols::CapturedFailureOutcome> + Clone + '_ {
+        self.contract
+            .failure_outcomes()
+            .into_iter()
+            .flatten()
+            .enumerate()
+            .filter_map(move |(index, outcome)| {
+                (outcome.covers(kind)
+                    && selected.map_or_else(
+                        || self.entry.admits_failure(index),
+                        |selected| selected == index,
+                    ))
+                .then_some(outcome)
+            })
+    }
 }
 
 pub(in crate::analysis) enum CleanupMutation<'a> {
@@ -32,512 +79,442 @@ pub(in crate::analysis) enum CleanupMutation<'a> {
     Unchanged,
     /// Source cleanup ordering was diagnosed and has no valid selected order.
     Recovery,
+    /// Revisits the same abstract array region using its reached state.
+    Repeat(bray_bound_tree::StorageCleanupRemainder),
     Opaque {
         ty: bray_symbols::TypeId,
         access: StorageAccessId,
         path: Option<&'a bray_bound_tree::StoragePath>,
+        route: Option<&'a bray_bound_tree::StorageReferencePath>,
+        failures: &'static [bray_symbols::DependencyFailureKind],
     },
     Lifecycle(LifecycleInvocation<'a>),
 }
 
+pub(in crate::analysis) enum CleanupTransition<'a> {
+    PartAbsent {
+        access: StorageAccessId, part: usize, phase: bray_bound_tree::AsyncCleanupPhases,
+        owner: Option<&'a bray_bound_tree::StoragePath>,
+    },
+    BeginConditional(Vec<bray_bound_tree::StoragePath>),
+    Action(
+        &'a mut ExecutionState,
+        StorageMutation,
+        CleanupMutation<'a>,
+        &'a mut Option<bray_bound_tree::StorageCompletion>,
+    ),
+    EndConditional { completes: bool },
+}
+
 pub(in crate::analysis) type Mutation<'a> =
-    dyn FnMut(&mut ExecutionState, StorageMutation, CleanupMutation<'_>, bool) + 'a;
+    dyn FnMut(CleanupTransition<'_>) -> bool + 'a;
+
+pub(in crate::analysis) struct CleanupSelection {
+    pub(in crate::analysis) accesses: Option<Arc<[StorageAccessId]>>,
+    pub(in crate::analysis) recoveries: Vec<AsyncStorageExitDecision>,
+    pub(in crate::analysis) after: Option<StorageCleanupAction>,
+    pub(in crate::analysis) replacement: Option<bray_bound_tree::StorageTarget>,
+}
 
 impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
+    pub(in crate::analysis) fn cleanup_receiver_writes<'rows>(
+        &self,
+        call: &'rows LifecycleInvocation<'_>,
+        mutation: StorageMutation,
+    ) -> Vec<(&'rows bray_symbols::DependencySubject, &'rows bray_symbols::CapturedValueTemplate)> {
+        use bray_symbols::DependencySubjectRoot;
+
+        match mutation {
+            StorageMutation::CleanupOutcome { row, .. } =>
+                call.contract.captured_values()[row].bindings.iter()
+                    .filter(|(subject, _)| subject.subject_root() == DependencySubjectRoot::Receiver)
+                    .map(|(subject, value)| (subject, value)).collect(),
+            StorageMutation::CleanupFailure { kind, row, .. } => {
+                let mut candidates = call.failure_outcomes(kind, row).map(|outcome| &outcome.writes);
+
+                let Some(first) = candidates.next() else { return Vec::new(); };
+
+                first.iter().filter(|(subject, value)| {
+                    subject.subject_root() == DependencySubjectRoot::Receiver && candidates.clone().all(|candidate| {
+                        candidate.binary_search_by(|(other, _)| other.cmp(subject))
+                            .is_ok_and(|index| candidate[index].1 == *value)
+                    })
+                }).map(|(subject, value)| (subject, value)).collect()
+            }
+            _ => Vec::new(),
+        }
+    }
+
+    pub(in crate::analysis) fn cleanup_normal_guard(
+        &self,
+        state: &ExecutionState,
+        entry: &ExecutionCallEvidence,
+        row: &bray_symbols::CapturedValueOutcome,
+    ) -> Option<crate::ExecutionCondition> {
+        let guard = row.guard.map_or_else(|| crate::ExecutionCondition::boolean(true), |guard| {
+            let result = row.result_variant().map_or_else(crate::ExecutionCondition::unknown, |tag| {
+                crate::ExecutionCondition::new(crate::ExecutionConditionKind::Tagged(tag, Arc::new(crate::ExecutionCondition::unknown())))
+            });
+
+            entry.bind_term(self.request.semantic_values(), guard, &result)
+        });
+
+        state.ordinary_proof().can_assume(&guard, true).then_some(guard)
+    }
+
+    pub(in crate::analysis) fn assume_cleanup_guard(
+        &self,
+        state: &mut ExecutionState,
+        guard: crate::ExecutionCondition,
+    ) {
+        guard.assume(true, &mut state.assumptions);
+        state.refine_witnesses();
+    }
+
+    pub(in crate::analysis) fn assume_cleanup_failure(
+        &self,
+        state: &mut ExecutionState,
+        entry: &ExecutionCallEvidence,
+        row: Option<usize>,
+    ) -> bool {
+        if row.is_some_and(|row| !entry.admits_failure(row)) {
+            return false;
+        }
+
+        let Some(guard) = row.and_then(|row| entry.failure_guard(row)) else {
+            return true;
+        };
+
+        if !state.ordinary_proof().can_assume(guard, true) {
+            return false;
+        }
+
+        self.assume_cleanup_guard(state, guard.clone());
+
+        true
+    }
+
     pub(in crate::analysis::guarantee) fn transition_cleanup(
         &self,
         state: &mut ExecutionState,
-        operation: AnalysisOperationKind,
+        point: &AnalysisOperation,
         mut observe: Option<&mut Observer<'_>>,
-    ) {
+    ) -> bool {
+        let operation = point.kind();
+        let flow = self.checked_body.expect("cleanup replay retains its reached storage flow").storage_flow();
+
         match operation {
             AnalysisOperationKind::ScopeExit {
                 scope, exit, phase, ..
             } => {
-                if let Some((plan, flow)) = self.disposal.selected.and_then(|(cleanup, flow)| {
-                    cleanup
-                        .scope_exit_plan(scope, exit)
-                        .map(|plan| (plan, flow))
-                }) {
-                    let exit_decision = || flow
-                        .exits()
-                        .iter()
-                        .find(|decision| decision.scope() == scope && decision.exit() == exit)
-                        .expect("selected scope cleanup retains its storage decision");
+                let exit_point = StorageExitPoint::new(scope, exit);
 
-                    match phase {
-                        AnalysisScopeExitPhase::TaskCancellationBroadcast => {
-                            let absent = exit_decision().definitely_absent();
+                if phase == AnalysisScopeExitPhase::LifecycleResolution
+                    && let Some(remainder) = crate::analysis::outcomes::CleanupProgress::resume(&mut state.cleanup, Some(exit_point), point.id())
+                {
+                    let Some(entry) = flow.cleanup_entry(point.id(), Some(remainder.after)) else { return false; };
 
-                            for access in plan.cancellation_broadcast() {
-                                self.cancel_cleanup(state, *access, absent.iter().cloned(), operation, &mut None);
-                            }
-                        }
-                        AnalysisScopeExitPhase::LifecycleResolution => {
-                            if plan.storage().iter().any(|decision| matches!(decision.disposition(),
-                                bray_bound_tree::AsyncStorageExitDisposition::Recovered(
-                                    bray_bound_tree::AsyncStorageExitRecoveryCause::UnavailableCleanupOrder))) {
-                                self.apply_published_cleanup(state, StorageMutation::Operation(operation.occurrence()));
-                                self.expire_trusted_scope(state, scope);
-                                return;
-                            }
-
-                            let absent = exit_decision().definitely_absent();
-
-                            for access in plan.lifecycle_resolution() {
-                                self.dispose(
-                                    state,
-                                    *access,
-                                    absent.iter().cloned(),
-                                    &mut observe,
-                                    operation,
-                                    &mut None,
-                                );
-                            }
-                        }
-                    }
+                    return self.execute_scope_cleanup(state, point, Some(&remainder.accesses),
+                        Some(remainder.after), Some(entry), &mut observe, &mut None);
                 }
 
-                if phase == AnalysisScopeExitPhase::LifecycleResolution {
-                    self.expire_trusted_scope(state, scope);
+                let Some(entry) = flow.cleanup_entry(point.id(), None) else { return false; };
+
+                let order_failure = StorageMutation::ScopeCleanupOrder {
+                    operation: point.id(),
+                    point: exit_point,
+                };
+
+                if flow.outcome_mutation(order_failure).is_some() {
+                    return self.execute_scope_cleanup(state, point, None,
+                        None, None, &mut observe, &mut None);
                 }
+
+                self.replay_cleanup_orders(state, point, entry, &mut observe)
             }
-            AnalysisOperationKind::Bound(AnyBoundNodeId::Expression(expression))
-            | AnalysisOperationKind::Call {
-                invocation:
-                    bray_bound_tree::BoundExecutionSite::Node(AnyBoundNodeId::Expression(expression)),
-                phase: crate::analysis::model::AnalysisCallPhase::Completion,
-            } => {
-                if let Some((plan, flow)) = self.disposal.selected.and_then(|(cleanup, flow)| {
-                    cleanup.replacement(expression).map(|plan| (plan, flow))
-                }) && matches!(
-                    plan.cleanup(),
-                    bray_bound_tree::AsyncStorageCleanupRequirement::Cleanup(_)
-                ) {
-                    let decision = flow
-                        .replacements()
-                        .iter()
-                        .find(|decision| decision.expression() == expression)
-                        .expect("selected replacement retains its storage decision");
+            AnalysisOperationKind::Bound(AnyBoundNodeId::Expression(_))
+            | AnalysisOperationKind::AssignmentInstall(_) => {
+                let remainder = crate::analysis::outcomes::CleanupProgress::resume(&mut state.cleanup, None, point.id());
+                let after = remainder.as_ref().map(|remainder| remainder.after);
 
-                    self.dispose(
-                        state,
-                        plan.access(),
-                        decision.definitely_absent().iter().cloned(),
-                        &mut observe,
-                        operation,
-                        &mut None,
-                    );
-                }
+                let Some(entry) = flow.cleanup_entry(point.id(), after) else { return remainder.is_none(); };
+
+                let remaining = if let Some(remainder) = &remainder {
+                    remainder.accesses.as_ref()
+                } else {
+                    let [order] = entry.orders() else {
+                        assert!(entry.orders().is_empty(), "replacement cleanup has one displaced owner");
+
+                        return true;
+                    };
+
+                    order.as_ref()
+                };
+
+                self.execute_replacement_cleanup(
+                    state, remaining, Some(entry), &mut observe, point, after, entry.replacement(), &mut None,
+                )
             }
             // These operations do not dispose storage. Their explicit invocation
             // effects are handled by the ordinary operation transition.
             AnalysisOperationKind::Result { .. }
+            | AnalysisOperationKind::ScopedResult(_)
             | AnalysisOperationKind::Bound(_)
             | AnalysisOperationKind::PatternObservation(_)
             | AnalysisOperationKind::Call { .. }
             | AnalysisOperationKind::Suspension { .. }
-            | AnalysisOperationKind::Recovery(_) => {}
+            | AnalysisOperationKind::Recovery(_) => true,
         }
+    }
+
+    fn replay_cleanup_orders(
+        &self,
+        state: &mut ExecutionState,
+        point: &AnalysisOperation,
+        entry: &StorageCleanupEntry,
+        observe: &mut Option<&mut Observer<'_>>,
+    ) -> bool {
+        let order = match entry.orders() {
+            [] => &[][..],
+            [order] => order.as_ref(),
+            _ => return self.replay_distinct_cleanup_orders(state, point, entry, observe),
+        };
+
+        self.execute_scope_cleanup(state, point, Some(order), None, Some(entry), observe, &mut None)
+    }
+
+    fn replay_distinct_cleanup_orders(
+        &self,
+        state: &mut ExecutionState,
+        point: &AnalysisOperation,
+        entry: &StorageCleanupEntry,
+        observe: &mut Option<&mut Observer<'_>>,
+    ) -> bool {
+        let required = entry.orders().iter().flat_map(|order| order.iter().copied()).collect::<std::collections::BTreeSet<_>>()
+            .into_iter().filter(|access| self.disposal.steps[access].iter().enumerate().any(|(part, step)| {
+                step.phases().includes_lifecycle()
+                    && self.cleanup_part_condition(state, step.selection(), |_| {
+                        entry.part_absent(*access, part, bray_bound_tree::AsyncCleanupPhases::Lifecycle)
+                    }, None)
+                        .active
+                        .prove_ordinary(&state.assumptions, Some(&state.proofs)) == Some(true)
+            })).collect::<Vec<_>>();
+
+        let mut viable = entry.orders().iter().filter(|order| required.iter().all(|access| order.contains(access))).peekable();
+
+        let Some(first) = viable.next() else { return false; };
+
+        if viable.peek().is_none() {
+            return self.execute_scope_cleanup(state, point, Some(first), None, Some(entry), observe, &mut None);
+        }
+
+        let mut completed = None;
+
+        for order in std::iter::once(first).chain(viable) {
+            let mut branch = state.clone();
+
+            if self.execute_scope_cleanup(&mut branch, point, Some(order), None, Some(entry), observe, &mut None) {
+                super::super::flow::merge_execution(&mut completed, &Some(branch), super::super::flow::ExecutionJoin::Boundary);
+            }
+        }
+
+        let Some(completed) = completed else { return false; };
+
+        *state = completed;
+
+        true
+    }
+
+    pub(in crate::analysis) fn replacement_cleanup_required(&self, access: StorageAccessId) -> bool {
+        matches!(self.disposal.requirements.replacement(access), bray_bound_tree::AsyncStorageCleanupRequirement::Cleanup(_))
+    }
+
+    pub(in crate::analysis) fn select_scope_cleanup(
+        &self,
+        state: &crate::analysis::storage_flow::StorageFlowState,
+        dependencies: &bray_bound_tree::CheckedDependencyContracts,
+        scope: bray_bound_tree::StorageScope,
+        phase: AnalysisScopeExitPhase,
+    ) -> CleanupSelection {
+        let mut accesses = Vec::new();
+        let mut recoveries = Vec::new();
+
+        let requirements = &self.disposal.requirements;
+
+        for identity in requirements.scope_candidates(scope).rev().filter(|identity| state.live.contains(identity)) {
+            let requirement = requirements.get(identity).expect("scope candidate has a checked requirement");
+            let moved = crate::storage::paths_at_root(&state.moved, Some(identity)).map(|(path, _)| path);
+
+            let disposition = requirement.exit_disposition(
+                self.storage,
+                scope,
+                state.fully_moved.contains(&identity),
+                moved,
+                state.absent_paths(Some(identity)),
+            );
+
+            match disposition {
+                AsyncStorageExitDisposition::Recovered(_) => {
+                    recoveries.push(AsyncStorageExitDecision::new(identity, disposition));
+                }
+                AsyncStorageExitDisposition::Cleanup { access, phases, .. } => {
+                    let included = match phase {
+                        AnalysisScopeExitPhase::TaskCancellationBroadcast => phases.includes_cancellation(),
+                        AnalysisScopeExitPhase::LifecycleResolution => phases.includes_lifecycle(),
+                    };
+
+                    if included {
+                        accesses.push(access);
+                    }
+                }
+                AsyncStorageExitDisposition::NoCleanup => {}
+            }
+        }
+
+        let schedule = match phase {
+            AnalysisScopeExitPhase::TaskCancellationBroadcast => Ok(accesses),
+            AnalysisScopeExitPhase::LifecycleResolution => dependencies.lifecycle_order(self.storage, accesses),
+        };
+
+        let accesses = match schedule {
+            Ok(order) => Some(order.into()),
+            Err(access) => {
+                let identity = self.storage.root_identity(access).expect("lifecycle cleanup has a checked root");
+
+                recoveries.push(AsyncStorageExitDecision::new(
+                    identity,
+                    AsyncStorageExitDisposition::Recovered(AsyncStorageExitRecoveryCause::UnavailableCleanupOrder),
+                ));
+
+                None
+            }
+        };
+
+        CleanupSelection { accesses, recoveries, after: None, replacement: None }
     }
 
     pub(in crate::analysis) fn transition_storage_cleanup(
         &self,
         state: &mut ExecutionState,
-        storage_state: &crate::analysis::storage_flow::StorageFlowState,
-        dependencies: &bray_bound_tree::CheckedDependencyContracts,
-        operation: AnalysisOperationKind,
+        point: &AnalysisOperation,
+        selected: &CleanupSelection,
         mut observe: Option<&mut Observer<'_>>,
         mutate: &mut Mutation<'_>,
-    ) {
-        match operation {
-            AnalysisOperationKind::ScopeExit { scope, phase, .. } => {
-                let mut lifecycle = Vec::new();
+    ) -> bool {
+        let schedule = selected.accesses.as_deref();
 
-                for requirement in self.disposal.plan.requirements.iter().rev() {
-                    let identity = requirement.identity();
-
-                    if !storage_state.live.contains(&identity) {
-                        continue;
-                    }
-
-                    let disposition = requirement.exit_disposition(
-                        self.storage,
-                        scope,
-                        storage_state.initialized.contains(&identity),
-                        storage_state.fully_moved.contains(&identity),
-                        storage_state.moved.keys().cloned(),
-                        storage_state.definitely_absent.keys().cloned(),
-                    );
-
-                    if let bray_bound_tree::AsyncStorageExitDisposition::Cleanup {
-                        access,
-                        phases,
-                        ..
-                    } = disposition
-                    {
-                        match phase {
-                            AnalysisScopeExitPhase::TaskCancellationBroadcast
-                                if phases.includes_cancellation() =>
-                            {
-                                self.cancel_cleanup(state, access, storage_state.definitely_absent.keys().cloned(), operation, &mut Some(&mut *mutate));
-                            }
-                            AnalysisScopeExitPhase::LifecycleResolution
-                                if phases.includes_lifecycle() =>
-                            {
-                                lifecycle.push(access)
-                            }
-                            AnalysisScopeExitPhase::TaskCancellationBroadcast
-                            | AnalysisScopeExitPhase::LifecycleResolution => {}
-                        }
-                    }
-                }
-
-                if phase == AnalysisScopeExitPhase::LifecycleResolution {
-                    match dependencies.lifecycle_order(self.storage, &lifecycle) {
-                        Ok(ordered) => {
-                            for access in ordered {
-                                self.dispose(
-                                    state,
-                                    access,
-                                    storage_state.definitely_absent.keys().cloned(),
-                                    &mut observe,
-                                    operation,
-                                    &mut Some(&mut *mutate),
-                                );
-                            }
-                        }
-                        // The owning cleanup analysis publishes the unavailable-order recovery.
-                        Err(_) => {
-                            mutate(
-                                state,
-                                StorageMutation::Operation(operation.occurrence()),
-                                CleanupMutation::Recovery,
-                                false,
-                            );
-                        }
-                    }
-
-                    self.expire_trusted_scope(state, scope);
-                }
-            }
-            AnalysisOperationKind::Bound(AnyBoundNodeId::Expression(expression))
-            | AnalysisOperationKind::Call {
-                invocation:
-                    bray_bound_tree::BoundExecutionSite::Node(AnyBoundNodeId::Expression(expression)),
-                phase: crate::analysis::model::AnalysisCallPhase::Completion,
-            } => {
-                for plan in self.storage.node_plans(expression.into()).filter(|plan| {
-                    plan.purpose() == bray_bound_tree::StorageAccessPurpose::Assignment
-                }) {
-                    if !matches!(
-                        self.disposal.plan.replacements.get(&plan.access()),
-                        Some(bray_bound_tree::AsyncStorageCleanupRequirement::Cleanup(_))
-                    ) {
-                        continue;
-                    }
-
-                    let replacement = crate::analysis::storage_flow::ReplacementState::new(
-                        storage_state,
-                        plan,
-                        self.storage,
-                    );
-
-                    if !replacement.recovered
-                        && replacement.state(self.storage.root_identity(plan.access()).is_some())
-                            != bray_bound_tree::StorageReplacementState::Absent
-                    {
-                        self.dispose(
-                            state,
-                            plan.access(),
-                            replacement.definitely_absent.iter().cloned(),
-                            &mut observe,
-                            operation,
-                            &mut Some(&mut *mutate),
-                        );
-                    }
-                }
-            }
-            // These operations do not dispose storage. Their explicit invocation
-            // effects are handled by the ordinary operation transition.
-            AnalysisOperationKind::Result { .. }
-            | AnalysisOperationKind::Bound(_)
-            | AnalysisOperationKind::PatternObservation(_)
-            | AnalysisOperationKind::Call { .. }
-            | AnalysisOperationKind::Suspension { .. }
-            | AnalysisOperationKind::Recovery(_) => {}
+        if matches!(point.kind(), AnalysisOperationKind::ScopeExit { .. }) {
+            self.execute_scope_cleanup(state, point, schedule, selected.after, None, &mut observe, &mut Some(mutate))
+        } else {
+            self.execute_replacement_cleanup(state, schedule.expect("replacement uses a checked cleanup order"),
+                None, &mut observe, point, selected.after, selected.replacement.as_ref(), &mut Some(mutate))
         }
     }
 
-    fn apply_published_cleanup(&self, state: &mut ExecutionState, mutation: StorageMutation) {
-        let flow = self
-            .checked_body
-            .expect("execution cleanup consumes checked body semantics")
-            .storage_flow();
-
-        self.invalidate_observations(
-            state,
-            mutation,
-            flow.cleanup_mutation(mutation),
-            false,
-            false,
-        );
-
-        if let Some(completion) = flow.completion(mutation) {
-            self.observe_references(state, completion.references());
-        }
-    }
-
-    fn cancel_cleanup(
+    #[expect(clippy::too_many_arguments, reason = "replacement retains its checked order and reached continuation")]
+    fn execute_replacement_cleanup(
         &self,
         state: &mut ExecutionState,
-        access: StorageAccessId,
-        definitely_absent: impl Iterator<Item = bray_bound_tree::StoragePath>,
-        operation: AnalysisOperationKind,
+        schedule: &[StorageAccessId],
+        entry: Option<&StorageCleanupEntry>,
+        observe: &mut Option<&mut Observer<'_>>,
+        point: &AnalysisOperation,
+        mut after: Option<StorageCleanupAction>,
+        replacement: Option<&bray_bound_tree::StorageTarget>,
         mutate: &mut Option<&mut Mutation<'_>>,
-    ) {
-        let steps = self.disposal.plan.steps.get(&access)
-            .expect("selected cancellation has prepared cleanup parts");
+    ) -> bool {
+        let reached = replacement.filter(|target| target.is_exact())
+            .and_then(bray_bound_tree::StorageTarget::value_observation_path);
 
-        let absent = definitely_absent.collect::<Vec<_>>();
+        let path = |access| self.storage.logical_path(access).map(|source| (source, reached.as_ref()));
 
-        for (part, step) in steps.iter().enumerate().filter(|(_, step)| step.phases().includes_cancellation()) {
-            let condition = self.cleanup_part_condition(state, step, &absent);
+        if after.is_none() {
+            for &access in schedule {
+                self.cancel_cleanup(state, access, entry, observe, point, path(access), mutate);
+            }
+        }
 
-            let (ty, path) = match step {
-                Step::Opaque { ty, path, .. } | Step::Lifecycle { ty, path, .. } => (*ty, path.as_ref()),
-            };
+        for index in 0..schedule.len() {
+            if !self.dispose(state, &schedule[index..], entry, observe, point, after.take(), path(schedule[index]), mutate) {
+                return false;
+            }
+        }
 
-            super::selection::select_cleanup(state, condition, |state, conditional| {
-                let mutation = StorageMutation::Cancellation { occurrence: operation.occurrence(), access, part };
+        true
+    }
+
+    fn execute_scope_cleanup(
+        &self,
+        state: &mut ExecutionState,
+        point: &AnalysisOperation,
+        schedule: Option<&[StorageAccessId]>,
+        mut after: Option<StorageCleanupAction>,
+        entry: Option<&StorageCleanupEntry>,
+        observe: &mut Option<&mut Observer<'_>>,
+        mutate: &mut Option<&mut Mutation<'_>>,
+    ) -> bool {
+        let operation = point.kind();
+
+        let AnalysisOperationKind::ScopeExit { scope, exit, phase, .. } = operation else {
+            panic!("scheduled scope cleanup requires a scope exit: {operation:?}");
+        };
+
+        match schedule {
+            Some(accesses) => {
+                for (index, &access) in accesses.iter().enumerate() {
+                    let previous = after.take();
+
+                    let selected_part = previous.is_some_and(|action| {
+                        action.kind == bray_bound_tree::StorageCleanupActionKind::Lifecycle(TypeAssociatedLifecycleSlot::Finalizer)
+                    });
+
+                    if !selected_part && ExecutionPlace::storage(self.storage, access)
+                        .is_some_and(|place| state.current.is_subtree_absent(&place))
+                    {
+                        continue;
+                    }
+
+                    match phase {
+                        AnalysisScopeExitPhase::TaskCancellationBroadcast => {
+                            self.cancel_cleanup(state, access, entry, observe, point, None, mutate);
+                        }
+                        AnalysisScopeExitPhase::LifecycleResolution => {
+                            if !self.dispose(state, &accesses[index..], entry, observe, point, previous, None, mutate) {
+                                return false;
+                            }
+                        }
+                    }
+                }
+            }
+            None => {
+                assert_eq!(phase, AnalysisScopeExitPhase::LifecycleResolution,
+                    "cancel broadcast keeps its scheduled accesses: {operation:?}");
+
+                let mutation = StorageMutation::ScopeCleanupOrder {
+                    operation: point.id(),
+                    point: StorageExitPoint::new(scope, exit),
+                };
 
                 if let Some(mutate) = mutate {
-                    mutate(state, mutation, CleanupMutation::Opaque { ty, access, path }, conditional);
+                    let mut completion = None;
+
+                    assert!(mutate(CleanupTransition::Action(
+                        state,
+                        mutation,
+                        CleanupMutation::Recovery,
+                        &mut completion,
+                    )),
+                        "a recovered order has no admitted action");
                 } else {
                     self.apply_published_cleanup(state, mutation);
                 }
-            });
-        }
-    }
-
-    fn dispose(
-        &self,
-        state: &mut ExecutionState,
-        access: StorageAccessId,
-        definitely_absent: impl Iterator<Item = bray_bound_tree::StoragePath>,
-        observe: &mut Option<&mut Observer<'_>>,
-        operation: AnalysisOperationKind,
-        mutate: &mut Option<&mut Mutation<'_>>,
-    ) {
-        let steps = self.disposal.plan.steps.get(&access)
-            .expect("selected cleanup has prepared transitions");
-
-        let absent = definitely_absent.collect::<Vec<_>>();
-
-        for (part, step) in steps.iter().enumerate().filter(|(_, step)| step.phases().includes_lifecycle()) {
-            let condition = self.cleanup_part_condition(state, step, &absent);
-
-            super::selection::select_cleanup(state, condition, |state, conditional| {
-                self.dispose_part(state, access, part, step, observe, operation, conditional, mutate);
-            });
-        }
-    }
-
-    #[expect(clippy::too_many_arguments, reason = "one selected cleanup part retains its source, proof and mutation observer")]
-    fn dispose_part(
-        &self,
-        state: &mut ExecutionState,
-        access: StorageAccessId,
-        part: usize,
-        step: &Step,
-        observe: &mut Option<&mut Observer<'_>>,
-        operation: AnalysisOperationKind,
-        conditional: bool,
-        mutate: &mut Option<&mut Mutation<'_>>,
-    ) {
-        let occurrence = operation.occurrence();
-        let normal = operation.is_normal_cleanup();
-
-        let Step::Lifecycle {
-            ty,
-            place,
-            path,
-            whole,
-            ..
-        } = step
-        else {
-            let Step::Opaque { ty, path, .. } = step else {
-                unreachable!("non-lifecycle step is opaque cleanup");
-            };
-
-            let disposed = (!matches!(
-                self.request.semantic_values().type_data(*ty).as_ref(),
-                bray_symbols::TypeData::Borrow { .. }
-            ))
-            .then(|| {
-                path.as_ref()
-                    .map(|path| self.storage_path_value(state, path))
-            })
-            .flatten();
-
-            let mutation = StorageMutation::Cleanup {
-                occurrence,
-                access,
-                part,
-            };
-
-            if let Some(mutate) = mutate {
-                let Step::Opaque { ty, path, .. } = step else {
-                    unreachable!("lifecycle handled below")
-                };
-
-                // Inactive cleanup can retain reports even when its captures
-                // leave every ordinary input observation unchanged.
-                let effect = if self.cleanup_preserves_inputs(state, access)
-                    && crate::representation::type_representation(self.request, *ty)
-                        != Some(bray_compiler_known::RepresentationRole::Future)
-                {
-                    CleanupMutation::Unchanged
-                } else {
-                    CleanupMutation::Opaque {
-                        ty: *ty,
-                        access,
-                        path: path.as_ref(),
-                    }
-                };
-
-                mutate(state, mutation, effect, conditional);
-            } else {
-                self.apply_published_cleanup(state, mutation);
-            }
-
-            if let Some(disposed) = disposed {
-                // Destruction ends captured ownership even when cleanup has no user storage effects.
-                if let Some(place) = path
-                    .as_ref()
-                    .and_then(|path| ExecutionPlace::storage_path(self.storage, path))
-                {
-                    state.current.retire(&place);
-                }
-
-                let retained = state.current.live_values()
-                    .chain(state.pending_results.values().cloned())
-                    .flat_map(|value| state.owned_values(&value))
-                    .collect();
-
-                state.retire_trusted_values([disposed], &retained);
-            }
-
-            return;
-        };
-
-        for slot in [
-            TypeAssociatedLifecycleSlot::Finalizer,
-            TypeAssociatedLifecycleSlot::Destructor,
-        ] {
-            let Some(lifecycle) = self.disposal.plan.lifecycles.get(&(*ty, slot)) else {
-                continue;
-            };
-
-            let completes = normal
-                || lifecycle.contract.completes
-                || ((lifecycle.call.result.execution()
-                    == bray_symbols::CallableExecution::Synchronous)
-                    && self.request.target_cannot_unwind(
-                        bray_bound_tree::BoundCallableTarget::Declaration(
-                            lifecycle.call.callable,
-                        ),
-                    ));
-
-            let value = path
-                .as_ref()
-                .map(|path| self.storage_path_value(state, path));
-
-            let mut evidence = lifecycle.entry(state, value);
-
-            self.preserve_integer_entry_conditions(
-                state,
-                &lifecycle.contract.preconditions,
-                &mut evidence,
-            );
-
-            let requirements = self.prove_trusted_requirements(&evidence, &lifecycle.contract.requirements)
-                .and_then(|()| evidence.prove_requirements(lifecycle.contract.preconditions.iter()
-                    .map(|(condition, _)| condition)));
-
-            let established = requirements.is_ok();
-
-            if let Some(observe) = observe {
-                observe(
-                    access,
-                    part,
-                    slot,
-                    lifecycle,
-                    *whole,
-                    &evidence,
-                    &requirements,
-                );
-            }
-
-            let mutation = StorageMutation::Lifecycle {
-                occurrence,
-                access,
-                part,
-                slot,
-            };
-
-            if let Some(mutate) = mutate {
-                mutate(
-                    state,
-                    mutation,
-                    CleanupMutation::Lifecycle(LifecycleInvocation {
-                        ty: *ty,
-                        access,
-                        lifecycle,
-                        completes: established && completes,
-                        path: path.as_ref(),
-                    }),
-                    conditional,
-                );
-            } else {
-                self.apply_published_cleanup(state, mutation);
-            }
-
-            if established && completes {
-                self.complete_trusted_cleanup(state, place.clone(), lifecycle, &evidence);
             }
         }
-    }
-}
 
-impl Lifecycle {
-    fn entry(
-        &self,
-        state: &ExecutionState,
-        value: Option<crate::ExecutionCondition>,
-    ) -> ExecutionCallEvidence {
-        // Capture one actual receiver snapshot. Its components are projections
-        // of this value, including when the receiver itself is a component.
-        let arguments = value
-            .map(|value| BTreeMap::from([(self.receiver.into(), value)]))
-            .unwrap_or_default();
-
-        let assumptions = state.assumptions.clone();
-
-        // Entry assumptions must survive the mutations made by this lifecycle invocation.
-        ExecutionCallEvidence {
-            implementation_witnesses: Default::default(),
-            witness_inputs: Default::default(),
-            extracted_values: Default::default(),
-            copy_sources: Default::default(),
-            owned_inputs: Default::default(),
-            addresses: Default::default(),
-            anonymous_target: None,
-            trusted_boundary: !state.trust_boundaries.is_empty(),
-            pending_execution: false,
-            arguments,
-            assumptions,
-            trusted_assumptions: state.trusted_assumptions.clone(),
+        if phase == AnalysisScopeExitPhase::LifecycleResolution {
+            self.expire_trusted_scope(state, scope);
         }
+
+        true
     }
 }

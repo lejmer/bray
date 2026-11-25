@@ -31,7 +31,7 @@ pub(in crate::dependency::call) fn conversion_dependencies<C: CheckerRequestCont
                 .semantic_values()
                 .type_data(conversion.source_type());
 
-            let mut result = DependencyContractTemplateData::new([]).with_effects([]);
+            let mut result = DependencyContractTemplateData::new([]).with_possible_effects([]);
 
             let may_skip_child = match shape.as_ref() {
                 TypeData::Nullable(_) => true,
@@ -73,13 +73,22 @@ pub(in crate::dependency::call) fn conversion_dependencies<C: CheckerRequestCont
                     })
                     .expect("conversion projection preserves checked dependency equation bindings");
 
-                let effects = child
-                    .effects()
-                    .iter()
-                    .map(|effect| project_effect(effect, ordinal, shape.as_ref()))
-                    .collect::<Vec<_>>();
+                let project_effect = |effect: &DependencyStorageEffect| project_effect(effect, ordinal, shape.as_ref());
+                let effects = child.effects().iter().map(project_effect).collect::<Vec<_>>();
 
-                let stored_values = child.stored_values().iter().map(|stored| {
+                let project_cell_changes = |cells: Option<&[DependencyStorageEffect]>| {
+                    if matches!(shape.as_ref(), TypeData::Nullable(_)) {
+                        return None;
+                    }
+
+                    let cells = bray_base::sorted_unique_shared_slice(
+                        cells?.iter().map(project_effect).filter(DependencyStorageEffect::is_cell_change)
+                    );
+
+                    (!cells.is_empty()).then_some(cells)
+                };
+
+                let outcomes = child.captured_values().iter().cloned().map(|mut outcome| {
                     let project = |path: &bray_symbols::DependencyStoredValuePath| {
                         let subject = path.subject();
 
@@ -97,14 +106,38 @@ pub(in crate::dependency::call) fn conversion_dependencies<C: CheckerRequestCont
                         }
                     };
 
-                    bray_symbols::DependencyStoredValue::new(
-                        project(stored.destination()),
-                        stored.sources().iter().map(project),
-                        stored.is_complete() && !matches!(shape.as_ref(), TypeData::Array { .. }),
-                    )
+                    outcome.stored_values = bray_symbols::DependencyStoredValue::normalize(
+                        outcome.stored_values.iter().map(|stored| bray_symbols::DependencyStoredValue::new(
+                            project(stored.destination()),
+                            stored.sources().iter().map(project),
+                            stored.is_complete() && !matches!(shape.as_ref(), TypeData::Array { .. }),
+                        )),
+                    );
+
+                    let effects = outcome.effects.iter().map(project_effect).collect::<Vec<_>>();
+
+                    outcome.cell_changes = project_cell_changes(outcome.cell_changes.as_deref());
+
+                    outcome.with_effects(effects)
                 }).collect::<Vec<_>>();
 
-                let child = child.with_effects(effects).with_stored_values(stored_values);
+                let failures = child.failure_outcomes().map(|rows| rows.iter().cloned().map(|mut row| {
+                    // A child guard names the child's receiver. Composition loses its
+                    // condition when the outer conversion cannot name that receiver.
+                    row.guard = None;
+
+                    row.effects = row.effects.as_deref().map(|effects|
+                        bray_base::sorted_unique_shared_slice(effects.iter().map(project_effect)));
+
+                    row.cell_changes = project_cell_changes(row.cell_changes.as_deref());
+
+                    // Component operands are not the aggregate receiver's entry values.
+                    row.writes = std::sync::Arc::new([]);
+
+                    row
+                }).collect::<Vec<_>>());
+
+                let child = child.with_captured_values(outcomes).with_failure_outcomes(failures).with_possible_effects(effects);
 
                 let child = if matches!(shape.as_ref(), TypeData::Nullable(_)) {
                     child
@@ -139,7 +172,7 @@ pub(in crate::dependency::call) fn conversion_dependencies<C: CheckerRequestCont
                 DependencySubject::root(DependencySubjectRoot::Receiver),
                 DependencyRequirementKind::ValueDependencies,
             )])
-            .with_effects([]);
+            .with_possible_effects([]);
 
             if matches!(
                 conversion.target(),
@@ -155,13 +188,26 @@ pub(in crate::dependency::call) fn conversion_dependencies<C: CheckerRequestCont
                     ))
                     .expect("canonical conversion input belongs to the checked semantic store");
 
-                let output = matches!(conversion.target(), ConversionTarget::NullablePresent)
-                    .then_some(bray_symbols::ConstantProjectionKind::NullableValue);
+                let nullable = matches!(conversion.target(), ConversionTarget::NullablePresent);
+                let value = bray_symbols::CapturedValueTemplate::Input(input);
 
-                result = result.with_owned_result(bray_symbols::DependencyOwnedResult::Transfer(
-                    bray_symbols::DependencyOwnedTransfer::new(input, output)
-                        .with_preservation(bray_symbols::DependencyValuePreservation::all()),
-                ));
+                let value = if nullable {
+                    bray_symbols::CapturedValueTemplate::Operation(
+                        bray_symbols::CapturedValueOperation::Present, [value].into(),
+                    )
+                } else {
+                    value
+                };
+
+                let transfer = bray_symbols::DependencyOwnedTransfer::new(
+                    input, nullable.then_some(bray_symbols::ConstantProjectionKind::NullableValue),
+                ).with_preservation(bray_symbols::DependencyValuePreservation::all());
+
+                let outcome = bray_symbols::CapturedValueOutcome::new(None, [
+                    (DependencySubject::root(DependencySubjectRoot::Result), value),
+                ]).with_ownership(bray_symbols::DependencyOwnedResult::Transfer(transfer));
+
+                result = result.with_captured_values([outcome]);
             }
 
             Ok(result)
@@ -207,23 +253,26 @@ fn project_effect(
     shape: &TypeData,
 ) -> DependencyStorageEffect {
     // Projection retains the callee's immutable reference suffix and mutation kind.
-    match effect {
-        DependencyStorageEffect::Direct { subject, kind, access_type } => {
+    let (effect, discharged) = effect.retirement_parts();
+
+    let projected = match effect {
+        DependencyStorageEffect::OrderedRetirement { .. } => unreachable!("retirement has one discharge prefix"),
+        DependencyStorageEffect::Direct { addressed, subject, kind, access_type } => {
             project_subject(subject, ordinal, shape)
-                .map(|subject| DependencyStorageEffect::Direct {
+                .map(|subject| DependencyStorageEffect::Direct { addressed: *addressed,
                     subject,
                     kind: *kind,
                     access_type: *access_type,
                 })
                 .unwrap_or_else(|| DependencyStorageEffect::unresolved(*kind, *access_type))
         }
-        DependencyStorageEffect::Indirect {
+        DependencyStorageEffect::Indirect { addressed, reads,
             reference,
             projections,
             kind,
             access_type,
         } => project_subject(reference, ordinal, shape)
-            .map(|reference| DependencyStorageEffect::Indirect {
+            .map(|reference| DependencyStorageEffect::Indirect { addressed: *addressed, reads: std::sync::Arc::clone(reads),
                 reference,
                 projections: std::sync::Arc::clone(projections),
                 kind: *kind,
@@ -237,6 +286,15 @@ fn project_effect(
         | DependencyStorageEffect::Escape
         | DependencyStorageEffect::Ambient
         | DependencyStorageEffect::Unknown => effect.clone(),
+    };
+
+    if projected.is_addressed_retirement() && !discharged.is_empty() {
+        let duties = discharged.iter().map(|effect| project_effect(effect, ordinal, shape))
+            .filter(DependencyStorageEffect::is_addressed_discharge);
+
+        projected.with_retirement_discharges(bray_base::sorted_unique_shared_slice(duties))
+    } else {
+        projected
     }
 }
 
@@ -250,9 +308,10 @@ pub(super) fn sequence_dependencies(
         .chain(next.requirements())
         .cloned();
 
+    let normal = first.normal_completion() && next.normal_completion();
+
     let mut result = DependencyContractTemplateData::new(requirements)
-        .with_stored_values(first.stored_values().iter().chain(next.stored_values()).cloned())
-        .with_effects(first.effects().iter().chain(next.effects()).cloned())
+        .with_possible_effects(first.effects().iter().chain(next.effects()).cloned())
         .with_synchronous_cleanup(
             first
                 .synchronous_cleanup()
@@ -260,39 +319,59 @@ pub(super) fn sequence_dependencies(
                 .chain(next.synchronous_cleanup())
                 .cloned(),
         )
-        .with_normal_completion(first.normal_completion() && next.normal_completion())
-        .with_normal_storage_preservation(
-            first.preserves_storage_on_normal_return() && next.preserves_storage_on_normal_return(),
-        );
+        .with_normal_completion(normal);
 
-    if first.completion_reports().is_some() || next.completion_reports().is_some() {
-        result = result.with_completion_reports(
-            first
-                .completion_reports()
-                .into_iter()
-                .flatten()
-                .chain(next.completion_reports().into_iter().flatten())
-                .cloned(),
-        );
+    let reports = [first.completion_reports(), next.completion_reports()];
+
+    if normal {
+        let effects = first.normal_effects().iter().chain(next.normal_effects()).cloned();
+
+        let cells = if next.normal_effects().is_empty() { &first } else { &next };
+        let cell_changes = bray_symbols::common_cell_changes(cells.captured_values().iter().map(|row| row.cell_changes.as_ref()));
+        let stored = [first.stored_values(), next.stored_values()];
+
+        let report = reports.iter().any(Option::is_some).then(|| {
+            bray_base::sorted_unique_shared_slice(reports.iter().flatten().flat_map(|report| report.iter().cloned()))
+        });
+
+        result = result.with_captured_values([
+            bray_symbols::CapturedValueOutcome::new(None, [])
+                .with_effects(effects)
+                .with_cell_changes(cell_changes)
+                .with_storage([], stored.iter().flat_map(|values| values.iter().cloned()))
+                .with_report(report),
+        ]);
     }
 
-    if first.abnormal_reports().is_some() || next.abnormal_reports().is_some() {
-        result = result.with_abnormal_reports(
-            first
-                .abnormal_reports()
-                .into_iter()
-                .flatten()
-                .chain(next.abnormal_reports().into_iter().flatten())
-                .chain(
-                    first
-                        .completion_reports()
-                        .into_iter()
-                        .flatten()
-                        .filter(|_| next.abnormal_reports().is_some()),
-                )
-                .cloned(),
-        );
+    let failures = |contract: &DependencyContractTemplateData| {
+        contract.failure_outcomes().map(<[_]>::to_vec).unwrap_or_else(|| vec![bray_symbols::CapturedFailureOutcome {
+            kind: None,
+            guard: None,
+            report: None,
+            effects: Some(contract.effects().into()),
+            cell_changes: None,
+            writes: std::sync::Arc::new([]),
+            references: std::sync::Arc::new([]),
+            stored_values: std::sync::Arc::new([]),
+        }])
+    };
+
+    let mut outcomes = failures(&first);
+
+    if first.normal_completion() {
+        outcomes.extend(failures(&next).into_iter().map(|mut row| {
+            let effects = row.effects.as_deref().unwrap_or(next.effects());
+
+            row.effects = Some(bray_base::sorted_unique_shared_slice(first.normal_effects().iter().chain(effects).cloned()));
+
+            if let Some(completed) = &reports[0] {
+                row.report = Some(bray_base::sorted_unique_shared_slice(completed.iter()
+                    .chain(row.report.as_deref().into_iter().flatten()).cloned()));
+            }
+
+            row
+        }));
     }
 
-    result
+    result.with_failure_outcomes(Some(outcomes))
 }

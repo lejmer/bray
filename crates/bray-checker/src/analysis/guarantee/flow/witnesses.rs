@@ -3,7 +3,7 @@ use crate::execution_guarantees::{ExecutionSubstitution, SnapshotSubstitution};
 use crate::execution_guarantees::{ExecutionObservationKind as ObservationKind, ExecutionProof};
 use std::collections::{BTreeMap, BTreeSet};
 
-use bray_bound_tree::{BoundExpressionId, BoundOperator};
+use bray_bound_tree::BoundOperator;
 
 use super::super::state::ExecutionState;
 use crate::{ExecutionCondition, ExecutionPlace};
@@ -13,11 +13,11 @@ use crate::{ExecutionCondition, ExecutionPlace};
 pub(super) struct JoinedWitness {
     pub(super) owner: ExecutionCondition,
     pub(super) available: bool,
-    pub(super) clauses: Vec<(ExecutionCondition, ExecutionCondition)>,
+    pub(super) clauses: Vec<(ExecutionCondition, ExecutionCondition, bool)>,
 }
 
 /// Propose value-contract facts and prove each against both original predecessors.
-pub(super) fn conditional_facts(
+pub(super) fn conditional_facts<'value>(
     left: (
         &ExecutionState,
         &ExecutionSubstitution<'_>,
@@ -27,7 +27,7 @@ pub(super) fn conditional_facts(
         &ExecutionSubstitution<'_>,
     ),
     current: &BTreeMap<ExecutionPlace, ExecutionCondition>,
-    results: &[(BoundExpressionId, ExecutionCondition)],
+    results: impl IntoIterator<Item = ([Option<&'value ExecutionCondition>; 2], &'value ExecutionCondition)>,
     availability: &BTreeSet<(ExecutionCondition, ExecutionCondition)>,
     selector: Option<&ExecutionCondition>,
     facts: &mut Vec<(ExecutionCondition, bool)>,
@@ -45,38 +45,35 @@ pub(super) fn conditional_facts(
         collect_observations(
             [source[0].as_ref(), source[1].as_ref()], joined, &mut inputs, &mut guards,
             [&absent[0], &absent[1]], &ExecutionCondition::boolean(true),
+            Some(place),
             &mut { ExecutionCondition::WORK_LIMIT },
         );
     }
 
-    for (expression, joined) in results {
-        let source = [left.0, right.0].map(|state| {
-            state.pending_results.get(expression)
-        });
-
+    for (source, joined) in results {
         collect_observations(
             source, joined, &mut inputs, &mut guards,
             [&absent[0], &absent[1]], &ExecutionCondition::boolean(true),
+            None,
             &mut { ExecutionCondition::WORK_LIMIT },
         );
     }
 
-    let [left_inputs, right_inputs] = inputs.each_ref().map(|inputs| SnapshotSubstitution::new(inputs));
+    let proposals = inputs.each_ref().map(joined_snapshot_proposals);
+    let no_owners = BTreeMap::new();
 
-    let ordinary = [left, right].map(|(state, substitution)| {
-        state
-            .assumptions
-            .iter()
-            .filter(|(condition, _)| {
-                !condition.contains_trusted() && !condition.observes_live(None)
-            })
-            .map(|(condition, holds)| (substitution.value(condition), *holds))
-            .collect::<BTreeSet<_>>()
-    });
+    let [left_proposals, right_proposals] = proposals.each_ref().map(|values| ExecutionSubstitution::new(values, &no_owners));
+
+    let [left_inputs, right_inputs] = inputs.each_ref().map(|inputs| SnapshotSubstitution::new(inputs));
 
     // Immutable branch selectors can qualify a moved carrier even when the selector
     // is stored outside it. Each proposed clause still needs both predecessor proofs.
-    let path_guards = if let Some(selector) = selector {
+    let selected_guards = selector.and_then(|selector| super::merge::ExecutionJoin::Selection(selector).retained_selector())
+        .map(|selector| [selector.clone(), ExecutionCondition::operation(BoundOperator::LogicalNot, vec![selector.clone()])]);
+
+    let path_guards = if let Some(guards) = &selected_guards {
+        guards.iter().cloned().collect::<BTreeSet<_>>()
+    } else if let Some(selector) = selector {
         // A structured join owns its selector. Derived consequences are facts, not
         // additional execution choices to multiply against every carrier clause.
         [left, right].into_iter().flat_map(|(_, substitution)| {
@@ -84,20 +81,27 @@ pub(super) fn conditional_facts(
 
             [selector.clone(), ExecutionCondition::operation(BoundOperator::LogicalNot, vec![selector])]
         }).collect::<BTreeSet<_>>()
-    } else { ordinary[0]
-        .iter()
-        .filter(|(condition, holds)| ordinary[1].contains(&(condition.clone(), !holds)))
-        .flat_map(|(condition, _)| {
-            [
-                condition.clone(),
-                ExecutionCondition::operation(BoundOperator::LogicalNot, vec![condition.clone()]),
-            ]
-        })
-        .collect::<BTreeSet<_>>() };
+    } else {
+        let [first, second] = [left, right].map(|(state, substitution)| {
+            state.assumptions.iter()
+                .filter(|(condition, _)| !condition.contains_trusted() && !condition.observes_live(None))
+                .map(|(condition, holds)| (substitution.value(condition), *holds))
+                .collect::<BTreeSet<_>>()
+        });
 
-    let ordinary_proofs = [left.0, right.0].map(|state| state.proofs.ordinary_proof(&state.assumptions));
+        first.iter()
+            .filter(|(condition, holds)| second.contains(&(condition.clone(), !holds)))
+            .flat_map(|(condition, _)| {
+                [condition.clone(), ExecutionCondition::operation(BoundOperator::LogicalNot, vec![condition.clone()])]
+            }).collect::<BTreeSet<_>>()
+    };
+
+    let ordinary_proofs = [left.0, right.0].map(|state| state.ordinary_proof());
     let all_guards = guards.iter().map(|(_, guard)| guard).chain(&path_guards).collect::<BTreeSet<_>>();
-    let inactive = inactive_guards(&all_guards, [&left_inputs, &right_inputs], &ordinary_proofs, facts);
+
+    let inactive = inactive_guards(all_guards.iter().copied().filter(|guard| {
+        selected_guards.as_ref().is_none_or(|selection| !selection.contains(guard))
+    }), [&left_inputs, &right_inputs], &ordinary_proofs, facts);
 
     conditional_aliases([left, right], [&left_inputs, &right_inputs], &all_guards, &inactive, &ordinary_proofs, facts);
 
@@ -105,9 +109,9 @@ pub(super) fn conditional_facts(
         return Vec::new();
     }
 
-    let candidates = [left, right]
+    let candidates = [(left, &left_proposals), (right, &right_proposals)]
         .into_iter()
-        .flat_map(|(state, substitution)| {
+        .flat_map(|((state, substitution), proposals)| {
             state
                 .witnesses
                 .iter()
@@ -125,12 +129,25 @@ pub(super) fn conditional_facts(
                     witness.conditions.keys().filter_map(|condition| {
                         (!witness.available || proof.prove_mixed(condition,
                             &mut { ExecutionCondition::WORK_LIMIT }) == Some(true))
-                        .then(|| {
-                            (
-                                substitution.owner(owner),
-                                substitution.value(condition),
-                            )
-                        })
+                        .then(|| substitution.value(condition))
+                    }).flat_map(|condition| {
+                        // Repeated joins may qualify the same underlying claim with
+                        // different path guards. Consider that claim directly, then
+                        // retain it only if both actual predecessors prove it. A joined
+                        // fallback is another proposal, never a rewrite of the source fact.
+                        let proposed = proposals.value(&condition);
+
+                        std::iter::once(condition.clone())
+                            .chain((proposed != condition && !proposed.contains_unknown()).then_some(proposed))
+                            .flat_map(|condition| {
+                                let claims = condition.observations()
+                                    .filter(|candidate| matches!(candidate.kind(), crate::ExecutionConditionKind::Trusted(_)))
+                                    .cloned().collect::<Vec<_>>();
+
+                                std::iter::once(condition).chain(claims)
+                            })
+                            .map(|condition| (substitution.owner(owner), condition))
+                            .collect::<Vec<_>>()
                     }).collect::<Vec<_>>()
                 })
         })
@@ -153,39 +170,35 @@ pub(super) fn conditional_facts(
 
         // Each complete carrier supplies its own authority. An ordinary inactive
         // variant needs no trusted evidence, but another carrier cannot lend it.
-        let predecessors =
-            [(0, (left.0, &left_inputs)), (1, (right.0, &right_inputs))].map(|(index, (state, inputs))| {
-                let source = inputs.apply(&owner);
-                let mut evidence = ExecutionAssumptions::default();
-                let mut available = true;
+        let predecessors = [(0, left.0, &left_inputs), (1, right.0, &right_inputs)].map(|(index, state, inputs)| {
+            let (evidence, owning, available) = predecessor_evidence(state, inputs.apply(&owner), &source_proofs[index]);
 
-                for (_, witness) in state.owned_witnesses([source]) {
-                    available &= witness.available;
+            (state, inputs, evidence, owning, available)
+        });
 
-                    for condition in witness.conditions.keys().filter(|condition| {
-                        !witness.available || source_proofs[index].prove_trusted(condition)
-                            == Some(true)
-                    }) {
-                        condition.clone().assume(true, &mut evidence);
-                    }
-                }
+        let proofs = predecessors.each_ref().map(|(state, _, evidence, _, _)| {
+            state.proofs.proof(evidence, &state.assumptions)
+        });
 
-                (state, inputs, evidence, available)
-            });
-
-        let proofs = predecessors.each_ref().map(|(state, _, evidence, _)| {
+        let owning_proofs = predecessors.each_ref().map(|(state, _, _, evidence, _)| {
             state.proofs.proof(evidence, &state.assumptions)
         });
 
         let proved = |clause: &ExecutionCondition| {
-            predecessors.iter().zip(&proofs).all(|((_, inputs, _, _), proof)| {
+            predecessors.iter().zip(&proofs).all(|((_, inputs, _, _, _), proof)| {
+                proof.prove_trusted(&inputs.apply(clause)) == Some(true)
+            })
+        };
+
+        let owned = |clause: &ExecutionCondition| {
+            predecessors.iter().zip(&owning_proofs).all(|((_, inputs, _, _, _), proof)| {
                 proof.prove_trusted(&inputs.apply(clause)) == Some(true)
             })
         };
 
         // A join preserves validity while the child owns execution. It must not
         // make any unavailable predecessor's authority usable in the caller.
-        let available = predecessors.iter().all(|(_, _, _, available)| *available);
+        let available = predecessors.iter().all(|(_, _, _, _, available)| *available);
         let mut clauses = Vec::new();
 
         for condition in conditions {
@@ -194,7 +207,9 @@ pub(super) fn conditional_facts(
             // An existing guarded claim can already hold on both paths without
             // discovering a new discriminant or adding a redundant outer guard.
             if proved(&condition) {
-                clauses.push((condition.clone(), condition));
+                let owning = owned(&condition);
+
+                clauses.push((condition.clone(), condition, owning));
                 continue;
             }
 
@@ -208,6 +223,11 @@ pub(super) fn conditional_facts(
             {
                 if inactive.contains(guard) { continue; }
 
+                // A structured fork already chose its input snapshot. Its
+                // selector does not need to be recovered from changed storage.
+                let selected = selected_guards.as_ref()
+                    .and_then(|selection| selection.iter().position(|chosen| chosen == guard));
+
                 let clause = ExecutionCondition::operation(
                     BoundOperator::LogicalOr,
                     vec![
@@ -218,8 +238,20 @@ pub(super) fn conditional_facts(
 
                 // These are actual predecessor snapshots of moved owners, not ordinary
                 // equal-content substitutions for borrowed observations.
-                if !matches!(clause.kind(), crate::ExecutionConditionKind::Boolean(true)) && proved(&clause) {
-                    clauses.push((condition.clone(), clause));
+                if matches!(clause.kind(), crate::ExecutionConditionKind::Boolean(true)) { continue; }
+
+                if let Some(index) = selected {
+                    let actual = predecessors[index].1.apply(&condition);
+
+                    if proofs[index].prove_trusted(&actual) == Some(true) {
+                        let owning = owning_proofs[index].prove_trusted(&actual) == Some(true);
+
+                        clauses.push((condition.clone(), clause, owning));
+                    }
+                } else if proved(&clause) {
+                    let owning = owned(&clause);
+
+                    clauses.push((condition.clone(), clause, owning));
                 }
             }
         }
@@ -230,15 +262,93 @@ pub(super) fn conditional_facts(
     retained
 }
 
-fn inactive_guards(
-    guards: &BTreeSet<&ExecutionCondition>,
+fn predecessor_evidence(
+    state: &ExecutionState,
+    source: ExecutionCondition,
+    proof: &ExecutionProof<'_>,
+) -> (ExecutionAssumptions, ExecutionAssumptions, bool) {
+    let mut evidence = ExecutionAssumptions::default();
+    let mut owning = ExecutionAssumptions::default();
+    let mut available = true;
+
+    // A stored loan may carry its own checked clause. Its descriptor's
+    // ledger entry is independent of the referent's ownership.
+    let descriptor = source.is_reference()
+        .then(|| state.witnesses.get_key_value(source.owner_identity())).flatten();
+
+    for (_, witness) in descriptor.into_iter().chain(state.owned_witnesses([source])) {
+        available &= witness.available;
+
+        for (condition, guarantee) in witness.conditions.iter().filter(|(condition, _)| {
+            !witness.available || proof.prove_trusted(condition) == Some(true)
+        }) {
+            condition.clone().assume(true, &mut evidence);
+
+            if guarantee.witness {
+                condition.clone().assume(true, &mut owning);
+            }
+        }
+    }
+
+    (evidence, owning, available)
+}
+
+fn joined_snapshot_proposals(
+    inputs: &BTreeMap<ExecutionCondition, ExecutionCondition>,
+) -> BTreeMap<ExecutionCondition, ExecutionCondition> {
+    let mut proposals = BTreeMap::new();
+
+    for (joined, source) in inputs {
+        let Some(source) = corresponding_joined_source(joined, source) else { continue; };
+
+        proposals.entry(source.clone()).and_modify(|previous| {
+            if previous != joined { *previous = ExecutionCondition::unknown(); }
+        }).or_insert_with(|| joined.clone());
+    }
+
+    proposals
+}
+
+fn corresponding_joined_source<'source>(
+    joined: &ExecutionCondition,
+    source: &'source ExecutionCondition,
+) -> Option<&'source ExecutionCondition> {
+    use crate::ExecutionConditionKind as Kind;
+
+    let mut joined = joined;
+    let original_source = source.computed_value();
+    let mut source = original_source;
+    let mut projected = false;
+
+    loop {
+        match (joined.kind(), source.kind()) {
+            (Kind::Projection(joined_field, joined_base), Kind::Projection(source_field, source_base))
+                if joined_field == source_field => {
+                    joined = joined_base;
+                    source = source_base;
+                    projected = true;
+                }
+            (Kind::Joined(..), Kind::Constructed(base, _))
+                if matches!(base.kind(), Kind::PostState(..) | Kind::Joined(..)) => {
+                    return Some(if projected { original_source } else { base });
+                }
+            (Kind::Joined(..), Kind::PostState(..) | Kind::Joined(..)) => {
+                return Some(original_source);
+            }
+            _ => return None,
+        }
+    }
+}
+
+fn inactive_guards<'guard>(
+    guards: impl Iterator<Item = &'guard ExecutionCondition>,
     inputs: [&SnapshotSubstitution<'_>; 2],
     proofs: &[ExecutionProof<'_>; 2],
     facts: &mut Vec<(ExecutionCondition, bool)>,
 ) -> BTreeSet<ExecutionCondition> {
     let mut inactive = BTreeSet::new();
 
-    for &guard in guards {
+    for guard in guards {
         let negated = ExecutionCondition::operation(BoundOperator::LogicalNot, vec![guard.clone()]);
 
         if proofs.iter().zip(inputs).all(|(proof, inputs)| {
@@ -358,7 +468,7 @@ mod tests {
 
             super::retain_conditional_guarantees(&mut left, &mut right, &[super::JoinedWitness {
                 owner: owner.clone(), available,
-                clauses: vec![(claim.clone(), first.clone()), (first.clone(), last.clone())],
+                clauses: vec![(claim.clone(), first.clone(), true), (first.clone(), last.clone(), true)],
             }]);
 
             for state in [&left, &right] {
@@ -403,9 +513,58 @@ mod tests {
         let mut facts = Vec::new();
 
         let retained = conditional_facts((&left, &substitution), (&right, &substitution),
-            &BTreeMap::new(), &[], &availability, None, &mut facts);
+            &BTreeMap::new(), [], &availability, None, &mut facts);
 
         assert!(retained.is_empty(), "an ordinary tautology establishes no carrier authority");
+    }
+
+    #[test]
+    fn opposite_join_guards_recover_a_claim_proved_by_both_carriers() {
+        let input = |ordinal| ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(ordinal))));
+        let place = ExecutionPlace::argument(SymbolOrdinal::new(0));
+        let owner = input(0);
+        let guard = input(1);
+        let trusted = ExecutionCondition::new(crate::ExecutionConditionKind::Trusted(Arc::new(input(2))));
+
+        let left_clause = ExecutionCondition::operation(BoundOperator::LogicalOr, vec![
+            ExecutionCondition::operation(BoundOperator::LogicalNot, vec![guard.clone()]),
+            trusted.clone(),
+        ]);
+
+        let right_clause = ExecutionCondition::operation(BoundOperator::LogicalOr, vec![
+            guard.clone(), trusted.clone(),
+        ]);
+
+        let mut left = ExecutionState::default();
+        let mut right = ExecutionState::default();
+
+        for state in [&mut left, &mut right] {
+            state.assign(place.clone(), owner.clone(), None);
+        }
+
+        guard.clone().assume(true, &mut left.assumptions);
+        guard.clone().assume(false, &mut right.assumptions);
+        left.carry_guarantee(owner.clone(), left_clause.clone());
+        right.carry_guarantee(owner.clone(), right_clause.clone());
+        left_clause.assume(true, &mut left.trusted_assumptions);
+        right_clause.assume(true, &mut right.trusted_assumptions);
+
+        let empty = BTreeMap::new();
+        let substitution = crate::execution_guarantees::ExecutionSubstitution::new(&empty, &empty);
+        let mut facts = Vec::new();
+
+        let retained = conditional_facts((&left, &substitution), (&right, &substitution),
+            &BTreeMap::new(), [], &BTreeSet::new(), None, &mut facts);
+
+        assert_eq!(retained.len(), 1);
+        assert_eq!(retained[0].owner, owner);
+        assert!(retained[0].clauses.contains(&(trusted.clone(), trusted.clone(), true)));
+
+        super::retain_conditional_guarantees(&mut left, &mut right, &retained);
+
+        for state in [&left, &right] {
+            assert!(state.witnesses[&owner].conditions[&trusted].witness);
+        }
     }
 
     #[test]
@@ -434,7 +593,7 @@ mod tests {
         let mut facts = Vec::new();
 
         let retained = conditional_facts((&left, &crate::execution_guarantees::ExecutionSubstitution::new(&empty, &empty)), (&right, &crate::execution_guarantees::ExecutionSubstitution::new(&empty, &empty)),
-            &BTreeMap::new(), &[], &availability, None, &mut facts);
+            &BTreeMap::new(), [], &availability, None, &mut facts);
 
         assert!(retained.is_empty());
         assert!(facts.contains(&(guard, false)));
@@ -457,7 +616,7 @@ pub(super) fn retain_conditional_guarantees(
                 .cloned().collect::<BTreeSet<_>>()
         });
 
-        for (original, condition) in clauses {
+        for (original, condition, owning) in clauses {
             let mut guarantee = crate::execution_guarantees::ExecutionGuarantee::default();
             let mut dependencies = BTreeSet::new();
 
@@ -489,6 +648,8 @@ pub(super) fn retain_conditional_guarantees(
                 }
             }
 
+            guarantee.witness |= *owning;
+
             for state in [&mut *left, &mut *right] {
                 let witness = state.witnesses.entry(owner.clone()).or_default();
 
@@ -517,6 +678,12 @@ pub(in crate::analysis::guarantee) fn owned_alternatives(
     right: (&ExecutionState, &ExecutionCondition),
     joined: &ExecutionCondition,
 ) -> bray_symbols::DependencyOwnedResult<bray_bound_tree::StorageProjection, ExecutionCondition> {
+    let layouts = [left, right].map(|(state, source)| state.owned_result(source));
+
+    if layouts.iter().all(bray_symbols::DependencyOwnedResult::is_empty) {
+        return bray_symbols::DependencyOwnedResult::default();
+    }
+
     let mut guards = BTreeSet::new();
     let mut inputs = [BTreeMap::new(), BTreeMap::new()];
     let absent = [left.0, right.0].map(absent_observations);
@@ -524,13 +691,12 @@ pub(in crate::analysis::guarantee) fn owned_alternatives(
     collect_observations(
         [Some(left.1), Some(right.1)], joined, &mut inputs, &mut guards,
         [&absent[0], &absent[1]], &ExecutionCondition::boolean(true),
+        None,
         &mut { ExecutionCondition::WORK_LIMIT },
     );
 
-    bray_symbols::DependencyOwnedResult::choice([(left, right.0), (right, left.0)].into_iter().zip(inputs).map(
-        |(((state, source), other), inputs)| {
-            let mut result = state.owned_result(source);
-
+    bray_symbols::DependencyOwnedResult::choice([(left.0, right.0), (right.0, left.0)].into_iter().zip(inputs).zip(layouts).map(
+        |(((state, other), inputs), mut result)| {
             let snapshots = SnapshotSubstitution::new(&inputs);
 
             for (condition, holds) in state.assumptions.difference(&other.assumptions) {
@@ -559,7 +725,7 @@ pub(in crate::analysis::guarantee) fn owned_alternatives(
 }
 
 fn absent_observations(state: &ExecutionState) -> BTreeMap<ExecutionCondition, std::sync::Arc<bray_symbols::ConstantValueData>> {
-    state.proofs.ordinary_proof(&state.assumptions).ordinary_facts()
+    state.ordinary_proof().ordinary_facts()
         .filter_map(|(condition, holds)| condition.nullable_absence(*holds))
         .map(|(subject, absent)| (subject.clone(), std::sync::Arc::clone(absent)))
         .collect()
@@ -572,6 +738,7 @@ fn collect_observations(
     guards: &mut BTreeSet<(ExecutionCondition, ExecutionCondition)>,
     absent: [&BTreeMap<ExecutionCondition, std::sync::Arc<bray_symbols::ConstantValueData>>; 2],
     active: &ExecutionCondition,
+    origin: Option<&ExecutionPlace>,
     budget: &mut usize,
 ) {
     if sources.iter().all(Option::is_none) { return; }
@@ -582,23 +749,32 @@ fn collect_observations(
 
     if joined == &ExecutionCondition::unknown() { return; }
 
-    if let crate::ExecutionConditionKind::Present(payload) = joined.kind() {
+    if let crate::ExecutionConditionKind::Present(_) = joined.value_inside_capture().kind() {
         for (source, inputs) in sources.into_iter().zip(inputs.iter_mut()) {
-            if let Some(source) = source { insert_snapshot(inputs, joined, source); }
+            if let Some(source) = source { insert_snapshot(inputs, joined, source, origin); }
         }
 
         let sources = sources.map(|source| source.map(|source|
             source.clone().project(bray_bound_tree::StorageProjection::NullableValue)));
 
-        collect_observations([sources[0].as_ref(), sources[1].as_ref()], payload,
-            inputs, guards, absent, active, budget);
+        let payload = joined.clone().project(bray_bound_tree::StorageProjection::NullableValue);
+
+        collect_observations([sources[0].as_ref(), sources[1].as_ref()], &payload,
+            inputs, guards, absent, active, origin, budget);
 
         return;
     }
 
-    let Some((role, owner)) = joined.ownership_identity() else { return; };
+    let Some((role, owner)) = joined.ownership_identity() else {
+        if joined.observation_kind() == Some(ObservationKind::Scalar) {
+            collect_reached_data(sources, joined, inputs, origin, budget);
+        }
+
+        return;
+    };
 
     let owner = owner.clone();
+    let observed = std::cell::OnceCell::new();
 
     for (source, inputs) in sources.into_iter().zip(inputs.iter_mut()) {
         let Some(source) = source else { continue; };
@@ -606,30 +782,40 @@ fn collect_observations(
         // A retained phi owner can still have different predecessor contents.
         // Proof inserts that existing snapshot once, without rewriting identity.
         if !matches!(owner.kind(), crate::ExecutionConditionKind::Unknown | crate::ExecutionConditionKind::Boolean(_) | crate::ExecutionConditionKind::Literal(_)) {
-            insert_snapshot(inputs, &owner, source);
+            insert_snapshot(inputs, &owner, source, origin);
         }
 
         // Proof needs the complete predecessor value as well as its identity.
         // Rebuilding an opaque value from projected fields changes its snapshot.
         if role != ObservationKind::Reference {
-            insert_snapshot(inputs, joined, source);
+            insert_snapshot(inputs, joined, source, origin);
+
+            if source.ownership_identity().is_some_and(|(role, _)| role == ObservationKind::Owned) {
+                let observed = observed.get_or_init(|| joined.clone().borrowed().predicate_observation());
+
+                if !observed.contains_unknown() {
+                    let previous = source.clone().borrowed().predicate_observation();
+
+                    insert_snapshot(inputs, observed, &previous, origin);
+                }
+            }
         }
     }
 
     if role == ObservationKind::Reference {
-        let sources = sources.map(|source| source.map(|source| source.clone().into_referent()));
-
-        collect_reference_data([sources[0].as_ref(), sources[1].as_ref()], &joined.clone().into_referent(), inputs, budget);
+        collect_reached_data(sources, joined, inputs, origin, budget);
         return;
     }
 
-    if let crate::ExecutionConditionKind::Observation { contents, kind: ObservationKind::Owned, .. } = joined.kind()
+    if let crate::ExecutionConditionKind::Observation { contents, kind: ObservationKind::Owned, .. } = joined.value_inside_capture().kind()
         && !matches!(contents.kind(), crate::ExecutionConditionKind::Unknown | crate::ExecutionConditionKind::Literal(_) | crate::ExecutionConditionKind::Boolean(_))
     {
         // Current contents need no independent owner. Keep this actual carrier
         // while matching its data against the corresponding predecessor data.
         for (source, inputs) in sources.into_iter().zip(inputs.iter_mut()) {
-            if let Some(source) = source { insert_snapshot(inputs, contents, source.computed_value()); }
+            if let Some(source) = source {
+                insert_reached_snapshot(inputs, contents, source.computed_value(), false, origin);
+            }
         }
     }
 
@@ -684,18 +870,40 @@ fn collect_observations(
         }
 
         let values = sources.map(|source| source.map(|source| source.clone().project(field)));
+        let selected = joined.clone().project(field);
+
+        if let [Some(left), Some(right)] = values.each_ref().map(Option::as_ref)
+            && let (crate::ExecutionConditionKind::Boolean(left), crate::ExecutionConditionKind::Boolean(right)) =
+                (left.computed_value().kind(), right.computed_value().kind())
+            && left != right
+            && !selected.computed_value().contains_unknown()
+        {
+            let predicate = selected.computed_value().clone();
+            let guard = ExecutionCondition::operation(BoundOperator::LogicalAnd, vec![active.clone(), predicate.clone()]);
+
+            insert_guard(guards, &owner, guard);
+
+            if !matches!(active.kind(), crate::ExecutionConditionKind::Boolean(true)) {
+                let opposite = ExecutionCondition::operation(BoundOperator::LogicalNot, vec![predicate]);
+
+                insert_guard(guards, &owner, ExecutionCondition::operation(
+                    BoundOperator::LogicalAnd, vec![active.clone(), opposite],
+                ));
+            }
+        }
 
         collect_observations(
-            [values[0].as_ref(), values[1].as_ref()], &joined.clone().project(field), inputs, guards, absent,
-            &active, budget,
+            [values[0].as_ref(), values[1].as_ref()], &selected, inputs, guards, absent,
+            &active, origin, budget,
         );
     }
 }
 
-fn collect_reference_data(
+fn collect_reached_data(
     sources: [Option<&ExecutionCondition>; 2],
     joined: &ExecutionCondition,
     inputs: &mut [BTreeMap<ExecutionCondition, ExecutionCondition>; 2],
+    origin: Option<&ExecutionPlace>,
     budget: &mut usize,
 ) {
     if sources.iter().all(Option::is_none) { return; }
@@ -704,15 +912,8 @@ fn collect_reference_data(
 
     *budget = remaining;
 
-    if let crate::ExecutionConditionKind::Observation { contents, kind: ObservationKind::Owned, .. } = joined.kind() {
-        let sources = sources.map(|source| source.map(|source| match source.kind() {
-            crate::ExecutionConditionKind::Observation { contents, kind: ObservationKind::Owned, .. } => contents.as_ref(),
-            _ => source,
-        }));
-
-        collect_reference_data(sources, contents, inputs, budget);
-        return;
-    }
+    let joined = joined.computed_value();
+    let sources = sources.map(|source| source.map(ExecutionCondition::computed_value));
 
     if matches!(joined.kind(), crate::ExecutionConditionKind::Unknown | crate::ExecutionConditionKind::Literal(_) | crate::ExecutionConditionKind::Boolean(_)) {
         return;
@@ -723,41 +924,68 @@ fn collect_reference_data(
     for (source, inputs) in sources.into_iter().zip(inputs.iter_mut()) {
         let Some(source) = source else { continue; };
 
-        insert_snapshot(inputs, joined, source);
-
-        // Unlisted components project through this existing contents identity.
-        // Resolve them from the same actual predecessor as the complete snapshot.
-        if let crate::ExecutionConditionKind::Constructed(base, _) = joined.kind()
-            && base.ownership_identity().is_some()
-        {
-            insert_snapshot(inputs, base, source);
-        }
+        insert_reached_snapshot(inputs, joined, source, true, origin);
     }
 
     if let crate::ExecutionConditionKind::Constructed(_, fields) = joined.kind() {
         for (field, value) in fields.iter() {
             let sources = sources.map(|source| source.map(|source| source.clone().project(*field)));
 
-            collect_reference_data([sources[0].as_ref(), sources[1].as_ref()], value, inputs, budget);
+            collect_reached_data([sources[0].as_ref(), sources[1].as_ref()], value, inputs, origin, budget);
         }
+    }
+}
+
+fn insert_reached_snapshot(
+    inputs: &mut BTreeMap<ExecutionCondition, ExecutionCondition>,
+    joined: &ExecutionCondition,
+    source: &ExecutionCondition,
+    include_owner_base: bool,
+    origin: Option<&ExecutionPlace>,
+) {
+    insert_snapshot(inputs, joined, source, origin);
+
+    // An unlisted component projects through the constructed value's base.
+    // A joined base is a data identity, so only the actual predecessor snapshot
+    // can answer that projection. This map grants no ownership on its own.
+    if let crate::ExecutionConditionKind::Constructed(base, _) = joined.kind()
+        && (include_owner_base && base.ownership_identity().is_some()
+            || matches!(base.kind(), crate::ExecutionConditionKind::Joined(..)))
+    {
+        insert_snapshot(inputs, base, source, origin);
     }
 }
 
 fn insert_snapshot(
     inputs: &mut BTreeMap<ExecutionCondition, ExecutionCondition>,
     joined: &ExecutionCondition, source: &ExecutionCondition,
+    origin: Option<&ExecutionPlace>,
 ) {
-    // An unchanged child shields its actual snapshot from ancestor substitution.
+    // A stored join is read from its own place. Aliases can retain older captures
+    // of that place and cannot replace its predecessor snapshot.
+    if let Some(origin) = origin
+        && let Some((root, _)) = joined.observation_path()
+        && let crate::ExecutionConditionKind::Joined(_, place) = root.kind()
+        && !origin.contains(place) && !place.contains(origin)
+    {
+        return;
+    }
+
+    // Predicates already observe the logical value. Physical capture coordinates
+    // belong to storage transport and cannot make two proof operands disagree.
+    let joined = joined.without_captured_storage();
+    let source = source.without_captured_storage();
+
     inputs.entry(joined.clone()).and_modify(|previous| {
-        if previous == source { return; }
+        if *previous == source { return; }
 
         // An identity pin contributes no competing contents for the same owner.
-        if previous == joined && source.has_same_owner(joined) {
+        if *previous == joined && source.has_same_owner(&joined) {
             *previous = source.clone();
-        } else if source != joined || !previous.has_same_owner(joined) {
+        } else if source != joined || !previous.has_same_owner(&joined) {
             *previous = ExecutionCondition::unknown();
         }
-    }).or_insert_with(|| source.clone());
+    }).or_insert(source);
 }
 
 fn insert_guard(

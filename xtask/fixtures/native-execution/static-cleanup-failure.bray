@@ -1,4 +1,4 @@
-module static_cleanup_failure;
+trusted module static_cleanup_failure;
 
 using core.target;
 
@@ -44,7 +44,7 @@ struct BorrowedFailure
     {
         if self.value != 73
         {
-            trusted core.target.abort();
+            core.target.abort();
         }
     }
 }

@@ -2,15 +2,12 @@ use bray_binder::{BindingQueryContext, semantic_unit_context};
 use bray_bound_tree::{
     BoundStructuredExpression, BoundUnit, CheckedExpressionTypes, SelectedScopedUse,
 };
-use bray_compiler_known::RepresentationRole;
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticKind, DiagnosticLabel,
     DiagnosticLabelKind, DiagnosticSelectionKind, SeverityKind,
 };
 use bray_source::SourceSpan;
-use bray_symbols::{
-    GenericArgument, NamedTypeSymbolId, TypeAssociatedLifecycleSlot, TypeData, TypeId,
-};
+use bray_symbols::{TypeAssociatedLifecycleSlot, TypeData, TypeId};
 
 use super::super::{Compilation, binder::CompilationBindingContext};
 use super::model::{OperationSubject, SemanticResolution};
@@ -66,7 +63,12 @@ impl Compilation {
             return Ok(None);
         };
 
-        let (capability, enter_failure) = self.scoped_result_types(enter.1.result())?;
+        let values = self.semantic_value_store()?;
+        let symbols = self.available_compiler_known_symbols();
+        let enter_type = enter.1.result();
+
+        let (capability, enter_failure) = symbols.result_payloads(values, enter_type)
+            .map_or((enter_type, None), |([success, error], _)| (success, Some(error)));
 
         let exit = self.selected_lifecycle_signature(
             subject,
@@ -105,7 +107,8 @@ impl Compilation {
             return Ok(None);
         }
 
-        let (_, exit_failure) = self.scoped_result_types(exit.1.result())?;
+        let exit_failure = symbols.result_payloads(values, exit.1.result())
+            .map(|([_, error], _)| error);
 
         if let (Some(enter), Some(exit)) = (enter_failure, exit_failure)
             && enter != exit
@@ -120,7 +123,6 @@ impl Compilation {
         let context = self.checker_context_for(unit.key(), cancellation)?;
         let semantic_context = semantic_unit_context(binding_context.symbols(), unit);
         let request = bray_checker::CheckerUnitView::new(unit, &semantic_context, &context);
-        let values = self.semantic_value_store()?;
 
         let invocation_result = |signature: &bray_symbols::CallableSignature| {
             let data = values.type_data(signature.callable_type());
@@ -188,52 +190,6 @@ impl Compilation {
         Ok(())
     }
 
-    fn scoped_result_types(
-        &self,
-        result: TypeId,
-    ) -> Result<(TypeId, Option<TypeId>), FactQueryError> {
-        let values = self.semantic_value_store()?;
-        let data = values.type_data(result);
-
-        let TypeData::Named {
-            definition,
-            substitution,
-        } = data.as_ref()
-        else {
-            return Ok((result, None));
-        };
-
-        let available = self.available_compiler_known_symbols();
-
-        let role = match definition {
-            NamedTypeSymbolId::Struct(symbol) => available.symbol_representation(*symbol),
-            NamedTypeSymbolId::Union(symbol) => available.symbol_representation(*symbol),
-        };
-
-        if role != Some(RepresentationRole::Result) {
-            return Ok((result, None));
-        }
-
-        let substitution = values.generic_substitution_data(*substitution);
-
-        let [success, error] = substitution.bindings() else {
-            panic!(
-                "selected scope enter Result type {result:?} retains its success and error arguments"
-            );
-        };
-
-        let GenericArgument::Type(success) = success.argument() else {
-            panic!(
-                "selected scope enter Result type {result:?} retains a type-valued success argument"
-            );
-        };
-
-        let GenericArgument::Type(error) = error.argument() else {
-            panic!("selected scoped Result type {result:?} retains a type-valued error argument");
-        };
-
-        Ok((success, Some(error)))
-    }
 }
 
 fn scoped_selection_diagnostic(

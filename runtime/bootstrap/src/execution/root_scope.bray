@@ -126,8 +126,9 @@ trusted internal func nested_context(
     };
 
     value.lanes = active.lanes;
-    value.worker = active.worker;
+    value.worker_attached = active.worker_attached;
     value.binding = core.memory.uninit_from<(Binding?)>(trusted pin_binding(trusted pin(bound_execution(parent))));
+
     return value;
 }
 
@@ -248,6 +249,7 @@ trusted internal func resume_operation() -> BindingResume
         executes(pure, total) {};
 
     trusted authorize(pointer);
+
     return trusted std.memory.callable_from_pointer<BindingResume>(pointer);
 }
 
@@ -257,15 +259,17 @@ trusted internal func resume_binding(pos pointer: DataPointer<Context>)
     uses(intrinsic)
 {
     let selected = trusted binding_driver(pointer);
-    let owner = bound_execution(&selected);
     let registration = core.atomic.load<u64, 0>(&(trusted context(&selected)).registration);
 
     loop
     {
-        match trusted bray.runtime.bootstrap.scheduler.acquire_slot(trusted scheduler_reference(owner), registration)
+        match trusted bray.runtime.bootstrap.scheduler.acquire_slot(
+            trusted scheduler_reference(bound_execution(&selected)),
+            registration
+        )
         {
             case 1 { return; }
-            case 0 { trusted wait_ready(&selected, owner); }
+            case 0 { trusted wait_ready(&selected, bound_execution(&selected)); }
             case _ { trusted core.target.abort(); }
         }
     }

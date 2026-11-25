@@ -318,6 +318,7 @@ mod tests {
 
         let call = bray_bound_tree::SelectedCall::new(
             resolution,
+            callable_type,
             bray_symbols::CallableConstness::Runtime,
             CallableAbi::Bray,
             empty_callable_phase_behaviors(),
@@ -348,7 +349,6 @@ mod tests {
                 bray_bound_tree::AsyncSuspensionKind::Await {
                     operand: expressions[1],
                 },
-                None,
                 [BodyBehaviorCall::new(
                     BoundCallableTarget::Indirect(callable_type),
                     BodyBehaviorPhase::DeferredExecution,
@@ -357,7 +357,6 @@ mod tests {
                 [],
                 false,
             )],
-            [],
             [],
             [],
             [],

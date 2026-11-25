@@ -18,6 +18,39 @@ pub(crate) enum ExecutionCleanupMode {
     Admission,
 }
 
+pub(crate) fn lifecycle_execution_dependency<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
+    (callable, result, execution): (bray_symbols::CallableInstanceData, TypeId, CallableExecution),
+    slot: TypeAssociatedLifecycleSlot,
+    mode: ExecutionCleanupMode,
+    property: ExecutionProperty,
+    node: AnyBoundNodeId,
+) -> Option<Vec<ExecutionDependency>> {
+    let required = match mode {
+        ExecutionCleanupMode::Admission => ExecutionProperty::Total,
+        ExecutionCleanupMode::Disposal => property,
+    };
+
+    let synchronous = execution == CallableExecution::Synchronous
+        && crate::representation::type_representation(request, result) == Some(RepresentationRole::Unit);
+
+    synchronous.then(|| {
+        let dependency = |property| ExecutionDependency {
+            target: BoundCallableTarget::Declaration(callable).into(),
+            obligation: crate::ExecutionObligation::Property(property, None),
+            occurrence: node.into(),
+        };
+
+        let mut dependencies = vec![dependency(required)];
+
+        if slot == TypeAssociatedLifecycleSlot::Finalizer && required == ExecutionProperty::Pure {
+            dependencies.push(dependency(ExecutionProperty::Total));
+        }
+
+        dependencies
+    })
+}
+
 pub(crate) fn execution_cleanup_dependencies<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     ty: TypeId,
@@ -123,32 +156,16 @@ pub(crate) fn execution_cleanup_dependencies<C: CheckerRequestContext + ?Sized>(
                                     continue;
                                 };
 
-                                let unit = crate::representation::type_representation(
-                                    request,
-                                    signature.result(),
-                                ) == Some(RepresentationRole::Unit);
+                                let dependency = lifecycle_execution_dependency(
+                                    request, (*callable, signature.result(), callable_type.execution()), slot,
+                                    mode, property, node,
+                                );
 
-                                if mode == ExecutionCleanupMode::Disposal
-                                    && slot == TypeAssociatedLifecycleSlot::Finalizer
-                                {
-                                    valid &= property == ExecutionProperty::Total;
+                                if let Some(dependency) = dependency {
+                                    dependencies.extend(dependency);
+                                } else {
+                                    valid = false;
                                 }
-
-                                valid &= unit
-                                    && callable_type.execution() == CallableExecution::Synchronous;
-
-                                dependencies.push(ExecutionDependency {
-                                    target: (BoundCallableTarget::Declaration(*callable)).into(),
-                                    obligation: crate::ExecutionObligation::Property(
-                                        if mode == ExecutionCleanupMode::Admission {
-                                            ExecutionProperty::Total
-                                        } else {
-                                            property
-                                        },
-                                        None,
-                                    ),
-                                    occurrence: node.into(),
-                                });
                             }
                         }
 

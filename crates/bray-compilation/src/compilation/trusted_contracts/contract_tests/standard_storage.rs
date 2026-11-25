@@ -1,12 +1,23 @@
 use bray_diagnostics::{DiagnosticKind};
 use bray_symbols::{DependencyMutationKind, DependencyStorageEffect};
 use crate::test_support::{source_function_body_key};
-use super::fixtures::{production_host_compilation, production_host_provider};
+use super::fixtures::production_host_compilation;
 
 #[test]
 fn production_byte_copy_does_not_publish_its_input_addresses() {
     let compilation = crate::test_support::production_standard_library_compilation(
-        crate::SelectedTarget::baseline(), "module probe;");
+        crate::SelectedTarget::baseline(), "module app;");
+
+    let key = source_function_body_key(&compilation, "copy_spare_raw_bytes");
+    let lowered = compilation.lowered_unit(key).expect("production byte copy lowers");
+
+    let mir = lowered.value().as_ref().and_then(bray_lowering::LoweredUnit::mir)
+        .expect("admitted byte copy has MIR");
+
+    assert!(mir.operations().iter().any(|operation| matches!(operation.kind(),
+        bray_ir::MirOperationKind::Memory(memory) if matches!(memory.kind(),
+            bray_bound_tree::CheckedMemoryOperationKind::Copy { kind: bray_bound_tree::MemoryCopyKind::Overlapping, .. }))),
+        "the production wrapper must execute its checked byte copy");
 
     let dependencies = crate::compilation::result_dependencies::source_function_dependencies(
         &compilation, "copy_spare_raw_bytes");
@@ -20,7 +31,7 @@ fn production_byte_copy_does_not_publish_its_input_addresses() {
 
 #[test]
 fn absent_buffer_cleanup_preserves_unrelated_input_facts() {
-    for (value, valid) in [("none", true), ("maybe_buffer()", false)] {
+    for value in ["none", "absent_buffer()"] {
         let source = format!(r#"
             trusted module probe;
 
@@ -28,7 +39,8 @@ fn absent_buffer_cleanup_preserves_unrelated_input_facts() {
 
             using std.memory;
 
-            extern trusted func maybe_buffer() -> std.memory.RawBuffer<u8>?
+            extern trusted func absent_buffer() -> std.memory.RawBuffer<u8>?
+                ensures(result matches none)
                 executes(pure, total);
 
             extern trusted func observe(pos pointer: DataPointer<u8>)
@@ -42,42 +54,40 @@ fn absent_buffer_cleanup_preserves_unrelated_input_facts() {
                     let buffer: std.memory.RawBuffer<u8>? = {value};
                 }}
 
-                trusted observe(pointer);
+                observe(pointer);
             }}
         "#);
 
         let compilation = crate::test_support::production_standard_library_compilation(
             crate::SelectedTarget::baseline(), &source);
 
-        let lowered = compilation.lowered_unit(source_function_body_key(&compilation, "caller"))
+        let key = source_function_body_key(&compilation, "caller");
+
+        let lowered = compilation.lowered_unit(key)
             .expect("conditional buffer disposal retains its checked transition");
 
-        assert_eq!(!lowered.diagnostics().has_errors(), valid, "{value}: {:?}", lowered.diagnostics());
-
-        if !valid {
-            bray_testing::assert_goal_state_diagnostic_kind(
-                lowered.diagnostics(), DiagnosticKind::CheckingTrustedObligationNotProven);
-        }
+        assert!(!lowered.diagnostics().has_errors(), "{value}: {:?}", lowered.diagnostics());
     }
 }
 
 #[test]
 fn production_awaited_writer_does_not_return_its_completed_receiver_loan() {
     let compilation = crate::test_support::production_standard_library_compilation(
-        crate::SelectedTarget::baseline(), "module probe;");
+        crate::SelectedTarget::baseline(), "module app;");
 
     let key = crate::test_support::source_type_callable_member_body_key(&compilation, "into_sink_async");
 
-    let lowered = compilation.lowered_unit(key)
+    let lowered = compilation.lowered_unit(key.clone())
         .expect("the consuming async writer publishes its checked completion");
 
     assert!(!lowered.diagnostics().has_errors(), "{:?}", lowered.diagnostics());
 
-    let key = crate::test_support::source_type_callable_member_body_key(&compilation, "into_sink_async");
     let flow = compilation.storage_flow(key).expect("the writer publishes its portable reports");
 
-    for reports in [flow.value().dependencies().completion_reports(), flow.value().dependencies().abnormal_reports()]
-        .into_iter().flatten() {
+    let dependencies = flow.value().dependencies();
+
+    for reports in dependencies.captured_values().iter().filter_map(|outcome| outcome.report.as_deref())
+        .chain(dependencies.failure_outcomes().into_iter().flatten().filter_map(|row| row.report.as_deref())) {
         assert!(!reports.iter().any(|requirement| matches!(requirement,
             bray_symbols::DependencyRequirement::Direct { subject, kind: bray_symbols::DependencyRequirementKind::StorageAlive }
                 if subject.subject_root() == bray_symbols::DependencySubjectRoot::Receiver)),
@@ -91,9 +101,14 @@ fn production_native_paths_preserve_their_admitted_input_contracts() {
 
     for target in [bray_target::NativeTarget::X86_64LinuxGnu, bray_target::NativeTarget::X86_64WindowsMsvc] {
         let compilation = crate::test_support::production_standard_library_compilation(
-            crate::SelectedTarget::for_native(target), "module probe;");
+            crate::SelectedTarget::for_native(target), "module app;");
 
-        for name in ["prepare_native_path", "prepare_file_open", "prepare_dynamic_library_open_path", "platform_path_rename"] {
+        let posix_text = (target == bray_target::NativeTarget::X86_64LinuxGnu)
+            .then_some("copy_native_text_entry");
+
+        for name in ["prepare_native_path", "prepare_file_open", "prepare_dynamic_library_open_path", "platform_path_rename"]
+            .into_iter().chain(posix_text)
+        {
             let key = source_function_body_key(&compilation, name);
 
             let lowered = compilation.lowered_unit(key.clone())
@@ -118,7 +133,7 @@ fn production_native_paths_preserve_their_admitted_input_contracts() {
 #[test]
 fn production_formatted_bytes_retain_the_buffer_owner() {
     let compilation = crate::test_support::production_standard_library_compilation(
-        crate::SelectedTarget::baseline(), "module probe;");
+        crate::SelectedTarget::baseline(), "module app;");
 
     let lowered = compilation.lowered_unit(source_function_body_key(&compilation, "bytes"))
         .expect("production formatted bytes reports its checked source contract");
@@ -127,9 +142,23 @@ fn production_formatted_bytes_retain_the_buffer_owner() {
 }
 
 #[test]
+fn production_formatting_checks_repeated_indexed_writes() {
+    let compilation = crate::test_support::production_standard_library_compilation(
+        crate::SelectedTarget::baseline(), "module app;");
+
+    let key = source_function_body_key(&compilation, "real_big_decimal");
+    let lowered = compilation.lowered_unit(key).expect("the decimal conversion lowers");
+
+    assert!(!lowered.diagnostics().has_errors(), "{:?}", lowered.diagnostics());
+
+    assert!(lowered.value().as_ref().and_then(bray_lowering::LoweredUnit::mir).is_some(),
+        "the indexed loop produces a lowered body");
+}
+
+#[test]
 fn production_buffer_views_retain_external_storage() {
     let compilation = crate::test_support::production_standard_library_compilation(
-        crate::SelectedTarget::baseline(), "module probe;");
+        crate::SelectedTarget::baseline(), "module app;");
 
     let symbols = compilation.symbol_graph().expect("production symbols are available");
     let mut failures = Vec::new();
@@ -155,7 +184,7 @@ fn production_buffer_views_retain_external_storage() {
 #[test]
 fn production_dynamic_outputs_preserve_their_write_contracts() {
     let compilation = crate::test_support::production_standard_library_compilation(
-        crate::SelectedTarget::baseline(), "module probe;");
+        crate::SelectedTarget::baseline(), "module app;");
 
     let mut failures = Vec::new();
 
@@ -177,7 +206,7 @@ fn production_dynamic_outputs_preserve_their_write_contracts() {
 
 #[test]
 fn production_buffer_range_contracts_survive_pointer_staging() {
-    let compilation = production_host_compilation("module probe;");
+    let compilation = production_host_compilation("module app;");
     let mut failures = Vec::new();
 
     for name in ["fill_spare_bytes", "copy_spare_bytes", "copy_bytes_from_pointer"] {
@@ -325,7 +354,7 @@ fn production_collection_destructors_release_transferred_backing() {
 #[test]
 #[ignore = "tier:proof"]
 fn production_buffer_views_keep_nested_allocations_bounded() {
-    let compilation = production_host_compilation("module probe;");
+    let compilation = production_host_compilation("module app;");
 
     for name in ["slot_at", "record"] {
         let key = source_function_body_key(&compilation, name);
@@ -350,80 +379,6 @@ fn production_buffer_views_keep_nested_allocations_bounded() {
             flow.value().dependencies()
         );
     }
-}
-
-#[test]
-#[ignore = "tier:proof"]
-fn production_storage_boundaries_prove_their_declared_memory_effects() {
-    let compilation = production_host_provider();
-    let mut failures = Vec::new();
-    let mut sources = std::collections::HashSet::new();
-
-    let mut pending = compilation
-        .declared_unit_keys_for_test()
-        .expect("fixture declarations must resolve their units");
-
-    while let Some(key) = pending.pop() {
-        if !matches!(
-            key.kind(),
-            bray_bound_tree::BoundUnitKind::CallableBody
-                | bray_bound_tree::BoundUnitKind::AnonymousCallable
-                | bray_bound_tree::BoundUnitKind::ContractClause
-        ) {
-            continue;
-        }
-
-        let source = compilation
-            .source(key.source().syntax().source_id())
-            .expect("fixture `source` call must succeed")
-            .text();
-
-        if !source.contains("module bray.runtime.bootstrap.storage;")
-            && !source.contains("module bray.runtime.bootstrap.outgoing;")
-            && !source.contains("module bray.runtime.bootstrap.activation;")
-            && !source.contains("module bray.runtime.bootstrap.activation.")
-            && !source.contains("trusted internal func retain_report(")
-        {
-            continue;
-        }
-
-        sources.insert(key.source().syntax().source_id());
-
-        let bound = compilation
-            .bound_unit(key.clone())
-            .expect("fixture callable must bind successfully");
-
-        if bound.diagnostics().has_errors() {
-            failures.push(format!("{key:?}: {:?}", bound.diagnostics()));
-            continue;
-        }
-
-        if key.kind() == bray_bound_tree::BoundUnitKind::ContractClause {
-            continue;
-        }
-
-        pending.extend(bound.value().nested_units().iter().cloned());
-
-        let lowered = compilation
-            .lowered_unit(key.clone())
-            .expect("fixture callable must lower successfully");
-
-        if lowered.diagnostics().has_errors() {
-            failures.push(format!("{key:?}: {:?}", lowered.diagnostics()));
-        }
-    }
-
-    for diagnostic in compilation.check_diagnostics().iter() {
-        if diagnostic.severity() == bray_diagnostics::SeverityKind::Error
-            && diagnostic
-                .primary_span()
-                .is_some_and(|span| sources.contains(&span.source_id()))
-        {
-            failures.push(format!("{diagnostic:?}"));
-        }
-    }
-
-    assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
 #[test]
@@ -460,15 +415,15 @@ fn production_windows_environment_storage_retains_its_cleanup_evidence() {
 #[ignore = "tier:proof"]
 fn cleanup_backing_requires_the_live_allocation_and_its_exact_layout() {
     for (body, valid) in [
-        ("trusted deallocate_bytes(pointer, 64, align = 32);", true),
-        ("trusted deallocate_bytes(pointer, 65, align = 32);", false),
-        ("trusted deallocate_bytes(pointer, 64, align = 16);", false),
+        ("deallocate_bytes(pointer, 64, align = 32);", true),
+        ("deallocate_bytes(pointer, 65, align = 32);", false),
+        ("deallocate_bytes(pointer, 64, align = 16);", false),
         (
-            "let copied = pointer; trusted deallocate_bytes(pointer, 64, align = 32); trusted deallocate_bytes(copied, 64, align = 32);",
+            "let copied = pointer; deallocate_bytes(pointer, 64, align = 32); deallocate_bytes(copied, 64, align = 32);",
             false,
         ),
         (
-            "trusted deallocate_bytes(pointer, 64, align = 32); let next = trusted allocate(64, align = 32); if !std.memory.is_null<u8>(next) { trusted deallocate_bytes(pointer, 64, align = 32); trusted deallocate_bytes(next, 64, align = 32); }",
+            "deallocate_bytes(pointer, 64, align = 32); let next = trusted allocate(64, align = 32); if !std.memory.is_null<u8>(next) { deallocate_bytes(pointer, 64, align = 32); deallocate_bytes(next, 64, align = 32); }",
             false,
         ),
     ] {

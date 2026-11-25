@@ -139,7 +139,7 @@ fn composition_requires_the_exact_parent_token_continuation_and_origin() {
                     ),
                 )
             {{
-                return trusted bray.runtime.bootstrap.activation.composition.compose(parent, token, state, origin, destination, {abandoning}, ready);
+                return bray.runtime.bootstrap.activation.composition.compose(parent, token, state, origin, destination, {abandoning}, ready);
             }}
         "#
         );

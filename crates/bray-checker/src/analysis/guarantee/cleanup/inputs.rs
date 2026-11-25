@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::TypeId;
 
-use super::plan::{Plan, has_source_lifecycle};
+use super::plan::Plan;
 use crate::{CheckerQueryError, CheckerRequestContext, CheckerUnitView};
 
 impl Plan {
@@ -11,39 +11,36 @@ impl Plan {
         &mut self,
         cleanup_shapes: &mut crate::asynchronous::CleanupShapeResolver<'_, C>,
         request: CheckerUnitView<'_, C>,
-        selections: &bray_bound_tree::CheckedSemanticSelections,
+        expressions: &bray_bound_tree::CheckedExpressionSemantics,
+        graph: &crate::analysis::ControlFlowGraph,
     ) -> Result<(), CheckerQueryError<C::UpstreamError>> {
-        for entry in selections.entries() {
-            let bray_bound_tree::SemanticSelection::ScopedUse(scoped) = entry.selection() else {
+        let symbols = request.available_compiler_known_symbols();
+        let values = request.semantic_values();
+
+        for (&scope, &expression) in graph.scoped_uses() {
+            let Some(bray_bound_tree::SemanticSelection::ScopedUse(scoped)) = expressions.selections().expression(expression) else {
+                unreachable!("planned scoped use retains its checked selection");
+            };
+
+            let Some(([_, error], _)) = symbols.result_payloads(values, scoped.exit_result().completion_type()) else {
                 continue;
             };
 
-            if crate::representation::type_representation(request, scoped.exit().1.result())
-                != Some(bray_compiler_known::RepresentationRole::Result)
-            {
+            let body_suspends = match expressions.types().expression(expression) {
+                Some(ty) if !ty.is_recovered() => {
+                    let ([body, _], _) = symbols.result_payloads(values, ty.ty())
+                        .expect("a scope with a fallible exit retains its checked Result");
+
+                    cleanup_shapes.requires_suspension(body)?
+                }
+                _ => false,
+            };
+
+            if !body_suspends && !cleanup_shapes.quiescence_requires_suspension(error)? {
                 continue;
             }
 
-            let Some(error) = scoped.failure_type() else {
-                continue;
-            };
-
-            if !cleanup_shapes.quiescence_requires_suspension(error)? {
-                continue;
-            }
-
-            let Some(bray_bound_tree::BoundExpression::Structured(expression)) =
-                request.view().expression(scoped.expression())
-            else {
-                panic!("checked scoped use retains its structured expression");
-            };
-
-            let [body] = expression.blocks() else {
-                panic!("checked scoped use retains its sole body");
-            };
-
-            self.scoped_error_quiescence
-                .insert((*body).into(), scoped.expression());
+            self.scoped_quiescence.insert(scope, expression);
         }
 
         Ok(())
@@ -133,52 +130,7 @@ impl Plan {
 
         let mut selected = BTreeMap::<_, BTreeSet<_>>::new();
 
-        let mut generator_occurrences = None;
-
         for (expression, node) in unit.tree().expressions() {
-            if let Some(calls) =
-                generator_result(expression, node, types).and_then(|ty| cleanup.get(&ty))
-            {
-                let occurrences = generator_occurrences.get_or_insert_with(|| {
-                    graph
-                        .operations()
-                        .iter()
-                        .filter_map(|operation| match operation.kind() {
-                            crate::analysis::AnalysisOperationKind::Bound(
-                                bray_bound_tree::AnyBoundNodeId::Expression(expression),
-                            ) => Some(expression),
-                            crate::analysis::AnalysisOperationKind::Call { invocation, .. } => {
-                                invocation.expression()
-                            }
-                            _ => None,
-                        })
-                        .collect::<BTreeSet<_>>()
-                });
-
-                // The initialized prefix remains an owned construction input throughout
-                // production, including a staged yield's allocation-failure boundary.
-                let walked = bray_bound_tree::walk_bound_tree(unit.tree(), expression, |event| {
-                    if let bray_bound_tree::BoundWalkEvent::Enter(
-                        bray_bound_tree::AnyBoundNodeId::Expression(input),
-                    ) = event
-                        && occurrences.contains(&input)
-                    {
-                        selected
-                            .entry(input)
-                            .or_default()
-                            .extend(calls.iter().cloned());
-                    }
-
-                    bray_bound_tree::BoundWalkControl::Continue
-                });
-
-                assert_eq!(
-                    walked,
-                    bray_bound_tree::BoundWalkOutcome::Completed,
-                    "pending generator cleanup retains its complete production subtree"
-                );
-            }
-
             if !matches!(
                 node,
                 bray_bound_tree::BoundExpression::Call(_)
@@ -256,14 +208,12 @@ pub(super) fn parts<C: CheckerRequestContext + ?Sized>(
     let mut inputs = BTreeMap::new();
 
     for (id, expression) in request.unit().tree().expressions() {
-        let generator = generator_result(id, expression, expressions.types());
-
         if !matches!(
             expression,
             bray_bound_tree::BoundExpression::Call(_)
                 | bray_bound_tree::BoundExpression::StructConstruction(_)
                 | bray_bound_tree::BoundExpression::BoxConstruction(_)
-        ) && generator.is_none()
+        )
         {
             continue;
         }
@@ -285,9 +235,7 @@ pub(super) fn parts<C: CheckerRequestContext + ?Sized>(
             released_buffer_type(expressions.selections(), id, request.semantic_values())
                 .map(|ty| (ty, expression.origin().source_anchor()));
 
-        let generator = generator.map(|ty| (ty, expression.origin().source_anchor()));
-
-        for (ty, source) in arguments.chain(released).chain(generator) {
+        for (ty, source) in arguments.chain(released) {
             if inputs.contains_key(&ty) {
                 continue;
             }
@@ -299,7 +247,7 @@ pub(super) fn parts<C: CheckerRequestContext + ?Sized>(
             diagnostics.add_range(additional);
 
             for (part, projection) in &parts {
-                if has_source_lifecycle(cleanup_shapes, request, *part, projection.as_ref())? {
+                if cleanup_shapes.has_source_lifecycle(*part, projection.as_ref())? {
                     lifecycles.insert(*part);
                 }
             }
@@ -309,28 +257,6 @@ pub(super) fn parts<C: CheckerRequestContext + ?Sized>(
     }
 
     Ok(inputs)
-}
-
-fn generator_result(
-    id: bray_bound_tree::BoundExpressionId,
-    expression: &bray_bound_tree::BoundExpression,
-    types: &bray_bound_tree::CheckedExpressionTypes,
-) -> Option<TypeId> {
-    let bray_bound_tree::BoundExpression::Structured(expression) = expression else {
-        return None;
-    };
-
-    matches!(
-        expression.kind(),
-        bray_bound_tree::BoundStructuredExpressionKind::ArrayGenerator
-            | bray_bound_tree::BoundStructuredExpressionKind::GeneralGenerator
-    )
-    .then(|| {
-        types
-            .expression(id)
-            .expect("checked generator retains its result type")
-            .ty()
-    })
 }
 
 fn released_buffer_type(

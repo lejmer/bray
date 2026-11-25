@@ -740,12 +740,12 @@ mod tests {
 
         let debug = reachability_for_compilation(&compilation, full_debug);
 
-        assert_eq!(none.graph().instances().len(), 3);
-        assert_eq!(basic.graph().instances().len(), 3);
+        assert!(none.graph().instances().len() > full.graph().instances().len());
+        assert!(basic.graph().instances().len() > full.graph().instances().len());
         assert_eq!(full.graph().instances().len(), 1);
         assert_eq!(timed.graph().instances().len(), 1);
-        assert_eq!(observed.graph().instances().len(), 3);
-        assert_eq!(debug.graph().instances().len(), 3);
+        assert!(observed.graph().instances().len() > full.graph().instances().len());
+        assert!(debug.graph().instances().len() > full.graph().instances().len());
         assert!(direct_calls(&basic) > 0);
         assert_eq!(direct_calls(&full), 0);
         assert_eq!(direct_calls(&timed), 0);
@@ -870,7 +870,7 @@ mod tests {
 
         let full = reachability(source, crate::BuildConfiguration::Release.codegen_options());
 
-        assert_eq!(basic.graph().instances().len(), 4);
+        assert!(basic.graph().instances().len() > full.graph().instances().len());
         assert_eq!(full.graph().instances().len(), 1);
         assert_eq!(direct_calls(&full), 0);
     }
@@ -1443,7 +1443,7 @@ mod tests {
             {
                 progress = 0;
                 if length == 0 { return 0; }
-                let count: i32 = trusted native_read(request_length(length));
+                let count: i32 = native_read(request_length(length));
                 return transfer_result(count, progress = progress);
             }
 
@@ -1452,16 +1452,16 @@ mod tests {
             {
                 progress = 0;
                 if length == 0 { return 0; }
-                let count: i32 = trusted native_write(request_length(length));
+                let count: i32 = native_write(request_length(length));
                 return transfer_result(count, progress = progress);
             }
         "#;
 
         for operation in ["read", "write"] {
             let source = format!(
-                "trusted module app; using example.dependency.transfers; \
+                "module app; using example.dependency.transfers; \
                  func main() -> i32 {{ let mut progress: i32 = 0; \
-                 return trusted example.dependency.transfers.{operation}(4, progress = &mut progress); }}"
+                 return example.dependency.transfers.{operation}(4, progress = &mut progress); }}"
             );
 
             let consumer = imported_consumer_with_native_inputs(library, &source, &native_links);

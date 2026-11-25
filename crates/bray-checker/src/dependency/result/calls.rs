@@ -16,22 +16,6 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
 
         let template = self.selected_result_template(call)?;
 
-        if matches!(
-            call.resolution().result(),
-            bray_bound_tree::BoundCallResult::LazyFuture(_)
-        ) {
-            let completed = self.mapped_result_values(template.requirements(), |root| {
-                call.input_site(expression, root)
-            })?;
-
-            // One static producer can execute repeatedly. Retain every possible captured result.
-            self.state
-                .completions
-                .entry(expression)
-                .or_default()
-                .extend(completed);
-        }
-
         let template = crate::dependency::invocation_result_template(call, template);
 
         let mut result = BTreeSet::new();
@@ -57,23 +41,25 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
         Ok(result)
     }
 
+    pub(crate) fn deferred_completion_values(
+        &self,
+        expression: BoundExpressionId,
+    ) -> Result<BTreeSet<DependencyRequirement>, CheckerQueryError<C::UpstreamError>> {
+        let Some(SemanticSelection::Call(call)) = self.selections.expression(expression) else {
+            panic!("a locally formed frame retains its selected call");
+        };
+
+        let template = self.selected_result_template(call)?;
+
+        self.mapped_result_values(template.requirements(), |root| call.input_site(expression, root))
+    }
+
     pub(super) fn selected_result_template(
         &self,
         call: &bray_bound_tree::SelectedCall,
     ) -> Result<bray_symbols::DependencyContractTemplateData, CheckerQueryError<C::UpstreamError>>
     {
-        let recursive = call
-            .resolution()
-            .declaration_source()
-            .is_some_and(|instance| {
-                self.request
-                    .is_recursive_result(instance.definition().callable_symbol())
-                    && call.resolution().trait_dispatch().is_none()
-            });
-
-        if recursive {
-            let template = crate::dependency::witness::deferred_result(self.request, call, None)?;
-
+        if let Some(template) = crate::dependency::witness::recursive_call_result(self.request, call)? {
             Ok(template)
         } else {
             crate::dependency::callee_result_template(self.request, call, |callable| {
@@ -172,201 +158,33 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
         })
     }
 
-    pub(crate) fn exit_values(
-        &self,
-        scoped: &bray_bound_tree::SelectedScopedUse,
-    ) -> Result<BTreeSet<DependencyRequirement>, CheckerQueryError<C::UpstreamError>> {
-        let instance = scoped.exit().0;
-
-        let template = self
-            .request
-            .callable_result_dependencies(instance.definition().callable_symbol())?;
-
-        let template = crate::dependency::returned::resolved_result_template(
-            self.request,
-            Some(instance),
-            template,
-            None,
-        )?;
-
-        self.map_exit_values(scoped, template.requirements())
-    }
-
-    fn map_exit_values(
-        &self,
-        scoped: &bray_bound_tree::SelectedScopedUse,
-        requirements: &[DependencyRequirement],
-    ) -> Result<BTreeSet<DependencyRequirement>, CheckerQueryError<C::UpstreamError>> {
-        let input = self.scoped_values(scoped)?;
-
-        Ok(
-            crate::dependency::witness::map_requirements::<std::convert::Infallible>(requirements, &mut |subject, kind, _| {
-                if subject.subject_root()
-                    != bray_symbols::DependencySubjectRoot::Parameter(
-                        bray_symbols::SymbolOrdinal::new(0),
-                    )
-                {
-                    return Ok(vec![DependencyRequirement::direct(subject.clone(), kind)]);
-                }
-
-                if kind == DependencyRequirementKind::ValueDependencies {
-                    // The returned capability's dependencies already describe the entry result.
-                    // Keeping the whole set is conservative when its payload has several fields.
-                    Ok(input.iter().cloned().collect())
-                } else {
-                    Ok(vec![DependencyRequirement::direct(
-                        bray_symbols::DependencySubject::root(
-                            bray_symbols::DependencySubjectRoot::EvaluationStorage,
-                        ),
-                        kind,
-                    )])
-                }
-            })
-            .expect("exit requirements retain checked variable binding")
-            .into_iter()
-            .collect(),
-        )
-    }
-
     pub(crate) fn report_values(
         &self,
         occurrence: bray_bound_tree::BoundExecutionSite,
-        output: bray_bound_tree::CallReportOutput,
-    ) -> Result<Option<BTreeSet<DependencyRequirement>>, CheckerQueryError<C::UpstreamError>> {
+        requirements: &[DependencyRequirement],
+    ) -> Result<BTreeSet<DependencyRequirement>, CheckerQueryError<C::UpstreamError>> {
         use bray_bound_tree::BoundExecutionSite;
 
         match occurrence {
-            BoundExecutionSite::CallInput {
-                expression,
-                ordinal,
-            } => {
-                let selection = self
-                    .selections
-                    .expression(expression)
-                    .expect("report-producing input retains its invocation");
-
-                let template = crate::dependency::call::selected_input_template(
-                    self.request,
-                    selection,
-                    ordinal,
-                )?;
-
-                let requirements = if output.is_abnormal() {
-                    template.abnormal_reports()
-                } else {
-                    template.completion_reports()
-                };
-
-                requirements
-                    .map(|requirements| {
-                        self.mapped_result_values(requirements, |root| {
-                            self.input_argument_site(occurrence, root)
-                        })
-                    })
-                    .transpose()
-            }
+            BoundExecutionSite::CallInput { .. } =>
+                self.mapped_result_values(requirements, |root| self.input_argument_site(occurrence, root)),
             BoundExecutionSite::Node(bray_bound_tree::AnyBoundNodeId::Expression(expression)) => {
-                if let Some(SemanticSelection::Operation(operation)) =
-                    self.selections.expression(expression)
-                {
-                    let template = crate::dependency::call::operation_result_dependencies(
-                        self.request,
-                        expression,
-                        operation,
-                    )?
-                    .expect("report-producing operator retains its source invocation");
-
-                    let reports = template.template;
-
-                    let requirements = if output.is_abnormal() {
-                        reports.abnormal_reports()
-                    } else {
-                        reports.completion_reports()
-                    };
-
-                    return requirements
-                        .map(|requirements| {
-                            self.operation_values(expression, operation, requirements)
-                        })
-                        .transpose();
+                match self.selections.expression(expression) {
+                    Some(SemanticSelection::Operation(operation)) =>
+                        self.operation_values(expression, operation, requirements),
+                    Some(SemanticSelection::Call(call)) =>
+                        self.mapped_result_values(requirements, |root| call.input_site(expression, root)),
+                    _ => panic!("report-producing invocation has a checked input mapping: {occurrence:?}"),
                 }
-
-                let Some(SemanticSelection::Call(call)) = self.selections.expression(expression)
-                else {
-                    panic!("report-producing invocation retains its selected call");
-                };
-
-                let template = self.selected_result_template(call)?;
-
-                let deferred = matches!(
-                    output,
-                    bray_bound_tree::CallReportOutput::DeferredCompleted
-                        | bray_bound_tree::CallReportOutput::DeferredAbnormal
-                );
-
-                if !deferred
-                    && matches!(
-                        call.resolution().result(),
-                        bray_bound_tree::BoundCallResult::LazyFuture(_)
-                    )
-                {
-                    return Ok(None);
-                }
-
-                let reports = template;
-
-                let requirements = if output.is_abnormal() {
-                    reports.abnormal_reports()
-                } else {
-                    reports.completion_reports()
-                };
-
-                requirements
-                    .map(|requirements| {
-                        self.mapped_result_values(requirements, |root| {
-                            call.input_site(expression, root)
-                        })
-                    })
-                    .transpose()
             }
             BoundExecutionSite::Iterate(expression)
             | BoundExecutionSite::Next(expression)
             | BoundExecutionSite::ScopedEnter(expression)
             | BoundExecutionSite::ScopedExit(expression) => {
-                let selection = self
-                    .selections
-                    .expression(expression)
-                    .expect("report-producing invocation retains its selected protocol");
+                let selection = self.selections.expression(expression)
+                    .expect("implicit report producer retains its selected protocol");
 
-                let instance = self
-                    .selections
-                    .invoked_callable(occurrence)
-                    .expect("implicit report producer retains its exact callable");
-
-                let template = self
-                    .request
-                    .callable_result_dependencies(instance.definition().callable_symbol())?;
-
-                let template = crate::dependency::returned::resolved_result_template(
-                    self.request,
-                    Some(instance),
-                    template,
-                    None,
-                )?;
-
-                let requirements = if output.is_abnormal() {
-                    template.abnormal_reports()
-                } else {
-                    template.completion_reports()
-                };
-
-                requirements
-                    .map(|requirements| {
-                        self.mapped_result_values(requirements, |root| {
-                            selection.invocation_input_site(occurrence, root)
-                        })
-                    })
-                    .transpose()
+                self.mapped_result_values(requirements, |root| selection.invocation_input_site(occurrence, root))
             }
             _ => panic!("report-producing operation has a selected invocation: {occurrence:?}"),
         }

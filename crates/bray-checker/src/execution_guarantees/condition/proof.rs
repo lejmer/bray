@@ -67,7 +67,7 @@ impl ExecutionCondition {
             return Some(value);
         }
 
-        if let K::Observation { owner: _, contents: value, .. } | K::Borrowed(value) = self.kind() {
+        if let K::CapturedValue { value, .. } | K::DeferredValue { value, .. } | K::Observation { owner: _, contents: value, .. } | K::Borrowed(value) = self.kind() {
             return value.prove_mixed_with_implications(trusted, ordinary, budget, implications, Some(memo));
         }
 
@@ -87,6 +87,19 @@ impl ExecutionCondition {
             K::Operation(operator @ (BoundOperator::LogicalAnd | BoundOperator::LogicalOr), operands)
                 if let [left, right] = operands.as_ref() =>
             {
+                let decisive = *operator == BoundOperator::LogicalOr;
+
+                // A direct decisive alternative makes recursive implication work
+                // irrelevant. Inspect both children before either can exhaust the
+                // shared bounded budget.
+                if [left, right].into_iter().any(|operand| {
+                    operand.explicit_value(trusted, Some(ordinary), Some(memo)) == Some(decisive)
+                }) {
+                    *budget = budget.checked_sub(1)?;
+
+                    return Some(decisive);
+                }
+
                 prove_boolean(*operator,
                     left.prove_mixed_with_implications(trusted, ordinary, budget, implications, Some(memo)),
                     || right.prove_mixed_with_implications(trusted, ordinary, budget, implications, Some(memo)))
@@ -149,7 +162,7 @@ impl ExecutionCondition {
             return Some(value);
         }
 
-        if let K::Observation { owner: _, contents: value, .. } | K::Borrowed(value) = self.kind() {
+        if let K::CapturedValue { value, .. } | K::DeferredValue { value, .. } | K::Observation { owner: _, contents: value, .. } | K::Borrowed(value) = self.kind() {
             return value.prove_with_memo(assumptions, budget, Some(memo));
         }
 
@@ -286,7 +299,7 @@ impl ExecutionCondition {
         self.assume_proof(value, true, insert);
     }
 
-    pub(in crate::execution_guarantees) fn assume_proof(
+    pub(crate) fn assume_proof(
         self,
         value: bool,
         expose_trusted_truth: bool,
@@ -298,6 +311,7 @@ impl ExecutionCondition {
 
         match self.kind() {
             K::Unknown => {}
+            K::CapturedValue { value: contents, .. } | K::DeferredValue { value: contents, .. } => contents.as_ref().clone().assume_proof(value, expose_trusted_truth, insert),
             K::Observation { .. } | K::Borrowed(_) => {
                 let contents = self.computed_value().clone();
 

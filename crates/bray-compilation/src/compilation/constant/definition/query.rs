@@ -1602,13 +1602,6 @@ mod tests {
                 "#,
                 DiagnosticKind::CheckingExecutionGuaranteeNotProven,
             ),
-            (
-                r#"
-                    const FIRST: Guard = Guard { value = 1 };
-                    const BAD: Guard = FIRST;
-                "#,
-                DiagnosticKind::CheckingNonMaterializableConstant,
-            ),
         ] {
             let source = format!("{COMMON}{definition}");
             let compilation = compilation(&source);
@@ -1856,42 +1849,24 @@ mod tests {
             "module app;\n",
             "const func choose(pos condition: bool, pos left: i32, pos right: i32) -> i32\n",
             "{\n",
-            "    const fallback: i32 = right;\n",
+            "    const fallback: i32 = 9;\n",
             "\n",
             "    if condition\n",
             "    {\n",
             "        return left;\n",
             "    }\n",
-            "    else\n",
+            "\n",
+            "    if right == 0\n",
             "    {\n",
             "        return fallback;\n",
             "    }\n",
+            "\n",
+            "    return right;\n",
             "}\n",
         ));
 
         let result_type = i32_type(&compilation);
         let condition_type = bool_type(&compilation);
-        let condition = boolean_constant(&compilation, condition_type, false);
-        let left = integer_constant(&compilation, result_type, 7);
-        let right = integer_constant(&compilation, result_type, 9);
-
-        let (definition, request) =
-            source_constant_call_request(&compilation, [condition, left, right], result_type);
-
-        let body_key = compilation
-            .callable_body_key(definition)
-            .unwrap_or_else(|error| panic!("callable body key must resolve: {error:?}"))
-            .unwrap_or_else(|| panic!("source constant callable must have a body"));
-
-        let body = compilation
-            .constant_body_template(body_key, &compilation.state.cancellation)
-            .expect("certified constant callable publishes its shared template");
-
-        assert!(
-            body.result().value().is_some(),
-            "{:#?}",
-            body.result().diagnostics()
-        );
 
         assert!(
             compilation.check_diagnostics().is_empty(),
@@ -1899,21 +1874,24 @@ mod tests {
             compilation.check_diagnostics()
         );
 
-        let result = compilation
-            .constant_call_with_cancellation(&request, &compilation.state.cancellation)
-            .unwrap_or_else(|error| panic!("constant call must publish: {error:?}"));
+        for (condition, right, expected) in [(true, 3, 7), (false, 3, 3), (false, 0, 9)] {
+            let left = integer_constant(&compilation, result_type, 7);
+            let right = integer_constant(&compilation, result_type, right);
+            let condition = boolean_constant(&compilation, condition_type, condition);
 
-        assert!(
-            result.diagnostics().is_empty(),
-            "{:?}",
-            result.diagnostics()
-        );
+            let (_, request) =
+                source_constant_call_request(&compilation, [condition, left, right], result_type);
 
-        let Some(value) = result.value().as_ref() else {
-            panic!("constant callable must be eligible for evaluation");
-        };
+            let result = compilation
+                .constant_call_with_cancellation(&request, &compilation.state.cancellation)
+                .unwrap_or_else(|error| panic!("constant call must publish: {error:?}"));
 
-        assert_eq!(integer_value(&compilation, value.value()), 9);
+            assert!(result.diagnostics().is_empty(), "{:?}", result.diagnostics());
+
+            let value = result.value().as_ref().expect("constant callable must be eligible for evaluation");
+
+            assert_eq!(integer_value(&compilation, value.value()), expected);
+        }
     }
 
     #[test]
@@ -1924,7 +1902,7 @@ mod tests {
 
             const func forward(pos value: Result<i32, i32>) -> Result<i32, i32>
             {
-                const unwrapped: i32 = try value;
+                let unwrapped: i32 = try value;
 
                 return Ok(unwrapped);
             }

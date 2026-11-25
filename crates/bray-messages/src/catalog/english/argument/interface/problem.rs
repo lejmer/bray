@@ -486,6 +486,7 @@ const fn format_english_semantic_value_kind(
         Kind::TraitApplication => "trait application",
         Kind::CallableInstance => "callable instance",
         Kind::ImplementationInstance => "implementation instance",
+        Kind::StaticReference => "static reference",
         Kind::DependencyContractTemplate => "dependency-contract template",
     }
 }

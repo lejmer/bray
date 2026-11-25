@@ -24,6 +24,13 @@ pub(super) struct ControlFlowGraphAssembler {
     >,
 }
 
+#[derive(Clone, Copy)]
+pub(super) struct ScopeFailureTargets {
+    pub(super) panic: AnalysisBlockId,
+    pub(super) cancellation: AnalysisBlockId,
+    pub(super) local_cleanup: bool,
+}
+
 impl ControlFlowGraphAssembler {
     pub(super) const fn new(unit: BoundUnitId) -> Self {
         Self {
@@ -98,128 +105,19 @@ impl ControlFlowGraphAssembler {
         );
     }
 
-    pub(super) fn push_scope_exit(
+    pub(super) fn push_scope_broadcast(
         &mut self,
         current: AnalysisBlockId,
         scope: bray_bound_tree::StorageScope,
-        exit: bray_bound_tree::AnyBoundNodeId,
+        exit: AnyBoundNodeId,
         preserves_exit_value: bool,
-        scoped: Option<(
-            bray_bound_tree::BoundExpressionId,
-            bray_bound_tree::BoundCallResult,
-        )>,
     ) -> AnalysisBlockId {
-        let entered = self.push_block();
+        let broadcast = self.push_block();
 
-        self.push_edge(current, entered, AnalysisEdgeKind::ScopeExit, None);
-
-        let mut scoped_attempt = None;
-
-        let completed = if let Some((expression, result)) = scoped {
-            self.push_call(
-                entered,
-                bray_bound_tree::BoundExecutionSite::ScopedExit(expression),
-                AnalysisCallPhase::Input,
-            );
-
-            let attempt = self.push_block();
-
-            scoped_attempt = Some(attempt);
-            self.push_edge(entered, attempt, AnalysisEdgeKind::Sequential, None);
-
-            self.push_call(
-                attempt,
-                bray_bound_tree::BoundExecutionSite::ScopedExit(expression),
-                AnalysisCallPhase::Attempt,
-            );
-
-            let completed = self.push_block();
-
-            if matches!(result, bray_bound_tree::BoundCallResult::LazyFuture(_)) {
-                self.push_suspension(
-                    attempt,
-                    bray_bound_tree::BoundExecutionSite::ScopedExit(expression),
-                    AnalysisSuspensionKind::ScopedCall,
-                );
-
-                let suspended = self.push_block();
-
-                self.push_edge(attempt, suspended, AnalysisEdgeKind::Suspension, None);
-
-                // Cleanup is shielded, so cancellation waits until exit completes.
-                self.push_edge(
-                    suspended,
-                    completed,
-                    AnalysisEdgeKind::Resume,
-                    Some(super::model::AnalysisRefinement::InvocationCompletion(
-                        bray_bound_tree::BoundExecutionSite::ScopedExit(expression),
-                    )),
-                );
-            } else {
-                self.push_edge(
-                    attempt,
-                    completed,
-                    AnalysisEdgeKind::Sequential,
-                    Some(super::model::AnalysisRefinement::InvocationCompletion(
-                        bray_bound_tree::BoundExecutionSite::ScopedExit(expression),
-                    )),
-                );
-            }
-
-            self.push_call(
-                completed,
-                bray_bound_tree::BoundExecutionSite::ScopedExit(expression),
-                AnalysisCallPhase::Completion,
-            );
-
-            let operation = self
-                .operations
-                .last_mut()
-                .expect("scoped completion was just emitted");
-
-            *operation = operation.with_scoped_exit(
-                bray_bound_tree::StorageExitPoint::new(scope, exit),
-                preserves_exit_value,
-            );
-
-            completed
-        } else {
-            entered
-        };
-
-        let cancellation = if let Some((expression, _)) = scoped {
-            let cancellation = self.push_block();
-
-            self.push_edge(completed, cancellation, AnalysisEdgeKind::Sequential, None);
-
-            if !preserves_exit_value {
-                // A failing exit still resolves the remaining cleanup, without its normal guarantees.
-                self.push_edge(
-                    entered,
-                    cancellation,
-                    AnalysisEdgeKind::Sequential,
-                    Some(AnalysisRefinement::PreconditionFailure(
-                        bray_bound_tree::BoundExecutionSite::ScopedExit(expression),
-                    )),
-                );
-
-                self.push_edge(
-                    scoped_attempt.expect("selected scope exit retains its admitted attempt"),
-                    cancellation,
-                    AnalysisEdgeKind::Sequential,
-                    Some(AnalysisRefinement::InvocationFailure(
-                        bray_bound_tree::BoundExecutionSite::ScopedExit(expression),
-                    )),
-                );
-            }
-
-            cancellation
-        } else {
-            entered
-        };
+        self.push_edge(current, broadcast, AnalysisEdgeKind::ScopeExit, None);
 
         self.push_operation(
-            cancellation,
+            broadcast,
             AnalysisOperationKind::ScopeExit {
                 scope,
                 exit,
@@ -228,9 +126,101 @@ impl ControlFlowGraphAssembler {
             },
         );
 
-        let lifecycle = self.push_block();
+        broadcast
+    }
 
-        self.push_edge(cancellation, lifecycle, AnalysisEdgeKind::Sequential, None);
+    pub(super) fn push_scope_lifecycle(
+        &mut self,
+        current: AnalysisBlockId,
+        scope: bray_bound_tree::StorageScope,
+        exit: AnyBoundNodeId,
+        preserves_exit_value: bool,
+        scoped: Option<(
+            bray_bound_tree::BoundExpressionId,
+            bray_bound_tree::BoundCallResult,
+            Option<[super::model::ScopedResultTransfer; 2]>,
+            bool,
+        )>,
+        failures: Option<ScopeFailureTargets>,
+    ) -> AnalysisBlockId {
+        let entered = self.push_block();
+
+        self.push_edge(current, entered, AnalysisEdgeKind::Sequential, None);
+
+        let lifecycle = if let Some((expression, result, transfers, checks_requirements)) = scoped {
+            let invocation = bray_bound_tree::BoundExecutionSite::ScopedExit(expression);
+            let attempt = self.push_block();
+
+            self.push_call(entered, invocation, AnalysisCallPhase::Input);
+            self.mark_scoped_exit(scope, exit, preserves_exit_value);
+
+            self.push_edge(entered, attempt, AnalysisEdgeKind::Sequential,
+                Some(AnalysisRefinement::InvocationEntry { invocation, admitted: true }));
+
+            self.push_call(attempt, invocation, AnalysisCallPhase::Attempt);
+            self.mark_scoped_exit(scope, exit, preserves_exit_value);
+
+            let completed = self.push_block();
+
+            let (preceding, edge) = if matches!(result, bray_bound_tree::BoundCallResult::LazyFuture(_)) {
+                self.push_suspension(attempt, invocation, AnalysisSuspensionKind::ScopedCall);
+
+                let suspended = self.push_block();
+
+                self.push_edge(attempt, suspended, AnalysisEdgeKind::Suspension, None);
+
+                // Cleanup is shielded, so cancellation waits until exit completes.
+                (suspended, AnalysisEdgeKind::Resume)
+            } else {
+                (attempt, AnalysisEdgeKind::Sequential)
+            };
+
+            self.push_edge(
+                preceding,
+                completed,
+                edge,
+                Some(AnalysisRefinement::InvocationCompletion(invocation)),
+            );
+
+            self.push_call(completed, invocation, AnalysisCallPhase::Completion);
+            self.mark_scoped_exit(scope, exit, preserves_exit_value);
+
+            let lifecycle = self.push_block();
+
+            if let Some([success, error]) = transfers {
+                self.push_scoped_exit_results(completed, lifecycle, exit, [success, error], failures);
+            } else {
+                self.push_edge(completed, lifecycle, AnalysisEdgeKind::Sequential, None);
+            }
+
+            if let Some((panic, cancellation)) = failures
+                .map(|targets| (targets.panic, targets.cancellation))
+                .or_else(|| (!preserves_exit_value).then_some((lifecycle, lifecycle)))
+            {
+                // Only a runtime precondition on the selected exit can fail its admission.
+                if checks_requirements {
+                    self.push_edge(
+                        entered,
+                        panic,
+                        AnalysisEdgeKind::Sequential,
+                        Some(AnalysisRefinement::InvocationEntry { invocation, admitted: false }),
+                    );
+                }
+
+                for (kind, continuation) in bray_symbols::DependencyFailureKind::ALL.into_iter().zip([panic, cancellation]) {
+                    self.push_edge(
+                        attempt,
+                        continuation,
+                        AnalysisEdgeKind::Sequential,
+                        Some(AnalysisRefinement::InvocationFailure(invocation, kind)),
+                    );
+                }
+            }
+
+            lifecycle
+        } else {
+            entered
+        };
 
         self.push_operation(
             lifecycle,
@@ -242,7 +232,70 @@ impl ControlFlowGraphAssembler {
             },
         );
 
-        lifecycle
+        let Some(failures) = failures.filter(|targets| targets.local_cleanup) else {
+            return lifecycle;
+        };
+
+        for (kind, target) in bray_symbols::DependencyFailureKind::ALL.into_iter().zip([failures.panic, failures.cancellation]) {
+            self.push_edge(lifecycle, target, AnalysisEdgeKind::Sequential,
+                Some(AnalysisRefinement::CleanupOutcome { scope, exit, failure: Some(kind) }));
+        }
+
+        let resolved = self.push_block();
+
+        self.push_edge(lifecycle, resolved, AnalysisEdgeKind::Sequential,
+            Some(AnalysisRefinement::CleanupOutcome { scope, exit, failure: None }));
+
+        resolved
+    }
+
+    fn mark_scoped_exit(&mut self, scope: bray_bound_tree::StorageScope, exit: AnyBoundNodeId, preserves_exit_value: bool) {
+        let operation = self.operations.last_mut().expect("scoped call phase was just emitted");
+
+        *operation = operation.with_scoped_exit(bray_bound_tree::StorageExitPoint::new(scope, exit), preserves_exit_value);
+    }
+
+    fn push_scoped_exit_results(
+        &mut self,
+        completed: AnalysisBlockId,
+        lifecycle: AnalysisBlockId,
+        exit: AnyBoundNodeId,
+        transfers: [super::model::ScopedResultTransfer; 2],
+        failures: Option<ScopeFailureTargets>,
+    ) {
+        for (transfer, kind) in transfers.into_iter().zip([AnalysisEdgeKind::ResultSuccess, AnalysisEdgeKind::ResultErrorPropagation]) {
+            let selected = self.push_block();
+
+            self.push_edge(completed, selected, kind,
+                Some(AnalysisRefinement::InvocationVariant(transfer.invocation, transfer.selected_variant())));
+
+            self.push_operation(selected, AnalysisOperationKind::ScopedResult(transfer));
+
+            let after = if matches!(transfer.destination, super::model::ScopedResultDestination::Region { displaced: Some(_), .. }) {
+                let expression = transfer.invocation.expression().expect("scoped replacement retains its with expression");
+                let scope = bray_bound_tree::StorageScope::ScopedResultReplacement(expression);
+                let broadcast = self.push_scope_broadcast(selected, scope, exit, true);
+
+                let failures = failures.map(|outer| {
+                    let [panic, cancellation] = [outer.panic, outer.cancellation].map(|target| {
+                        let entry = self.push_block();
+                        let resolved = self.push_scope_lifecycle(entry, scope, exit, false, None, None);
+
+                        self.push_edge(resolved, target, AnalysisEdgeKind::Sequential, None);
+
+                        entry
+                    });
+
+                    ScopeFailureTargets { panic, cancellation, local_cleanup: true }
+                });
+
+                self.push_scope_lifecycle(broadcast, scope, exit, true, None, failures)
+            } else {
+                selected
+            };
+
+            self.push_edge(after, lifecycle, AnalysisEdgeKind::Sequential, None);
+        }
     }
 
     pub(super) fn push_edge(
@@ -322,9 +375,11 @@ impl ControlFlowGraphAssembler {
     }
 
     pub(super) fn push_operation(&mut self, block: AnalysisBlockId, kind: AnalysisOperationKind) {
-        let Some(id) = AnalysisOperationId::try_from_index(self.unit, self.operations.len()) else {
+        let Ok(slot) = u32::try_from(self.operations.len()) else {
             return;
         };
+
+        let id = AnalysisOperationId::new(self.unit, slot);
 
         let Some(before_index) = self.operations.len().checked_mul(2) else {
             return;
@@ -380,7 +435,7 @@ mod tests {
     };
 
     #[test]
-    fn scoped_exit_completes_before_body_task_cancellation_and_destruction() {
+    fn scoped_exit_runs_after_cancellation_broadcast_and_before_local_destruction() {
         let unit = BoundUnitId::new(83);
         let origin = BoundNodeOrigin::source(callable_key().source());
         let mut tree = BoundTreeBuilder::new(unit);
@@ -400,12 +455,20 @@ mod tests {
                 let mut assembler = ControlFlowGraphAssembler::new(unit);
                 let entry = assembler.push_block();
 
-                let end = assembler.push_scope_exit(
+                let broadcast = assembler.push_scope_broadcast(
                     entry,
-                    (scope).into(),
+                    scope.into(),
                     expression.into(),
                     preserves_exit_value,
-                    Some((expression, result)),
+                );
+
+                let end = assembler.push_scope_lifecycle(
+                    broadcast,
+                    scope.into(),
+                    expression.into(),
+                    preserves_exit_value,
+                    Some((expression, result, None, true)),
+                    None,
                 );
 
                 assembler.push_exit(end, AnalysisExitKind::Return, expression.into());
@@ -466,9 +529,7 @@ mod tests {
                             matches!(
                                 edge.refinement(),
                                 Some(
-                                    crate::analysis::model::AnalysisRefinement::InvocationFailure(
-                                        _
-                                    )
+                                    crate::analysis::model::AnalysisRefinement::InvocationFailure(..)
                                 )
                             )
                         });
@@ -477,14 +538,14 @@ mod tests {
                             successors.iter().any(|edge| {
                                 matches!(
                             edge.refinement(),
-                            Some(crate::analysis::model::AnalysisRefinement::PreconditionFailure(_))
+                            Some(crate::analysis::model::AnalysisRefinement::InvocationEntry { admitted: false, .. })
                         )
                             });
 
                         if failure.is_some() {
                             assert!(!preserves_exit_value);
                             assert!(!admission_failure);
-                            assert_eq!(successors.len(), 2);
+                            assert_eq!(successors.len(), 3);
                         } else if admission_failure {
                             assert_eq!(successors.len(), 2);
                         } else {
@@ -493,8 +554,8 @@ mod tests {
 
                         let Some(edge) = failure.filter(|_| failed).copied().or_else(|| successors.iter().copied().find(|edge| !matches!(
                             edge.refinement(),
-                            Some(crate::analysis::model::AnalysisRefinement::InvocationFailure(_)
-                                | crate::analysis::model::AnalysisRefinement::PreconditionFailure(_))
+                            Some(crate::analysis::model::AnalysisRefinement::InvocationFailure(..)
+                                | crate::analysis::model::AnalysisRefinement::InvocationEntry { admitted: false, .. })
                         ))) else { break; };
 
                         cursor = edge.target();
@@ -502,17 +563,17 @@ mod tests {
 
                     let mut expected = if matches!(result, BoundCallResult::LazyFuture(_)) {
                         vec![
+                            "cancel tasks",
                             "exit attempt",
                             "await exit",
                             "exit complete",
-                            "cancel tasks",
                             "destroy locals",
                         ]
                     } else {
                         vec![
+                            "cancel tasks",
                             "exit attempt",
                             "exit complete",
-                            "cancel tasks",
                             "destroy locals",
                         ]
                     };

@@ -1,4 +1,4 @@
-module bray.standard_library_tests.outcomes;
+trusted module bray.standard_library_tests.outcomes;
 
 using core.atomic;
 using core.memory;
@@ -74,21 +74,21 @@ func assertion_failure()
 trusted func invalid_allocation_alignment()
     uses(manual_alloc)
 {
-    _ = trusted core.memory.allocate(bytes = 8, align = 3);
+    _ = core.memory.allocate(bytes = 8, align = 3);
 }
 
 @test
 trusted func allocation_size_overflow()
     uses(manual_alloc)
 {
-    _ = trusted core.memory.allocate(bytes = ~0, align = 8);
+    _ = core.memory.allocate(bytes = ~0, align = 8);
 }
 
 @test
 trusted func allocation_then_panic_preserves_report()
     uses(manual_alloc)
 {
-    let allocation: DataPointer<u8> = trusted core.memory.allocate(bytes = 8, align = 8);
+    let allocation: DataPointer<u8> = core.memory.allocate(bytes = 8, align = 8);
 
     trusted core.memory.deallocate(pointer = allocation, bytes = 8, align = 8);
     panic("panic after valid allocation");

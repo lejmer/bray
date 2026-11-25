@@ -12,11 +12,12 @@ pub(super) enum MapRole {
 pub(super) struct RewriteMemo {
     pub(super) values: ExecutionMemo<ExecutionCondition>,
     pub(super) owners: ExecutionMemo<ExecutionCondition>,
+    pub(super) rebind_frames: bool,
 }
 
 impl RewriteMemo {
     fn new() -> Self {
-        Self { values: ExecutionMemo::default(), owners: ExecutionMemo::default() }
+        Self { values: ExecutionMemo::default(), owners: ExecutionMemo::default(), rebind_frames: false }
     }
 }
 
@@ -48,6 +49,14 @@ impl<'a> ExecutionSubstitution<'a> {
             owners: RewriteMap::new(owners),
             mapped: RewriteMemo::new(),
         }
+    }
+
+    pub(crate) fn frame_inputs(values: &'a BTreeMap<ExecutionCondition, ExecutionCondition>, owners: &'a BTreeMap<ExecutionCondition, ExecutionCondition>) -> Self {
+        let mut substitution = Self::new(values, owners);
+
+        substitution.mapped.rebind_frames = true;
+
+        substitution
     }
 
     pub(crate) fn has_changes(&self) -> bool { self.values.changed || self.owners.changed }
@@ -118,10 +127,35 @@ mod tests {
     use std::sync::Arc;
 
     use bray_bound_tree::BoundOperator::{LogicalAnd, LogicalOr};
-    use bray_symbols::SymbolOrdinal;
+    use bray_symbols::{ConstantProjectionKind, SymbolOrdinal};
 
     use super::ExecutionSubstitution;
     use crate::{ExecutionCondition, ExecutionPlace};
+
+    #[test]
+    fn predecessor_projection_reads_the_captured_payload() {
+        let result = ExecutionCondition::new(crate::ExecutionConditionKind::Result);
+
+        let owner = ExecutionCondition::new(crate::ExecutionConditionKind::Input(
+            ExecutionPlace::argument(SymbolOrdinal::new(0))));
+
+        let payload = ExecutionCondition::new(crate::ExecutionConditionKind::Input(
+            ExecutionPlace::argument(SymbolOrdinal::new(1))));
+
+        let nullable = result.clone().component(ConstantProjectionKind::NullableValue);
+        let selected = nullable.clone().component(ConstantProjectionKind::NullableValue);
+
+        let source = ExecutionCondition::constructed(owner, [
+            (bray_bound_tree::StorageProjection::NullableValue, payload.clone()),
+        ].into());
+
+        let snapshots = BTreeMap::from([(nullable, source)]);
+
+        let substitution = super::SnapshotSubstitution::new(&snapshots);
+
+        assert_eq!(substitution.apply(&selected).into_component_data(), payload);
+        assert_eq!(substitution.apply(&selected.borrowed()), payload.borrowed());
+    }
 
     #[test]
     fn snapshot_forests_preserve_capture_boundaries_and_each_original_budget() {
@@ -245,5 +279,29 @@ mod tests {
         for _ in 0..2 {
             assert_eq!(substitution.value(&repeated), bounded, "reusing a root preserves the original bounded rewrite result");
         }
+    }
+
+    #[test]
+    fn rewriting_an_aggregate_base_retains_unchanged_fields() {
+        use crate::ExecutionConditionKind::{Constructed, Input};
+
+        let base = ExecutionCondition::new(Input(ExecutionPlace::argument(SymbolOrdinal::new(0))));
+        let renamed = ExecutionCondition::new(Input(ExecutionPlace::argument(SymbolOrdinal::new(1))));
+        let projection = bray_bound_tree::StorageProjection::TupleElement(SymbolOrdinal::new(0));
+        let source_field = base.clone().project(projection);
+        let reached_field = renamed.clone().project(projection);
+        let original = ExecutionCondition::constructed(base.clone(), [(projection, ExecutionCondition::boolean(true))].into());
+        let values = BTreeMap::from([(base, renamed.clone()), (reached_field.clone(), ExecutionCondition::boolean(false))]);
+        let owners = BTreeMap::new();
+        let substitution = ExecutionSubstitution::new(&values, &owners);
+        let rewritten = substitution.value(&original);
+
+        let (Constructed(_, original_fields), Constructed(actual, rewritten_fields)) = (original.kind(), rewritten.kind()) else {
+            panic!("renaming the base preserves the explicit tuple field");
+        };
+
+        assert_eq!(actual.as_ref(), &renamed);
+        assert!(Arc::ptr_eq(original_fields, rewritten_fields));
+        assert_eq!(substitution.value(&source_field), reached_field, "a reached field is not a second input to the join");
     }
 }

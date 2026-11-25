@@ -4,7 +4,7 @@ use std::sync::Arc;
 use bray_base::shared_slice;
 
 use crate::{
-    AnyBoundNodeId, BoundExecutionSite, BoundExpressionId, BoundUnitId, BoundUnitKind,
+    AnyBoundNodeId, BoundExpressionId, BoundUnitId, BoundUnitKind,
     PatternPredicate, StorageAccessId, StoragePlan, StorageRelationship,
 };
 
@@ -19,8 +19,37 @@ pub enum StorageMutationScope {
     Unbounded,
 }
 
+/// Possible writes observed through one exact physical target.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum StoragePointeeChange {
+    /// The entire view may have changed.
+    Whole,
+    /// The changed inline components of the checked type.
+    Components {
+        /// The type of the enclosing pointee.
+        ty: bray_symbols::TypeId,
+        /// Nonempty paths relative to the enclosing pointee.
+        paths: BTreeSet<Arc<[crate::StorageProjection]>>,
+    },
+}
+
+impl StoragePointeeChange {
+    fn merge(&mut self, incoming: &Self) {
+        if let (
+            Self::Components { ty, paths },
+            Self::Components { ty: incoming_ty, paths: incoming_paths },
+        ) = (&mut *self, incoming)
+            && ty == incoming_ty
+        {
+            paths.extend(incoming_paths.iter().cloned());
+        } else {
+            *self = Self::Whole;
+        }
+    }
+}
+
 /// Storage whose previously observed contents may change at one execution site.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum StorageInvalidation {
     /// An opaque operation can reach storage through untracked aliases.
     All {
@@ -28,16 +57,22 @@ pub enum StorageInvalidation {
         stable_descriptors: BTreeSet<crate::StoragePath>,
         /// Classified inline observations retain their value or only their discriminant.
         stable_values: BTreeMap<crate::StoragePath, crate::StorageObservationKind>,
+        /// Stable address fields whose possible allocations also remain live.
+        stable_allocation_addresses: BTreeSet<crate::StoragePath>,
         /// Physical reference slots retained independently of their current logical aliases.
         stable_reference_slots: BTreeSet<crate::StorageTarget>,
         /// Classified unchanged values held by this invocation's entry or normal result.
-        normal_snapshots: BTreeMap<(bray_symbols::DependencySubjectRoot, Arc<[crate::StorageProjection]>), crate::StorageObservationKind>,
+        normal_snapshots: BTreeMap<(crate::StorageSnapshotRoot, Arc<[crate::StorageProjection]>), crate::StorageObservationKind>,
+        /// Surviving observations of exact typed pointees, without ownership or initialization.
+        stable_pointees: BTreeMap<(crate::StorageTarget, bray_symbols::TypeId), BTreeSet<(Arc<[crate::StorageProjection]>, crate::StorageObservationKind)>>,
     },
-    /// Only the listed paths and overlapping storage may change.
-    Paths(Vec<crate::StoragePath>),
+    /// Execution reached its boundary without changing storage observations.
+    Unchanged,
     /// Flow-resolved access paths and their current physical observations.
     /// Access paths are logical. Snapshot targets retain their established origins.
     Observed {
+        /// Change classification resolved with this same incoming observation frame.
+        transition: crate::StorageObservationTransition,
         /// Mutation confinement established while resolving the actual target identities.
         scope: StorageMutationScope,
         /// Logical paths whose contents may change, indexed by their checked access.
@@ -45,7 +80,9 @@ pub enum StorageInvalidation {
         /// Exact current observations mapped to their physical representative.
         /// Keep the origin, epoch and borrow layer until the consumer interprets them.
         /// These identities preserve no entry facts and establish no guarantees.
-        snapshots: BTreeMap<crate::StoragePath, crate::StorageTarget>,
+        snapshots: BTreeMap<crate::StoragePath, crate::StorageObservedTarget>,
+        /// Checked changes to each physical pointee. An unknown frame can affect every pointee.
+        affected_pointees: Option<BTreeMap<crate::StorageTarget, StoragePointeeChange>>,
         /// References whose reachable contents may change while their address value survives.
         referents: BTreeSet<crate::StoragePath>,
         /// Slice descriptors proven disjoint from all writes to their reachable elements.
@@ -55,7 +92,9 @@ pub enum StorageInvalidation {
         /// Physical reference slots retained independently of their current logical aliases.
         stable_reference_slots: BTreeSet<crate::StorageTarget>,
         /// Classified unchanged values held by this invocation's entry or normal result.
-        normal_snapshots: BTreeMap<(bray_symbols::DependencySubjectRoot, Arc<[crate::StorageProjection]>), crate::StorageObservationKind>,
+        normal_snapshots: BTreeMap<(crate::StorageSnapshotRoot, Arc<[crate::StorageProjection]>), crate::StorageObservationKind>,
+        /// Surviving observations of exact typed pointees, without ownership or initialization.
+        stable_pointees: BTreeMap<(crate::StorageTarget, bray_symbols::TypeId), BTreeSet<(Arc<[crate::StorageProjection]>, crate::StorageObservationKind)>>,
     },
 }
 
@@ -78,12 +117,83 @@ fn intersect_preserved_values(
 }
 
 impl StorageInvalidation {
+    pub(crate) fn is_valid_for(&self, unit: BoundUnitId) -> bool {
+        match self {
+            Self::All {
+                stable_descriptors,
+                stable_values,
+                stable_allocation_addresses,
+                stable_reference_slots,
+                ..
+            } => {
+                stable_reference_slots.iter().all(|target| target.is_valid_for(unit))
+                    && stable_descriptors.iter().chain(stable_values.keys()).all(|path| path.is_valid_for(unit))
+                    && stable_allocation_addresses.iter().all(|path| {
+                        path.is_valid_for(unit) && stable_values.contains_key(path)
+                    })
+            }
+            Self::Unchanged => true,
+            Self::Observed {
+                accesses,
+                snapshots,
+                affected_pointees,
+                referents,
+                stable_descriptors,
+                stable_values,
+                stable_reference_slots,
+                ..
+            } => {
+                stable_reference_slots.iter().all(|target| target.is_valid_for(unit))
+                    && accesses.iter().all(|(access, paths)| {
+                        access.unit() == unit && paths.iter().all(|path| path.is_valid_for(unit))
+                    })
+                    && snapshots.iter().all(|(path, observed)| path.is_valid_for(unit) && observed.target.is_valid_for(unit))
+                    && affected_pointees.iter().flatten().all(|(target, change)| {
+                        target.is_valid_for(unit) && match change {
+                            StoragePointeeChange::Whole => true,
+                            StoragePointeeChange::Components { paths, .. } => !paths.is_empty() && paths.iter().all(|path| {
+                                !path.is_empty() && crate::StoragePath::inline_projections(path)
+                                    && path.iter().all(|projection| projection.is_exact())
+                            }),
+                        }
+                    })
+                    && referents.iter().chain(stable_descriptors).chain(stable_values.keys())
+                        .all(|path| path.is_valid_for(unit))
+            }
+        }
+    }
+
+    /// Whether the checked transition reached its boundary without changing storage observations.
+    pub fn is_unchanged(&self) -> bool {
+        matches!(self, Self::Unchanged)
+    }
+
+    /// Returns the change classification resolved by composite flow.
+    pub fn observation_transition(&self) -> crate::StorageObservationTransition {
+        match self {
+            Self::Observed { transition, .. } => *transition,
+            Self::All { .. } => crate::StorageObservationTransition::Unknown,
+            Self::Unchanged => crate::StorageObservationTransition::Unchanged,
+        }
+    }
+
+    /// Attaches the operation classification after resolving its observation frame.
+    /// Opaque frames retain the conservative global invalidation semantics.
+    pub fn with_observation_transition(mut self, change: crate::StorageObservationTransition) -> Self {
+        match &mut self {
+            Self::Observed { transition, .. } => *transition = change,
+            Self::All { .. } | Self::Unchanged => {}
+        }
+
+        self
+    }
+
     /// Returns the confinement established by the owning storage-flow analysis.
     pub fn mutation_scope(&self) -> StorageMutationScope {
         match self {
             Self::Observed { scope, .. } => *scope,
             Self::All { .. } => StorageMutationScope::Unbounded,
-            Self::Paths(_) => panic!("mutation confinement requires flow-resolved effects"),
+            Self::Unchanged => StorageMutationScope::Invocation,
         }
     }
 
@@ -92,23 +202,72 @@ impl StorageInvalidation {
         Self::All {
             stable_descriptors: BTreeSet::new(),
             stable_values: Default::default(),
-            stable_reference_slots: Default::default(), normal_snapshots: Default::default(),
+            stable_allocation_addresses: Default::default(),
+            stable_reference_slots: Default::default(), normal_snapshots: Default::default(), stable_pointees: Default::default(),
         }
     }
 
     /// Retains every target that either incoming execution can mutate.
     pub fn merge(&mut self, incoming: &Self) {
-        let mut reference_slots = match &mut *self {
-            Self::All { stable_reference_slots, .. } | Self::Observed { stable_reference_slots, .. } => std::mem::take(stable_reference_slots),
-            Self::Paths(_) => BTreeSet::new(),
+        if incoming.is_unchanged() {
+            return;
+        }
+
+        if self.is_unchanged() {
+            *self = incoming.clone();
+
+            return;
+        }
+
+        let previous = self.observation_transition();
+        let next = incoming.observation_transition();
+
+        use crate::StorageObservationTransition as Change;
+
+        let transition = if previous == Change::Unchanged {
+            next
+        } else if previous == next || next == Change::Unchanged {
+            previous
+        } else if previous.changes_contents_only() && next.changes_contents_only() {
+            Change::Contents
+        } else { Change::Unknown };
+
+        let mut pointees = match &mut *self {
+            Self::All { stable_pointees, .. } | Self::Observed { stable_pointees, .. } => std::mem::take(stable_pointees),
+            Self::Unchanged => BTreeMap::new(),
         };
 
-        reference_slots.retain(|slot| incoming.preserves_reference_slot(slot));
+        if previous == Change::Unchanged {
+            pointees = incoming.stable_pointees().cloned().unwrap_or_default();
+        } else if next != Change::Unchanged {
+            pointees.retain(|key, observations| {
+                let Some(other) = incoming.stable_pointees().and_then(|pointees| pointees.get(key)) else {
+                    return false;
+                };
+
+                observations.retain(|observation| other.contains(observation));
+
+                !observations.is_empty()
+            });
+        }
+
+        let mut reference_slots = match &mut *self {
+            Self::All { stable_reference_slots, .. } | Self::Observed { stable_reference_slots, .. } => std::mem::take(stable_reference_slots),
+            Self::Unchanged => BTreeSet::new(),
+        };
+
+        if previous == Change::Unchanged {
+            if let Self::All { stable_reference_slots, .. } | Self::Observed { stable_reference_slots, .. } = incoming {
+                reference_slots.clone_from(stable_reference_slots);
+            }
+        } else if next != Change::Unchanged {
+            reference_slots.retain(|slot| incoming.preserves_reference_slot(slot));
+        }
 
         let mut normal_snapshots = match &mut *self {
             Self::All { normal_snapshots, .. } | Self::Observed { normal_snapshots, .. } =>
                 std::mem::take(normal_snapshots),
-            Self::Paths(_) => BTreeMap::new(),
+            Self::Unchanged => BTreeMap::new(),
         };
 
         normal_snapshots.retain(|subject, kind| incoming.normal_snapshots()
@@ -119,21 +278,25 @@ impl StorageInvalidation {
                 Self::All {
                     stable_descriptors,
                     stable_values,
+                    stable_allocation_addresses,
                     ..
                 },
                 Self::All {
                     stable_descriptors: descriptors,
                     stable_values: values,
+                    stable_allocation_addresses: allocation_addresses,
                     ..
                 },
             ) => {
                 stable_descriptors.retain(|path| descriptors.contains(path));
                 intersect_preserved_values(stable_values, values, |_| false);
+                stable_allocation_addresses.retain(|path| allocation_addresses.contains(path) && stable_values.contains_key(path));
             }
             (
                 Self::All {
                     stable_descriptors,
                     stable_values,
+                    stable_allocation_addresses,
                     ..
                 },
                 Self::Observed {
@@ -152,6 +315,12 @@ impl StorageInvalidation {
 
                 intersect_preserved_values(stable_values, values, |path| unchanged(path)
                     && referents.iter().all(|changed| changed.relationship(path) == StorageRelationship::Disjoint));
+
+                if next == Change::Unchanged || next.changes_contents_only() {
+                    stable_allocation_addresses.retain(|path| unchanged(path) && stable_values.contains_key(path));
+                } else {
+                    stable_allocation_addresses.clear();
+                }
             }
             (Self::Observed { .. }, Self::All { .. }) => {
                 // Start from the opaque frame, including paths the finite effect
@@ -166,6 +335,7 @@ impl StorageInvalidation {
                     scope,
                     accesses: current,
                     snapshots,
+                    affected_pointees,
                     referents,
                     stable_descriptors,
                     stable_values,
@@ -175,6 +345,7 @@ impl StorageInvalidation {
                     scope: incoming_scope,
                     accesses: incoming,
                     snapshots: incoming_snapshots,
+                    affected_pointees: incoming_pointees,
                     referents: incoming_referents,
                     stable_descriptors: incoming_descriptors,
                     stable_values: incoming_values,
@@ -202,6 +373,14 @@ impl StorageInvalidation {
                 snapshots.retain(|path, target| incoming_snapshots.get(path) == Some(target));
                 referents.extend(incoming_referents.iter().cloned());
 
+                if let (Some(current), Some(incoming)) = (&mut *affected_pointees, incoming_pointees) {
+                    for (target, paths) in incoming {
+                        current.entry(target.clone()).and_modify(|change| change.merge(paths)).or_insert_with(|| paths.clone());
+                    }
+                } else {
+                    *affected_pointees = None;
+                }
+
                 for (access, paths) in incoming {
                     let changed = current.entry(*access).or_default();
 
@@ -210,14 +389,7 @@ impl StorageInvalidation {
                     changed.dedup();
                 }
             }
-            (Self::Paths(_), Self::Observed { .. }) | (Self::Observed { .. }, Self::Paths(_)) => {
-                panic!("one mutation publication must retain its owning analysis representation");
-            }
-            (Self::Paths(current), Self::Paths(incoming)) => {
-                current.extend_from_slice(incoming);
-                current.sort_unstable();
-                current.dedup();
-            }
+            (Self::Unchanged, _) | (_, Self::Unchanged) => unreachable!("unchanged frames were handled before merging"),
         }
 
         if let Self::All { normal_snapshots: preserved, .. }
@@ -227,6 +399,20 @@ impl StorageInvalidation {
 
         if let Self::All { stable_reference_slots, .. } | Self::Observed { stable_reference_slots, .. } = self {
             *stable_reference_slots = reference_slots;
+        }
+
+        if let Self::All { stable_pointees, .. } | Self::Observed { stable_pointees, .. } = self {
+            *stable_pointees = pointees;
+        }
+
+        if let Self::Observed { transition: preserved, .. } = self { *preserved = transition; }
+    }
+
+    /// Returns physical observation preservation resolved by storage flow.
+    pub fn stable_pointees(&self) -> Option<&BTreeMap<(crate::StorageTarget, bray_symbols::TypeId), BTreeSet<(Arc<[crate::StorageProjection]>, crate::StorageObservationKind)>>> {
+        match self {
+            Self::All { stable_pointees, .. } | Self::Observed { stable_pointees, .. } => Some(stable_pointees),
+            Self::Unchanged => None,
         }
     }
 
@@ -239,7 +425,7 @@ impl StorageInvalidation {
                 stable_descriptors.insert(logical);
                 stable_reference_slots.insert(physical);
             }
-            Self::Paths(_) => panic!("reference-slot preservation requires flow-resolved effects"),
+            Self::Unchanged => panic!("reference-slot preservation requires flow-resolved effects"),
         }
     }
 
@@ -247,20 +433,20 @@ impl StorageInvalidation {
     pub fn preserves_reference_slot(&self, slot: &crate::StorageTarget) -> bool {
         match self {
             Self::All { stable_reference_slots, .. } | Self::Observed { stable_reference_slots, .. } => stable_reference_slots.contains(slot),
-            Self::Paths(_) => false,
+            Self::Unchanged => false,
         }
     }
 
     /// Returns the original observation kinds of captured invocation snapshots.
-    pub fn normal_snapshots(&self) -> Option<&BTreeMap<(bray_symbols::DependencySubjectRoot, Arc<[crate::StorageProjection]>), crate::StorageObservationKind>> {
+    pub fn normal_snapshots(&self) -> Option<&BTreeMap<(crate::StorageSnapshotRoot, Arc<[crate::StorageProjection]>), crate::StorageObservationKind>> {
         match self {
             Self::All { normal_snapshots, .. } | Self::Observed { normal_snapshots, .. } => Some(normal_snapshots),
-            Self::Paths(_) => None,
+            Self::Unchanged => None,
         }
     }
 
     /// Returns whether this operation can change the independently resolved path.
-    pub fn invalidates_path(&self, path: &crate::StoragePath, storage: &StoragePlan) -> bool {
+    pub fn invalidates_path(&self, path: &crate::StoragePath) -> bool {
         match self {
             Self::All { .. } => true,
             Self::Observed { stable_values, .. }
@@ -272,9 +458,34 @@ impl StorageInvalidation {
                 .values()
                 .flatten()
                 .any(|changed| changed.relationship(path) != StorageRelationship::Disjoint),
-            Self::Paths(accesses) => accesses.iter().any(|access| {
-                storage.path_relationship(access, path) != StorageRelationship::Disjoint
-            }),
+            Self::Unchanged => false,
+        }
+    }
+
+    /// Returns whether the resolved change invalidates a nullable or union discriminant.
+    pub fn invalidates_discriminant(&self, path: &crate::StoragePath, observed: bool) -> bool {
+        let stable_tag = |values: &BTreeMap<_, crate::StorageObservationKind>| {
+            values.get(path).is_some_and(|kind| {
+                *kind == crate::StorageObservationKind::Discriminant || kind.is_immutable_inline()
+            })
+        };
+
+        match self {
+            Self::All { stable_descriptors, stable_values, .. } => {
+                !observed || !(stable_tag(stable_values) || stable_descriptors.contains(path)
+                    || stable_descriptors.contains(&crate::StoragePath::root(path.root)))
+            }
+            Self::Observed { accesses, stable_descriptors, stable_values, .. } => {
+                if observed && (stable_tag(stable_values) || stable_descriptors.contains(path)) {
+                    return false;
+                }
+
+                accesses.values().flatten().any(|changed| {
+                    changed.projections.len() <= path.projections.len()
+                        && changed.relationship(path) != StorageRelationship::Disjoint
+                })
+            }
+            Self::Unchanged => false,
         }
     }
 
@@ -292,9 +503,7 @@ impl StorageInvalidation {
                         stable_values.iter().any(|(stable, kind)| kind.is_immutable_inline() && stable.contains(path))
                     })
             }
-            Self::Paths(mutations) => mutations.iter().any(|mutation| {
-                storage.relationship_to_path(access, mutation) != StorageRelationship::Disjoint
-            }),
+            Self::Unchanged => false,
         }
     }
 }
@@ -426,7 +635,6 @@ pub struct CheckedRefinements {
     unit: BoundUnitId,
     kind: BoundUnitKind,
     occurrences: Arc<[RefinementOccurrence]>,
-    invalidations: BTreeMap<BoundExecutionSite, StorageInvalidation>,
     is_recovered: bool,
 }
 
@@ -436,7 +644,6 @@ impl CheckedRefinements {
         unit: BoundUnitId,
         kind: BoundUnitKind,
         occurrences: impl IntoIterator<Item = RefinementOccurrence>,
-        invalidations: BTreeMap<BoundExecutionSite, StorageInvalidation>,
         is_recovered: bool,
     ) -> Result<Self, RefinementSetBuildError> {
         let mut occurrences = occurrences.into_iter().collect::<Vec<_>>();
@@ -454,46 +661,6 @@ impl CheckedRefinements {
             return Err(RefinementSetBuildError::ForeignUnit);
         }
 
-        if invalidations.iter().any(|(site, invalidation)| {
-            site.node().unit() != unit
-                || match invalidation {
-                    StorageInvalidation::All {
-                        stable_descriptors,
-                        stable_values,
-                        stable_reference_slots,
-                        ..
-                    } => stable_reference_slots.iter().any(|target| !target.is_valid_for(unit)) || stable_descriptors
-                        .iter()
-                        .chain(stable_values.keys())
-                        .any(|path| !path.is_valid_for(unit)),
-                    StorageInvalidation::Paths(paths) => {
-                        paths.iter().any(|path| !path.is_valid_for(unit))
-                    }
-                    StorageInvalidation::Observed {
-                        accesses,
-                        snapshots,
-                        referents,
-                        stable_descriptors,
-                        stable_values,
-                        stable_reference_slots,
-                        ..
-                    } => {
-                        stable_reference_slots.iter().any(|target| !target.is_valid_for(unit)) || accesses.iter().any(|(access, paths)| {
-                            access.unit() != unit
-                                || paths.iter().any(|path| !path.is_valid_for(unit))
-                        }) || snapshots.iter().any(|(path, target)| {
-                            !path.is_valid_for(unit) || !target.is_valid_for(unit)
-                        }) || referents
-                            .iter()
-                            .chain(stable_descriptors)
-                            .chain(stable_values.keys())
-                            .any(|path| !path.is_valid_for(unit))
-                    }
-                }
-        }) {
-            return Err(RefinementSetBuildError::ForeignUnit);
-        }
-
         occurrences.sort_unstable_by_key(RefinementOccurrence::node);
 
         if occurrences
@@ -507,7 +674,6 @@ impl CheckedRefinements {
             unit,
             kind,
             occurrences: occurrences.into(),
-            invalidations,
             is_recovered,
         })
     }
@@ -536,16 +702,6 @@ impl CheckedRefinements {
             .unwrap_or_default()
     }
 
-    /// Returns the prepared mutation effects for this unit.
-    pub fn invalidations(&self) -> &BTreeMap<BoundExecutionSite, StorageInvalidation> {
-        &self.invalidations
-    }
-
-    /// Returns the checked mutation effect of one execution site.
-    pub fn invalidation_at(&self, site: BoundExecutionSite) -> Option<&StorageInvalidation> {
-        self.invalidations.get(&site)
-    }
-
     /// Returns whether recovery prevented complete refinement evidence.
     pub const fn is_recovered(&self) -> bool {
         self.is_recovered
@@ -556,7 +712,7 @@ impl CheckedRefinements {
 mod tests {
     use super::{
         CheckedRefinements, Refinement, RefinementKind, RefinementOccurrence,
-        RefinementSetBuildError,
+        RefinementSetBuildError, StoragePointeeChange,
     };
     use crate::{
         AnyBoundNodeId, BoundExpressionId, BoundUnitId, BoundUnitKind, PatternPredicate,
@@ -587,13 +743,14 @@ mod tests {
             assert_eq!(values[&path], StorageObservationKind::Value);
 
             let mut retained = super::StorageInvalidation::All {
-                stable_descriptors: Default::default(), stable_values: values, stable_reference_slots: Default::default(), normal_snapshots: Default::default(),
+                stable_descriptors: Default::default(), stable_values: values, stable_allocation_addresses: Default::default(), stable_reference_slots: Default::default(), normal_snapshots: Default::default(), stable_pointees: Default::default(),
             };
 
             let tag = super::StorageInvalidation::All {
                 stable_descriptors: Default::default(),
                 stable_values: [(path.clone(), weaker)].into(),
-                stable_reference_slots: Default::default(), normal_snapshots: Default::default(),
+                stable_allocation_addresses: Default::default(),
+                stable_reference_slots: Default::default(), normal_snapshots: Default::default(), stable_pointees: Default::default(),
             };
 
             retained.merge(&tag);
@@ -631,7 +788,6 @@ mod tests {
                 RefinementOccurrence::new(second.into(), [refinement.clone(), refinement.clone()]),
                 RefinementOccurrence::new(first.into(), []),
             ],
-            Default::default(),
             false,
         )
         .unwrap_or_else(|error| panic!("valid refinements must build: {error:?}"));
@@ -685,7 +841,6 @@ mod tests {
                     expression.into(),
                     [foreign_refinement]
                 )],
-                Default::default(),
                 false,
             ),
             Err(RefinementSetBuildError::ForeignUnit)
@@ -699,7 +854,6 @@ mod tests {
                     expression.into(),
                     [foreign_pattern_refinement]
                 )],
-                Default::default(),
                 false,
             ),
             Err(RefinementSetBuildError::ForeignUnit)
@@ -713,7 +867,6 @@ mod tests {
                     RefinementOccurrence::new(expression.into(), []),
                     RefinementOccurrence::new(expression.into(), []),
                 ],
-                Default::default(),
                 false,
             ),
             Err(RefinementSetBuildError::DuplicateOccurrence)
@@ -722,7 +875,6 @@ mod tests {
     #[test]
     fn published_effects_reject_foreign_path_selectors() {
         let unit = BoundUnitId::new(4);
-        let expression = BoundExpressionId::from_slot(unit, 0);
 
         let path = crate::StoragePath {
             root: crate::StorageIdentityId::from_slot(unit, 0),
@@ -732,21 +884,23 @@ mod tests {
             .into(),
         };
 
-        assert_eq!(
-            CheckedRefinements::try_new(
-                unit,
-                BoundUnitKind::CallableBody,
-                [],
-                [(
-                    expression.into(),
-                    super::StorageInvalidation::Paths(vec![path])
-                )]
-                .into(),
-                false,
-            ),
-            Err(RefinementSetBuildError::ForeignUnit)
-        );
+        let mutation = super::StorageInvalidation::Observed {
+            transition: Default::default(),
+            scope: super::StorageMutationScope::Invocation,
+            affected_pointees: None,
+            accesses: [(StorageAccessId::from_slot(unit, 0), vec![path])].into(),
+            snapshots: Default::default(),
+            referents: Default::default(),
+            stable_descriptors: Default::default(),
+            stable_values: Default::default(),
+            stable_reference_slots: Default::default(),
+            normal_snapshots: Default::default(),
+            stable_pointees: Default::default(),
+        };
+
+        assert!(!mutation.is_valid_for(unit));
     }
+
     #[test]
     fn observation_merges_union_effects_and_intersect_exact_aliases() {
         let unit = BoundUnitId::new(4);
@@ -754,33 +908,38 @@ mod tests {
         let first = crate::StoragePath::root(crate::StorageIdentityId::from_slot(unit, 0));
         let second = crate::StoragePath::root(crate::StorageIdentityId::from_slot(unit, 1));
         let alias = crate::StoragePath::root(crate::StorageIdentityId::from_slot(unit, 2));
+        let observation = |path| crate::StorageObservedTarget::direct(crate::StorageTarget::storage(path));
 
         let mut left = super::StorageInvalidation::Observed {
+            transition: crate::StorageObservationTransition::Contents,
             scope: super::StorageMutationScope::Unbounded,
+            affected_pointees: Some([(crate::StorageTarget::storage(first.clone()), StoragePointeeChange::Whole)].into()),
             accesses: [(access, vec![first.clone()])].into(),
             snapshots: [
-                (first.clone(), crate::StorageTarget::storage(first.clone())),
-                (alias.clone(), crate::StorageTarget::storage(first.clone())),
+                (first.clone(), observation(first.clone())),
+                (alias.clone(), observation(first.clone())),
             ]
             .into(),
             referents: [first.clone()].into(),
             stable_descriptors: [first.clone(), second.clone()].into(),
             stable_values: [first.clone(), second.clone()].into_iter().map(|path| (path, crate::StorageObservationKind::Value)).collect(),
-            stable_reference_slots: Default::default(), normal_snapshots: Default::default(),
+            stable_reference_slots: Default::default(), normal_snapshots: Default::default(), stable_pointees: Default::default(),
         };
 
         let right = super::StorageInvalidation::Observed {
+            transition: crate::StorageObservationTransition::Contents,
             scope: super::StorageMutationScope::Unbounded,
+            affected_pointees: Some([(crate::StorageTarget::storage(second.clone()), StoragePointeeChange::Whole)].into()),
             accesses: [(access, vec![second.clone()])].into(),
             snapshots: [
-                (first.clone(), crate::StorageTarget::storage(first.clone())),
-                (alias, crate::StorageTarget::storage(second.clone())),
+                (first.clone(), observation(first.clone())),
+                (alias, observation(second.clone())),
             ]
             .into(),
             referents: [second.clone()].into(),
             stable_descriptors: [first.clone()].into(),
             stable_values: [first.clone()].into_iter().map(|path| (path, crate::StorageObservationKind::Value)).collect(),
-            stable_reference_slots: Default::default(), normal_snapshots: Default::default(),
+            stable_reference_slots: Default::default(), normal_snapshots: Default::default(), stable_pointees: Default::default(),
         };
 
         left.merge(&right);
@@ -788,7 +947,8 @@ mod tests {
         let opaque = super::StorageInvalidation::All {
             stable_descriptors: [first.clone()].into(),
             stable_values: [first.clone()].into_iter().map(|path| (path, crate::StorageObservationKind::Value)).collect(),
-            stable_reference_slots: Default::default(), normal_snapshots: Default::default(),
+            stable_allocation_addresses: Default::default(),
+            stable_reference_slots: Default::default(), normal_snapshots: Default::default(), stable_pointees: Default::default(),
         };
 
         let mut global = opaque.clone();
@@ -802,15 +962,25 @@ mod tests {
         assert_eq!(
             left,
             super::StorageInvalidation::Observed {
+                transition: crate::StorageObservationTransition::Contents,
                 scope: super::StorageMutationScope::Unbounded,
+                affected_pointees: Some([
+                    (crate::StorageTarget::storage(first.clone()), StoragePointeeChange::Whole),
+                    (crate::StorageTarget::storage(second.clone()), StoragePointeeChange::Whole),
+                ].into()),
                 accesses: [(access, vec![first.clone(), second.clone()])].into(),
-                snapshots: [(first.clone(), crate::StorageTarget::storage(first.clone()))].into(),
+                snapshots: [(first.clone(), observation(first.clone()))].into(),
                 stable_descriptors: [first.clone()].into(),
                 stable_values: [first.clone()].into_iter().map(|path| (path, crate::StorageObservationKind::Value)).collect(),
-                stable_reference_slots: Default::default(), normal_snapshots: Default::default(),
+                stable_reference_slots: Default::default(), normal_snapshots: Default::default(), stable_pointees: Default::default(),
                 referents: [first, second].into(),
             }
         );
+
+        left.merge(&right.with_observation_transition(crate::StorageObservationTransition::Transfer));
+
+        assert_eq!(left.observation_transition(), crate::StorageObservationTransition::Unknown,
+            "a join cannot turn different changes into unconditional contents preservation");
     }
     #[test]
     fn closed_effect_merges_preserve_disjoint_observations_in_both_orders() {
@@ -828,13 +998,15 @@ mod tests {
         let retained = [owner, changed.clone(), sibling.clone(), other.clone()].into_iter().collect::<BTreeSet<_>>();
 
         let precise = super::StorageInvalidation::Observed {
+            transition: Default::default(),
             scope: super::StorageMutationScope::Unbounded,
+            affected_pointees: None,
             accesses: [(StorageAccessId::from_slot(unit, 0), vec![changed])].into(),
             snapshots: Default::default(),
             referents: [other.clone()].into(),
             stable_descriptors: Default::default(),
             stable_values: Default::default(),
-            stable_reference_slots: Default::default(), normal_snapshots: Default::default(),
+            stable_reference_slots: Default::default(), normal_snapshots: Default::default(), stable_pointees: Default::default(),
         };
 
         for opaque in [false, true] {
@@ -842,17 +1014,20 @@ mod tests {
                 super::StorageInvalidation::All {
                     stable_descriptors: retained.clone(),
                     stable_values: retained.iter().cloned().map(|path| (path, crate::StorageObservationKind::Value)).collect(),
-                    stable_reference_slots: Default::default(), normal_snapshots: Default::default(),
+                    stable_allocation_addresses: Default::default(),
+                    stable_reference_slots: Default::default(), normal_snapshots: Default::default(), stable_pointees: Default::default(),
                 }
             } else {
                 super::StorageInvalidation::Observed {
+                    transition: Default::default(),
                     scope: super::StorageMutationScope::Unbounded,
+                    affected_pointees: None,
                     accesses: Default::default(),
                     snapshots: Default::default(),
                     referents: Default::default(),
                     stable_descriptors: retained.clone(),
                     stable_values: retained.iter().cloned().map(|path| (path, crate::StorageObservationKind::Value)).collect(),
-                    stable_reference_slots: Default::default(), normal_snapshots: Default::default(),
+                    stable_reference_slots: Default::default(), normal_snapshots: Default::default(), stable_pointees: Default::default(),
                 }
             };
 
@@ -876,31 +1051,55 @@ mod tests {
     }
 
     #[test]
-    fn opaque_effects_intersect_descriptor_preservation() {
+    fn opaque_effects_intersect_descriptor_and_backing_preservation() {
         let unit = BoundUnitId::new(4);
         let first = crate::StoragePath::root(crate::StorageIdentityId::from_slot(unit, 0));
         let second = crate::StoragePath::root(crate::StorageIdentityId::from_slot(unit, 1));
 
+        let addresses = std::collections::BTreeMap::from([
+            (first.clone(), crate::StorageObservationKind::Address),
+            (second.clone(), crate::StorageObservationKind::Address),
+        ]);
+
         let mut effects = super::StorageInvalidation::All {
-            stable_descriptors: [first.clone(), second].into(),
-            stable_values: Default::default(),
-            stable_reference_slots: Default::default(), normal_snapshots: Default::default(),
+            stable_descriptors: [first.clone(), second.clone()].into(),
+            stable_values: addresses.clone(),
+            stable_allocation_addresses: [first.clone(), second].into(),
+            stable_reference_slots: Default::default(), normal_snapshots: Default::default(), stable_pointees: Default::default(),
         };
 
         effects.merge(&super::StorageInvalidation::All {
             stable_descriptors: [first.clone()].into(),
-            stable_values: Default::default(),
-            stable_reference_slots: Default::default(), normal_snapshots: Default::default(),
+            stable_values: addresses.clone(),
+            stable_allocation_addresses: [first.clone()].into(),
+            stable_reference_slots: Default::default(), normal_snapshots: Default::default(), stable_pointees: Default::default(),
         });
 
         assert_eq!(
             effects,
             super::StorageInvalidation::All {
                 stable_descriptors: [first.clone()].into(),
-                stable_values: Default::default(),
-                stable_reference_slots: Default::default(), normal_snapshots: Default::default()
+                stable_values: addresses,
+                stable_allocation_addresses: [first.clone()].into(),
+                stable_reference_slots: Default::default(), normal_snapshots: Default::default(), stable_pointees: Default::default()
             }
         );
+
+        let observed = super::StorageInvalidation::Observed {
+            transition: crate::StorageObservationTransition::Unchanged,
+            scope: super::StorageMutationScope::Invocation,
+            affected_pointees: Some(Default::default()),
+            accesses: Default::default(), snapshots: Default::default(), referents: Default::default(),
+            stable_descriptors: Default::default(), stable_values: Default::default(),
+            stable_reference_slots: Default::default(), normal_snapshots: Default::default(), stable_pointees: Default::default(),
+        };
+
+        for resolved in [observed.clone(), observed.with_observation_transition(crate::StorageObservationTransition::Contents)] {
+            for (mut left, right) in [(effects.clone(), resolved.clone()), (resolved, effects.clone())] {
+                left.merge(&right);
+                assert_eq!(left, effects);
+            }
+        }
 
         let physical = crate::StorageTarget { previous: false, origin: crate::StorageOrigin::entry(first.clone(), bray_symbols::DependencyReferenceKind::Borrow) };
         let mut retained = super::StorageInvalidation::unknown();
@@ -926,7 +1125,5 @@ mod tests {
             assert!(!left.preserves_reference_slot(&retired), "different physical epochs cannot retain each other");
         }
 
-        effects.merge(&super::StorageInvalidation::Paths(vec![first]));
-        assert_eq!(effects, super::StorageInvalidation::unknown());
     }
 }

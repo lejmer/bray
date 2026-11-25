@@ -33,8 +33,49 @@ impl<'a> SemanticExporter<'a> {
 
         let requirements = self.dependency_requirements(data.requirements())?;
 
-        let borrows = self
-            .dependency_order(data.borrows(), |encoder, item| {
+        let effects = self.dependency_effects(data.effects())?;
+
+        let failures = data.failure_outcomes().map(|rows| self.dependency_failure_outcomes(rows)).transpose()?;
+
+        let contract = InterfaceDependencyContract::new(requirements)
+            .with_failure_outcomes(failures)
+            .with_captured_values(self.dependency_captured_bindings(data.captured_values())?)
+            .with_effects(effects)
+            .with_synchronous_cleanup(self.dependency_requirements(data.synchronous_cleanup())?)
+            .with_normal_completion(data.normal_completion());
+
+        let exported = InterfaceDependencyContractId::new(index(self.dependency_contracts.len())?);
+
+        self.dependency_contracts.push(contract);
+
+        self.dependency_contract_ids.insert(id, exported);
+
+        Ok(exported)
+    }
+
+    fn dependency_failure_outcomes(&mut self, rows: &[bray_symbols::CapturedFailureOutcome])
+        -> Result<Vec<bray_package_interface::InterfaceFailureOutcome>, PackageInterfaceExportError> {
+        self.dependency_order(rows, |encoder, row| encoder.dependency_failure_outcome(row))?
+            .into_iter().map(|row| Ok(bray_package_interface::InterfaceFailureOutcome {
+                kind: row.kind,
+                guard: row.guard.map(|term| self.constant_term_id(term)).transpose()?,
+                report: row.report.as_deref().map(|report| self.dependency_requirements(report).map(bray_base::sorted_unique_shared_slice)).transpose()?,
+                effects: row.effects.as_deref().map(|effects| self.dependency_effects(effects).map(bray_base::sorted_unique_shared_slice)).transpose()?,
+                cell_changes: row.cell_changes.as_deref().map(|cells| self.dependency_effects(cells).map(bray_base::sorted_unique_shared_slice)).transpose()?,
+                writes: bray_base::sorted_unique_shared_slice(self.dependency_bindings(&row.writes)?),
+                references: self.dependency_borrow_relations(&row.references)?.into(),
+                stored_values: bray_symbols::DependencyStoredValue::normalize(
+                    self.dependency_stored_values(&row.stored_values)?,
+                ),
+            })).collect()
+    }
+
+    fn dependency_borrow_relations(
+        &mut self,
+        borrows: &[bray_symbols::DependencyBorrowRelation],
+    ) -> Result<Vec<bray_symbols::DependencyBorrowRelation<InterfaceDependencySubject, InterfaceDependencyProjection>>, PackageInterfaceExportError> {
+        self
+            .dependency_order(borrows, |encoder, item| {
                 encoder.dependency_borrow(item)
             })?
             .into_iter()
@@ -52,83 +93,14 @@ impl<'a> SemanticExporter<'a> {
                         .collect::<Result<Vec<_>, _>>()?,
                 ))
             })
-            .collect::<Result<Vec<_>, PackageInterfaceExportError>>()?;
+            .collect::<Result<Vec<_>, PackageInterfaceExportError>>()
+    }
 
-        let carriers = self
-            .dependency_order(data.carriers(), |encoder, item| {
-                encoder.dependency_carrier(item)
-            })?
-            .into_iter()
-            .map(|carrier| {
-                Ok(bray_symbols::DependencyWitnessCarrier::new(
-                    self.constant_term_id(carrier.guarantee())?,
-                    carrier
-                        .path()
-                        .iter()
-                        .map(|projection| self.dependency_projection(projection))
-                        .collect::<Result<Vec<_>, _>>()?,
-                ))
-            })
-            .collect::<Result<Vec<_>, PackageInterfaceExportError>>()?;
-
-        let effects = self
-            .dependency_order(data.effects(), |encoder, item| {
-                encoder.dependency_effect(item)
-            })?
-            .into_iter()
-            .map(|effect| {
-
-                Ok(match effect {
-                    DependencyStorageEffect::UnboundedMutation { kind, access_type, ambient } => DependencyStorageEffect::UnboundedMutation {
-                        kind: kind.try_map_type(|ty| self.type_id(ty))?,
-                        access_type: access_type.map(|ty| self.type_id(ty)).transpose()?,
-                        ambient: *ambient,
-                    },
-                    DependencyStorageEffect::Atomic => DependencyStorageEffect::Atomic,
-                    DependencyStorageEffect::Ambient => DependencyStorageEffect::Ambient,
-                    DependencyStorageEffect::Unknown => DependencyStorageEffect::Unknown,
-                    DependencyStorageEffect::Escape => DependencyStorageEffect::Escape,
-                    DependencyStorageEffect::Direct { subject, kind, access_type } => {
-                        DependencyStorageEffect::Direct {
-                            subject: self.dependency_subject(subject)?,
-                            kind: kind.try_map_type(|ty| self.type_id(ty))?,
-                            access_type: access_type.map(|ty| self.type_id(ty)).transpose()?,
-                        }
-                    }
-                    DependencyStorageEffect::Indirect {
-                        reference,
-                        projections,
-                        kind,
-                        access_type,
-                    } => DependencyStorageEffect::Indirect {
-                        reference: self.dependency_subject(reference)?,
-                        projections: projections
-                            .iter()
-                            .map(|projection| self.dependency_projection(projection))
-                            .collect::<Result<_, PackageInterfaceExportError>>()?,
-                        kind: kind.try_map_type(|ty| self.type_id(ty))?,
-                        access_type: access_type.map(|ty| self.type_id(ty)).transpose()?,
-                    },
-                })
-            })
-            .collect::<Result<Vec<_>, PackageInterfaceExportError>>()?;
-
-        let owned_result = self.dependency_owned_result(data.owned_result())?;
-
-        let mut contract = InterfaceDependencyContract::new(requirements);
-
-        if let Some(requirements) = data.completion_reports() {
-            contract =
-                contract.with_completion_reports(self.dependency_requirements(requirements)?);
-        }
-
-        if let Some(requirements) = data.abnormal_reports() {
-            contract = contract.with_abnormal_reports(self.dependency_requirements(requirements)?);
-        }
-
-        let contract = contract
-            .with_borrows(borrows)
-            .with_stored_values(self.dependency_order(data.stored_values(), |encoder, stored| encoder.dependency_stored_value(stored))?
+    fn dependency_stored_values(
+        &mut self,
+        values: &[bray_symbols::DependencyStoredValue],
+    ) -> Result<Vec<bray_symbols::DependencyStoredValue<InterfaceDependencySubject>>, PackageInterfaceExportError> {
+        self.dependency_order(values, |encoder, stored| encoder.dependency_stored_value(stored))?
                 .into_iter().map(|stored| {
                     let sources = self.dependency_order(stored.sources(), |encoder, source| encoder.dependency_stored_value_path(source))?
                         .into_iter().map(|source| Ok(bray_symbols::DependencyStoredValuePath::new(self.dependency_subject(source.subject())?, source.dereferences()))).collect::<Result<Vec<_>, PackageInterfaceExportError>>()?;
@@ -136,26 +108,134 @@ impl<'a> SemanticExporter<'a> {
                     Ok(bray_symbols::DependencyStoredValue::new(
                         bray_symbols::DependencyStoredValuePath::new(self.dependency_subject(stored.destination().subject())?, stored.destination().dereferences()), sources, stored.is_complete(),
                     ))
-                }).collect::<Result<Vec<_>, PackageInterfaceExportError>>()?)
-            .with_carriers(carriers)
-            .with_owned_result(owned_result)
-            .with_observed_result(
-                data.observed_result()
-                    .map(|term| self.constant_term_id(term))
-                    .transpose()?,
-            )
-            .with_effects(effects)
-            .with_synchronous_cleanup(self.dependency_requirements(data.synchronous_cleanup())?)
-            .with_normal_completion(data.normal_completion())
-            .with_normal_storage_preservation(data.preserves_storage_on_normal_return());
+                }).collect::<Result<Vec<_>, PackageInterfaceExportError>>()
+    }
 
-        let exported = InterfaceDependencyContractId::new(index(self.dependency_contracts.len())?);
+    fn dependency_effects(
+        &mut self,
+        effects: &[DependencyStorageEffect],
+    ) -> Result<Vec<bray_package_interface::InterfaceStorageEffect>, PackageInterfaceExportError> {
+        self.dependency_order(effects, |encoder, effect| encoder.dependency_effect(effect))?
+            .into_iter().map(|effect| effect.try_map(
+                self,
+                Self::dependency_subject,
+                |exporter, projections| projections.iter()
+                    .map(|projection| exporter.dependency_projection(projection)).collect(),
+                Self::type_id,
+            )).collect()
+    }
 
-        self.dependency_contracts.push(contract);
+    fn dependency_captured_bindings(&mut self, bindings: &[bray_symbols::CapturedValueOutcome]) -> Result<Vec<bray_package_interface::InterfaceNormalOutcome>, PackageInterfaceExportError> {
+        self.dependency_order(bindings, |encoder, binding| encoder.dependency_captured_binding(binding))?
+            .into_iter().map(|outcome| {
+                let guard = outcome.guard.map(|term| self.constant_term_id(term)).transpose()?;
 
-        self.dependency_contract_ids.insert(id, exported);
+                let report = outcome.report.as_ref().map(|requirements|
+                    self.dependency_requirements(requirements).map(bray_base::sorted_unique_shared_slice)).transpose()?;
 
-        Ok(exported)
+                let report_payloads = self.dependency_order(&outcome.report_payloads, |encoder, payload| {
+                    encoder.dependency_subject(&payload.destination)
+                })?.into_iter().map(|payload| payload.try_map(
+                    self,
+                    Self::dependency_subject,
+                    |exporter, requirements| exporter.dependency_requirements(requirements).map(bray_base::sorted_unique_shared_slice),
+                )).collect::<Result<Vec<_>, _>>()?;
+
+                let bindings = self.dependency_bindings(&outcome.bindings)?;
+
+        let carriers = self
+            .dependency_order(&outcome.carriers, |encoder, item| {
+                encoder.dependency_carrier(item)
+            })?
+            .into_iter()
+            .map(|carrier| {
+                let support = carrier.support().map(|support| support.try_map(
+                    self, Self::dependency_subject,
+                    |exporter, address| exporter.constant_term_id(*address),
+                )).transpose()?;
+
+                Ok(bray_symbols::DependencyWitnessCarrier::new(
+                    self.constant_term_id(carrier.guarantee())?,
+                    carrier
+                        .path()
+                        .iter()
+                        .map(|projection| self.dependency_projection(projection))
+                        .collect::<Result<Vec<_>, _>>()?,
+                ).with_support(support))
+            })
+            .collect::<Result<Vec<_>, PackageInterfaceExportError>>()?;
+
+                let effects = self.dependency_effects(&outcome.effects)?;
+
+                let cell_changes = outcome.cell_changes.as_deref().map(|cells| {
+                    self.dependency_effects(cells).map(bray_base::sorted_unique_shared_slice)
+                }).transpose()?;
+
+                Ok(bray_symbols::CapturedValueOutcome::new(guard, bindings).with_effects(effects).with_cell_changes(cell_changes).with_carriers(carriers).with_report(report)
+                    .with_report_payloads(report_payloads)
+                    .with_ownership(self.dependency_owned_result(&outcome.ownership)?)
+                    .with_storage(self.dependency_borrow_relations(&outcome.references)?,
+                        self.dependency_stored_values(&outcome.stored_values)?)
+                    .with_inactive_payloads(self.dependency_order(&outcome.inactive_payloads, |encoder, subject| encoder.dependency_subject(subject))?
+                        .into_iter().map(|subject| self.dependency_subject(subject))
+                        .collect::<Result<Vec<_>, _>>()?))
+            }).collect()
+    }
+
+    fn dependency_bindings(
+        &mut self,
+        bindings: &[(DependencySubject, bray_symbols::CapturedValueTemplate)],
+    ) -> Result<Vec<bray_package_interface::InterfaceCapturedBinding>, PackageInterfaceExportError> {
+        self.dependency_order(bindings, |encoder, write| encoder.dependency_captured_write(write))?
+                    .into_iter().map(|(destination, value)| {
+                let mut inputs = std::collections::BTreeMap::new();
+                let mut projections = std::collections::BTreeMap::new();
+
+                for input in value.terms() {
+                    if !inputs.contains_key(input) { inputs.insert(*input, self.constant_term_id(*input)?); }
+                }
+
+                for projection in value.projections() {
+                    if !projections.contains_key(projection) { projections.insert(*projection, self.dependency_projection(projection)?); }
+                }
+
+                let mut variants = std::collections::BTreeMap::new();
+
+                for variant in value.variants() {
+                    if !variants.contains_key(variant) { variants.insert(*variant, self.symbol_reference((*variant).into())?); }
+                }
+
+                let mut callees = std::collections::BTreeMap::new();
+
+                for call in value.callees() {
+                    if callees.contains_key(call) { continue; }
+
+                    callees.insert(call, bray_package_interface::InterfaceCapturedCallable {
+                        instance: self.callable_instance_id(call.instance)?, signature: self.type_id(call.signature)?,
+                        receiver: call.receiver.map(|ty| self.type_id(ty)).transpose()?,
+                        requirement: call.requirement.map(|r| Ok((self.type_id(r.subject())?, self.trait_application_id(r.trait_application())?))).transpose()?,
+                        dispatch: call.dispatch.map(|w| self.implementation_instance_id(w)).transpose()?,
+                        witnesses: call.witnesses.iter().map(|w| self.implementation_instance_id(*w)).collect::<Result<_, _>>()?,
+                    });
+                }
+
+                Ok((self.dependency_subject(destination)?, value.try_map(&mut |input| Ok::<_, PackageInterfaceExportError>(inputs[input]),
+                        &mut |projection| Ok(projections[projection].clone()),
+                        &mut |root| self.captured_static_reference(root), &mut |callee| Ok(callees[callee].clone()),
+                        &mut |variant| Ok(variants[variant].clone()))?))
+                }).collect()
+    }
+
+    fn captured_static_reference(&mut self, root: &bray_symbols::StaticReferenceSelection)
+        -> Result<bray_package_interface::InterfaceStaticReference, PackageInterfaceExportError>
+    {
+        let witnesses = root.selected_witnesses().iter().map(|witness| self.implementation_instance_id(*witness))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(bray_package_interface::InterfaceStaticReference::new(
+            self.symbol_reference(root.template().declaration().into())?, self.substitution_id(root.substitution())?,
+            witnesses, root.target().clone(), root.closed_instance().is_some(),
+        ))
     }
 
     fn dependency_owned_result(
@@ -416,6 +496,11 @@ impl<'a> SemanticExporter<'a> {
             }
             DependencySubjectRoot::ExactThreadStatic(id) => {
                 InterfaceDependencySubjectRoot::ExactThreadStatic(self.symbol_reference(id.into())?)
+            }
+            DependencySubjectRoot::StaticInstance(reference, duration) => {
+                let reference = self.values.static_reference(reference);
+
+                InterfaceDependencySubjectRoot::StaticInstance(self.captured_static_reference(&reference)?, duration)
             }
         };
 
@@ -680,9 +765,12 @@ mod tests {
                             .with_completion_reports([guarded])
                             .with_abnormal_reports([equations])
                     }
-                    "borrows" => DependencyContractTemplateData::new([]).with_borrows(borrows),
-                    "carriers" => DependencyContractTemplateData::new([]).with_carriers(carriers),
-                    "effects" => DependencyContractTemplateData::new([]).with_effects(effects),
+                    "borrows" => DependencyContractTemplateData::new([]).with_captured_values([
+                        bray_symbols::CapturedValueOutcome::new(None, [])
+                            .with_effects(DependencyStorageEffect::opaque_call()).with_storage(borrows, []),
+                    ]),
+                    "carriers" => DependencyContractTemplateData::new([]).with_captured_values([bray_symbols::CapturedValueOutcome::new(None, []).with_carriers(carriers)]),
+                    "effects" => DependencyContractTemplateData::new([]).with_possible_effects(effects),
                     _ => unreachable!(),
                 };
 
@@ -745,7 +833,7 @@ mod tests {
         let outer = values
             .intern_dependency_contract_template(
                 DependencyContractTemplateData::new([])
-                    .with_effects([DependencyStorageEffect::UnboundedMutation { kind: bray_symbols::DependencyMutationKind::Dispose(callable), access_type: None, ambient: false }])
+                    .with_possible_effects([DependencyStorageEffect::UnboundedMutation { kind: bray_symbols::DependencyMutationKind::Dispose(callable), access_type: None, ambient: false }])
                     .with_normal_completion(false),
             )
             .expect("fixture dependency contract must be interned");

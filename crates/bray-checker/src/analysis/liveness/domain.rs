@@ -50,15 +50,25 @@ impl<'a, T: Copy + Ord> SetLiveness<'a, T> {
 
 impl<T: Copy + Ord> FixedPointDomain for SetLiveness<'_, T> {
     type State = BTreeSet<T>;
+
     fn direction(&self) -> FlowDirection {
         FlowDirection::Backward
     }
+
     fn bottom(&self) -> Self::State {
         BTreeSet::new()
     }
+
+    fn should_seed(&self, block: &AnalysisBlock) -> bool {
+        self.reachability
+            .is_none_or(|reachable| reachable.is_block_reachable(block.id()))
+            && !self.transfer(block).generated.is_empty()
+    }
+
     fn boundary(&self) -> Self::State {
         BTreeSet::new()
     }
+
     fn merge(
         &self,
         _: Option<AnalysisBlockId>,
@@ -70,12 +80,6 @@ impl<T: Copy + Ord> FixedPointDomain for SetLiveness<'_, T> {
         target.extend(source.iter().copied());
 
         target.len() != before
-    }
-
-    fn should_seed(&self, block: &AnalysisBlock) -> bool {
-        self.reachability
-            .is_none_or(|reachable| reachable.is_block_reachable(block.id()))
-            && !self.transfer(block).generated.is_empty()
     }
 
     fn transfer(&self, block: &AnalysisBlock, source: &Self::State) -> Self::State {

@@ -300,36 +300,6 @@ fn trivial_generic_statics_use_direct_native_storage() {
 
 #[test]
 #[ignore = "tier:native"]
-fn exact_thread_static_emits_attachment_owned_cleanup() {
-    let source = concat!(
-        "module app;\n",
-        "@thread_local static THREAD_ANSWER: i32 = 42;\n",
-        "func main() -> i32\n",
-        "{\n",
-        "    return THREAD_ANSWER;\n",
-        "}\n",
-    );
-
-    let (backend, plan) = runtime_native_plan(source);
-
-    let mappings = plan
-        .mappings()
-        .iter()
-        .flat_map(bray_codegen::CodegenMappings::static_storages)
-        .filter(|mapping| mapping.instance().duration() == StaticStorageDuration::ExactThread)
-        .collect::<Vec<_>>();
-
-    assert!(!mappings.is_empty());
-
-    assert!(
-        generated_artifacts(&backend, &plan)
-            .iter()
-            .all(|artifact| !artifact.is_empty())
-    );
-}
-
-#[test]
-#[ignore = "tier:native"]
 fn repeated_static_references_emit_one_native_instance() {
     let source = r#"module app;
 

@@ -2,12 +2,12 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use bray_bound_tree::{
-    AnyBoundNodeId, AsyncScopeExitPlan, AsyncStorageExitDisposition, AsyncSuspensionPoint,
+    AnyBoundNodeId, AsyncSuspensionPoint, StorageExitDecision,
     AsyncTaskOperationKind, BoundDependencySubject, BoundExpressionId, BoundUnit, BoundUnitId,
     BoundUnitKind, CheckedAsync, CheckedBodyBehavior, CheckedControlFlow,
     CheckedDependencyContracts, CheckedExpressionTypes, CheckedLiteralValues, CheckedPatterns,
     CheckedRefinements, CheckedSemanticSelections, Liveness, StorageAccessId, StorageExitPoint,
-    StorageFlow, StorageIdentityId, StoragePlan, StorageReplacementPlan, StorageReplacementState,
+    StorageFlow, StorageIdentityId, StoragePlan, StorageReplacementDecision, StorageReplacementState,
     StorageScope,
 };
 use bray_ir::{MirOperand, MirTargetContract, MirUnitBuilder, MirUnitKind};
@@ -53,8 +53,6 @@ pub struct LoweringInput<'unit> {
     selections: &'unit CheckedSemanticSelections,
     symbols: &'unit AvailableCompilerKnownSymbols,
     async_analysis: &'unit CheckedAsync,
-    suspensions: BTreeMap<bray_bound_tree::BoundExecutionSite, usize>,
-    task_operations: BTreeMap<BoundExpressionId, AsyncTaskOperationKind>,
     lifecycle_storage: BTreeSet<StorageIdentityId>,
     completed: BTreeSet<bray_bound_tree::CompletedFinalizer>,
     body_behavior: &'unit CheckedBodyBehavior,
@@ -224,44 +222,11 @@ impl<'unit> LoweringInput<'unit> {
             "source lowering input cannot use an executable-host unit kind"
         );
 
-        let mut suspensions = BTreeMap::new();
-
-        for (index, suspension) in async_analysis.suspensions().iter().enumerate() {
-            assert!(
-                suspensions.insert(suspension.occurrence(), index).is_none(),
-                "checked async analysis contains duplicate suspension for {:?}",
-                suspension.occurrence()
-            );
-        }
-
-        let mut task_operations = BTreeMap::new();
-
-        for operation in async_analysis.task_operations() {
-            assert!(
-                task_operations
-                    .insert(operation.expression(), operation.kind())
-                    .is_none(),
-                "checked async analysis contains duplicate task operation for {:?}",
-                operation.expression()
-            );
-        }
-
-        let mut lifecycle_storage = BTreeSet::new();
-
-        for plan in async_analysis.scope_exits() {
-            for decision in plan.storage() {
-                if let AsyncStorageExitDisposition::Cleanup { phases, .. } = decision.disposition()
-                    && phases.includes_lifecycle()
-                    && !generator_observations.is_some_and(|observations| {
-                        storage
-                            .root_access(decision.identity())
-                            .is_some_and(|access| observations.eliminates(storage, access))
-                    })
-                {
-                    lifecycle_storage.insert(decision.identity());
-                }
-            }
-        }
+        let lifecycle_storage = storage_flow.exits().iter()
+            .flat_map(StorageExitDecision::cleanup_accesses)
+            .filter(|access| !generator_observations.is_some_and(|observations| observations.eliminates(storage, *access)))
+            .map(|access| storage.root_identity(access).expect("scheduled scope cleanup retains its storage root"))
+            .collect();
 
         Self {
             unwind: None,
@@ -281,8 +246,6 @@ impl<'unit> LoweringInput<'unit> {
             selections,
             symbols,
             async_analysis,
-            suspensions,
-            task_operations,
             lifecycle_storage,
             completed,
             body_behavior,
@@ -383,8 +346,8 @@ impl<'unit> LoweringInput<'unit> {
     pub fn replacement(
         &self,
         expression: BoundExpressionId,
-    ) -> Option<&'unit StorageReplacementPlan> {
-        self.async_analysis.replacement(expression)
+    ) -> Option<&'unit StorageReplacementDecision> {
+        self.storage_flow.replacement(expression)
     }
 
     /// Returns frame dependencies in the order published by checked async analysis.
@@ -397,23 +360,21 @@ impl<'unit> LoweringInput<'unit> {
         &self,
         occurrence: impl Into<bray_bound_tree::BoundExecutionSite>,
     ) -> Option<&'unit AsyncSuspensionPoint> {
-        self.suspensions
-            .get(&occurrence.into())
-            .and_then(|index| self.async_analysis.suspensions().get(*index))
+        self.async_analysis.suspension(occurrence.into())
     }
 
     /// Returns the checked task operation for one selected call.
     pub fn task_operation(&self, expression: BoundExpressionId) -> Option<AsyncTaskOperationKind> {
-        self.task_operations.get(&expression).copied()
+        self.async_analysis.task_operation(expression)
     }
 
-    /// Returns checked scope-exit plans for active scopes in cleanup order.
+    /// Returns checked exit decisions for active scopes in cleanup order.
     pub(crate) fn cleanup_plans(
         &self,
         active_scopes: &[StorageScope],
         scope_depth: usize,
         exit: AnyBoundNodeId,
-    ) -> Vec<AsyncScopeExitPlan> {
+    ) -> Vec<&'unit StorageExitDecision> {
         let scopes = active_scopes.get(scope_depth..).unwrap_or_else(|| {
             panic!(
                 "lowering cleanup contract violated: scope depth {scope_depth} exceeds {} active scopes for exit {exit:?}",
@@ -425,9 +386,7 @@ impl<'unit> LoweringInput<'unit> {
             .iter()
             .rev()
             .map(|scope| {
-                self.async_analysis.scope_exit_plan(*scope, exit)
-                    // Lowering mutates its builder while retaining these shared immutable plans.
-                    .cloned()
+                self.scope_exit(*scope, exit)
                     .unwrap_or_else(|| {
                         panic!(
                             "lowering cleanup contract violated: missing scope-exit plan for scope {scope:?} and exit {exit:?} in {:?}, node: {:?}; selected operation: {:?}",
@@ -446,26 +405,25 @@ impl<'unit> LoweringInput<'unit> {
             .collect()
     }
 
+    pub(crate) fn scope_exit(
+        &self,
+        scope: StorageScope,
+        exit: AnyBoundNodeId,
+    ) -> Option<&'unit StorageExitDecision> {
+        self.storage_flow.exit(StorageExitPoint::new(scope, exit))
+    }
+
+    pub(crate) fn cleanup_may_fail(&self, scope: StorageScope, exit: AnyBoundNodeId, kind: bray_symbols::DependencyFailureKind) -> bool {
+        self.storage_flow.cleanup_may_fail(StorageExitPoint::new(scope, exit), kind)
+    }
+
     /// Returns the checked cleanup status for one scope exit.
     pub(crate) fn scope_cleanup_status(
         &self,
         scope: StorageScope,
         exit: AnyBoundNodeId,
     ) -> ScopeExitCleanupStatus {
-        let Some(plan) = self.async_analysis.scope_exit_plan(scope, exit) else {
-            let point = StorageExitPoint::new(scope, exit);
-
-            if self
-                .storage_flow
-                .reachable_exits()
-                .binary_search(&point)
-                .is_ok()
-            {
-                panic!(
-                    "lowering cleanup contract violated: missing scope-exit plan for reachable scope {scope:?} and exit {exit:?}"
-                );
-            }
-
+        let Some(plan) = self.scope_exit(scope, exit) else {
             return ScopeExitCleanupStatus::Unreachable;
         };
 
@@ -478,17 +436,10 @@ impl<'unit> LoweringInput<'unit> {
 
     /// Returns storage occurrences whose cleanup depends on runtime initialization state.
     pub(crate) fn initialization_guards(&self) -> impl Iterator<Item = StorageAccessId> + '_ {
-        self.async_analysis
-            .scope_exits()
+        self.storage_flow
+            .exits()
             .iter()
-            .flat_map(|exit| {
-                exit.storage()
-                    .iter()
-                    .filter_map(|decision| match decision.disposition() {
-                        AsyncStorageExitDisposition::Cleanup { access, .. } => Some(access),
-                        _ => None,
-                    })
-            })
+            .flat_map(StorageExitDecision::cleanup_accesses)
             .chain(
                 self.async_analysis
                     .suspensions()
@@ -626,14 +577,14 @@ fn assert_input_owner(
 #[cfg(test)]
 mod tests {
     use bray_bound_tree::{
-        AsyncScopeExitPlan, AsyncSuspensionKind, AsyncSuspensionPoint, BoundBlock,
+        BoundBlock,
         BoundBlockExpression, BoundBlockItem, BoundDependencyContract, BoundExpression,
         BoundExpressionId, BoundNodeOrigin, BoundStructuredExpression,
-        BoundStructuredExpressionKind, BoundTreeBuilder, BoundUnit, BoundUnitRoot, CheckedAsync,
+        BoundStructuredExpressionKind, BoundTreeBuilder, BoundUnit, CheckedAsync,
         CheckedBodyBehavior, CheckedControlFlow, CheckedDependencyContracts,
         CheckedExpressionTypes, CheckedLiteralValues, CheckedPatterns, CheckedRefinements,
         CheckedSemanticSelections, ControlCompletion, Liveness, StorageAccess,
-        StorageAccessPurpose, StorageAccessRoot, StorageExitDecision, StorageExitPoint,
+        StorageAccessPurpose, StorageAccessRoot, StorageExitDecision,
         StorageFlow, StorageIdentity, StorageOperationDecision, StorageOperationStatus,
         StoragePlanBuilder,
     };
@@ -830,7 +781,7 @@ mod tests {
         ];
 
         analysis.storage_flow =
-            StorageFlow::try_new(unit.unit(), kind, operations, [], [], [], [], false)
+            StorageFlow::try_new(unit.unit(), kind, operations, [], [], [], false)
                 .expect("fixture storage flow must be valid");
 
         let control_flow = CheckedControlFlow::new(unit.unit(), kind, ControlCompletion::default());
@@ -904,7 +855,6 @@ mod tests {
             [],
             [],
             [],
-            [StorageExitPoint::new(scope.into(), exit)],
             [StorageExitDecision::new(
                 scope.into(),
                 exit,
@@ -925,27 +875,6 @@ mod tests {
         analysis.storage = storage;
         analysis.storage_flow = storage_flow;
 
-        analysis.async_analysis = CheckedAsync::try_new(
-            unit.unit(),
-            kind,
-            [],
-            [],
-            [],
-            [],
-            [],
-            [AsyncScopeExitPlan::new(
-                scope.into(),
-                exit,
-                [],
-                [],
-                [],
-                [],
-                false,
-            )],
-            false,
-        )
-        .unwrap_or_else(|error| panic!("matching async exit must build: {error:?}"));
-
         let control_flow = CheckedControlFlow::new(unit.unit(), kind, ControlCompletion::default());
 
         let input = lowering_input(&unit, &control_flow, (&analysis).into());
@@ -963,46 +892,6 @@ mod tests {
         );
 
         input.cleanup_plans(&[scope.into()], 0, unreachable_exit);
-    }
-
-    #[test]
-    #[should_panic(expected = "duplicate suspension")]
-    fn input_asserts_duplicate_suspension_indexes() {
-        let unit = test_runtime_default_unit(28, push_unit_expression);
-
-        let BoundUnitRoot::Expression(expression) = unit.root() else {
-            panic!("test expression unit must retain its root");
-        };
-
-        let point = AsyncSuspensionPoint::new(
-            expression,
-            AsyncSuspensionKind::Yield,
-            None,
-            [],
-            [],
-            [],
-            false,
-        );
-
-        let mut analysis = empty_expression_inputs(&unit);
-
-        analysis.async_analysis = CheckedAsync::try_new(
-            unit.unit(),
-            unit.key().kind(),
-            [],
-            [point.clone(), point],
-            [],
-            [],
-            [],
-            [],
-            false,
-        )
-        .unwrap_or_else(|error| panic!("duplicate suspension analysis must build: {error:?}"));
-
-        let control_flow =
-            CheckedControlFlow::new(unit.unit(), unit.key().kind(), ControlCompletion::default());
-
-        let _ = lowering_input(&unit, &control_flow, (&analysis).into());
     }
 
     #[test]
@@ -1129,7 +1018,7 @@ mod tests {
         let storage = StoragePlanBuilder::new(unit.unit(), unit.key().kind()).finish();
 
         let storage_flow =
-            StorageFlow::try_new(unit.unit(), unit.key().kind(), [], [], [], [], [], false)
+            StorageFlow::try_new(unit.unit(), unit.key().kind(), [], [], [], [], false)
                 .unwrap_or_else(|error| panic!("empty storage flow must validate: {error:?}"));
 
         let liveness = Liveness::try_new(unit.unit(), unit.key().kind(), [], [], [], [], [], false)
@@ -1139,7 +1028,6 @@ mod tests {
             unit.unit(),
             unit.key().kind(),
             [],
-            Default::default(),
             false,
         )
         .unwrap_or_else(|error| panic!("empty refinements must validate: {error:?}"));
@@ -1160,7 +1048,6 @@ mod tests {
         let async_analysis = CheckedAsync::try_new(
             unit.unit(),
             unit.key().kind(),
-            [],
             [],
             [],
             [],

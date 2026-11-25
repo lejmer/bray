@@ -7,6 +7,18 @@ use bray_symbols::{
 
 use crate::{CheckerQueryError, CheckerRequestContext, CheckerUnitView};
 
+pub(in crate::dependency) fn recursive_call_result<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
+    call: &SelectedCall,
+) -> Result<Option<DependencyContractTemplateData>, CheckerQueryError<C::UpstreamError>> {
+    let recursive = call.resolution().declaration_source().is_some_and(|instance| {
+        request.is_recursive_result(instance.definition().callable_symbol())
+            && call.resolution().trait_dispatch().is_none()
+    });
+
+    recursive.then(|| deferred_result(request, call, None)).transpose()
+}
+
 pub(super) fn deferred_result<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     call: &SelectedCall,
@@ -219,7 +231,7 @@ impl<C: CheckerRequestContext + ?Sized> ResultResolver<'_, C> {
         let template = instantiate_template(request, template, selected)?;
 
         let requirements = template.output_requirements(selected.output);
-        let result = DependencyContractTemplateData::new(self.requirements(requirements)?);
+        let result = DependencyContractTemplateData::new(self.requirements(&requirements)?);
 
         self.active.remove(&key);
 

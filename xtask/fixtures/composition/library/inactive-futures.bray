@@ -1,8 +1,19 @@
 module api;
 
+using core.atomic;
+
+static BODY_STARTS: core.atomic.Atomic<usize> = core.atomic.initialize<usize>(0);
+
 async func hold_inactive<T>(pos value: T)
 {
+    _ = core.atomic.fetch_add<usize, 3>(&BODY_STARTS, 1);
+
     panic("inactive computation body");
+}
+
+func inactive_body_starts() -> usize
+{
+    return core.atomic.load<usize, 1>(&BODY_STARTS);
 }
 
 func discard_inactive<T>(pos value: T, pos failing: bool)

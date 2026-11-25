@@ -371,7 +371,7 @@ fn borrowed_trait_view_rejects_members_outside_its_surface() {
                 }};
 
                 let concrete = cell.constrained();
-                let selected: &view Surface = &cell;
+                let mut selected: &view Surface = &cell;
 
                 {statement}
             }}
@@ -703,12 +703,12 @@ fn borrowed_trait_view_preserves_parameter_preconditions() {
             }
         }
 
-        func read(pos selected: &view Value) -> i32
+        func read(pos selected: &view Value, pos input: i32) -> i32
         {
-            return selected.read(1);
+            return selected.read(input);
         }
 
-        func exercise() -> i32
+        func exercise(pos input: i32) -> i32
         {
             let cell = Cell
             {
@@ -717,7 +717,7 @@ fn borrowed_trait_view_preserves_parameter_preconditions() {
 
             let selected: &view Value = &cell;
 
-            return read(selected);
+            return read(selected, input);
         }
         "#,
     );
@@ -729,10 +729,19 @@ fn borrowed_trait_view_preserves_parameter_preconditions() {
     );
 
     let lowered = application
-        .lowered_unit(source_function_body_key(&application, "exercise"))
+        .lowered_unit(source_function_body_key(&application, "read"))
         .expect("borrowed trait-view body must lower");
 
-    assert!(lowered.value().is_some(), "{:?}", lowered.diagnostics());
+    let mir = lowered.value().as_ref().and_then(|unit| unit.mir()).expect("read retains its MIR");
+    let reached = bray_ir::reachable_blocks(mir, [mir.entry()], &Default::default());
+
+    let operations = || reached.iter().flat_map(|id| mir.block(*id).expect("reached block exists").operations())
+        .map(|id| mir.operation(*id).expect("reached block retains its operations").kind());
+
+    assert!(operations().any(|operation| matches!(operation, bray_ir::MirOperationKind::Call(call)
+        if matches!(call.target(), bray_ir::MirCallTarget::Indirect { .. }))));
+
+    assert!(operations().any(|operation| matches!(operation, bray_ir::MirOperationKind::PanicReport(_))));
 }
 
 #[test]

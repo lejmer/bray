@@ -517,6 +517,7 @@ pub enum InterfacePredicateDefinitionState {
 pub struct InterfacePredicateDefinition {
     pub(crate) owner: InterfaceSymbolReference,
     pub(crate) state: InterfacePredicateDefinitionState,
+    pub(crate) domain: bray_symbols::PredicateDomain,
     pub(crate) condition: Option<super::InterfaceConstantTermId>,
     pub(crate) parameters: Arc<
         [(
@@ -529,10 +530,15 @@ pub struct InterfacePredicateDefinition {
 
 impl InterfacePredicateDefinition {
     /// Creates one durable predicate definition record.
-    pub fn new(owner: InterfaceSymbolReference, state: InterfacePredicateDefinitionState) -> Self {
+    pub fn new(
+        owner: InterfaceSymbolReference,
+        state: InterfacePredicateDefinitionState,
+        domain: bray_symbols::PredicateDomain,
+    ) -> Self {
         Self {
             owner,
             state,
+            domain,
             condition: None,
             parameters: Arc::from([]),
         }
@@ -564,6 +570,11 @@ impl InterfacePredicateDefinition {
     /// Returns the checked predicate meaning in terms of its ordered parameters.
     pub const fn condition(&self) -> Option<super::InterfaceConstantTermId> {
         self.condition
+    }
+
+    /// Returns the authority required to establish this predicate.
+    pub const fn domain(&self) -> bray_symbols::PredicateDomain {
+        self.domain
     }
 
     /// Returns the predicate signature in declaration order.

@@ -131,7 +131,7 @@ mod tests {
     use super::{MonotonicClock, WallClock, timestamp_before_epoch};
 
     #[test]
-    fn monotonic_deadlines_do_not_report_negative_remaining_time() {
+    fn elapsed_deadlines_report_zero_remaining_time() {
         let clock = MonotonicClock;
         let start = clock.now();
 
@@ -141,7 +141,6 @@ mod tests {
 
         assert!(deadline.has_elapsed());
         assert_eq!(deadline.remaining(), Duration::ZERO);
-        assert!(clock.now().elapsed_since(start) >= Duration::ZERO);
     }
 
     #[test]

@@ -43,15 +43,8 @@ where
             BoundReferenceTarget::Surface(AnySymbolId::ReceiverParameter(id)) => {
                 self.builder().binding(StorageBindingTarget::Receiver(id))
             }
-            BoundReferenceTarget::Surface(AnySymbolId::Static(id)) => {
-                let target = StorageBindingTarget::Static(id);
-
-                if self.builder().binding(target).is_none() {
-                    let ty = self.expression_type(expression).ty();
-                    let _ = self.bind_identity(target, StorageIdentity::Static(id), Some(ty))?;
-                }
-
-                self.builder().binding(target)
+            BoundReferenceTarget::Surface(AnySymbolId::Static(_)) => {
+                return self.temporary_access(expression);
             }
             BoundReferenceTarget::Surface(AnySymbolId::PredicateParameter(id)) => self
                 .builder()
@@ -86,6 +79,22 @@ where
             Some(StorageBinding::Access(access)) => self.copy_access(expression, access),
             None => self.temporary_access(expression),
         }
+    }
+
+    pub(super) fn static_access(
+        &mut self,
+        expression: BoundExpressionId,
+        selection: &bray_symbols::StaticReferenceSelection,
+    ) -> Result<StorageAccessId, PlanError<C::UpstreamError>> {
+        let ty = self.expression_type(expression).ty();
+
+        let identity = self.builder_mut().push_identity(StorageIdentity::Static(selection.clone().into()))
+            .expect("checked static selection belongs to this plan");
+
+        self.builder_mut().set_identity_type(identity, ty)
+            .expect("checked static selection retains its storage type");
+
+        self.direct_access(expression, identity)
     }
 
     fn receiver_field_access(
@@ -329,7 +338,7 @@ where
         )
     }
 
-    fn direct_access(
+    pub(super) fn direct_access(
         &mut self,
         expression: BoundExpressionId,
         storage: bray_bound_tree::StorageIdentityId,
@@ -625,6 +634,8 @@ where
         stored_type: TypeId,
         reached_type: bray_bound_tree::ExpressionTypeResult,
     ) -> Result<StorageAccessId, PlanError<C::UpstreamError>> {
+        let is_index = matches!(identity, StorageIdentity::CustomIndexBorrow(_));
+
         let storage = self
             .builder_mut()
             .push_identity(identity).unwrap_or_else(|error| panic!("The storage-plan builder rejected one exact relationship. in retain_borrow_value: {error:?}"));
@@ -632,7 +643,7 @@ where
         self.builder_mut()
             .set_identity_type(storage, stored_type).unwrap_or_else(|error| panic!("The storage-plan builder rejected one exact relationship. in retain_borrow_value: {error:?}"));
 
-        if matches!(identity, StorageIdentity::CustomIndexBorrow(_)) {
+        if is_index {
             self.builder_mut().bind(
                 StorageBindingTarget::InvocationResult(expression.into()),
                 bray_bound_tree::StorageBinding::Identity(storage),
@@ -675,17 +686,24 @@ where
         let is_recovered = node.is_recovered();
 
         let occurrence = match identity {
-            StorageIdentity::InvocationResult(occurrence) => occurrence,
-            StorageIdentity::ScopedCapability { expression, .. } => bray_bound_tree::BoundExecutionSite::ScopedEnter(expression),
+            StorageIdentity::InvocationResult(occurrence) => Some(occurrence),
+            StorageIdentity::ScopedCapability { expression, fallible_entry: false, .. } => Some(bray_bound_tree::BoundExecutionSite::ScopedEnter(expression)),
+            StorageIdentity::ScopedCapability { fallible_entry: true, .. } => None,
             _ => unreachable!("protocol storage belongs to an implicit invocation"),
         };
 
-        let storage = self.bind_identity(
-            StorageBindingTarget::InvocationResult(occurrence), identity, Some(ty),
-        )?.expect("selected invocation result is planned once");
+        let storage = if let Some(occurrence) = occurrence {
+            self.bind_identity(StorageBindingTarget::InvocationResult(occurrence), identity, Some(ty))?
+                .expect("selected invocation result is planned once")
+        } else {
+            let storage = self.builder_mut().push_identity(identity)
+                .expect("scoped capability retains its own storage identity");
 
-        self.builder_mut()
-            .set_identity_type(storage, ty).unwrap_or_else(|error| panic!("The storage-plan builder rejected one exact relationship. in protocol_access: {error:?}"));
+            self.builder_mut().set_identity_type(storage, ty)
+                .expect("scoped capability stores its selected output type");
+
+            storage
+        };
 
         let access = StorageAccess::new(
             StorageAccessRoot::Storage(storage),
@@ -739,10 +757,15 @@ where
         expression: BoundExpressionId,
         value: Option<BoundExpressionId>,
     ) -> Result<StorageAccessId, PlanError<C::UpstreamError>> {
-        let result = match value {
+        let source = match value {
             Some(value) => self.expression_type(value),
             None => self.expression_type(expression),
         };
+
+        let result = bray_bound_tree::ExpressionTypeResult::new(
+            self.types.callable_result_type().unwrap_or_else(|| source.ty()),
+            source.status(),
+        );
 
         self.push_expression_access(
             expression,

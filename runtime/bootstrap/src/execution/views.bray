@@ -6,6 +6,7 @@ using core.memory;
 using core.target;
 using std.memory;
 using std.numeric;
+using internal std.sync.spin_lock;
 using internal bray.runtime.bootstrap;
 using internal bray.runtime.bootstrap.heap;
 
@@ -39,7 +40,10 @@ trusted internal func view_context(pos owner: &Current) -> &Context
         trusted view_owned(owner = &owner.acquisition),
         owner.status == 0 || !std.memory.is_null<Context>(owner.pointer)
     )
-    ensures(trusted view_owned(owner = &owner.acquisition))
+    ensures(
+        trusted view_owned(owner = &owner.acquisition),
+        trusted std.sync.spin_lock.valid(&result.pending.prepared.instance)
+    )
     executes(pure, total)
     uses(raw_memory, unchecked_alias)
 {

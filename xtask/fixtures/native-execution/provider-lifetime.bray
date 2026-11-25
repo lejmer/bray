@@ -16,7 +16,7 @@ struct State
     {
         if core.atomic.load<usize, 1>(&self.visits) != 2 * core.atomic.load<usize, 1>(&self.produced)
         {
-            trusted core.target.abort();
+            core.target.abort();
         }
 
         self.live = 0;
@@ -69,7 +69,7 @@ struct Payload
     {
         if STATE.live != 739391 || self.value != 421
         {
-            trusted core.target.abort();
+            core.target.abort();
         }
 
         let scope: CallbackScope =
@@ -151,7 +151,7 @@ trusted func produce_selected_report<const MARKER: i32, const panic_on_destroy: 
     let report: PanicReport = match consume caught
     {
         case Error(report) { yield report; }
-        case Ok(_) { yield trusted core.target.abort(); }
+        case Ok(_) { yield core.target.abort(); }
     };
 
     trusted std.memory.write<PanicReport>(trusted report_pointer(&destination), report);

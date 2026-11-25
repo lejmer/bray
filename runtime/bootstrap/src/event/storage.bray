@@ -41,7 +41,7 @@ trusted internal func initialize_domain(pos allocation: DataPointer<u8>) -> Refe
         trusted core.memory.valid_write<u8>(pointer = allocation, count = std.memory.stride_of<Domain>())
     )
     ensures(trusted retained(owner = &result), trusted owned_reference(owner = &result))
-    uses(raw_memory, unchecked_init, intrinsic)
+    uses(raw_memory, unchecked_init)
 {
     let typed = trusted lambda(pos allocation: DataPointer<u8>) -> DataPointer<Domain>
         requires(
@@ -80,7 +80,10 @@ trusted internal func initialize_domain(pos allocation: DataPointer<u8>) -> Refe
 
     return
     {
-        address = trusted core.target.expose_address<Domain>(pointer)
+        pointer = pointer,
+        acquisition = ReferenceAcquisition
+        {
+        }
     };
 }
 
@@ -109,7 +112,10 @@ trusted internal func retain_event(pos owner: &Reference) -> Reference
         {
             return
             {
-                address = owner.address
+                pointer = owner.pointer,
+                acquisition = ReferenceAcquisition
+                {
+                }
             };
         }
 
@@ -136,7 +142,6 @@ trusted internal func release_event(pos owner: Reference)
 trusted internal func retired_allocation(pos owner: Reference) -> std.memory.RawAllocation
     requires(trusted final_reference(owner = &owner))
     ensures(trusted core.memory.owned_allocation(pointer = result.pointer, bytes = result.bytes, align = result.align))
-    uses(intrinsic)
 {
     let claim = trusted lambda(pos owner: &Reference, pos pointer: DataPointer<u8>)
         requires(trusted final_reference(owner = owner))
@@ -149,9 +154,7 @@ trusted internal func retired_allocation(pos owner: Reference) -> std.memory.Raw
         )
         executes(pure, total) {};
 
-    let pointer = std.memory.byte_address<Domain>(
-        trusted core.target.from_exposed_address<Domain>(address = owner.address)
-    );
+    let pointer = std.memory.byte_address<Domain>(owner.pointer);
 
     trusted claim(&owner, pointer);
 

@@ -30,6 +30,8 @@ pub enum SemanticValueKind {
     CallableInstance,
     /// Substituted implementation definitions.
     ImplementationInstance,
+    /// Selected static references.
+    StaticReference,
     /// Portable dependency-contract templates.
     DependencyContractTemplate,
 }
@@ -107,6 +109,8 @@ define_semantic_value_ids! {
     CallableInstanceId => CallableInstance,
     /// Identifies one canonical selected implementation instance within a store.
     ImplementationInstanceId => ImplementationInstance,
+    /// Identifies one canonical selected static reference within a store.
+    StaticReferenceId => StaticReference,
     /// Identifies one canonical portable dependency-contract template within a store.
     DependencyContractTemplateId => DependencyContractTemplate,
 }

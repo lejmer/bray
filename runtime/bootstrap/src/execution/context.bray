@@ -5,6 +5,8 @@ using core.memory;
 using core.atomic;
 using core.target;
 using std.memory;
+using std.sync;
+using internal std.sync.spin_lock;
 using internal bray.runtime.bootstrap;
 using internal bray.runtime.bootstrap.pool;
 using internal bray.runtime.bootstrap.host.product;
@@ -82,6 +84,7 @@ internal const func open_binding_owner(pos owner: &BindingOwnership) -> &Owner
 // another task or copying its checked continuation metadata.
 internal struct Context
 {
+    // Field destruction releases the allocation after the remaining context fields.
     mut allocation: std.memory.RawAllocation?;
     mut binding: Uninit<(Binding?)>;
     mut attachment: Uninit<(bray.runtime.bootstrap.host.attachment.Owner?)>;
@@ -92,12 +95,12 @@ internal struct Context
     thread: u64;
     mut driver: bray.runtime.bootstrap.scheduler.Lane;
     mut lanes: u32;
-    mut worker: DataPointer<u8>;
+    mut worker_attached: bool;
     task: core.atomic.Atomic<usize>;
     registration: core.atomic.Atomic<u64>;
     lane: core.atomic.Atomic<u32>;
     invocation: core.atomic.Atomic<usize>;
-    mut pending: Uninit<(bray.runtime.bootstrap.scheduler.Observation?)>;
+    pending: std.sync.SpinLock<(bray.runtime.bootstrap.scheduler.Observation?)>;
 }
 
 // One acquisition belongs to the complete Current carrier. It is never lent
@@ -232,7 +235,10 @@ trusted internal func current() -> Current
 
 trusted internal func context(pos owner: &Current) -> &Context
     requires(trusted view_owned(owner = &owner.acquisition), owner.status == 0)
-    ensures(trusted view_owned(owner = &owner.acquisition))
+    ensures(
+        trusted view_owned(owner = &owner.acquisition),
+        trusted std.sync.spin_lock.valid(&result.pending.prepared.instance)
+    )
     executes(pure, total)
 {
     return trusted view_context(owner);

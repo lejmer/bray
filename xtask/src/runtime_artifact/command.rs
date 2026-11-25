@@ -105,13 +105,10 @@ fn smoke_test_command(arguments: impl Iterator<Item = String>) -> Result<(), Com
         return Err(CommandError::HostTarget);
     }
 
-    let directory = tempfile::Builder::new()
-        .prefix("bray-runtime-artifact-smoke-")
-        .tempdir()
-        .map_err(CommandError::TemporaryDirectory)?;
+    let root = workspace::root().map_err(CommandError::Workspace)?;
 
     let output = options.as_ref().map_or_else(
-        || directory.path().join(target.as_str()),
+        || readiness_directory(&root, target),
         |options| options.native.target_output(target),
     );
 
@@ -121,9 +118,20 @@ fn smoke_test_command(arguments: impl Iterator<Item = String>) -> Result<(), Com
 
     // Persistent smoke inputs use the same freshness checks and rebuild path as
     // ordinary artifact construction. Executables remain isolated per smoke run.
-    let mut package = build(target, &output, profile)?;
+    let package = build(target, &output, profile)?;
 
-    super::smoke::add_package_dependencies(&mut package, target, directory.path())?;
+    run_smoke(package, target)
+}
+
+fn run_smoke(mut package: Package, target: NativeTarget) -> Result<(), CommandError> {
+    let directory = tempfile::Builder::new()
+        .prefix("bray-runtime-artifact-smoke-")
+        .tempdir()
+        .map_err(CommandError::TemporaryDirectory)?;
+
+    crate::progress::run("Preparing runtime smoke dependencies", || {
+        super::smoke::add_package_dependencies(&mut package, target, directory.path())
+    })?;
 
     let result = crate::progress::run("Running runtime artifact smoke tests", || {
         smoke_test(&package, target, directory.path())
@@ -132,13 +140,18 @@ fn smoke_test_command(arguments: impl Iterator<Item = String>) -> Result<(), Com
     crate::native_toolchain::retain_failed_artifacts(directory, result)
 }
 
-pub(crate) fn smoke_test_host() -> Result<(), String> {
-    smoke_test_command(std::iter::empty()).map_err(|error| error.to_string())
+pub(crate) fn smoke_test_host(package: Package) -> Result<(), String> {
+    let target = NativeTarget::current().ok_or_else(|| CommandError::HostTarget.to_string())?;
+
+    run_smoke(package, target).map_err(|error| error.to_string())
 }
 
-pub(crate) fn build_for_readiness(target: NativeTarget, output: &Path) -> Result<PathBuf, String> {
+pub(crate) fn readiness_directory(root: &Path, target: NativeTarget) -> PathBuf {
+    workspace::cargo_target(root).join("release").join("lib").join("bray").join("runtime").join(target.as_str())
+}
+
+pub(crate) fn build_for_readiness(target: NativeTarget, output: &Path) -> Result<Package, String> {
     build(target, output, "release")
-        .map(|package| package.metadata)
         .map_err(|error| error.to_string())
 }
 
@@ -630,8 +643,8 @@ impl BuildOptions {
     }
 }
 
-pub(super) struct Package {
-    pub(super) metadata: PathBuf,
+pub(crate) struct Package {
+    pub(crate) metadata: PathBuf,
     pub(super) components: Vec<PackageComponent>,
     pub(super) native_links: Vec<NativeLinkRequirement>,
 }

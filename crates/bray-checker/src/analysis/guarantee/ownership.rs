@@ -1,8 +1,79 @@
+use std::collections::BTreeMap;
+use std::sync::Arc;
+
 use crate::execution_guarantees::ExecutionObservationKind as ObservationKind;
 use super::state::ExecutionState;
 use crate::ExecutionCondition;
 use bray_bound_tree::StorageProjection;
 use bray_symbols::{DependencyOwnedResult, DependencyOwnedTransfer, DependencyValuePreservation};
+
+type OwnedLayout = DependencyOwnedResult<StorageProjection, ExecutionCondition>;
+
+/// Formal lineage is indexed by logical contents. Physical capture coordinates do not name a different value.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(super) struct OwnedResults(Arc<BTreeMap<ExecutionCondition, OwnedLayout>>);
+
+impl OwnedResults {
+    pub(super) fn get(&self, value: &ExecutionCondition) -> Option<&OwnedLayout> {
+        self.0.get(&value.without_captured_storage())
+    }
+
+    pub(super) fn insert(&mut self, value: ExecutionCondition, layout: OwnedLayout) -> bool {
+        let value = value.without_captured_storage();
+
+        // Branch guards select competing transfers. An entirely empty layout
+        // records the same explicit absence of lineage under every guard.
+        let layout = if !matches!(&layout, OwnedLayout::All(values) if values.is_empty()) && layout.is_empty() {
+            OwnedLayout::default()
+        } else {
+            layout
+        };
+
+        if self.0.get(&value) == Some(&layout) {
+            return false;
+        }
+
+        Arc::make_mut(&mut self.0).insert(value, layout);
+
+        true
+    }
+
+    pub(super) fn entry(&mut self, value: ExecutionCondition)
+        -> std::collections::btree_map::Entry<'_, ExecutionCondition, OwnedLayout>
+    {
+        Arc::make_mut(&mut self.0).entry(value.without_captured_storage())
+    }
+
+    pub(super) fn retain(&mut self, mut keep: impl FnMut(&ExecutionCondition) -> bool) {
+        if let Some(layouts) = Arc::get_mut(&mut self.0) {
+            layouts.retain(|value, _| keep(value));
+            return;
+        }
+
+        let removed = self.0.keys().filter(|value| !keep(value)).cloned().collect::<Vec<_>>();
+
+        if !removed.is_empty() {
+            let layouts = Arc::make_mut(&mut self.0);
+
+            for value in removed {
+                layouts.remove(&value);
+            }
+        }
+    }
+
+    #[cfg(test)]
+    pub(super) fn len(&self) -> usize { self.0.len() }
+
+    #[cfg(test)]
+    pub(super) fn values(&self) -> impl Iterator<Item = &OwnedLayout> { self.0.values() }
+}
+
+impl IntoIterator for OwnedResults {
+    type Item = (ExecutionCondition, OwnedLayout);
+    type IntoIter = std::collections::btree_map::IntoIter<ExecutionCondition, OwnedLayout>;
+
+    fn into_iter(self) -> Self::IntoIter { Arc::unwrap_or_clone(self.0).into_iter() }
+}
 
 impl ExecutionState {
     /// Retain only current mappings whose actual owner survives this preservation.
@@ -13,7 +84,6 @@ impl ExecutionState {
         extracted: bool,
         mut preservation: impl FnMut(&[StorageProjection]) -> DependencyValuePreservation<StorageProjection>,
     ) {
-
         // A checked extraction transfers current borrowed contents. Capture its
         // formal origin before framing replaces the source, without treating an
         // ordinary borrow as ownership or overwriting an explicit empty layout.
@@ -37,12 +107,12 @@ impl ExecutionState {
                 if before.ownership_identity().is_none()
                     || before.ownership_identity() != after.ownership_identity()
                 {
-                    return Ok::<_, std::convert::Infallible>(bray_symbols::DependencyOwnedResult::default());
+                    return Ok::<_, std::convert::Infallible>(DependencyOwnedResult::default());
                 }
 
                 let preservation = preservation(transfer.output());
 
-                Ok(bray_symbols::DependencyOwnedResult::Transfer(transfer.clone().with_preservation(
+                Ok(DependencyOwnedResult::Transfer(transfer.clone().with_preservation(
                     transfer.preservation().intersection(&preservation),
                 )))
             },
@@ -50,7 +120,6 @@ impl ExecutionState {
         ).expect("physical ownership preservation is infallible");
 
         self.owned_results.insert(next.clone(), ownership);
-
     }
 
     /// Selects exact formal ownership from retained snapshots and joined layouts.
@@ -106,6 +175,7 @@ impl ExecutionState {
         }
 
         let contents = match value.kind() {
+            crate::ExecutionConditionKind::CapturedValue { value, .. } | crate::ExecutionConditionKind::DeferredValue { value, .. } => self.owned_result_bounded(value, extraction, budget),
             crate::ExecutionConditionKind::Observation { contents, kind: ObservationKind::Owned, .. } => self.owned_result_bounded(contents, extraction, budget),
             crate::ExecutionConditionKind::Present(value) => {
                 self.prefixed_owned_result(value, StorageProjection::NullableValue, extraction, budget)
@@ -246,8 +316,14 @@ impl ExecutionState {
             return self.value_preservation(payload, source, budget);
         }
 
+        if let crate::ExecutionConditionKind::CapturedValue { value: source, .. } | crate::ExecutionConditionKind::DeferredValue { value: source, .. } = source.kind() {
+            return self.value_preservation(value, source, budget);
+        }
+
         match value.kind() {
-            crate::ExecutionConditionKind::Observation { contents, kind: ObservationKind::Owned | ObservationKind::Scalar, .. }
+            crate::ExecutionConditionKind::CapturedValue { value: contents, .. }
+            | crate::ExecutionConditionKind::DeferredValue { value: contents, .. }
+            | crate::ExecutionConditionKind::Observation { contents, kind: ObservationKind::Owned | ObservationKind::Scalar, .. }
             | crate::ExecutionConditionKind::Tagged(_, contents) => self.value_preservation(contents, source, budget),
             crate::ExecutionConditionKind::Constructed(base, fields) => {
                 let base = self.value_preservation(base, source, budget);
@@ -348,7 +424,7 @@ fn project_owned_result(
                     let preservation = transfer.preservation().children().iter()
                         .find(|(projection, _)| crate::ExecutionPlace::projection_kind(**projection) == Some(field))
                         .map(|(_, preservation)| preservation.clone())
-                        .unwrap_or_else(|| bray_symbols::DependencyValuePreservation::new(
+                        .unwrap_or_else(|| DependencyValuePreservation::new(
                             transfer.preservation().preserves_value(), Default::default()));
 
                     return Ok::<_, std::convert::Infallible>(
@@ -428,11 +504,7 @@ fn selected_data(
 
     *budget = remaining;
 
-    Some(path.iter().fold(value.clone(), |value, field| {
-        let selected = value.project(*field);
-
-        selected.nullable_payload_snapshot().cloned().unwrap_or(selected)
-    }))
+    Some(path.iter().fold(value.clone(), |value, field| value.project(*field).into_component_data()))
 }
 
 fn without_empty_guards(
@@ -466,6 +538,42 @@ mod tests {
     use crate::{ExecutionCondition, ExecutionPlace};
     use bray_bound_tree::StorageProjection;
     use bray_symbols::{DependencyOwnedResult, DependencyOwnedTransfer, DependencyValuePreservation, SymbolOrdinal};
+
+    #[test]
+    fn guarded_empty_results_record_no_input_transfer() {
+        let input = |ordinal| ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(ordinal))));
+        let formal = bray_symbols::CallableParameterSymbolId::from_symbol_id(bray_symbols::SymbolId::new(0));
+
+        let value = ExecutionCondition::new(crate::ExecutionConditionKind::Input(
+            ExecutionPlace::from(bray_bound_tree::BoundReferenceTarget::Surface(formal.into())),
+        ));
+
+        let guard = input(1);
+        let inverse = ExecutionCondition::operation(bray_bound_tree::BoundOperator::LogicalNot, vec![guard.clone()]);
+        let mut state = ExecutionState::default();
+
+        assert!(!state.extracted_result(&value).is_empty(), "the formal input can otherwise supply extraction lineage");
+
+        let empty = DependencyOwnedResult::default();
+
+        for condition in [guard.clone(), inverse.clone()] {
+            state.owned_results.insert(value.clone(), DependencyOwnedResult::case(condition, empty.clone()));
+
+            assert_eq!(state.owned_results.get(&value), Some(&empty));
+            assert!(state.extracted_result(&value).is_empty(), "the recorded empty layout suppresses inferred ownership");
+        }
+
+        let transfer = DependencyOwnedResult::Transfer(DependencyOwnedTransfer::new(value.clone(), []));
+
+        let alternatives = DependencyOwnedResult::choice([
+            DependencyOwnedResult::case(guard, transfer),
+            DependencyOwnedResult::case(inverse, empty),
+        ]);
+
+        state.owned_results.insert(value.clone(), alternatives.clone());
+
+        assert_eq!(state.owned_results.get(&value), Some(&alternatives));
+    }
 
     #[test]
     fn initialized_alternatives_select_ownership_without_a_trusted_witness() {
@@ -666,7 +774,23 @@ mod tests {
 
         let mut state = ExecutionState::default();
 
-        state.owned_results.insert(original.clone(), original_layout.clone());
+        let (unit, expressions) = crate::test_support::integer_expression_unit(bray_bound_tree::BoundUnitId::new(0), 2);
+
+        let mut storage = bray_bound_tree::StoragePlanBuilder::new(unit.unit(), unit.key().kind());
+
+        let captures = expressions.iter().map(|expression| {
+            let slot = storage.push_identity(bray_bound_tree::StorageIdentity::Temporary(*expression))
+                .expect("ownership test snapshots retain planned coordinates");
+
+            original.clone().captured_value(bray_bound_tree::StorageCapturedValue::new(
+                bray_bound_tree::StorageTarget::storage(bray_bound_tree::StoragePath::root(slot)), Default::default(),
+            ))
+        }).collect::<Vec<_>>();
+
+        state.owned_results.insert(captures[0].clone(), original_layout.clone());
+
+        assert_eq!(state.owned_result(&captures[1]), original_layout,
+            "formal lineage follows the same logical value through distinct physical captures");
 
         let changed = original.with_storage_component(&[field], ExecutionCondition::unknown());
         let changed_layout = state.owned_result(&changed);
@@ -675,7 +799,7 @@ mod tests {
 
         let unrelated = |ordinal| ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(ordinal))));
 
-        state.join_values(&crate::execution_guarantees::ExecutionSubstitution::new(&[(unrelated(1), unrelated(2))].into(), &Default::default()));
+        state.join_values(&crate::execution_guarantees::ExecutionSubstitution::new(&[(unrelated(1), unrelated(2))].into(), &Default::default()), true);
         assert_eq!(state.owned_results.get(&original), Some(&original_layout), "a changed snapshot cannot alter the original value's preservation");
         assert_eq!(state.owned_results.get(&changed), Some(&changed_layout), "a snapshot's identity does not erase its changed contents");
         assert_eq!(state.owned_result(&changed), changed_layout);

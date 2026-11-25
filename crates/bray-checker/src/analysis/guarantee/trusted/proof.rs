@@ -11,46 +11,21 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         state: &ExecutionState,
         invocation: bray_bound_tree::BoundExecutionSite,
     ) -> bool {
-        use bray_bound_tree::{
-            AnyBoundNodeId, BoundExecutionSite, SelectedArgument, SemanticSelection,
-        };
-
-        use bray_compiler_known::ImplementationHook;
-
-        let BoundExecutionSite::Node(AnyBoundNodeId::Expression(expression)) = invocation else {
-            return false;
-        };
-
-        let Some(SemanticSelection::Call(call)) =
-            self.semantics.selections().expression(expression)
-        else {
-            return false;
-        };
-
-        if !matches!(
-            call.implementation_hook(),
-            Some(ImplementationHook::MemoryCopy | ImplementationHook::MemoryCopyOverlapping)
-        ) {
+        if !invocation.expression().and_then(|expression| self.memory.operation(expression))
+            .is_some_and(|operation| matches!(operation.kind(), bray_bound_tree::CheckedMemoryOperationKind::Copy { .. })) {
             return false;
         }
-
-        let Some(count) = call.arguments().iter().find_map(|argument| match argument {
-            SelectedArgument::Explicit {
-                expression,
-                ordinal: 2,
-                ..
-            } => Some(*expression),
-            _ => None,
-        }) else {
-            return false;
-        };
 
         let Some(entry) = state.entries.get(&invocation) else {
             return false;
         };
 
+        let Some(count) = crate::ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(2)).value_in(&entry.arguments) else {
+            return false;
+        };
+
         let equalities = self.proofs.equalities(&entry.assumptions, None);
-        let count = self.value(state, count).with_equalities(&equalities);
+        let count = count.computed_value().with_equalities(&equalities);
 
         matches!(count.kind(), crate::ExecutionConditionKind::Literal(value)
             if matches!(value.kind(), bray_symbols::ConstantValueKind::Integer(integer) if integer.to_u64() == Some(0)))
@@ -125,8 +100,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let equalities = self.proofs.equalities(&entry.assumptions, None);
 
         let normalize = |conditions: &BTreeSet<(ExecutionCondition, bool)>| {
-            entry
-                .proof_facts(conditions)
+            crate::ExecutionCallEvidence::proof_facts(conditions)
                 .map(|(condition, value)| {
                     (
                         condition.with_equalities(&equalities).with_reference_origins(
@@ -138,36 +112,34 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 .collect::<BTreeSet<_>>()
         };
 
-        let ordinary = normalize(&entry.assumptions);
-
-        let known = crate::execution_guarantees::trusted_condition_closure(
-            normalize(&entry.trusted_assumptions),
-            &ordinary,
+        let normalized = self.proofs.normalized_inputs(
+            crate::execution_guarantees::ExecutionProofInputDomain::TrustedCall,
+            &entry.trusted_assumptions,
+            &entry.assumptions,
+            || crate::execution_guarantees::NormalizedProofInputs::prepare(
+                normalize(&entry.trusted_assumptions),
+                normalize(&entry.assumptions).into(),
+            ),
         );
+
+        let proof = self.proofs.proof(&normalized.trusted, &normalized.ordinary);
+        let known = &normalized.trusted;
+        let ordinary = &normalized.ordinary;
 
         let mut ranges = None;
 
+        let storage_initialized = (entry.memory_access == Some(crate::execution_guarantees::MemoryAccessProof::ProtectedCellInitialized))
+            .then(|| self.initialization_requirement(["UninitInitialized"]));
+
         let instantiated = requirements
             .iter()
+            .filter(|required| !storage_initialized.as_ref().is_some_and(|initialized| initialized(required)))
             .map(|requirement| {
-                let condition = requirement
-                    .substitute(
-                        &|place| {
-                            place
-                                .value_in(&entry.arguments)
-                                .unwrap_or_else(ExecutionCondition::unknown)
-                        },
-                        &ExecutionCondition::unknown(),
-                        &mut { ExecutionCondition::WORK_LIMIT },
-                    )
-                    .with_equalities(&equalities);
+                let condition = entry.bind_entry_condition(requirement, &equalities);
 
-                condition.with_reference_origins(self.request.semantic_values(), self.dependencies, &entry.assumptions)
-                    .pointer_observations(&self.pointer_predicates)
-            })
-            .collect::<Vec<_>>();
-
-        let proof = crate::execution_guarantees::ExecutionProof::new(&known, &ordinary);
+                (requirement, condition.with_reference_origins(self.request.semantic_values(), self.dependencies, &entry.assumptions)
+                    .pointer_observations(&self.pointer_predicates))
+            });
 
         let mut prove_condition = |condition: &ExecutionCondition| {
             if proof.prove_mixed(condition, &mut { ExecutionCondition::WORK_LIMIT })
@@ -234,22 +206,22 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     }
                 }
 
-                (ranges, constant_extent_lower_bounds(&ordinary))
+                (ranges, constant_extent_lower_bounds(ordinary))
             });
 
             ranges
                 .get(&(predicate, substitution, pointer))
                 .is_some_and(|extents| {
                     extents.iter().any(|extent| {
-                        range_count_follows(count, extent, &ordinary, lower_bounds, &|value| {
+                        range_count_follows(count, extent, ordinary, lower_bounds, &|value| {
                             self.unsigned_value(value)
                         })
                     })
                 })
         };
 
-        for (required, actual) in requirements.iter().zip(instantiated) {
-            if let Err(failed) = prove_requirement(&actual, &known, &mut prove_condition, &mut {
+        for (required, actual) in instantiated {
+            if let Err(failed) = prove_requirement(&actual, known, &mut prove_condition, &mut {
                 ExecutionCondition::WORK_LIMIT
             }) {
                 return Err(crate::UnprovenExecutionCondition::new(required.clone(), failed.clone()));

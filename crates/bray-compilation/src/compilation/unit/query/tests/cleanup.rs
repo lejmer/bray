@@ -1,4 +1,5 @@
 use crate::test_support::{compilation, source_function_body_key};
+use crate::Compilation;
 use bray_bound_tree::StorageIdentity;
 
 #[test]
@@ -60,6 +61,8 @@ fn iteration_cursors_use_expression_cleanup_scopes() {
             static COUNT: core.atomic.Atomic<usize> = core.atomic.initialize<usize>(0);
             struct Items {{}}
             struct IterationCursor {{
+                mut pending: bool;
+
                 async finalize() {{
                     let previous = core.atomic.load<usize, 1>(&COUNT);
                     core.atomic.store<usize, 4>(&COUNT, previous + 1);
@@ -68,11 +71,17 @@ fn iteration_cursors_use_expression_cleanup_scopes() {
             impl &Items(Iterable) {{
                 type Element = bool;
                 type Cursor = IterationCursor;
-                consume func iterate() -> IterationCursor {{ return IterationCursor {{}}; }}
+                consume func iterate() -> IterationCursor {{ return IterationCursor {{ pending = true }}; }}
             }}
             impl IterationCursor(Iterator) {{
                 type Element = bool;
-                mut func next() -> bool? {{ return none; }}
+                mut func next() -> bool? {{
+                    if !self.pending {{ return none; }}
+
+                    self.pending = false;
+
+                    return true;
+                }}
             }}
             async func probe() {{ let items = Items {{}}; {body} }}
             "#
@@ -136,11 +145,11 @@ fn iteration_cursors_use_expression_cleanup_scopes() {
             .expect("cursor storage publishes");
 
         let cleanup = compilation
-            .async_analysis(key.clone())
+            .storage_flow(key.clone())
             .expect("cursor cleanup publishes");
 
         assert!(
-            cleanup.value().scope_exits().iter().any(|exit| {
+            cleanup.value().exits().iter().any(|exit| {
                 exit.scope() == scope
                     && exit.lifecycle_resolution().iter().any(|access| {
                         storage
@@ -226,17 +235,17 @@ fn scope_exits_destroy_plain_storage_with_declared_destructors() {
     let key = source_function_body_key(&compilation, "use_lock");
 
     let analysis = compilation
-        .async_analysis(key)
-        .unwrap_or_else(|error| panic!("lifecycle analysis must publish: {error:?}"));
+        .storage_flow(key)
+        .unwrap_or_else(|error| panic!("storage flow must publish: {error:?}"));
 
     assert!(
         analysis
             .value()
-            .scope_exits()
+            .exits()
             .iter()
             .any(|exit| { !exit.lifecycle_resolution().is_empty() }),
         "plans={:#?}",
-        analysis.value().scope_exits()
+        analysis.value().exits()
     );
 }
 
@@ -267,14 +276,14 @@ fn trust_boundaries_preserve_value_transfer_ownership() {
         .unwrap_or_else(|error| panic!("storage plan must publish: {error:?}"));
 
     let analysis = compilation
-        .async_analysis(key)
-        .unwrap_or_else(|error| panic!("lifecycle analysis must publish: {error:?}"));
+        .storage_flow(key)
+        .unwrap_or_else(|error| panic!("storage flow must publish: {error:?}"));
 
     let lifecycle_identities = analysis
         .value()
-        .scope_exits()
+        .exits()
         .iter()
-        .flat_map(bray_bound_tree::AsyncScopeExitPlan::lifecycle_resolution)
+        .flat_map(bray_bound_tree::StorageExitDecision::lifecycle_resolution)
         .filter_map(|access| storage.value().root_identity(*access))
         .filter_map(|identity| storage.value().identity(identity))
         .collect::<Vec<_>>();
@@ -330,10 +339,6 @@ func reinitialized(pos flag: bool, pos mut guard: Guard) -> i32
     for name in ["conditional", "reinitialized"] {
         let key = source_function_body_key(&compilation, name);
 
-        let analysis = compilation
-            .async_analysis(key.clone())
-            .expect("fixture callable must complete async analysis");
-
         let lowered = compilation
             .lowered_unit(key)
             .expect("fixture callable must lower successfully");
@@ -358,21 +363,6 @@ func reinitialized(pos flag: bool, pos mut guard: Guard) -> i32
                         }
                     )
             }));
-
-            assert!(
-                analysis
-                    .value()
-                    .scope_exits()
-                    .iter()
-                    .flat_map(|exit| exit.storage())
-                    .any(|decision| matches!(
-                        decision.disposition(),
-                        bray_bound_tree::AsyncStorageExitDisposition::Cleanup {
-                            guard: bray_bound_tree::AsyncCleanupGuard::Initialized,
-                            ..
-                        }
-                    ))
-            );
         }
     }
 }
@@ -437,6 +427,118 @@ func tupled(pos flag: bool, pos pair: (Guard, Guard)) -> i32
                 bray_ir::MirOperationKind::Cleanup { place, .. } if !place.projections().is_empty()
             )));
     }
+}
+
+#[test]
+fn differing_complete_moves_exclude_cleanup_even_at_a_mixed_exit() {
+    let source = r#"module app;
+struct Guard { value: i32; destruct() {} }
+struct Pair { whole: bool; mut left: Guard; mut right: Guard; }
+struct Remaining { destruct() {} }
+func take_pair(pos pair: Pair) {}
+func take_guard(pos guard: Guard) {}
+func finish(pos pair: Pair%remaining%) -> i32
+{
+    let choice: i32 = if pair.whole
+    {
+        take_pair(pair);
+        yield 11;
+    }
+    else
+    {
+        take_guard(pair.left);
+        take_guard(pair.right);
+        yield 22;
+    };
+
+    return choice;
+}
+"#;
+
+    for (remaining, expected) in [("", 0), (", pos remaining: Remaining", 1)] {
+        let compilation = compilation(&source.replace("%remaining%", remaining));
+
+        assert_moved_storage_cleanup(&compilation, expected);
+    }
+}
+
+fn assert_moved_storage_cleanup(compilation: &Compilation, expected: usize) {
+    let diagnostics = compilation.check_diagnostics();
+
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+
+    let key = source_function_body_key(compilation, "finish");
+    let unit = compilation.bound_unit(key.clone()).expect("finish has a bound body");
+    let storage = compilation.storage_plan(key.clone()).expect("finish has planned storage");
+
+    let parameters = storage.value().identity_entries()
+        .filter_map(|(id, identity)| matches!(identity, StorageIdentity::Parameter(_)).then_some(id))
+        .collect::<Vec<_>>();
+
+    let pair = parameters[0];
+    let remaining = &parameters[1..];
+
+    assert_eq!(remaining.len(), expected);
+
+    let asynchronous = compilation.async_analysis(key.clone()).expect("finish has checked cleanup");
+
+    let owner = asynchronous.value().storage_requirement(pair).and_then(|requirement| requirement.owner())
+        .expect("the parameter belongs to the callable scope");
+
+    let flow = compilation.storage_flow(key.clone()).expect("finish has checked storage flow");
+
+    let exit = flow.value().exits().iter().find(|exit| {
+        let bray_bound_tree::AnyBoundNodeId::Expression(expression) = exit.exit() else { return false; };
+
+        exit.scope() == owner && matches!(unit.value().view().expression(expression),
+            Some(bray_bound_tree::BoundExpression::ControlTransfer(transfer))
+                if transfer.kind() == bray_bound_tree::BoundControlTransferKind::Return)
+    }).expect("both value paths reach the same callable return");
+
+    assert!(exit.moved().iter().any(|path| path.root == pair && !path.projections.is_empty()));
+    assert!(!exit.fully_moved().contains(&pair));
+
+    let scheduled = exit.lifecycle_resolution().iter()
+        .map(|access| storage.value().root_identity(*access).expect("scheduled cleanup owns storage"))
+        .collect::<Vec<_>>();
+
+    assert_eq!(scheduled, remaining);
+    assert_eq!(exit.has_cleanup(), !remaining.is_empty());
+
+    let lowered = compilation.lowered_unit(key).expect("the checked return lowers");
+
+    let mir = lowered.value().as_ref().expect("finish has a lowered body")
+        .mir().expect("finish retains its MIR");
+
+    let mut disposed_parameters = std::collections::BTreeSet::new();
+
+    for (id, block) in mir.blocks_with_ids() {
+        let parameters = block.operations().iter().filter_map(|operation| {
+            let bray_ir::MirOperationKind::Cleanup {
+                phase: bray_ir::MirCleanupPhase::LifecycleResolution, place, ..
+            } = mir.operation(*operation).expect("cleanup block retains its operation").kind() else {
+                return None;
+            };
+
+            let bray_ir::MirStorageKind::Parameter(ordinal) =
+                *mir.storage(place.storage()).expect("cleanup retains its owner").kind()
+            else {
+                return None;
+            };
+
+            Some(ordinal)
+        }).collect::<Vec<_>>();
+
+        if !parameters.is_empty()
+            && bray_ir::reachable_blocks(mir, [id], &Default::default()).into_iter().any(|id| {
+                matches!(mir.block(id).expect("MIR successor exists").terminator().kind(), bray_ir::MirTerminatorKind::Return { .. })
+            })
+        {
+            disposed_parameters.extend(parameters);
+        }
+    }
+
+    assert_eq!(disposed_parameters.into_iter().collect::<Vec<_>>(), if remaining.is_empty() { vec![] } else { vec![1] });
 }
 
 #[test]

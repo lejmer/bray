@@ -1,4 +1,4 @@
-module bray.standard_library_tests.channel;
+trusted module bray.standard_library_tests.channel;
 
 using core.atomic;
 using std.channel;
@@ -7,12 +7,17 @@ using std.testing;
 
 static CHANNEL_CLEANUP_COUNT: core.atomic.Atomic<u32> = core.atomic.initialize<u32>(0);
 
+static CHANNEL_CLEANUP_VALUES: core.atomic.Atomic<u32> = core.atomic.initialize<u32>(0);
+
 internal struct ChannelCleanupProbe
 {
     value: u32;
 
     finalize()
     {
+        let bit: u32 = 1;
+
+        _ = core.atomic.fetch_or<u32, 3>(&CHANNEL_CLEANUP_VALUES, bit << self.value);
         _ = core.atomic.fetch_add<u32, 3>(&CHANNEL_CLEANUP_COUNT, 1);
     }
 
@@ -111,14 +116,24 @@ async func buffered_channel_transfers_messages_in_commit_order()
 }
 
 @test
-async func rendezvous_send_suspends_until_a_receiver_is_registered()
+async func rendezvous_send_requires_a_receiver()
 {
     let (mut sender, mut receiver) = std.testing.assert_ok<
         (std.channel.Sender<i32>, std.channel.Receiver<i32>),
         std.channel.ChannelError
     >(std.channel.bounded<i32>(capacity = 0));
 
-    let send: Task<Result<unit, std.channel.SendError<i32>>> = sender.send(41).start();
+    let pending = std.testing.assert_error<unit, std.channel.TrySendError<i32>>(sender.try_send(41));
+
+    let recovered: i32 = match consume pending
+    {
+        case Full(value) { yield value; }
+        case Closed(_) { panic("open rendezvous channel rejected its endpoint"); }
+    };
+
+    assert(recovered == 41);
+
+    let send: Task<Result<unit, std.channel.SendError<i32>>> = sender.send(recovered).start();
 
     if let Received(value) = await receiver.receive()
     {
@@ -145,7 +160,13 @@ async func cancelling_a_rendezvous_wait_withdraws_it_before_reuse()
 
     let blocked: Task<Result<unit, std.channel.SendError<i32>>> = sender.send(17).start();
 
+    while !internal has_registered_sender(&receiver)
+    {
+        await std.task.yield_now();
+    }
+
     std.testing.assert_cancelled<Result<unit, std.channel.SendError<i32>>>(await blocked.cancel());
+    assert(!internal has_registered_sender(&receiver));
 
     let next: Task<Result<unit, std.channel.SendError<i32>>> = sender.send(23).start();
 
@@ -162,6 +183,24 @@ async func cancelling_a_rendezvous_wait_withdraws_it_before_reuse()
 
     sender.close();
     receiver.close();
+}
+
+trusted internal func has_registered_sender(pos receiver: &std.channel.Receiver<i32>) -> bool
+    requires(
+        trusted std.channel.owner.live(&receiver.owner.instance),
+        trusted std.channel.owner.receiver(&receiver.owner.instance),
+    )
+{
+    let authorize = trusted lambda(pos marker: &std.channel.owner.Marker)
+        ensures(trusted std.channel.owner.access(marker))
+        executes(pure, total) {};
+
+    authorize(&receiver.owner.instance);
+
+    let shared = trusted internal std.channel.channel_core<i32>(&receiver.owner);
+    let mut state = shared.state.lock();
+
+    return !state.get().send_waiters.is_empty();
 }
 
 @test
@@ -281,7 +320,7 @@ async func concurrency_stress_contended_producers_preserve_each_senders_commit_o
 }
 
 @test
-func endpoint_closure_preserves_unsent_values_and_terminal_receives()
+async func endpoint_closure_preserves_unsent_values_and_terminal_receives()
 {
     let (mut sender, mut receiver) = std.testing.assert_ok<
         (std.channel.Sender<i32>, std.channel.Receiver<i32>),
@@ -300,6 +339,23 @@ func endpoint_closure_preserves_unsent_values_and_terminal_receives()
     }
 
     duplicate.close();
+
+    let (mut draining_sender, mut draining_receiver) = std.testing.assert_ok<
+        (std.channel.Sender<i32>, std.channel.Receiver<i32>),
+        std.channel.ChannelError
+    >(std.channel.bounded<i32>(capacity = 1));
+
+    std.testing.assert_ok<unit, std.channel.TrySendError<i32>>(draining_sender.try_send(41));
+    draining_sender.close();
+
+    match consume await draining_receiver.receive()
+    {
+        case Received(value) { assert(value == 41); }
+        case Closed { assert(false); }
+    }
+
+    assert((await draining_receiver.receive()) matches Closed);
+    draining_receiver.close();
 }
 
 @test
@@ -346,6 +402,7 @@ func concurrency_model_receiver_close_resolves_buffered_messages()
                 }
 
                 core.atomic.store<u32, 4>(&CHANNEL_CLEANUP_COUNT, 0);
+                core.atomic.store<u32, 4>(&CHANNEL_CLEANUP_VALUES, 0);
 
                 let mut queued: usize = 0;
                 let mut expected: u32 = 0;
@@ -365,10 +422,15 @@ func concurrency_model_receiver_close_resolves_buffered_messages()
                     expected += 1;
                 }
 
+                let expected_values: u32 = (1 << expected) - 1;
+
                 receiver.close();
                 assert(core.atomic.load<u32, 1>(&CHANNEL_CLEANUP_COUNT) == expected);
+                assert(core.atomic.load<u32, 1>(&CHANNEL_CLEANUP_VALUES) == expected_values);
+
                 sender.close();
                 assert(core.atomic.load<u32, 1>(&CHANNEL_CLEANUP_COUNT) == expected);
+                assert(core.atomic.load<u32, 1>(&CHANNEL_CLEANUP_VALUES) == expected_values);
                 length += 1;
             }
 

@@ -1,5 +1,5 @@
 @link(name = "bray_foreign_fixture")
-module interoperability;
+trusted module interoperability;
 
 using core.atomic;
 using std.numeric;

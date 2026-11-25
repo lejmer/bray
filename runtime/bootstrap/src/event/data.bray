@@ -10,9 +10,15 @@ using internal bray.runtime.bootstrap.host;
 // These noncopy carriers retain actual allocations. Their pointer bits alone
 // cannot establish the retained predicates at a foreign boundary.
 @layout(c)
+internal struct ReferenceAcquisition
+{
+}
+
+@layout(c)
 internal struct Reference
 {
-    address: usize;
+    pointer: DataPointer<Domain>;
+    acquisition: ReferenceAcquisition;
 }
 
 internal callable Wake = @abi(c) trusted func(pos context: usize, pos notify: u32) -> u32
@@ -41,7 +47,9 @@ internal struct State
     mut tail: bray.runtime.bootstrap.task.WaitLink;
 }
 
-trusted internal predicate retained(owner: &Reference);
+trusted internal predicate retained_count(owner: &ReferenceAcquisition);
+
+internal predicate retained(owner: &Reference) = retained_count(owner = &owner.acquisition);
 
 trusted internal predicate callback_owned(owner: &Callback);
 
@@ -49,7 +57,9 @@ trusted internal predicate reference_slot(owner: &DataPointer<Reference>);
 
 trusted internal predicate callback_slot(pointer: DataPointer<Callback>);
 
-trusted internal predicate owned_reference(owner: &Reference);
+trusted internal predicate owned_count(owner: &ReferenceAcquisition);
+
+internal predicate owned_reference(owner: &Reference) = owned_count(owner = &owner.acquisition);
 
 trusted internal predicate release_entry(pointer: &DataPointer<Reference>);
 

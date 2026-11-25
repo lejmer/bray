@@ -142,7 +142,7 @@ trusted internal func native_owner_worker(pos input: DataPointer<Owner>) -> u32
     }
 
     return if trusted core.target.address_equal<Domain>(bound_execution(&selected).pointer, owner.execution.pointer) &&
-        !std.memory.is_null<u8>((trusted context(&selected)).worker)
+        (trusted context(&selected)).worker_attached
     {
         yield 1;
     }

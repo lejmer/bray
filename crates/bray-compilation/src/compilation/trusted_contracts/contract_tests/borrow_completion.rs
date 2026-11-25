@@ -440,7 +440,12 @@ fn completion_observes_the_evaluated_borrow_after_its_source_slot_changes() {
         (
             "redirect(holder.slot, &mut holder);",
             "first",
-            Some(DiagnosticKind::CheckingConflictingBorrow),
+            None,
+        ),
+        (
+            "redirect(holder.slot, &mut holder);",
+            "second",
+            Some(DiagnosticKind::CheckingTrustedObligationNotProven),
         ),
         (
             "let selected: &Owner = holder.slot; redirect(selected, &mut holder);",
@@ -694,11 +699,11 @@ trusted func take(pos value: &mut Value) -> Reference
     {
         case Value.First(row)
         {
-            yield trusted replace<Reference>(&mut row.provider, fresh());
+            yield replace<Reference>(&mut row.provider, fresh());
         }
         case Value.Second(row)
         {
-            yield trusted replace<Reference>(&mut row.provider, fresh());
+            yield replace<Reference>(&mut row.provider, fresh());
         }
     };
 }
@@ -716,5 +721,12 @@ func caller(pos mut value: Value)
         let diagnostics = application.check_diagnostics();
 
         assert_eq!(!diagnostics.has_errors(), valid, "{source}: {diagnostics:#?}");
+
+        if !valid {
+            assert!(diagnostics.by_kind(bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven).any(|diagnostic| {
+                diagnostic.primary_span().is_some_and(|span|
+                    crate::test_support::diagnostic_at_call(diagnostic, span.source_id(), &source, "observe(&mut value, &provider)"))
+            }), "{diagnostics:?}");
+        }
     }
 }

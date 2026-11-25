@@ -10,8 +10,9 @@ use crate::test_support::{
     source_callable_body_key, source_input,
 };
 use crate::{
-    CancellationToken, Compilation, CompilationOptions, CompilationRequest, FactQueryError,
-    QueryPriority, SelectedTarget, WorkerBudget,
+    CancellationToken, Compilation, CompilationOptions, CompilationProfileConfiguration,
+    CompilationProfileMode, CompilationRequest, FactQueryError, QueryPriority, SelectedTarget,
+    WorkerBudget,
 };
 
 const LOWERING_SOURCE: &str = concat!(
@@ -32,7 +33,12 @@ const UPDATED_LOWERING_SOURCE: &str = concat!(
 
 #[test]
 fn lowering_results_are_computed_lazily_and_published_once() {
-    let compilation = lowering_compilation();
+    let request = lowering_request(LOWERING_SOURCE, 0, CompilationOptions::default())
+        .with_profile(CompilationProfileConfiguration::new(
+            CompilationProfileMode::Summary,
+        ));
+
+    let compilation = Compilation::load(request).expect("the profiled source must load");
     let key = source_callable_body_key(&compilation);
 
     assert_eq!(
@@ -40,14 +46,32 @@ fn lowering_results_are_computed_lazily_and_published_once() {
         Ok(false)
     );
 
-    let first = compilation
-        .lowered_unit(key.clone())
-        .unwrap_or_else(|error| panic!("MIR must be available: {error:?}"));
+    let demand = || {
+        assert!(!compilation.syntax_tree_result().diagnostics().has_errors());
+        compilation.symbol_graph().expect("symbols must be available");
+        assert!(!compilation.check_diagnostics().has_errors());
 
-    let second = compilation
-        .lowered_unit(key.clone())
-        .unwrap_or_else(|error| panic!("MIR must remain available: {error:?}"));
+        compilation
+            .lowered_unit(key.clone())
+            .expect("MIR must be available")
+    };
 
+    let evaluations = || {
+        compilation
+            .profile_report()
+            .expect("the fixture must collect a compilation profile")
+            .queries
+            .iter()
+            .map(|query| query.evaluations)
+            .sum::<u64>()
+    };
+
+    let first = demand();
+    let before = evaluations();
+    let second = demand();
+
+    assert!(before > 0);
+    assert_eq!(evaluations(), before);
     assert!(first.diagnostics().is_empty());
     assert!(first.value().is_some());
     assert!(Arc::ptr_eq(&first, &second));

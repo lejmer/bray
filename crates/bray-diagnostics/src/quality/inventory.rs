@@ -1203,7 +1203,8 @@ impl DiagnosticKind {
                 &[],
                 note_components!(&[], DiagnosticNoteKind::AsynchronousCallableRequired),
             ),
-            Self::CheckingUnavailableAwaitDependency => Self::quality_source(
+            Self::CheckingUnavailableAwaitDependency
+            | Self::CheckingUnavailableTaskStartDependency => Self::quality_source(
                 &[DependencySubjectKind, DependencyRequirementKind],
                 primary_components!(&[DependencySubjectKind, DependencyRequirementKind]),
             ),

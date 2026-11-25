@@ -94,26 +94,36 @@ impl Lowerer<'_> {
 
         let value = completed.value.expect("await completion retains its produced value");
 
-        let retention = self.frame_retention(&source, id.into())?;
-        let cancellation = self.suspension_cleanup_edge(&source, id.into(), retention)?;
+        let (resume, value) = self.continue_committed_frame(id.into(), block, &source, Some(value))?;
+
+        Ok(LoweredExpression::continuing(resume, value, source))
+    }
+
+    pub(super) fn continue_committed_frame(
+        &mut self,
+        occurrence: bray_bound_tree::BoundExecutionSite,
+        block: MirBlockId,
+        source: &MirSourceAnchor,
+        mut value: Option<MirOperand>,
+    ) -> Result<(MirBlockId, Option<MirOperand>), LoweringError> {
+        let retention = self.frame_retention(source, occurrence)?;
+        let cancellation = self.suspension_cleanup_edge(source, occurrence.node(), retention)?;
 
         let resume = self.builder.push_block(
-            Self::retained_source(&source),
+            Self::retained_source(source),
             self.builder.block_kind(block),
         )?;
 
-        let mut value = Some(value);
-
         let continuation = crate::continuation::forward_cleanup_result(
             &mut self.builder,
-            &source,
+            source,
             resume,
             &mut value,
         )?;
 
-        self.branch_frame_cancellation(block, &source, continuation, cancellation)?;
+        self.branch_frame_cancellation(block, source, continuation, cancellation)?;
 
-        Ok(LoweredExpression::continuing(resume, value, source))
+        Ok((resume, value))
     }
 
     pub(super) fn lower_awaited_frame(
@@ -518,7 +528,6 @@ mod tests {
             [],
             [],
             [],
-            [],
             false,
         )
         .unwrap_or_else(|error| panic!("pinned async analysis must validate: {error:?}"));
@@ -526,7 +535,6 @@ mod tests {
         let movable = CheckedAsync::try_new(
             unit,
             BoundUnitKind::CallableBody,
-            [],
             [],
             [],
             [],

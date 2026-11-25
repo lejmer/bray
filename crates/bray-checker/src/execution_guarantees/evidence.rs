@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+use bray_symbols::DependencyFailureKind;
+
 use super::ExecutionCondition as Condition;
 
 /// One failed condition, retaining its declaration meaning and instantiated arguments.
@@ -10,8 +12,14 @@ pub struct UnprovenExecutionCondition {
 }
 
 impl UnprovenExecutionCondition {
-    pub(crate) fn new(required: super::ExecutionCondition, actual: super::ExecutionCondition) -> Self {
-        Self { required: Arc::new(required), actual: Arc::new(actual) }
+    pub(crate) fn new(
+        required: super::ExecutionCondition,
+        actual: super::ExecutionCondition,
+    ) -> Self {
+        Self {
+            required: Arc::new(required),
+            actual: Arc::new(actual),
+        }
     }
 
     /// Returns the condition before binding its declaration inputs.
@@ -25,28 +33,64 @@ impl UnprovenExecutionCondition {
     }
 }
 
+/// One portable failure row bound to the invocation that can actually produce it.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub(crate) struct ExecutionFailureRow {
+    pub(crate) index: usize,
+    kind: Option<DependencyFailureKind>,
+    pub(crate) guard: Option<Condition>,
+}
+
+/// The memory input obligation established before the operation commits its effects.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub(crate) enum MemoryAccessProof {
+    Initialized,
+    ProtectedCellInitialized,
+    EmptyCopy,
+}
+
+impl ExecutionFailureRow {
+    pub(crate) fn covers(&self, kind: DependencyFailureKind) -> bool {
+        self.kind.is_none_or(|selected| selected == kind)
+    }
+}
+
 /// Values captured at a selected call's entry, before callee mutation can occur.
-#[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ExecutionCallEvidence {
-    pub(crate) implementation_witnesses: std::sync::Arc<[bray_symbols::ImplementationInstanceId]>,
-    /// Exact existing carriers admitted at invocation. Their ledger clauses stay
-    /// private until completion uses this entry's captured truth and actual return.
-    pub(crate) witness_inputs: std::collections::BTreeSet<super::ExecutionCondition>,
+    /// Actual normal publications formed from this admitted environment.
+    pub(crate) outputs: super::ExecutionOutputs,
+    /// Portable failure rows admitted against the same evaluated entry arguments.
+    pub(crate) failure_rows: Option<Arc<[ExecutionFailureRow]>>,
+    pub(crate) implementation_witnesses: Arc<[bray_symbols::ImplementationInstanceId]>,
+    /// Existing witnesses with their support at this value's admission.
+    pub(crate) witness_inputs: std::collections::BTreeMap<Condition, Arc<super::ExecutionWitness>>,
+    /// Allocations supported by those same admitted carriers.
+    pub(crate) witness_allocations: std::collections::BTreeMap<Condition, Condition>,
     /// Existing complete values selected by checked moves out of borrowed slots.
-    /// These retain private proof, without transferring ownership of the borrow.
-    pub(crate) extracted_values: std::collections::BTreeSet<super::ExecutionCondition>,
-    /// Copy origins while their observations remain unchanged. These are value
-    /// correlations, never language equality predicates or ownership authority.
-    pub(crate) copy_sources:
-        std::collections::BTreeMap<super::ExecutionPlace, super::ExecutionCondition>,
+    /// The transfer's input term identifies the original admission at completion.
+    pub(crate) extracted_values:
+        std::collections::BTreeMap<bray_symbols::ConstantTermId, Condition>,
     /// Noncopying owned inputs, in receiver-first checked signature order.
-    pub(crate) owned_inputs: std::sync::Arc<[bray_symbols::SymbolOrdinal]>,
+    pub(crate) owned_inputs: Arc<[bray_symbols::SymbolOrdinal]>,
+    /// Planned access authority for each evaluated outer borrow input.
+    pub(crate) input_borrow_kinds:
+        std::collections::BTreeMap<bray_symbols::SymbolOrdinal, bray_symbols::BorrowKind>,
+    /// Declaration aliases mapped to their receiver-first evaluated input.
+    pub(crate) input_ordinals:
+        std::collections::BTreeMap<super::ExecutionPlace, bray_symbols::SymbolOrdinal>,
+    /// Reached storage lifetimes retained by the evaluated loan at each ordinal.
+    pub(crate) borrow_owners:
+        std::collections::BTreeMap<bray_symbols::SymbolOrdinal, Arc<[super::ExecutionPlace]>>,
     /// Access dependencies captured before consuming inputs, without owning authority.
     pub(crate) addresses:
         std::collections::BTreeMap<super::ExecutionPlace, super::AddressDependencies>,
     pub(crate) anonymous_target: Option<bray_bound_tree::BoundUnitKey>,
     pub(crate) trusted_boundary: bool,
     pub(crate) pending_execution: bool,
+    /// The reached normal transition left storage observations unchanged.
+    pub(crate) storage_unchanged: bool,
+    pub(crate) memory_access: Option<MemoryAccessProof>,
     pub(crate) arguments:
         std::collections::BTreeMap<super::ExecutionPlace, super::ExecutionCondition>,
     pub(crate) assumptions: super::ExecutionAssumptions,
@@ -54,6 +98,414 @@ pub struct ExecutionCallEvidence {
 }
 
 impl ExecutionCallEvidence {
+    /// Whether reusing an evaluation can change this reached admission.
+    pub(crate) fn observes_retiring_evaluation(&self, stale: &impl Fn(&Condition) -> bool) -> bool {
+        (self.pending_execution
+            && self
+                .assumptions
+                .iter()
+                .chain(&self.trusted_assumptions)
+                .any(|(condition, _)| stale(condition)))
+            || self.witness_support_revoked(&|owner, _| stale(owner), &|_, condition, support, _| {
+                stale(condition) || support.addresses.keys().any(stale)
+            })
+            || self
+                .arguments
+                .values()
+                .chain(self.outputs.conditions())
+                .chain(self.extracted_values.values())
+                .any(stale)
+    }
+
+    /// Expires observations of a reused name within this one admission.
+    pub(crate) fn retire_evaluation(
+        &mut self,
+        mutation: bray_bound_tree::StorageMutation,
+        stale: &impl Fn(&Condition) -> bool,
+    ) {
+        self.revoke_witness_support(&|owner, _| stale(owner), &|_, condition, support, _| {
+            stale(condition) || support.addresses.keys().any(stale)
+        });
+
+        if self.pending_execution {
+            self.assumptions.retain(|(condition, _)| !stale(condition));
+
+            self.trusted_assumptions
+                .retain(|(condition, _)| !stale(condition));
+        }
+
+        for value in self.arguments.values_mut().filter(|value| stale(value)) {
+            *value = value.without_evaluation(mutation);
+        }
+
+        if self.outputs.conditions().any(stale) {
+            self.outputs = self
+                .outputs
+                .try_map(|value| {
+                    Ok::<_, std::convert::Infallible>(value.without_evaluation(mutation))
+                })
+                .expect("evaluation retirement is total");
+        }
+
+        self.extracted_values.retain(|_, value| !stale(value));
+    }
+
+    pub(crate) fn witness_support_revoked(
+        &self,
+        owner_revoked: &impl Fn(&Condition, &super::ExecutionWitness) -> bool,
+        clause_revoked: &impl Fn(
+            &Condition,
+            &Condition,
+            &super::ExecutionGuarantee,
+            *const super::ExecutionWitness,
+        ) -> bool,
+    ) -> bool {
+        self.witness_inputs.iter().any(|(owner, witness)| {
+            owner_revoked(owner, witness)
+                || witness.conditions.iter().any(|(condition, support)| {
+                    clause_revoked(owner, condition, support, Arc::as_ptr(witness))
+                })
+        }) || self.witness_allocations.iter().any(|(condition, owner)| {
+            self.witness_inputs.get(owner).is_none_or(|witness| {
+                clause_revoked(owner, condition, &Default::default(), Arc::as_ptr(witness))
+            })
+        })
+    }
+
+    pub(crate) fn revoke_witness_support(
+        &mut self,
+        owner_revoked: &impl Fn(&Condition, &super::ExecutionWitness) -> bool,
+        clause_revoked: &impl Fn(
+            &Condition,
+            &Condition,
+            &super::ExecutionGuarantee,
+            *const super::ExecutionWitness,
+        ) -> bool,
+    ) {
+        self.witness_allocations.retain(|condition, owner| {
+            self.witness_inputs.get(owner).is_some_and(|witness| {
+                !clause_revoked(owner, condition, &Default::default(), Arc::as_ptr(witness))
+            })
+        });
+
+        self.witness_inputs.retain(|owner, witness| {
+            if owner_revoked(owner, witness) {
+                return false;
+            }
+
+            let identity = Arc::as_ptr(witness);
+
+            witness.retain_conditions(|condition, support| {
+                !clause_revoked(owner, condition, support, identity)
+            });
+
+            !witness.conditions.is_empty() || !witness.dependencies.is_empty()
+        });
+
+        self.witness_allocations
+            .retain(|_, owner| self.witness_inputs.contains_key(owner));
+    }
+
+    pub(crate) fn select_failure_rows<Report, Write>(
+        &self,
+        values: &bray_symbols::SemanticValueStore,
+        cache: &super::ExecutionProofCache,
+        rows: Option<
+            &[bray_symbols::CapturedFailureOutcome<
+                bray_symbols::ConstantTermId,
+                Report,
+                bray_symbols::DependencyStorageEffect,
+                Write,
+            >],
+        >,
+    ) -> Option<Arc<[ExecutionFailureRow]>> {
+        let proof = cache.ordinary_proof(&self.assumptions);
+
+        rows.map(|rows| {
+            rows.iter()
+                .enumerate()
+                .filter_map(|(index, outcome)| {
+                    let guard = outcome
+                        .guard
+                        .map(|guard| self.bind_term(values, guard, &Condition::unknown()));
+
+                    guard
+                        .as_ref()
+                        .is_none_or(|condition| proof.can_assume(condition, true))
+                        .then_some(ExecutionFailureRow {
+                            index,
+                            kind: outcome.kind,
+                            guard,
+                        })
+                })
+                .collect()
+        })
+    }
+
+    pub(crate) fn admits_failure(&self, row: usize) -> bool {
+        Self::admits_failure_row(self.failure_rows.as_deref(), row)
+    }
+
+    pub(crate) fn admits_failure_row(rows: Option<&[ExecutionFailureRow]>, row: usize) -> bool {
+        rows.is_none_or(|rows| {
+            rows.binary_search_by_key(&row, |candidate| candidate.index)
+                .is_ok()
+        })
+    }
+
+    pub(crate) fn failure_guard(&self, row: usize) -> Option<&Condition> {
+        let rows = self.failure_rows.as_deref()?;
+
+        let index = rows
+            .binary_search_by_key(&row, |candidate| candidate.index)
+            .ok()?;
+
+        rows[index].guard.as_ref()
+    }
+
+    pub(crate) fn try_map_failure_guards<E>(
+        &self,
+        mut map: impl FnMut(&Condition) -> Result<Condition, E>,
+    ) -> Result<Option<Arc<[ExecutionFailureRow]>>, E> {
+        let Some(rows) = &self.failure_rows else {
+            return Ok(None);
+        };
+
+        let mut mapped = None;
+
+        for (index, row) in rows.iter().enumerate() {
+            let Some(guard) = &row.guard else {
+                continue;
+            };
+
+            let updated = map(guard)?;
+
+            if updated != *guard {
+                mapped.get_or_insert_with(|| rows.to_vec())[index].guard = Some(updated);
+            }
+        }
+
+        Ok(Some(mapped.map_or_else(|| Arc::clone(rows), Arc::from)))
+    }
+
+    pub(crate) fn bind_condition(&self, formal: &Condition, result: &Condition) -> Condition {
+        formal.substitute(
+            &|place| {
+                place
+                    .value_in(&self.arguments)
+                    .unwrap_or_else(Condition::unknown)
+            },
+            result,
+            &mut { Condition::WORK_LIMIT },
+        )
+    }
+
+    /// Instantiates an entry condition using the admitted values and their equalities.
+    pub(crate) fn bind_entry_condition(
+        &self,
+        formal: &Condition,
+        equalities: &std::collections::BTreeMap<Condition, Condition>,
+    ) -> Condition {
+        self.bind_condition(formal, &Condition::unknown())
+            .with_equalities(equalities)
+    }
+
+    pub(crate) fn formal_condition(
+        &self,
+        values: &bray_symbols::SemanticValueStore,
+        term: bray_symbols::ConstantTermId,
+    ) -> Condition {
+        crate::execution_condition_from_type_term(values, term, self.positional_arguments().count())
+            .expect("checked condition decodes in the admitted call environment")
+    }
+
+    pub(crate) fn bind_term(
+        &self,
+        values: &bray_symbols::SemanticValueStore,
+        term: bray_symbols::ConstantTermId,
+        result: &Condition,
+    ) -> Condition {
+        self.bind_condition(&self.formal_condition(values, term), result)
+    }
+
+    /// Resolves entry observations before binding current arguments or the result.
+    pub(crate) fn capture_condition(&self, formal: &Condition) -> Condition {
+        formal.capture_entry(
+            &|place| {
+                place
+                    .value_in(&self.arguments)
+                    .unwrap_or_else(Condition::unknown)
+            },
+            &self.trusted_assumptions,
+            &self.assumptions,
+            &mut { Condition::WORK_LIMIT },
+        )
+    }
+
+    pub(crate) fn select_output(&mut self, row: usize) {
+        self.outputs = super::ExecutionOutputs([self.outputs.0[row].clone()].into());
+    }
+
+    pub(crate) fn conditions(&self) -> impl Iterator<Item = &Condition> {
+        self.arguments
+            .values()
+            .chain(self.outputs.conditions())
+            .chain(
+                self.failure_rows
+                    .iter()
+                    .flat_map(|rows| rows.iter().filter_map(|row| row.guard.as_ref())),
+            )
+            .chain(self.witness_inputs.keys())
+            .chain(self.witness_inputs.values().flat_map(|witness| {
+                witness
+                    .conditions
+                    .iter()
+                    .flat_map(|(condition, guarantee)| {
+                        std::iter::once(condition).chain(guarantee.addresses.keys())
+                    })
+            }))
+            .chain(self.witness_allocations.keys())
+            .chain(self.extracted_values.values())
+            .chain(
+                self.addresses
+                    .values()
+                    .flat_map(|addresses| addresses.keys()),
+            )
+            .chain(self.assumptions.iter().map(|(condition, _)| condition))
+            .chain(
+                self.trusted_assumptions
+                    .iter()
+                    .map(|(condition, _)| condition),
+            )
+    }
+
+    /// Evaluated arguments in receiver-first formal order, excluding declaration aliases.
+    pub(crate) fn positional_arguments(
+        &self,
+    ) -> impl Iterator<Item = (bray_symbols::SymbolOrdinal, &Condition)> {
+        self.arguments
+            .iter()
+            .filter_map(|(place, value)| match place.root {
+                super::ExecutionInput::Argument(ordinal) if place.projections.is_empty() => {
+                    Some((ordinal, value))
+                }
+                _ => None,
+            })
+    }
+
+    /// The inline physical snapshot of the evaluated operand at this ordinal.
+    pub(crate) fn argument_storage(
+        &self,
+        ordinal: bray_symbols::SymbolOrdinal,
+    ) -> Option<&bray_bound_tree::StorageCapturedValue> {
+        self.arguments
+            .get(&super::ExecutionPlace::argument(ordinal))?
+            .inline_captured_storage()
+    }
+
+    /// The checked outer borrow authority used to evaluate this argument.
+    pub(crate) fn argument_borrow_kind(
+        &self,
+        ordinal: bray_symbols::SymbolOrdinal,
+    ) -> Option<bray_symbols::BorrowKind> {
+        self.input_borrow_kinds.get(&ordinal).copied()
+    }
+
+    /// Returns the evaluated input position named by a formal or positional place.
+    pub(crate) fn input_ordinal(
+        &self,
+        place: &super::ExecutionPlace,
+    ) -> Option<bray_symbols::SymbolOrdinal> {
+        match place.root {
+            super::ExecutionInput::Argument(ordinal) => Some(ordinal),
+            _ => self.input_ordinals.get(place).copied(),
+        }
+    }
+
+    /// Maps a formal input path to the current storage selected when that
+    /// operand was admitted.
+    pub(crate) fn actual_input_place(
+        &self,
+        storage: &bray_bound_tree::StoragePlan,
+        formal: &super::ExecutionPlace,
+    ) -> Option<super::ExecutionPlace> {
+        let positional;
+
+        let (formal_root, ordinal) = match formal.root {
+            super::ExecutionInput::Argument(ordinal) => {
+                positional = super::ExecutionPlace::argument(ordinal);
+
+                (&positional, ordinal)
+            }
+            _ => self
+                .input_ordinals
+                .iter()
+                .filter(|(root, _)| root.contains(formal))
+                .max_by_key(|(root, _)| root.projections.len())
+                .map(|(root, ordinal)| (root, *ordinal))?,
+        };
+
+        let path = self
+            .argument_storage(ordinal)
+            .and_then(bray_bound_tree::StorageCapturedValue::known_address)
+            .and_then(bray_bound_tree::StorageTarget::value_observation_path)?;
+
+        let actual = super::ExecutionPlace::storage_path(storage, &path)?;
+
+        Some(
+            formal.projections[formal_root.projections.len()..]
+                .iter()
+                .copied()
+                .fold(actual, super::ExecutionPlace::component),
+        )
+    }
+
+    pub(crate) fn retain_argument_borrow_kind(
+        &mut self,
+        ordinal: bray_symbols::SymbolOrdinal,
+        kind: bray_symbols::BorrowKind,
+    ) {
+        if let Some(previous) = self.input_borrow_kinds.insert(ordinal, kind) {
+            assert_eq!(
+                previous, kind,
+                "one checked input retains its planned borrow authority"
+            );
+        }
+    }
+
+    /// Complete escape bounds from the evaluated operands, including their actual descriptors.
+    pub(crate) fn argument_regions(
+        &self,
+        count: usize,
+    ) -> Option<(
+        Arc<[bray_bound_tree::StorageTarget]>,
+        Arc<[bray_bound_tree::StorageTarget]>,
+    )> {
+        let mut arguments = self.positional_arguments();
+        let mut raw = Vec::new();
+        let mut borrowed = Vec::new();
+
+        for index in 0..count {
+            let (ordinal, argument) = arguments.next()?;
+
+            if ordinal.to_index() != Some(index) {
+                return None;
+            }
+
+            let (argument_raw, argument_borrowed) = argument.captured_input_regions()?;
+
+            raw.extend(argument_raw);
+            borrowed.extend(argument_borrowed);
+        }
+
+        arguments.next().is_none().then(|| {
+            (
+                bray_base::sorted_unique_shared_slice(raw),
+                bray_base::sorted_unique_shared_slice(borrowed),
+            )
+        })
+    }
+
     /// Actual values moved into the receiver-first noncopying input slots.
     pub(crate) fn owned_arguments(&self) -> impl Iterator<Item = super::ExecutionCondition> + '_ {
         self.owned_inputs.iter().filter_map(|ordinal| {
@@ -63,81 +515,25 @@ impl ExecutionCallEvidence {
 
     /// Values whose existing evidence is admitted independently of result publication.
     pub(crate) fn witness_sources(&self) -> impl Iterator<Item = super::ExecutionCondition> + '_ {
-        self.owned_arguments().chain(self.extracted_values.iter().cloned())
+        self.owned_arguments()
+            .chain(self.extracted_values.values().cloned())
     }
 
     /// Ends admitted proof that no surviving value or result retains.
-    pub(crate) fn retiring_witness_values(&self) -> impl Iterator<Item = super::ExecutionCondition> + '_ {
-        self.witness_sources().chain(self.witness_inputs.iter().cloned())
+    pub(crate) fn retiring_witness_values(
+        &self,
+    ) -> impl Iterator<Item = super::ExecutionCondition> + '_ {
+        self.witness_sources()
+            .chain(self.witness_inputs.keys().cloned())
     }
 
-    /// Project current ordinary knowledge into immutable copied input identities.
-    pub(crate) fn captured_facts(
-        &self,
-        ordinary: &std::collections::BTreeSet<(super::ExecutionCondition, bool)>,
-    ) -> std::collections::BTreeSet<(super::ExecutionCondition, bool)> {
-        let bindings = self.copy_bindings();
-        let mut facts = std::collections::BTreeSet::new();
-
-        if bindings.is_empty() {
-            return facts;
-        }
-
-        let snapshots = super::SnapshotSubstitution::new(&bindings);
-
-        for (condition, holds) in ordinary {
-            if condition.contains_trusted() || condition.observes_live(None) {
-                continue;
-            }
-
-            let captured = snapshots.apply(condition);
-
-            if captured != *condition {
-                captured.assume(*holds, &mut facts);
-            }
-        }
-
-        for (source, captured) in bindings {
-            if let Some(holds) = source.prove(ordinary, &mut { Condition::WORK_LIMIT }) {
-                captured.assume(holds, &mut facts);
-            }
-        }
-
-        facts
-    }
-
-    /// Read historical proof through still-valid copy origins. This projection
-    /// supplies call-entry proof only. It never publishes copied live authority.
-    pub(crate) fn proof_facts<'a>(
-        &self,
-        facts: &'a std::collections::BTreeSet<(super::ExecutionCondition, bool)>,
-    ) -> impl Iterator<Item = (super::ExecutionCondition, bool)> + 'a {
-        let bindings = self.copy_bindings();
-
+    /// Reads the logical facts of the admitted invocation without physical capture metadata.
+    pub(crate) fn proof_facts(
+        facts: &std::collections::BTreeSet<(super::ExecutionCondition, bool)>,
+    ) -> impl Iterator<Item = (super::ExecutionCondition, bool)> + '_ {
         facts
             .iter()
-            .map(move |(condition, holds)| (condition.with_copy_origins(&bindings), *holds))
-    }
-
-    fn copy_bindings(
-        &self,
-    ) -> std::collections::BTreeMap<super::ExecutionCondition, super::ExecutionCondition> {
-        let mut bindings = std::collections::BTreeMap::new();
-
-        for (place, source) in &self.copy_sources {
-            let Some(captured) = place.value_in(&self.arguments) else {
-                continue;
-            };
-
-            bindings.insert(source.clone(), captured.clone());
-
-            bindings.insert(
-                source.owner_identity().clone(),
-                captured,
-            );
-        }
-
-        bindings
+            .map(|(condition, holds)| (condition.without_captured_storage(), *holds))
     }
 
     /// Captures only constant argument values, with no trusted authority or runtime execution lane.
@@ -179,38 +575,45 @@ impl ExecutionCallEvidence {
     }
 
     /// Instantiates call identities in captured values without changing the reusable entry snapshot.
-    pub fn try_map_conditions<E>(
+    pub(crate) fn try_map_conditions<E>(
         &self,
         mut map: impl FnMut(&super::ExecutionCondition) -> Result<super::ExecutionCondition, E>,
     ) -> Result<Self, E> {
         let mut mapped = Self {
+            failure_rows: self.try_map_failure_guards(&mut map)?,
             implementation_witnesses: Arc::clone(&self.implementation_witnesses),
             owned_inputs: Arc::clone(&self.owned_inputs),
+            input_borrow_kinds: self.input_borrow_kinds.clone(),
+            input_ordinals: self.input_ordinals.clone(),
+            borrow_owners: self.borrow_owners.clone(),
             anonymous_target: self.anonymous_target.clone(),
             trusted_boundary: self.trusted_boundary,
             pending_execution: self.pending_execution,
+            storage_unchanged: self.storage_unchanged,
+            memory_access: self.memory_access,
             ..Self::default()
         };
 
-        mapped.arguments = self
-            .arguments
-            .iter()
-            .map(|(place, condition)| Ok((place.clone(), map(condition)?)))
-            .collect::<Result<_, E>>()?;
+        mapped.arguments = super::call_proof::map_arguments(&self.arguments, &mut map)?;
 
-        mapped.copy_sources = self
-            .copy_sources
-            .iter()
-            .map(|(place, condition)| Ok((place.clone(), map(condition)?)))
-            .collect::<Result<_, E>>()?;
+        mapped.outputs = self.outputs.try_map(&mut map)?;
 
         mapped.witness_inputs = self
             .witness_inputs
             .iter()
-            .map(&mut map)
+            .map(|(owner, witness)| Ok((map(owner)?, witness.try_map_conditions(&mut map)?)))
             .collect::<Result<_, E>>()?;
 
-        mapped.extracted_values = self.extracted_values.iter().map(&mut map)
+        mapped.witness_allocations = self
+            .witness_allocations
+            .iter()
+            .map(|(condition, owner)| Ok((map(condition)?, map(owner)?)))
+            .collect::<Result<_, E>>()?;
+
+        mapped.extracted_values = self
+            .extracted_values
+            .iter()
+            .map(|(term, value)| Ok((*term, map(value)?)))
             .collect::<Result<_, E>>()?;
 
         // Proof queries retain the physical dependencies of each independently mapped address.
@@ -225,17 +628,10 @@ impl ExecutionCallEvidence {
             }
         }
 
-        mapped.assumptions = self
-            .assumptions
-            .iter()
-            .map(|(condition, value)| Ok((map(condition)?, *value)))
-            .collect::<Result<_, E>>()?;
+        mapped.assumptions = super::call_proof::map_assumptions(&self.assumptions, &mut map)?;
 
-        mapped.trusted_assumptions = self
-            .trusted_assumptions
-            .iter()
-            .map(|(condition, value)| Ok((map(condition)?, *value)))
-            .collect::<Result<_, E>>()?;
+        mapped.trusted_assumptions =
+            super::call_proof::map_assumptions(&self.trusted_assumptions, &mut map)?;
 
         Ok(mapped)
     }
@@ -246,6 +642,15 @@ impl ExecutionCallEvidence {
     }
 
     pub(crate) fn intersect(&mut self, other: &Self, cache: &super::ExecutionProofCache) -> bool {
+        self.intersect_guarded(other, cache, None)
+    }
+
+    pub(super) fn intersect_guarded(
+        &mut self,
+        other: &Self,
+        cache: &super::ExecutionProofCache,
+        selections: Option<[&std::collections::BTreeSet<(super::ExecutionCondition, bool)>; 2]>,
+    ) -> bool {
         assert_eq!(
             self.implementation_witnesses, other.implementation_witnesses,
             "a selected invocation retains its implementation choices across control flow"
@@ -256,33 +661,91 @@ impl ExecutionCallEvidence {
             "one checked invocation retains its input ownership modes"
         );
 
+        assert_eq!(
+            self.input_borrow_kinds, other.input_borrow_kinds,
+            "one checked invocation retains its input borrow authority"
+        );
+
+        assert_eq!(
+            self.input_ordinals, other.input_ordinals,
+            "one checked invocation retains its formal input mapping"
+        );
+
         let before = (
             self.anonymous_target.is_some(),
             self.trusted_boundary,
             self.pending_execution,
+            self.storage_unchanged,
+            self.memory_access,
             self.assumptions.len(),
             self.trusted_assumptions.len(),
             self.arguments.len(),
-            self.copy_sources.len(),
             self.witness_inputs.len(),
+            self.witness_allocations.len(),
             self.extracted_values.len(),
         );
 
         let mut addresses_changed = false;
+        let mut borrow_support_changed = false;
 
-        for (input, addresses) in &other.addresses {
-            let retained = self.addresses.entry(input.clone()).or_default();
+        self.storage_unchanged &= other.storage_unchanged;
 
-            for (address, owners) in addresses {
-                addresses_changed |= !retained.contains_key(address);
+        self.memory_access = self
+            .memory_access
+            .zip(other.memory_access)
+            .map(|(left, right)| {
+                if left == right {
+                    left
+                } else {
+                    MemoryAccessProof::Initialized
+                }
+            });
 
-                let retained = retained.entry(address.clone()).or_default();
-                let before = retained.len();
+        self.borrow_owners.retain(|ordinal, owners| {
+            let Some(incoming) = other.borrow_owners.get(ordinal) else {
+                borrow_support_changed = true;
 
-                retained.extend(owners.iter().cloned());
-                addresses_changed |= retained.len() != before;
+                return false;
+            };
+
+            if incoming.as_ref() != owners.as_ref() {
+                let joined = bray_base::sorted_unique_shared_slice(
+                    owners.iter().chain(incoming.iter()).cloned(),
+                );
+
+                if joined.as_ref() != owners.as_ref() {
+                    *owners = joined;
+                    borrow_support_changed = true;
+                }
             }
-        }
+
+            true
+        });
+
+        self.addresses.retain(|input, addresses| {
+            let Some(incoming) = other.addresses.get(input) else {
+                addresses_changed = true;
+
+                return false;
+            };
+
+            addresses.retain(|address, owners| {
+                let Some(incoming) = incoming.get(address) else {
+                    addresses_changed = true;
+
+                    return false;
+                };
+
+                let count = owners.len();
+
+                owners.extend(incoming.iter().cloned());
+                addresses_changed |= owners.len() != count;
+
+                true
+            });
+
+            !addresses.is_empty()
+        });
 
         if self.anonymous_target != other.anonymous_target {
             self.anonymous_target = None;
@@ -293,21 +756,52 @@ impl ExecutionCallEvidence {
 
         let mut arguments_changed = false;
         let mut joined_facts = Vec::new();
-        let left = cache.ordinary_proof(&self.assumptions);
-        let right = cache.ordinary_proof(&other.assumptions);
+
+        // A frame's selector constrains its own incoming capture. Use those
+        // facts while joining values. The joined entry retains its common facts.
+        let selected = selections.map(|[left, right]| {
+            [(&self.assumptions, left), (&other.assumptions, right)].map(
+                |(assumptions, selection)| {
+                    let mut assumptions = assumptions.clone();
+
+                    assumptions.extend(selection.iter().cloned());
+
+                    assumptions
+                },
+            )
+        });
+
+        let left = cache.ordinary_proof(
+            selected
+                .as_ref()
+                .map_or(&self.assumptions, |proof| &proof[0]),
+        );
+
+        let right = cache.ordinary_proof(
+            selected
+                .as_ref()
+                .map_or(&other.assumptions, |proof| &proof[1]),
+        );
+
+        let outputs_changed = self.outputs.intersect(&other.outputs, (&left, &right));
 
         for (place, value) in &mut self.arguments {
             let incoming = other.arguments.get(place);
 
-            if incoming == Some(value) { continue; }
+            if incoming == Some(value) {
+                continue;
+            }
 
             // Invocation entries use the same snapshot join as current values.
             // Loss of contents knowledge does not retire a common carrier or loan.
             let joined = incoming.map_or_else(super::ExecutionCondition::unknown, |incoming| {
                 super::common_components(
-                    value, incoming, None,
+                    value,
+                    incoming,
+                    None,
                     (&left, &right),
-                    &mut joined_facts, &mut { super::ExecutionCondition::WORK_LIMIT },
+                    &mut joined_facts,
+                    &mut { super::ExecutionCondition::WORK_LIMIT },
                 )
             });
 
@@ -319,24 +813,62 @@ impl ExecutionCallEvidence {
 
         let previous_assumptions = self.assumptions.len();
 
-        self.assumptions.retain(|condition| other.assumptions.contains(condition));
+        self.assumptions
+            .retain(|condition| other.assumptions.contains(condition));
 
         let mut assumptions_changed = previous_assumptions != self.assumptions.len();
 
-        for fact in joined_facts { assumptions_changed |= self.assumptions.insert(fact); }
+        for fact in joined_facts {
+            assumptions_changed |= self.assumptions.insert(fact);
+        }
 
-        self.trusted_assumptions.retain(|condition| other.trusted_assumptions.contains(condition));
-
-        self.copy_sources
-            .retain(|place, value| other.copy_sources.get(place) == Some(value)
-                && self.arguments.get(place).is_some_and(|value| *value != super::ExecutionCondition::unknown()));
+        self.trusted_assumptions
+            .retain(|condition| other.trusted_assumptions.contains(condition));
 
         self.witness_inputs
-            .retain(|owner| other.witness_inputs.contains(owner));
+            .retain(|owner, witness| other.witness_inputs.get(owner) == Some(&*witness));
 
-        self.extracted_values.retain(|value| other.extracted_values.contains(value));
+        self.witness_allocations.retain(|condition, owner| {
+            other.witness_allocations.get(condition) == Some(&*owner)
+                && self.witness_inputs.contains_key(owner)
+        });
+
+        self.extracted_values
+            .retain(|term, value| other.extracted_values.get(term) == Some(value));
+
+        let failures = match (self.failure_rows.as_deref(), other.failure_rows.as_deref()) {
+            (Some(left), Some(right)) if left == right => self.failure_rows.clone(),
+            (Some(left), Some(right)) => {
+                let mut rows = std::collections::BTreeMap::<_, ExecutionFailureRow>::new();
+
+                for row in left.iter().chain(right) {
+                    rows.entry(row.index)
+                        .and_modify(|bound| {
+                            assert_eq!(
+                                bound.kind, row.kind,
+                                "one admitted failure row retains its kind"
+                            );
+
+                            if bound.guard != row.guard {
+                                bound.guard = None;
+                            }
+                        })
+                        .or_insert_with(|| row.clone());
+                }
+
+                Some(rows.into_values().collect())
+            }
+            _ => None,
+        };
+
+        let failures_changed = self.failure_rows != failures;
+
+        self.failure_rows = failures;
 
         addresses_changed
+            || borrow_support_changed
+            || failures_changed
+            || outputs_changed
             || arguments_changed
             || assumptions_changed
             || before
@@ -344,13 +876,27 @@ impl ExecutionCallEvidence {
                     self.anonymous_target.is_some(),
                     self.trusted_boundary,
                     self.pending_execution,
+                    self.storage_unchanged,
+                    self.memory_access,
                     self.assumptions.len(),
                     self.trusted_assumptions.len(),
                     self.arguments.len(),
-                    self.copy_sources.len(),
                     self.witness_inputs.len(),
+                    self.witness_allocations.len(),
                     self.extracted_values.len(),
                 )
+    }
+
+    /// Borrows the inputs that obligation selection reads.
+    pub fn proof_inputs(&self) -> super::ExecutionCallProof<'_> {
+        super::ExecutionCallProof::new(self, None)
+    }
+
+    pub(crate) fn proof_inputs_with_cache<'a>(
+        &'a self,
+        cache: &'a super::ExecutionProofCache,
+    ) -> super::ExecutionCallProof<'a> {
+        super::ExecutionCallProof::new(self, Some(cache))
     }
 
     /// Proves every entry condition, retaining the first condition and its actual arguments on failure.
@@ -358,12 +904,24 @@ impl ExecutionCallEvidence {
         &self,
         conditions: impl IntoIterator<Item = &'a super::ExecutionCondition>,
     ) -> Result<(), UnprovenExecutionCondition> {
-        self.prove_from(conditions, &self.assumptions, &[])
+        self.proof_inputs().prove_requirements(conditions)
+    }
+
+    pub(crate) fn prove_requirements_with_cache<'a>(
+        &self,
+        cache: &super::ExecutionProofCache,
+        conditions: impl IntoIterator<Item = &'a super::ExecutionCondition>,
+    ) -> Result<(), UnprovenExecutionCondition> {
+        self.proof_inputs_with_cache(cache)
+            .prove_requirements(conditions)
     }
 
     /// Proves every trusted obligation from the captured live evidence.
-    pub fn prove_trusted_requirements(&self, conditions: &[super::ExecutionCondition]) -> Result<(), UnprovenExecutionCondition> {
-        self.prove_from(conditions, &self.trusted_assumptions, &[])
+    pub fn prove_trusted_requirements(
+        &self,
+        conditions: &[super::ExecutionCondition],
+    ) -> Result<(), UnprovenExecutionCondition> {
+        self.proof_inputs().prove_trusted_requirements(conditions)
     }
 
     /// Checks a declaration's own inputs against captured receiver-first arguments.
@@ -372,82 +930,8 @@ impl ExecutionCallEvidence {
         conditions: &[super::ExecutionCondition],
         inputs: &[bray_bound_tree::BoundReferenceTarget],
     ) -> Result<(), UnprovenExecutionCondition> {
-        self.prove_from(conditions, &self.trusted_assumptions, inputs)
-    }
-
-    fn prove_from<'a>(
-        &self,
-        conditions: impl IntoIterator<Item = &'a super::ExecutionCondition>,
-        assumptions: &std::collections::BTreeSet<(super::ExecutionCondition, bool)>,
-        inputs: &[bray_bound_tree::BoundReferenceTarget],
-    ) -> Result<(), UnprovenExecutionCondition> {
-        let mut conditions = conditions.into_iter().peekable();
-
-        if conditions.peek().is_none() {
-            return Ok(());
-        }
-
-        let equalities = super::ExecutionCondition::equalities(&self.assumptions, None);
-
-        let known = self
-            .proof_facts(assumptions)
-            .map(|(condition, value)| (condition.with_equalities(&equalities), value))
-            .collect();
-
-        let known = super::trusted_condition_closure(known, &self.assumptions);
-        let proof = super::ExecutionProof::new(&known, &self.assumptions);
-
-        for required in conditions {
-            let condition = required.substitute(
-                &|input| {
-                    input
-                        .value_in(&self.arguments)
-                        .or_else(|| {
-                            let ordinal = inputs
-                                .iter()
-                                .position(|reference| Some(*reference) == input.reference())?;
-
-                            let mut argument =
-                                super::ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(
-                                    u32::try_from(ordinal)
-                                        .expect("callable parameter ordinal fits"),
-                                ));
-
-                            // The captured argument retains this immutable component path.
-                            argument.projections = Arc::clone(&input.projections);
-
-                            argument.value_in(&self.arguments)
-                        })
-                        .or_else(|| {
-                            input
-                                .constant_term()
-                                .map(|_| super::ExecutionCondition::new(crate::ExecutionConditionKind::Input(input.clone())))
-                        })
-                        .or_else(|| match input.reference() {
-                            Some(bray_bound_tree::BoundReferenceTarget::Surface(
-                                bray_symbols::AnySymbolId::GenericConstParameter(_),
-                            )) => {
-                                // Generic substitution has already mapped this immutable compile-time input into the caller.
-                                Some(super::ExecutionCondition::new(crate::ExecutionConditionKind::Input(input.clone())))
-                            }
-                            _ => None,
-                        })
-                        .unwrap_or_else(super::ExecutionCondition::unknown)
-                },
-                &super::ExecutionCondition::unknown(),
-                &mut { crate::ExecutionCondition::WORK_LIMIT },
-            );
-
-            let condition = condition.with_equalities(&equalities);
-
-            if proof.prove_mixed(&condition, &mut {
-                super::ExecutionCondition::WORK_LIMIT
-            }) != Some(true) {
-                return Err(UnprovenExecutionCondition::new(required.clone(), condition));
-            }
-        }
-
-        Ok(())
+        self.proof_inputs()
+            .prove_trusted_with_inputs(conditions, inputs)
     }
 }
 
@@ -457,29 +941,112 @@ mod tests {
     use crate::{ExecutionCondition, ExecutionPlace};
 
     #[test]
+    fn joined_admission_requires_live_address_support_on_both_predecessors() {
+        let argument = ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(0));
+
+        let address =
+            ExecutionCondition::new(crate::ExecutionConditionKind::Input(argument.clone()));
+
+        let left = ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(1));
+        let right = ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(2));
+
+        let entry = |owner| ExecutionCallEvidence {
+            arguments: [(argument.clone(), address.clone())].into(),
+            addresses: [(argument.clone(), [(address.clone(), [owner].into())].into())].into(),
+            ..Default::default()
+        };
+
+        let cache = crate::execution_guarantees::ExecutionProofCache::default();
+        let mut joined = entry(left.clone());
+
+        assert!(joined.intersect(&entry(right.clone()), &cache));
+        assert_eq!(joined.addresses[&argument][&address], [left, right].into());
+
+        let mut expired = joined.clone();
+
+        expired.addresses.clear();
+
+        assert!(joined.intersect(&expired, &cache));
+        assert!(joined.addresses.is_empty());
+    }
+
+    #[test]
     fn borrowed_boolean_requirements_read_current_contents_without_creating_authority() {
         let argument = ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(0));
         let owner = ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(1));
-        let field = bray_symbols::ConstantProjectionKind::TupleElement(bray_symbols::SymbolOrdinal::new(0));
-        let required = ExecutionCondition::new(crate::ExecutionConditionKind::Input(argument.clone().component(field)));
-        let contents = ExecutionCondition::new(crate::ExecutionConditionKind::Input(owner.clone().component(field)));
-        let mut entry = ExecutionCallEvidence::default();
 
-        entry.arguments.insert(argument.clone(), ExecutionCondition::new(crate::ExecutionConditionKind::Input(owner)).borrowed());
+        let field =
+            bray_symbols::ConstantProjectionKind::TupleElement(bray_symbols::SymbolOrdinal::new(0));
+
+        let required = ExecutionCondition::new(crate::ExecutionConditionKind::Input(
+            argument.clone().component(field),
+        ));
+
+        let contents = ExecutionCondition::new(crate::ExecutionConditionKind::Input(
+            owner.clone().component(field),
+        ));
+
+        let mut entry = ExecutionCallEvidence::default();
+        let cache = crate::execution_guarantees::ExecutionProofCache::default();
+
+        entry.arguments.insert(
+            argument.clone(),
+            ExecutionCondition::new(crate::ExecutionConditionKind::Input(owner)).borrowed(),
+        );
+
         entry.assumptions.insert((contents.clone(), true));
 
         assert!(entry.prove_requirements([&required]).is_ok());
-        assert!(entry.prove_requirements([&ExecutionCondition::new(crate::ExecutionConditionKind::Trusted(std::sync::Arc::new(required.clone())))]).is_err());
+
+        assert!(
+            entry
+                .prove_requirements_with_cache(&cache, [&required])
+                .is_ok()
+        );
+
+        assert!(
+            entry
+                .prove_requirements([&ExecutionCondition::new(
+                    crate::ExecutionConditionKind::Trusted(std::sync::Arc::new(required.clone()))
+                )])
+                .is_err()
+        );
 
         entry.assumptions.clear();
+
         assert!(entry.prove_requirements([&required]).is_err());
+
+        assert!(
+            entry
+                .prove_requirements_with_cache(&cache, [&required])
+                .is_err()
+        );
+
         entry.assumptions.insert((contents, false));
-        assert!(entry.prove_requirements([&required]).is_err());
-
-        entry.arguments.insert(argument, ExecutionCondition::new(crate::ExecutionConditionKind::Input(
-            ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(2)))).borrowed());
 
         assert!(entry.prove_requirements([&required]).is_err());
+
+        assert!(
+            entry
+                .prove_requirements_with_cache(&cache, [&required])
+                .is_err()
+        );
+
+        entry.arguments.insert(
+            argument,
+            ExecutionCondition::new(crate::ExecutionConditionKind::Input(
+                ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(2)),
+            ))
+            .borrowed(),
+        );
+
+        assert!(entry.prove_requirements([&required]).is_err());
+
+        assert!(
+            entry
+                .prove_requirements_with_cache(&cache, [&required])
+                .is_err()
+        );
     }
 
     #[test]
@@ -487,12 +1054,17 @@ mod tests {
         let input = ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(0));
         let required = ExecutionCondition::new(crate::ExecutionConditionKind::Input(input.clone()));
 
-        for actual in [ExecutionCondition::boolean(false), ExecutionCondition::unknown()] {
+        for actual in [
+            ExecutionCondition::boolean(false),
+            ExecutionCondition::unknown(),
+        ] {
             let mut entry = ExecutionCallEvidence::default();
 
             entry.arguments.insert(input.clone(), actual.clone());
 
-            let failure = entry.prove_requirements([&required]).expect_err("unproven input cannot supply authority");
+            let failure = entry
+                .prove_requirements([&required])
+                .expect_err("unproven input cannot supply authority");
 
             assert_eq!(failure.required(), &required);
             assert_eq!(failure.actual(), &actual);
@@ -500,7 +1072,10 @@ mod tests {
 
         let mut entry = ExecutionCallEvidence::default();
 
-        entry.arguments.insert(input, ExecutionCondition::boolean(true));
+        entry
+            .arguments
+            .insert(input, ExecutionCondition::boolean(true));
+
         assert!(entry.prove_requirements([&required]).is_ok());
     }
 }

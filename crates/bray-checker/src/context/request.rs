@@ -153,6 +153,13 @@ pub trait CheckerRequestContext: Sync {
         ))
     }
 
+    /// Classifies the witness and address support in checked completion guarantees.
+    fn classify_trusted_completion(
+        &self,
+        contract: &mut crate::TrustedCallContract,
+        diagnostics: &mut bray_diagnostics::DiagnosticBag,
+    ) -> CheckerQueryResult<(), Self::UpstreamError>;
+
     /// Returns the inferred contract retained by one callable's returned value.
     fn callable_result_dependencies(
         &self,
@@ -251,6 +258,18 @@ pub trait CheckerRequestContext: Sync {
         Ok(self.symbols().structure(id))
     }
 
+    /// Returns a named type with the open arguments of its source or imported declaration.
+    fn open_named_type(
+        &self,
+        definition: NamedTypeSymbolId,
+    ) -> CheckerQueryResult<TypeId, Self::UpstreamError> {
+        Ok(self
+            .semantic_values()
+            .intern_open_named_type(self.symbols(), definition)
+            .expect("named type has a valid generic identity")
+            .expect("named type retains its declaration"))
+    }
+
     /// Returns a source or imported structure field declaration.
     fn struct_field(
         &self,
@@ -283,8 +302,8 @@ pub trait CheckerRequestContext: Sync {
         Ok(self.symbols().union_payload_field(id))
     }
 
-    /// Returns the canonical type query for a structure or union payload field.
-    fn storage_member_type(
+    /// Returns the canonical declared type of a field or static.
+    fn storage_declaration_type(
         &self,
         member: AnySymbolId,
     ) -> CheckerQueryResult<

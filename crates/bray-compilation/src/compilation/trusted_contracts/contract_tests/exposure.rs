@@ -35,7 +35,9 @@ fn rewritten_raw_pointer_fields_publish_opaque_output_identities() {
     let callable = crate::test_support::source_function(&application, "replace_pointer");
     let template = callable_dependencies(&application, callable.into());
 
-    let [reference] = template.borrows() else {
+    let origins = template.borrows();
+
+    let [reference] = origins.as_ref() else {
         panic!("rewritten pointer retains one typed output identity: {template:#?}");
     };
 
@@ -346,6 +348,94 @@ fn opaque_execution_preserves_only_unexposed_shared_carrier_references() {
 }
 
 #[test]
+fn unresolved_structured_escapes_do_not_publish_other_arguments() {
+    let source = r#"
+        trusted module app;
+
+        using core.memory;
+
+        struct Marker
+        {
+        }
+
+        struct Previous
+        {
+            resource: DataPointer<u8>;
+        }
+
+        struct Current
+        {
+            marker: Marker;
+            previous: Uninit<(Previous?)>;
+        }
+
+        trusted predicate live(marker: &Marker);
+
+        trusted func make() -> Current
+            ensures(trusted live(&result.marker))
+        {
+            return
+            {
+                marker = Marker {},
+                previous = core.memory.uninit<(Previous?)>()
+            };
+        }
+
+        extern trusted func previous() -> Previous?;
+        extern trusted func opaque();
+
+        trusted func install(pos owner: &Current, pos previous: Previous?)
+            requires(trusted live(&owner.marker))
+            ensures(trusted live(&owner.marker))
+            uses(raw_memory, unchecked_init)
+        {
+            let pointer = core.memory.uninit_pointer<(Previous?)>(&owner.previous);
+
+            let permit = trusted lambda(
+                pos owner: &Current,
+                pos pointer: DataPointer<(Previous?)>
+            )
+                requires(trusted live(&owner.marker))
+                ensures(
+                    trusted core.memory.valid_write<(Previous?)>(pointer = pointer, count = 1),
+                    trusted core.memory.aligned_for<(Previous?)>(pointer = pointer)
+                )
+                executes(pure, total) {};
+
+            trusted permit(owner, pointer);
+            trusted core.memory.write<(Previous?)>(pointer, previous);
+        }
+
+        func observe(pos owner: &Current)
+            requires(trusted live(&owner.marker))
+            executes(pure, total)
+        {
+        }
+
+        trusted func caller()
+        {
+            let owner = make();
+
+            trusted install(&owner, trusted previous());
+            trusted opaque();
+            observe(&owner);
+        }
+    "#;
+
+    let application = compilation(source);
+
+    let checked = application
+        .lowered_unit(source_function_body_key(&application, "caller"))
+        .expect("the structured escape fixture must lower successfully");
+
+    assert!(
+        !checked.diagnostics().has_errors(),
+        "{source}: {:?}",
+        checked.diagnostics()
+    );
+}
+
+#[test]
 fn opaque_calls_preserve_unexposed_scalar_values_only() {
     for (effect, valid) in [
         ("opaque();", true),
@@ -579,6 +669,105 @@ fn opaque_returned_owners_keep_their_carrier_inside_optional_result_payloads() {
 }
 
 #[test]
+fn protected_nullable_results_carry_only_their_live_owner_witness() {
+    let source = r#"
+        trusted module app;
+        using core.memory;
+
+        callable Native = @abi(c) func();
+        struct Owner
+        {
+            storage: Uninit<[u64; 16]>;
+            finish: Native;
+        }
+        struct Envelope
+        {
+            mut payload: Uninit<(Owner?)>;
+        }
+        trusted predicate held(owner: &Owner);
+        trusted func mark(pos owner: &Owner)
+            ensures(trusted held(owner)) executes(pure, total)
+        {
+        }
+        func use_owner(pos owner: Owner)
+            requires(trusted held(&owner))
+        {
+        }
+        trusted func marked(pos owner: Owner) -> Envelope
+        {
+            trusted mark(&owner);
+            return { payload = core.memory.uninit_from<(Owner?)>(owner) };
+        }
+        trusted func unmarked(pos owner: Owner) -> Envelope
+        {
+            return { payload = core.memory.uninit_from<(Owner?)>(owner) };
+        }
+        trusted func caller_marked(pos owner: Owner)
+            uses(unchecked_init)
+        {
+            let envelope = marked(owner);
+            let optional = trusted core.memory.assume_initialized<(Owner?)>(envelope.payload);
+            match consume optional
+            {
+                case ?value { use_owner(value); }
+                case none {}
+            }
+        }
+        trusted func caller_unmarked(pos owner: Owner)
+            uses(unchecked_init)
+        {
+            let envelope = unmarked(owner);
+            let optional = trusted core.memory.assume_initialized<(Owner?)>(envelope.payload);
+            match consume optional
+            {
+                case ?value { use_owner(value); }
+                case none {}
+            }
+        }
+        trusted func caller_move_marked(pos owner: Owner)
+            uses(unchecked_init)
+        {
+            let mut envelope = marked(owner);
+            let optional = trusted core.memory.move_initialized<(Owner?)>(&mut envelope.payload);
+            match consume optional
+            {
+                case ?value { use_owner(value); }
+                case none {}
+            }
+        }
+        trusted func caller_move_unmarked(pos owner: Owner)
+            uses(unchecked_init)
+        {
+            let mut envelope = unmarked(owner);
+            let optional = trusted core.memory.move_initialized<(Owner?)>(&mut envelope.payload);
+            match consume optional
+            {
+                case ?value { use_owner(value); }
+                case none {}
+            }
+        }
+    "#;
+
+    let application = compilation(source);
+
+    for (name, valid) in [
+        ("caller_marked", true), ("caller_unmarked", false),
+        ("caller_move_marked", true), ("caller_move_unmarked", false),
+    ] {
+        let checked = application.lowered_unit(source_function_body_key(&application, name))
+            .expect("protected nullable caller lowers");
+
+        assert_eq!(!checked.diagnostics().has_errors(), valid,
+            "{name}: {:#?}", checked.diagnostics());
+
+        if !valid {
+            assert!(checked.diagnostics().by_kind(DiagnosticKind::CheckingTrustedObligationNotProven).next().is_some(),
+                "{name}: {:#?}", checked.diagnostics());
+        }
+    }
+}
+
+#[test]
 fn returned_shared_views_do_not_freeze_mutable_referents() {
     for (input, subject) in [("Owner", "borrowed"), ("Holder", "&borrowed.current")] {
         let observed = subject.replace("borrowed", "result");
@@ -662,7 +851,7 @@ fn opaque_calls_preserve_whole_unexposed_values_only_without_indirect_storage() 
             }}
             trusted func run()
             {{
-                let mut owner = trusted acquire();
+                let mut owner = acquire();
                 {exposure}
                 opaque({argument});
                 inspect(&owner);

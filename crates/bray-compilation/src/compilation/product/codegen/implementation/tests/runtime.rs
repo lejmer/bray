@@ -153,7 +153,7 @@ fn runtime_source_imports_share_generated_runtime_calls() {
             struct Guard { destruct() {} }
             public trusted func invoke(pos outcome: DataPointer<u8>) uses(foreign_call) {
                 let guard = Guard {};
-                trusted reserve(1, outcome);
+                reserve(1, outcome);
             }
         "#;
 
@@ -478,10 +478,8 @@ struct State
 internal static STATE: Uninit<State> = core.memory.uninit_from<State>({ items = none });
 
 @abi(c)
-trusted internal func initialize(pos worker_capacity: usize, pos timer_capacity: usize) -> u32
+trusted internal func initialize() -> u32
 {
-    _ = worker_capacity;
-    _ = timer_capacity;
     let pointer = core.memory.uninit_pointer<State>(&STATE);
 
     if core.memory.is_null<State>(pointer)
@@ -543,10 +541,9 @@ func observed() -> u32
     return core.atomic.fetch_add<u32, 3>(&STATE, 1);
 }
 @abi(c)
-trusted internal func initialize(pos worker_capacity: usize, pos timer_capacity: usize) -> u32
+trusted internal func initialize() -> u32
 {
-    _ = timer_capacity;
-    if worker_capacity == 0
+    if observed() == 0
     {
         _ = observed();
     }
@@ -844,7 +841,7 @@ fn foreign_callbacks_resolve_abnormal_outcomes_before_boundary_release() {
         struct Local {
             tag: u32;
             trusted destruct() executes(total) uses(foreign_call) {
-                trusted record_cleanup();
+                record_cleanup();
             }
         }
         @copy
@@ -929,7 +926,7 @@ fn foreign_callbacks_resolve_abnormal_outcomes_before_boundary_release() {
             let callback: PackedCallback = packed;
             let result = callback(value);
 
-            return trusted native_packed(result);
+            return native_packed(result);
         }
         @symbol(name = "scalar")
         @abi(c)
@@ -958,13 +955,13 @@ fn foreign_callbacks_resolve_abnormal_outcomes_before_boundary_release() {
         @abi(c)
         trusted func through_pointer(pos mode: u32) -> u32 uses(foreign_call) {
             let callback: Callback = plain;
-            return trusted callback(mode);
+            return callback(mode);
         }
         @symbol(name = "through_lambda")
         @abi(c)
         func through_lambda(pos mode: u32) -> u32 {
             let callback = @abi(c) lambda(pos value: u32) -> u32 { return scalar(value); };
-            return trusted callback(mode);
+            return callback(mode);
         }
         @symbol(name = "nested")
         @abi(c)
@@ -1074,13 +1071,15 @@ fn foreign_callbacks_resolve_abnormal_outcomes_before_boundary_release() {
             unsigned char identity[32];
         }} Observation;
 
-        void {control}(Observation* result, const void* descriptor, unsigned operation)
+        unsigned {control}(uintptr_t descriptor, unsigned operation, Observation* result)
         {{
             (void)descriptor;
             *result = (Observation){{0}};
 
             if (operation == {acquire} && reject_entry)
                 result->status = {closed};
+
+            return 0;
         }}
 
         unsigned {consumer}(Report* value, unsigned reporting)
@@ -1431,6 +1430,9 @@ fn entry_cleanup_panic_preserves_completion_or_appends_after_the_body_panic() {
         }} Outcome;
 
         static unsigned reported, merged, shield_depth;
+
+        // The C final image supplies the descriptor that library panic reports name.
+        const unsigned char bray_linked_product_host = 0;
 
         void {shield_enter}(void)
         {{

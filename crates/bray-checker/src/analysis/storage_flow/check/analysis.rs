@@ -1,9 +1,14 @@
 mod access;
 mod cleanup;
+mod cleanup_effects;
 mod core;
 mod deferred;
+mod dependencies;
+mod diagnostics;
+mod effect_rows;
 mod effects;
 mod escape;
+mod failures;
 mod memory;
 mod observations;
 mod references;
@@ -13,5 +18,5 @@ mod terminal;
 mod transfers;
 
 pub(crate) use core::{StorageFlowCollector, check_storage_flow_with_graph};
-
-pub(in crate::analysis) use snapshot::ReplacementState;
+pub(in crate::analysis::storage_flow) use core::BlockPublication;
+pub(in crate::analysis::storage_flow) use failures::FailureEdgeEffects;

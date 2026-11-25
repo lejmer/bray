@@ -582,14 +582,14 @@ mod tests {
             vec![
                 attribute("memory_operation", "atomic_compare_exchange"),
                 attribute("success_order", "release"),
-                attribute("failure_order", "acquire"),
+                attribute("failure_order", "relaxed"),
             ],
             vec![value("operand[0]", 3)],
         );
 
         assert_eq!(
             operation_text(&operation),
-            "memory.atomic_compare_exchange(%3, success_order = release, failure_order = acquire)"
+            "memory.atomic_compare_exchange(%3, success_order = release, failure_order = relaxed)"
         );
     }
 

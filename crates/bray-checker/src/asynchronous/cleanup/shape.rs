@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use bray_bound_tree::{
     AsyncCleanupPhases, AsyncStorageCleanupRequirement, AsyncStorageExitRecoveryCause,
-    AsyncStorageRequirement, StorageCleanupType,
+    StorageCleanupType,
 };
 use bray_compiler_known::RepresentationRole;
 use bray_diagnostics::DiagnosticBag;
@@ -100,12 +100,13 @@ where
 {
     pub(in crate::asynchronous) request: CheckerUnitView<'request, C>,
     pub(crate) completed: std::sync::Arc<BTreeMap<TypeId, CleanupShape>>,
-    pub(in crate::asynchronous) cleanup_types: BTreeMap<TypeId, StorageCleanupType>,
+    pub(crate) cleanup_types: BTreeMap<TypeId, StorageCleanupType>,
     pub(in crate::asynchronous) recursive_cleanup: bool,
     pub(in crate::asynchronous) expanded_types: BTreeSet<TypeId>,
     pub(in crate::asynchronous) full_parts:
         BTreeMap<TypeId, std::sync::Arc<[crate::asynchronous::ResolvedCleanupPart]>>,
-    pub(super) requirements: Option<std::sync::Arc<[AsyncStorageRequirement]>>,
+    pub(crate) requirements: Option<std::sync::Arc<super::StorageCleanupRequirements>>,
+    pub(crate) storage_cleanup_types: std::sync::Arc<BTreeMap<TypeId, StorageCleanupType>>,
     limit_exceeded: bool,
     // Query diagnostics are cloned because the cleanup result owns them independently.
     pub(crate) diagnostics: DiagnosticBag,
@@ -124,6 +125,7 @@ where
             expanded_types: BTreeSet::new(),
             full_parts: BTreeMap::new(),
             requirements: None,
+            storage_cleanup_types: std::sync::Arc::default(),
             limit_exceeded: false,
             diagnostics: DiagnosticBag::new(),
         }
@@ -149,18 +151,32 @@ where
     ) -> Result<AsyncStorageCleanupRequirement, CheckerQueryError<C::UpstreamError>> {
         let cleanup = cleanup_requirement(self.resolve(ty)?);
 
-        self.cleanup_types
-            .entry(ty)
-            .or_insert_with(|| StorageCleanupType::new(ty, cleanup));
+        if !self.storage_cleanup_types.contains_key(&ty) {
+            self.cleanup_types
+                .entry(ty)
+                .or_insert_with(|| StorageCleanupType::new(ty, cleanup));
+        }
 
         Ok(cleanup)
     }
 
-    pub(in crate::asynchronous) fn require_inputs(
+    pub(crate) fn prepare_lowering_types(
         &mut self,
         selections: &bray_bound_tree::CheckedSemanticSelections,
         types: &bray_bound_tree::CheckedExpressionTypes,
+        storage: &bray_bound_tree::StoragePlan,
     ) -> Result<(), CheckerQueryError<C::UpstreamError>> {
+        // Lowering materializes every staged input in its own temporary.
+        for (identity, provenance) in storage.identity_entries() {
+            if matches!(provenance, bray_bound_tree::StorageIdentity::InvocationInput { .. }) {
+                let ty = storage
+                    .identity_type(identity)
+                    .expect("planned invocation input retains its type");
+
+                self.requirement(ty)?;
+            }
+        }
+
         for entry in selections.entries() {
             match entry.selection() {
                 bray_bound_tree::SemanticSelection::Operation(
@@ -281,6 +297,20 @@ where
             }
         }
 
+        if matches!(
+            self.request.unit().root(),
+            bray_bound_tree::BoundUnitRoot::CallableBody {
+                execution: bray_symbols::CallableExecution::Asynchronous,
+                ..
+            } | bray_bound_tree::BoundUnitRoot::AnonymousCallable {
+                execution: bray_symbols::CallableExecution::Asynchronous,
+                ..
+            }
+        ) && let Some(result) = types.callable_result_type()
+        {
+            self.requirement(result)?;
+        }
+
         Ok(())
     }
 
@@ -399,7 +429,13 @@ where
             TypeData::Error => CleanupShape::RECOVERED,
             TypeData::TypeParameter(_)
             | TypeData::ContextualSelf(_)
-            | TypeData::TypeValuedMemberProjection { .. } => CleanupShape::BOTH,
+            | TypeData::TypeValuedMemberProjection { .. } => {
+                if self.request.context().statically_establishes_copyability(self.request.semantic_context(), ty)? {
+                    CleanupShape::default()
+                } else {
+                    CleanupShape::BOTH
+                }
+            }
             TypeData::Named {
                 definition,
                 substitution,

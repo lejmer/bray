@@ -11,6 +11,72 @@ use super::model::ExecutionFlowDomain;
 use crate::{CheckerRequestContext, ExecutionCondition};
 
 impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
+    pub(super) fn assume_integer_order(
+        &self,
+        state: &mut ExecutionState,
+        expression: BoundExpressionId,
+        condition: &ExecutionCondition,
+        holds: bool,
+    ) {
+        use BoundOperator::{Greater, GreaterEqual, Less, LessEqual};
+
+        let crate::ExecutionConditionKind::Operation(operator @ (Less | LessEqual | Greater | GreaterEqual), operands) = condition.kind() else { return; };
+
+        let [left, right] = operands.as_ref() else { return; };
+
+        let Some(BoundExpression::Binary(binary)) = self.request.view().expression(expression) else { return; };
+
+        let [left_operand, right_operand] = binary.operands() else { return; };
+
+        let representation = |operand| {
+            let ty = self.semantics.types().expression(operand)?.ty();
+
+            crate::representation::type_representation(self.request, ty)?.integer_representation()
+        };
+
+        let (Some(left_type), Some(right_type)) = (representation(*left_operand), representation(*right_operand)) else { return; };
+
+        let order = if holds { *operator } else {
+            // Integer ordering has no unordered outcome.
+            let complement = match operator {
+                Less => GreaterEqual,
+                LessEqual => Greater,
+                Greater => LessEqual,
+                GreaterEqual => Less,
+                _ => unreachable!("an integer comparison has an ordering operator"),
+            };
+
+            ExecutionCondition::operation(complement, vec![left.clone(), right.clone()])
+                .assume(true, &mut state.assumptions);
+
+            complement
+        };
+
+        if left_type != right_type || left.selector_place().is_none() || right.selector_place().is_none()
+            || !matches!(self.semantics.selections().expression(expression), Some(SemanticSelection::Operation(
+                SelectedOperation::Operator { target: OperatorTarget::BuiltIn(Less | LessEqual | Greater | GreaterEqual), .. }
+            )))
+        {
+            return;
+        }
+
+        let (lower, upper) = match order {
+            Less => (left, right),
+            Greater => (right, left),
+            _ => return,
+        };
+
+        let ty = self.semantics.types().expression(*left_operand).expect("checked integer has a type").ty();
+
+        let (minimum, maximum) = self.integer_type_range(ty).expect("checked integer has ordered bounds");
+
+        // Each evaluated value keeps its own strict bound after its peer is overwritten.
+        for (value, comparison, bound) in [(lower, Less, maximum), (upper, Greater, minimum)] {
+            ExecutionCondition::operation(comparison, vec![value.clone(), self.integer_condition(bound, *left_operand)])
+                .assume(true, &mut state.assumptions);
+        }
+    }
+
     pub(in crate::analysis::guarantee) fn preserve_integer_entry_conditions(
         &self,
         state: &ExecutionState,
@@ -20,15 +86,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let mut ranges = IntegerRanges::new();
 
         for (condition, _) in conditions {
-            let condition = condition.substitute(
-                &|place| {
-                    place
-                        .value_in(&entry.arguments)
-                        .unwrap_or_else(ExecutionCondition::unknown)
-                },
-                &ExecutionCondition::unknown(),
-                &mut { ExecutionCondition::WORK_LIMIT },
-            );
+            let condition = entry.bind_condition(condition, &ExecutionCondition::unknown());
 
             let mut pending = vec![condition];
             let mut budget = ExecutionCondition::WORK_LIMIT;
@@ -337,17 +395,18 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 .collect();
 
             Some(ExecutionCondition::operation(operator, values))
+        } else if let Some(result) = self.private_operator_result(expression) {
+            // The checked result still has a scalar representation when its
+            // arithmetic can wrap. It is distinct from the assignment's unit value.
+            let identity = ExecutionCondition::new(crate::ExecutionConditionKind::Input(result));
+
+            let value = ExecutionCondition::post_state(
+                bray_bound_tree::StorageMutation::Operation(expression.into()), identity,
+            );
+
+            Some(ExecutionCondition::opaque_scalar(value))
         } else {
-            Some(
-                if matches!(
-                    self.request.view().expression(expression),
-                    Some(BoundExpression::Assignment(_))
-                ) {
-                    ExecutionCondition::unknown()
-                } else {
-                    ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expression))
-                },
-            )
+            Some(ExecutionCondition::new(crate::ExecutionConditionKind::Expression(expression)))
         }
     }
 }

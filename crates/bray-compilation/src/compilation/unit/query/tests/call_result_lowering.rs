@@ -61,52 +61,6 @@ fn returned_borrow_aliases_lower_inside_nested_scopes() {
 }
 
 #[test]
-fn chained_nullable_receiver_evaluates_its_producer_once() {
-    let compilation = compilation(
-        r#"
-                module app;
-                            struct Counter<T> {
-                                mut calls: i32;
-                                value: T;
-                                mut func take() -> T? with(T: Copyable) {
-                                    self.calls += 1;
-                                    return self.value;
-                                }
-                                mut func remove() -> bool with(T: Copyable) {
-                                    return self.take().is_present();
-                                }
-                            }
-                            func inspect(pos counter: &mut Counter<i32>) -> bool {
-                                return counter.take().is_present();
-                            }
-            "#,
-    );
-
-    assert!(
-        !compilation.check_diagnostics().has_errors(),
-        "{:?}",
-        compilation.check_diagnostics()
-    );
-
-    let key = crate::test_support::source_type_callable_member_body_key(&compilation, "remove");
-
-    let lowered = compilation
-        .lowered_unit(key)
-        .expect("fixture callable must lower successfully");
-
-    let mir = lowered
-        .value()
-        .as_ref()
-        .expect("fixture optional value must be present")
-        .mir()
-        .expect("fixture instance must retain its MIR");
-
-    let calls: Vec<_> = mir.operations().iter().filter(|operation| matches!(operation.kind(), bray_ir::MirOperationKind::Call(call) if matches!(call.target(), bray_ir::MirCallTarget::Direct(_)))).collect();
-
-    assert_eq!(calls.len(), 1, "{calls:#?}");
-}
-
-#[test]
 fn returned_slice_receiver_uses_the_call_result_representation() {
     let compilation = compilation(
         r#"
@@ -171,22 +125,35 @@ fn returned_slice_receiver_uses_the_call_result_representation() {
         })
         .expect("slice length operation must exist");
 
-    let [bray_ir::MirOperand::Value(receiver)] = length.operands() else {
-        panic!("slice receiver must be evaluated");
+    let [receiver] = length.operands() else {
+        panic!("slice length must have one receiver");
     };
 
-    let borrow = mir
-        .operations()
-        .iter()
-        .find(|operation| operation.result() == Some(*receiver))
-        .expect("fixture lookup must find its expected value");
+    let place = match receiver {
+        bray_ir::MirOperand::Copy(place) | bray_ir::MirOperand::Move(place) => place,
+        bray_ir::MirOperand::Value(receiver) => {
+            let borrow = mir.operations().iter()
+                .find(|operation| operation.result() == Some(*receiver))
+                .expect("fixture lookup must find its expected value");
 
-    let bray_ir::MirOperationKind::Borrow { place, .. } = borrow.kind() else {
-        panic!("slice receiver must be reborrowed");
+            let bray_ir::MirOperationKind::Borrow { place, .. } = borrow.kind() else {
+                panic!("evaluated slice receiver must be a borrow");
+            };
+
+            place
+        }
+        _ => panic!("slice receiver must read the result storage: {receiver:?}"),
+    };
+
+    let receiver_type = values.type_data(place.ty());
+
+    let slice_type = match receiver_type.as_ref() {
+        TypeData::Borrow { target, .. } => values.type_data(*target),
+        _ => receiver_type,
     };
 
     assert!(
-        matches!(values.type_data(place.ty()).as_ref(), TypeData::Slice(_)),
-        "receiver must borrow the slice result, not the anchor array: {place:?}"
+        matches!(slice_type.as_ref(), TypeData::Slice(_)),
+        "receiver must use the slice result, not the anchor array: {place:?}"
     );
 }

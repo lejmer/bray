@@ -32,7 +32,7 @@ mod unwind;
 mod view;
 
 pub use asynchronous::{
-    AsyncAnalysisBuildError, AsyncCleanupGuard, AsyncCleanupPhases, AsyncScopeExitPlan,
+    AsyncAnalysisBuildError, AsyncCleanupPhases,
     AsyncStorageCleanupRequirement, AsyncStorageExitDecision, AsyncStorageExitDisposition,
     AsyncStorageExitRecoveryCause, AsyncStorageRequirement, AsyncSuspensionKind,
     AsyncSuspensionPoint, AsyncTaskOperation, AsyncTaskOperationKind, CheckedAsync,
@@ -54,7 +54,7 @@ pub use dependency::{
     GuardedBoundDependencyRequirement, LifecycleObligationId, ScopedCapabilityId,
 };
 pub use dependency_table::{
-    BoundCallDependencyContracts, BoundCallReference, BoundCallReports, BoundReturnedValue, CallReportOutput,
+    BoundCallDependencyContracts, BoundCallFailure, BoundCallReference, BoundCallReport, BoundCallReports, BoundCallStorage, BoundDeferredCallable, BoundReturnedValue, CallReportOutput,
     CheckedDependencyContracts, ConditionCallReferences, DependencyContractsBuildError,
 };
 pub use lifecycle::{CompletedFinalizer, LifecycleAction, LifecycleCallable, LifecyclePhase};
@@ -101,7 +101,7 @@ pub use pattern::{
 };
 pub use refinement::{
     CheckedRefinements, Refinement, RefinementKind, RefinementOccurrence, RefinementSetBuildError,
-    StorageInvalidation, StorageMutationScope,
+    StorageInvalidation, StorageMutationScope, StoragePointeeChange,
 };
 pub use selection::{
     CallableDeclarationTemplate, CallableParameterDefaultTemplate, CheckedSemanticSelections,
@@ -119,16 +119,21 @@ pub use semantic::{
     SemanticSnapshotInputKind,
 };
 pub use storage::{
+    StorageOutcomeRows, StorageCapturedEffects, StorageCapturedTransition, StorageDeferredProducer, StorageDeferredTransition, StorageContents, StorageDischarge, StorageEffect, StorageEffectRow,
+    StorageCapturedValue, merge_storage_bindings, merge_storage_contents,
+    selected_storage_values, storage_selector_parent, storage_value_subtree,
+    StorageSnapshotRoot, StorageValueBoundary, StorageValueCapture, StorageValueDestination, StorageValueInput, StorageValueTransition, merge_storage_value_captures, merge_storage_value_transitions,
     BorrowCapabilityId, BorrowCapabilityOrigin, LastUse, LiveAcrossScope, LiveAcrossSuspension,
     Liveness, LivenessBuildError, OwnerRetention, PlannedBorrowCapability, StorageAccess,
     StorageAccessId, StorageAccessPlan, StorageAccessPlanRole, StorageAccessPurpose, StorageAccessRoot,
     StorageAlternative, StorageAlternativeId, StorageBinding, StorageBindingTarget,
     StorageCleanupPart, StorageCleanupProjection, StorageCleanupProjectionKind, StorageCleanupType,
-    StorageCompletion, StorageExitDecision, StorageExitPoint, StorageFlow, StorageFlowBuildError,
-    StorageIdentity, StorageIdentityId, StorageMutation, StorageObservationKind, StorageOperationDecision,
+    StorageCompletion, StorageExitDecision, StorageExitPoint, StorageFailureWrites, StorageFlow, StorageFlowBuildError,
+    ReportDependencies, StorageAddressValue, StorageDependencyCompleteness, StorageMutationTarget, StorageValueBinding, StorageValueRetirement,
+    AnalysisEdgeId, AnalysisOperationId, StorageAbsence, StorageCleanupAction, StorageCleanupActionKind, StorageCleanupEntry, StorageCleanupRemainder, StorageCleanupSchedule, StorageIdentity, StorageIdentityId, StorageMutation, StorageObservationKind, StorageObservationTransition, StorageObservedTarget, StorageOperationDecision, StorageTaskOutcome,
     StorageOperationStatus, StorageOrigin, StoragePath, StoragePlan, StoragePlanBuildError,
-    StoragePlanBuilder, StorageProjection, StorageProtocolCall, StorageReferencePath, StorageValueConsumptionPhase,
-    StorageRelationship, StorageReplacementDecision, StorageReplacementPlan,
+    StoragePlanBuilder, StorageProjection, StorageProtocolCall, StorageReferencePath, StorageReferenceStep, StorageValueConsumptionPhase,
+    StorageRelationship, StorageReplacementDecision,
     StorageReplacementState, StorageScope, StorageScopeBuildError, StorageScopeOwners,
     StorageStateTarget, StorageSuspensionState, StorageTarget, scoped_exit_completes_result,
     storage_expression_republishes_destructor_receiver, storage_identity_is_destructor_receiver,

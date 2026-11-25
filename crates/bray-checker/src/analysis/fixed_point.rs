@@ -45,24 +45,48 @@ pub(crate) trait FixedPointDomain {
         target: &mut Self::State,
     ) -> bool;
 
+    /// Whether this successor is the last reader of a published acyclic output.
+    fn can_consume_settled_output(&self, source: &AnalysisBlock, edge: &AnalysisEdge) -> bool {
+        source.successors() == [edge.id()]
+            && edge.kind() == super::model::AnalysisEdgeKind::Sequential
+            && edge.refinement().is_none()
+    }
+
+    /// A domain may consume an already published output once it has no other reader.
+    fn propagate_settled_output(
+        &self,
+        source: &mut Option<Self::State>,
+        edge: &AnalysisEdge,
+        target: &mut Self::State,
+    ) -> bool {
+        self.propagate(
+            source.as_ref().expect("settled predecessor has an output"),
+            edge,
+            target,
+        )
+    }
+
     fn convergence_bound(&self, graph: &ControlFlowGraph) -> usize;
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct FixedPointResult<State> {
     unit: BoundUnitId,
-    states: Box<[State]>,
+    states: Box<[Option<State>]>,
     outputs: Box<[Option<State>]>,
 }
 
 impl<State> FixedPointResult<State> {
-    /// Final transferred state, absent when the solver never visited this block.
+    /// Retained final transferred state after its last successor has taken its input.
     pub(crate) fn output(&self, block: AnalysisBlockId) -> Option<&State> {
         if block.unit() != self.unit {
             return None;
         }
 
-        block.to_index().and_then(|index| self.outputs.get(index))?.as_ref()
+        block
+            .to_index()
+            .and_then(|index| self.outputs.get(index))?
+            .as_ref()
     }
 
     pub(crate) fn state(&self, block: AnalysisBlockId) -> Option<&State> {
@@ -70,7 +94,7 @@ impl<State> FixedPointResult<State> {
             return None;
         }
 
-        block.to_index().and_then(|index| self.states.get(index))
+        self.states.get(block.to_index()?)?.as_ref()
     }
 }
 
@@ -86,10 +110,26 @@ pub(crate) fn solve_fixed_point<D: FixedPointDomain>(
     domain: &D,
     cancellation: &dyn Cancellation,
 ) -> FixedPointOutcome<FixedPointResult<D::State>> {
+    solve_fixed_point_with(
+        graph,
+        domain,
+        cancellation,
+        None::<fn(&AnalysisBlock, D::State) -> D::State>,
+    )
+}
+
+/// A settled-input consumer owns inputs to blocks visited once. Cyclic inputs
+/// and the inputs from a solve without a consumer remain available in the result.
+pub(super) fn solve_fixed_point_with<D: FixedPointDomain>(
+    graph: &ControlFlowGraph,
+    domain: &D,
+    cancellation: &dyn Cancellation,
+    mut transfer_settled: Option<impl FnMut(&AnalysisBlock, D::State) -> D::State>,
+) -> FixedPointOutcome<FixedPointResult<D::State>> {
     let mut states = graph
         .blocks()
         .iter()
-        .map(|block| domain.initial(block))
+        .map(|block| Some(domain.initial(block)))
         .collect::<Vec<_>>();
 
     let mut outputs = std::iter::repeat_with(|| None)
@@ -119,27 +159,42 @@ pub(crate) fn solve_fixed_point<D: FixedPointDomain>(
             .block(block_id)
             .expect("scheduled block belongs to its graph");
 
+        let previous = states[block_index]
+            .as_ref()
+            .expect("a settled block cannot be scheduled again");
+
+        let settled = transfer_settled.is_some() && !graph.has_cyclic_input(block);
+
         let Some(incoming) = incoming_state(
             graph,
             domain,
             block,
-            &outputs,
-            &states[block_index],
+            &mut outputs,
+            previous,
             boundaries.contains(&block_id),
+            settled,
             cancellation,
         ) else {
             return FixedPointOutcome::Cancelled;
         };
 
-        let changed = states[block_index] != incoming;
+        let changed = previous != &incoming;
 
         if !changed && outputs[block_index].is_some() {
             continue;
         }
 
-        states[block_index] = incoming;
+        let output = if let Some(transfer) = &mut transfer_settled
+            && settled
+        {
+            states[block_index] = None;
 
-        let output = domain.transfer(block, &states[block_index]);
+            transfer(block, incoming)
+        } else {
+            let input = states[block_index].insert(incoming);
+
+            domain.transfer(block, input)
+        };
 
         if outputs[block_index].as_ref() == Some(&output) {
             continue;
@@ -173,13 +228,18 @@ pub(crate) fn solve_fixed_point<D: FixedPointDomain>(
     })
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the solver independently owns outputs, convergence state and cancellation"
+)]
 fn incoming_state<D: FixedPointDomain>(
     graph: &ControlFlowGraph,
     domain: &D,
     block: &AnalysisBlock,
-    outputs: &[Option<D::State>],
+    outputs: &mut [Option<D::State>],
     previous: &D::State,
     boundary: bool,
+    settled: bool,
     cancellation: &dyn Cancellation,
 ) -> Option<D::State> {
     let mut incoming = domain.initial(block);
@@ -188,15 +248,18 @@ fn incoming_state<D: FixedPointDomain>(
         domain.merge(None, &mut incoming, &domain.boundary());
     }
 
-    let reverse = match domain.direction() {
+    let direction = domain.direction();
+
+    let reverse = match direction {
         FlowDirection::Forward => FlowDirection::Backward,
         FlowDirection::Backward => FlowDirection::Forward,
     };
 
     // Join only the latest predecessor outputs. Accumulating old contributions
     // invents values at unchanged branches inside cycles and loses their relations.
-    // Each output is transferred once and retained here without cloning it.
+    // The last reader can consume an already published acyclic output.
     let mut cyclic = false;
+    let can_take = settled && direction == FlowDirection::Forward;
 
     for edge_id in traversal_edges(block, reverse) {
         if cancellation.is_cancelled() {
@@ -215,7 +278,14 @@ fn incoming_state<D: FixedPointDomain>(
         let source = traversal_target(edge, reverse);
         let index = source.to_index().expect("incoming source has an index");
 
-        if let Some(output) = &outputs[index] {
+        if outputs[index].is_some()
+            && can_take
+            && graph.block(source).is_some_and(|source| {
+                !graph.has_cyclic_input(source) && domain.can_consume_settled_output(source, edge)
+            })
+        {
+            domain.propagate_settled_output(&mut outputs[index], edge, &mut incoming);
+        } else if let Some(output) = &outputs[index] {
             domain.propagate(output, edge, &mut incoming);
         }
     }
@@ -276,7 +346,10 @@ fn enqueue(
 mod tests {
     use bray_bound_tree::BoundUnitId;
 
-    use super::{FixedPointDomain, FixedPointOutcome, FlowDirection, solve_fixed_point};
+    use super::{
+        FixedPointDomain, FixedPointOutcome, FlowDirection, solve_fixed_point,
+        solve_fixed_point_with,
+    };
     use crate::analysis::id::{AnalysisBlockId, AnalysisEdgeId};
     use crate::analysis::model::{
         AnalysisBlock, AnalysisEdge, AnalysisEdgeKind, AnalysisExit, AnalysisExitKind,
@@ -339,7 +412,15 @@ mod tests {
     #[test]
     fn cyclic_domains_converge_under_their_proven_finite_bound() {
         let graph = cyclic_graph();
-        let outcome = solve_fixed_point(&graph, &CounterDomain(FlowDirection::Forward), &|| false);
+
+        let outcome = solve_fixed_point_with(
+            &graph,
+            &CounterDomain(FlowDirection::Forward),
+            &|| false,
+            Some(|_: &AnalysisBlock, _: u8| {
+                panic!("a cyclic block cannot transfer its input to the publisher")
+            }),
+        );
 
         let FixedPointOutcome::Complete(result) = outcome else {
             panic!("finite cyclic analysis must converge");
@@ -354,25 +435,33 @@ mod tests {
         use std::cell::Cell;
         use std::collections::BTreeSet;
 
-        struct Visits {
+        struct Visits<'a> {
+            graph: &'a ControlFlowGraph,
             direction: FlowDirection,
             transfers: Cell<usize>,
+            owned_edges: Cell<usize>,
+            disabled: AnalysisEdgeId,
         }
 
-        impl FixedPointDomain for Visits {
+        impl FixedPointDomain for Visits<'_> {
             type State = BTreeSet<AnalysisBlockId>;
+
             fn direction(&self) -> FlowDirection {
                 self.direction
             }
+
             fn bottom(&self) -> Self::State {
                 BTreeSet::new()
             }
-            fn boundary(&self) -> Self::State {
-                BTreeSet::new()
-            }
+
             fn should_seed(&self, _: &AnalysisBlock) -> bool {
                 true
             }
+
+            fn boundary(&self) -> Self::State {
+                BTreeSet::new()
+            }
+
             fn merge(
                 &self,
                 _: Option<AnalysisBlockId>,
@@ -385,19 +474,48 @@ mod tests {
 
                 target.len() != before
             }
+
             fn transfer(&self, block: &AnalysisBlock, source: &Self::State) -> Self::State {
                 self.transfers.set(self.transfers.get() + 1);
 
                 source.iter().copied().chain([block.id()]).collect()
             }
+
             fn propagate(
                 &self,
                 source: &Self::State,
                 edge: &AnalysisEdge,
                 target: &mut Self::State,
             ) -> bool {
-                self.merge(Some(edge.target()), target, source)
+                edge.id() != self.disabled && self.merge(Some(edge.target()), target, source)
             }
+
+            fn can_consume_settled_output(
+                &self,
+                source: &AnalysisBlock,
+                edge: &AnalysisEdge,
+            ) -> bool {
+                edge.id() != self.disabled
+                    && self
+                        .graph
+                        .is_last_successor(source, edge, |successor| successor != self.disabled)
+            }
+
+            fn propagate_settled_output(
+                &self,
+                source: &mut Option<Self::State>,
+                _: &AnalysisEdge,
+                target: &mut Self::State,
+            ) -> bool {
+                self.owned_edges.set(self.owned_edges.get() + 1);
+
+                let before = target.len();
+
+                target.extend(source.take().expect("exclusive predecessor has an output"));
+
+                target.len() != before
+            }
+
             fn convergence_bound(&self, graph: &ControlFlowGraph) -> usize {
                 graph.blocks().len() * graph.blocks().len()
             }
@@ -405,7 +523,8 @@ mod tests {
 
         let unit = BoundUnitId::new(22);
         let block = |slot| AnalysisBlockId::from_slot(unit, slot);
-        let pairs = [(0, 1), (0, 2), (2, 3), (3, 1), (1, 4)];
+        let disabled = AnalysisEdgeId::from_slot(unit, 5);
+        let pairs = [(0, 1), (0, 2), (2, 3), (3, 1), (1, 4), (2, 4)];
 
         let edges = pairs
             .iter()
@@ -419,7 +538,11 @@ mod tests {
                     ),
                     block(*source),
                     block(*target),
-                    AnalysisEdgeKind::Sequential,
+                    if *source == 3 {
+                        AnalysisEdgeKind::ScopeExit
+                    } else {
+                        AnalysisEdgeKind::Sequential
+                    },
                     None,
                 )
             })
@@ -453,15 +576,18 @@ mod tests {
             [AnalysisExit::new(
                 block(4),
                 AnalysisExitKind::NormalFallthrough,
-            exit_source(unit).into(),
-        )],
+                exit_source(unit).into(),
+            )],
             Default::default(),
         );
 
         for direction in [FlowDirection::Forward, FlowDirection::Backward] {
             let domain = Visits {
+                graph: &graph,
                 direction,
                 transfers: Cell::new(0),
+                owned_edges: Cell::new(0),
+                disabled,
             };
 
             let FixedPointOutcome::Complete(result) = solve_fixed_point(&graph, &domain, &|| false)
@@ -481,8 +607,63 @@ mod tests {
             };
 
             assert_eq!(result.state(target), Some(&expected));
-            assert_eq!(result.output(target), Some(&BTreeSet::from([block(0), block(1), block(2), block(3), block(4)])));
+
+            assert_eq!(
+                result.output(target),
+                Some(&BTreeSet::from([
+                    block(0),
+                    block(1),
+                    block(2),
+                    block(3),
+                    block(4)
+                ]))
+            );
+
             assert_eq!(domain.transfers.get(), 5);
+
+            let mut consumed = BTreeSet::new();
+
+            let owned_transfer = |block: &AnalysisBlock, mut input: BTreeSet<AnalysisBlockId>| {
+                assert!(
+                    consumed.insert(block.id()),
+                    "each settled input has one consumer"
+                );
+
+                assert_eq!(result.state(block.id()), Some(&input));
+
+                input.insert(block.id());
+
+                input
+            };
+
+            let FixedPointOutcome::Complete(owned) =
+                solve_fixed_point_with(&graph, &domain, &|| false, Some(owned_transfer))
+            else {
+                panic!("publishing a finite diamond must converge");
+            };
+
+            assert_eq!(consumed.len(), 5);
+
+            let forward_released = [block(0), block(1), block(2), block(3)];
+
+            let released = match direction {
+                FlowDirection::Forward => forward_released.as_slice(),
+                FlowDirection::Backward => &[][..],
+            };
+
+            assert_eq!(domain.owned_edges.get(), released.len());
+
+            for block in graph.blocks() {
+                assert_eq!(owned.state(block.id()), None);
+
+                let expected = if released.contains(&block.id()) {
+                    None
+                } else {
+                    result.output(block.id())
+                };
+
+                assert_eq!(owned.output(block.id()), expected);
+            }
         }
     }
 
@@ -564,8 +745,8 @@ mod tests {
             [AnalysisExit::new(
                 second,
                 AnalysisExitKind::NormalFallthrough,
-            exit_source(unit).into(),
-        )],
+                exit_source(unit).into(),
+            )],
             Default::default(),
         )
     }
@@ -593,9 +774,11 @@ mod tests {
                 None,
             )],
             [],
-            [AnalysisExit::new(block, AnalysisExitKind::Divergence,
-            exit_source(unit).into(),
-        )],
+            [AnalysisExit::new(
+                block,
+                AnalysisExitKind::Divergence,
+                exit_source(unit).into(),
+            )],
             [(block, exit_source(unit))].into(),
         )
     }

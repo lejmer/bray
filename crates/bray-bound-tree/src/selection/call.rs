@@ -134,6 +134,7 @@ pub enum SelectedArgument {
 /// One exact callable, ABI, implementation witnesses, and normalized argument mapping.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct SelectedCall {
+    callable_type: bray_symbols::TypeId,
     constness: bray_symbols::CallableConstness,
     invocation: bray_symbols::CallableInvocation,
     resolution: BoundResolvedCall,
@@ -163,6 +164,7 @@ impl SelectedCall {
     /// Creates a complete callable selection.
     pub fn new(
         resolution: BoundResolvedCall,
+        callable_type: bray_symbols::TypeId,
         constness: bray_symbols::CallableConstness,
         abi: CallableAbi,
         phase_behaviors: CallablePhaseBehaviors,
@@ -171,6 +173,7 @@ impl SelectedCall {
         witnesses: impl IntoIterator<Item = SelectedImplementationWitness>,
     ) -> Self {
         Self {
+            callable_type,
             constness,
             invocation: bray_symbols::CallableInvocation::for_abi(abi),
             resolution,
@@ -200,6 +203,9 @@ impl SelectedCall {
     pub const fn resolution(&self) -> &BoundResolvedCall {
         &self.resolution
     }
+
+    /// Returns the instantiated signature used during candidate selection.
+    pub const fn callable_type(&self) -> bray_symbols::TypeId { self.callable_type }
 
     /// Returns the callable ABI participating in the selected call contract.
     pub const fn abi(&self) -> CallableAbi {
@@ -272,22 +278,7 @@ impl SelectedCall {
         &self,
         root: bray_symbols::DependencySubjectRoot,
     ) -> Option<SymbolOrdinal> {
-        match root {
-            bray_symbols::DependencySubjectRoot::Receiver if self.receiver.is_some() => {
-                Some(SymbolOrdinal::new(0))
-            }
-            bray_symbols::DependencySubjectRoot::Parameter(ordinal) => {
-                let offset = u32::from(self.receiver.is_some());
-
-                Some(SymbolOrdinal::new(
-                    ordinal
-                        .raw()
-                        .checked_add(offset)
-                        .expect("selected input ordinal fits receiver-first order"),
-                ))
-            }
-            _ => None,
-        }
+        root.input_ordinal(self.receiver.is_some())
     }
 
     /// Returns the evaluated value supplying one formal input.
