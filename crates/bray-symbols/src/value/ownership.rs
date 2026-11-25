@@ -290,6 +290,49 @@ impl<Projection, Input> DependencyOwnedResult<Projection, Input> {
         shared
     }
 
+    /// Returns mappings guaranteed whenever one visited transfer occurs under the supplied conditions.
+    /// Only simultaneous layouts on that transfer's own path qualify. Another alternative cannot.
+    pub fn transfers_with(
+        &self,
+        occurrence: &DependencyOwnedTransfer<Projection, Input>,
+        conditions: &[Input],
+    ) -> std::collections::BTreeSet<DependencyOwnedTransfer<Projection, Input>>
+    where Projection: Clone + Ord, Input: Clone + Ord {
+        let mut companions = std::collections::BTreeSet::new();
+
+        let found = self.collect_transfers_with(occurrence, conditions, &mut companions);
+
+        assert!(found, "a visited transfer belongs to the layout that produced it");
+
+        companions
+    }
+
+    fn collect_transfers_with(
+        &self,
+        occurrence: &DependencyOwnedTransfer<Projection, Input>,
+        conditions: &[Input],
+        companions: &mut std::collections::BTreeSet<DependencyOwnedTransfer<Projection, Input>>,
+    ) -> bool
+    where Projection: Clone + Ord, Input: Clone + Ord {
+        let values = match self {
+            // The visited reference identifies one occurrence even when equal moves repeat.
+            Self::Transfer(transfer) => return std::ptr::eq(transfer, occurrence),
+            Self::Case { result, .. } => return result.collect_transfers_with(occurrence, conditions, companions),
+            Self::Choice(values) => {
+                return values.iter().any(|value| value.collect_transfers_with(occurrence, conditions, companions));
+            }
+            Self::All(values) => values,
+        };
+
+        if !values.iter().any(|value| value.collect_transfers_with(occurrence, conditions, companions)) {
+            return false;
+        }
+
+        companions.extend(self.guaranteed_transfers_under(conditions));
+
+        true
+    }
+
     /// Visits exact moves with the ordinary conditions of their complete alternatives.
     pub fn guarded_transfers(
         &self,
@@ -432,6 +475,31 @@ mod tests {
         assert_eq!(Layout::case(2, conditional.clone()).guaranteed_transfers_under(&[2]), [common.clone()].into());
         assert!(Layout::choice([conditional.clone(), Layout::default()]).guaranteed_transfers_under(&[2]).is_empty());
         assert!(Layout::choice([conditional, Layout::Transfer(common.with_condition(Some(3)))]).guaranteed_transfers_under(&[2]).is_empty());
+    }
+
+    #[test]
+    fn simultaneous_transfers_follow_only_the_visited_alternative() {
+        let owner = DependencyOwnedTransfer::new(5, []);
+        let child = DependencyOwnedTransfer::new(7, [0]);
+
+        let layout = Layout::choice([
+            Layout::case(2, Layout::all([Layout::Transfer(owner.clone()), Layout::Transfer(child.clone())])),
+            Layout::case(3, Layout::Transfer(owner.clone())),
+        ]);
+
+        let (visited, guards) = layout.guarded_transfers().find(|(transfer, _)| **transfer == child)
+            .expect("the child transfer is visited");
+
+        assert_eq!(guards, vec![&2]);
+        assert!(layout.guaranteed_transfers_under(&[2]).is_empty());
+        assert_eq!(layout.transfers_with(visited, &[2]), [owner.clone(), child.clone()].into());
+
+        let separate = Layout::choice([Layout::Transfer(owner), Layout::case(2, Layout::Transfer(child.clone()))]);
+
+        let (visited, _) = separate.guarded_transfers().find(|(transfer, _)| **transfer == child)
+            .expect("the child transfer is visited");
+
+        assert!(separate.transfers_with(visited, &[2]).is_empty());
     }
 
     #[test]

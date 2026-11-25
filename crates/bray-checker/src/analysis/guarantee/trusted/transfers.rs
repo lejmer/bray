@@ -127,10 +127,9 @@ fn collect_entry_transfers<C: CheckerRequestContext + ?Sized>(
             input.clone()
         };
 
-        let mut enclosing = std::collections::BTreeMap::new();
-
         for (transfer, cases) in ownership.guarded_transfers() {
             let input = decode_input(transfer.input());
+            let mut enclosing = None;
 
             let root = crate::ExecutionPlace {
                 root: input.root.clone(),
@@ -151,13 +150,11 @@ fn collect_entry_transfers<C: CheckerRequestContext + ?Sized>(
                         *projection != bray_symbols::ConstantProjectionKind::NullableValue
                     })
                     && !{
-                        let mut conditions = cases.iter().copied().copied().chain(transfer.condition()).collect::<Vec<_>>();
+                        // Only moves that occur together with this transfer can enclose it.
+                        let complete = enclosing.get_or_insert_with(|| {
+                            let conditions = cases.iter().copied().copied().chain(transfer.condition()).collect::<Vec<_>>();
 
-                        conditions.sort_unstable();
-                        conditions.dedup();
-
-                        let complete = enclosing.entry(conditions).or_insert_with_key(|conditions| {
-                            ownership.guaranteed_transfers_under(conditions).into_iter()
+                            ownership.transfers_with(transfer, &conditions).into_iter()
                                 .map(|transfer| (decode_input(transfer.input()), transfer)).collect::<Vec<_>>()
                         });
 
