@@ -247,6 +247,7 @@ fn collect_liveness(
                                     _ => None,
                                 }));
                         }
+
                         last_uses.push(last_use);
                     }
                 }
@@ -372,6 +373,7 @@ fn collect_edge_lifetime_ends(
 
             if !subjects.is_empty() {
                 ends.insert(edge.id(), subjects);
+
                 future_accesses.insert(edge.id(), live_in.iter().filter_map(|subject| match subject {
                     BoundDependencySubject::StorageAccess(access) => Some(*access),
                     _ => None,

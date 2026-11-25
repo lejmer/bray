@@ -75,7 +75,17 @@ pub fn check_unwind_candidate<C: CheckerRequestContext + ?Sized>(
     let excluded = graph
         .edges()
         .iter()
-        .filter(|edge| edge.is_dependency_failure())
+        .filter(|edge| {
+            // A scoped exit reserves its admission fork before contracts are known.
+            // Only a selected runtime precondition can make that fork a local panic.
+            edge.is_dependency_failure()
+                || matches!(edge.refinement(),
+                    Some(super::super::model::AnalysisRefinement::InvocationEntry {
+                        invocation: invocation @ bray_bound_tree::BoundExecutionSite::ScopedExit(_),
+                        admitted: false,
+                    })
+                    if !request.trusted_contracts().is_some_and(|contracts| contracts.checks_preconditions(&invocation)))
+        })
         .map(|edge| edge.id())
         .collect();
 

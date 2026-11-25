@@ -401,6 +401,7 @@ impl StorageFlowInput {
         future_accesses: BTreeMap<bray_bound_tree::BoundExecutionSite, Vec<StorageAccessId>>,
     ) {
         self.future_accesses = future_accesses;
+
         self.suspension_borrows = liveness.live_across_suspensions().iter().filter_map(|entry| {
             match entry.subject() {
                 BoundDependencySubject::BorrowCapability(borrow) => Some(borrow),

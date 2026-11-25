@@ -59,8 +59,7 @@ where
         let checks_preconditions = self
             .request()
             .trusted_contracts()
-            .and_then(|contracts| contracts.calls.get(&expression.into()))
-            .is_some_and(|contract| contract.checks_preconditions)
+            .is_some_and(|contracts| contracts.checks_preconditions(&expression.into()))
             || self
                 .selections()
                 .and_then(|selections| selections.expression(expression))
@@ -160,12 +159,10 @@ where
         invocation: bray_bound_tree::BoundExecutionSite,
         current: AnalysisBlockId,
     ) -> AnalysisBlockId {
-        let checks = self.request().trusted_contracts().is_none_or(|contracts| {
-            contracts
-                .calls
-                .get(&invocation)
-                .is_some_and(|contract| contract.checks_preconditions)
-        });
+        let checks = self
+            .request()
+            .trusted_contracts()
+            .is_none_or(|contracts| contracts.checks_preconditions(&invocation));
 
         let current = self.begin_invocation(invocation, current, checks);
         let completed = self.push_block();

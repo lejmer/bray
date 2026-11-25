@@ -776,6 +776,32 @@ mod tests {
     }
 
     #[test]
+    fn pure_array_cleanup_requires_both_finalizer_guarantees() {
+        for property in ["pure", "total"] {
+            let source = r#"
+                module app;
+                struct Value
+                {
+                    finalize() executes(PROPERTY) {}
+                }
+                func make_array() -> [Value; 2]
+                    executes(pure, total)
+                {
+                    return [each item in 0..2 { yield Value {}; }];
+                }
+            "#
+            .replace("PROPERTY", property);
+
+            let compilation = compilation(&source);
+
+            bray_testing::assert_goal_state_diagnostic_kind(
+                compilation.check_diagnostics(),
+                DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+            );
+        }
+    }
+
+    #[test]
     fn construction_transfers_child_admission() {
         let compilation = compilation(
             r#"

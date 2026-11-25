@@ -25,7 +25,7 @@ pub(crate) fn lifecycle_execution_dependency<C: CheckerRequestContext + ?Sized>(
     mode: ExecutionCleanupMode,
     property: ExecutionProperty,
     node: AnyBoundNodeId,
-) -> Option<ExecutionDependency> {
+) -> Option<Vec<ExecutionDependency>> {
     let required = match mode {
         ExecutionCleanupMode::Admission => ExecutionProperty::Total,
         ExecutionCleanupMode::Disposal => property,
@@ -34,12 +34,21 @@ pub(crate) fn lifecycle_execution_dependency<C: CheckerRequestContext + ?Sized>(
     let synchronous = execution == CallableExecution::Synchronous
         && crate::representation::type_representation(request, result) == Some(RepresentationRole::Unit);
 
-    (synchronous && (slot != TypeAssociatedLifecycleSlot::Finalizer || required == ExecutionProperty::Total))
-        .then_some(ExecutionDependency {
+    synchronous.then(|| {
+        let dependency = |property| ExecutionDependency {
             target: BoundCallableTarget::Declaration(callable).into(),
-            obligation: crate::ExecutionObligation::Property(required, None),
+            obligation: crate::ExecutionObligation::Property(property, None),
             occurrence: node.into(),
-        })
+        };
+
+        let mut dependencies = vec![dependency(required)];
+
+        if slot == TypeAssociatedLifecycleSlot::Finalizer && required == ExecutionProperty::Pure {
+            dependencies.push(dependency(ExecutionProperty::Total));
+        }
+
+        dependencies
+    })
 }
 
 pub(crate) fn execution_cleanup_dependencies<C: CheckerRequestContext + ?Sized>(
@@ -152,8 +161,11 @@ pub(crate) fn execution_cleanup_dependencies<C: CheckerRequestContext + ?Sized>(
                                     mode, property, node,
                                 );
 
-                                valid &= dependency.is_some();
-                                dependencies.extend(dependency);
+                                if let Some(dependency) = dependency {
+                                    dependencies.extend(dependency);
+                                } else {
+                                    valid = false;
+                                }
                             }
                         }
 

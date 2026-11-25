@@ -71,6 +71,11 @@ impl TrustedContractInputs {
             &self.declared_guarantees
         }
     }
+
+    /// Whether the selected invocation can fail its runtime entry check.
+    pub(crate) fn checks_preconditions(&self, invocation: &BoundExecutionSite) -> bool {
+        self.calls.get(invocation).is_some_and(|contract| contract.checks_preconditions)
+    }
 }
 
 /// One typed address subject of a normal-completion clause.

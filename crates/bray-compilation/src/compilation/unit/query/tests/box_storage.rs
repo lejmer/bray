@@ -7,9 +7,11 @@ fn box_construction_transfers_its_noncopyable_input_storage() {
     let fixture = include_str!(
         "../../../../../../../xtask/fixtures/native-execution/guarded-part-cleanup.bray"
     );
+
     let (declarations, _) = fixture
         .split_once("func main")
         .expect("fixture has a main body");
+
     for (reuse, valid) in [("", true), ("take(pair.left);", false)] {
         let source = format!("{declarations}{}", r#"
             func box_input()
@@ -25,6 +27,7 @@ fn box_construction_transfers_its_noncopyable_input_storage() {
                 REUSE
             }
         "#.replace("REUSE", reuse));
+
         let compilation = compilation(&source);
         let diagnostics = compilation.check_diagnostics();
 

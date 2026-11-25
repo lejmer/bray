@@ -185,6 +185,7 @@ impl Lowerer<'_> {
                 function,
                 callable,
             )?;
+
             let receiver = self.materialize_synthetic_place(
                 current,
                 Self::retained_source(source),

@@ -118,6 +118,28 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let place = owner.as_deref().and_then(|path| ExecutionPlace::storage_path(self.storage, path));
         let available = place.as_ref().map(|place| state.current.availability(place));
 
+        // Backing has no logical value slot of its own. An absent enclosing
+        // owner still proves that the backing cannot require cleanup.
+        if place.is_none() && owner.as_deref().is_some_and(|path| {
+            (0..path.projections.len()).rev().any(|length| {
+                let parent = bray_bound_tree::StoragePath {
+                    root: path.root,
+                    projections: path.projections[..length].into(),
+                };
+
+                ExecutionPlace::storage_path(self.storage, &parent).is_some_and(|parent| {
+                    match state.current.availability(&parent) {
+                        ValueAvailability::Absent => true,
+                        ValueAvailability::Guarded(guard) =>
+                            guard.prove_ordinary(&state.assumptions, Some(&state.proofs)) == Some(false),
+                        ValueAvailability::Present | ValueAvailability::Unknown => false,
+                    }
+                })
+            })
+        }) {
+            return ExecutionCondition::boolean(false).into();
+        }
+
         let initialized = match available {
             Some(ValueAvailability::Absent) if selection.route.is_some()
                 || place.is_some_and(|place| state.current.is_subtree_absent(&place)) => {

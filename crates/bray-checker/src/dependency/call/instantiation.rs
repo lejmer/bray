@@ -414,7 +414,14 @@ where
         {
             let (projected, remaining) = values.project(source, projections);
 
-            if expression_access(self.storage, projected).is_some() {
+            let typed_source = projected == source || remaining != projections ||
+                expression_access(self.storage, source)
+                    .and_then(|access| self.storage.access(access))
+                    .zip(expression_access(self.storage, projected)
+                        .and_then(|access| self.storage.access(access)))
+                    .is_some_and(|(source, projected)| source.reached_type() == projected.reached_type());
+
+            if typed_source && expression_access(self.storage, projected).is_some() {
                 expression = Some(projected);
                 projections = remaining;
             }

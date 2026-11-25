@@ -13,7 +13,7 @@ pub(in crate::analysis::guarantee) struct ReachedScopeCleanup {
     pub(in crate::analysis::guarantee) cancels_tasks: bool,
     pub(in crate::analysis::guarantee) parts: BTreeMap<(StorageAccessId, TypeId, bool), bool>,
     pub(in crate::analysis::guarantee) calls:
-        BTreeMap<(StorageAccessId, usize, TypeAssociatedLifecycleSlot), Option<ExecutionDependency>>,
+        BTreeMap<(StorageAccessId, usize, TypeAssociatedLifecycleSlot), Option<Vec<ExecutionDependency>>>,
 }
 
 #[expect(
@@ -39,10 +39,10 @@ pub(in crate::analysis::guarantee) fn check_scope_cleanup<C: CheckerRequestConte
 
     valid &= !reached.cancels_tasks;
 
-    for (&(access, _, _), &dependency) in &reached.calls {
+    for (&(access, _, _), dependency) in &reached.calls {
         if !inert(access) {
             valid &= dependency.is_some();
-            dependencies.extend(dependency);
+            dependencies.extend(dependency.iter().flatten().copied());
         }
     }
 
