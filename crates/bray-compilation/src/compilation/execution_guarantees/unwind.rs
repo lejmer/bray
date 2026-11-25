@@ -661,6 +661,11 @@ mod tests {
                 false,
             ),
             (
+                "struct Value { value: bool; enter() -> bool { return false; } exit(pos lease: bool) requires(lease) {} }",
+                "let value: Value = { value = true }; with lease = value {}",
+                true,
+            ),
+            (
                 "func fail() -> bool { panic(\"default\"); } func accept(value: bool = fail()) {}",
                 "accept();",
                 true,

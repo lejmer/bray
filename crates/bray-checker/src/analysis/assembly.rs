@@ -139,6 +139,7 @@ impl ControlFlowGraphAssembler {
             bray_bound_tree::BoundExpressionId,
             bray_bound_tree::BoundCallResult,
             Option<[super::model::ScopedResultTransfer; 2]>,
+            bool,
         )>,
         failures: Option<ScopeFailureTargets>,
     ) -> AnalysisBlockId {
@@ -146,7 +147,7 @@ impl ControlFlowGraphAssembler {
 
         self.push_edge(current, entered, AnalysisEdgeKind::Sequential, None);
 
-        let lifecycle = if let Some((expression, result, transfers)) = scoped {
+        let lifecycle = if let Some((expression, result, transfers, checks_requirements)) = scoped {
             let invocation = bray_bound_tree::BoundExecutionSite::ScopedExit(expression);
             let attempt = self.push_block();
 
@@ -196,12 +197,15 @@ impl ControlFlowGraphAssembler {
                 .map(|targets| (targets.panic, targets.cancellation))
                 .or_else(|| (!preserves_exit_value).then_some((lifecycle, lifecycle)))
             {
-                self.push_edge(
-                    entered,
-                    panic,
-                    AnalysisEdgeKind::Sequential,
-                    Some(AnalysisRefinement::InvocationEntry { invocation, admitted: false }),
-                );
+                // Only a runtime precondition on the selected exit can fail its admission.
+                if checks_requirements {
+                    self.push_edge(
+                        entered,
+                        panic,
+                        AnalysisEdgeKind::Sequential,
+                        Some(AnalysisRefinement::InvocationEntry { invocation, admitted: false }),
+                    );
+                }
 
                 for (kind, continuation) in bray_symbols::DependencyFailureKind::ALL.into_iter().zip([panic, cancellation]) {
                     self.push_edge(
@@ -463,7 +467,7 @@ mod tests {
                     scope.into(),
                     expression.into(),
                     preserves_exit_value,
-                    Some((expression, result, None)),
+                    Some((expression, result, None, true)),
                     None,
                 );
 

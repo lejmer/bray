@@ -1863,9 +1863,17 @@ where
         }
     }
 
-    /// Loans that authorize an assignment destination stay active until its installation writes.
+    /// An assignment that installs a private operator result shares its occurrence with
+    /// the earlier operations. Loans that authorize its destination stay active until
+    /// the installation writes through them.
     fn installing_borrows(&self, state: &StorageFlowState, kind: AnalysisOperationKind) -> Vec<BorrowCapabilityId> {
-        if matches!(kind, AnalysisOperationKind::AssignmentInstall(_)) {
+        let AnyBoundNodeId::Expression(expression) = kind.node() else {
+            return Vec::new();
+        };
+
+        if matches!(kind, AnalysisOperationKind::AssignmentInstall(_))
+            || self.storage.invocation_result(expression.into()).is_none()
+        {
             return Vec::new();
         }
 
@@ -1877,15 +1885,11 @@ where
             return Vec::new();
         };
 
-        let authority = self
-            .storage
-            .access(destination.access())
-            .and_then(|access| access.root().borrow_capability())
-            .or_else(|| {
-                self.input
-                    .reached_access(self.request.semantic_values(), &state.memory, self.storage, destination.access(), |_| None)
-                    .and_then(|reached| reached.loan)
-            });
+        let purpose = self.storage.effective_purpose(destination);
+        let access = self.operation_access(destination, purpose);
+        let reached = self.assignment_destination(&state.memory, expression, access).map(Cow::into_owned);
+
+        let authority = self.authorizing_borrow(state, destination, purpose, reached.as_ref()).flatten();
 
         crate::analysis::storage_flow::memory::borrow_chain_from(self.storage, Some(&state.memory), authority)
             .unwrap_or_default()

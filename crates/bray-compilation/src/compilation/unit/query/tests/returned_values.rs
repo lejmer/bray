@@ -1632,10 +1632,13 @@ fn reading_through_a_stored_reference_retains_its_loan() {
 }
 
 #[test]
-fn consumed_scoped_reborrows_release_the_selected_owner_field() {
-    for (selection, valid) in [
-        ("let selected = find(storage);", true),
-        ("let selected = find(storage); storage.active = 2;", false),
+fn compound_assignments_install_through_their_destination_loan() {
+    // A consumed reborrow precedes the final write through the same owner loan.
+    // The install keeps that loan until it writes, then releases it like any use.
+    for (tail, valid) in [
+        ("storage.active -= 1; host.storage = none;", true),
+        ("storage.active = 0; host.storage = none;", true),
+        ("host.storage = none; storage.active -= 1;", false),
     ] {
         let source = r#"
             module app;
@@ -1655,23 +1658,23 @@ fn consumed_scoped_reborrows_release_the_selected_owner_field() {
                 };
                 storage.active += 1;
                 {
-                    Selection
+                    let selected = find(storage);
                     match consume selected {
                         case ?entry { entry.depth = 0; }
                         case none {}
                     }
                 }
-                storage.active -= 1;
+                Tail
                 return true;
             }
         "#
-        .replace("Selection", selection);
+        .replace("Tail", tail);
 
         let application = compilation(&source);
         let diagnostics = application.check_diagnostics();
 
         if valid {
-            assert!(!diagnostics.has_errors(), "{selection}: {diagnostics:#?}");
+            assert!(!diagnostics.has_errors(), "{tail}: {diagnostics:#?}");
         } else {
             assert_goal_state_diagnostic_kind(diagnostics, DiagnosticKind::CheckingConflictingBorrow);
         }

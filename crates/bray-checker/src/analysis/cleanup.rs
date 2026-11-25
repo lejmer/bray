@@ -83,6 +83,7 @@ where
         bray_bound_tree::BoundExpressionId,
         bray_bound_tree::BoundCallResult,
         Option<[ScopedResultTransfer; 2]>,
+        bool,
     )> {
         let expression = *self.scoped_uses.get(&scope)?;
 
@@ -132,7 +133,16 @@ where
             ]
         });
 
-        Some((expression, result, transfers))
+        let exit = self.request().semantic_values().type_data(scoped.exit().1.callable_type());
+
+        let bray_symbols::TypeData::Callable(exit) = exit.as_ref() else {
+            panic!("scoped exit {expression:?} retains its callable signature");
+        };
+
+        // A scoped exit can fail admission only when its selected callable checks runtime requirements.
+        let checks_requirements = exit.phase_behaviors().invocation().has_runtime_requirements();
+
+        Some((expression, result, transfers, checks_requirements))
     }
 
     pub(super) fn push_scope_exit(

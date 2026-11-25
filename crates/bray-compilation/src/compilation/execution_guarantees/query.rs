@@ -777,7 +777,7 @@ mod tests {
 
     #[test]
     fn pure_array_cleanup_requires_both_finalizer_guarantees() {
-        for property in ["pure", "total"] {
+        for (property, valid) in [("pure", false), ("total", false), ("pure, total", true)] {
             let source = r#"
                 module app;
                 struct Value
@@ -793,11 +793,16 @@ mod tests {
             .replace("PROPERTY", property);
 
             let compilation = compilation(&source);
+            let diagnostics = compilation.check_diagnostics();
 
-            bray_testing::assert_goal_state_diagnostic_kind(
-                compilation.check_diagnostics(),
-                DiagnosticKind::CheckingExecutionGuaranteeNotProven,
-            );
+            if valid {
+                assert!(!diagnostics.has_errors(), "{property}: {diagnostics:#?}");
+            } else {
+                bray_testing::assert_goal_state_diagnostic_kind(
+                    diagnostics,
+                    DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+                );
+            }
         }
     }
 

@@ -352,7 +352,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 }
 
                 // A completed row can equate an entry fact's call with its reached data.
-                // Read the facts through the same equalities as the observed condition.
+                // Read the condition and the facts through the same assumption-only
+                // equalities, which the normalized input cache identifies.
+                let normalizing = state.proofs.equalities(&state.assumptions, None);
+
                 let inputs = state.proofs.normalized_inputs(
                     crate::execution_guarantees::ExecutionProofInputDomain::Condition,
                     &state.trusted_assumptions,
@@ -360,12 +363,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     || crate::execution_guarantees::NormalizedProofInputs::prepare(
                         BTreeSet::new(),
                         state.assumptions.iter()
-                            .map(|(condition, holds)| (condition.with_equalities(&equalities), *holds))
+                            .map(|(condition, holds)| (condition.with_equalities(&normalizing), *holds))
                             .collect(),
                     ),
                 );
 
-                observed.prove_ordinary(&inputs.ordinary, Some(&state.proofs))
+                condition.with_equalities(&normalizing).prove_ordinary(&inputs.ordinary, Some(&state.proofs))
             });
 
         // Preserve the evaluated condition across joins. Substitution can differ

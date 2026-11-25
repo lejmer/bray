@@ -145,22 +145,8 @@ where
             }));
         }
 
-        let authority = match purpose {
-            StorageAccessPurpose::Borrow(_) => plan.access(),
-            _ => access,
-        };
-
-        let planned = self.storage.access(authority)?.root().borrow_capability();
-        let actual = reached.and_then(|access| access.loan).filter(|loan| loan.unit() == self.storage.unit());
         let created_borrow = self.storage.borrow_for_plan(plan);
-
-        let authority = match (planned, actual) {
-            (Some(planned), Some(actual)) if created_borrow != Some(planned)
-                && state.memory.borrow_ancestors(planned).is_some_and(|ancestors| ancestors.contains(&actual)) =>
-                Some(planned),
-            (_, Some(actual)) => Some(actual),
-            (planned, None) => planned,
-        };
+        let authority = self.authorizing_borrow(state, plan, purpose, reached)?;
 
         let Some(authorizing_borrows) = borrow_chain_from(self.storage, Some(&state.memory), authority) else {
             return Some(BorrowConflict::Unlocated);
@@ -183,6 +169,33 @@ where
             .map(|address| (address.targets.iter(), address.has_values()));
 
         overlapping_borrow_conflict(self.storage, state, access, targets, requested, &authorizing_borrows)
+    }
+
+    /// The loan that authorizes one planned access. A planned loan derived from the
+    /// reached loan keeps its own identity. `None` means the access is unplanned.
+    pub(super) fn authorizing_borrow(
+        &self,
+        state: &StorageFlowState,
+        plan: StorageAccessPlan,
+        purpose: StorageAccessPurpose,
+        reached: Option<&ReachedAccess>,
+    ) -> Option<Option<BorrowCapabilityId>> {
+        let authority = match purpose {
+            StorageAccessPurpose::Borrow(_) => plan.access(),
+            _ => self.operation_access(plan, purpose),
+        };
+
+        let planned = self.storage.access(authority)?.root().borrow_capability();
+        let actual = reached.and_then(|access| access.loan).filter(|loan| loan.unit() == self.storage.unit());
+        let created_borrow = self.storage.borrow_for_plan(plan);
+
+        Some(match (planned, actual) {
+            (Some(planned), Some(actual)) if created_borrow != Some(planned)
+                && state.memory.borrow_ancestors(planned).is_some_and(|ancestors| ancestors.contains(&actual)) =>
+                Some(planned),
+            (_, Some(actual)) => Some(actual),
+            (planned, None) => planned,
+        })
     }
 
     pub(super) fn has_mutation_authority(&self, access: StorageAccessId) -> bool {

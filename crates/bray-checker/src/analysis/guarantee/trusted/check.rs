@@ -414,8 +414,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     ) -> bool {
         let Some((site, condition)) = state.entry_check.take() else {
             // Some implicit CFG calls reserve an admission fork before evidence is available.
-            return admitted || self.request.trusted_contracts()
-                .is_some_and(|contracts| contracts.checks_preconditions(&invocation));
+            return admitted || self.request.trusted_contracts().and_then(|contracts| contracts.calls.get(&invocation))
+                .is_none_or(|contract| contract.checks_preconditions);
         };
 
         assert_eq!(site, invocation, "admission consumes its evaluated check");
