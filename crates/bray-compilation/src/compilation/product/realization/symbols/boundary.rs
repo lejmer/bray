@@ -3,6 +3,7 @@ use crate::compilation::product::realization::support::native_boundary_mapping;
 use crate::compilation::product::specialization::{
     ConcreteCodegenInstance, ConcreteCodegenReachability,
 };
+use crate::compilation::product::visibility::symbol_is_publicly_reachable;
 use crate::compilation::{CodegenPreparationError, Compilation};
 use crate::fact::CancellationToken;
 use bray_binder::SymbolQueryProvider;
@@ -271,7 +272,7 @@ impl Compilation {
                 NativeBoundaryMapping::Callback {
                     name: None,
                     linkage: CodegenLinkage::LinkOnce,
-                    kind: bray_runtime_interface::NativeEntryKind::ForeignCallback,
+                    kind: self.source_callback_entry_kind(realization, None)?,
                 },
             ));
         }
@@ -429,9 +430,43 @@ impl Compilation {
                 .then_some(NativeBoundaryMapping::Callback {
                     name: None,
                     linkage: CodegenLinkage::LinkOnce,
-                    kind: bray_runtime_interface::NativeEntryKind::ForeignCallback,
+                    kind: self.source_callback_entry_kind(realization, Some(function))?,
                 }),
         )
+    }
+
+    /// Selects the native entry of a source callback.
+    ///
+    /// Runtime source passes callbacks that foreign code cannot name only to its own native
+    /// services. They run under the runtime's existing native entry, because attaching them as
+    /// foreign callbacks would re-enter the runtime that called them.
+    fn source_callback_entry_kind(
+        &self,
+        realization: &ConcreteCodegenInstance,
+        function: Option<bray_symbols::FunctionSymbolId>,
+    ) -> Result<bray_runtime_interface::NativeEntryKind, CodegenPreparationError> {
+        use bray_runtime_interface::NativeEntryKind;
+
+        if !matches!(realization.key().template(), MirUnitKey::Bound(_))
+            || self.runtime_roles().is_empty()
+        {
+            return Ok(NativeEntryKind::ForeignCallback);
+        }
+
+        let public = match function {
+            Some(function) => symbol_is_publicly_reachable(
+                self.product_source_graph()?.declarations(),
+                self.symbol_graph()?,
+                function.into(),
+            ),
+            None => false,
+        };
+
+        Ok(if public {
+            NativeEntryKind::ForeignCallback
+        } else {
+            NativeEntryKind::RuntimeValue
+        })
     }
 
     pub(in crate::compilation::product::realization) fn codegen_runtime_source_role(
