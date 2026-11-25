@@ -1137,7 +1137,6 @@ fn selected_associated_runtime_default_emits_source_and_imported_native_units() 
         }
         struct Producer { marker: i32; }
         impl ProducerSource = Producer(Source) { type Item = i32; }
-        using ProducerSource;
         impl Producer {
             type Scalar = i32;
             func alias(value: i32 = demand<Scalar>()) {}
@@ -1163,7 +1162,6 @@ fn selected_associated_runtime_default_emits_source_and_imported_native_units() 
             type Item = i32;
             func select(value: i32 = demand<Item>()) {}
         }
-        using ProducerSource;
         public func root() { let producer = Producer { marker = 0 }; producer.outer(); }
     "#;
 

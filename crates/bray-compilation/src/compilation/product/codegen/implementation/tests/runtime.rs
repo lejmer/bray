@@ -478,10 +478,8 @@ struct State
 internal static STATE: Uninit<State> = core.memory.uninit_from<State>({ items = none });
 
 @abi(c)
-trusted internal func initialize(pos worker_capacity: usize, pos timer_capacity: usize) -> u32
+trusted internal func initialize() -> u32
 {
-    _ = worker_capacity;
-    _ = timer_capacity;
     let pointer = core.memory.uninit_pointer<State>(&STATE);
 
     if core.memory.is_null<State>(pointer)
@@ -543,10 +541,9 @@ func observed() -> u32
     return core.atomic.fetch_add<u32, 3>(&STATE, 1);
 }
 @abi(c)
-trusted internal func initialize(pos worker_capacity: usize, pos timer_capacity: usize) -> u32
+trusted internal func initialize() -> u32
 {
-    _ = timer_capacity;
-    if worker_capacity == 0
+    if observed() == 0
     {
         _ = observed();
     }

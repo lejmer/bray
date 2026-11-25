@@ -164,7 +164,19 @@ where
         &mut self,
         selections: &bray_bound_tree::CheckedSemanticSelections,
         types: &bray_bound_tree::CheckedExpressionTypes,
+        storage: &bray_bound_tree::StoragePlan,
     ) -> Result<(), CheckerQueryError<C::UpstreamError>> {
+        // Lowering materializes every staged input in its own temporary.
+        for (identity, provenance) in storage.identity_entries() {
+            if matches!(provenance, bray_bound_tree::StorageIdentity::InvocationInput { .. }) {
+                let ty = storage
+                    .identity_type(identity)
+                    .expect("planned invocation input retains its type");
+
+                self.requirement(ty)?;
+            }
+        }
+
         for entry in selections.entries() {
             match entry.selection() {
                 bray_bound_tree::SemanticSelection::Operation(

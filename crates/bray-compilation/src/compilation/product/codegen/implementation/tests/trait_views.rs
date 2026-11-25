@@ -8,8 +8,6 @@ fn borrowed_trait_view_emits_async_runtime_dispatch() {
         r#"
         module app;
 
-        using sink_value;
-
         trait Value
         {
             async func read() -> i32;
@@ -60,9 +58,6 @@ fn borrowed_trait_view_dispatches_distinct_implementations_natively() {
     let (backend, compilation) = codegen_compilation(source_request_with_runtime(
         &[r#"
         module app;
-
-        using first_value;
-        using second_value;
 
         trait Value
         {

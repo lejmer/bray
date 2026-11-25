@@ -800,7 +800,7 @@ mod tests {
             }
         };
 
-        if let Err(error) = cleanup_shapes.prepare_lowering_types(&selections, &types) {
+        if let Err(error) = cleanup_shapes.prepare_lowering_types(&selections, &types, &storage) {
             return CheckerOutcome::from_query_error(error);
         }
 

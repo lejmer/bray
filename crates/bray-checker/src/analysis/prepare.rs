@@ -190,7 +190,7 @@ pub fn prepare_body_analysis<C: CheckerRequestContext + ?Sized>(
         }
     };
 
-    if let Err(error) = cleanup_shapes.prepare_lowering_types(expressions.selections(), expressions.types()) {
+    if let Err(error) = cleanup_shapes.prepare_lowering_types(expressions.selections(), expressions.types(), storage) {
         return CheckerOutcome::from_query_error(error);
     }
 

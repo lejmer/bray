@@ -377,7 +377,15 @@ impl Lowerer<'_> {
             None,
         )?;
 
-        let phases = self.input_cleanup_phases(ty);
+        // The staged slot owns the checked input's duty. An inline assembly input
+        // stores only its runtime operands, which carry no additional cleanup.
+        let planned = self
+            .input
+            .storage_plan()
+            .identity_type(identity)
+            .expect("staged input retains its planned type");
+
+        let phases = self.input_cleanup_phases(planned);
 
         self.track_input(
             block,
@@ -552,18 +560,17 @@ impl Lowerer<'_> {
         temporary.action = InputCleanup::ScopedUse(expression);
     }
 
+    #[track_caller]
     pub(super) fn input_cleanup_phases(&self, ty: TypeId) -> Option<AsyncCleanupPhases> {
-        let cleanup = self
-            .input
-            .cleanup_type(ty)
-            .unwrap_or_else(|| {
-                panic!(
-                    "checked temporary {ty:?} ({:?}) retains its cleanup shape in {:?}",
-                    self.input.semantic_values().type_data(ty),
-                    self.input.unit().key()
-                )
-            })
-            .cleanup();
+        let Some(shape) = self.input.cleanup_type(ty) else {
+            panic!(
+                "checked temporary {ty:?} ({:?}) retains its cleanup shape in {:?}",
+                self.input.semantic_values().type_data(ty),
+                self.input.unit().key()
+            )
+        };
+
+        let cleanup = shape.cleanup();
 
         match cleanup {
             AsyncStorageCleanupRequirement::None => None,
