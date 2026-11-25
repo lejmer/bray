@@ -418,7 +418,7 @@ pub(super) fn compile_fixture(
         .args(["-std=c11", "-O2", "-fuse-ld=lld"])
         .arg(root.join(source))
         .arg(runtime_directory.join(archive))
-        .args(inputs.iter().map(|(_, path)| path))
+        .args(inputs.iter().map(|(_, path, _)| path))
         .arg("-L")
         .arg(runtime_directory)
         .arg("-L")

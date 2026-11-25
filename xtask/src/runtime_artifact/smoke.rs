@@ -3,8 +3,11 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use subprocess::Exec;
 
+use bray_diagnostics::DiagnosticLlvmToolRole;
+use bray_native_artifact::NativeUnitKind;
 use bray_symbols::{NativeLinkKind, NativeLinkRequirement};
-use bray_target::NativeTarget;
+use bray_target::{NativeTarget, TargetOutputKind, TargetOutputName};
+use bray_tooling::llvm_tool_path;
 
 use super::command::{CommandError, Package, PackageComponent, RuntimeArchiveKind};
 
@@ -203,9 +206,43 @@ pub(super) fn add_package_dependencies(
         .filter(|link| !bundled.contains(link.name()))
         .collect();
 
+    // Plain objects always link. One archive lets each smoke executable retain
+    // only the dependency members its own runtime components reach. Fallback
+    // providers stay plain objects because an archive index cannot select them,
+    // and the linker discards their unreferenced definitions.
+    let (objects, inputs): (Vec<_>, Vec<_>) = inputs
+        .into_iter()
+        .partition(|(kind, _, fallback)| *kind == NativeUnitKind::Object && !fallback);
+
+    if !objects.is_empty() {
+        let members = objects
+            .iter()
+            .map(|(_, path, _)| fs::read(path).map_err(|error| CommandError::read(path, error)))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let archiver = llvm_tool_path(DiagnosticLlvmToolRole::Archiver)
+            .map_err(CommandError::NativeCompilerToolUnavailable)?;
+
+        let bytes = crate::native_archive::archive_bytes(&archiver, &members, "o")
+            .map_err(CommandError::RuntimePartitionTool)?;
+
+        let archive = directory.join(
+            TargetOutputName::for_native(target.object_format(), TargetOutputKind::StaticLibrary)
+                .file_name("bray_smoke_dependencies")
+                .expect("smoke dependency library name is valid"),
+        );
+
+        fs::write(&archive, bytes).map_err(|error| CommandError::write(&archive, error))?;
+
+        package.components.push(PackageComponent {
+            kind: None,
+            archive,
+        });
+    }
+
     package
         .components
-        .extend(inputs.into_iter().map(|(_, archive)| PackageComponent {
+        .extend(inputs.into_iter().map(|(_, archive, _)| PackageComponent {
             kind: None,
             archive,
         }));

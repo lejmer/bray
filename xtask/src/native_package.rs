@@ -5,8 +5,8 @@ use std::sync::Arc;
 
 use bray_base::StableDigestHasher;
 use bray_native_artifact::{
-    NativeArtifactIndex, NativeContentDigest, NativeUnit, NativeUnitKind, NativeUnitLocation,
-    NativeUnitResolver,
+    NativeArtifactIndex, NativeContentDigest, NativeDefinitionSelection, NativeUnit,
+    NativeUnitKind, NativeUnitLocation, NativeUnitResolver, NativeUnitSummary,
 };
 use bray_package_interface::{
     InterfaceLanguageRevision, InterfaceProductIdentity, InterfaceProductKind, InterfaceSemantics,
@@ -141,7 +141,12 @@ pub(crate) fn publish(
         .map_err(|error| format!("foreign native package {name} encoding failed: {error:?}"))
 }
 
-type NativeDependencyInputs = (Vec<(NativeUnitKind, PathBuf)>, Vec<NativeLinkRequirement>);
+/// Staged inputs record whether a unit provides deferred fallback definitions.
+/// Archive symbol indexes cannot select those definitions.
+type NativeDependencyInputs = (
+    Vec<(NativeUnitKind, PathBuf, bool)>,
+    Vec<NativeLinkRequirement>,
+);
 
 /// Loads the standard-library closure used by foreign hosts of Bray package archives.
 pub(crate) fn standard_library_inputs(
@@ -273,7 +278,16 @@ pub(crate) fn dependency_inputs(
                 )
             })?;
 
-            Ok(Some((unit.kind(), path)))
+            let fallback = match unit.summary() {
+                NativeUnitSummary::Exact { definitions, .. } => {
+                    definitions.iter().any(|definition| {
+                        definition.selection() == &NativeDefinitionSelection::Fallback
+                    })
+                }
+                NativeUnitSummary::Opaque { .. } | NativeUnitSummary::LazyArchive { .. } => false,
+            };
+
+            Ok(Some((unit.kind(), path, fallback)))
         })
         .collect::<Result<Vec<_>, String>>()?;
 

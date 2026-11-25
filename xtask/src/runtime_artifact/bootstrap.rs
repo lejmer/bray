@@ -167,7 +167,7 @@ pub fn build(
     let archive_name =
         TargetOutputName::for_native(target.object_format(), TargetOutputKind::StaticLibrary);
 
-    for (kind, input) in inputs {
+    for (kind, input, _) in inputs {
         match kind {
             bray_native_artifact::NativeUnitKind::Object => {
                 members.push(fs::read(&input).map_err(|error| {
