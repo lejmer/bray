@@ -82,6 +82,20 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let mut unsupported = BTreeSet::new();
         let mut access_subjects = Vec::new();
 
+        // A finalizer can publish an address derived from storage its receiver references.
+        // Without a tracked origin, that referenced storage supports the published address.
+        let referenced = completion
+            .into_iter()
+            .flat_map(|completion| completion.references())
+            .filter_map(|(path, target)| {
+                let source = ExecutionPlace::storage_path(self.storage, path)?;
+
+                place.contains(&source).then_some(())?;
+
+                ExecutionPlace::storage_path(self.storage, &target.target.value_observation_path()?)
+            })
+            .collect::<BTreeSet<_>>();
+
         for subject in &contract.address_subjects {
             if subject.subject.observes_completion_result() {
                 continue;
@@ -96,7 +110,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 continue;
             }
 
-            let Some(owners) = self.cleanup_address_owners(state, entry, &value, &address) else {
+            let Some(owners) = self
+                .cleanup_address_owners(state, entry, &value, &address)
+                .or_else(|| (!referenced.is_empty()).then(|| referenced.clone()))
+            else {
                 unsupported.insert(&subject.condition);
 
                 continue;
