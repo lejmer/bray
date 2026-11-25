@@ -69,6 +69,33 @@ pub const NATIVE_PANIC_REPORT_FIELDS: [RuntimeAbiType; 25] = [
     RuntimeAbiType::Pointer,
 ];
 
+/// Native panic report field holding the primary panic cause.
+pub const NATIVE_PANIC_REPORT_CAUSE: u32 = 9;
+/// Native panic report field recording whether the primary panic is present.
+pub const NATIVE_PANIC_REPORT_PRIMARY_PRESENT: u32 = 10;
+/// Native panic report field holding the provider callback table.
+pub const NATIVE_PANIC_REPORT_PROVIDER_CALLBACKS: u32 = 19;
+/// Native panic report field counting incident records in the chain.
+pub const NATIVE_PANIC_REPORT_INCIDENT_COUNT: u32 = 22;
+/// Native panic report field holding unused reserved incident capacity.
+pub const NATIVE_PANIC_REPORT_RESERVED: u32 = 23;
+/// Native panic report field holding the report consumer.
+pub const NATIVE_PANIC_REPORT_CONSUME: u32 = 24;
+
+const _: () = {
+    const fn field(index: u32) -> RuntimeAbiType {
+        NATIVE_PANIC_REPORT_FIELDS[index as usize]
+    }
+
+    assert!(matches!(field(NATIVE_PANIC_REPORT_CAUSE), RuntimeAbiType::U32));
+    assert!(matches!(field(NATIVE_PANIC_REPORT_PRIMARY_PRESENT), RuntimeAbiType::U32));
+    assert!(matches!(field(NATIVE_PANIC_REPORT_PROVIDER_CALLBACKS), RuntimeAbiType::Pointer));
+    assert!(matches!(field(NATIVE_PANIC_REPORT_INCIDENT_COUNT), RuntimeAbiType::Usize));
+    assert!(matches!(field(NATIVE_PANIC_REPORT_RESERVED), RuntimeAbiType::Usize));
+    assert!(matches!(field(NATIVE_PANIC_REPORT_CONSUME), RuntimeAbiType::Pointer));
+    assert!(NATIVE_PANIC_REPORT_CONSUME as usize == NATIVE_PANIC_REPORT_FIELDS.len() - 1);
+};
+
 /// Exact native parameter and result kinds for an execution-runtime role.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct RuntimeNativeSignature {

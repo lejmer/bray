@@ -1074,13 +1074,15 @@ fn foreign_callbacks_resolve_abnormal_outcomes_before_boundary_release() {
             unsigned char identity[32];
         }} Observation;
 
-        void {control}(Observation* result, const void* descriptor, unsigned operation)
+        unsigned {control}(uintptr_t descriptor, unsigned operation, Observation* result)
         {{
             (void)descriptor;
             *result = (Observation){{0}};
 
             if (operation == {acquire} && reject_entry)
                 result->status = {closed};
+
+            return 0;
         }}
 
         unsigned {consumer}(Report* value, unsigned reporting)
@@ -1431,6 +1433,9 @@ fn entry_cleanup_panic_preserves_completion_or_appends_after_the_body_panic() {
         }} Outcome;
 
         static unsigned reported, merged, shield_depth;
+
+        // The C final image supplies the descriptor that library panic reports name.
+        const unsigned char bray_linked_product_host = 0;
 
         void {shield_enter}(void)
         {{

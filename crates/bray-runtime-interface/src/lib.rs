@@ -50,7 +50,10 @@ pub use runtime::{RuntimeCompatibilityError, RuntimeContract, RuntimeContractBui
 pub use role_artifact::RuntimeRoleArtifact;
 
 pub use signature::{
-    EXECUTION_ABI_VERSION, NATIVE_PANIC_REPORT_FIELDS, RuntimeAbiType, RuntimeNativeSignature,
+    EXECUTION_ABI_VERSION, NATIVE_PANIC_REPORT_CAUSE, NATIVE_PANIC_REPORT_CONSUME,
+    NATIVE_PANIC_REPORT_FIELDS, NATIVE_PANIC_REPORT_INCIDENT_COUNT,
+    NATIVE_PANIC_REPORT_PRIMARY_PRESENT, NATIVE_PANIC_REPORT_PROVIDER_CALLBACKS,
+    NATIVE_PANIC_REPORT_RESERVED, RuntimeAbiType, RuntimeNativeSignature,
 };
 
 pub use bray_runtime_abi::runtime_role_catalog;

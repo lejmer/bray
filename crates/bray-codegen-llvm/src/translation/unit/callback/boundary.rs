@@ -315,14 +315,14 @@ pub(in crate::translation::unit) fn resolve_terminal_status<'context>(
                 false,
             )
             .into(),
-        9,
+        bray_runtime_interface::NATIVE_PANIC_REPORT_CAUSE as usize,
     )?;
 
     let report = super::super::support::insert_value(
         builder,
         report,
         context.i32_type().const_int(1, false).into(),
-        10,
+        bray_runtime_interface::NATIVE_PANIC_REPORT_PRIMARY_PRESENT as usize,
     )?;
 
     let consumer = crate::native::declare_runtime_function(
@@ -336,7 +336,7 @@ pub(in crate::translation::unit) fn resolve_terminal_status<'context>(
         builder,
         report,
         consumer.as_global_value().as_pointer_value().into(),
-        19,
+        bray_runtime_interface::NATIVE_PANIC_REPORT_CONSUME as usize,
     )?;
 
     let outcome = native_run_outcome_value(
