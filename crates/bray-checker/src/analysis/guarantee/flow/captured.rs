@@ -1278,6 +1278,13 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let first = feasible.next()?;
         let computation = result.owner_identity();
 
+        // Completed rows replace a returned reference with its actual referent.
+        // The invocation's own term still describes that referent's data.
+        let referent = publication.expression()
+            .and_then(|expression| self.observed_call_result(state, expression))
+            .and_then(|observed| observed.current_referent().cloned())
+            .filter(|referent| matches!(referent.kind(), crate::ExecutionConditionKind::Call(_, _, _, _, Some(_))));
+
         let mut complete = |branch: &mut ExecutionState,
                             (row, guard): (
             &crate::execution_guarantees::ExecutionOutput,
@@ -1292,25 +1299,28 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 guard,
             );
 
-            if matches!(
-                computation.kind(),
-                crate::ExecutionConditionKind::Call(_, _, _, _, None)
-            ) && (result == computation
-                || result.observation_kind()
-                    == Some(crate::execution_guarantees::ExecutionObservationKind::Scalar))
+            // A const computation describes the data of its result, or of the referent
+            // of its returned reference. The completed row supplies that same data.
+            let computed = if matches!(computation.kind(), crate::ExecutionConditionKind::Call(_, _, _, _, None))
+                && (result == computation
+                    || result.observation_kind() == Some(crate::execution_guarantees::ExecutionObservationKind::Scalar))
             {
-                let observed = value.computed_value();
+                Some((computation, value.computed_value()))
+            } else {
+                referent.as_ref()
+                    .zip(value.current_referent())
+                    .map(|(computation, referent)| (computation, referent.computed_value()))
+            };
 
-                if observed != computation
-                    && !observed.is_unknown()
-                    && !observed.is_reference()
-                    && !computation.observes_live(None)
-                    && !observed.observes_live(None)
-                {
-                    // Both observations describe the scalar on this completed row.
-                    ExecutionCondition::value_alias(computation.clone(), observed.clone())
-                        .assume(true, &mut branch.assumptions);
-                }
+            if let Some((computation, observed)) = computed
+                && observed != computation
+                && !observed.is_unknown()
+                && !observed.is_reference()
+                && !computation.observes_live(None)
+                && !observed.observes_live(None)
+            {
+                ExecutionCondition::value_alias(computation.clone(), observed.clone())
+                    .assume(true, &mut branch.assumptions);
             }
 
             finish(branch, value, Some(row))

@@ -7,6 +7,7 @@ use super::{ExecutionAssumptions, ExecutionCondition, trusted_condition_closure}
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
 pub(crate) enum ExecutionProofInputDomain {
     Call,
+    Condition,
     Postcondition,
     TrustedCall,
 }

@@ -345,6 +345,27 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .and_then(|flow| flow.condition_value(expression))
             .or_else(|| {
                 observed.prove_ordinary(&state.assumptions, Some(&state.proofs))
+            })
+            .or_else(|| {
+                if equalities.is_empty() {
+                    return None;
+                }
+
+                // A completed row can equate an entry fact's call with its reached data.
+                // Read the facts through the same equalities as the observed condition.
+                let inputs = state.proofs.normalized_inputs(
+                    crate::execution_guarantees::ExecutionProofInputDomain::Condition,
+                    &state.trusted_assumptions,
+                    &state.assumptions,
+                    || crate::execution_guarantees::NormalizedProofInputs::prepare(
+                        BTreeSet::new(),
+                        state.assumptions.iter()
+                            .map(|(condition, holds)| (condition.with_equalities(&equalities), *holds))
+                            .collect(),
+                    ),
+                );
+
+                observed.prove_ordinary(&inputs.ordinary, Some(&state.proofs))
             });
 
         // Preserve the evaluated condition across joins. Substitution can differ
