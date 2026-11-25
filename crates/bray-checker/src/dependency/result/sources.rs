@@ -108,6 +108,21 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
     ) -> BTreeSet<DependencyRequirement> {
         let reborrowed = self.reborrowed_receiver(operand);
 
+        // A reborrow reaches part of an existing reference's referent. It retains what
+        // that reference retains, not the value stored at the reached field.
+        if let Some(reference) = reborrowed
+            && reference != operand
+            && let Some(sources) = self.state.sources.get(&reference).filter(|sources| !sources.is_empty())
+        {
+            return sources
+                .iter()
+                .map(|source| DependencyRequirement::direct(
+                    source_subject(source, []),
+                    DependencyRequirementKind::ValueDependencies,
+                ))
+                .collect();
+        }
+
         let kind = if reborrowed.is_some() {
             DependencyRequirementKind::ValueDependencies
         } else {
