@@ -1323,6 +1323,27 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     .assume(true, &mut branch.assumptions);
             }
 
+            // On this row the const call's returned reference is the reached reference,
+            // so trusted facts about the call's referent hold for that same referent.
+            if let Some((call, reached)) = referent.as_ref().zip(value.current_referent())
+                && call != reached
+                && !reached.is_unknown()
+            {
+                let snapshots = std::collections::BTreeMap::from([(call.clone(), reached.clone())]);
+
+                let carried = branch.trusted_assumptions.iter()
+                    .filter_map(|(fact, holds)| {
+                        let rewritten = fact.with_snapshots(&snapshots);
+
+                        (&rewritten != fact).then_some((rewritten, *holds))
+                    })
+                    .collect::<Vec<_>>();
+
+                for (fact, holds) in carried {
+                    fact.assume(holds, &mut branch.trusted_assumptions);
+                }
+            }
+
             finish(branch, value, Some(row))
         };
 
