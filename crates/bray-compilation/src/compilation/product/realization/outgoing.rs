@@ -560,26 +560,26 @@ async func abandon(pos owner: Owner) { panic("body"); }
 
     #[test]
     #[ignore = "tier:proof"]
-    fn production_exit_moves_keep_the_existing_cleanup_allowance() {
+    fn production_exit_moves_admit_no_cleanup_allowance() {
         let compilation = crate::compilation::trusted_contracts::production_host_compilation(
             r#"
             trusted internal module bray.runtime.bootstrap.host;
             struct StoredExit { mut value: AttachmentExit; }
             func extract_nominal_witness(pos stored: StoredExit) -> AttachmentExit
-                requires(!stored.value.ready, trusted attachment_exit_inactive(owner = &stored.value))
-                ensures(!result.ready, trusted attachment_exit_inactive(owner = &result))
+                requires(trusted attachment_exit_inactive(owner = &stored.value))
+                ensures(trusted attachment_exit_inactive(owner = &result))
             { return stored.value; }
             func retain_existing_exit(pos selected: AttachmentExit) -> (AttachmentExit, unit)
-                requires(!selected.ready, trusted attachment_exit_inactive(owner = &selected))
-                ensures(!result.0.ready, trusted attachment_exit_inactive(owner = &result.0))
+                requires(trusted attachment_exit_inactive(owner = &selected))
+                ensures(trusted attachment_exit_inactive(owner = &result.0))
             { return (selected, unit); }
             func take_existing_exit(pos stored: (AttachmentExit, unit)) -> AttachmentExit
-                requires(!stored.0.ready, trusted attachment_exit_inactive(owner = &stored.0))
-                ensures(!result.ready, trusted attachment_exit_inactive(owner = &result))
+                requires(trusted attachment_exit_inactive(owner = &stored.0))
+                ensures(trusted attachment_exit_inactive(owner = &result))
             { return stored.0; }
             func mutate_then_take(pos mut stored: (AttachmentExit, unit)) -> AttachmentExit
-                requires(!stored.0.ready, trusted attachment_exit_inactive(owner = &stored.0))
-                ensures(!result.ready, trusted attachment_exit_inactive(owner = &result))
+                requires(trusted attachment_exit_inactive(owner = &stored.0))
+                ensures(trusted attachment_exit_inactive(owner = &result))
             { stored.0.cleanup = none; return stored.0; }
         "#,
         );
@@ -591,12 +591,10 @@ async func abandon(pos owner: Owner) { panic("body"); }
             ))
             .expect("fixture callable must lower successfully");
 
-        bray_testing::assert_goal_state_diagnostic_kind(
-            nominal.diagnostics(),
-            bray_diagnostics::DiagnosticKind::CheckingTrustedWitnessTransferNotProven,
-        );
+        // The guarantee names the moved field itself, so moving it transfers the witness.
+        assert!(!nominal.diagnostics().has_errors(), "{nominal:#?}");
 
-        for (name, capacity) in [("retain_existing_exit", 1), ("take_existing_exit", 0)] {
+        for name in ["retain_existing_exit", "take_existing_exit"] {
             let lowered = compilation
                 .lowered_unit(crate::test_support::source_function_body_key(
                     &compilation,
@@ -619,12 +617,13 @@ async func abandon(pos owner: Owner) { panic("body"); }
                 .find(|storage| matches!(storage.kind(), bray_ir::MirStorageKind::Parameter(0)))
                 .expect("transfer retains its owner parameter");
 
+            // Production exits complete explicitly, so they carry no destructor allowance.
             assert_eq!(
                 compilation
                     .owner_outgoing_capacity(parameter.ty(), &crate::CancellationToken::new())
                     .expect("fixture `owner_outgoing_capacity` call must succeed"),
-                capacity,
-                "only the exit owner's destructor admits a local allowance"
+                0,
+                "{name} must not admit a local allowance"
             );
 
             for block in unit.blocks() {
@@ -774,26 +773,24 @@ async func abandon(pos owner: Owner) { panic("body"); }
 
         for (body, valid) in [
             (
-                "let selected = trusted take_attachment_exit(lease, slot, incidents);",
+                "let selected = trusted take_attachment_exit(lease, slot);",
                 true,
             ),
             (
-                "let copied: AttachmentSlot = { value = slot.value, storage = slot.storage }; let selected = trusted take_attachment_exit(lease, &copied, incidents);",
+                "let copied: AttachmentSlot = { value = slot.value, storage = slot.storage }; let selected = trusted take_attachment_exit(lease, &copied);",
                 false,
             ),
             (
-                "let selected = trusted take_attachment_exit(other, slot, incidents);",
+                "let selected = trusted take_attachment_exit(other, slot);",
                 false,
             ),
         ] {
             let caller = format!(
                 r#"
-                func probe(pos lease: &HostLease, pos other: &HostLease, pos slot: &AttachmentSlot, pos incidents: &mut u32)
+                func probe(pos lease: &HostLease, pos other: &HostLease, pos slot: &AttachmentSlot)
                     requires(
                         trusted host_access_live(owner = &lease.acquisition),
-                        trusted host_access_idle(owner = lease),
                         trusted host_access_live(owner = &other.acquisition),
-                        trusted host_access_idle(owner = other),
                         trusted retained_attachment_exit(slot = slot, lease = lease),
                         trusted core.memory.valid_read<AttachmentExit>(pointer = slot.value, count = 1),
                         trusted core.memory.aligned_for<AttachmentExit>(pointer = slot.value),

@@ -76,12 +76,11 @@ fn numeric_runtime_roles_require_one_opaque_entry_authority() {
 #[test]
 #[ignore = "tier:exhaustive"]
 fn numeric_records_and_native_signatures_agree_for_every_target() {
-    let source = include_str!("../../../../../../runtime/bootstrap/src/numeric/records.bray");
-
+    // The production host already compiles the bootstrap numeric records.
     for target in bray_target::NativeTarget::ALL {
         let compilation =
             crate::compilation::trusted_contracts::production_host_compilation_for_target(
-                source,
+                "module app;",
                 SelectedTarget::for_native(target),
             );
 
