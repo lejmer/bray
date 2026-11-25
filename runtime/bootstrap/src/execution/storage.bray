@@ -76,7 +76,7 @@ trusted internal func initialize_domain(
             ),
             reports = trusted std.sync.SpinLock<bray.runtime.bootstrap.report.sink.State>(
                 {
-                    next_ordinal = 1,
+                    next_ordinal = 0,
                     incidents = bray.runtime.bootstrap.empty_records(),
                     pending_count = 0,
                     draining = 0
