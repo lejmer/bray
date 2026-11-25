@@ -1064,6 +1064,7 @@ mod tests {
                                 kind,
                                 bray_runtime_interface::RuntimeAbiType::InactiveFrame
                                     | bray_runtime_interface::RuntimeAbiType::PanicReport
+                                    | bray_runtime_interface::RuntimeAbiType::Configuration
                             )
                         })
                         .count()

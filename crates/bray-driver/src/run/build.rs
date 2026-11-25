@@ -1032,6 +1032,7 @@ mod tests {
 
     #[test]
     fn synchronous_executable_build_requires_a_runtime_artifact() {
+        // A panic demands the runtime's report construction role.
         let source = TemporaryFile::write(
             "application.bray",
             concat!(
@@ -1039,6 +1040,7 @@ mod tests {
                 "\n",
                 "func helper()\n",
                 "{\n",
+                "    panic(\"stop\");\n",
                 "}\n",
                 "\n",
                 "func main()\n",

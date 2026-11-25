@@ -507,9 +507,10 @@ fn compilation_comparability_rejects_source_sizes_outside_the_syntax_tolerance()
         panic!("dissimilar source sizes must be incomparable");
     };
 
-    assert_eq!(reasons.len(), 2);
+    // The byte scale compares the whole matched set, so every language is incomparable.
+    assert_eq!(reasons.len(), 3);
 
-    for language in [CompilationLanguage::Bray, CompilationLanguage::Rust] {
+    for language in [CompilationLanguage::Bray, CompilationLanguage::Rust, CompilationLanguage::Cpp] {
         assert_eq!(
             reasons.get(&language).map(Vec::as_slice),
             Some([CompilationIncomparability::DifferentSourceByteScale].as_slice()),

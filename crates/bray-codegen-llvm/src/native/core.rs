@@ -607,24 +607,10 @@ mod tests {
                     let indirect =
                         super::runtime_indirect_result_type(&context, &target, role).is_some();
 
+                    // Aggregate inputs, including the configuration record, pass indirectly.
                     assert_eq!(
                         usize::try_from(actual.count_param_types()).expect("parameter count fits"),
-                        expected
-                            .parameters()
-                            .iter()
-                            .map(|kind| {
-                                if target.machine().architecture()
-                                    == bray_target::TargetArchitecture::X86_64
-                                    && !super::uses_microsoft_x64_abi(&target)
-                                    && matches!(kind, RuntimeAbiType::Configuration)
-                                {
-                                    2
-                                } else {
-                                    1
-                                }
-                            })
-                            .sum::<usize>()
-                            + usize::from(indirect),
+                        expected.parameters().len() + usize::from(indirect),
                         "{native:?} {role:?}",
                     );
                 }

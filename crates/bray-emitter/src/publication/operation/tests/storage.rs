@@ -104,8 +104,9 @@ fn active_product_storage_respects_every_context_filter() {
     )
     .expect("the active product is inspectable without a filter");
 
+    // The held publication keeps its entry lease, so the product is still active work.
     assert!(unfiltered.iter().any(|entry| entry.active
-        && entry.category == crate::StorageCategory::CurrentOutputs), "{unfiltered:?}");
+        && entry.category == crate::StorageCategory::ActiveWork), "{unfiltered:?}");
 
     let selections = [
         crate::StorageSelection {
