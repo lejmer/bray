@@ -322,7 +322,7 @@ mod tests {
                 bray_target::NativeTarget::X86_64WindowsMsvc,
             ));
 
-            assert_eq!(index.payload(archive.digest()), Some(expected_path.as_path()));
+            assert_eq!(index.payload(archive.digest()), Some(Ok(expected_path.as_path())));
         }
     }
 

@@ -372,7 +372,10 @@ impl Compilation {
             .filter(|location| location.artifact < runtime_ordinal)
             .collect::<Vec<_>>();
 
-        let runtime = runtime.map(|runtime| runtime.finish(&selection, runtime_ordinal));
+        let runtime = runtime
+            .map(|runtime| runtime.finish(&selection, runtime_ordinal))
+            .transpose()
+            .map_err(|error| super::native::runtime_payload_error(&error))?;
 
         let payloads = package_units
             .iter()

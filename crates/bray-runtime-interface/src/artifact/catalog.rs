@@ -845,6 +845,62 @@ mod tests {
     }
 
     #[test]
+    fn runtime_selection_authenticates_only_when_a_unit_is_selected() {
+        let directory = tempfile::tempdir()
+            .unwrap_or_else(|error| panic!("test runtime directory must exist: {error}"));
+
+        let index = native_index(directory.path());
+
+        let (unit, path) = {
+            let unit = &index.index().units()[0];
+
+            (
+                unit.digest(),
+                index
+                    .payload_directory()
+                    .join(unit.kind().file_name(unit.digest(), index.index().target())),
+            )
+        };
+
+        std::fs::write(&path, b"corrupted runtime unit")
+            .unwrap_or_else(|error| panic!("test payload must be replaced: {error}"));
+
+        let artifact = RuntimeArtifact::try_new(
+            metadata(),
+            directory.path().to_path_buf(),
+            [index.clone(), index],
+        )
+        .unwrap_or_else(|error| panic!("unread payloads must not fail runtime loading: {error:?}"));
+
+        let plan = artifact
+            .plan(
+                RuntimeArtifactPurpose::TestRunner,
+                &requirements([RuntimeAbiRole::MainThreadLaneStartup], []),
+            )
+            .unwrap_or_else(|error| panic!("role selection must succeed: {error:?}"));
+
+        let resolver = bray_native_artifact::NativeUnitResolver::new([plan.native_index().clone()]);
+
+        let selection = resolver
+            .select(plan.native_demands().iter().cloned())
+            .unwrap_or_else(|error| panic!("startup demand must resolve: {error:?}"));
+
+        assert_eq!(selection.units().len(), 1);
+        assert_eq!(selection.units()[0].digest, unit);
+
+        let error = plan
+            .finish(&selection, 0)
+            .expect_err("a selected corrupt payload must not be linked");
+
+        assert_eq!(error.path, path);
+
+        assert!(matches!(
+            error.source,
+            bray_native_artifact::NativeIndexError::PayloadDigestMismatch { expected, .. } if expected == unit
+        ));
+    }
+
+    #[test]
     fn runtime_catalogs_reject_missing_and_duplicate_capability_owners() {
         let components = metadata().components().to_vec();
 
