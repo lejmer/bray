@@ -193,16 +193,11 @@ impl ExecutionCondition {
 
         if roots == 0 { return self.clone(); }
 
-        let rewritten = rewrite_equalities(self, replacements, None, roots, &mut { Self::WORK_LIMIT }, None);
+        let filtered = self.filter_roots(roots).unwrap_or(u64::MAX);
+        let rewritten = rewrite_equalities(self, replacements, None, filtered, &mut { Self::WORK_LIMIT }, None);
 
-        #[cfg(debug_assertions)]
-        {
-            let mut budget = Self::WORK_LIMIT;
-            let complete = rewrite_equalities(self, replacements, None, u64::MAX, &mut budget, None);
-
-            // Skipped subterms consume no budget. Only an exhausted complete rewrite may differ.
-            assert!(budget == 0 || rewritten == complete, "root filtering cannot change an equality rewrite of {self:?}");
-        }
+        debug_assert_eq!(rewritten, rewrite_equalities(self, replacements, None, u64::MAX, &mut { Self::WORK_LIMIT }, None),
+            "root filtering cannot change an equality rewrite of {self:?}");
 
         rewritten
     }
@@ -273,20 +268,31 @@ pub(super) fn joined_value(
         return value.clone();
     }
 
-    let rewritten = rewrite_equalities(value, values.entries, Some(owners), values.roots | owners.roots,
-        &mut { ExecutionCondition::WORK_LIMIT }, memo.map(|memo| (memo, MapRole::Value)));
+    filtered_rewrite(value, values.entries, owners, values.roots | owners.roots, memo, MapRole::Value)
+}
 
-    #[cfg(debug_assertions)]
-    {
-        let fresh = memo.map(RewriteMemo::fresh);
-        let mut budget = ExecutionCondition::WORK_LIMIT;
+/// Filters a bounded join rewrite only when it cannot exhaust its budget. The
+/// filtered rewrite consumes less work, so it keeps that cost out of the shared memo.
+fn filtered_rewrite(
+    value: &ExecutionCondition,
+    replacements: &BTreeMap<ExecutionCondition, ExecutionCondition>,
+    owners: RewriteMap<'_>,
+    roots: u64,
+    memo: Option<&RewriteMemo>,
+    role: MapRole,
+) -> ExecutionCondition {
+    let Some(roots) = value.filter_roots(roots) else {
+        return rewrite_equalities(value, replacements, Some(owners), u64::MAX, &mut { ExecutionCondition::WORK_LIMIT },
+            memo.map(|memo| (memo, role)));
+    };
 
-        let complete = rewrite_equalities(value, values.entries, Some(owners), u64::MAX,
-            &mut budget, fresh.as_ref().map(|memo| (memo, MapRole::Value)));
+    let fresh = memo.map(RewriteMemo::fresh);
 
-        // Skipped subterms consume no budget. Only an exhausted complete rewrite may differ.
-        assert!(budget == 0 || rewritten == complete, "root filtering cannot change a joined value {value:?}");
-    }
+    let rewritten = rewrite_equalities(value, replacements, Some(owners), roots, &mut { ExecutionCondition::WORK_LIMIT },
+        fresh.as_ref().map(|memo| (memo, role)));
+
+    debug_assert_eq!(rewritten, rewrite_equalities(value, replacements, Some(owners), u64::MAX,
+        &mut { ExecutionCondition::WORK_LIMIT }, memo.map(|memo| (memo, role))), "root filtering cannot change a joined value {value:?}");
 
     rewritten
 }
@@ -308,22 +314,7 @@ pub(super) fn joined_owner(
         return owner.clone();
     }
 
-    let rewritten = rewrite_equalities(owner, replacements.entries, Some(owners), replacements.roots | owners.roots,
-        &mut { ExecutionCondition::WORK_LIMIT }, memo.map(|memo| (memo, role))).owner_identity().clone();
-
-    #[cfg(debug_assertions)]
-    {
-        let fresh = memo.map(RewriteMemo::fresh);
-        let mut budget = ExecutionCondition::WORK_LIMIT;
-
-        let complete = rewrite_equalities(owner, replacements.entries, Some(owners), u64::MAX,
-            &mut budget, fresh.as_ref().map(|memo| (memo, role))).owner_identity().clone();
-
-        // Skipped subterms consume no budget. Only an exhausted complete rewrite may differ.
-        assert!(budget == 0 || rewritten == complete, "root filtering cannot change a joined owner {owner:?}");
-    }
-
-    rewritten
+    filtered_rewrite(owner, replacements.entries, owners, replacements.roots | owners.roots, memo, role).owner_identity().clone()
 }
 
 fn rewrite_identity(

@@ -166,6 +166,12 @@ pub(in crate::execution_guarantees) struct ConditionNode {
     // Each identified value or storage root sets one bit. A subterm can equal
     // another condition only if this node's bits include all of that condition's bits.
     roots: u64,
+    // Nodes in the expanded tree, saturating. Bounded work cannot exhaust its
+    // budget on a condition whose tree fits that budget.
+    size: u32,
+    // A stripped value is a rebuilt descendant tree, so retaining it here cannot
+    // form a cycle. None records that stripping leaves this node unchanged.
+    without_storage: OnceLock<Option<ExecutionCondition>>,
     comparisons: OnceLock<Box<ComparisonForms>>,
 }
 
@@ -209,8 +215,9 @@ impl ConditionNode {
         };
 
         let roots = kind.structural_children().fold(kind.root_bit(), |roots, child| roots | child.0.roots);
+        let size = kind.structural_children().fold(1_u32, |size, child| size.saturating_add(child.0.size));
 
-        Self { kind, hash, contains_deferred, contains_storage, contains_redundant_reference_context, may_observe_live_value, prefix_starts_empty, roots, comparisons: OnceLock::new() }
+        Self { kind, hash, contains_deferred, contains_storage, contains_redundant_reference_context, may_observe_live_value, prefix_starts_empty, roots, size, without_storage: OnceLock::new(), comparisons: OnceLock::new() }
     }
 
     #[cfg(test)]
@@ -274,11 +281,27 @@ impl ExecutionCondition {
     pub(super) fn contains_deferred(&self) -> bool { self.0.contains_deferred }
 
     /// The root bits of every identified value or storage root in this condition.
-    pub(super) fn roots(&self) -> u64 { self.0.roots }
+    pub(crate) fn roots(&self) -> u64 { self.0.roots }
+
+    /// The memoized result of a pure rewrite of this node into a value without its own root.
+    pub(super) fn without_storage_memo(&self, rewrite: impl FnOnce(&Self) -> Self) -> Self {
+        self.0.without_storage.get_or_init(|| {
+            let rewritten = rewrite(self);
+
+            (!Arc::ptr_eq(&rewritten.0, &self.0)).then_some(rewritten)
+        }).clone().unwrap_or_else(|| self.clone())
+    }
+
+    /// The root bits that bounded rewriting of this condition may filter by.
+    /// A condition larger than the work budget can exhaust it, so its rewrite
+    /// visits every subterm as the budget accounting requires.
+    pub(crate) fn filter_roots(&self, roots: u64) -> Option<u64> {
+        (usize::try_from(self.0.size).is_ok_and(|size| size <= Self::WORK_LIMIT)).then_some(roots)
+    }
 
     /// Whether a subterm can equal an input with these root bits. `u64::MAX`
     /// admits every subterm, including inputs that have no identified root.
-    pub(super) fn may_contain(&self, roots: u64) -> bool { roots == u64::MAX || self.0.roots & roots != 0 }
+    pub(crate) fn may_contain(&self, roots: u64) -> bool { roots == u64::MAX || self.0.roots & roots != 0 }
 
     pub(super) fn contains_storage(&self) -> bool { self.0.contains_storage }
 

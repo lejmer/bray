@@ -109,7 +109,10 @@ impl ExecutionCondition {
     /// Proof data observes the value, independently of physical transport metadata.
     /// CurrentValues retains the paired snapshot for storage propagation and fixed-point equality.
     pub(crate) fn without_captured_storage(&self) -> Self {
-        Self::map_value_metadata(Self::contains_storage, |_| None, |_| false, |_, frame| Some(Arc::clone(frame)), false)(self)
+        if !self.contains_storage() { return self.clone(); }
+
+        self.without_storage_memo(|value| Self::map_value_metadata(Self::contains_storage, |_| None, |_| false,
+            |_, frame| Some(Arc::clone(frame)), false)(value))
     }
 
     /// Reads the predicate's data observation without altering the current carrier tree.

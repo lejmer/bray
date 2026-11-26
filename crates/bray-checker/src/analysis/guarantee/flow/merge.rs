@@ -257,14 +257,15 @@ fn join_observations<'a>(
     let contents = std::cell::OnceCell::new();
     let unknown = ExecutionCondition::unknown();
 
-    for &place in &observed {
-        let left_value = place.value_in(&target.current);
-        let right_value = place.value_in(&incoming.current);
+    let slots = predecessor_slots(target, incoming, &observed);
+
+    let (joined_places, collected_places) = proportional_places(&slots, join, &target.pending_results, &incoming.pending_results);
+
+    for (place, [left_value, right_value], [left_available, right_available]) in slots {
+        if !joined_places.as_ref().is_none_or(|places| places.contains(&place.root)) { continue; }
+
         let value = left_value.as_ref().unwrap_or(&unknown);
         let other = right_value.as_ref().unwrap_or(&unknown);
-
-        let left_available = resolved_availability(target, place);
-        let right_available = resolved_availability(incoming, place);
 
         let slot = join_current_value(
             (target, value, &left_available), (incoming, other, &right_available),
@@ -433,6 +434,7 @@ fn join_observations<'a>(
             )),
             &availability_guards,
             match join { ExecutionJoin::Selection(condition) => Some(condition), _ => None },
+            collected_places.as_ref(),
             &mut joined_facts,
         );
 
@@ -459,6 +461,80 @@ fn join_observations<'a>(
     }
 
     (incoming_joined, changed)
+}
+
+type PredecessorSlot<'a> = (&'a crate::ExecutionPlace, [Option<ExecutionCondition>; 2], [ValueAvailability; 2]);
+
+/// Each observed place's value and resolved availability in both predecessors.
+fn predecessor_slots<'a>(
+    target: &ExecutionState,
+    incoming: &ExecutionState,
+    observed: &std::collections::BTreeSet<&'a crate::ExecutionPlace>,
+) -> Vec<PredecessorSlot<'a>> {
+    observed.iter().map(|&place| {
+        let values = [place.value_in(&target.current), place.value_in(&incoming.current)];
+        let available = [resolved_availability(target, place), resolved_availability(incoming, place)];
+
+        (place, values, available)
+    }).collect()
+}
+
+type JoinedRoots = Option<std::collections::BTreeSet<crate::execution_guarantees::ExecutionInput>>;
+
+/// The storage roots whose places a join assembles and whose observations it
+/// collects for conditional facts. None selects every root.
+///
+/// A place that holds the same value and availability in both predecessors
+/// keeps its slot. Its root still joins when it shares a root with a changed
+/// place, or when its value can contain a changed value or result. Only a
+/// join site can give a changed place the joined identity of an earlier visit,
+/// so a join without a site collects only the changed roots.
+fn proportional_places(
+    slots: &[PredecessorSlot<'_>],
+    join: ExecutionJoin,
+    left_results: &BTreeMap<bray_bound_tree::BoundExpressionId, ExecutionCondition>,
+    right_results: &BTreeMap<bray_bound_tree::BoundExpressionId, ExecutionCondition>,
+) -> (JoinedRoots, JoinedRoots) {
+    // A published result replaces its storage with a joined identity.
+    if matches!(join, ExecutionJoin::Result { published: Some(_), .. }) { return (None, None); }
+
+    let unchanged = |values: &[Option<ExecutionCondition>; 2], available: &[ValueAvailability; 2]| {
+        values[0] == values[1] && available[0] == available[1]
+    };
+
+    // A changed value without identified roots can occur inside any value.
+    let rooted = |value: &ExecutionCondition| if value.roots() == 0 { u64::MAX } else { value.roots() };
+
+    let mut roots = std::collections::BTreeSet::new();
+    let mut changed = 0;
+
+    for (place, values, available) in slots {
+        if !unchanged(values, available) {
+            roots.insert(place.root.clone());
+            changed |= values.iter().flatten().fold(0, |bits, value| bits | rooted(value));
+        }
+    }
+
+    for results in [left_results, right_results] {
+        changed |= results.values().fold(0, |bits, value| bits | rooted(value));
+    }
+
+    let collected = join.observation_site().is_none().then(|| roots.clone());
+
+    for (place, values, available) in slots {
+        // A rootless composite can equal a changed component. Unknown and
+        // constant values never key a replacement.
+        if unchanged(values, available) && values[0].as_ref().is_some_and(|value| value.may_contain(changed) || value.roots() == 0
+            && !matches!(value.kind(), crate::ExecutionConditionKind::Unknown | crate::ExecutionConditionKind::Literal(_)
+                | crate::ExecutionConditionKind::Boolean(_)))
+        {
+            roots.insert(place.root.clone());
+        }
+    }
+
+    let collected = collected.unwrap_or_else(|| roots.clone());
+
+    (Some(roots), Some(collected))
 }
 
 fn joined_current_owners(

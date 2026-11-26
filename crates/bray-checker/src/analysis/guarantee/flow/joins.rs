@@ -631,7 +631,7 @@ mod tests {
 
             let retained = super::super::witnesses::conditional_facts(
                 (&left_state, &crate::execution_guarantees::ExecutionSubstitution::new(&left_values, &left_owners)), (&right_state, &crate::execution_guarantees::ExecutionSubstitution::new(&right_values, &right_owners)),
-                &snapshots, [], &Default::default(), None, &mut Vec::new());
+                &snapshots, [], &Default::default(), None, None, &mut Vec::new());
 
             let mut unknown = left_state.clone();
 
@@ -639,7 +639,7 @@ mod tests {
 
             let rejected = super::super::witnesses::conditional_facts(
                 (&unknown, &crate::execution_guarantees::ExecutionSubstitution::new(&left_values, &left_owners)), (&right_state, &crate::execution_guarantees::ExecutionSubstitution::new(&right_values, &right_owners)),
-                &snapshots, [], &Default::default(), None, &mut Vec::new());
+                &snapshots, [], &Default::default(), None, None, &mut Vec::new());
 
             assert!(!rejected.iter().any(|witness| witness.available && witness.clauses.iter().any(|(_, condition, _)| *condition == whole_guarantee(joined.clone()))),
                 "a live Unknown observation cannot supply the missing whole-object evidence");

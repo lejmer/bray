@@ -21,7 +21,6 @@ impl RewriteMemo {
     }
 
     /// An empty memo with the same rewriting policy.
-    #[cfg(debug_assertions)]
     pub(super) fn fresh(&self) -> Self {
         Self { rebind_frames: self.rebind_frames, ..Self::new() }
     }
@@ -105,19 +104,29 @@ impl<'a> SnapshotSubstitution<'a> {
         if !self.snapshots.changed { return condition.clone(); }
 
         let replace = |value: &ExecutionCondition| super::rewriting::snapshot_value(value, self.snapshots.entries);
-        let rewritten = condition.substitute_values(&replace, self.snapshots.roots, &mut { ExecutionCondition::WORK_LIMIT }, Some(&self.mapped));
 
-        #[cfg(debug_assertions)]
-        {
-            let mut budget = ExecutionCondition::WORK_LIMIT;
-            let complete = condition.substitute_values(&replace, u64::MAX, &mut budget, Some(&ExecutionMemo::default()));
-
-            // Skipped subterms consume no budget. Only an exhausted complete substitution may differ.
-            assert!(budget == 0 || rewritten == complete, "root filtering cannot change a snapshot substitution of {condition:?}");
-        }
-
-        rewritten
+        filtered_substitution(condition, &replace, self.snapshots.roots, &self.mapped)
     }
+}
+
+/// Filters a bounded substitution only when it cannot exhaust its budget. The
+/// filtered rewrite consumes less work, so it keeps that cost out of the shared memo.
+fn filtered_substitution(
+    condition: &ExecutionCondition,
+    replace: &impl Fn(&ExecutionCondition) -> Option<ExecutionCondition>,
+    roots: u64,
+    mapped: &ExecutionMemo<ExecutionCondition>,
+) -> ExecutionCondition {
+    let Some(roots) = condition.filter_roots(roots) else {
+        return condition.substitute_values(replace, u64::MAX, &mut { ExecutionCondition::WORK_LIMIT }, Some(mapped));
+    };
+
+    let rewritten = condition.substitute_values(replace, roots, &mut { ExecutionCondition::WORK_LIMIT }, Some(&ExecutionMemo::default()));
+
+    debug_assert_eq!(rewritten, condition.substitute_values(replace, u64::MAX, &mut { ExecutionCondition::WORK_LIMIT }, Some(mapped)),
+        "root filtering cannot change a substitution of {condition:?}");
+
+    rewritten
 }
 
 /// One immutable ordinary guard environment owns all of its bounded DAG rewrites.
@@ -148,18 +157,7 @@ impl GuardSubstitution {
             _ => self.facts.get(value).cloned(),
         };
 
-        let rewritten = condition.substitute_values(&replace, self.roots, &mut { ExecutionCondition::WORK_LIMIT }, Some(&self.mapped));
-
-        #[cfg(debug_assertions)]
-        {
-            let mut budget = ExecutionCondition::WORK_LIMIT;
-            let complete = condition.substitute_values(&replace, u64::MAX, &mut budget, Some(&ExecutionMemo::default()));
-
-            // Skipped subterms consume no budget. Only an exhausted complete substitution may differ.
-            assert!(budget == 0 || rewritten == complete, "root filtering cannot change a guard substitution of {condition:?}");
-        }
-
-        rewritten
+        filtered_substitution(condition, &replace, self.roots, &self.mapped)
     }
 }
 

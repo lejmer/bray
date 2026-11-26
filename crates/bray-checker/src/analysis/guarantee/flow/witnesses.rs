@@ -30,6 +30,7 @@ pub(super) fn conditional_facts<'value>(
     results: impl IntoIterator<Item = ([Option<&'value ExecutionCondition>; 2], &'value ExecutionCondition)>,
     availability: &BTreeSet<(ExecutionCondition, ExecutionCondition)>,
     selector: Option<&ExecutionCondition>,
+    collected: Option<&BTreeSet<crate::execution_guarantees::ExecutionInput>>,
     facts: &mut Vec<(ExecutionCondition, bool)>,
 ) -> Vec<JoinedWitness> {
     let mut guards = availability.clone();
@@ -37,6 +38,8 @@ pub(super) fn conditional_facts<'value>(
     let absent = [left.0, right.0].map(absent_observations);
 
     for (place, joined) in current {
+        if collected.is_some_and(|roots| !roots.contains(&place.root)) { continue; }
+
         let source = [left.0, right.0].map(|state| {
             (super::merge::resolved_availability(state, place) != super::super::current::ValueAvailability::Absent)
                 .then(|| place.value_in(&state.current).unwrap_or_else(ExecutionCondition::unknown))
@@ -513,7 +516,7 @@ mod tests {
         let mut facts = Vec::new();
 
         let retained = conditional_facts((&left, &substitution), (&right, &substitution),
-            &BTreeMap::new(), [], &availability, None, &mut facts);
+            &BTreeMap::new(), [], &availability, None, None, &mut facts);
 
         assert!(retained.is_empty(), "an ordinary tautology establishes no carrier authority");
     }
@@ -554,7 +557,7 @@ mod tests {
         let mut facts = Vec::new();
 
         let retained = conditional_facts((&left, &substitution), (&right, &substitution),
-            &BTreeMap::new(), [], &BTreeSet::new(), None, &mut facts);
+            &BTreeMap::new(), [], &BTreeSet::new(), None, None, &mut facts);
 
         assert_eq!(retained.len(), 1);
         assert_eq!(retained[0].owner, owner);
@@ -593,7 +596,7 @@ mod tests {
         let mut facts = Vec::new();
 
         let retained = conditional_facts((&left, &crate::execution_guarantees::ExecutionSubstitution::new(&empty, &empty)), (&right, &crate::execution_guarantees::ExecutionSubstitution::new(&empty, &empty)),
-            &BTreeMap::new(), [], &availability, None, &mut facts);
+            &BTreeMap::new(), [], &availability, None, None, &mut facts);
 
         assert!(retained.is_empty());
         assert!(facts.contains(&(guard, false)));
