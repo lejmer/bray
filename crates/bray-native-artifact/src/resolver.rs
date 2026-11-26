@@ -709,6 +709,20 @@ impl NativeUnitResolver {
             return Err(NativeResolutionError::DuplicateStrong(symbol.clone()));
         }
 
+        // The linker keeps one of several interchangeable providers. Selecting only that one
+        // keeps the other providers' units, and everything they reference, out of the product.
+        let chosen = if chosen.iter().all(|(_, definition)| interchangeable(definition)) {
+            let provider = chosen
+                .iter()
+                .find(|(unit_index, _)| state.reasons.contains_key(unit_index))
+                .or_else(|| chosen.first())
+                .copied();
+
+            provider.into_iter().collect()
+        } else {
+            chosen
+        };
+
         for &&(unit_index, _) in &chosen {
             state.include(unit_index, reason.clone(), from);
 
@@ -718,6 +732,16 @@ impl NativeUnitResolver {
         }
 
         Ok(())
+    }
+}
+
+/// Whether a linker may keep any one provider of this definition and discard the rest.
+fn interchangeable(definition: &crate::NativeDefinition) -> bool {
+    match definition.selection() {
+        NativeDefinitionSelection::Fallback => true,
+        NativeDefinitionSelection::Ordinary => definition.symbol().binding() == NativeSymbolBinding::Weak,
+        // Size and content rules let the linker compare every copy, so they keep all providers.
+        NativeDefinitionSelection::Comdat { rule, .. } => *rule == crate::NativeComdatSelection::Any,
     }
 }
 
@@ -1937,7 +1961,45 @@ mod tests {
             .select([required("provider"), required("live")])
             .expect("fixture selection must succeed");
 
-        assert_eq!(selected.units().len(), 2);
+        // The mixed unit is already live, so its fallback serves the demand alone.
+        assert_eq!(
+            selected.units().iter().map(|unit| unit.digest).collect::<BTreeSet<_>>(),
+            [digest(1)].into()
+        );
+    }
+
+    #[test]
+    fn interchangeable_providers_select_one_unit_and_prefer_a_selected_one() {
+        let any = NativeDefinitionSelection::Comdat {
+            group: NativeSymbolIdentity::Name(NonEmptySharedStr::try_new("group").expect("test group name")),
+            rule: NativeComdatSelection::Any,
+            associative_with: None,
+        };
+
+        for selection in [any, NativeDefinitionSelection::Fallback] {
+            let shared = ("shared", NativeSymbolBinding::Strong, selection.clone());
+
+            // Each unreferenced copy would otherwise retain its own references.
+            let first = unit(1, &[shared.clone()], &[required("first_only")], &[]);
+            let second = unit(2, &[shared.clone(), ("second", NativeSymbolBinding::Strong, NativeDefinitionSelection::Ordinary)], &[required("shared")], &[]);
+            let first_only = unit(3, &[("first_only", NativeSymbolBinding::Strong, NativeDefinitionSelection::Ordinary)], &[], &[]);
+
+            let resolver = NativeUnitResolver::new([index([first.clone(), second.clone(), first_only.clone()], [])]);
+
+            let selected = resolver.select([required("shared")]).expect("one provider must resolve the demand");
+
+            assert_eq!(
+                selected.units().iter().map(|unit| unit.digest).collect::<BTreeSet<_>>(),
+                [digest(1), digest(3)].into()
+            );
+
+            let selected = resolver.select([required("second")]).expect("the selected copy must serve its own reference");
+
+            assert_eq!(
+                selected.units().iter().map(|unit| unit.digest).collect::<BTreeSet<_>>(),
+                [digest(2)].into()
+            );
+        }
     }
 
     #[test]
