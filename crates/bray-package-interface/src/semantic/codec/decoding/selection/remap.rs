@@ -502,6 +502,27 @@ fn remap_callable_contract(
         remap_behavior(behavior, maps)?;
     }
 
+    contract.execution_contract = contract.execution_contract.try_map(
+        &mut (),
+        |(), term| maps.constant_term_id(term),
+        |(), target| {
+            use bray_symbols::CallableExecutionTarget;
+
+            Ok(match target {
+                CallableExecutionTarget::Callable(callable) => {
+                    CallableExecutionTarget::Callable(maps.callable_instance_id(callable)?)
+                }
+                CallableExecutionTarget::Requirement { callable, requirement: (subject, application) } => {
+                    CallableExecutionTarget::Requirement {
+                        callable: maps.callable_instance_id(callable)?,
+                        requirement: (maps.type_id(subject)?, maps.trait_application_id(application)?),
+                    }
+                }
+                CallableExecutionTarget::Indirect(ty) => CallableExecutionTarget::Indirect(maps.type_id(ty)?),
+            })
+        },
+    )?;
+
     Ok(())
 }
 

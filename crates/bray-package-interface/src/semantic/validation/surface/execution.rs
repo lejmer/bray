@@ -76,18 +76,7 @@ impl InterfaceSemantics {
         surface: &PackageInterfaceSurface,
         graph: &mut BTreeMap<(u32, Obligation), BTreeSet<(u32, Obligation)>>,
     ) -> Result<(), InterfaceValidationError> {
-        if contract.execution_contract.domains.is_empty()
-            && contract.execution_contract.evidence.is_empty()
-            && contract.invocation_behavior.execution_properties.is_empty()
-            && contract.invocation_behavior.execution_domains.is_empty()
-            && contract
-                .deferred_execution_behavior
-                .as_ref()
-                .is_none_or(|behavior| {
-                    behavior.execution_properties.is_empty()
-                        && behavior.execution_domains.is_empty()
-                })
-        {
+        if !contract.has_execution_semantics() {
             return Ok(());
         }
 

@@ -51,8 +51,10 @@ impl<'bytes> SelectedTables<'bytes> {
         let declarations = if matches!(
             kind,
             InterfaceSemanticRecordKind::CallableSignature
+                | InterfaceSemanticRecordKind::CallableContracts
                 | InterfaceSemanticRecordKind::GenericDeclaration
                 | InterfaceSemanticRecordKind::DeclaredType
+                | InterfaceSemanticRecordKind::TypeRepresentation
         ) {
             let section =
                 bundle::required_section(sections, InterfaceSectionTag::DeclarationSemantics)?;

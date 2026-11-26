@@ -131,7 +131,7 @@ pub(crate) fn decode_selected_semantic_graph(
 
     validate_decode_allocation(&selected_sections, limits)?;
 
-    selection::decode_selected_record_graph(sections, surface, owner, kind, context).map(Some)
+    selection::decode_selected_record_graph(sections, surface, owner, kind, context)
 }
 
 pub(crate) fn selected_semantic_sections(
@@ -190,7 +190,9 @@ pub(crate) fn selected_semantic_sections(
             Some(PREDICATE_DEFINITION_SECTIONS)
         }
         crate::InterfaceSemanticRecordKind::DeclaredType => Some(CALLABLE_SIGNATURE_SECTIONS),
-        crate::InterfaceSemanticRecordKind::TypeRepresentation => None,
+        crate::InterfaceSemanticRecordKind::TypeRepresentation => {
+            Some(CALLABLE_SIGNATURE_SECTIONS)
+        }
         crate::InterfaceSemanticRecordKind::GenericConstraint => Some(GENERIC_CONSTRAINT_SECTIONS),
         crate::InterfaceSemanticRecordKind::CallableContracts => Some(COMPLETE_SEMANTIC_SECTIONS),
         crate::InterfaceSemanticRecordKind::Implementation => Some(IMPLEMENTATION_SECTIONS),

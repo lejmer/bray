@@ -27,7 +27,7 @@ pub(in crate::semantic::codec::decoding) fn decode_selected_record_graph(
     owner: InterfaceSymbolId,
     kind: InterfaceSemanticRecordKind,
     mut context: SemanticDecodeContext,
-) -> Result<InterfaceSemantics, InterfaceValidationError> {
+) -> Result<Option<InterfaceSemantics>, InterfaceValidationError> {
     let limits = context.limits();
 
     let directory =
@@ -38,7 +38,7 @@ pub(in crate::semantic::codec::decoding) fn decode_selected_record_graph(
     if kind == InterfaceSemanticRecordKind::CallableParameterDefault {
         return crate::semantic::codec::decoding::selection::declaration::decode_callable_parameter_default(
             sections, surface, owner, limits, context, &directory,
-        );
+        ).map(Some);
     }
 
     if kind == InterfaceSemanticRecordKind::PredicateDefinition {
@@ -52,43 +52,21 @@ pub(in crate::semantic::codec::decoding) fn decode_selected_record_graph(
 
     builder.include_requested_semantics(&directory, kind)?;
 
-    if builder
-        .records
-        .callable_contracts
-        .values()
-        .values()
-        .any(|contract| {
-            !contract.execution_contract.domains.is_empty()
-                || !contract.execution_contract.evidence.is_empty()
-        })
-    {
-        return bundle::decode_semantics_with_context(sections, surface, builder.context.restart());
-    }
-
     let semantics = remap_selected_records(builder.records)?;
-
-    if semantics.callable_signatures.iter().any(|signature| {
-        matches!(
-            signature.callable_type.to_index().and_then(|index| semantics.types.get(index)),
-            Some(InterfaceType::Callable { invocation_behavior, deferred_execution_behavior, .. })
-                if !invocation_behavior.execution_properties.is_empty()
-                    || !invocation_behavior.execution_domains.is_empty()
-                    || deferred_execution_behavior.as_ref().is_some_and(|behavior| !behavior.execution_properties.is_empty() || !behavior.execution_domains.is_empty())
-        )
-    }) {
-        return bundle::decode_semantics_with_context(sections, surface, builder.context.restart());
-    }
 
     semantics.validate(surface, limits)?;
 
-    Ok(semantics)
+    Ok(Some(semantics))
 }
 
 #[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
 enum PendingRecord {
     Constraint(u32),
-    CallableSignature(u32),
-    CallableContract(u32),
+    CallableSignature(u32, InterfaceSymbolId),
+    CallableContract(u32, InterfaceSymbolId),
+    // A callable instance named by execution evidence. A local target's
+    // contract and signature join the proof graph that validation checks.
+    ExecutionTarget(u32),
     GenericDeclaration(u32),
     DeclaredType(u32),
     TypeRepresentation(u32),
@@ -139,6 +117,10 @@ impl<'bytes, 'records> SelectionBuilder<'bytes, 'records> {
         directory: &[InterfaceSemanticRecord],
         kind: InterfaceSemanticRecordKind,
     ) -> Result<(), InterfaceValidationError> {
+        let InterfaceSymbolReference::Local(owner) = self.owner else {
+            unreachable!("selected semantics belong to a local interface symbol");
+        };
+
         if matches!(
             kind,
             InterfaceSemanticRecordKind::GenericConstraint
@@ -161,13 +143,13 @@ impl<'bytes, 'records> SelectionBuilder<'bytes, 'records> {
                 InterfaceSectionTag::DeclarationSemantics,
             )?;
 
-            self.enqueue(PendingRecord::CallableSignature(index));
+            self.enqueue(PendingRecord::CallableSignature(index, owner));
         }
 
         if kind == InterfaceSemanticRecordKind::CallableContracts {
             let index = self.one_record_index(directory, kind, InterfaceSectionTag::Contracts)?;
 
-            self.enqueue(PendingRecord::CallableContract(index));
+            self.enqueue(PendingRecord::CallableContract(index, owner));
         }
 
         if kind == InterfaceSemanticRecordKind::GenericDeclaration {
@@ -190,6 +172,16 @@ impl<'bytes, 'records> SelectionBuilder<'bytes, 'records> {
             )?;
 
             self.enqueue(PendingRecord::DeclaredType(index));
+        }
+
+        if kind == InterfaceSemanticRecordKind::TypeRepresentation {
+            for index in self.record_indexes(
+                directory,
+                InterfaceSemanticRecordKind::TypeRepresentation,
+                InterfaceSectionTag::DeclarationSemantics,
+            )? {
+                self.enqueue(PendingRecord::TypeRepresentation(index));
+            }
         }
 
         if kind == InterfaceSemanticRecordKind::Implementation {
@@ -233,6 +225,7 @@ impl<'bytes, 'records> SelectionBuilder<'bytes, 'records> {
         }
 
         self.include_pending_records()?;
+        self.include_execution_signature_contracts()?;
 
         if !self.records.callable_signatures.values().is_empty()
             && self.records.dependency_contracts.values().values().any(|contract| {
@@ -242,6 +235,36 @@ impl<'bytes, 'records> SelectionBuilder<'bytes, 'records> {
         }
 
         Ok(())
+    }
+
+    /// Execution validation pairs a signature whose callable type carries execution
+    /// behavior with its owner's contract, which can reach further proof targets.
+    fn include_execution_signature_contracts(&mut self) -> Result<(), InterfaceValidationError> {
+        loop {
+            let owners = self.records.callable_signatures.values().values().filter_map(|signature| {
+                let InterfaceSymbolReference::Local(owner) = signature.owner else { return None; };
+
+                let Some(InterfaceType::Callable { invocation_behavior, deferred_execution_behavior, .. }) =
+                    self.records.types.values().get(&signature.callable_type.raw())
+                else {
+                    return None;
+                };
+
+                std::iter::once(invocation_behavior.as_ref()).chain(deferred_execution_behavior.as_deref())
+                    .any(|behavior| !behavior.execution_properties.is_empty() || !behavior.execution_domains.is_empty())
+                    .then_some(owner)
+            }).collect::<Vec<_>>();
+
+            for owner in owners {
+                self.enqueue_owned_record(owner, InterfaceSemanticRecordKind::CallableContracts)?;
+            }
+
+            if self.pending.is_empty() {
+                return Ok(());
+            }
+
+            self.include_pending_records()?;
+        }
     }
 
     fn include_preservation_representations(&mut self) -> Result<(), InterfaceValidationError> {
@@ -280,10 +303,13 @@ impl<'bytes, 'records> SelectionBuilder<'bytes, 'records> {
         while let Some(record) = self.pending.pop() {
             match record {
                 PendingRecord::Constraint(index) => self.include_constraint(index)?,
-                PendingRecord::CallableSignature(index) => {
-                    self.include_callable_signature(index)?;
+                PendingRecord::CallableSignature(index, owner) => {
+                    self.include_callable_signature(index, owner)?;
                 }
-                PendingRecord::CallableContract(index) => self.include_callable_contract(index)?,
+                PendingRecord::CallableContract(index, owner) => {
+                    self.include_callable_contract(index, owner)?;
+                }
+                PendingRecord::ExecutionTarget(index) => self.include_execution_target(index)?,
                 PendingRecord::GenericDeclaration(index) => {
                     self.include_generic_declaration(index)?;
                 }
@@ -407,14 +433,18 @@ impl<'bytes, 'records> SelectionBuilder<'bytes, 'records> {
         }
     }
 
-    fn include_callable_contract(&mut self, index: u32) -> Result<(), InterfaceValidationError> {
+    fn include_callable_contract(
+        &mut self,
+        index: u32,
+        owner: InterfaceSymbolId,
+    ) -> Result<(), InterfaceValidationError> {
         let contract = self.tables.contracts.callables.decode(
             index,
             &mut self.context,
             |reader, context| contract::decode_callable_contract(reader, context.limits(), context),
         )?;
 
-        if contract.owner != self.owner {
+        if contract.owner != InterfaceSymbolReference::Local(owner) {
             return Err(crate::semantic::codec::invalid_value(
                 crate::InterfaceValidationField::Reference,
             ));
@@ -446,12 +476,86 @@ impl<'bytes, 'records> SelectionBuilder<'bytes, 'records> {
             self.include_callable_behavior(behavior);
         }
 
+        if contract.has_execution_semantics() {
+            // Execution validation reads the owner's signature.
+            self.enqueue_owned_record(owner, InterfaceSemanticRecordKind::CallableSignature)?;
+            self.include_execution_contract(&contract.execution_contract);
+        }
+
         self.records.callable_contracts.insert(index, contract);
 
         Ok(())
     }
 
-    fn include_callable_signature(&mut self, index: u32) -> Result<(), InterfaceValidationError> {
+    fn include_execution_contract(&mut self, contract: &crate::InterfaceCallableExecutionContract) {
+        use bray_symbols::CallableExecutionTarget;
+
+        for domain in &*contract.domains {
+            for term in domain.entry.iter().chain(domain.postconditions.iter().map(|(_, term)| term)) {
+                self.enqueue(PendingRecord::ConstantTerm(term.raw()));
+            }
+        }
+
+        for (target, _) in contract.evidence.iter().flat_map(|evidence| evidence.dependencies.iter()) {
+            match *target {
+                CallableExecutionTarget::Callable(callable) => {
+                    self.enqueue(PendingRecord::ExecutionTarget(callable.raw()));
+                }
+                CallableExecutionTarget::Requirement { callable, requirement: (subject, application) } => {
+                    self.enqueue(PendingRecord::CallableInstance(callable.raw()));
+                    self.enqueue(PendingRecord::Type(subject.raw()));
+                    self.enqueue(PendingRecord::TraitApplication(application.raw()));
+                }
+                CallableExecutionTarget::Indirect(ty) => self.enqueue(PendingRecord::Type(ty.raw())),
+            }
+        }
+    }
+
+    fn include_execution_target(&mut self, index: u32) -> Result<(), InterfaceValidationError> {
+        self.include_callable_instance(index)?;
+
+        let InterfaceSymbolReference::Local(target) = self.records.callable_instances.values()[&index].definition else {
+            // The consumer validates provider evidence against its exact loaded dependency.
+            return Ok(());
+        };
+
+        self.enqueue_owned_record(target, InterfaceSemanticRecordKind::CallableContracts)
+    }
+
+    /// Schedules the single signature or contract record owned by a local callable.
+    fn enqueue_owned_record(
+        &mut self,
+        owner: InterfaceSymbolId,
+        kind: InterfaceSemanticRecordKind,
+    ) -> Result<(), InterfaceValidationError> {
+        let (section, record): (_, fn(u32, InterfaceSymbolId) -> PendingRecord) = match kind {
+            InterfaceSemanticRecordKind::CallableSignature => {
+                (InterfaceSectionTag::DeclarationSemantics, PendingRecord::CallableSignature)
+            }
+            InterfaceSemanticRecordKind::CallableContracts => {
+                (InterfaceSectionTag::Contracts, PendingRecord::CallableContract)
+            }
+            _ => unreachable!("only callable signatures and contracts join an execution proof graph"),
+        };
+
+        let [entry] = directory::records_for_owner(self.directory, &InterfaceSymbolReference::Local(owner), kind) else {
+            return Err(crate::semantic::codec::invalid_value(crate::InterfaceValidationField::Reference));
+        };
+
+        if entry.section() != section {
+            return Err(crate::semantic::codec::invalid_value(crate::InterfaceValidationField::Reference));
+        }
+
+        self.enqueue(record(entry.record(), owner));
+
+        Ok(())
+    }
+
+    fn include_callable_signature(
+        &mut self,
+        index: u32,
+        owner: InterfaceSymbolId,
+    ) -> Result<(), InterfaceValidationError> {
         let tables =
             self.tables
                 .declarations
@@ -467,7 +571,7 @@ impl<'bytes, 'records> SelectionBuilder<'bytes, 'records> {
                     declaration::decode_callable_signature(reader, context.limits(), context)
                 })?;
 
-        if signature.owner != self.owner {
+        if signature.owner != InterfaceSymbolReference::Local(owner) {
             return Err(crate::semantic::codec::invalid_value(
                 crate::InterfaceValidationField::Reference,
             ));
