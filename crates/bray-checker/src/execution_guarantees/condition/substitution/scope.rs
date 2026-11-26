@@ -20,10 +20,13 @@ impl RewriteMemo {
         Self { values: ExecutionMemo::default(), owners: ExecutionMemo::default(), rebind_frames: false }
     }
 
-    /// An empty memo with the same rewriting policy.
-    pub(super) fn fresh(&self) -> Self {
-        Self { rebind_frames: self.rebind_frames, ..Self::new() }
-    }
+}
+
+/// A filtered rewrite consumes less budget than the complete rewrite. Its results
+/// live in a separate memo, so the complete memo keeps replaying complete costs.
+pub(super) struct RewriteMemos {
+    pub(super) complete: RewriteMemo,
+    pub(super) filtered: RewriteMemo,
 }
 
 /// Immutable replacement entries retain whether any mapping changes its input,
@@ -56,7 +59,7 @@ pub(super) fn changing_roots<'a>(entries: impl IntoIterator<Item = (&'a Executio
 pub(crate) struct ExecutionSubstitution<'a> {
     values: RewriteMap<'a>,
     owners: RewriteMap<'a>,
-    mapped: RewriteMemo,
+    mapped: RewriteMemos,
 }
 
 impl<'a> ExecutionSubstitution<'a> {
@@ -64,14 +67,15 @@ impl<'a> ExecutionSubstitution<'a> {
         Self {
             values: RewriteMap::new(values),
             owners: RewriteMap::new(owners),
-            mapped: RewriteMemo::new(),
+            mapped: RewriteMemos { complete: RewriteMemo::new(), filtered: RewriteMemo::new() },
         }
     }
 
     pub(crate) fn frame_inputs(values: &'a BTreeMap<ExecutionCondition, ExecutionCondition>, owners: &'a BTreeMap<ExecutionCondition, ExecutionCondition>) -> Self {
         let mut substitution = Self::new(values, owners);
 
-        substitution.mapped.rebind_frames = true;
+        substitution.mapped.complete.rebind_frames = true;
+        substitution.mapped.filtered.rebind_frames = true;
 
         substitution
     }
@@ -93,11 +97,12 @@ impl<'a> ExecutionSubstitution<'a> {
 pub(crate) struct SnapshotSubstitution<'a> {
     snapshots: RewriteMap<'a>,
     mapped: ExecutionMemo<ExecutionCondition>,
+    filtered: ExecutionMemo<ExecutionCondition>,
 }
 
 impl<'a> SnapshotSubstitution<'a> {
     pub(crate) fn new(snapshots: &'a BTreeMap<ExecutionCondition, ExecutionCondition>) -> Self {
-        Self { snapshots: RewriteMap::new(snapshots), mapped: ExecutionMemo::default() }
+        Self { snapshots: RewriteMap::new(snapshots), mapped: ExecutionMemo::default(), filtered: ExecutionMemo::default() }
     }
 
     pub(crate) fn apply(&self, condition: &ExecutionCondition) -> ExecutionCondition {
@@ -105,23 +110,23 @@ impl<'a> SnapshotSubstitution<'a> {
 
         let replace = |value: &ExecutionCondition| super::rewriting::snapshot_value(value, self.snapshots.entries);
 
-        filtered_substitution(condition, &replace, self.snapshots.roots, &self.mapped)
+        filtered_substitution(condition, &replace, self.snapshots.roots, [&self.mapped, &self.filtered])
     }
 }
 
 /// Filters a bounded substitution only when it cannot exhaust its budget. The
-/// filtered rewrite consumes less work, so it keeps that cost out of the shared memo.
+/// filtered rewrite consumes less work, so its results use a separate memo.
 fn filtered_substitution(
     condition: &ExecutionCondition,
     replace: &impl Fn(&ExecutionCondition) -> Option<ExecutionCondition>,
     roots: u64,
-    mapped: &ExecutionMemo<ExecutionCondition>,
+    [mapped, filtered]: [&ExecutionMemo<ExecutionCondition>; 2],
 ) -> ExecutionCondition {
     let Some(roots) = condition.filter_roots(roots) else {
         return condition.substitute_values(replace, u64::MAX, &mut { ExecutionCondition::WORK_LIMIT }, Some(mapped));
     };
 
-    let rewritten = condition.substitute_values(replace, roots, &mut { ExecutionCondition::WORK_LIMIT }, Some(&ExecutionMemo::default()));
+    let rewritten = condition.substitute_values(replace, roots, &mut { ExecutionCondition::WORK_LIMIT }, Some(filtered));
 
     debug_assert_eq!(rewritten, condition.substitute_values(replace, u64::MAX, &mut { ExecutionCondition::WORK_LIMIT }, Some(mapped)),
         "root filtering cannot change a substitution of {condition:?}");
@@ -133,6 +138,7 @@ fn filtered_substitution(
 pub(crate) struct GuardSubstitution {
     facts: HashMap<ExecutionCondition, ExecutionCondition>,
     mapped: ExecutionMemo<ExecutionCondition>,
+    filtered: ExecutionMemo<ExecutionCondition>,
     roots: u64,
 }
 
@@ -146,7 +152,7 @@ impl GuardSubstitution {
 
         let roots = changing_roots(facts.iter());
 
-        Self { facts, mapped: ExecutionMemo::default(), roots }
+        Self { facts, mapped: ExecutionMemo::default(), filtered: ExecutionMemo::default(), roots }
     }
 
     pub(crate) fn apply(&self, condition: &ExecutionCondition) -> ExecutionCondition {
@@ -157,7 +163,7 @@ impl GuardSubstitution {
             _ => self.facts.get(value).cloned(),
         };
 
-        filtered_substitution(condition, &replace, self.roots, &self.mapped)
+        filtered_substitution(condition, &replace, self.roots, [&self.mapped, &self.filtered])
     }
 }
 

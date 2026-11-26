@@ -88,11 +88,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .into_iter()
             .flat_map(|completion| completion.references())
             .filter_map(|(path, target)| {
-                let source = ExecutionPlace::storage_path(self.storage, path)?;
+                let source = self.storage_place(path)?;
 
                 place.contains(&source).then_some(())?;
 
-                ExecutionPlace::storage_path(self.storage, &target.target.value_observation_path()?)
+                self.storage_place(&target.target.value_observation_path()?)
             })
             .collect::<BTreeSet<_>>();
 
@@ -227,7 +227,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let references = references
             .iter()
             .filter_map(|(path, target)| {
-                Some((ExecutionPlace::storage_path(self.storage, path)?, target))
+                Some((self.storage_place(path)?, target))
             })
             .collect::<BTreeMap<_, _>>();
 

@@ -174,7 +174,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 let place = self
                     .storage
                     .logical_path(plan.access())
-                    .and_then(|path| ExecutionPlace::storage_path(self.storage, path))
+                    .and_then(|path| self.storage_place(path))
                     .expect("scoped exit retains its checked capability place");
 
                 let value = state

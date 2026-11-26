@@ -593,7 +593,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let place = if replacement.is_some() {
             reached
                 .as_deref()
-                .and_then(|path| ExecutionPlace::storage_path(self.storage, path))
+                .and_then(|path| self.storage_place(path))
         } else {
             place.clone()
         };
@@ -808,7 +808,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             // Destruction ends captured ownership even when cleanup has no user storage effects.
             let place = reached
                 .as_deref()
-                .and_then(|path| ExecutionPlace::storage_path(self.storage, path));
+                .and_then(|path| self.storage_place(path));
 
             let external = place
                 .iter()

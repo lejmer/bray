@@ -161,6 +161,7 @@ pub(crate) fn prepare_execution_flow<'a, 'view, C: CheckerRequestContext + ?Size
 
     ExecutionFlowDomain {
         candidate_evidence: Default::default(),
+        storage_places: Default::default(),
         consumed_completion_dependencies: Default::default(),
         // Exact immutable query results survive cleanup-feasibility rounds within this body.
         proofs: Default::default(),

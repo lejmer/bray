@@ -3,7 +3,7 @@ use bray_bound_tree::BoundOperator;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
-use super::scope::{MapRole, RewriteMap, RewriteMemo};
+use super::scope::{MapRole, RewriteMap, RewriteMemo, RewriteMemos};
 use super::super::memo::{ExecutionMemo, memoized};
 
 impl ExecutionCondition {
@@ -262,7 +262,7 @@ pub(super) fn joined_value(
     value: &ExecutionCondition,
     values: RewriteMap<'_>,
     owners: RewriteMap<'_>,
-    memo: Option<&RewriteMemo>,
+    memo: Option<&RewriteMemos>,
 ) -> ExecutionCondition {
     if !values.changed && !owners.changed {
         return value.clone();
@@ -272,27 +272,26 @@ pub(super) fn joined_value(
 }
 
 /// Filters a bounded join rewrite only when it cannot exhaust its budget. The
-/// filtered rewrite consumes less work, so it keeps that cost out of the shared memo.
+/// filtered rewrite consumes less work, so its results use a separate memo.
 fn filtered_rewrite(
     value: &ExecutionCondition,
     replacements: &BTreeMap<ExecutionCondition, ExecutionCondition>,
     owners: RewriteMap<'_>,
     roots: u64,
-    memo: Option<&RewriteMemo>,
+    memo: Option<&RewriteMemos>,
     role: MapRole,
 ) -> ExecutionCondition {
+    let complete = memo.map(|memo| (&memo.complete, role));
+
     let Some(roots) = value.filter_roots(roots) else {
-        return rewrite_equalities(value, replacements, Some(owners), u64::MAX, &mut { ExecutionCondition::WORK_LIMIT },
-            memo.map(|memo| (memo, role)));
+        return rewrite_equalities(value, replacements, Some(owners), u64::MAX, &mut { ExecutionCondition::WORK_LIMIT }, complete);
     };
 
-    let fresh = memo.map(RewriteMemo::fresh);
-
     let rewritten = rewrite_equalities(value, replacements, Some(owners), roots, &mut { ExecutionCondition::WORK_LIMIT },
-        fresh.as_ref().map(|memo| (memo, role)));
+        memo.map(|memo| (&memo.filtered, role)));
 
     debug_assert_eq!(rewritten, rewrite_equalities(value, replacements, Some(owners), u64::MAX,
-        &mut { ExecutionCondition::WORK_LIMIT }, memo.map(|memo| (memo, role))), "root filtering cannot change a joined value {value:?}");
+        &mut { ExecutionCondition::WORK_LIMIT }, complete), "root filtering cannot change a joined value {value:?}");
 
     rewritten
 }
@@ -301,7 +300,7 @@ pub(super) fn joined_owner(
     value: &ExecutionCondition,
     values: RewriteMap<'_>,
     owners: RewriteMap<'_>,
-    memo: Option<&RewriteMemo>,
+    memo: Option<&RewriteMemos>,
 ) -> ExecutionCondition {
     let owner = value.owner_identity();
 
