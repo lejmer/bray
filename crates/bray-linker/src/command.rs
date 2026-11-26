@@ -26,6 +26,7 @@ pub(super) fn system_arguments_for(
         SystemLinkerFamily::MicrosoftCompiler => {
             microsoft_compiler_arguments(plan, current_directory)
         }
+        SystemLinkerFamily::MicrosoftLld => microsoft_lld_arguments(plan, current_directory),
         SystemLinkerFamily::AppleCompiler => apple_compiler_arguments(plan, current_directory),
     }
 }
@@ -141,6 +142,23 @@ fn microsoft_compiler_arguments(
             arguments.push(argument);
         }
     }
+
+    Ok(arguments)
+}
+
+/// The `lld-link` command that the Microsoft-compatible compiler driver forms.
+/// The C runtime startup selects the entry point, as it does through the driver.
+fn microsoft_lld_arguments(
+    plan: &LinkPlan,
+    current_directory: Option<&Path>,
+) -> Result<Vec<OsString>, LldPlanError> {
+    let mut arguments = vec![OsString::from("/nologo")];
+
+    arguments.extend(
+        arguments_for_with_directory(plan, LldFlavor::Coff, current_directory)?
+            .into_iter()
+            .filter(|argument| !argument.to_str().is_some_and(|text| text.starts_with("/entry:"))),
+    );
 
     Ok(arguments)
 }
@@ -1365,6 +1383,24 @@ mod tests {
                     OsString::from("-o"),
                     OsString::from("application.exe"),
                     OsString::from("-Xlinker"),
+                    OsString::from("/opt:noref"),
+                    OsString::from("main.obj"),
+                ],
+            ),
+            (
+                SystemLinkerFamily::MicrosoftLld,
+                executable_plan(
+                    TargetArchitecture::X86_64,
+                    ObjectFormat::Coff,
+                    "application.exe",
+                    "main.obj",
+                ),
+                vec![
+                    OsString::from("/nologo"),
+                    OsString::from("/brepro"),
+                    OsString::from("/machine:x64"),
+                    OsString::from("/noimplib"),
+                    OsString::from("/out:application.exe"),
                     OsString::from("/opt:noref"),
                     OsString::from("main.obj"),
                 ],

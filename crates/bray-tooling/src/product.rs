@@ -415,8 +415,8 @@ fn system_linker_configuration(
             selected_environment(&["PATH"]),
         ))),
         ObjectFormat::Coff if cfg!(windows) => Ok(Some((
-            SystemLinkerFamily::MicrosoftCompiler,
-            llvm_tool_path(DiagnosticLlvmToolRole::CompilerDriver)
+            SystemLinkerFamily::MicrosoftLld,
+            llvm_tool_path(DiagnosticLlvmToolRole::CoffLinker)
                 .map_err(NativeLinkerBuildError::Tool)?,
             selected_environment(&[
                 "SystemRoot",
@@ -475,6 +475,7 @@ const fn system_linker_name(family: SystemLinkerFamily) -> &'static str {
         SystemLinkerFamily::GnuCompiler => "gnu-compiler",
         SystemLinkerFamily::WslGnuCompiler => "wsl-gnu-compiler",
         SystemLinkerFamily::MicrosoftCompiler => "microsoft-compiler",
+        SystemLinkerFamily::MicrosoftLld => "microsoft-lld",
         SystemLinkerFamily::AppleCompiler => "apple-compiler",
         SystemLinkerFamily::Gnu | SystemLinkerFamily::Microsoft | SystemLinkerFamily::Apple => {
             "system-linker"

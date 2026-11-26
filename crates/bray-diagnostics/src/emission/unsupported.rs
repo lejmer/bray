@@ -9,6 +9,8 @@ pub enum DiagnosticLlvmToolRole {
     CompilerDriver,
     /// LLVM linker used by native execution readiness checks.
     Linker,
+    /// LLVM COFF linker used for Windows products.
+    CoffLinker,
     /// LLVM archive writer and reader.
     Archiver,
     /// LLVM optimizer used to form summary-bearing bitcode.
@@ -25,6 +27,7 @@ impl DiagnosticLlvmToolRole {
         match self {
             Self::CompilerDriver => "compiler_driver",
             Self::Linker => "linker",
+            Self::CoffLinker => "coff_linker",
             Self::Archiver => "archiver",
             Self::Optimizer => "optimizer",
             Self::SymbolInspector => "symbol_inspector",
@@ -37,6 +40,7 @@ impl DiagnosticLlvmToolRole {
         match self {
             Self::CompilerDriver => "clang",
             Self::Linker => "ld.lld",
+            Self::CoffLinker => "lld-link",
             Self::Archiver => "llvm-ar",
             Self::Optimizer => "opt",
             Self::SymbolInspector => "llvm-nm",
