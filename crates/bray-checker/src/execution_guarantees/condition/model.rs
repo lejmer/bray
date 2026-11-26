@@ -265,7 +265,7 @@ impl From<ExecutionCondition> for PreparedCondition {
 
 impl hashbrown::Equivalent<ExecutionCondition> for PreparedCondition {
     fn equivalent(&self, key: &ExecutionCondition) -> bool {
-        compare_nodes(self.node(), &key.0, true, &mut ComparedPairs::new()).is_eq()
+        compare_nodes(self.node(), &key.0).is_eq()
     }
 }
 
@@ -377,6 +377,15 @@ fn compare_operands(left: &[ExecutionCondition], right: &[ExecutionCondition], c
 }
 
 impl ConditionNode {
+    /// Compares variant declaration order, then structural hashes, without traversal.
+    fn shallow_cmp(&self, other: &Self) -> Ordering {
+        if std::mem::discriminant(&self.kind) != std::mem::discriminant(&other.kind) {
+            return self.kind.partial_cmp(&other.kind).expect("execution condition variants retain their declaration order");
+        }
+
+        self.hash.cmp(&other.hash)
+    }
+
     /// Compare exact root fields in declaration order, delegating recursive identity to the caller.
     fn cmp_parts(&self, other: &Self, child: &mut impl FnMut(&ExecutionCondition, &ExecutionCondition) -> Ordering) -> Ordering {
         use ExecutionConditionKind as C;
@@ -438,13 +447,27 @@ impl ConditionNode {
 // Input nodes and their children remain alive throughout one comparison.
 type ComparedPairs = hashbrown::HashSet<(*const ConditionNode, *const ConditionNode)>;
 
-fn compare_nodes(left: &ConditionNode, right: &ConditionNode, equality_only: bool, pairs: &mut ComparedPairs) -> Ordering {
+/// Orders conditions by variant, then by cached structural hash. Variant order
+/// keeps simple terms such as literals and inputs before compound terms. Unequal
+/// trees of one variant almost always differ by hash, so only equal hashes need
+/// a structural traversal.
+fn compare_nodes(left: &ConditionNode, right: &ConditionNode) -> Ordering {
     if std::ptr::eq(left, right) {
         return Ordering::Equal;
     }
 
-    if equality_only && left.hash != right.hash {
-        return Ordering::Less;
+    left.shallow_cmp(right).then_with(|| compare_structure(left, right, &mut ComparedPairs::default()))
+}
+
+fn compare_structure(left: &ConditionNode, right: &ConditionNode, pairs: &mut ComparedPairs) -> Ordering {
+    if std::ptr::eq(left, right) {
+        return Ordering::Equal;
+    }
+
+    let order = left.shallow_cmp(right);
+
+    if !order.is_eq() {
+        return order;
     }
 
     let pair = (left as *const ConditionNode, right as *const ConditionNode);
@@ -458,7 +481,7 @@ fn compare_nodes(left: &ConditionNode, right: &ConditionNode, equality_only: boo
     let result = left.cmp_parts(right, &mut |left, right| {
         descended = true;
 
-        compare_nodes(&left.0, &right.0, equality_only, pairs)
+        compare_structure(&left.0, &right.0, pairs)
     });
 
     // Only equal pairs can be visited again. A difference ends the comparison.
@@ -471,7 +494,7 @@ fn compare_nodes(left: &ConditionNode, right: &ConditionNode, equality_only: boo
 
 impl Ord for ExecutionCondition {
     fn cmp(&self, other: &Self) -> Ordering {
-        compare_nodes(&self.0, &other.0, false, &mut ComparedPairs::new())
+        compare_nodes(&self.0, &other.0)
     }
 }
 
@@ -483,7 +506,7 @@ impl std::fmt::Debug for ExecutionCondition {
 
 impl PartialEq for ExecutionCondition {
     fn eq(&self, other: &Self) -> bool {
-        compare_nodes(&self.0, &other.0, true, &mut ComparedPairs::new()).is_eq()
+        compare_nodes(&self.0, &other.0).is_eq()
     }
 }
 
@@ -664,19 +687,14 @@ mod tests {
         let right = graph();
         let mut pairs = super::ComparedPairs::new();
 
-        assert!(super::compare_nodes(&left.0, &right.0, true, &mut pairs).is_eq());
-        assert!(pairs.len() <= 20, "equality must compare shared node pairs once");
-
-        pairs.clear();
-
-        assert!(super::compare_nodes(&left.0, &right.0, false, &mut pairs).is_eq());
-        assert!(pairs.len() <= 20, "ordering must compare shared node pairs once");
+        assert!(super::compare_structure(&left.0, &right.0, &mut pairs).is_eq());
+        assert!(pairs.len() <= 20, "comparison must visit shared node pairs once");
         assert_eq!(left, right);
         assert_eq!(left.cmp(&right), std::cmp::Ordering::Equal);
     }
 
     #[test]
-    fn shared_ordering_preserves_derived_field_precedence() {
+    fn ordering_is_total_and_agrees_with_structural_equality() {
         use bray_bound_tree::BoundOperator::LogicalAnd;
         use super::ExecutionObservationKind::{Owned, Reference};
 
@@ -707,8 +725,15 @@ mod tests {
 
         for left in &terms {
             for right in &terms {
-                assert_eq!(Some(left.cmp(right)), left.kind().partial_cmp(right.kind()));
+                assert_eq!(left == right, left.kind() == right.kind());
                 assert_eq!(left == right, left.cmp(right).is_eq());
+                assert_eq!(left.cmp(right), right.cmp(left).reverse());
+
+                for third in &terms {
+                    if left <= right && right <= third {
+                        assert!(left <= third, "condition ordering must be transitive");
+                    }
+                }
             }
         }
     }

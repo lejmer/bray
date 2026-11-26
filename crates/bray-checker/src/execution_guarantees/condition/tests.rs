@@ -1302,13 +1302,19 @@ fn boolean_proofs_keep_decisive_operands_without_equating_unknowns() {
         let other = ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(1))));
         let decisive = ExecutionCondition::operation(operator, vec![known.clone(), other]);
         let evidence = BTreeSet::from([(known.clone(), truth)]);
+
+        let crate::ExecutionConditionKind::Operation(_, operands) = decisive.kind() else { unreachable!(); };
+
+        // The root and each operand through the decisive one consume one unit.
+        let remaining = 1 - operands.iter().position(|operand| *operand == known).expect("decisive operand remains");
         let mut budget = 3;
 
         assert_eq!(decisive.prove(&evidence, &mut budget), Some(truth));
-        assert_eq!(budget, 1, "a decisive operand preserves work for subsequent proofs");
+        assert_eq!(budget, remaining, "a decisive operand preserves work for subsequent proofs");
 
         let mut budget = 3;
 
+        // Mixed proof inspects both direct operands before descending.
         assert_eq!(decisive.prove_mixed(&evidence, &evidence, &mut budget), Some(truth));
         assert_eq!(budget, 1);
 
