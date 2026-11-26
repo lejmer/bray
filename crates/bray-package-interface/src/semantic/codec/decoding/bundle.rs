@@ -198,8 +198,10 @@ pub(crate) fn selected_semantic_sections(
         crate::InterfaceSemanticRecordKind::Implementation => Some(IMPLEMENTATION_SECTIONS),
         crate::InterfaceSemanticRecordKind::TargetProperty => Some(TARGET_SEMANTIC_SECTIONS),
         crate::InterfaceSemanticRecordKind::Runtime => Some(TARGET_SEMANTIC_SECTIONS),
-        crate::InterfaceSemanticRecordKind::DeclarationTemplate
-        | crate::InterfaceSemanticRecordKind::Abi => None,
+        crate::InterfaceSemanticRecordKind::DeclarationTemplate => {
+            Some(COMPLETE_SEMANTIC_SECTIONS)
+        }
+        crate::InterfaceSemanticRecordKind::Abi => None,
     }
 }
 

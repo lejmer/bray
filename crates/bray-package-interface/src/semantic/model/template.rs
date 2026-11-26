@@ -384,6 +384,89 @@ impl InterfaceCheckedTemplate {
     }
 }
 
+/// Converts the artifact-local references of one checked template.
+pub(crate) trait InterfaceTemplateReferenceMap {
+    /// Failure that stops the conversion.
+    type Error;
+
+    fn term(&mut self, term: InterfaceConstantTermId) -> Result<InterfaceConstantTermId, Self::Error>;
+    fn ty(&mut self, ty: InterfaceTypeId) -> Result<InterfaceTypeId, Self::Error>;
+    fn substitution(&mut self, substitution: InterfaceGenericSubstitutionId) -> Result<InterfaceGenericSubstitutionId, Self::Error>;
+    fn dependency(&mut self, contract: InterfaceDependencyContractId) -> Result<InterfaceDependencyContractId, Self::Error>;
+    fn support(&mut self, entity: InterfaceSupportEntityId) -> Result<InterfaceSupportEntityId, Self::Error>;
+}
+
+impl InterfaceCheckedTemplate {
+    /// Rebuilds this template with converted references and unchanged node identities.
+    pub(crate) fn try_map_references<M: InterfaceTemplateReferenceMap>(&self, map: &mut M) -> Result<Self, M::Error> {
+        let map = std::cell::RefCell::new(map);
+
+        let template = |reference: &InterfaceTemplateReference| Ok(match reference {
+            InterfaceTemplateReference::Symbol(symbol) => InterfaceTemplateReference::Symbol(symbol.clone()),
+            InterfaceTemplateReference::Support(entity) => InterfaceTemplateReference::Support(map.borrow_mut().support(*entity)?),
+        });
+
+        let implementation = |reference: &InterfaceImplementationReference| Ok(match reference {
+            InterfaceImplementationReference::Symbol(symbol) => InterfaceImplementationReference::Symbol(symbol.clone()),
+            InterfaceImplementationReference::Support(entity) => {
+                InterfaceImplementationReference::Support(map.borrow_mut().support(*entity)?)
+            }
+        });
+
+        let inputs = self.inputs.iter().map(|input| Ok(InterfaceCheckedTemplateInput {
+            kind: input.kind.clone(),
+            ty: map.borrow_mut().ty(input.ty)?,
+            state_output: input.state_output,
+        })).collect::<Result<_, M::Error>>()?;
+
+        let nodes = self.nodes.iter().map(|node| Ok(InterfaceCheckedTemplateNode {
+            unsigned_integer_bits: node.unsigned_integer_bits,
+            operation: node.operation.try_map_references(
+                |term| map.borrow_mut().term(*term),
+                |ty| map.borrow_mut().ty(*ty),
+                template,
+                |substitution| map.borrow_mut().substitution(*substitution),
+                implementation,
+            )?,
+            ty: map.borrow_mut().ty(node.ty)?,
+        })).collect::<Result<_, M::Error>>()?;
+
+        let temporaries = self.temporaries.iter().map(|temporary| Ok(InterfaceCheckedTemplateTemporary {
+            initializer: temporary.initializer,
+            ty: map.borrow_mut().ty(temporary.ty)?,
+        })).collect::<Result<_, M::Error>>()?;
+
+        let behavior = &self.behavior;
+        let dependency_contract = map.borrow_mut().dependency(behavior.dependency_contract)?;
+        let result_dependencies = map.borrow_mut().dependency(behavior.result_dependencies)?;
+
+        // Support renumbering preserves relative order, so canonical witness order holds.
+        let witnesses = behavior.witnesses.iter().map(implementation).collect::<Result<_, M::Error>>()?;
+
+        let behavior = InterfaceCheckedTemplateBehavior {
+            effects: behavior.effects.clone(),
+            capabilities: behavior.capabilities.clone(),
+            trusted_obligations: behavior.trusted_obligations.clone(),
+            execution: behavior.execution.clone(),
+            lifecycle_obligations: behavior.lifecycle_obligations.clone(),
+            dependency_contract,
+            result_dependencies,
+            witnesses,
+        };
+
+        Ok(Self { kind: self.kind, inputs, nodes, temporaries, result: self.result, behavior })
+    }
+}
+
+impl InterfaceDeclarationTemplate {
+    /// Replaces the support entity that holds this declaration's checked template.
+    pub(crate) const fn with_entity(mut self, entity: InterfaceSupportEntityId) -> Self {
+        self.entity = entity;
+
+        self
+    }
+}
+
 /// One declaration-owned template addressable through the record directory.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct InterfaceDeclarationTemplate {

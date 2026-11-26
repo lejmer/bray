@@ -72,7 +72,6 @@ impl InternState<'_> {
                     owner,
                     kind: declaration.kind(),
                     ordinal: declaration.ordinal(),
-                    entity: declaration.entity(),
                     template,
                 })
             })

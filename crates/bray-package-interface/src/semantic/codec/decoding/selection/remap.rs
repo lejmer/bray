@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use super::mapping::RecordMaps;
-use super::model::SelectedRecords;
+use super::model::{RecordSet, SelectedRecords};
 use crate::InterfaceValidationError;
 use crate::semantic::model::{
     InterfaceConstantProjection, InterfaceConstantTerm, InterfaceConstantTermId,
@@ -220,7 +220,14 @@ pub(super) fn remap_selected_records(
             Ok(representation)
         }).collect::<Result<Vec<_>, InterfaceValidationError>>()?;
 
-    Ok(InterfaceSemantics::new()
+    let semantics = remap_templates(
+        records.checked_templates,
+        records.declaration_templates,
+        records.support_entities,
+        &maps,
+    )?;
+
+    Ok(semantics
         .with_applications(
             substitutions,
             trait_applications,
@@ -240,6 +247,55 @@ pub(super) fn remap_selected_records(
         .with_implementations(implementations, coherence)
         .with_target_dependencies(target_dependencies, [])
         .with_runtime_requirements(runtime_requirements))
+}
+
+fn remap_templates(
+    checked_templates: RecordSet<crate::InterfaceCheckedTemplate>,
+    declaration_templates: RecordSet<crate::InterfaceDeclarationTemplate>,
+    support_entities: RecordSet<crate::semantic::model::InterfaceSupportEntity>,
+    maps: &RecordMaps,
+) -> Result<InterfaceSemantics, InterfaceValidationError> {
+    let checked_templates = checked_templates
+        .into_values()
+        .map(|template| template.try_map_references(&mut &*maps))
+        .collect::<Result<Vec<_>, InterfaceValidationError>>()?;
+
+    let declaration_templates = declaration_templates
+        .into_values()
+        .map(|declaration| {
+            let entity = maps.support_entity_id(declaration.entity())?;
+
+            Ok(declaration.with_entity(entity))
+        })
+        .collect::<Result<Vec<_>, InterfaceValidationError>>()?;
+
+    let support_entities = support_entities
+        .into_values()
+        .map(|entity| remap_support_entity(entity, maps))
+        .collect::<Result<Vec<_>, InterfaceValidationError>>()?;
+
+    Ok(InterfaceSemantics::new().with_templates(checked_templates, declaration_templates, support_entities))
+}
+
+fn remap_support_entity(
+    entity: crate::semantic::model::InterfaceSupportEntity,
+    maps: &RecordMaps,
+) -> Result<crate::semantic::model::InterfaceSupportEntity, InterfaceValidationError> {
+    use crate::semantic::model::{InterfaceSupportEntity, InterfaceSupportImplementation};
+
+    Ok(match entity {
+        InterfaceSupportEntity::CheckedTemplate(template) => {
+            InterfaceSupportEntity::CheckedTemplate(maps.checked_template_id(template)?)
+        }
+        InterfaceSupportEntity::Implementation(implementation) => {
+            InterfaceSupportEntity::Implementation(InterfaceSupportImplementation::new(
+                implementation.declaration().clone(),
+                maps.type_id(implementation.subject())?,
+                implementation.trait_application().map(|application| maps.trait_application_id(application)).transpose()?,
+            ))
+        }
+        InterfaceSupportEntity::Declaration(declaration) => InterfaceSupportEntity::Declaration(declaration),
+    })
 }
 
 fn remap_dependency_storage(

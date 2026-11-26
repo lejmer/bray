@@ -1768,7 +1768,8 @@ mod tests {
         assert!(
             compilation.state.imported_semantic_graphs[interface_index]
                 .get()
-                .is_some()
+                .is_none(),
+            "templates and signatures decode only their own record closure"
         );
     }
 

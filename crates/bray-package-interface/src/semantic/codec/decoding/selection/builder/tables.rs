@@ -1,5 +1,5 @@
 use crate::semantic::codec::common::SemanticDecodeContext;
-use crate::semantic::codec::decoding::{bundle, contract, declaration, surface, value};
+use crate::semantic::codec::decoding::{bundle, contract, declaration, support, surface, template, value};
 use crate::semantic::model::InterfaceSemanticRecordKind;
 use crate::{InterfaceSectionTag, InterfaceValidationError, ValidatedInterfaceSection};
 
@@ -10,6 +10,9 @@ pub(super) struct SelectedTables<'bytes> {
     pub(super) implementations: Option<surface::ImplementationRecordTables<'bytes>>,
     pub(super) targets: Option<surface::TargetRecordTables<'bytes>>,
     pub(super) declarations: Option<declaration::DeclarationRecordTables<'bytes>>,
+    pub(super) templates: Option<template::TemplateRecordTables<'bytes>>,
+    // The support graph has no random access, so a template selection reads it whole.
+    pub(super) support: Option<Vec<crate::semantic::model::InterfaceSupportEntity>>,
 }
 
 impl<'bytes> SelectedTables<'bytes> {
@@ -64,6 +67,17 @@ impl<'bytes> SelectedTables<'bytes> {
             None
         };
 
+        let (templates, support) = if kind == InterfaceSemanticRecordKind::DeclarationTemplate {
+            let section = bundle::required_section(sections, InterfaceSectionTag::DeclarationTemplates)?;
+            let templates = template::decode_template_tables(section, context)?;
+            let section = bundle::required_section(sections, InterfaceSectionTag::SupportGraph)?;
+            let support = support::decode_support_entities(section, context.limits(), context)?;
+
+            (Some(templates), Some(support))
+        } else {
+            (None, None)
+        };
+
         Ok(Self {
             types,
             constants,
@@ -71,6 +85,8 @@ impl<'bytes> SelectedTables<'bytes> {
             implementations,
             targets,
             declarations,
+            templates,
+            support,
         })
     }
 }

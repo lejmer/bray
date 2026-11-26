@@ -8,13 +8,14 @@ use super::tables::SelectedTables;
 use crate::semantic::codec::common::SemanticDecodeContext;
 use crate::semantic::codec::decoding::selection::model::SelectedRecords;
 use crate::semantic::codec::decoding::selection::remap::remap_selected_records;
-use crate::semantic::codec::decoding::{bundle, contract, declaration, directory, surface, value};
+use crate::semantic::codec::decoding::{bundle, contract, declaration, directory, surface, template, value};
 use crate::semantic::model::{
     InterfaceCallablePhaseBehavior, InterfaceConstantTerm, InterfaceConstantValueKind,
     InterfaceDependencyGuard, InterfaceDependencyProjection, InterfaceDependencyRequirement,
     InterfaceDependencyRequirementValue, InterfaceDependencySubject,
     InterfaceDependencySubjectRoot, InterfaceGenericArgument, InterfacePredicateSummary,
-    InterfaceSemanticRecord, InterfaceSemanticRecordKind, InterfaceSemantics, InterfaceType,
+    InterfaceSemanticRecord, InterfaceSemanticRecordKind, InterfaceSemantics, InterfaceSupportEntity,
+    InterfaceType,
 };
 use crate::{
     InterfaceSectionTag, InterfaceSymbolReference, InterfaceValidationError,
@@ -52,11 +53,55 @@ pub(in crate::semantic::codec::decoding) fn decode_selected_record_graph(
 
     builder.include_requested_semantics(&directory, kind)?;
 
+    // Predicate templates pair with their definitions, which can reach the complete graph.
+    if builder.records.declaration_templates.values().values()
+        .any(|declaration| declaration.kind() == bray_bound_tree::CheckedTemplateKind::PredicateDefinition)
+    {
+        return Ok(None);
+    }
+
     let semantics = remap_selected_records(builder.records)?;
 
     semantics.validate(surface, limits)?;
 
     Ok(Some(semantics))
+}
+
+/// Schedules every record that a selected template references, unchanged.
+struct ReferenceCollector<'builder, 'bytes, 'records>(&'builder mut SelectionBuilder<'bytes, 'records>);
+
+impl crate::semantic::model::InterfaceTemplateReferenceMap for ReferenceCollector<'_, '_, '_> {
+    type Error = InterfaceValidationError;
+
+    fn term(&mut self, term: crate::InterfaceConstantTermId) -> Result<crate::InterfaceConstantTermId, Self::Error> {
+        self.0.enqueue(PendingRecord::ConstantTerm(term.raw()));
+
+        Ok(term)
+    }
+
+    fn ty(&mut self, ty: crate::InterfaceTypeId) -> Result<crate::InterfaceTypeId, Self::Error> {
+        self.0.enqueue(PendingRecord::Type(ty.raw()));
+
+        Ok(ty)
+    }
+
+    fn substitution(&mut self, substitution: crate::InterfaceGenericSubstitutionId) -> Result<crate::InterfaceGenericSubstitutionId, Self::Error> {
+        self.0.enqueue(PendingRecord::Substitution(substitution.raw()));
+
+        Ok(substitution)
+    }
+
+    fn dependency(&mut self, contract: crate::InterfaceDependencyContractId) -> Result<crate::InterfaceDependencyContractId, Self::Error> {
+        self.0.enqueue(PendingRecord::DependencyContract(contract.raw()));
+
+        Ok(contract)
+    }
+
+    fn support(&mut self, entity: bray_symbols::InterfaceSupportEntityId) -> Result<bray_symbols::InterfaceSupportEntityId, Self::Error> {
+        self.0.enqueue(PendingRecord::SupportEntity(entity.raw()));
+
+        Ok(entity)
+    }
 }
 
 #[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
@@ -82,6 +127,9 @@ enum PendingRecord {
     ConstantValue(u32),
     ConstantTerm(u32),
     DependencyContract(u32),
+    DeclarationTemplate(u32),
+    SupportEntity(u32),
+    CheckedTemplate(u32),
 }
 
 struct SelectionBuilder<'bytes, 'records> {
@@ -172,6 +220,16 @@ impl<'bytes, 'records> SelectionBuilder<'bytes, 'records> {
             )?;
 
             self.enqueue(PendingRecord::DeclaredType(index));
+        }
+
+        if kind == InterfaceSemanticRecordKind::DeclarationTemplate {
+            for index in self.record_indexes(
+                directory,
+                InterfaceSemanticRecordKind::DeclarationTemplate,
+                InterfaceSectionTag::DeclarationTemplates,
+            )? {
+                self.enqueue(PendingRecord::DeclarationTemplate(index));
+            }
         }
 
         if kind == InterfaceSemanticRecordKind::TypeRepresentation {
@@ -331,6 +389,9 @@ impl<'bytes, 'records> SelectionBuilder<'bytes, 'records> {
                 PendingRecord::DependencyContract(index) => {
                     self.include_dependency_contract(index)?;
                 }
+                PendingRecord::DeclarationTemplate(index) => self.include_declaration_template(index)?,
+                PendingRecord::SupportEntity(index) => self.include_support_entity(index)?,
+                PendingRecord::CheckedTemplate(index) => self.include_checked_template(index)?,
             }
         }
 
@@ -547,6 +608,60 @@ impl<'bytes, 'records> SelectionBuilder<'bytes, 'records> {
         }
 
         self.enqueue(record(entry.record(), owner));
+
+        Ok(())
+    }
+
+    fn include_declaration_template(&mut self, index: u32) -> Result<(), InterfaceValidationError> {
+        let tables = self.tables.templates.as_ref().expect("selected templates have template tables");
+
+        let declaration = tables.declaration_templates.decode(index, &mut self.context, template::decode_declaration_template)?;
+
+        if declaration.owner() != &self.owner {
+            return Err(crate::semantic::codec::invalid_value(crate::InterfaceValidationField::Reference));
+        }
+
+        self.enqueue(PendingRecord::SupportEntity(declaration.entity().raw()));
+        self.records.declaration_templates.insert(index, declaration);
+
+        Ok(())
+    }
+
+    fn include_support_entity(&mut self, index: u32) -> Result<(), InterfaceValidationError> {
+        let entity = self.tables.support.as_ref().expect("selected templates have the support graph")
+            .get(usize::try_from(index).unwrap_or(usize::MAX))
+            .cloned()
+            .ok_or(crate::semantic::codec::invalid_value(crate::InterfaceValidationField::Support))?;
+
+        match &entity {
+            InterfaceSupportEntity::CheckedTemplate(template) => {
+                self.enqueue(PendingRecord::CheckedTemplate(template.raw()));
+            }
+            InterfaceSupportEntity::Implementation(implementation) => {
+                self.enqueue(PendingRecord::Type(implementation.subject().raw()));
+
+                if let Some(application) = implementation.trait_application() {
+                    self.enqueue(PendingRecord::TraitApplication(application.raw()));
+                }
+            }
+            InterfaceSupportEntity::Declaration(_) => {}
+        }
+
+        self.records.support_entities.insert(index, entity);
+
+        Ok(())
+    }
+
+    fn include_checked_template(&mut self, index: u32) -> Result<(), InterfaceValidationError> {
+        let limits = self.context.limits();
+        let tables = self.tables.templates.as_ref().expect("selected templates have template tables");
+
+        let checked = tables.checked_templates.decode(index, &mut self.context, |reader, context| {
+            template::decode_template(reader, limits, context)
+        })?;
+
+        checked.try_map_references(&mut ReferenceCollector(self))?;
+        self.records.checked_templates.insert(index, checked);
 
         Ok(())
     }
