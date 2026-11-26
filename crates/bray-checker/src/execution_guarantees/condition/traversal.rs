@@ -132,6 +132,25 @@ impl super::ExecutionConditionKind {
         first.into_iter().chain(second).chain(operands).chain(fields.iter().map(|(_, value)| value))
     }
 
+    /// One bit for an identified value or storage root. Input paths share their
+    /// root bit with every prefix, because rewriting also matches input prefixes.
+    pub(super) fn root_bit(&self) -> u64 {
+        let mut hash = std::hash::DefaultHasher::new();
+
+        match self {
+            K::Input(place) => (0_u8, &place.root).hash(&mut hash),
+            K::Joined(site, place) => (1_u8, site, &place.root).hash(&mut hash),
+            K::InitializedSnapshot(place, _, _) => (0_u8, &place.root).hash(&mut hash),
+            K::Expression(expression) => (2_u8, expression).hash(&mut hash),
+            K::ScopedCapability(expression) => (3_u8, expression).hash(&mut hash),
+            K::PostState(mutation, _) => (4_u8, mutation).hash(&mut hash),
+            K::Result => 5_u8.hash(&mut hash),
+            _ => return 0,
+        }
+
+        1 << (hash.finish() % 64)
+    }
+
     /// Metadata belongs to the complete representation, including immutable epoch origins.
     pub(super) fn structural_children(&self) -> impl Iterator<Item = &ExecutionCondition> {
         self.children().chain(match self {

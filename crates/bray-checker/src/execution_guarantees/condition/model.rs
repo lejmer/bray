@@ -163,6 +163,9 @@ pub(in crate::execution_guarantees) struct ConditionNode {
     contains_redundant_reference_context: bool,
     may_observe_live_value: bool,
     prefix_starts_empty: bool,
+    // Each identified value or storage root sets one bit. A subterm can equal
+    // another condition only if this node's bits include all of that condition's bits.
+    roots: u64,
     comparisons: OnceLock<Box<ComparisonForms>>,
 }
 
@@ -205,7 +208,9 @@ impl ConditionNode {
             _ => false,
         };
 
-        Self { kind, hash, contains_deferred, contains_storage, contains_redundant_reference_context, may_observe_live_value, prefix_starts_empty, comparisons: OnceLock::new() }
+        let roots = kind.structural_children().fold(kind.root_bit(), |roots, child| roots | child.0.roots);
+
+        Self { kind, hash, contains_deferred, contains_storage, contains_redundant_reference_context, may_observe_live_value, prefix_starts_empty, roots, comparisons: OnceLock::new() }
     }
 
     #[cfg(test)]
@@ -267,6 +272,13 @@ impl ExecutionCondition {
     pub fn kind(&self) -> &ExecutionConditionKind { &self.0.kind }
 
     pub(super) fn contains_deferred(&self) -> bool { self.0.contains_deferred }
+
+    /// The root bits of every identified value or storage root in this condition.
+    pub(super) fn roots(&self) -> u64 { self.0.roots }
+
+    /// Whether a subterm can equal an input with these root bits. `u64::MAX`
+    /// admits every subterm, including inputs that have no identified root.
+    pub(super) fn may_contain(&self, roots: u64) -> bool { roots == u64::MAX || self.0.roots & roots != 0 }
 
     pub(super) fn contains_storage(&self) -> bool { self.0.contains_storage }
 
@@ -401,7 +413,7 @@ impl ConditionNode {
 }
 
 // Input nodes and their children remain alive throughout one comparison.
-type ComparedPairs = HashSet<(*const ConditionNode, *const ConditionNode)>;
+type ComparedPairs = hashbrown::HashSet<(*const ConditionNode, *const ConditionNode)>;
 
 fn compare_nodes(left: &ConditionNode, right: &ConditionNode, equality_only: bool, pairs: &mut ComparedPairs) -> Ordering {
     if std::ptr::eq(left, right) {

@@ -19,19 +19,37 @@ impl RewriteMemo {
     fn new() -> Self {
         Self { values: ExecutionMemo::default(), owners: ExecutionMemo::default(), rebind_frames: false }
     }
+
+    /// An empty memo with the same rewriting policy.
+    #[cfg(debug_assertions)]
+    pub(super) fn fresh(&self) -> Self {
+        Self { rebind_frames: self.rebind_frames, ..Self::new() }
+    }
 }
 
-/// Immutable replacement entries retain whether any mapping changes its input.
+/// Immutable replacement entries retain whether any mapping changes its input,
+/// and the root bits a condition needs to contain one of those changing inputs.
 #[derive(Clone, Copy)]
 pub(super) struct RewriteMap<'a> {
     pub(super) entries: &'a BTreeMap<ExecutionCondition, ExecutionCondition>,
     pub(super) changed: bool,
+    pub(super) roots: u64,
 }
 
 impl<'a> RewriteMap<'a> {
     pub(super) fn new(entries: &'a BTreeMap<ExecutionCondition, ExecutionCondition>) -> Self {
-        Self { entries, changed: ExecutionCondition::has_value_changes(entries) }
+        let roots = changing_roots(entries.iter());
+
+        Self { entries, changed: roots != 0, roots }
     }
+}
+
+/// An identity entry only stops descent into an unchanged value. A condition
+/// without the root bits of any changing input therefore rewrites to itself.
+/// A changing input without root bits can occur anywhere and admits every condition.
+pub(super) fn changing_roots<'a>(entries: impl IntoIterator<Item = (&'a ExecutionCondition, &'a ExecutionCondition)>) -> u64 {
+    entries.into_iter().filter(|(before, after)| before != after)
+        .fold(0, |roots, (before, _)| if before.roots() == 0 { u64::MAX } else { roots | before.roots() })
 }
 
 /// Reuse pure bounded rewriting across one forest and one immutable pair of maps.
@@ -86,8 +104,19 @@ impl<'a> SnapshotSubstitution<'a> {
     pub(crate) fn apply(&self, condition: &ExecutionCondition) -> ExecutionCondition {
         if !self.snapshots.changed { return condition.clone(); }
 
-        condition.substitute_values(&|value| super::rewriting::snapshot_value(value, self.snapshots.entries),
-            &mut { ExecutionCondition::WORK_LIMIT }, Some(&self.mapped))
+        let replace = |value: &ExecutionCondition| super::rewriting::snapshot_value(value, self.snapshots.entries);
+        let rewritten = condition.substitute_values(&replace, self.snapshots.roots, &mut { ExecutionCondition::WORK_LIMIT }, Some(&self.mapped));
+
+        #[cfg(debug_assertions)]
+        {
+            let mut budget = ExecutionCondition::WORK_LIMIT;
+            let complete = condition.substitute_values(&replace, u64::MAX, &mut budget, Some(&ExecutionMemo::default()));
+
+            // Skipped subterms consume no budget. Only an exhausted complete substitution may differ.
+            assert!(budget == 0 || rewritten == complete, "root filtering cannot change a snapshot substitution of {condition:?}");
+        }
+
+        rewritten
     }
 }
 
@@ -95,7 +124,7 @@ impl<'a> SnapshotSubstitution<'a> {
 pub(crate) struct GuardSubstitution {
     facts: HashMap<ExecutionCondition, ExecutionCondition>,
     mapped: ExecutionMemo<ExecutionCondition>,
-    changed: bool,
+    roots: u64,
 }
 
 impl GuardSubstitution {
@@ -106,18 +135,31 @@ impl GuardSubstitution {
 
         for (condition, replacement) in replacements { facts.insert(condition.clone(), replacement); }
 
-        let changed = facts.iter().any(|(condition, replacement)| condition != replacement);
+        let roots = changing_roots(facts.iter());
 
-        Self { facts, mapped: ExecutionMemo::default(), changed }
+        Self { facts, mapped: ExecutionMemo::default(), roots }
     }
 
     pub(crate) fn apply(&self, condition: &ExecutionCondition) -> ExecutionCondition {
-        if !self.changed { return condition.clone(); }
+        if self.roots == 0 { return condition.clone(); }
 
-        condition.substitute_values(&|value| match value.kind() {
+        let replace = |value: &ExecutionCondition| match value.kind() {
             crate::ExecutionConditionKind::Trusted(_) => Some(value.clone()),
             _ => self.facts.get(value).cloned(),
-        }, &mut { ExecutionCondition::WORK_LIMIT }, Some(&self.mapped))
+        };
+
+        let rewritten = condition.substitute_values(&replace, self.roots, &mut { ExecutionCondition::WORK_LIMIT }, Some(&self.mapped));
+
+        #[cfg(debug_assertions)]
+        {
+            let mut budget = ExecutionCondition::WORK_LIMIT;
+            let complete = condition.substitute_values(&replace, u64::MAX, &mut budget, Some(&ExecutionMemo::default()));
+
+            // Skipped subterms consume no budget. Only an exhausted complete substitution may differ.
+            assert!(budget == 0 || rewritten == complete, "root filtering cannot change a guard substitution of {condition:?}");
+        }
+
+        rewritten
     }
 }
 
@@ -178,8 +220,8 @@ mod tests {
         for incoming in (0..=ExecutionCondition::WORK_LIMIT).chain([1, 2, ExecutionCondition::WORK_LIMIT]) {
             let mut expected_budget = incoming;
             let mut actual_budget = incoming;
-            let expected = condition.substitute_values(&replace, &mut expected_budget, None);
-            let actual = condition.substitute_values(&replace, &mut actual_budget, Some(&scope.mapped));
+            let expected = condition.substitute_values(&replace, u64::MAX, &mut expected_budget, None);
+            let actual = condition.substitute_values(&replace, u64::MAX, &mut actual_budget, Some(&scope.mapped));
 
             assert_eq!(actual, expected, "snapshot rewrite differs at budget {incoming}");
             assert_eq!(actual_budget, expected_budget);
@@ -218,8 +260,8 @@ mod tests {
         for incoming in (0..=ExecutionCondition::WORK_LIMIT).chain([1, 2, ExecutionCondition::WORK_LIMIT]) {
             let mut actual_budget = incoming;
             let mut expected_budget = incoming;
-            let expected = condition.substitute_values(&replace, &mut expected_budget, None);
-            let actual = condition.substitute_values(&replace, &mut actual_budget, Some(&scope.mapped));
+            let expected = condition.substitute_values(&replace, u64::MAX, &mut expected_budget, None);
+            let actual = condition.substitute_values(&replace, u64::MAX, &mut actual_budget, Some(&scope.mapped));
 
             assert_eq!(actual, expected, "guard rewrite differs at budget {incoming}");
             assert_eq!(actual_budget, expected_budget);
