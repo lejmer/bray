@@ -3,7 +3,7 @@ use std::io::Write;
 use std::path::{Component, Path, PathBuf};
 
 use bray_base::{
-    Cancellation, CompletedStagedFile, FileReplacementMode, StagedFile, sync_directory,
+    Cancellation, CompletedStagedFile, FileReplacementMode, StagedFile,
 };
 
 use super::error::{StorageError, StorageErrorKind, StorageOperation};
@@ -35,8 +35,7 @@ pub(crate) fn create_managed_path(root: &Path, relative: &Path) -> Result<PathBu
         let child = path.join(component);
 
         match std::fs::create_dir(&child) {
-            Ok(()) => sync_directory(&path)
-                .map_err(|error| StorageError::io(&path, StorageOperation::Flush, error))?,
+            Ok(()) => {}
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
                 require_directory(&child)?;
             }
@@ -134,14 +133,7 @@ pub(crate) fn write_owned_json(
 
     staging
         .promote(path)
-        .map_err(|error| StorageError::io(path, StorageOperation::Rename, error))?;
-
-    if let Some(parent) = path.parent() {
-        sync_directory(parent)
-            .map_err(|error| StorageError::io(parent, StorageOperation::Flush, error))?;
-    }
-
-    Ok(())
+        .map_err(|error| StorageError::io(path, StorageOperation::Rename, error))
 }
 
 pub(crate) fn stage_owned_copy(

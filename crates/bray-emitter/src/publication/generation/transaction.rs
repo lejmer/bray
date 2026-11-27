@@ -1,9 +1,8 @@
-use std::collections::BTreeSet;
 use std::fs::File;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use bray_base::{Cancellation, StagedFile, atomic_rename_exclusive, sync_directory};
+use bray_base::{Cancellation, StagedFile, atomic_rename_exclusive};
 use bray_codegen::ArtifactDigest;
 use tempfile::{Builder, TempDir};
 
@@ -20,7 +19,6 @@ use crate::storage::{
 
 use super::projection::{
     commit_public_projections, prepare_public_projections, rollback_public_projections,
-    sync_public_projections,
 };
 
 use crate::artifact::content::validate_staged_content;
@@ -97,7 +95,6 @@ pub(in crate::publication) fn publish_managed_generation(
     let identity = ProductGenerationIdentity::new(manifest_digest);
 
     write_manifest(&private, &manifest_bytes, first.planned)?;
-    make_private_generation_durable(&private, first.planned)?;
 
     if cancellation.is_cancelled() {
         return Err(ArtifactPublicationFailure::Cancelled);
@@ -134,12 +131,6 @@ pub(in crate::publication) fn publish_managed_generation(
 
     let committed = commit_public_projections(projections, cancellation)?;
 
-    if let Err(error) = sync_public_projections(&committed, first.planned) {
-        rollback_public_projections(committed, first.planned)?;
-
-        return Err(error);
-    }
-
     let reference = GenerationReference::publish(
         GenerationReferenceEntry::new(locator, identity),
         prior_reference,
@@ -155,20 +146,17 @@ pub(in crate::publication) fn publish_managed_generation(
     let lease = StorageLease::acquire(&layout.metadata.join(locator.to_hex()).join("lease.lock"))
         .map_err(|error| storage_failure(first.planned, error))?;
 
-    let reference_warning = match commit_reference(
+    if let Err(error) = commit_reference(
         &layout,
         replacement,
         &reference_bytes,
         first.planned,
         cancellation,
     ) {
-        Ok(warning) => warning,
-        Err(error) => {
-            rollback_public_projections(committed, first.planned)?;
+        rollback_public_projections(committed, first.planned)?;
 
-            return Err(error);
-        }
-    };
+        return Err(error);
+    }
 
     let journal_warning = super::recovery::complete_publication(&layout.metadata)
         .err()
@@ -187,7 +175,7 @@ pub(in crate::publication) fn publish_managed_generation(
         retain_recent_generations(root, &layout, &reference, first.planned, cancellation).err()
     };
 
-    let warning = reference_warning.or(journal_warning).or(retention_warning);
+    let warning = journal_warning.or(retention_warning);
 
     let artifacts = EmittedArtifactSet::from_publication(plan, emitted);
 
@@ -289,9 +277,6 @@ fn create_layout(
     let staging = create_managed_path(&metadata, Path::new(STAGING_DIRECTORY))
         .map_err(|error| storage_failure(planned, error))?;
 
-    sync_directory(&metadata)
-        .map_err(|error| artifact_failure(planned, PublicationErrorKind::Flush(error.kind())))?;
-
     Ok((
         ManagedLayout {
             reference: metadata.join(PUBLISHED_REFERENCE),
@@ -340,7 +325,6 @@ fn stage_generation(
 ) -> Result<(GenerationManifest, Vec<EmittedArtifact>), ArtifactPublicationFailure> {
     let mut manifest_artifacts = Vec::with_capacity(prepared.len());
     let mut emitted = Vec::with_capacity(prepared.len());
-    let mut created_directories = BTreeSet::new();
 
     for artifact in prepared {
         if cancellation.is_cancelled() {
@@ -370,14 +354,6 @@ fn stage_generation(
         std::fs::create_dir_all(parent).map_err(|error| {
             artifact_failure(artifact.planned, PublicationErrorKind::Open(error.kind()))
         })?;
-
-        for directory in parent.ancestors() {
-            if directory == private.path() {
-                break;
-            }
-
-            created_directories.insert(directory.to_owned());
-        }
 
         let (digest, permissions) = write_artifact(&destination, artifact, cancellation)?;
 
@@ -422,8 +398,6 @@ fn stage_generation(
         ));
     }
 
-    sync_created_directories(created_directories, prepared[0].planned)?;
-
     let product = prepared[0].planned.id().product();
 
     let manifest = GenerationManifest {
@@ -467,10 +441,6 @@ fn write_artifact(
         artifact_failure(artifact.planned, PublicationErrorKind::Flush(error.kind()))
     })?;
 
-    file.sync_all().map_err(|error| {
-        artifact_failure(artifact.planned, PublicationErrorKind::Flush(error.kind()))
-    })?;
-
     let digest = validate_staged_content(
         destination,
         artifact.content.byte_len(),
@@ -485,23 +455,6 @@ fn write_artifact(
         })?;
 
     Ok((digest, permissions))
-}
-
-fn sync_created_directories(
-    directories: BTreeSet<PathBuf>,
-    planned: &crate::PlannedArtifact,
-) -> Result<(), ArtifactPublicationFailure> {
-    let mut directories: Vec<_> = directories.into_iter().collect();
-
-    directories.sort_unstable_by_key(|path| std::cmp::Reverse(path.components().count()));
-
-    for directory in directories {
-        sync_directory(&directory).map_err(|error| {
-            artifact_failure(planned, PublicationErrorKind::Flush(error.kind()))
-        })?;
-    }
-
-    Ok(())
 }
 
 fn encode_manifest(
@@ -525,9 +478,6 @@ fn write_manifest(
         .map_err(|error| artifact_failure(planned, PublicationErrorKind::Write(error.kind())))?;
 
     file.flush()
-        .map_err(|error| artifact_failure(planned, PublicationErrorKind::Flush(error.kind())))?;
-
-    file.sync_all()
         .map_err(|error| artifact_failure(planned, PublicationErrorKind::Flush(error.kind())))
 }
 
@@ -540,14 +490,6 @@ fn create_new_file(
         .create_new(true)
         .open(path)
         .map_err(|error| artifact_failure(planned, PublicationErrorKind::Open(error.kind())))
-}
-
-fn make_private_generation_durable(
-    private: &TempDir,
-    planned: &crate::PlannedArtifact,
-) -> Result<(), ArtifactPublicationFailure> {
-    sync_directory(private.path())
-        .map_err(|error| artifact_failure(planned, PublicationErrorKind::Flush(error.kind())))
 }
 
 fn commit_generation(
@@ -564,13 +506,7 @@ fn commit_generation(
         let destination = layout.metadata.join(locator.to_hex());
 
         return match atomic_rename_exclusive(private.path(), &destination) {
-            Ok(()) => {
-                sync_directory(&layout.metadata).map_err(|error| {
-                    artifact_failure(planned, PublicationErrorKind::Commit(error.kind()))
-                })?;
-
-                Ok(locator)
-            }
+            Ok(()) => Ok(locator),
             Err(_) if destination.exists() => {
                 require_directory(&destination).map_err(|error| storage_failure(planned, error))?;
 
@@ -627,28 +563,7 @@ fn commit_reference(
     bytes: &[u8],
     planned: &crate::PlannedArtifact,
     cancellation: &dyn Cancellation,
-) -> Result<Option<PublicationError>, ArtifactPublicationFailure> {
-    commit_reference_with_sync(
-        layout,
-        replacement,
-        bytes,
-        planned,
-        cancellation,
-        sync_directory,
-    )
-}
-
-fn commit_reference_with_sync<Sync>(
-    layout: &ManagedLayout,
-    replacement: ReplacementPolicy,
-    bytes: &[u8],
-    planned: &crate::PlannedArtifact,
-    cancellation: &dyn Cancellation,
-    sync: Sync,
-) -> Result<Option<PublicationError>, ArtifactPublicationFailure>
-where
-    Sync: FnOnce(&Path) -> std::io::Result<()>,
-{
+) -> Result<(), ArtifactPublicationFailure> {
     let mut staging = StagedFile::create(&layout.reference, replacement_mode(replacement), None)
         .map_err(|error| artifact_failure(planned, PublicationErrorKind::Open(error.kind())))?;
 
@@ -666,64 +581,5 @@ where
 
     staging
         .promote(&layout.reference)
-        .map_err(|error| artifact_failure(planned, PublicationErrorKind::Commit(error.kind())))?;
-
-    Ok(sync(&layout.metadata)
-        .err()
-        .map(|error| planned_error(planned, PublicationErrorKind::Commit(error.kind()))))
-}
-
-#[cfg(test)]
-mod tests {
-    use std::io;
-
-    use super::{ManagedLayout, commit_reference_with_sync};
-    use crate::ReplacementPolicy;
-    use crate::test_support::emission_plan;
-
-    #[test]
-    fn reference_visibility_remains_committed_when_post_commit_sync_fails() {
-        let Ok(root) = tempfile::tempdir() else {
-            panic!("test managed root must be created");
-        };
-
-        let metadata = root.path().join(".bray");
-
-        std::fs::create_dir(&metadata)
-            .unwrap_or_else(|error| panic!("test metadata directory must be created: {error}"));
-
-        let reference = metadata.join("published-generation.json");
-
-        let layout = ManagedLayout {
-            reference: reference.clone(),
-            staging: metadata.join("staging"),
-            metadata,
-        };
-
-        let plan = emission_plan();
-        let planned = &plan.artifacts()[0];
-
-        let Ok(warning) = commit_reference_with_sync(
-            &layout,
-            ReplacementPolicy::ReplaceExisting,
-            b"published",
-            planned,
-            &|| false,
-            fail_sync,
-        ) else {
-            panic!("visible reference must remain committed");
-        };
-
-        assert!(warning.is_some());
-
-        assert_eq!(
-            std::fs::read(reference)
-                .unwrap_or_else(|error| panic!("published reference must be readable: {error}")),
-            b"published"
-        );
-    }
-
-    fn fail_sync(_: &std::path::Path) -> io::Result<()> {
-        Err(io::Error::other("injected post-commit sync failure"))
-    }
+        .map_err(|error| artifact_failure(planned, PublicationErrorKind::Commit(error.kind())))
 }

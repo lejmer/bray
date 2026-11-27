@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use bray_base::{Cancellation, FileReplacementMode, sync_directory};
+use bray_base::{Cancellation, FileReplacementMode};
 use serde::{Deserialize, Serialize};
 
 use super::manifest::GenerationManifest;
@@ -46,8 +46,7 @@ pub(super) fn complete_publication(store: &Path) -> Result<(), StorageError> {
     let path = store.join(JOURNAL);
 
     match std::fs::remove_file(&path) {
-        Ok(()) => sync_directory(store)
-            .map_err(|error| StorageError::io(store, StorageOperation::Flush, error)),
+        Ok(()) => Ok(()),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(error) => Err(StorageError::io(&path, StorageOperation::Remove, error)),
     }
@@ -107,11 +106,6 @@ pub(super) fn recover_publication(
 
             copy.promote(&destination)
                 .map_err(|error| StorageError::io(&destination, StorageOperation::Rename, error))?;
-
-            if let Some(parent) = destination.parent() {
-                sync_directory(parent)
-                    .map_err(|error| StorageError::io(parent, StorageOperation::Flush, error))?;
-            }
 
             uncommitted.remove(&destination);
         }
