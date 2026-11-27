@@ -19,8 +19,8 @@ const fn optimization_pipeline(options: CodegenOptions) -> Option<&'static str> 
     match (options.optimization(), options.size_preference()) {
         (_, SizePreference::MinimumSize) => Some("default<Oz>"),
         (_, SizePreference::Size) => Some("default<Os>"),
-        (OptimizationLevel::None, SizePreference::None) => None,
-        (OptimizationLevel::Basic, SizePreference::None) => Some("default<O1>"),
+        // Development builds keep Bray's bounded MIR optimizations and skip LLVM's pipeline.
+        (OptimizationLevel::None | OptimizationLevel::Basic, SizePreference::None) => None,
         // Expose small successful paths to inlining while retaining cold panic construction.
         (OptimizationLevel::Full, SizePreference::None) => Some("default<O2>,hotcoldsplit"),
     }
@@ -41,7 +41,7 @@ mod tests {
 
         assert_eq!(
             optimization_pipeline(options(OptimizationLevel::Basic, SizePreference::None)),
-            Some("default<O1>")
+            None
         );
 
         assert_eq!(

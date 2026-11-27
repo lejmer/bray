@@ -131,8 +131,8 @@ impl LlvmTargetMachine {
 
 const fn llvm_optimization_level(level: BrayOptimizationLevel) -> OptimizationLevel {
     match level {
-        BrayOptimizationLevel::None => OptimizationLevel::None,
-        BrayOptimizationLevel::Basic => OptimizationLevel::Less,
+        // Fast instruction selection serves development builds as it serves unoptimized ones.
+        BrayOptimizationLevel::None | BrayOptimizationLevel::Basic => OptimizationLevel::None,
         BrayOptimizationLevel::Full => OptimizationLevel::Default,
     }
 }
