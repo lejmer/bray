@@ -160,6 +160,12 @@ fn microsoft_lld_arguments(
             .filter(|argument| !argument.to_str().is_some_and(|text| text.starts_with("/entry:"))),
     );
 
+    // In place of the driver, supply the dynamic C runtime that provides the startup
+    // routine. Bray-produced library units name the same runtime.
+    if plan.startup_mode() == crate::LinkStartupMode::PlatformCompilerDriver {
+        arguments.push(OsString::from("/defaultlib:msvcrt"));
+    }
+
     Ok(arguments)
 }
 
@@ -1403,6 +1409,8 @@ mod tests {
                     OsString::from("/out:application.exe"),
                     OsString::from("/opt:noref"),
                     OsString::from("main.obj"),
+                    // The startup routine comes from the runtime that the driver would supply.
+                    OsString::from("/defaultlib:msvcrt"),
                 ],
             ),
             (

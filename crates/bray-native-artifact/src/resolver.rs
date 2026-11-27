@@ -115,6 +115,8 @@ pub struct NativeUnitResolver {
     groups: BTreeMap<usize, BTreeSet<usize>>,
     // Each provider is an archive unit and the member that defines the symbol.
     archive_providers: BTreeMap<NativeSymbolIdentity, Vec<(usize, usize)>>,
+    // Archives whose short import records bind a symbol to a dynamic library export.
+    import_providers: BTreeMap<NativeSymbolIdentity, Vec<usize>>,
     selections: Mutex<BTreeMap<Vec<NativeSymbolContract>, SelectionResult>>,
 }
 
@@ -128,6 +130,7 @@ impl NativeUnitResolver {
         let mut providers: BTreeMap<_, Vec<_>> = BTreeMap::new();
         let mut groups: BTreeMap<usize, BTreeSet<usize>> = BTreeMap::new();
         let mut archive_providers: BTreeMap<_, Vec<_>> = BTreeMap::new();
+        let mut import_providers: BTreeMap<_, Vec<_>> = BTreeMap::new();
 
         for (artifact, index) in artifacts.iter().enumerate() {
             let offset = locations.len();
@@ -164,7 +167,10 @@ impl NativeUnitResolver {
                     }
                 }
 
-                if let NativeUnitSummary::LazyArchive { members, .. } = unit.summary() {
+                if let NativeUnitSummary::LazyArchive {
+                    members, imports, ..
+                } = unit.summary()
+                {
                     for (member_index, member) in members.iter().enumerate() {
                         for symbol in member.provided() {
                             archive_providers
@@ -172,6 +178,13 @@ impl NativeUnitResolver {
                                 .or_default()
                                 .push((unit_index, member_index));
                         }
+                    }
+
+                    for symbol in imports.iter() {
+                        import_providers
+                            .entry(symbol.clone())
+                            .or_default()
+                            .push(unit_index);
                     }
                 }
             }
@@ -206,6 +219,7 @@ impl NativeUnitResolver {
             static_symbols,
             groups,
             archive_providers,
+            import_providers,
             selections: Mutex::new(BTreeMap::new()),
         }
     }
@@ -678,13 +692,27 @@ impl NativeUnitResolver {
                 }
             }
 
-            if opaque_terminal
-                || state.external_links
+            let declared = state.external_links
                 || from.is_some_and(|node| {
                     matches!(node,
                     SelectionDependency::Unit(unit) if !self.unit(unit).native_links().is_empty())
-                })
+                });
+
+            // An import record binds the same dynamic library export that a declared native
+            // library provides, so it selects its archive only for an otherwise undeclared demand.
+            if !declared
+                && symbol.version().is_none()
+                && let Some(archives) = self.import_providers.get(symbol.identity())
             {
+                for &archive in archives {
+                    state.include(archive, reason.clone(), from);
+                    state.connect(symbol, from, SelectionDependency::Unit(archive));
+                }
+
+                return Ok(());
+            }
+
+            if opaque_terminal || declared {
                 // Unknown definitions in opaque code or declared native libraries resolve at the linker.
                 return Ok(());
             }
@@ -2022,16 +2050,19 @@ mod tests {
         let archive = NativeUnit::new(
             digest(1),
             NativeUnitKind::OpaqueArchive,
-            NativeUnitSummary::lazy_archive([
-                NativeArchiveMember::new(
-                    [required("used").identity().clone()],
-                    [required("needed")],
-                ),
-                NativeArchiveMember::new(
-                    [required("unused").identity().clone()],
-                    [required("unneeded")],
-                ),
-            ]),
+            NativeUnitSummary::lazy_archive(
+                [
+                    NativeArchiveMember::new(
+                        [required("used").identity().clone()],
+                        [required("needed")],
+                    ),
+                    NativeArchiveMember::new(
+                        [required("unused").identity().clone()],
+                        [required("unneeded")],
+                    ),
+                ],
+                [],
+            ),
             [],
         );
 
@@ -2050,6 +2081,76 @@ mod tests {
             selected.units().iter().map(|unit| unit.digest).collect::<BTreeSet<_>>(),
             [digest(1), digest(2)].into(),
             "an unselected member must not retain its references"
+        );
+    }
+
+    #[test]
+    fn import_records_select_their_archive_only_for_undeclared_demands() {
+        let archive = NativeUnit::new(
+            digest(1),
+            NativeUnitKind::OpaqueArchive,
+            NativeUnitSummary::lazy_archive(
+                [],
+                [
+                    required("WaitOnAddress").identity().clone(),
+                    required("__imp_WaitOnAddress").identity().clone(),
+                ],
+            ),
+            [],
+        );
+
+        let links = [NativeLinkRequirement::new(
+            NonEmptySharedStr::try_new("synchronization")
+                .expect("fixture library name must be valid"),
+            NativeLinkKind::Dynamic,
+        )];
+
+        let caller = |native_links: &[NativeLinkRequirement]| {
+            let unit = unit(
+                2,
+                &[(
+                    "caller",
+                    NativeSymbolBinding::Strong,
+                    NativeDefinitionSelection::Ordinary,
+                )],
+                &[required("WaitOnAddress")],
+                &[],
+            );
+
+            NativeUnit::new(
+                unit.digest(),
+                unit.kind(),
+                unit.summary().clone(),
+                native_links.iter().cloned(),
+            )
+        };
+
+        let selected = |caller, links: &[NativeLinkRequirement]| {
+            NativeUnitResolver::new([index([archive.clone(), caller], [])])
+                .select_with_provided([required("caller")], [], [], links)
+                .expect("the import closes")
+                .units()
+                .iter()
+                .map(|unit| unit.digest)
+                .collect::<BTreeSet<_>>()
+        };
+
+        assert_eq!(
+            selected(caller(&[]), &[]),
+            [digest(1), digest(2)].into(),
+            "an undeclared import selects the archive that records it"
+        );
+
+        assert_eq!(
+            selected(caller(&links), &[]),
+            [digest(2)].into(),
+            "the caller's own native library binds the same export"
+        );
+
+        assert_eq!(
+            selected(caller(&[]), &links),
+            [digest(2)].into(),
+            "a product native library binds the same export"
         );
     }
 
@@ -2292,10 +2393,13 @@ mod tests {
         let archive = NativeUnit::new(
             digest(1),
             NativeUnitKind::OpaqueArchive,
-            NativeUnitSummary::lazy_archive([NativeArchiveMember::new(
-                [required("service").identity().clone()],
-                [required("bridge"), required("external")],
-            )]),
+            NativeUnitSummary::lazy_archive(
+                [NativeArchiveMember::new(
+                    [required("service").identity().clone()],
+                    [required("bridge"), required("external")],
+                )],
+                [],
+            ),
             [],
         );
 
@@ -2353,10 +2457,13 @@ mod tests {
             let archive = NativeUnit::new(
                 digest(1),
                 NativeUnitKind::OpaqueArchive,
-                NativeUnitSummary::lazy_archive([NativeArchiveMember::new(
-                    [required("service").identity().clone()],
+                NativeUnitSummary::lazy_archive(
+                    [NativeArchiveMember::new(
+                        [required("service").identity().clone()],
+                        [],
+                    )],
                     [],
-                )]),
+                ),
                 [],
             );
 

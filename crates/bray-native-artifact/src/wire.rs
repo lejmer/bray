@@ -275,6 +275,7 @@ enum SummaryWire {
     },
     LazyArchive {
         members: Vec<ArchiveMemberWire>,
+        imports: Vec<IdentityWire>,
     },
 }
 
@@ -307,7 +308,9 @@ impl SummaryWire {
                 provided: provided.iter().map(IdentityWire::from_identity).collect(),
                 references: references.iter().map(SymbolWire::from_symbol).collect(),
             },
-            NativeUnitSummary::LazyArchive { members, .. } => Self::LazyArchive {
+            NativeUnitSummary::LazyArchive {
+                members, imports, ..
+            } => Self::LazyArchive {
                 members: members
                     .iter()
                     .map(|member| ArchiveMemberWire {
@@ -323,6 +326,7 @@ impl SummaryWire {
                             .collect(),
                     })
                     .collect(),
+                imports: imports.iter().map(IdentityWire::from_identity).collect(),
             },
         }
     }
@@ -365,7 +369,7 @@ impl SummaryWire {
                     .collect::<Result<Vec<_>, _>>()?
                     .into(),
             }),
-            Self::LazyArchive { members } => Ok(NativeUnitSummary::lazy_archive(
+            Self::LazyArchive { members, imports } => Ok(NativeUnitSummary::lazy_archive(
                 members
                     .into_iter()
                     .map(|member| {
@@ -382,6 +386,10 @@ impl SummaryWire {
                                 .collect::<Result<Vec<_>, NativeIndexError>>()?,
                         ))
                     })
+                    .collect::<Result<Vec<_>, NativeIndexError>>()?,
+                imports
+                    .into_iter()
+                    .map(IdentityWire::into_identity)
                     .collect::<Result<Vec<_>, NativeIndexError>>()?,
             )),
         }

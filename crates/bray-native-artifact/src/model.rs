@@ -155,8 +155,10 @@ pub enum NativeUnitSummary {
     /// A lazy static archive whose members the linker extracts only for demanded symbols.
     /// Selecting an export retains the physical archive and closes only the selecting member.
     LazyArchive {
-        /// Members in archive order.
+        /// Object members in archive order.
         members: Arc<[NativeArchiveMember]>,
+        /// Symbols that short import records bind to dynamic library exports.
+        imports: Arc<[NativeSymbolIdentity]>,
         /// Every externally selectable symbol in the physical archive.
         provided: Arc<[NativeSymbolIdentity]>,
         /// Every member reference that leaves the physical archive.
@@ -215,12 +217,17 @@ impl NativeUnitSummary {
     }
 
     /// Creates a lazy archive after the producer establishes every member's exports.
-    pub fn lazy_archive(members: impl IntoIterator<Item = NativeArchiveMember>) -> Self {
+    pub fn lazy_archive(
+        members: impl IntoIterator<Item = NativeArchiveMember>,
+        imports: impl IntoIterator<Item = NativeSymbolIdentity>,
+    ) -> Self {
         let members = members.into_iter().collect::<Arc<[_]>>();
+        let imports = sorted_unique_shared_slice(imports);
 
         let provided = members
             .iter()
             .flat_map(|member| member.provided.iter().cloned())
+            .chain(imports.iter().cloned())
             .collect::<std::collections::BTreeSet<_>>();
 
         let references = members
@@ -233,6 +240,7 @@ impl NativeUnitSummary {
             references: sorted_unique_shared_slice(references),
             provided: provided.into_iter().collect::<Vec<_>>().into(),
             members,
+            imports,
         }
     }
 

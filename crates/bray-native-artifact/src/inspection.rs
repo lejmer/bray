@@ -305,6 +305,7 @@ fn object_comdats(
 pub fn scan_object_archive_summary(bytes: &[u8]) -> Result<NativeUnitSummary, object::Error> {
     let archive = object::read::archive::ArchiveFile::parse(bytes)?;
     let mut members = Vec::new();
+    let mut imports = Vec::new();
     let mut complete = true;
 
     for member in archive.members() {
@@ -320,12 +321,13 @@ pub fn scan_object_archive_summary(bytes: &[u8]) -> Result<NativeUnitSummary, ob
             let thunk = (import.import_type() == object::read::coff::ImportType::Code)
                 .then(|| symbol.to_owned());
 
-            members.push(crate::NativeArchiveMember::new(
-                std::iter::once(format!("__imp_{symbol}")).chain(thunk).filter_map(|name| {
-                    NonEmptySharedStr::try_new(name.as_str()).map(NativeSymbolIdentity::Name)
-                }),
-                [],
-            ));
+            imports.extend(
+                std::iter::once(format!("__imp_{symbol}"))
+                    .chain(thunk)
+                    .filter_map(|name| {
+                        NonEmptySharedStr::try_new(name.as_str()).map(NativeSymbolIdentity::Name)
+                    }),
+            );
 
             continue;
         }
@@ -336,9 +338,9 @@ pub fn scan_object_archive_summary(bytes: &[u8]) -> Result<NativeUnitSummary, ob
             continue;
         };
 
-        let (definitions, imports) = object_symbols(&file);
+        let (definitions, references) = object_symbols(&file);
 
-        members.push(crate::NativeArchiveMember::new(definitions, imports));
+        members.push(crate::NativeArchiveMember::new(definitions, references));
 
         // Unknown selection/retention within an ordinary archive remains the linker's
         // responsibility. Linker directives can add exports beyond its symbol table.
@@ -348,19 +350,52 @@ pub fn scan_object_archive_summary(bytes: &[u8]) -> Result<NativeUnitSummary, ob
                 .filter(|symbol| symbol.is_global() || symbol.is_weak())
                 .all(|symbol| symbol.name().is_ok_and(|name| !name.is_empty()))
             && file.sections().all(|section| {
+                if file.format() == object::BinaryFormat::Coff
+                    && section.name().ok() == Some(".drectve")
+                {
+                    return lazy_member_directives(&section);
+                }
+
                 section.kind() != SectionKind::Linker
-                    && !(file.format() == object::BinaryFormat::Coff
-                        && section.name().ok() == Some(".drectve"))
             });
     }
 
     Ok(if complete {
-        NativeUnitSummary::lazy_archive(members)
+        NativeUnitSummary::lazy_archive(members, imports)
     } else {
         NativeUnitSummary::opaque_archive(
-            members.iter().flat_map(|member| member.provided().iter().cloned()),
+            members
+                .iter()
+                .flat_map(|member| member.provided().iter().cloned())
+                .chain(imports),
             members.iter().flat_map(|member| member.references().iter().cloned()),
         )
+    })
+}
+
+/// Accepts the COFF directives that act only after the linker extracts the member, so
+/// they neither select the member nor add exports beyond its symbol table.
+fn lazy_member_directives(section: &object::Section<'_, '_>) -> bool {
+    let Some(options) = section
+        .data()
+        .ok()
+        .and_then(|bytes| std::str::from_utf8(bytes).ok())
+    else {
+        return false;
+    };
+
+    options.split_whitespace().all(|option| {
+        let Some(option) = option.strip_prefix(['/', '-']) else {
+            return false;
+        };
+
+        let name = option.split_once(':').map_or(option, |(name, _)| name);
+
+        // A default library joins the link with the extracted member, a mismatch check
+        // validates it, and an alternate name resolves only symbols that remain undefined.
+        ["defaultlib", "failifmismatch", "alternatename"]
+            .iter()
+            .any(|accepted| name.eq_ignore_ascii_case(accepted))
     })
 }
 
@@ -494,38 +529,13 @@ mod tests {
 
     #[test]
     fn archive_export_inventory_distinguishes_readable_and_unknown_members() {
-        fn archive(member: &[u8]) -> Vec<u8> {
-            let mut bytes = b"!<arch>\n".to_vec();
-
-            bytes.extend(
-                format!(
-                    "{:<16}{:<12}{:<6}{:<6}{:<8}{:<10}`\n",
-                    "entry.o/",
-                    0,
-                    0,
-                    0,
-                    "100644",
-                    member.len()
-                )
-                .as_bytes(),
-            );
-
-            bytes.extend_from_slice(member);
-
-            if member.len() % 2 != 0 {
-                bytes.push(b'\n');
-            }
-
-            bytes
-        }
-
         let object = object_fixture(BinaryFormat::Elf, ".text");
 
         let summary =
             scan_object_archive_summary(&archive(&object)).expect("native archive inventory");
 
         assert!(
-            matches!(summary, NativeUnitSummary::LazyArchive { provided, references, members }
+            matches!(summary, NativeUnitSummary::LazyArchive { provided, references, members, .. }
             if provided.len() == 1 && references.len() == 1 && members.len() == 1)
         );
 
@@ -594,22 +604,25 @@ mod tests {
             scan_object_archive_summary(&archive(&import)).expect("import archive inventory");
 
         let NativeUnitSummary::LazyArchive {
+            members,
+            imports,
             provided,
             references,
-            ..
         } = &summary
         else {
             panic!("an import archive must be lazy, found {summary:?}");
         };
 
+        // Import records are kept apart from object members because a declared native
+        // library binds the same export.
+        assert!(members.is_empty());
+
         assert_eq!(
-            provided
-                .iter()
-                .map(|symbol| symbol.name())
-                .collect::<Vec<_>>(),
+            imports.iter().map(|symbol| symbol.name()).collect::<Vec<_>>(),
             [Some("WakeByAddressAll"), Some("__imp_WakeByAddressAll")]
         );
 
+        assert_eq!(provided, imports);
         assert!(references.is_empty());
 
         let opaque = object_fixture(BinaryFormat::Coff, ".drectve");
@@ -618,6 +631,48 @@ mod tests {
             .expect("unknown linker directives retain opaque archive behavior");
 
         assert!(matches!(summary, NativeUnitSummary::Opaque { .. }));
+    }
+
+    #[test]
+    fn archive_members_keep_lazy_extraction_with_extraction_time_directives() {
+        let member = |directives: &str| {
+            let mut object = Object::new(BinaryFormat::Coff, Architecture::X86_64, Endianness::Little);
+            let text = object.section_id(StandardSection::Text);
+
+            object.append_section_data(text, &[0xc3], 1);
+
+            object.add_symbol(Symbol {
+                name: b"service".to_vec(),
+                value: 0,
+                size: 1,
+                kind: SymbolKind::Text,
+                scope: SymbolScope::Linkage,
+                weak: false,
+                section: SymbolSection::Section(text),
+                flags: SymbolFlags::None,
+            });
+
+            let section = object.add_section(Vec::new(), b".drectve".to_vec(), SectionKind::Linker);
+
+            object.append_section_data(section, directives.as_bytes(), 1);
+
+            object.write().expect("fixture contents must be written")
+        };
+
+        let lazy = member("/DEFAULTLIB:msvcrt.lib -failifmismatch:_MSC_VER=1900 /ALTERNATENAME:a=b");
+
+        assert!(matches!(
+            scan_object_archive_summary(&archive(&lazy)).expect("directive archive inventory"),
+            NativeUnitSummary::LazyArchive { members, .. } if members.len() == 1
+        ));
+
+        // An export directive adds a dynamic export that the symbol table does not show.
+        let exporting = member("/DEFAULTLIB:msvcrt.lib /EXPORT:service");
+
+        assert!(matches!(
+            scan_object_archive_summary(&archive(&exporting)).expect("directive archive inventory"),
+            NativeUnitSummary::Opaque { .. }
+        ));
     }
 
     #[test]
@@ -800,6 +855,31 @@ mod tests {
             assert_eq!(definitions.len(), 1);
             assert!(roots.is_empty());
         }
+    }
+
+    fn archive(member: &[u8]) -> Vec<u8> {
+        let mut bytes = b"!<arch>\n".to_vec();
+
+        bytes.extend(
+            format!(
+                "{:<16}{:<12}{:<6}{:<6}{:<8}{:<10}`\n",
+                "entry.o/",
+                0,
+                0,
+                0,
+                "100644",
+                member.len()
+            )
+            .as_bytes(),
+        );
+
+        bytes.extend_from_slice(member);
+
+        if member.len() % 2 != 0 {
+            bytes.push(b'\n');
+        }
+
+        bytes
     }
 
     fn object_fixture(format: BinaryFormat, lifecycle_section: &str) -> Vec<u8> {
