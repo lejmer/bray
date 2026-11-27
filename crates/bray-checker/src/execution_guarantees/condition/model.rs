@@ -204,13 +204,15 @@ impl ConditionNode {
         let mut size = 1_u32;
 
         // One pass keeps node construction to a single child iterator.
-        kind.for_each_structural_child(&mut |child| {
+        let _ = kind.try_for_each_structural_child(&mut |child| {
             contains_deferred |= child.contains_deferred();
             contains_storage |= child.contains_storage();
             contains_redundant_reference_context |= child.contains_redundant_reference_context();
             roots |= child.0.roots;
             mutations |= child.0.mutations;
             size = size.saturating_add(child.0.size);
+
+            std::ops::ControlFlow::Continue(())
         });
 
         let prefix_starts_empty = match &kind {

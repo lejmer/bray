@@ -210,7 +210,11 @@ impl ExecutionCondition {
                     if let K::DeferredValue { value: data, .. } = value.kind() && !keep(value) {
                         if visit(data) { pending.push((data.as_ref(), false)); }
                     } else {
-                        pending.extend(value.structural_children().filter(|child| visit(child)).map(|child| (child, false)));
+                        let _ = value.kind().try_for_each_structural_child(&mut |child| {
+                            if visit(child) { pending.push((child, false)); }
+
+                            std::ops::ControlFlow::Continue(())
+                        });
                     }
 
                     continue;
@@ -259,7 +263,9 @@ impl ExecutionCondition {
                             Self::reference_value(context.clone(), reached.clone())
                         }
                     }
-                    _ if value.structural_children().any(changed) => value.map_children(child),
+                    _ if value.kind().try_for_each_structural_child(&mut |original| {
+                        if changed(original) { std::ops::ControlFlow::Break(()) } else { std::ops::ControlFlow::Continue(()) }
+                    }).is_break() => value.map_children(child),
                     _ => value.clone(),
                 };
 

@@ -38,13 +38,15 @@ pub(super) fn mutation_bit(occurrence: bray_bound_tree::BoundExecutionSite) -> u
 }
 
 #[inline(never)]
-fn visit_frame_conditions(
-    frame: &crate::execution_guarantees::ExecutionDeferredValue,
-    visit: &mut dyn FnMut(&ExecutionCondition),
-) {
+fn visit_frame_conditions<'a>(
+    frame: &'a crate::execution_guarantees::ExecutionDeferredValue,
+    visit: &mut dyn FnMut(&'a ExecutionCondition) -> ControlFlow<()>,
+) -> ControlFlow<()> {
     for condition in frame.conditions() {
-        visit(condition);
+        visit(condition)?;
     }
+
+    ControlFlow::Continue(())
 }
 
 pub(super) fn visit_once<K: Eq + Hash>(visited: &mut HashSet<K>, node: K, has_pending: bool) -> bool {
@@ -120,7 +122,6 @@ impl ExecutionCondition {
 
     pub(super) fn children(&self) -> impl Iterator<Item = &Self> { self.kind().children() }
 
-    pub(super) fn structural_children(&self) -> impl Iterator<Item = &Self> { self.kind().structural_children() }
 }
 
 impl super::ExecutionConditionKind {
@@ -198,29 +199,22 @@ impl super::ExecutionConditionKind {
     }
 
     /// Metadata belongs to the complete representation, including immutable epoch origins.
-    /// Visits the same children as `structural_children`, in the same order.
-    /// The deferred frame's conditions form a large iterator, so they are
-    /// visited out of line.
-    pub(super) fn for_each_structural_child(&self, visit: &mut dyn FnMut(&ExecutionCondition)) {
+    /// Visits the operands, a post-state's origin and a deferred frame's
+    /// conditions until `visit` breaks. The frame's conditions form a large
+    /// iterator, so they are visited out of line to keep callers' frames small.
+    pub(super) fn try_for_each_structural_child<'a>(
+        &'a self,
+        visit: &mut dyn FnMut(&'a ExecutionCondition) -> ControlFlow<()>,
+    ) -> ControlFlow<()> {
         for child in self.children() {
-            visit(child);
+            visit(child)?;
         }
 
         match self {
             K::PostState(_, origin) => visit(origin),
             K::DeferredValue { frame, .. } => visit_frame_conditions(frame, visit),
-            _ => {}
+            _ => ControlFlow::Continue(()),
         }
-    }
-
-    pub(super) fn structural_children(&self) -> impl Iterator<Item = &ExecutionCondition> {
-        self.children().chain(match self {
-            K::PostState(_, origin) => Some(origin.as_ref()),
-            _ => None,
-        }).chain(match self {
-            K::DeferredValue { frame, .. } => Some(frame.conditions()),
-            _ => None,
-        }.into_iter().flatten())
     }
 }
 
@@ -238,7 +232,11 @@ impl ExecutionCondition {
 
             if let K::DeferredValue { frame, .. } = value.kind() { frames.push(frame); }
 
-            pending.extend(value.structural_children().filter(|child| child.contains_deferred()));
+            let _ = value.kind().try_for_each_structural_child(&mut |child| {
+                if child.contains_deferred() { pending.push(child); }
+
+                ControlFlow::Continue(())
+            });
         }
 
         frames
