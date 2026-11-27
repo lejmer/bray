@@ -335,7 +335,8 @@ impl ExecutionState {
         retain_ordinary_facts(&mut self.assumptions, &self.proofs, &availability_expired, |condition| {
             let memo = queries(condition);
 
-            retained_contents(condition, &memo) || !borrowed_changed(condition, &memo)
+            // Most facts observe nothing that changed. Ask that before the retention proof.
+            !borrowed_changed(condition, &memo) || retained_contents(condition, &memo)
         });
 
         let mut retired_conditions = BTreeSet::new();
