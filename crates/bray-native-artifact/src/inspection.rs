@@ -304,14 +304,33 @@ fn object_comdats(
 /// Unsupported members retain mandatory opaque behavior and all known references.
 pub fn scan_object_archive_summary(bytes: &[u8]) -> Result<NativeUnitSummary, object::Error> {
     let archive = object::read::archive::ArchiveFile::parse(bytes)?;
-    let mut provided = BTreeSet::new();
-    let mut references = BTreeSet::new();
+    let mut members = Vec::new();
     let mut complete = true;
 
     for member in archive.members() {
         let data = member?.data(bytes)?;
 
-        // Native archives may also contain short import records or unsupported members.
+        // A short import record defines the import address and, for code, its thunk.
+        if let Ok(import) = object::read::coff::ImportFile::parse(data) {
+            let Ok(symbol) = std::str::from_utf8(import.symbol()) else {
+                complete = false;
+                continue;
+            };
+
+            let thunk = (import.import_type() == object::read::coff::ImportType::Code)
+                .then(|| symbol.to_owned());
+
+            members.push(crate::NativeArchiveMember::new(
+                std::iter::once(format!("__imp_{symbol}")).chain(thunk).filter_map(|name| {
+                    NonEmptySharedStr::try_new(name.as_str()).map(NativeSymbolIdentity::Name)
+                }),
+                [],
+            ));
+
+            continue;
+        }
+
+        // Native archives may also contain unsupported members.
         let Ok(file) = object::File::parse(data) else {
             complete = false;
             continue;
@@ -319,8 +338,7 @@ pub fn scan_object_archive_summary(bytes: &[u8]) -> Result<NativeUnitSummary, ob
 
         let (definitions, imports) = object_symbols(&file);
 
-        provided.extend(definitions);
-        references.extend(imports);
+        members.push(crate::NativeArchiveMember::new(definitions, imports));
 
         // Unknown selection/retention within an ordinary archive remains the linker's
         // responsibility. Linker directives can add exports beyond its symbol table.
@@ -337,9 +355,12 @@ pub fn scan_object_archive_summary(bytes: &[u8]) -> Result<NativeUnitSummary, ob
     }
 
     Ok(if complete {
-        NativeUnitSummary::lazy_archive(provided, references)
+        NativeUnitSummary::lazy_archive(members)
     } else {
-        NativeUnitSummary::opaque_archive(provided, references)
+        NativeUnitSummary::opaque_archive(
+            members.iter().flat_map(|member| member.provided().iter().cloned()),
+            members.iter().flat_map(|member| member.references().iter().cloned()),
+        )
     })
 }
 
@@ -504,8 +525,8 @@ mod tests {
             scan_object_archive_summary(&archive(&object)).expect("native archive inventory");
 
         assert!(
-            matches!(summary, NativeUnitSummary::LazyArchive { provided, references }
-            if provided.len() == 1 && references.len() == 1)
+            matches!(summary, NativeUnitSummary::LazyArchive { provided, references, members }
+            if provided.len() == 1 && references.len() == 1 && members.len() == 1)
         );
 
         let summary = scan_object_archive_summary(&archive(b"unsupported member"))
@@ -541,10 +562,55 @@ mod tests {
 
         assert!(matches!(
             scan_object_archive_summary(&archive(&uncertain)).expect("complete archive inventory"),
-            NativeUnitSummary::LazyArchive { provided, references }
+            NativeUnitSummary::LazyArchive { provided, references, .. }
                 if provided.len() == 1 && references.len() == 1
                     && references[0].presence() == bray_symbols::NativeSymbolPresence::Optional
         ));
+
+        // A short import record names the import address and, for code, its thunk.
+        let mut import = Vec::new();
+
+        import.extend_from_slice(&0_u16.to_le_bytes());
+        import.extend_from_slice(&0xffff_u16.to_le_bytes());
+        import.extend_from_slice(&0_u16.to_le_bytes());
+        import.extend_from_slice(&0x8664_u16.to_le_bytes());
+        import.extend_from_slice(&0_u32.to_le_bytes());
+
+        let names = b"WakeByAddressAll\0kernel32.dll\0";
+
+        import.extend_from_slice(
+            &u32::try_from(names.len())
+                .expect("short import size")
+                .to_le_bytes(),
+        );
+
+        import.extend_from_slice(&0_u16.to_le_bytes());
+
+        // Code import named by its symbol.
+        import.extend_from_slice(&(1_u16 << 2).to_le_bytes());
+        import.extend_from_slice(names);
+
+        let summary =
+            scan_object_archive_summary(&archive(&import)).expect("import archive inventory");
+
+        let NativeUnitSummary::LazyArchive {
+            provided,
+            references,
+            ..
+        } = &summary
+        else {
+            panic!("an import archive must be lazy, found {summary:?}");
+        };
+
+        assert_eq!(
+            provided
+                .iter()
+                .map(|symbol| symbol.name())
+                .collect::<Vec<_>>(),
+            [Some("WakeByAddressAll"), Some("__imp_WakeByAddressAll")]
+        );
+
+        assert!(references.is_empty());
 
         let opaque = object_fixture(BinaryFormat::Coff, ".drectve");
 
@@ -775,3 +841,4 @@ mod tests {
         object.write().expect("fixture contents must be written")
     }
 }
+

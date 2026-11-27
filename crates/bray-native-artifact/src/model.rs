@@ -152,12 +152,14 @@ pub enum NativeUnitSummary {
         /// Known references outside this physical payload. This inventory may be incomplete.
         references: Arc<[NativeSymbolContract]>,
     },
-    /// A lazy static archive with a complete export inventory and conservative member closure.
-    /// Selecting an export retains the physical archive; unused exports impose no demand.
+    /// A lazy static archive whose members the linker extracts only for demanded symbols.
+    /// Selecting an export retains the physical archive and closes only the selecting member.
     LazyArchive {
+        /// Members in archive order.
+        members: Arc<[NativeArchiveMember]>,
         /// Every externally selectable symbol in the physical archive.
         provided: Arc<[NativeSymbolIdentity]>,
-        /// Conservative references outside the physical archive.
+        /// Every member reference that leaves the physical archive.
         references: Arc<[NativeSymbolContract]>,
     },
 }
@@ -212,22 +214,25 @@ impl NativeUnitSummary {
         Self::opaque_with_providers(provided.iter().cloned(), references)
     }
 
-    /// Creates a lazy archive after the producer establishes its complete export inventory.
-    pub fn lazy_archive(
-        provided: impl IntoIterator<Item = NativeSymbolIdentity>,
-        references: impl IntoIterator<Item = NativeSymbolContract>,
-    ) -> Self {
-        let provided = provided
-            .into_iter()
+    /// Creates a lazy archive after the producer establishes every member's exports.
+    pub fn lazy_archive(members: impl IntoIterator<Item = NativeArchiveMember>) -> Self {
+        let members = members.into_iter().collect::<Arc<[_]>>();
+
+        let provided = members
+            .iter()
+            .flat_map(|member| member.provided.iter().cloned())
             .collect::<std::collections::BTreeSet<_>>();
 
-        let references = references
-            .into_iter()
-            .filter(|reference| !provided.contains(reference.identity()));
+        let references = members
+            .iter()
+            .flat_map(|member| member.references.iter())
+            .filter(|reference| !provided.contains(reference.identity()))
+            .cloned();
 
         Self::LazyArchive {
             references: sorted_unique_shared_slice(references),
             provided: provided.into_iter().collect::<Vec<_>>().into(),
+            members,
         }
     }
 
@@ -238,6 +243,42 @@ impl NativeUnitSummary {
             | Self::Opaque { references, .. }
             | Self::LazyArchive { references, .. } => references,
         }
+    }
+}
+
+/// One linker-extractable member of a lazy static archive.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct NativeArchiveMember {
+    provided: Arc<[NativeSymbolIdentity]>,
+    references: Arc<[NativeSymbolContract]>,
+}
+
+impl NativeArchiveMember {
+    /// Creates a member from its exports and its references to other definitions.
+    pub fn new(
+        provided: impl IntoIterator<Item = NativeSymbolIdentity>,
+        references: impl IntoIterator<Item = NativeSymbolContract>,
+    ) -> Self {
+        let provided = sorted_unique_shared_slice(provided);
+
+        let references = references
+            .into_iter()
+            .filter(|reference| provided.binary_search(reference.identity()).is_err());
+
+        Self {
+            references: sorted_unique_shared_slice(references),
+            provided,
+        }
+    }
+
+    /// Returns the symbols whose demand makes the linker extract this member.
+    pub fn provided(&self) -> &[NativeSymbolIdentity] {
+        &self.provided
+    }
+
+    /// Returns the references that an extracted member imposes.
+    pub fn references(&self) -> &[NativeSymbolContract] {
+        &self.references
     }
 }
 
@@ -297,13 +338,8 @@ impl NativeUnit {
                 provided: sorted(provided),
                 references: sorted(references),
             },
-            NativeUnitSummary::LazyArchive {
-                provided,
-                references,
-            } => NativeUnitSummary::LazyArchive {
-                provided: sorted(provided),
-                references: sorted(references),
-            },
+            // The constructor already establishes canonical member and union order.
+            archive @ NativeUnitSummary::LazyArchive { .. } => archive,
         };
 
         let mut native_links = native_links.into_iter().collect::<Vec<_>>();

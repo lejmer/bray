@@ -274,9 +274,15 @@ enum SummaryWire {
         references: Vec<SymbolWire>,
     },
     LazyArchive {
-        provided: Vec<IdentityWire>,
-        references: Vec<SymbolWire>,
+        members: Vec<ArchiveMemberWire>,
     },
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct ArchiveMemberWire {
+    provided: Vec<IdentityWire>,
+    references: Vec<SymbolWire>,
 }
 
 impl SummaryWire {
@@ -301,12 +307,22 @@ impl SummaryWire {
                 provided: provided.iter().map(IdentityWire::from_identity).collect(),
                 references: references.iter().map(SymbolWire::from_symbol).collect(),
             },
-            NativeUnitSummary::LazyArchive {
-                provided,
-                references,
-            } => Self::LazyArchive {
-                provided: provided.iter().map(IdentityWire::from_identity).collect(),
-                references: references.iter().map(SymbolWire::from_symbol).collect(),
+            NativeUnitSummary::LazyArchive { members, .. } => Self::LazyArchive {
+                members: members
+                    .iter()
+                    .map(|member| ArchiveMemberWire {
+                        provided: member
+                            .provided()
+                            .iter()
+                            .map(IdentityWire::from_identity)
+                            .collect(),
+                        references: member
+                            .references()
+                            .iter()
+                            .map(SymbolWire::from_symbol)
+                            .collect(),
+                    })
+                    .collect(),
             },
         }
     }
@@ -349,21 +365,25 @@ impl SummaryWire {
                     .collect::<Result<Vec<_>, _>>()?
                     .into(),
             }),
-            Self::LazyArchive {
-                provided,
-                references,
-            } => Ok(NativeUnitSummary::LazyArchive {
-                provided: provided
+            Self::LazyArchive { members } => Ok(NativeUnitSummary::lazy_archive(
+                members
                     .into_iter()
-                    .map(IdentityWire::into_identity)
-                    .collect::<Result<Vec<_>, _>>()?
-                    .into(),
-                references: references
-                    .into_iter()
-                    .map(SymbolWire::into_symbol)
-                    .collect::<Result<Vec<_>, _>>()?
-                    .into(),
-            }),
+                    .map(|member| {
+                        Ok(crate::NativeArchiveMember::new(
+                            member
+                                .provided
+                                .into_iter()
+                                .map(IdentityWire::into_identity)
+                                .collect::<Result<Vec<_>, NativeIndexError>>()?,
+                            member
+                                .references
+                                .into_iter()
+                                .map(SymbolWire::into_symbol)
+                                .collect::<Result<Vec<_>, NativeIndexError>>()?,
+                        ))
+                    })
+                    .collect::<Result<Vec<_>, NativeIndexError>>()?,
+            )),
         }
     }
 }

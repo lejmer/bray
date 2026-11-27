@@ -76,7 +76,16 @@ fn synchronous_report_publishers_retain_their_product_host_control() {
     ] {
         let (_, plan) = runtime_native_plan(source);
 
-        assert!(plan.product_host().is_some());
+        let host = plan
+            .product_host()
+            .expect("a report publisher retains its product host");
+
+        // The linker may only root the control surface that the owner unit defines.
+        assert_eq!(
+            plan.preservation_roots()
+                .any(|symbol| symbol == host.control_symbol()),
+            host.requires_control()
+        );
 
         assert!(
             plan.executable_host()

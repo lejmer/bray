@@ -287,10 +287,11 @@ impl Compilation {
         if product == LinkedProductKind::SharedLibrary
             && let Some(host) = product_host
         {
-            native_exports.extend([
-                host.descriptor_symbol().clone(),
-                host.control_symbol().clone(),
-            ]);
+            native_exports.insert(host.descriptor_symbol().clone());
+
+            if host.requires_control() {
+                native_exports.insert(host.control_symbol().clone());
+            }
         }
 
         inputs = inputs.with_exported_symbols(native_exports);
