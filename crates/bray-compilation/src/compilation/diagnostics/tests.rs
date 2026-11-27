@@ -73,8 +73,10 @@ fn diagnostics_share_body_work_beyond_the_query_cache_working_set() {
     let count = 4_100;
     let mut source = String::from("module app;\n");
 
+    // Equal unit sizes keep the batch in source order, so the first item leaves
+    // the working set before the last one.
     for index in 0..count {
-        writeln!(source, "func item{index}() {{}}").expect("fixture source must be constructed");
+        writeln!(source, "func item{index:04}() {{}}").expect("fixture source must be constructed");
     }
 
     let compilation = compilation(&source);
@@ -103,7 +105,7 @@ fn diagnostics_share_body_work_beyond_the_query_cache_working_set() {
     assert_eq!(bodies.load(Ordering::SeqCst), count);
     assert_eq!(contracts.load(Ordering::SeqCst), count);
 
-    let first = source_function_body_key(&compilation, "item0");
+    let first = source_function_body_key(&compilation, "item0000");
     let last = source_function_body_key(&compilation, "item4099");
 
     assert_eq!(
