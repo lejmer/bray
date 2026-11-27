@@ -298,13 +298,6 @@ impl ExecutionCondition {
         }).clone().unwrap_or_else(|| self.clone())
     }
 
-    /// The root bits that bounded rewriting of this condition may filter by.
-    /// A condition larger than the work budget can exhaust it, so its rewrite
-    /// visits every subterm as the budget accounting requires.
-    pub(crate) fn filter_roots(&self, roots: u64) -> Option<u64> {
-        (usize::try_from(self.0.size).is_ok_and(|size| size <= Self::WORK_LIMIT)).then_some(roots)
-    }
-
     /// Whether a subterm can equal an input with these root bits. `u64::MAX`
     /// admits every subterm, including inputs that have no identified root.
     pub(crate) fn may_contain(&self, roots: u64) -> bool { roots == u64::MAX || self.0.roots & roots != 0 }

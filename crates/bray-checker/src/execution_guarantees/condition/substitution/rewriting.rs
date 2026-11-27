@@ -3,7 +3,7 @@ use bray_bound_tree::BoundOperator;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
-use super::scope::{MapRole, RewriteMap, RewriteMemo, RewriteMemos};
+use super::scope::{MapRole, RewriteMap, RewriteMemo};
 use super::super::memo::{ExecutionMemo, memoized};
 
 impl ExecutionCondition {
@@ -19,7 +19,6 @@ impl ExecutionCondition {
                 K::Result => Some(result.clone()),
                 _ => None,
             },
-            u64::MAX,
             budget,
             None,
         )
@@ -31,23 +30,18 @@ impl ExecutionCondition {
         super::scope::SnapshotSubstitution::new(snapshots).apply(self)
     }
 
-    /// `roots` covers every input that `replace` changes, or is `u64::MAX`.
     pub(super) fn substitute_values(
         &self,
         replace: &impl Fn(&Self) -> Option<Self>,
-        roots: u64,
         budget: &mut usize,
         memo: Option<&ExecutionMemo<Self>>,
     ) -> Self {
-        if !self.may_contain(roots) { return self.clone(); }
-
-        memoized(memo, self, budget, |budget| self.substitute_values_inner(replace, roots, budget, memo))
+        memoized(memo, self, budget, |budget| self.substitute_values_inner(replace, budget, memo))
     }
 
     fn substitute_values_inner(
         &self,
         replace: &impl Fn(&Self) -> Option<Self>,
-        roots: u64,
         budget: &mut usize,
         memo: Option<&ExecutionMemo<Self>>,
     ) -> Self {
@@ -68,10 +62,10 @@ impl ExecutionCondition {
             K::Predicate(predicate, substitution, operands) => Self::predicate(
                 *predicate,
                 *substitution,
-                operands.iter().map(|operand| operand.substitute_values(replace, roots, budget, memo)
+                operands.iter().map(|operand| operand.substitute_values(replace, budget, memo)
                     .argument_value(operand.is_reference())).collect(),
             ),
-            _ => self.map_children(|child| child.substitute_values(replace, roots, budget, memo)),
+            _ => self.map_children(|child| child.substitute_values(replace, budget, memo)),
         };
 
         self.reuse_unchanged(rewritten)
@@ -189,17 +183,9 @@ impl ExecutionCondition {
     }
 
     pub(crate) fn with_equalities(&self, replacements: &BTreeMap<Self, Self>) -> Self {
-        let roots = super::scope::changing_roots(replacements.iter());
+        if !super::scope::changes_any(replacements.iter()) { return self.clone(); }
 
-        if roots == 0 { return self.clone(); }
-
-        let filtered = self.filter_roots(roots).unwrap_or(u64::MAX);
-        let rewritten = rewrite_equalities(self, replacements, None, filtered, &mut { Self::WORK_LIMIT }, None);
-
-        debug_assert_eq!(rewritten, rewrite_equalities(self, replacements, None, u64::MAX, &mut { Self::WORK_LIMIT }, None),
-            "root filtering cannot change an equality rewrite of {self:?}");
-
-        rewritten
+        rewrite_equalities(self, replacements, None, &mut { Self::WORK_LIMIT }, None)
     }
 
     pub(crate) fn with_joined_values(
@@ -262,45 +248,21 @@ pub(super) fn joined_value(
     value: &ExecutionCondition,
     values: RewriteMap<'_>,
     owners: RewriteMap<'_>,
-    memo: Option<&RewriteMemos>,
+    memo: Option<&RewriteMemo>,
 ) -> ExecutionCondition {
     if !values.changed && !owners.changed {
         return value.clone();
     }
 
-    filtered_rewrite(value, values.entries, owners, values.roots | owners.roots, memo, MapRole::Value)
-}
-
-/// Filters a bounded join rewrite only when it cannot exhaust its budget. The
-/// filtered rewrite consumes less work, so its results use a separate memo.
-fn filtered_rewrite(
-    value: &ExecutionCondition,
-    replacements: &BTreeMap<ExecutionCondition, ExecutionCondition>,
-    owners: RewriteMap<'_>,
-    roots: u64,
-    memo: Option<&RewriteMemos>,
-    role: MapRole,
-) -> ExecutionCondition {
-    let complete = memo.map(|memo| (&memo.complete, role));
-
-    let Some(roots) = value.filter_roots(roots) else {
-        return rewrite_equalities(value, replacements, Some(owners), u64::MAX, &mut { ExecutionCondition::WORK_LIMIT }, complete);
-    };
-
-    let rewritten = rewrite_equalities(value, replacements, Some(owners), roots, &mut { ExecutionCondition::WORK_LIMIT },
-        memo.map(|memo| (&memo.filtered, role)));
-
-    debug_assert_eq!(rewritten, rewrite_equalities(value, replacements, Some(owners), u64::MAX,
-        &mut { ExecutionCondition::WORK_LIMIT }, complete), "root filtering cannot change a joined value {value:?}");
-
-    rewritten
+    rewrite_equalities(value, values.entries, Some(owners), &mut { ExecutionCondition::WORK_LIMIT },
+        memo.map(|memo| (memo, MapRole::Value)))
 }
 
 pub(super) fn joined_owner(
     value: &ExecutionCondition,
     values: RewriteMap<'_>,
     owners: RewriteMap<'_>,
-    memo: Option<&RewriteMemos>,
+    memo: Option<&RewriteMemo>,
 ) -> ExecutionCondition {
     let owner = value.owner_identity();
 
@@ -313,34 +275,33 @@ pub(super) fn joined_owner(
         return owner.clone();
     }
 
-    filtered_rewrite(owner, replacements.entries, owners, replacements.roots | owners.roots, memo, role).owner_identity().clone()
+    rewrite_equalities(owner, replacements.entries, Some(owners), &mut { ExecutionCondition::WORK_LIMIT },
+        memo.map(|memo| (memo, role)))
+        .owner_identity()
+        .clone()
 }
 
 fn rewrite_identity(
     owner: &ExecutionCondition,
     identities: Option<RewriteMap<'_>>,
-    roots: u64,
     budget: &mut usize,
     memo: Option<(&RewriteMemo, MapRole)>,
 ) -> ExecutionCondition {
     identities.map_or_else(|| owner.clone(), |identities| {
         if !identities.changed { return owner.clone(); }
 
-        rewrite_equalities(owner, identities.entries, Some(identities), roots, budget, memo.map(|(memo, _)| (memo, MapRole::Owner)))
+        rewrite_equalities(owner, identities.entries, Some(identities), budget, memo.map(|(memo, _)| (memo, MapRole::Owner)))
     })
 }
 
-/// `roots` covers every changing input of both maps, or is `u64::MAX`.
 fn rewrite_equalities(
     value: &ExecutionCondition,
     replacements: &std::collections::BTreeMap<ExecutionCondition, ExecutionCondition>,
     identities: Option<RewriteMap<'_>>,
-    roots: u64,
     budget: &mut usize,
     memo: Option<(&RewriteMemo, MapRole)>,
 ) -> ExecutionCondition {
-    if !value.may_contain(roots)
-        || replacements.is_empty() && identities.is_none_or(|map| map.entries.is_empty())
+    if replacements.is_empty() && identities.is_none_or(|map| map.entries.is_empty())
     {
         return value.clone();
     }
@@ -351,7 +312,7 @@ fn rewrite_equalities(
     }
 
     let compute = |budget: &mut usize| {
-        value.reuse_unchanged(rewrite_equalities_inner(value, replacements, identities, roots, budget, memo))
+        value.reuse_unchanged(rewrite_equalities_inner(value, replacements, identities, budget, memo))
     };
 
     let Some((cache, role)) = memo else { return compute(budget); };
@@ -365,7 +326,6 @@ fn rewrite_equalities_inner(
     value: &ExecutionCondition,
     replacements: &BTreeMap<ExecutionCondition, ExecutionCondition>,
     identities: Option<RewriteMap<'_>>,
-    roots: u64,
     budget: &mut usize,
     memo: Option<(&RewriteMemo, MapRole)>,
 ) -> ExecutionCondition {
@@ -388,17 +348,17 @@ fn rewrite_equalities_inner(
     };
 
     let value = match value.kind() {
-        K::CapturedValue { value, storage } => rewrite_equalities(value, replacements, identities, roots, budget, memo)
+        K::CapturedValue { value, storage } => rewrite_equalities(value, replacements, identities, budget, memo)
             .captured_value(storage.clone()),
         K::DeferredValue { value, frame } if identities.is_some() => {
-            let value = rewrite_equalities(value, replacements, identities, roots, budget, memo);
+            let value = rewrite_equalities(value, replacements, identities, budget, memo);
 
             let frame = if memo.is_some_and(|(memo, _)| memo.rebind_frames) {
                 let budget = std::cell::RefCell::new(&mut *budget);
 
                 frame.rebind_input_conditions(
-                    &|value| rewrite_equalities(value, replacements, identities, roots, &mut budget.borrow_mut(), memo),
-                    &|owner| rewrite_identity(owner, identities, roots, &mut budget.borrow_mut(), memo),
+                    &|value| rewrite_equalities(value, replacements, identities, &mut budget.borrow_mut(), memo),
+                    &|owner| rewrite_identity(owner, identities, &mut budget.borrow_mut(), memo),
                 )
             } else {
                 Arc::clone(frame)
@@ -407,15 +367,15 @@ fn rewrite_equalities_inner(
             value.with_deferred_value(frame)
         }
         K::StorageValue(operation, operands) => ExecutionCondition::storage_value(*operation,
-            operands.iter().map(|value| rewrite_equalities(value, replacements, identities, roots, budget, memo)).collect()),
-        K::Discriminant(value) => rewrite_equalities(&value, replacements, identities, roots, budget, memo).discriminant(),
-        K::Descriptor(kind, value) => rewrite_identity(&value, identities, roots, budget, memo).descriptor(*kind),
+            operands.iter().map(|value| rewrite_equalities(value, replacements, identities, budget, memo)).collect()),
+        K::Discriminant(value) => rewrite_equalities(&value, replacements, identities, budget, memo).discriminant(),
+        K::Descriptor(kind, value) => rewrite_identity(&value, identities, budget, memo).descriptor(*kind),
         K::ValueAlias(left, right) => ExecutionCondition::value_alias(
-            rewrite_equalities(&left, replacements, identities, roots, budget, memo),
-            rewrite_equalities(&right, replacements, identities, roots, budget, memo),
+            rewrite_equalities(&left, replacements, identities, budget, memo),
+            rewrite_equalities(&right, replacements, identities, budget, memo),
         ),
         K::Trusted(_) if identities.is_some() => value.map_children(|child| {
-            rewrite_equalities(child, replacements, identities, roots, budget, memo)
+            rewrite_equalities(child, replacements, identities, budget, memo)
         }),
         K::Trusted(child) => value.map_wrapped_child(child, |child| {
             // Ordinary Boolean equalities cannot rename the predicate that owns trusted authority.
@@ -427,7 +387,7 @@ fn rewrite_equalities_inner(
                         operands
                             .iter()
                             .map(|operand| {
-                                rewrite_equalities(operand, replacements, identities, roots, budget, memo)
+                                rewrite_equalities(operand, replacements, identities, budget, memo)
                             })
                             .collect(),
                     )
@@ -436,10 +396,10 @@ fn rewrite_equalities_inner(
             }
         }, K::Trusted),
         K::VariantTest(variant, value) => {
-            rewrite_equalities(&value, replacements, identities, roots, budget, memo).matches_variant(*variant)
+            rewrite_equalities(&value, replacements, identities, budget, memo).matches_variant(*variant)
         }
         K::Borrowed(value) if let Some(identities) = identities => {
-            rewrite_equalities(&value, replacements, Some(identities), roots, budget, memo).borrowed()
+            rewrite_equalities(&value, replacements, Some(identities), budget, memo).borrowed()
         }
         K::Entry { captured: true, .. } if identities.is_some() => value.clone(),
         K::Borrowed(_) => {
@@ -447,7 +407,7 @@ fn rewrite_equalities_inner(
             value.clone()
         }
         K::Entry { .. } | K::Tagged(..) | K::Present(_) | K::Constructed(..) => value.map_children(|child| {
-            rewrite_equalities(child, replacements, identities, roots, budget, memo)
+            rewrite_equalities(child, replacements, identities, budget, memo)
         }),
         K::Input(place) if identities.is_some() => {
             let mut rewritten = None;
@@ -462,7 +422,7 @@ fn rewrite_equalities_inner(
                 let prefix = ExecutionCondition::new(crate::ExecutionConditionKind::Input(prefix));
 
                 if replacements.contains_key(&prefix) {
-                    let root = rewrite_equalities(&prefix, replacements, identities, roots, budget, memo);
+                    let root = rewrite_equalities(&prefix, replacements, identities, budget, memo);
 
                     rewritten = Some(
                         place.projections[length..]
@@ -477,11 +437,11 @@ fn rewrite_equalities_inner(
             rewritten.unwrap_or_else(|| value.clone())
         }
         K::Projection(field, base) => {
-            rewrite_equalities(&base, replacements, identities, roots, budget, memo).component(*field)
+            rewrite_equalities(&base, replacements, identities, budget, memo).component(*field)
         }
         K::Observation { owner, contents, kind } => ExecutionCondition::observe_retaining(
-            rewrite_identity(&owner, identities, roots, budget, memo),
-            rewrite_equalities(&contents, replacements, identities, roots, budget, memo),
+            rewrite_identity(&owner, identities, budget, memo),
+            rewrite_equalities(&contents, replacements, identities, budget, memo),
             *kind,
             Some(&value),
         ),
@@ -489,7 +449,7 @@ fn rewrite_equalities_inner(
             *operator,
             operands
                 .iter()
-                .map(|operand| rewrite_equalities(operand, replacements, identities, roots, budget, memo))
+                .map(|operand| rewrite_equalities(operand, replacements, identities, budget, memo))
                 .collect(),
         ),
         K::Predicate(predicate, substitution, operands) => {
@@ -498,7 +458,7 @@ fn rewrite_equalities_inner(
                 *substitution,
                 operands
                     .iter()
-                    .map(|operand| rewrite_equalities(operand, replacements, identities, roots, budget, memo))
+                    .map(|operand| rewrite_equalities(operand, replacements, identities, budget, memo))
                     .collect(),
             )
         }
@@ -509,7 +469,7 @@ fn rewrite_equalities_inner(
                 witnesses.iter().copied(),
                 operands
                     .iter()
-                    .map(|operand| rewrite_equalities(operand, replacements, identities, roots, budget, memo))
+                    .map(|operand| rewrite_equalities(operand, replacements, identities, budget, memo))
                     .collect(),
                 *reference_type,
             )
