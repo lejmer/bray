@@ -18,7 +18,7 @@ use bray_tooling::{
 };
 
 use super::execute::{DriverRunResult, compilation_request, driver_result_from_compilation};
-use super::runtime::resolve_runtime;
+use super::runtime::{join_runtime_resolution, spawn_runtime_resolution};
 use crate::command::{
     DriverBackend, DriverOptions, DriverProductConfiguration, DriverRuntimeSelection,
 };
@@ -79,16 +79,8 @@ pub fn run_build_request(
         }
     };
 
-    let runtime = if requires_generation {
-        match resolve_runtime(configuration.runtime(), &selected_target) {
-            Ok(runtime) => runtime,
-            Err(diagnostics) => {
-                return DriverRunResult::new(ExitCode::FAILURE, diagnostics, output_format);
-            }
-        }
-    } else {
-        None
-    };
+    let runtime = requires_generation
+        .then(|| spawn_runtime_resolution(configuration.runtime(), &selected_target));
 
     let compilation = match configuration.backend() {
         DriverBackend::Llvm => load_llvm_compilation(request),
@@ -125,6 +117,13 @@ pub fn run_build_request(
             );
         }
     }
+
+    let runtime = match join_runtime_resolution(runtime) {
+        Ok(runtime) => runtime,
+        Err(diagnostics) => {
+            return DriverRunResult::new(ExitCode::FAILURE, diagnostics, output_format);
+        }
+    };
 
     let linker = if linked || artifacts.contains(&TargetOutputKind::PackageNativeImplementation) {
         // The driver retains its selections while the linker owns its independent output path.

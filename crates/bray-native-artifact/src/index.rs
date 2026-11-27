@@ -231,13 +231,7 @@ impl NativeArtifactIndex {
             });
         }
 
-        let payloads = index.units.iter().map(|_| std::sync::OnceLock::new()).collect();
-
-        Ok(ValidatedNativeArtifact {
-            index,
-            payload_directory: payload_directory.into(),
-            payloads,
-        })
+        Ok(ValidatedNativeArtifact::new(index, payload_directory))
     }
 
     /// Returns the compilation target of these units.
@@ -310,6 +304,18 @@ pub struct ValidatedNativeArtifact {
 }
 
 impl ValidatedNativeArtifact {
+    /// Binds an authenticated index to its payload directory. Each payload is
+    /// authenticated when a consumer first demands it.
+    pub fn new(index: NativeArtifactIndex, payload_directory: &Path) -> Self {
+        let payloads = index.units.iter().map(|_| std::sync::OnceLock::new()).collect();
+
+        Self {
+            index,
+            payload_directory: payload_directory.into(),
+            payloads,
+        }
+    }
+
     /// Returns the validated unit contract.
     pub const fn index(&self) -> &NativeArtifactIndex {
         &self.index
