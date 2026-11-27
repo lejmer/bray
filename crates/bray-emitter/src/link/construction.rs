@@ -1057,7 +1057,9 @@ mod tests {
             .select(runtime.native_demands().iter().cloned())
             .expect("test runtime demands must resolve");
 
-        let runtime = runtime.finish(&selection, 0);
+        let runtime = runtime
+            .finish(&selection, 0)
+            .unwrap_or_else(|error| panic!("test runtime payloads must authenticate: {error:?}"));
 
         let request = EmissionRequest::try_new(
             product_identity(),
