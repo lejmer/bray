@@ -88,30 +88,83 @@ impl<'project> ProjectCompiler<'project> {
         self
     }
 
+    /// Checks planned products. Their dependencies are prepared in plan order,
+    /// then the products' own compiler processes run concurrently. Outputs and
+    /// the reported failure follow the same order as checking one at a time.
     pub(crate) fn check(
         &mut self,
-        planned: &PlannedProduct,
+        planned: &[PlannedProduct],
     ) -> Result<Vec<ToolOutput>, DiagnosticBag> {
-        let product = self.project_product(planned)?.clone();
-        let mut outputs = Vec::new();
+        let mut prepared = Vec::with_capacity(planned.len());
+        let mut dependency_failure = None;
 
-        if !self.check_dependencies(&product, planned.target(), &mut outputs, None, None, None)? {
-            return Ok(outputs);
+        for planned in planned {
+            let prepare = |compiler: &mut Self| {
+                let product = compiler.project_product(planned)?.clone();
+                let mut outputs = Vec::new();
+
+                let ready = compiler.check_dependencies(&product, planned.target(), &mut outputs, None, None, None)?;
+
+                Ok::<_, DiagnosticBag>((product, outputs, ready))
+            };
+
+            match prepare(self) {
+                Ok((product, outputs, ready)) => prepared.push((product, planned.target(), outputs, ready)),
+                Err(diagnostics) => {
+                    dependency_failure = Some(diagnostics);
+                    break;
+                }
+            }
         }
 
-        let output = self.run_compiler(
-            &product,
-            planned.target(),
-            CompilerAction::Check {
-                interface: None,
-                expected_source_digest: None,
-            },
-            None,
-        )?;
+        let compiler = &*self;
 
-        outputs.push(output);
+        let checks = std::thread::scope(|scope| {
+            let running = prepared
+                .iter()
+                .map(|(product, target, _, ready)| {
+                    ready.then(|| {
+                        scope.spawn(move || {
+                            compiler.run_compiler(
+                                product,
+                                target,
+                                CompilerAction::Check {
+                                    interface: None,
+                                    expected_source_digest: None,
+                                },
+                                None,
+                            )
+                        })
+                    })
+                })
+                .collect::<Vec<_>>();
 
-        Ok(outputs)
+            running
+                .into_iter()
+                .map(|check| {
+                    check.map(|check| {
+                        check
+                            .join()
+                            .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+                    })
+                })
+                .collect::<Vec<_>>()
+        });
+
+        let mut outputs = Vec::new();
+
+        for ((_, _, dependency_outputs, _), check) in prepared.into_iter().zip(checks) {
+            outputs.extend(dependency_outputs);
+
+            if let Some(check) = check {
+                outputs.push(check?);
+            }
+        }
+
+        match dependency_failure {
+            Some(diagnostics) => Err(diagnostics),
+            None => Ok(outputs),
+        }
     }
 
     pub(crate) fn build(
