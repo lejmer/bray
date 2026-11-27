@@ -166,6 +166,9 @@ pub(in crate::execution_guarantees) struct ConditionNode {
     // Each identified value or storage root sets one bit. A subterm can equal
     // another condition only if this node's bits include all of that condition's bits.
     roots: u64,
+    // Each storage mutation that can invalidate a subterm sets one bit. A
+    // mutation whose bit is absent cannot invalidate this condition.
+    mutations: u64,
     // Nodes in the expanded tree, saturating. Bounded work cannot exhaust its
     // budget on a condition whose tree fits that budget.
     size: u32,
@@ -215,9 +218,10 @@ impl ConditionNode {
         };
 
         let roots = kind.structural_children().fold(kind.root_bit(), |roots, child| roots | child.0.roots);
+        let mutations = kind.structural_children().fold(kind.mutation_bits(), |mutations, child| mutations | child.0.mutations);
         let size = kind.structural_children().fold(1_u32, |size, child| size.saturating_add(child.0.size));
 
-        Self { kind, hash, contains_deferred, contains_storage, contains_redundant_reference_context, may_observe_live_value, prefix_starts_empty, roots, size, without_storage: OnceLock::new(), comparisons: OnceLock::new() }
+        Self { kind, hash, contains_deferred, contains_storage, contains_redundant_reference_context, may_observe_live_value, prefix_starts_empty, roots, mutations, size, without_storage: OnceLock::new(), comparisons: OnceLock::new() }
     }
 
     #[cfg(test)]
@@ -302,6 +306,10 @@ impl ExecutionCondition {
     /// Whether a subterm can equal an input with these root bits. `u64::MAX`
     /// admits every subterm, including inputs that have no identified root.
     pub(crate) fn may_contain(&self, roots: u64) -> bool { roots == u64::MAX || self.0.roots & roots != 0 }
+
+    pub(super) fn may_depend_on(&self, mutation: bray_bound_tree::StorageMutation) -> bool {
+        self.0.mutations & super::traversal::mutation_bit(mutation.occurrence()) != 0
+    }
 
     pub(super) fn contains_storage(&self) -> bool { self.0.contains_storage }
 

@@ -23,6 +23,20 @@ impl Hash for NodeIdentity<'_> {
 }
 
 /// Acyclic value graphs need remembered nodes only while another path is pending.
+/// One bit for the expression a mutation occurs at, or for its site when it
+/// has no expression. Every mutation a condition can depend on shares the bit
+/// of the term that names it.
+pub(super) fn mutation_bit(occurrence: bray_bound_tree::BoundExecutionSite) -> u64 {
+    let mut hash = std::hash::DefaultHasher::new();
+
+    match occurrence.expression() {
+        Some(expression) => (0_u8, expression).hash(&mut hash),
+        None => (1_u8, occurrence).hash(&mut hash),
+    }
+
+    1 << (hash.finish() % 64)
+}
+
 pub(super) fn visit_once<K: Eq + Hash>(visited: &mut HashSet<K>, node: K, has_pending: bool) -> bool {
     if has_pending { visited.insert(node) } else { !visited.contains(&node) }
 }
@@ -151,6 +165,28 @@ impl super::ExecutionConditionKind {
         1 << (hash.finish() % 64)
     }
 
+    /// The bits of every mutation that `depends_on` can match at this node.
+    pub(super) fn mutation_bits(&self) -> u64 {
+        let pointee = |place: &crate::ExecutionPlace| match &place.root {
+            crate::execution_guarantees::ExecutionInput::Pointee { producer: Some(producer), .. } => mutation_bit(*producer),
+            _ => 0,
+        };
+
+        match self {
+            K::Expression(expression) | K::ScopedCapability(expression) =>
+                mutation_bit(StorageMutation::Operation((*expression).into()).occurrence()),
+            // An installed assignment shares its expression with the operation it installs.
+            K::PostState(site, _) => mutation_bit(site.occurrence()),
+            K::Joined(site, place) => pointee(place) | match site {
+                super::ExecutionJoinSite::Publication(expression) =>
+                    mutation_bit(bray_bound_tree::BoundExecutionSite::Node((*expression).into())),
+                _ => 0,
+            },
+            K::Input(place) | K::InitializedSnapshot(place, _, _) => pointee(place),
+            _ => 0,
+        }
+    }
+
     /// Metadata belongs to the complete representation, including immutable epoch origins.
     pub(super) fn structural_children(&self) -> impl Iterator<Item = &ExecutionCondition> {
         self.children().chain(match self {
@@ -203,6 +239,10 @@ impl ExecutionCondition {
     }
 
     pub(crate) fn depends_on(&self, mutation: StorageMutation) -> bool {
+        if !self.may_depend_on(mutation) {
+            return false;
+        }
+
         self.visit(|condition| {
             let depends = match condition.kind() {
                 K::Expression(candidate) | K::ScopedCapability(candidate) => mutation == StorageMutation::Operation((*candidate).into()),
