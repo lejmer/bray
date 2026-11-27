@@ -415,8 +415,7 @@ mod tests {
 
     #[test]
     fn resolver_selects_distinct_interfaces_from_multi_target_bundles() {
-        let directory = tempfile::tempdir()
-            .unwrap_or_else(|error| panic!("fixture directory must exist: {error}"));
+        let directory = bray_testing::temporary_directory();
 
         let linux = TargetIdentity::try_new("x86_64-unknown-linux-gnu")
             .unwrap_or_else(|| panic!("Linux target identity must be valid"));
@@ -508,8 +507,7 @@ mod tests {
 
     impl Fixture {
         fn new() -> Self {
-            let directory = tempfile::tempdir()
-                .unwrap_or_else(|error| panic!("fixture directory must exist: {error}"));
+            let directory = bray_testing::temporary_directory();
 
             let interface = StandardLibraryArtifact::try_for_bytes(
                 StandardLibraryArtifactKind::PackageInterface,

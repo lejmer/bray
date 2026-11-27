@@ -218,10 +218,9 @@ impl GitInstallPlan {
 #[cfg(test)]
 mod tests {
     use std::ffi::OsStr;
-    use std::path::{Path, PathBuf};
+    use std::path::Path;
 
     use super::{GitInstallPlan, prepare_install_destination};
-    use crate::test_support::unique_temporary_directory;
 
     #[cfg(unix)]
     fn create_vendor_symlink(workspace: &Path, external: &Path) -> bool {
@@ -239,21 +238,10 @@ mod tests {
         }
     }
 
-    #[cfg(unix)]
-    fn remove_vendor_symlink(path: PathBuf) {
-        std::fs::remove_file(path)
-            .unwrap_or_else(|error| panic!("test vendor symlink should be removed: {error:?}"));
-    }
-
-    #[cfg(windows)]
-    fn remove_vendor_symlink(path: PathBuf) {
-        std::fs::remove_dir(path)
-            .unwrap_or_else(|error| panic!("test vendor symlink should be removed: {error:?}"));
-    }
-
     #[test]
     fn explicit_install_disables_recursive_repository_acquisition() {
-        let workspace = unique_temporary_directory();
+        let directory = bray_testing::temporary_directory();
+        let workspace = directory.path();
 
         let plan = GitInstallPlan::new(&workspace, "math", "https://example.invalid/math.git")
             .unwrap_or_else(|error| panic!("install plan should be valid: {error:?}"));
@@ -272,15 +260,13 @@ mod tests {
 
     #[test]
     fn explicit_install_rejects_ambient_or_existing_destinations() {
-        let workspace = unique_temporary_directory();
+        let directory = bray_testing::temporary_directory();
+        let workspace = directory.path();
 
         assert!(GitInstallPlan::new(Path::new("project"), "math", "repository").is_err());
         assert!(GitInstallPlan::new(&workspace, "../math", "repository").is_err());
         assert!(GitInstallPlan::new(&workspace, "math/tools", "repository").is_err());
         assert!(GitInstallPlan::new(&workspace, "math", "").is_err());
-
-        std::fs::create_dir(&workspace)
-            .unwrap_or_else(|error| panic!("test workspace should be created: {error:?}"));
 
         std::fs::create_dir(workspace.join("vendor"))
             .unwrap_or_else(|error| panic!("test vendor directory should be created: {error:?}"));
@@ -292,21 +278,13 @@ mod tests {
             .unwrap_or_else(|error| panic!("install plan should be valid: {error:?}"));
 
         assert!(prepare_install_destination(&plan).is_err());
-
-        std::fs::remove_dir(workspace.join("vendor").join("math"))
-            .unwrap_or_else(|error| panic!("test destination should be removed: {error:?}"));
-
-        std::fs::remove_dir(workspace.join("vendor"))
-            .unwrap_or_else(|error| panic!("test vendor directory should be removed: {error:?}"));
-
-        std::fs::remove_dir(&workspace)
-            .unwrap_or_else(|error| panic!("test workspace should be removed: {error:?}"));
     }
 
     #[test]
     fn explicit_install_rejects_symlinked_vendor_ancestors() {
-        let workspace = unique_temporary_directory();
-        let external = workspace.with_extension("external");
+        let directory = bray_testing::temporary_directory();
+        let workspace = directory.path().join("workspace");
+        let external = directory.path().join("external");
 
         std::fs::create_dir(&workspace)
             .unwrap_or_else(|error| panic!("test workspace should be created: {error:?}"));
@@ -315,12 +293,6 @@ mod tests {
             .unwrap_or_else(|error| panic!("external directory should be created: {error:?}"));
 
         if !create_vendor_symlink(&workspace, &external) {
-            std::fs::remove_dir(&external)
-                .unwrap_or_else(|error| panic!("external directory should be removed: {error:?}"));
-
-            std::fs::remove_dir(&workspace)
-                .unwrap_or_else(|error| panic!("test workspace should be removed: {error:?}"));
-
             return;
         }
 
@@ -329,13 +301,5 @@ mod tests {
 
         assert!(prepare_install_destination(&plan).is_err());
         assert!(!external.join("math").exists());
-
-        remove_vendor_symlink(workspace.join("vendor"));
-
-        std::fs::remove_dir(&external)
-            .unwrap_or_else(|error| panic!("external directory should be removed: {error:?}"));
-
-        std::fs::remove_dir(&workspace)
-            .unwrap_or_else(|error| panic!("test workspace should be removed: {error:?}"));
     }
 }

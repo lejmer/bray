@@ -106,7 +106,7 @@ mod tests {
 
     #[test]
     fn invalid_candidates_preserve_measurements_without_publishing_an_accepted_report() {
-        let directory = tempfile::tempdir().expect("diagnostic output directory");
+        let directory = crate::workspace::temporary_directory();
         let mut candidate = super::super::super::tests::report("corpus", 100, 1);
 
         candidate.schema_revision = 0;
@@ -136,7 +136,7 @@ mod tests {
 
     #[test]
     fn diagnostic_write_failure_preserves_the_validation_rejection() {
-        let directory = tempfile::tempdir().expect("diagnostic output directory");
+        let directory = crate::workspace::temporary_directory();
         let mut candidate = super::super::super::tests::report("corpus", 100, 1);
 
         candidate.schema_revision = 0;
@@ -150,7 +150,7 @@ mod tests {
 
     #[test]
     fn completed_runtime_mismatches_publish_failed_reports_and_qualified_comparisons() {
-        let directory = tempfile::tempdir().expect("report directory");
+        let directory = crate::workspace::temporary_directory();
         let baseline = crate::performance::tests::report("corpus", 100, 1);
         let baseline_path = directory.path().join("baseline.json");
 
@@ -211,7 +211,7 @@ mod tests {
     #[test]
     fn incompatible_or_malformed_baselines_cannot_publish_comparisons() {
         for malformed in [false, true] {
-            let directory = tempfile::tempdir().expect("report directory");
+            let directory = crate::workspace::temporary_directory();
             let mut baseline = crate::performance::tests::report("other corpus", 100, 1);
 
             if malformed {
@@ -236,7 +236,7 @@ mod tests {
 
     #[test]
     fn missing_dependency_evidence_is_a_hard_error_even_with_quality_failures() {
-        let directory = tempfile::tempdir().expect("report directory");
+        let directory = crate::workspace::temporary_directory();
         let mut candidate = crate::performance::tests::report("corpus", 100, 1);
 
         candidate
@@ -271,7 +271,7 @@ mod tests {
 
     #[test]
     fn failing_baseline_keeps_comparison_unaccepted_and_command_unsuccessful() {
-        let directory = tempfile::tempdir().expect("report directory");
+        let directory = crate::workspace::temporary_directory();
         let mut baseline = crate::performance::tests::report("corpus", 100, 1);
 
         baseline
@@ -295,7 +295,7 @@ mod tests {
 
     #[test]
     fn successful_reports_and_comparisons_remain_successful() {
-        let directory = tempfile::tempdir().expect("report directory");
+        let directory = crate::workspace::temporary_directory();
         let mut candidate = crate::performance::tests::report("corpus", 100, 1);
         let baseline_path = directory.path().join("baseline.json");
 

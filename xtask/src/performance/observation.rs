@@ -333,8 +333,7 @@ mod tests {
 
     #[test]
     fn production_symbol_audit_collects_every_observation_symbol() {
-        let directory = tempfile::tempdir()
-            .unwrap_or_else(|error| panic!("observation directory must exist: {error}"));
+        let directory = crate::workspace::temporary_directory();
 
         let path = directory.path().join("application.map");
 
@@ -366,8 +365,7 @@ mod tests {
 
     #[test]
     fn fixed_records_preserve_measured_execution_and_storage_work() {
-        let directory = tempfile::tempdir()
-            .unwrap_or_else(|error| panic!("observation directory must exist: {error}"));
+        let directory = crate::workspace::temporary_directory();
 
         let path = directory.path().join("observations.bin");
         let mut bytes = bray_runtime_abi::PERFORMANCE_OBSERVATION_HEADER.to_vec();
@@ -406,8 +404,7 @@ mod tests {
         ];
 
         for records in cases {
-            let directory = tempfile::tempdir()
-                .unwrap_or_else(|error| panic!("observation directory must exist: {error}"));
+            let directory = crate::workspace::temporary_directory();
 
             let path = directory.path().join("observations.bin");
             let mut bytes = bray_runtime_abi::PERFORMANCE_OBSERVATION_HEADER.to_vec();
@@ -423,8 +420,7 @@ mod tests {
 
     #[test]
     fn fixed_records_allow_timing_and_memory_to_be_observed_separately() {
-        let directory = tempfile::tempdir()
-            .unwrap_or_else(|error| panic!("observation directory must exist: {error}"));
+        let directory = crate::workspace::temporary_directory();
 
         let path = directory.path().join("observations.bin");
         let mut bytes = bray_runtime_abi::PERFORMANCE_OBSERVATION_HEADER.to_vec();
@@ -449,8 +445,7 @@ mod tests {
 
     #[test]
     fn initialized_memory_session_can_record_zero_events() {
-        let directory = tempfile::tempdir()
-            .unwrap_or_else(|error| panic!("observation directory must exist: {error}"));
+        let directory = crate::workspace::temporary_directory();
 
         let path = directory.path().join("observations.bin");
 
@@ -468,8 +463,7 @@ mod tests {
 
     #[test]
     fn memory_observation_requires_session_root_not_event_hooks() {
-        let directory = tempfile::tempdir()
-            .unwrap_or_else(|error| panic!("observation directory must exist: {error}"));
+        let directory = crate::workspace::temporary_directory();
 
         let path = directory.path().join("application.map");
 

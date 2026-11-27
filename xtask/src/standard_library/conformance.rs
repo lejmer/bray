@@ -564,8 +564,7 @@ mod tests {
 
     #[test]
     fn synthetic_standard_library_bundles_satisfy_conformance() {
-        let directory = tempfile::tempdir()
-            .unwrap_or_else(|error| panic!("temporary root must exist: {error}"));
+        let directory = crate::workspace::temporary_directory();
 
         verify(directory.path())
             .unwrap_or_else(|error| panic!("synthetic bundle must conform: {error}"));

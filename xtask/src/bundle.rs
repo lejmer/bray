@@ -373,7 +373,7 @@ mod tests {
 
     #[test]
     fn process_restart_reuses_published_contents_after_interrupted_preparation() {
-        let directory = tempfile::tempdir().expect("publication root");
+        let directory = crate::workspace::temporary_directory();
         let output = directory.path().join("bundle");
 
         let child = |mode: &str| {
@@ -534,8 +534,7 @@ mod tests {
 
     #[test]
     fn directory_publication_recovers_preexisting_lock_file() {
-        let directory = tempfile::tempdir()
-            .unwrap_or_else(|error| panic!("temporary root must exist: {error}"));
+        let directory = crate::workspace::temporary_directory();
 
         let output = directory.path().join("bundle");
         let lock_path = directory.path().join("bundle.lock");
@@ -555,8 +554,7 @@ mod tests {
 
     #[test]
     fn directory_publication_excludes_concurrent_publishers() {
-        let directory = tempfile::tempdir()
-            .unwrap_or_else(|error| panic!("temporary root must exist: {error}"));
+        let directory = crate::workspace::temporary_directory();
 
         let output = directory.path().join("bundle");
         let lock_path = directory.path().join("bundle.lock");
@@ -577,8 +575,7 @@ mod tests {
 
     #[test]
     fn directory_publication_replaces_complete_existing_contents() {
-        let directory = tempfile::tempdir()
-            .unwrap_or_else(|error| panic!("temporary root must exist: {error}"));
+        let directory = crate::workspace::temporary_directory();
 
         let output = directory.path().join("bundle");
 

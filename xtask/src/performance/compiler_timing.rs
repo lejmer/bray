@@ -317,8 +317,7 @@ mod tests {
 
     #[test]
     fn linker_trace_accepts_each_native_object_format_name() {
-        let directory = tempfile::tempdir()
-            .unwrap_or_else(|error| panic!("temporary directory must be available: {error}"));
+        let directory = crate::workspace::temporary_directory();
 
         for name in ["COFF", "ELF", "Mach-O"] {
             let path = directory.path().join(format!("{name}.json"));
@@ -335,7 +334,7 @@ mod tests {
 
     #[test]
     fn linker_trace_uses_the_outer_execution_total() {
-        let directory = tempfile::tempdir().expect("temporary directory");
+        let directory = crate::workspace::temporary_directory();
         let path = directory.path().join("lld.json");
 
         // The installed ELF linker reports a nested Link phase and an outer ExecuteLinker phase.

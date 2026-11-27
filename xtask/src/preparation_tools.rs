@@ -287,7 +287,7 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn cargo_build_script_library_is_fingerprinted_from_dependency_path() {
-        let directory = tempfile::tempdir().expect("Cargo layout");
+        let directory = crate::workspace::temporary_directory();
 
         let producer = directory
             .path()
@@ -335,7 +335,7 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn producer_library_takes_precedence_over_path_library() {
-        let directory = tempfile::tempdir().expect("producer libraries");
+        let directory = crate::workspace::temporary_directory();
         let producer = directory.path().join("xtask.exe");
         let sibling = directory.path().join("LLVM-C.dll");
         let dependencies = directory.path().join("deps");
@@ -352,7 +352,7 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn missing_producer_library_preserves_search_context() {
-        let directory = tempfile::tempdir().expect("missing library");
+        let directory = crate::workspace::temporary_directory();
         let producer = directory.path().join("build-script-build.exe");
         let search = std::env::join_paths([directory.path()]).expect("empty directory PATH");
 
@@ -370,7 +370,7 @@ mod tests {
     fn configured_provider_tools_override_ambient_selection() {
         use std::os::unix::fs::PermissionsExt as _;
 
-        let directory = tempfile::tempdir().expect("provider tools");
+        let directory = crate::workspace::temporary_directory();
         let bin = directory.path().join("bin");
 
         fs::create_dir(&bin).expect("tool directory");
@@ -520,7 +520,7 @@ mod tests {
 
     #[test]
     fn replacement_at_same_path_invalidates_even_with_identical_size_and_mtime() {
-        let directory = tempfile::tempdir().expect("temporary tools");
+        let directory = crate::workspace::temporary_directory();
         let path = directory.path().join("compiler");
 
         fs::write(&path, b"first version").expect("first compiler");
@@ -549,7 +549,7 @@ mod tests {
 
     #[test]
     fn tool_order_and_duplicate_roles_do_not_change_identity() {
-        let directory = tempfile::tempdir().expect("temporary tools");
+        let directory = crate::workspace::temporary_directory();
         let compiler = directory.path().join("compiler");
         let archiver = directory.path().join("archiver");
 
@@ -566,7 +566,7 @@ mod tests {
 
     #[test]
     fn path_resolution_tracks_selected_directory() {
-        let directory = tempfile::tempdir().expect("temporary search path");
+        let directory = crate::workspace::temporary_directory();
         let first = directory.path().join("first");
         let second = directory.path().join("second");
 

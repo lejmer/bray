@@ -20,9 +20,7 @@ use crate::{
 
 #[test]
 fn corrupted_existing_generation_preserves_the_digest_failure() {
-    let Ok(output) = tempfile::tempdir() else {
-        panic!("test output directory must be created");
-    };
+    let output = bray_testing::temporary_directory();
 
     let plan = filesystem_plan(output.path(), ReplacementPolicy::ReplaceExisting);
 
@@ -71,9 +69,7 @@ fn corrupted_existing_generation_preserves_the_digest_failure() {
 fn existing_generation_reuse_requires_manifest_permissions() {
     use std::os::unix::fs::PermissionsExt;
 
-    let Ok(output) = tempfile::tempdir() else {
-        panic!("test output directory must be created");
-    };
+    let output = bray_testing::temporary_directory();
 
     let plan = filesystem_plan(output.path(), ReplacementPolicy::ReplaceExisting);
 
@@ -120,9 +116,7 @@ fn existing_generation_reuse_requires_manifest_permissions() {
 
 #[test]
 fn failed_generation_exposes_no_partial_artifacts_or_reference() {
-    let Ok(directory) = tempfile::tempdir() else {
-        panic!("test output directory must be created");
-    };
+    let directory = bray_testing::temporary_directory();
 
     let interface_path = directory.path().join("application.brayi");
     let metadata_path = directory.path().join("application.brayd");
@@ -392,9 +386,7 @@ fn executable_spec() -> TestArtifactSpec {
 
 #[test]
 fn prior_error_diagnostics_discard_a_completed_generation() {
-    let Ok(output) = tempfile::tempdir() else {
-        panic!("test output directory must be created");
-    };
+    let output = bray_testing::temporary_directory();
 
     let plan = filesystem_plan(output.path(), ReplacementPolicy::ReplaceExisting);
 

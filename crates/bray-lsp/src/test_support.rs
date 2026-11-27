@@ -1,15 +1,17 @@
 use std::path::{Path, PathBuf};
 
+use tempfile::TempDir;
+
 pub(crate) struct ProjectFixture {
-    root: PathBuf,
+    root: TempDir,
     pub(crate) source: PathBuf,
     pub(crate) source_text: &'static str,
 }
 
 impl ProjectFixture {
     pub(crate) fn new() -> Self {
-        let root = bray_testing::unique_temporary_directory();
-        let source = root.join("app").join("src").join("main.bray");
+        let root = bray_testing::temporary_directory();
+        let source = root.path().join("app").join("src").join("main.bray");
 
         let source_text = concat!(
             "module app;\n",
@@ -25,11 +27,11 @@ impl ProjectFixture {
             "}\n",
         );
 
-        std::fs::create_dir_all(source.parent().unwrap_or(&root))
+        std::fs::create_dir_all(source.parent().unwrap_or(root.path()))
             .unwrap_or_else(|error| panic!("test source directory should form: {error}"));
 
         std::fs::write(
-            root.join("bray-workspace.json"),
+            root.path().join("bray-workspace.json"),
             r#"{
                 "format": 1,
                 "package": {"version": "0.1.0"},
@@ -52,7 +54,7 @@ impl ProjectFixture {
         .unwrap_or_else(|error| panic!("test workspace manifest should write: {error}"));
 
         std::fs::write(
-            root.join("app").join("bray-package.json"),
+            root.path().join("app").join("bray-package.json"),
             r#"{
                 "format": 1,
                 "identity": "example.application",
@@ -89,12 +91,6 @@ impl ProjectFixture {
     }
 
     pub(crate) fn path(&self) -> &Path {
-        &self.root
-    }
-}
-
-impl Drop for ProjectFixture {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.root);
+        self.root.path()
     }
 }

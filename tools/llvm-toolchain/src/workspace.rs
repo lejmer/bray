@@ -85,7 +85,7 @@ mod tests {
 
     #[test]
     fn alternating_workspaces_and_member_directories_select_the_callers_checkout() {
-        let directory = tempfile::tempdir().expect("temporary fixture directory must be created");
+        let directory = crate::test_support::temporary_directory();
         let first = workspace(directory.path(), "first checkout");
         let second = workspace(directory.path(), "second checkout");
 
@@ -105,7 +105,7 @@ mod tests {
 
     #[test]
     fn cargo_discovery_failures_preserve_the_manifest_error() {
-        let directory = tempfile::tempdir().expect("temporary fixture directory must be created");
+        let directory = crate::test_support::temporary_directory();
 
         fs::write(directory.path().join("Cargo.toml"), "[workspace")
             .expect("fixture contents must be written");
@@ -125,7 +125,7 @@ mod tests {
 
     #[test]
     fn unrelated_cargo_workspaces_are_rejected() {
-        let directory = tempfile::tempdir().expect("temporary fixture directory must be created");
+        let directory = crate::test_support::temporary_directory();
 
         fs::write(directory.path().join("Cargo.toml"), "[workspace]\n")
             .expect("fixture contents must be written");
@@ -138,10 +138,13 @@ mod tests {
 
     #[test]
     fn directories_without_a_cargo_workspace_are_rejected() {
-        let directory = tempfile::tempdir().expect("temporary fixture directory must be created");
+        // Test directories live inside this workspace, so the filesystem root is the directory outside any workspace.
+        let directory = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .ancestors()
+            .last()
+            .expect("manifest directory must have a filesystem root");
 
-        let error =
-            root_from(directory.path()).expect_err("invalid fixture workspace must be rejected");
+        let error = root_from(directory).expect_err("invalid fixture workspace must be rejected");
 
         assert!(
             error.contains("could not locate the Cargo workspace"),

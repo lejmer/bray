@@ -261,9 +261,7 @@ pub(super) fn test(parts: &[TestPart], profile_output: Option<&Path>) -> Result<
     crate::native_toolchain::build_compiler(&root)
         .map_err(|error| BuildError::conformance("native", error))?;
 
-    let temporary_directory = tempfile::Builder::new()
-        .prefix("bray-standard-library-native-")
-        .tempdir()
+    let temporary_directory = crate::workspace::test_directory("bray-standard-library-native-")
         .map_err(BuildError::TemporaryDirectory)?;
 
     let result = test_in(

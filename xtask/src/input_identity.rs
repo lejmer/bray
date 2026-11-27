@@ -464,7 +464,7 @@ mod tests {
 
     #[test]
     fn stored_identity_rejects_missing_truncated_and_non_utf8_records() {
-        let directory = tempfile::tempdir().expect("cache directory");
+        let directory = crate::workspace::temporary_directory();
         let expected = "a".repeat(64);
 
         assert!(!super::stored_digest_matches(directory.path(), &expected).expect("cache miss"));
@@ -494,7 +494,7 @@ mod tests {
 
     #[test]
     fn input_content_and_names_invalidate_without_timestamp_dependence() {
-        let directory = tempfile::tempdir().expect("source root");
+        let directory = crate::workspace::temporary_directory();
         let path = directory.path().join("source");
 
         std::fs::write(&path, b"first").expect("source");

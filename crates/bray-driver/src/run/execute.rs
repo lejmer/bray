@@ -651,9 +651,9 @@ mod tests {
     use bray_runtime_interface::{RuntimeAbiRole, RuntimeRoleSourceBinding};
     use bray_symbols::{PackageIdentity, PackageVersion, ProductIdentity, ProductKind};
     use bray_target::NativeTarget;
+    use bray_testing::TemporaryFile;
 
     use super::{compilation_request, run_result, run_with_writers};
-    use crate::test_support::{TemporaryFile, unique_temporary_directory};
     use crate::{DriverCompilationConfiguration, DriverOptions, OutputFormat};
 
     #[test]
@@ -951,7 +951,9 @@ mod tests {
     fn profile_output_failures_publish_structured_diagnostics() {
         let file = TemporaryFile::write("main.bray", b"module app;\n");
 
-        let report = unique_temporary_directory()
+        let directory = bray_testing::temporary_directory();
+
+        let report = directory.path()
             .join("missing")
             .join("profile.json");
 
@@ -1068,7 +1070,8 @@ mod tests {
 
     #[test]
     fn run_result_carries_file_read_diagnostics() {
-        let missing_path = unique_temporary_directory().join("missing.bray");
+        let directory = bray_testing::temporary_directory();
+        let missing_path = directory.path().join("missing.bray");
 
         let result = run_result([
             OsString::from("brayc"),
@@ -1985,7 +1988,9 @@ mod tests {
     fn inspection_report_file_failures_fail_without_publishing_stdout() {
         let file = TemporaryFile::write("main.bray", b"module app;\n");
 
-        let report = unique_temporary_directory()
+        let directory = bray_testing::temporary_directory();
+
+        let report = directory.path()
             .join("missing")
             .join("report.txt");
 
@@ -2020,7 +2025,9 @@ mod tests {
     fn inspection_report_file_failures_publish_structured_json_diagnostics() {
         let file = TemporaryFile::write("main.bray", b"module app;\n");
 
-        let report = unique_temporary_directory()
+        let directory = bray_testing::temporary_directory();
+
+        let report = directory.path()
             .join("missing")
             .join("report.json");
 

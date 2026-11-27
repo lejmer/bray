@@ -683,9 +683,7 @@ mod tests {
 
     #[test]
     fn reference_visibility_remains_committed_when_post_commit_sync_fails() {
-        let Ok(root) = tempfile::tempdir() else {
-            panic!("test managed root must be created");
-        };
+        let root = bray_testing::temporary_directory();
 
         let metadata = root.path().join(".bray");
 

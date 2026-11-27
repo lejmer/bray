@@ -722,9 +722,17 @@ mod tests {
 
     #[test]
     fn macho_static_libraries_select_archives_even_when_a_dylib_has_search_precedence() {
-        let directory = std::env::temp_dir();
-        let shared = bray_testing::TemporaryFile::write("libfixture.dylib", &[]);
-        let archive = bray_testing::TemporaryFile::write("libfixture.a", &[]);
+        let root = bray_testing::temporary_directory();
+        let directory = root.path();
+        let shared = directory.join("shared").join("libfixture.dylib");
+        let archive = directory.join("archive").join("libfixture.a");
+
+        for file in [&shared, &archive] {
+            std::fs::create_dir_all(file.parent().expect("library directory"))
+                .expect("library directory must be created");
+
+            std::fs::write(file, []).expect("library fixture must be written");
+        }
 
         let mut builder = link_plan_builder();
 
@@ -737,11 +745,11 @@ mod tests {
             .with_id(LinkInputId::new(0)),
         );
 
-        for file in [shared.path(), archive.path()] {
+        for file in [&shared, &archive] {
             let path = file
                 .parent()
                 .expect("library directory")
-                .strip_prefix(&directory)
+                .strip_prefix(directory)
                 .expect("relative library search path");
 
             builder.push_search_path(
@@ -769,8 +777,7 @@ mod tests {
             (
                 "fixture",
                 archive
-                    .path()
-                    .strip_prefix(&directory)
+                    .strip_prefix(directory)
                     .expect("relative archive"),
             ),
             ("missing", std::path::Path::new("libmissing.a")),
@@ -789,7 +796,7 @@ mod tests {
                 &input,
                 &plan,
                 LldFlavor::MachO,
-                Some(&directory),
+                Some(directory),
             )
             .expect("archive arguments");
 

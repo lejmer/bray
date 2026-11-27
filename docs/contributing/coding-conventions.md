@@ -255,6 +255,12 @@ See [Compiler diagnostics](diagnostics.md) for the structured producer, renderin
 - Update contract tests when intentional language behavior changes.
 - Do not add regression tests for intentional feature changes as if the old behavior were still the contract.
 - Keep fixtures small and focused.
+- Keep every file a test writes inside the repository. Create test directories with
+  `bray_testing::temporary_directory()`, which places them under `target/test-tmp`. Crates that cannot depend on
+  `bray-testing` create them in the same directory with `tempfile::tempdir_in`. Never write test files, fixtures, or
+  built executables to the system temporary directory, such as through `std::env::temp_dir()` or
+  `tempfile::tempdir()`. Antivirus heuristics flag executables there, and output under `target` shares one
+  build-folder exclusion.
 - Format inline source fixtures as readable source code. Use multiline raw strings with normal indentation and
   statement layout for complete declarations or programs. Keep compact single-line strings only for short fragments
   or tests whose subject is the exact source spelling or layout.

@@ -1212,7 +1212,7 @@ mod tests {
     use crate::tack::tool::{
         Tool, ToolExecutionError, ToolExecutor, ToolOutput, ToolRequest, ToolStream,
     };
-    use crate::test_support::{ProjectWorkspace, unique_temporary_directory};
+    use crate::test_support::ProjectWorkspace;
 
     #[derive(Debug)]
     struct RecordedRequest {
@@ -1463,8 +1463,8 @@ mod tests {
 
     #[test]
     fn initialized_project_routes_check_to_its_package() {
-        let parent = unique_temporary_directory();
-        let workspace = parent.join("sample-project");
+        let parent = bray_testing::temporary_directory();
+        let workspace = parent.path().join("sample-project");
         let executor = RecordingExecutor::default();
 
         let initialization = run_tack_result_with_input(
@@ -1934,7 +1934,8 @@ mod tests {
     #[test]
     fn standard_library_source_build_discovers_native_packages() {
         let workspace = ProjectWorkspace::standard_library();
-        let toolchain = unique_temporary_directory();
+        let toolchain_directory = bray_testing::temporary_directory();
+        let toolchain = toolchain_directory.path().join("toolchain");
         let executor = RecordingExecutor::default();
 
         let result = run_tack_result_with_input(
@@ -2024,7 +2025,8 @@ mod tests {
                 &serde_json::to_string(&manifest).expect("fixture data must serialize"),
             );
 
-            let toolchain = unique_temporary_directory();
+            let toolchain_directory = bray_testing::temporary_directory();
+        let toolchain = toolchain_directory.path().join("toolchain");
             let executor = RecordingExecutor::default();
 
             let result = run_tack_result_with_input(
@@ -2149,7 +2151,8 @@ mod tests {
             }"#,
         );
 
-        let toolchain = unique_temporary_directory();
+        let toolchain_directory = bray_testing::temporary_directory();
+        let toolchain = toolchain_directory.path().join("toolchain");
         let standard_library = toolchain.join("lib/bray/standard-library");
 
         std::fs::create_dir_all(&standard_library).unwrap_or_else(|error| {
@@ -2194,9 +2197,6 @@ mod tests {
 
             assert!(!result.stderr().contains("E1106"), "{command}");
         }
-
-        std::fs::remove_dir_all(&toolchain)
-            .unwrap_or_else(|error| panic!("synthetic toolchain must be removed: {error}"));
     }
 
     #[test]
@@ -2591,7 +2591,8 @@ mod tests {
 
     #[test]
     fn project_load_failures_do_not_invoke_toolchain_processes() {
-        let workspace = unique_temporary_directory();
+        let workspace_directory = bray_testing::temporary_directory();
+        let workspace = workspace_directory.path().join("workspace");
         let executor = RecordingExecutor::default();
 
         let result = run_tack_result_with_input(
@@ -2666,11 +2667,8 @@ mod tests {
 
     #[test]
     fn test_batch_request_files_are_bounded_before_deserialization() {
-        let directory = unique_temporary_directory();
-        let path = directory.join("batch.json");
-
-        std::fs::create_dir_all(&directory)
-            .unwrap_or_else(|error| panic!("test batch directory must be created: {error:?}"));
+        let directory = bray_testing::temporary_directory();
+        let path = directory.path().join("batch.json");
 
         let file = std::fs::File::create(&path)
             .unwrap_or_else(|error| panic!("test batch request must be created: {error:?}"));
@@ -2684,19 +2682,13 @@ mod tests {
         let diagnostics = load_test_batch_request(&path)
             .expect_err("oversized test batch request must be rejected");
 
-        std::fs::remove_dir_all(&directory)
-            .unwrap_or_else(|error| panic!("test batch directory must be removed: {error:?}"));
-
         assert_goal_state_diagnostic_kind(&diagnostics, DiagnosticKind::ProjectCommandFailed);
     }
 
     #[test]
     fn decoded_test_batch_requests_retain_protocol_limits() {
-        let directory = unique_temporary_directory();
-        let path = directory.join("batch.json");
-
-        std::fs::create_dir_all(&directory)
-            .unwrap_or_else(|error| panic!("test batch directory must be created: {error:?}"));
+        let directory = bray_testing::temporary_directory();
+        let path = directory.path().join("batch.json");
 
         let identity = "a".repeat(bray_test_protocol::MAXIMUM_TEST_BATCH_PLAN_IDENTITY_BYTES + 1);
 
@@ -2709,9 +2701,6 @@ mod tests {
 
         let diagnostics = load_test_batch_request(&path)
             .expect_err("decoded oversized plan identity must be rejected");
-
-        std::fs::remove_dir_all(&directory)
-            .unwrap_or_else(|error| panic!("test batch directory must be removed: {error:?}"));
 
         assert_goal_state_diagnostic_kind(&diagnostics, DiagnosticKind::ProjectCommandFailed);
     }

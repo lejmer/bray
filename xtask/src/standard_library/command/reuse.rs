@@ -161,7 +161,7 @@ mod tests {
 
     #[test]
     fn installed_superset_checks_published_target_identity_and_every_artifact() {
-        let directory = tempfile::tempdir().expect("standard library cache");
+        let directory = crate::workspace::temporary_directory();
 
         let targets = [
             NativeTarget::Aarch64LinuxGnu.identity(),
@@ -203,7 +203,7 @@ mod tests {
 
     #[test]
     fn incomplete_or_malformed_bundle_is_never_reused() {
-        let directory = tempfile::tempdir().expect("cache");
+        let directory = crate::workspace::temporary_directory();
         let target = [NativeTarget::X86_64LinuxGnu.identity()];
         let identity = |_: &[TargetIdentity]| Ok("inputs".to_owned());
 

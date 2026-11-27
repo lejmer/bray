@@ -155,7 +155,7 @@ mod tests {
 
     #[test]
     fn publication_identity_rejects_replaced_host_artifacts() {
-        let directory = tempfile::tempdir().expect("test directory");
+        let directory = bray_testing::temporary_directory();
 
         let (executable, catalog_path) = write_empty_test_host(directory.path());
 
@@ -173,7 +173,7 @@ mod tests {
     fn initial_and_later_host_reads_preserve_the_exact_file_and_io_cause() {
         for after_publication in [false, true] {
             for catalog in [false, true] {
-                let directory = tempfile::tempdir().expect("test directory");
+                let directory = bray_testing::temporary_directory();
 
                 let (executable, catalog_path) = write_empty_test_host(directory.path());
 
@@ -219,7 +219,7 @@ mod tests {
         const VERSION_OFFSET: usize = 8;
 
         for malformed in [false, true] {
-            let directory = tempfile::tempdir().expect("test directory");
+            let directory = bray_testing::temporary_directory();
 
             let (executable, catalog_path) = write_empty_test_host(directory.path());
 

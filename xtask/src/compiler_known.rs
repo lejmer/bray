@@ -134,8 +134,8 @@ mod tests {
 
     #[test]
     fn freshness_check_rejects_stale_output() {
-        let path =
-            std::env::temp_dir().join(format!("bray-compiler-known-check-{}", std::process::id()));
+        let directory = crate::workspace::temporary_directory();
+        let path = directory.path().join("compiler-known-check");
 
         let files = [(path.clone(), b"current".as_slice())];
 
@@ -150,10 +150,6 @@ mod tests {
         }
 
         assert_eq!(check_files(&files), Ok(()));
-
-        if let Err(error) = std::fs::remove_file(&path) {
-            panic!("test output should be removable: {error}");
-        }
     }
 
     #[test]

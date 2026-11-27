@@ -78,8 +78,7 @@ mod tests {
 
     #[test]
     fn built_fixture_owns_its_workspace_through_use_and_removes_it_on_drop() {
-        let output = tempfile::tempdir()
-            .unwrap_or_else(|error| panic!("test fixture output must exist: {error:?}"));
+        let output = crate::workspace::temporary_directory();
 
         let directory = output.path().to_owned();
         let executable = published_fixture(&directory);

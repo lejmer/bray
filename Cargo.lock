@@ -264,7 +264,6 @@ dependencies = [
  "serde",
  "serde_json",
  "target-lexicon",
- "tempfile",
 ]
 
 [[package]]
@@ -301,7 +300,6 @@ dependencies = [
  "rayon",
  "serde",
  "serde_json",
- "tempfile",
 ]
 
 [[package]]
@@ -424,6 +422,7 @@ dependencies = [
  "bray-testing",
  "serde",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]
@@ -473,6 +472,7 @@ dependencies = [
  "crossbeam-channel",
  "serde",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]
@@ -493,10 +493,10 @@ dependencies = [
  "bray-base",
  "bray-symbols",
  "bray-target",
+ "bray-testing",
  "object",
  "serde",
  "serde_json",
- "tempfile",
 ]
 
 [[package]]
@@ -523,7 +523,7 @@ dependencies = [
  "bray-source",
  "bray-symbols",
  "bray-target",
- "tempfile",
+ "bray-testing",
  "zstd",
 ]
 
@@ -636,9 +636,9 @@ dependencies = [
  "bray-runtime-model",
  "bray-symbols",
  "bray-target",
+ "bray-testing",
  "serde",
  "serde_json",
- "tempfile",
 ]
 
 [[package]]
@@ -662,6 +662,7 @@ dependencies = [
  "bray-runtime-interface",
  "bray-symbols",
  "bray-target",
+ "bray-testing",
  "serde",
  "serde_json",
  "tempfile",
@@ -727,6 +728,7 @@ dependencies = [
  "bray-syntax",
  "bray-target",
  "clap",
+ "tempfile",
 ]
 
 [[package]]

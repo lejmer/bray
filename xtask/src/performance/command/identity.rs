@@ -241,7 +241,7 @@ fn hex(bytes: [u8; 32]) -> String {
 mod tests {
     #[test]
     fn runtime_identity_fingerprints_the_metadata_package_and_ignores_cache_stamps() {
-        let package = tempfile::tempdir().expect("runtime package");
+        let package = crate::workspace::temporary_directory();
         let metadata = package.path().join("bray-runtime.brayrt");
         let archive = package.path().join("libbray_runtime.a");
 

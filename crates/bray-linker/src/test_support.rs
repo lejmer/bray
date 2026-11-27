@@ -6,7 +6,7 @@ use bray_base::Cancellation;
 use bray_runtime_interface::ExecutableHostContract;
 use bray_symbols::{PackageIdentity, ProductIdentity};
 use bray_target::{CodeModel, ObjectFormat, RelocationModel, TargetArchitecture, TargetIdentity};
-use bray_testing::unique_temporary_directory;
+use tempfile::TempDir;
 
 use crate::{
     DeadStripPolicy, DebugLinkPolicy, ExternalToolFailure, ExternalToolHost,
@@ -157,31 +157,23 @@ fn optimization_report_path(invocation: &ExternalToolInvocation) -> &std::ffi::O
 }
 
 pub(crate) struct TestOutput {
-    directory: PathBuf,
+    _directory: TempDir,
     path: PathBuf,
 }
 
 impl TestOutput {
     pub(crate) fn new(file_name: &str) -> Self {
-        let directory = unique_temporary_directory();
+        let directory = bray_testing::temporary_directory();
+        let path = directory.path().join(file_name);
 
-        std::fs::create_dir(&directory)
-            .unwrap_or_else(|error| panic!("test output directory must be created: {error:?}"));
-
-        let path = directory.join(file_name);
-
-        Self { directory, path }
+        Self {
+            _directory: directory,
+            path,
+        }
     }
 
     pub(crate) fn path(&self) -> &Path {
         &self.path
-    }
-}
-
-impl Drop for TestOutput {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.path);
-        let _ = std::fs::remove_dir(&self.directory);
     }
 }
 

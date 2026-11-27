@@ -303,8 +303,7 @@ mod tests {
 
     #[test]
     fn missing_build_input_identity_is_explicit_and_deterministic() {
-        let directory = tempfile::tempdir()
-            .unwrap_or_else(|error| panic!("temporary directory should exist: {error:?}"));
+        let directory = bray_testing::temporary_directory();
 
         let missing = directory.path().join("missing");
 

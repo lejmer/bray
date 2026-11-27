@@ -302,7 +302,7 @@ mod tests {
 
     #[test]
     fn tool_launch_failures_retain_the_operation_program_and_io_cause() {
-        let directory = tempfile::tempdir().expect("temporary fixture directory must be created");
+        let directory = crate::workspace::temporary_directory();
         let program = directory.path().join("nonexistent-llvm-ar");
 
         let error = super::require_success(

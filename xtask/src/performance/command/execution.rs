@@ -714,8 +714,7 @@ mod tests {
 
     #[test]
     fn retention_audit_collects_every_contract_violation() {
-        let directory = tempfile::tempdir()
-            .unwrap_or_else(|error| panic!("linker-map directory must exist: {error}"));
+        let directory = crate::workspace::temporary_directory();
 
         let map_path = directory.path().join("application.map");
 
@@ -750,8 +749,7 @@ mod tests {
     #[test]
     #[ignore = "requires the pinned LLVM toolchain and native process execution"]
     fn stream_output_cross_language_comparison_runs_end_to_end() {
-        let directory = tempfile::tempdir()
-            .unwrap_or_else(|error| panic!("comparison directory must exist: {error}"));
+        let directory = crate::workspace::temporary_directory();
 
         let target = bray_target::NativeTarget::current()
             .unwrap_or_else(|| panic!("comparison test requires a supported native host"));

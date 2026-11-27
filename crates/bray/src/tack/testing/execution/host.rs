@@ -510,7 +510,7 @@ mod tests {
     const HOST: &str = include_str!("fixtures/native_host.rs");
 
     fn fixture(scenario: &str) -> (tempfile::TempDir, HostLocation) {
-        let directory = tempfile::tempdir().expect("native host fixture directory");
+        let directory = bray_testing::temporary_directory();
         let source = directory.path().join("host.rs");
         let executable = directory.path().join("host.exe");
 

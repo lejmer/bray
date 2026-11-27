@@ -563,7 +563,7 @@ fn live_issue_responses_fail_closed_on_terminal_missing_and_invalid_states() {
 
 #[test]
 fn gate_command_uses_the_real_merge_base_and_publishes_failed_decisions() {
-    let directory = tempfile::tempdir().expect("gate repository");
+    let directory = crate::workspace::temporary_directory();
     let root = directory.path();
 
     let git =
