@@ -124,9 +124,7 @@ mod tests {
 
     #[test]
     fn exclusive_promotion_publishes_once_and_cleans_staging() {
-        let Ok(directory) = tempfile::tempdir() else {
-            panic!("test output directory must be created");
-        };
+        let directory = bray_testing::temporary_directory();
 
         let destination = directory.path().join("application");
 
@@ -161,9 +159,7 @@ mod tests {
     fn executable_staging_applies_executable_permissions() {
         use std::os::unix::fs::PermissionsExt;
 
-        let Ok(directory) = tempfile::tempdir() else {
-            panic!("test output directory must be created");
-        };
+        let directory = bray_testing::temporary_directory();
 
         let destination = directory.path().join("application");
 
@@ -226,9 +222,7 @@ mod tests {
             return;
         }
 
-        let Ok(directory) = tempfile::tempdir() else {
-            panic!("test output directory must be created");
-        };
+        let directory = bray_testing::temporary_directory();
 
         let path = directory.path().join("application");
 

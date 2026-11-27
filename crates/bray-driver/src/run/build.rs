@@ -680,11 +680,11 @@ mod tests {
     use bray_diagnostics::{DiagnosticArgValue, DiagnosticEmissionFailure, DiagnosticKind};
     use bray_emitter::{ArtifactKind, ArtifactRequirement};
     use bray_symbols::ProductKind;
+    use bray_testing::TemporaryFile;
 
     use super::{emission_request, required_artifacts, test_catalog_failure};
     use crate::command::{DriverBackend, DriverInspectionArtifact, DriverProductConfiguration};
     use crate::run::run_result;
-    use crate::test_support::TemporaryFile;
 
     #[test]
     fn test_catalog_protocol_failures_keep_their_exact_category() {

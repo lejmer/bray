@@ -34,7 +34,7 @@ fn packed_file_reads_only_metadata_and_demanded_bodies_and_shares_parallel_cache
     let bytes = encode_artifact(&identity, &bodies, &[], &[], &[], None, &[], &[])
         .expect("fixture implementation artifact must encode");
 
-    let directory = tempfile::tempdir().expect("temporary fixture directory must be created");
+    let directory = bray_testing::temporary_directory();
     let path = directory.path().join("large.brayimpl");
 
     std::fs::write(&path, &bytes).expect("fixture contents must be written");
@@ -143,7 +143,7 @@ fn open_file_snapshot_survives_path_replacement_and_new_input_detects_corruption
         .shared_bytes()
         .expect("fixture `shared_bytes` call must succeed");
 
-    let directory = tempfile::tempdir().expect("temporary fixture directory must be created");
+    let directory = bray_testing::temporary_directory();
     let path = directory.path().join("library.brayimpl");
 
     std::fs::write(&path, &bytes).expect("fixture contents must be written");
@@ -222,7 +222,7 @@ fn object_only_selection_leaves_bitcode_payloads_untouched() {
         )
         .expect("fixture native only artifact must succeed");
 
-    let directory = tempfile::tempdir().expect("temporary fixture directory must be created");
+    let directory = bray_testing::temporary_directory();
     let path = directory.path().join("library.brayimpl");
 
     let mut bytes = variants
@@ -271,7 +271,7 @@ fn object_only_selection_leaves_bitcode_payloads_untouched() {
 
 #[test]
 fn packed_read_errors_preserve_path_and_exact_io_cause() {
-    let directory = tempfile::tempdir().expect("temporary fixture directory must be created");
+    let directory = bray_testing::temporary_directory();
     let path = directory.path().join("absent.brayimpl");
 
     assert!(
@@ -375,7 +375,7 @@ fn complete_reads_enforce_metadata_promises_and_share_their_immutable_snapshot()
         .shared_bytes()
         .expect("fixture `shared_bytes` call must succeed");
 
-    let directory = tempfile::tempdir().expect("temporary fixture directory must be created");
+    let directory = bray_testing::temporary_directory();
     let path = directory.path().join("library.brayimpl");
 
     std::fs::write(&path, &bytes).expect("fixture contents must be written");

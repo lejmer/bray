@@ -283,7 +283,7 @@ mod tests {
 
     #[test]
     fn file_handles_load_on_demand_and_isolate_replaced_files() {
-        let directory = tempfile::tempdir().expect("temporary artifact directory");
+        let directory = bray_testing::temporary_directory();
         let path = directory.path().join("library.brayimpl");
         let first = PackageArtifactInput::file(&path, None);
         let clone = first.clone();
@@ -305,7 +305,7 @@ mod tests {
 
     #[test]
     fn known_content_identity_is_reusable_and_verified() {
-        let directory = tempfile::tempdir().expect("temporary artifact directory");
+        let directory = bray_testing::temporary_directory();
         let path = directory.path().join("library.brayimpl");
         let digest = *blake3::hash(b"expected").as_bytes();
         let first = PackageArtifactInput::file(&path, Some(digest));
@@ -374,7 +374,7 @@ mod tests {
 
         for mode in 0..3 {
             let directory =
-                tempfile::tempdir().expect("temporary fixture directory must be created");
+                bray_testing::temporary_directory();
 
             let path = directory.path().join("library.brayimpl");
 

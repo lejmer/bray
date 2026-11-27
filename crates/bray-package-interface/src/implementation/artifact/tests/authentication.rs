@@ -46,7 +46,7 @@ fn streamed_digest_binds_metadata_and_identity_to_the_authenticated_bytes() {
     assert_eq!(original.len(), replacement.len());
     assert_ne!(parsed.identity(), replacement_parsed.identity());
 
-    let temporary = tempfile::tempdir().expect("temporary fixture directory must be created");
+    let temporary = bray_testing::temporary_directory();
     let path = temporary.path().join("changed.brayimpl");
 
     std::fs::write(&path, &original).expect("fixture contents must be written");
@@ -136,7 +136,7 @@ fn unread_corruption_is_rejected_on_selection_and_complete_verification() {
 
     corrupt[entry.payload.start] ^= 1;
 
-    let directory = tempfile::tempdir().expect("temporary fixture directory must be created");
+    let directory = bray_testing::temporary_directory();
     let path = directory.path().join("library.brayimpl");
 
     std::fs::write(&path, &corrupt).expect("fixture contents must be written");
@@ -199,7 +199,7 @@ fn packed_metadata_and_full_digest_promises_are_distinct_and_enforced() {
         .shared_bytes()
         .expect("fixture `shared_bytes` call must succeed");
 
-    let directory = tempfile::tempdir().expect("temporary fixture directory must be created");
+    let directory = bray_testing::temporary_directory();
     let path = directory.path().join("library.brayimpl");
 
     std::fs::write(&path, &bytes).expect("fixture contents must be written");
@@ -259,7 +259,7 @@ fn complete_verification_rechecks_in_place_metadata_and_file_length() {
         .shared_bytes()
         .expect("fixture `shared_bytes` call must succeed");
 
-    let directory = tempfile::tempdir().expect("temporary fixture directory must be created");
+    let directory = bray_testing::temporary_directory();
     let path = directory.path().join("library.brayimpl");
 
     std::fs::write(&path, &bytes).expect("fixture contents must be written");

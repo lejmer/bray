@@ -158,9 +158,7 @@ mod tests {
 
     #[test]
     fn file_sha256_is_computed_incrementally() {
-        let Ok(directory) = tempfile::tempdir() else {
-            panic!("temporary directory must be available");
-        };
+        let directory = crate::test_support::temporary_directory();
 
         let path = directory.path().join("input");
 

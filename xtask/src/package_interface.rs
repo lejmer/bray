@@ -362,7 +362,8 @@ mod tests {
 
     #[test]
     fn inspect_selects_one_section_and_keeps_the_complete_known_index() {
-        let path = fixture_path("inspect");
+        let directory = crate::workspace::temporary_directory();
+        let path = directory.path().join("inspect.brayi");
         let fixture = encoded_semantic_test_interface();
 
         write_fixture(&path, &fixture.bytes);
@@ -392,13 +393,12 @@ mod tests {
         assert_eq!(output["sections"][0]["section"], "target_dependencies");
         assert!(output["sections"][0].get("offset").is_none());
         assert!(output["sections"][0].get("payload").is_none());
-
-        remove_fixture(&path);
     }
 
     #[test]
     fn validate_requests_the_complete_interface_closure() {
-        let path = fixture_path("validate");
+        let directory = crate::workspace::temporary_directory();
+        let path = directory.path().join("validate.brayi");
         let fixture = encoded_semantic_test_interface();
 
         write_fixture(&path, &fixture.bytes);
@@ -412,13 +412,12 @@ mod tests {
         assert_eq!(output["kind"], "package_interface_validation");
         assert_eq!(output["valid"], true);
         assert_eq!(output["section_count"], InterfaceSectionTag::ALL.len());
-
-        remove_fixture(&path);
     }
 
     #[test]
     fn malformed_artifacts_report_validation_failures() {
-        let path = fixture_path("malformed");
+        let directory = crate::workspace::temporary_directory();
+        let path = directory.path().join("malformed.brayi");
 
         write_fixture(&path, b"not an interface");
 
@@ -433,8 +432,6 @@ mod tests {
             error.to_string(),
             "package-interface validation failed: Truncated { context: Header, field: RequiredFlags, offset: 16, expected_length: 8, actual_length: 0 }"
         );
-
-        remove_fixture(&path);
     }
 
     #[test]
@@ -494,20 +491,8 @@ mod tests {
         ));
     }
 
-    fn fixture_path(name: &str) -> std::path::PathBuf {
-        std::env::temp_dir().join(format!(
-            "bray-package-interface-{name}-{}.brayi",
-            std::process::id()
-        ))
-    }
-
     fn write_fixture(path: &Path, bytes: &[u8]) {
         std::fs::write(path, bytes)
             .unwrap_or_else(|error| panic!("test fixture must be writable: {error}"));
-    }
-
-    fn remove_fixture(path: &Path) {
-        std::fs::remove_file(path)
-            .unwrap_or_else(|error| panic!("test fixture must be removable: {error}"));
     }
 }

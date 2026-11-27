@@ -56,7 +56,7 @@ mod tests {
 
     #[test]
     fn staged_library_is_created_and_replaced_when_content_changes() {
-        let directory = tempfile::tempdir().expect("LLVM staging");
+        let directory = bray_testing::temporary_directory();
         let source = directory.path().join("source.dll");
         let destination_directory = directory.path().join("release/deps");
         let destination = destination_directory.join("LLVM-C.dll");
@@ -83,7 +83,7 @@ mod tests {
     fn identical_staged_library_can_remain_locked_against_writes() {
         use std::os::windows::fs::OpenOptionsExt as _;
 
-        let directory = tempfile::tempdir().expect("locked LLVM staging");
+        let directory = bray_testing::temporary_directory();
         let source = directory.path().join("source.dll");
         let destination_directory = directory.path().join("release");
         let destination = destination_directory.join("LLVM-C.dll");
@@ -115,7 +115,7 @@ mod tests {
     fn final_profile_directory_follows_cargo_target_layouts() {
         let workspace = Path::new("workspace");
         let target = "x86_64-pc-windows-msvc";
-        let absolute_target = std::env::temp_dir().join("bray-cargo-target");
+        let absolute_target = Path::new(env!("CARGO_MANIFEST_DIR")).join("bray-cargo-target");
 
         let cases = [
             (

@@ -321,8 +321,6 @@ mod tests {
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::time::{Duration, Instant};
 
-    use bray_testing::unique_temporary_directory;
-
     use super::{ExternalToolHost, NativeExternalToolHost};
     use crate::{
         ExternalToolFailure, ExternalToolInvocation, ExternalToolProcessBudget,
@@ -374,12 +372,9 @@ mod tests {
 
     #[test]
     fn native_host_materializes_and_removes_response_files() {
-        let directory = unique_temporary_directory();
+        let directory = bray_testing::temporary_directory();
 
-        std::fs::create_dir_all(&directory)
-            .unwrap_or_else(|error| panic!("test directory should be created: {error:?}"));
-
-        let response_path = directory.join("arguments.rsp");
+        let response_path = directory.path().join("arguments.rsp");
 
         let response_file = ExternalToolResponseFile::try_new(
             response_path.clone(),
@@ -407,9 +402,6 @@ mod tests {
         );
 
         assert!(!response_path.exists());
-
-        std::fs::remove_dir(&directory)
-            .unwrap_or_else(|error| panic!("test directory should be removed: {error:?}"));
     }
 
     #[test]
@@ -426,12 +418,9 @@ mod tests {
 
     #[test]
     fn cancellation_terminates_and_reaps_native_external_tool_child() {
-        let directory = unique_temporary_directory();
+        let directory = bray_testing::temporary_directory();
 
-        std::fs::create_dir_all(&directory)
-            .unwrap_or_else(|error| panic!("test directory should be created: {error:?}"));
-
-        let marker = directory.join("started");
+        let marker = directory.path().join("started");
         let invocation = waiting_child_invocation(&marker);
         let host = native_host();
         let cancelled = Arc::new(AtomicBool::new(false));
@@ -464,12 +453,6 @@ mod tests {
 
         assert_eq!(result, Err(ExternalToolFailure::Cancelled));
         assert!(started_at.elapsed() < Duration::from_secs(5));
-
-        std::fs::remove_file(&marker)
-            .unwrap_or_else(|error| panic!("test marker should be removed: {error:?}"));
-
-        std::fs::remove_dir(&directory)
-            .unwrap_or_else(|error| panic!("test directory should be removed: {error:?}"));
     }
 
     #[test]

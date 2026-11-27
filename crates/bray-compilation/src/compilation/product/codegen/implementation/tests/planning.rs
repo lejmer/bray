@@ -422,7 +422,7 @@ fn fresh_native_plans_ignore_unrelated_semantic_interning() {
         let publish =
             |compilation: &crate::Compilation,
              native: &crate::compilation::product::codegen::NativeProductPlan| {
-                let output = tempfile::tempdir().expect("managed output directory must exist");
+                let output = bray_testing::temporary_directory();
 
                 let request = bray_emitter::EmissionRequest::try_new(
                     test_product_identity(),

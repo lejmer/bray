@@ -303,7 +303,7 @@ mod tests {
 
     #[test]
     fn alternate_source_bundles_cannot_publish_modified_unicode_tables() {
-        let directory = tempfile::tempdir().expect("scratch directory must be available");
+        let directory = crate::workspace::temporary_directory();
 
         let path = directory
             .path()
@@ -319,7 +319,7 @@ mod tests {
 
     #[test]
     fn changed_pinned_inputs_are_rejected_before_generation() {
-        let directory = tempfile::tempdir().expect("scratch directory must be available");
+        let directory = crate::workspace::temporary_directory();
         let root = directory.path().join(INPUT_ROOT);
 
         std::fs::create_dir_all(&root).expect("scratch input root must be writable");
@@ -362,7 +362,7 @@ mod tests {
 
     #[test]
     fn missing_or_modified_outputs_are_rejected() {
-        let directory = tempfile::tempdir().expect("scratch directory must be available");
+        let directory = crate::workspace::temporary_directory();
         let path = directory.path().join("metadata.json");
         let outputs = [(path.clone(), b"expected".to_vec())];
 

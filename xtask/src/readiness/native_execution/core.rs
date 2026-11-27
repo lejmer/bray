@@ -464,9 +464,7 @@ fn build_host_fixture(
 }
 
 pub(super) fn native_output(prefix: &str) -> Result<tempfile::TempDir, String> {
-    tempfile::Builder::new()
-        .prefix(prefix)
-        .tempdir()
+    crate::workspace::test_directory(prefix)
         .map_err(|error| format!("could not create native output directory: {error}"))
 }
 

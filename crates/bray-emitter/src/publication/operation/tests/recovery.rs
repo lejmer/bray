@@ -7,7 +7,7 @@ use crate::{ArtifactKind, ArtifactPublisher, EmissionStatus, ReplacementPolicy};
 
 #[test]
 fn readers_recover_a_crashed_public_projection_before_consuming_files() {
-    let output = tempfile::tempdir().expect("temporary fixture directory must be created");
+    let output = bray_testing::temporary_directory();
     let plan = filesystem_plan(output.path(), ReplacementPolicy::ReplaceExisting);
 
     let current = ArtifactPublisher::new(&never_cancelled)
@@ -49,7 +49,7 @@ fn readers_recover_a_crashed_public_projection_before_consuming_files() {
 
 #[test]
 fn a_committed_reference_wins_over_an_unfinished_journal() {
-    let output = tempfile::tempdir().expect("temporary fixture directory must be created");
+    let output = bray_testing::temporary_directory();
     let plan = filesystem_plan(output.path(), ReplacementPolicy::ReplaceExisting);
 
     let current = ArtifactPublisher::new(&never_cancelled)
@@ -82,7 +82,7 @@ fn a_committed_reference_wins_over_an_unfinished_journal() {
 
 #[test]
 fn interrupted_publication_recovery_restarts_before_removing_uncommitted_companions() {
-    let output = tempfile::tempdir().expect("temporary fixture directory must be created");
+    let output = bray_testing::temporary_directory();
     let plan = filesystem_plan(output.path(), ReplacementPolicy::ReplaceExisting);
 
     let product = ArtifactPublisher::new(&never_cancelled)
@@ -134,9 +134,7 @@ fn interrupted_publication_recovery_restarts_before_removing_uncommitted_compani
 
 #[test]
 fn concurrent_product_publishers_leave_one_complete_visible_generation() {
-    let Ok(output) = tempfile::tempdir() else {
-        panic!("test output directory must be created");
-    };
+    let output = bray_testing::temporary_directory();
 
     let plan = Arc::new(filesystem_plan(
         output.path(),

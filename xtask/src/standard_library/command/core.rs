@@ -903,8 +903,7 @@ mod tests {
 
     #[test]
     fn bundle_comparison_rejects_different_manifest_bytes_before_decoding() {
-        let directory = tempfile::tempdir()
-            .unwrap_or_else(|error| panic!("temporary root must exist: {error}"));
+        let directory = crate::workspace::temporary_directory();
 
         let first = directory.path().join("first");
         let second = directory.path().join("second");
@@ -933,8 +932,7 @@ mod tests {
         let workspace = crate::workspace::root()
             .unwrap_or_else(|error| panic!("workspace root must be available: {error}"));
 
-        let directory = tempfile::tempdir()
-            .unwrap_or_else(|error| panic!("temporary output root must exist: {error}"));
+        let directory = crate::workspace::temporary_directory();
 
         let source = workspace.join("standard-library");
         let output = directory.path().join("bundle");

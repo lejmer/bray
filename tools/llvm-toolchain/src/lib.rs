@@ -5,6 +5,8 @@
 mod command;
 mod instrumentation;
 mod process;
+#[cfg(test)]
+mod test_support;
 mod workspace;
 
 pub use command::{run, tool_path};

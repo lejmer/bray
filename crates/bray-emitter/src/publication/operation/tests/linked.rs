@@ -52,9 +52,7 @@ fn linked_products_and_companions_publish_from_validated_staging() {
     ];
 
     for case in cases {
-        let Ok(directory) = tempfile::tempdir() else {
-            panic!("test output directory must be created");
-        };
+        let directory = bray_testing::temporary_directory();
 
         let fixture = linked_publication_fixture(directory.path(), case);
 
@@ -99,9 +97,7 @@ fn linked_products_and_companions_publish_from_validated_staging() {
 
 #[test]
 fn linked_output_validation_preserves_every_existing_destination() {
-    let Ok(directory) = tempfile::tempdir() else {
-        panic!("test output directory must be created");
-    };
+    let directory = bray_testing::temporary_directory();
 
     let case = linked_case(
         LinkedProductKind::SharedLibrary,
@@ -153,9 +149,7 @@ fn linked_output_validation_preserves_every_existing_destination() {
 
 #[test]
 fn invalid_linked_output_length_preserves_the_existing_destination() {
-    let Ok(directory) = tempfile::tempdir() else {
-        panic!("test output directory must be created");
-    };
+    let directory = bray_testing::temporary_directory();
 
     let case = linked_case(
         LinkedProductKind::Executable,
@@ -206,9 +200,7 @@ fn invalid_linked_output_length_preserves_the_existing_destination() {
 #[test]
 fn link_failure_and_cancellation_preserve_existing_destinations() {
     for failed in [true, false] {
-        let Ok(directory) = tempfile::tempdir() else {
-            panic!("test output directory must be created");
-        };
+        let directory = bray_testing::temporary_directory();
 
         let case = linked_case(
             LinkedProductKind::Executable,
@@ -258,9 +250,7 @@ fn link_failure_and_cancellation_preserve_existing_destinations() {
 
 #[test]
 fn cancellation_before_linked_validation_cleans_private_staging() {
-    let Ok(directory) = tempfile::tempdir() else {
-        panic!("test output directory must be created");
-    };
+    let directory = bray_testing::temporary_directory();
 
     let case = linked_case(
         LinkedProductKind::Executable,

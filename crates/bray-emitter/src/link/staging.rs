@@ -649,8 +649,7 @@ mod tests {
 
     #[test]
     fn link_staging_owns_validated_inputs_and_deterministic_output_keys() {
-        let directory = tempfile::tempdir()
-            .unwrap_or_else(|error| panic!("test output directory must exist: {error:?}"));
+        let directory = bray_testing::temporary_directory();
 
         let plan = linked_plan(directory.path().to_owned());
         let contribution = staged_contribution(&plan, b"object bytes");
@@ -772,8 +771,7 @@ mod tests {
 
     #[test]
     fn link_staging_marks_bitcode_for_compiler_driver_classification() {
-        let directory = tempfile::tempdir()
-            .unwrap_or_else(|error| panic!("test output directory must exist: {error:?}"));
+        let directory = bray_testing::temporary_directory();
 
         let plan = linked_plan_with_linkable(
             directory.path().to_owned(),
@@ -795,8 +793,7 @@ mod tests {
 
     #[test]
     fn cancelled_link_staging_creates_no_transaction() {
-        let directory = tempfile::tempdir()
-            .unwrap_or_else(|error| panic!("test output directory must exist: {error:?}"));
+        let directory = bray_testing::temporary_directory();
 
         let plan = linked_plan(directory.path().to_owned());
         let contribution = staged_contribution(&plan, b"object bytes");
@@ -809,8 +806,7 @@ mod tests {
 
     #[test]
     fn cancellation_after_staging_creation_discards_private_state() {
-        let directory = tempfile::tempdir()
-            .unwrap_or_else(|error| panic!("test output directory must exist: {error:?}"));
+        let directory = bray_testing::temporary_directory();
 
         let plan = linked_plan(directory.path().to_owned());
         let contribution = staged_contribution(&plan, b"object bytes");
@@ -885,8 +881,7 @@ mod tests {
 
     #[test]
     fn staged_content_preserves_the_exact_digest_failure() {
-        let directory = tempfile::tempdir()
-            .unwrap_or_else(|error| panic!("test output directory must exist: {error:?}"));
+        let directory = bray_testing::temporary_directory();
 
         let plan = linked_plan(directory.path().to_owned());
 

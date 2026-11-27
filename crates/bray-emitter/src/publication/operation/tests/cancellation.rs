@@ -14,9 +14,7 @@ use crate::{ArtifactKind, ArtifactPublisher, EmissionStatus, ReplacementPolicy};
 
 #[test]
 fn cancellation_observed_after_reference_commit_cannot_retract_success() {
-    let Ok(output) = tempfile::tempdir() else {
-        panic!("test output directory must be created");
-    };
+    let output = bray_testing::temporary_directory();
 
     let reference = test_generation_store(output.path()).join("published-generation.json");
     let observed = AtomicBool::new(false);
@@ -41,9 +39,7 @@ fn cancellation_observed_after_reference_commit_cannot_retract_success() {
 
 #[test]
 fn cancellation_preserves_the_published_generation() {
-    let Ok(directory) = tempfile::tempdir() else {
-        panic!("test output directory must be created");
-    };
+    let directory = bray_testing::temporary_directory();
 
     let plan = filesystem_plan(directory.path(), ReplacementPolicy::ReplaceExisting);
 
@@ -74,9 +70,7 @@ fn cancellation_preserves_the_published_generation() {
 
 #[test]
 fn cancellation_discards_private_generation_without_partial_records() {
-    let Ok(directory) = tempfile::tempdir() else {
-        panic!("test output directory must be created");
-    };
+    let directory = bray_testing::temporary_directory();
 
     let interface_path = directory.path().join("application.brayi");
     let metadata_path = directory.path().join("application.brayd");

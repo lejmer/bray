@@ -7,7 +7,12 @@ use serde_json::Value;
 
 #[test]
 fn alternating_checkouts_reuse_only_their_own_intermediates() -> Result<(), Box<dyn Error>> {
-    let directory = tempfile::tempdir()?;
+    // Test outputs, including the probe executables, must stay inside the repository.
+    let parent = Path::new(env!("CARGO_MANIFEST_DIR")).join("../target/test-tmp");
+
+    fs::create_dir_all(&parent)?;
+
+    let directory = tempfile::tempdir_in(parent)?;
     let first = directory.path().join("checkout a");
     let second = directory.path().join("checkout b");
     let target = directory.path().join("shared target");

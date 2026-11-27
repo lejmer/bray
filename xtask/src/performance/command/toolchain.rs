@@ -42,7 +42,7 @@ pub(super) fn prepare(root: &Path, options: &Options) -> Result<PreparedToolchai
 mod tests {
     #[test]
     fn pinned_inputs_do_not_rebuild_or_overwrite_the_selected_packages() {
-        let root = tempfile::tempdir().expect("checkout root");
+        let root = crate::workspace::temporary_directory();
 
         for standard_library in [
             std::path::PathBuf::from("shared/standard-library"),

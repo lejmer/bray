@@ -187,9 +187,22 @@ mod tests {
     use super::format_diagnostic;
     use crate::diagnostic::{Diagnostic, Rule};
 
+    /// Creates a test directory beneath `target/test-tmp` because this tool stays independent of repository crates.
+    fn temporary_directory() -> tempfile::TempDir {
+        let parent = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .ancestors()
+            .nth(2)
+            .expect("rust-style must live two levels beneath the repository root")
+            .join("target/test-tmp");
+
+        std::fs::create_dir_all(&parent).expect("test temporary root must be created");
+
+        tempfile::tempdir_in(parent).expect("test temporary directory must be created")
+    }
+
     #[test]
     fn source_replacement_preserves_permissions_and_cleans_failed_staging() {
-        let directory = tempfile::tempdir().expect("temporary fixture directory must be created");
+        let directory = temporary_directory();
         let path = directory.path().join("example.rs");
 
         std::fs::write(&path, "original").expect("fixture contents must be written");
@@ -251,7 +264,7 @@ mod tests {
 
         const FILE_SHARE_READ: u32 = 1;
 
-        let directory = tempfile::tempdir().expect("temporary fixture directory must be created");
+        let directory = temporary_directory();
         let path = directory.path().join("example.rs");
 
         std::fs::write(&path, "original").expect("fixture contents must be written");
@@ -292,7 +305,7 @@ mod tests {
 
     #[test]
     fn workspace_fixes_replace_source_and_are_idempotent() {
-        let directory = tempfile::tempdir().expect("temporary fixture directory must be created");
+        let directory = temporary_directory();
         let path = directory.path().join("example.rs");
         let source = "fn example() {\n    let value = 1;\n    return value;\n}\n";
 

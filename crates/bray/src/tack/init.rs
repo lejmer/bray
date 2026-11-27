@@ -289,12 +289,11 @@ mod tests {
     use bray_target::NativeTarget;
 
     use super::{initialize_project, initialize_project_for_target};
-    use crate::test_support::unique_temporary_directory;
 
     #[test]
     fn initialization_produces_a_loadable_root_package() {
-        let parent = unique_temporary_directory();
-        let workspace = parent.join("hello_world");
+        let parent = bray_testing::temporary_directory();
+        let workspace = parent.path().join("hello_world");
 
         initialize_project(&workspace, None)
             .unwrap_or_else(|diagnostics| panic!("project should initialize: {diagnostics:?}"));
@@ -315,14 +314,12 @@ mod tests {
             .unwrap_or_else(|error| panic!("starter source should be readable: {error:?}"));
 
         assert_eq!(source, "module app;\n\nfunc main()\n{\n}\n");
-
-        let _ = std::fs::remove_dir_all(parent);
     }
 
     #[test]
     fn initialization_refuses_to_replace_existing_source() {
-        let parent = unique_temporary_directory();
-        let workspace = parent.join("sample-project");
+        let parent = bray_testing::temporary_directory();
+        let workspace = parent.path().join("sample-project");
 
         initialize_project(&workspace, Some("example.application"))
             .unwrap_or_else(|diagnostics| panic!("project should initialize: {diagnostics:?}"));
@@ -353,14 +350,12 @@ mod tests {
                 .unwrap_or_else(|error| panic!("test source should be readable: {error:?}")),
             "preserve me"
         );
-
-        let _ = std::fs::remove_dir_all(parent);
     }
 
     #[test]
     fn invalid_explicit_identity_does_not_create_a_workspace() {
-        let parent = unique_temporary_directory();
-        let workspace = parent.join("sample-project");
+        let parent = bray_testing::temporary_directory();
+        let workspace = parent.path().join("sample-project");
 
         let Err(diagnostics) = initialize_project(&workspace, Some("Invalid Package")) else {
             panic!("invalid package identity should be rejected");
@@ -390,7 +385,8 @@ mod tests {
 
     #[test]
     fn initialization_reports_unsupported_hosts_through_the_target_boundary() {
-        let workspace = unique_temporary_directory().join("unsupported-project");
+        let directory = bray_testing::temporary_directory();
+        let workspace = directory.path().join("unsupported-project");
 
         let Err(diagnostics) =
             initialize_project_for_target(&workspace, Some("example.application"), None)
@@ -417,11 +413,8 @@ mod tests {
 
     #[test]
     fn initialization_reports_filesystem_failures_with_path_and_error_kind() {
-        let parent = unique_temporary_directory();
-        let blocking_file = parent.join("blocking-file");
-
-        std::fs::create_dir_all(&parent)
-            .unwrap_or_else(|error| panic!("test parent must be created: {error:?}"));
+        let parent = bray_testing::temporary_directory();
+        let blocking_file = parent.path().join("blocking-file");
 
         std::fs::write(&blocking_file, b"not a directory")
             .unwrap_or_else(|error| panic!("blocking file must be written: {error:?}"));
@@ -456,7 +449,5 @@ mod tests {
             &diagnostics,
             DiagnosticKind::ProjectInitializationWriteFailed,
         );
-
-        let _ = std::fs::remove_dir_all(parent);
     }
 }

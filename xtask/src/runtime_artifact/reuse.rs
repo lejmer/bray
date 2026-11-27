@@ -68,7 +68,7 @@ mod tests {
 
     #[test]
     fn runtime_identity_authenticates_archives_and_package_artifacts() {
-        let directory = tempfile::tempdir().expect("runtime cache");
+        let directory = crate::workspace::temporary_directory();
         let archive = directory.path().join("runtime.a");
         let implementation = directory.path().join("runtime.brayi");
         let metadata = directory.path().join("bray-runtime.brayrt");
@@ -115,7 +115,7 @@ mod tests {
 
     #[test]
     fn runtime_reuse_rejects_missing_and_malformed_metadata() {
-        let directory = tempfile::tempdir().expect("runtime cache");
+        let directory = crate::workspace::temporary_directory();
         let metadata = directory.path().join("bray-runtime.brayrt");
 
         crate::input_identity::write_digest(directory.path(), "inputs").expect("identity");

@@ -27,6 +27,7 @@ serde_json = "1"
 [dev-dependencies]
 bray-parser = { path = "../bray-parser" }
 bray-testing = { path = "../bray-testing" }
+tempfile = "3"
 
 [lints]
 workspace = true

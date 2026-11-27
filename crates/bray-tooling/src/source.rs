@@ -181,12 +181,13 @@ mod tests {
         DiagnosticSourceInputOrigin,
     };
     use bray_source::{SourceId, SourceIdentity, SourceVersion};
+    use bray_testing::TemporaryFile;
 
     use super::{
         SourceInputError, compilation_request_from_file_arguments, source_identity_for_input_index,
         source_inputs_from_file_arguments,
     };
-    use crate::test_support::{TemporaryFile, package_identity, unique_temporary_directory};
+    use crate::test_support::package_identity;
 
     #[test]
     fn file_arguments_are_loaded_as_raw_file_source_inputs() {
@@ -254,7 +255,8 @@ mod tests {
 
     #[test]
     fn file_argument_read_errors_report_input_index_path_and_kind() {
-        let missing_path = unique_temporary_directory().join("missing.bray");
+        let directory = bray_testing::temporary_directory();
+        let missing_path = directory.path().join("missing.bray");
 
         let error = match source_inputs_from_file_arguments([missing_path.clone()]) {
             Ok(inputs) => panic!("missing file should fail to load: {inputs:?}"),
@@ -275,7 +277,8 @@ mod tests {
 
     #[test]
     fn file_argument_read_errors_convert_to_diagnostics() {
-        let missing_path = unique_temporary_directory().join("missing.bray");
+        let directory = bray_testing::temporary_directory();
+        let missing_path = directory.path().join("missing.bray");
 
         let diagnostics = match compilation_request_from_file_arguments(
             package_identity(),

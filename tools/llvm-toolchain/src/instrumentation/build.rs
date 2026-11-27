@@ -543,8 +543,7 @@ mod tests {
 
         use bray_base::{StableDigestHasher, lowercase_hex};
 
-        let directory = tempfile::tempdir()
-            .unwrap_or_else(|error| panic!("temporary directory must be available: {error}"));
+        let directory = crate::test_support::temporary_directory();
 
         super::write_native_sources(directory.path())
             .unwrap_or_else(|error| panic!("native sources must be staged: {error}"));
@@ -605,8 +604,7 @@ mod tests {
 
     #[test]
     fn instrumentation_requires_each_pinned_source_anchor_once() {
-        let directory = tempfile::tempdir()
-            .unwrap_or_else(|error| panic!("temporary directory must be available: {error}"));
+        let directory = crate::test_support::temporary_directory();
 
         let path = directory.path().join("LTO.cpp");
 

@@ -1,18 +1,14 @@
-pub(crate) use bray_testing::unique_temporary_directory;
+use std::path::Path;
 
-use std::path::{Path, PathBuf};
+use tempfile::TempDir;
 
 pub(crate) struct ProjectWorkspace {
-    path: PathBuf,
+    directory: TempDir,
 }
 
 impl ProjectWorkspace {
     pub(crate) fn basic() -> Self {
-        Self::basic_at(unique_temporary_directory())
-    }
-
-    pub(crate) fn basic_at(path: PathBuf) -> Self {
-        let workspace = Self::new(path);
+        let workspace = Self::new();
 
         workspace.write(
             "bray-workspace.json",
@@ -160,7 +156,7 @@ impl ProjectWorkspace {
     }
 
     pub(crate) fn standard_library() -> Self {
-        let workspace = Self::new(unique_temporary_directory());
+        let workspace = Self::new();
 
         workspace.write(
             "bray-workspace.json",
@@ -233,19 +229,18 @@ impl ProjectWorkspace {
         workspace
     }
 
-    fn new(path: PathBuf) -> Self {
-        std::fs::create_dir_all(&path)
-            .unwrap_or_else(|error| panic!("test workspace should be created: {error:?}"));
-
-        Self { path }
+    fn new() -> Self {
+        Self {
+            directory: bray_testing::temporary_directory(),
+        }
     }
 
     pub(crate) fn path(&self) -> &Path {
-        &self.path
+        self.directory.path()
     }
 
     pub(crate) fn set_product_outputs(&self, outputs: &[&str]) {
-        let path = self.path.join("app/bray-package.json");
+        let path = self.path().join("app/bray-package.json");
 
         let source = std::fs::read_to_string(&path)
             .unwrap_or_else(|error| panic!("test package manifest should be readable: {error:?}"));
@@ -263,7 +258,7 @@ impl ProjectWorkspace {
     }
 
     pub(crate) fn set_formatter_configuration(&self, configuration: &str) {
-        let path = self.path.join("bray-workspace.json");
+        let path = self.path().join("bray-workspace.json");
 
         let source = std::fs::read_to_string(&path).unwrap_or_else(|error| {
             panic!("test workspace manifest should be readable: {error:?}")
@@ -285,7 +280,7 @@ impl ProjectWorkspace {
     pub(crate) fn write(&self, relative_path: &str, contents: &str) {
         let path = relative_path
             .split('/')
-            .fold(self.path.clone(), |path, part| path.join(part));
+            .fold(self.path().to_path_buf(), |path, part| path.join(part));
 
         let parent = path
             .parent()
@@ -296,11 +291,5 @@ impl ProjectWorkspace {
 
         std::fs::write(path, contents)
             .unwrap_or_else(|error| panic!("test file should be written: {error:?}"));
-    }
-}
-
-impl Drop for ProjectWorkspace {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.path);
     }
 }

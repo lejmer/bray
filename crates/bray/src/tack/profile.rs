@@ -197,8 +197,7 @@ const fn diagnostic_descriptor_kind(
 
 #[cfg(test)]
 mod tests {
-    use std::io::Write;
-
+    use bray_testing::TemporaryFile;
     use bray_profile::{
         COMPILATION_PROFILE_SCHEMA_REVISION, CompilationProfileAggregation,
         CompilationProfileCategory, CompilationProfileContext, CompilationProfileDescriptorCatalog,
@@ -319,17 +318,11 @@ mod tests {
         }
     }
 
-    fn report_file(report: &CompilationProfileReport) -> tempfile::NamedTempFile {
-        let mut file = tempfile::NamedTempFile::new()
-            .unwrap_or_else(|error| panic!("profile fixture must be created: {error:?}"));
-
+    fn report_file(report: &CompilationProfileReport) -> TemporaryFile {
         let bytes = serde_json::to_vec(report)
             .unwrap_or_else(|error| panic!("profile fixture must serialize: {error:?}"));
 
-        file.write_all(&bytes)
-            .unwrap_or_else(|error| panic!("profile fixture must be written: {error:?}"));
-
-        file
+        TemporaryFile::write("profile.json", &bytes)
     }
 
     #[test]

@@ -124,9 +124,7 @@ fn smoke_test_command(arguments: impl Iterator<Item = String>) -> Result<(), Com
 }
 
 fn run_smoke(mut package: Package, target: NativeTarget) -> Result<(), CommandError> {
-    let directory = tempfile::Builder::new()
-        .prefix("bray-runtime-artifact-smoke-")
-        .tempdir()
+    let directory = crate::workspace::test_directory("bray-runtime-artifact-smoke-")
         .map_err(CommandError::TemporaryDirectory)?;
 
     crate::progress::run("Preparing runtime smoke dependencies", || {

@@ -274,7 +274,7 @@ pub(super) mod tests {
     pub(in crate::readiness) fn dependency_workspace(
         packages: &[(&str, &str)],
     ) -> (tempfile::TempDir, RustWorkspace) {
-        let directory = tempfile::tempdir().expect("readiness dependency workspace");
+        let directory = crate::workspace::temporary_directory();
 
         std::fs::write(
             directory.path().join("Cargo.toml"),
@@ -408,7 +408,7 @@ pub(super) mod tests {
                 false,
             ),
         ] {
-            let directory = tempfile::tempdir().expect("parser module workspace");
+            let directory = crate::workspace::temporary_directory();
             let root = directory.path();
 
             let sources = [

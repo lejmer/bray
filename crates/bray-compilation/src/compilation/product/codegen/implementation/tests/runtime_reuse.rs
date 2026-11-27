@@ -457,7 +457,7 @@ fn runtime_native_references_select_ordinary_library_dependencies() {
         .codegen_target()
         .expect("fixture target must support code generation");
 
-    let directory = tempfile::tempdir().expect("temporary fixture directory must be created");
+    let directory = bray_testing::temporary_directory();
     let archive = directory.path().join("runtime.lib");
 
     fs::write(&archive, b"test runtime archive").expect("fixture contents must be written");

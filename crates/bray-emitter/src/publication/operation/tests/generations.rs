@@ -14,9 +14,7 @@ use crate::{ArtifactKind, ArtifactPublisher, EmissionPlan, EmissionStatus, Repla
 
 #[test]
 fn identical_managed_generations_are_reused_by_content_identity() {
-    let Ok(output) = tempfile::tempdir() else {
-        panic!("test output directory must be created");
-    };
+    let output = bray_testing::temporary_directory();
 
     let plan = filesystem_plan(output.path(), ReplacementPolicy::ReplaceExisting);
 
@@ -49,9 +47,7 @@ fn identical_managed_generations_are_reused_by_content_identity() {
 
 #[test]
 fn managed_generation_retention_keeps_current_and_preceding_unpinned_products() {
-    let Ok(output) = tempfile::tempdir() else {
-        panic!("test output directory must be created");
-    };
+    let output = bray_testing::temporary_directory();
 
     let plan = filesystem_plan(output.path(), ReplacementPolicy::ReplaceExisting);
 
@@ -104,7 +100,7 @@ fn managed_generation_retention_keeps_current_and_preceding_unpinned_products() 
 
 #[test]
 fn pins_survive_replacement_and_repeated_content_preserves_distinct_history() {
-    let output = tempfile::tempdir().expect("temporary fixture directory must be created");
+    let output = bray_testing::temporary_directory();
     let plan = filesystem_plan(output.path(), ReplacementPolicy::ReplaceExisting);
 
     let first = ArtifactPublisher::new(&never_cancelled)
@@ -160,7 +156,7 @@ fn pins_survive_replacement_and_repeated_content_preserves_distinct_history() {
 
 #[test]
 fn products_share_immutable_content_until_the_last_retained_reference_is_removed() {
-    let output = tempfile::tempdir().expect("temporary fixture directory must be created");
+    let output = bray_testing::temporary_directory();
 
     let second_product =
         bray_symbols::ProductIdentity::try_new(product_identity().package().clone(), "second")
@@ -298,7 +294,7 @@ fn products_share_immutable_content_until_the_last_retained_reference_is_removed
 
 #[test]
 fn retained_reads_pin_every_companion_while_publication_and_cleanup_advance() {
-    let output = tempfile::tempdir().expect("temporary fixture directory must be created");
+    let output = bray_testing::temporary_directory();
 
     let first_plan = filesystem_artifact_plan([
         (
@@ -404,7 +400,7 @@ fn retained_reads_pin_every_companion_while_publication_and_cleanup_advance() {
 
 #[test]
 fn retained_generations_expose_the_atomic_build_identity() {
-    let output = tempfile::tempdir().expect("temporary fixture directory must be created");
+    let output = bray_testing::temporary_directory();
 
     let identity =
         crate::ProductBuildIdentity::new([1; 32], [2; 32], [3; 32], [4; 32], [5; 32], 6, 7);
@@ -467,9 +463,7 @@ fn retained_generations_expose_the_atomic_build_identity() {
 
 #[test]
 fn replacement_removes_public_artifacts_absent_from_the_new_generation() {
-    let Ok(output) = tempfile::tempdir() else {
-        panic!("test output directory must be created");
-    };
+    let output = bray_testing::temporary_directory();
 
     let interface = output.path().join("application.brayint");
     let metadata = output.path().join("application.brayd");

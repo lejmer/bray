@@ -13,7 +13,7 @@ mod panic;
 mod runtime_artifact;
 mod source;
 mod syntax;
-mod temporary_file;
+mod temporary;
 
 #[cfg(feature = "bound-unit")]
 pub use bound_unit::{
@@ -46,4 +46,4 @@ pub use syntax::{
     EXECUTION_GUARANTEES_SOURCE, assert_single_final_eof, assert_tokens_cover_source_text,
     first_syntax_descendant, syntax_descendants,
 };
-pub use temporary_file::{TemporaryFile, unique_temporary_directory};
+pub use temporary::{TemporaryFile, temporary_directory};

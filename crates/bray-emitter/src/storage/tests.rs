@@ -17,7 +17,7 @@ fn failed_directory_formation_can_be_inspected_cleaned_and_retried() {
         .into_iter()
         .flat_map(|kind| states.map(|state| (kind, state)))
     {
-        let root = tempfile::tempdir().expect("fixture directory must be created");
+        let root = bray_testing::temporary_directory();
         let plan = managed_library_plan(root.path(), "example.interrupted");
         let mut store = ManagedStore::open(root.path()).expect("fixture store must open");
         let key = format!("{}/{}", kind.directory(), "a".repeat(64));
@@ -101,7 +101,7 @@ fn failed_directory_formation_can_be_inspected_cleaned_and_retried() {
 #[test]
 fn missing_product_maintenance_releases_claims_and_preserves_unproven_public_files() {
     for state in [EntryState::Live, EntryState::Retiring, EntryState::RemovingFiles] {
-        let root = tempfile::tempdir().expect("fixture directory must be created");
+        let root = bray_testing::temporary_directory();
         let plan = managed_library_plan(root.path(), "example.missing");
         let key = format!("products/{}", "a".repeat(64));
         let relative = Path::new(".bray").join(&key);
@@ -158,8 +158,8 @@ fn missing_product_maintenance_releases_claims_and_preserves_unproven_public_fil
 #[test]
 fn missing_backing_rejects_unsafe_source_and_retired_directory_chains() {
     for directory in ["products", "retired"] {
-        let root = tempfile::tempdir().expect("fixture directory must be created");
-        let outside = tempfile::tempdir().expect("fixture directory must be created");
+        let root = bray_testing::temporary_directory();
+        let outside = bray_testing::temporary_directory();
         let sentinel = outside.path().join("user-data");
         let plan = managed_library_plan(root.path(), "example.unsafe");
         let key = format!("products/{}", "a".repeat(64));
@@ -197,7 +197,7 @@ fn missing_backing_rejects_unsafe_source_and_retired_directory_chains() {
 
 #[test]
 fn cache_budget_evicts_the_least_recently_used_entry() {
-    let root = tempfile::tempdir().expect("temporary fixture directory must be created");
+    let root = bray_testing::temporary_directory();
 
     let older = ManagedCache::thin_lto(root.path(), &target_identity(), "older", &|| false)
         .expect("fixture `ManagedCache::thin_lto` call must succeed");
@@ -248,7 +248,7 @@ fn cache_budget_evicts_the_least_recently_used_entry() {
 
 #[test]
 fn storage_report_marks_the_least_recently_used_cache_over_budget() {
-    let root = tempfile::tempdir().expect("temporary fixture directory must be created");
+    let root = bray_testing::temporary_directory();
 
     let older = ManagedCache::thin_lto(root.path(), &target_identity(), "older", &|| false)
         .expect("fixture `ManagedCache::thin_lto` call must succeed");
@@ -317,7 +317,7 @@ fn storage_report_marks_the_least_recently_used_cache_over_budget() {
 
 #[test]
 fn public_path_claims_prevent_cross_product_ownership() {
-    let root = tempfile::tempdir().expect("temporary fixture directory must be created");
+    let root = bray_testing::temporary_directory();
     let first = managed_library_plan(root.path(), "example.first");
     let second = managed_library_plan(root.path(), "example.second");
 
@@ -396,7 +396,7 @@ fn public_path_claims_prevent_cross_product_ownership() {
 
 #[test]
 fn expired_product_cannot_be_pinned_and_renewed_before_maintenance() {
-    let root = tempfile::tempdir().expect("temporary fixture directory must be created");
+    let root = bray_testing::temporary_directory();
     let plan = managed_library_plan(root.path(), "example.expired");
 
     let relative_store = Path::new(
@@ -445,7 +445,7 @@ fn expired_product_cannot_be_pinned_and_renewed_before_maintenance() {
 
 #[test]
 fn cache_age_and_budget_never_evict_an_active_linker() {
-    let root = tempfile::tempdir().expect("temporary fixture directory must be created");
+    let root = bray_testing::temporary_directory();
 
     let cache = ManagedCache::thin_lto(root.path(), &target_identity(), "active", &|| false)
         .expect("fixture `ManagedCache::thin_lto` call must succeed");
@@ -490,7 +490,7 @@ fn cache_age_and_budget_never_evict_an_active_linker() {
 
 #[test]
 fn repeated_operations_reclaim_completed_intermediates_and_keep_live_work() {
-    let root = tempfile::tempdir().expect("temporary fixture directory must be created");
+    let root = bray_testing::temporary_directory();
 
     let active = ManagedOperation::begin(
         root.path(),
@@ -555,7 +555,7 @@ fn repeated_operations_reclaim_completed_intermediates_and_keep_live_work() {
 
 #[test]
 fn a_process_exit_releases_ownership_and_allows_abandoned_work_to_be_reclaimed() {
-    let root = tempfile::tempdir().expect("temporary fixture directory must be created");
+    let root = bray_testing::temporary_directory();
 
     let mut child = std::process::Command::new(
         std::env::current_exe().expect("fixture `std::env::current_exe` call must succeed"),
@@ -652,7 +652,7 @@ fn abandoned_operation_child() {
 
 #[test]
 fn storage_metadata_rejects_invalid_owners_and_non_directory_managed_roots() {
-    let root = tempfile::tempdir().expect("temporary fixture directory must be created");
+    let root = bray_testing::temporary_directory();
 
     let cache = ManagedCache::thin_lto(root.path(), &target_identity(), "llvm", &|| false)
         .expect("fixture `ManagedCache::thin_lto` call must succeed");
@@ -698,7 +698,7 @@ fn storage_metadata_rejects_invalid_owners_and_non_directory_managed_roots() {
         }
     ));
 
-    let root = tempfile::tempdir().expect("temporary fixture directory must be created");
+    let root = bray_testing::temporary_directory();
 
     std::fs::write(root.path().join(".bray"), b"unmanaged file")
         .expect("fixture contents must be written");
@@ -717,8 +717,8 @@ fn storage_metadata_rejects_invalid_owners_and_non_directory_managed_roots() {
 #[cfg(unix)]
 #[test]
 fn cleanup_rejects_symlinks_without_touching_their_target() {
-    let root = tempfile::tempdir().expect("temporary fixture directory must be created");
-    let outside = tempfile::tempdir().expect("temporary fixture directory must be created");
+    let root = bray_testing::temporary_directory();
+    let outside = bray_testing::temporary_directory();
     let file = outside.path().join("user-data");
 
     std::fs::write(&file, b"keep").expect("fixture contents must be written");

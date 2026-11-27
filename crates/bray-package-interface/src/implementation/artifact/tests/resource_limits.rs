@@ -252,7 +252,7 @@ fn packed_storage_above_interface_ceiling_keeps_metadata_and_payload_bounds() {
 
     header[ARTIFACT_HASH_OFFSET..ARTIFACT_HASH_OFFSET + 32].copy_from_slice(&metadata_hash);
 
-    let temporary = tempfile::tempdir().expect("temporary fixture directory must be created");
+    let temporary = bray_testing::temporary_directory();
     let path = temporary.path().join("large.brayimpl");
 
     let mut file =

@@ -158,14 +158,11 @@ mod tests {
     use std::fs;
     use std::path::Path;
 
-    use tempfile::tempdir;
-
     use super::{check_workspace, maintained_sources, write_workspace};
 
     #[test]
     fn write_and_check_share_the_maintained_source_selection() {
-        let workspace = tempdir()
-            .unwrap_or_else(|error| panic!("temporary workspace must be created: {error}"));
+        let workspace = crate::workspace::temporary_directory();
 
         let example = workspace.path().join("examples/demo/src/main.bray");
         let runtime = workspace.path().join("runtime/bootstrap/src/report.bray");

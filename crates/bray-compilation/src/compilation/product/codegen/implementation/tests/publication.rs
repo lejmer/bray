@@ -594,7 +594,7 @@ fn mixed_ordinary_library_fallbacks_yield_to_strong_objects_and_lazy_archives() 
             .expect("fixture platform service binding must be valid")],
     );
 
-    let directory = tempfile::tempdir().expect("temporary fixture directory must be created");
+    let directory = bray_testing::temporary_directory();
 
     let prefix = std::path::Path::new(
         bray_codegen_llvm::COMPILED_LLVM_PREFIX
