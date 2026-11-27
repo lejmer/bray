@@ -356,8 +356,7 @@ mod tests {
 
     #[test]
     fn manifest_sources_stay_beneath_the_manifest_directory() {
-        let directory = tempfile::tempdir()
-            .unwrap_or_else(|error| panic!("temporary directory must exist: {error}"));
+        let directory = crate::workspace::temporary_directory();
 
         let manifest = directory.path().join("os-bindings.json");
 
@@ -369,8 +368,7 @@ mod tests {
 
     #[test]
     fn manifest_source_paths_are_unique() {
-        let directory = tempfile::tempdir()
-            .unwrap_or_else(|error| panic!("temporary directory must exist: {error}"));
+        let directory = crate::workspace::temporary_directory();
 
         let manifest = directory.path().join("os-bindings.json");
         let source = directory.path().join("shared.json");
@@ -392,8 +390,7 @@ mod tests {
 
     #[test]
     fn generated_file_checks_accept_platform_line_endings() {
-        let directory = tempfile::tempdir()
-            .unwrap_or_else(|error| panic!("temporary directory must exist: {error}"));
+        let directory = crate::workspace::temporary_directory();
 
         let path = directory.path().join("generated.bray");
 
@@ -410,8 +407,7 @@ mod tests {
 
     #[test]
     fn managed_directories_reject_and_remove_obsolete_outputs() {
-        let directory = tempfile::tempdir()
-            .unwrap_or_else(|error| panic!("temporary directory must exist: {error}"));
+        let directory = crate::workspace::temporary_directory();
 
         let expected = directory.path().join("linux.bray");
         let obsolete = directory.path().join("obsolete.bray");

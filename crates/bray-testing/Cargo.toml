@@ -35,6 +35,7 @@ bray-symbols = { path = "../bray-symbols", features = ["test-support"], optional
 bray-syntax = { path = "../bray-syntax" }
 bray-target = { path = "../bray-target", features = ["test-support"], optional = true }
 clap = { version = "4", default-features = false, features = ["std"] }
+tempfile = "3"
 
 [lints]
 workspace = true

@@ -1209,8 +1209,7 @@ mod tests {
             .cloned()
             .unwrap_or_else(|| panic!("async test host must select a runtime"));
 
-        let directory = tempfile::tempdir()
-            .unwrap_or_else(|error| panic!("test runtime directory must exist: {error}"));
+        let directory = bray_testing::temporary_directory();
 
         let bytes = b"!<arch>\n";
 

@@ -316,8 +316,8 @@ mod tests {
 
     #[test]
     fn explicit_missing_runtime_preserves_path_and_io_category() {
-        let directory = bray_testing::unique_temporary_directory();
-        let metadata = directory.join("missing-runtime.brayrt");
+        let directory = bray_testing::temporary_directory();
+        let metadata = directory.path().join("missing-runtime.brayrt");
         let selection = DriverRuntimeSelection::Artifact(metadata.clone());
 
         let diagnostics = match resolve_runtime(Some(&selection), &SelectedTarget::baseline()) {

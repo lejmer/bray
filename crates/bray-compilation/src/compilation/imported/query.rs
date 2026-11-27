@@ -1341,8 +1341,7 @@ mod tests {
 
     #[test]
     fn configured_standard_library_manifest_failure_is_reported_during_discovery() {
-        let directory = tempfile::tempdir()
-            .unwrap_or_else(|error| panic!("temporary root must exist: {error}"));
+        let directory = bray_testing::temporary_directory();
 
         let root = StandardLibraryRoot::try_new(directory.path())
             .unwrap_or_else(|| panic!("temporary root must be absolute"));
@@ -1375,7 +1374,7 @@ mod tests {
 
     #[test]
     fn explicit_dependency_owns_its_interface_and_native_representations() {
-        let directory = tempfile::tempdir().expect("temporary fixture directory must be created");
+        let directory = bray_testing::temporary_directory();
 
         let root = write_standard_library_fixture(
             directory.path(),
@@ -1408,8 +1407,7 @@ mod tests {
 
     #[test]
     fn standard_library_bundle_failures_publish_exact_structured_diagnostics() {
-        let malformed_directory = tempfile::tempdir()
-            .unwrap_or_else(|error| panic!("temporary root must exist: {error}"));
+        let malformed_directory = bray_testing::temporary_directory();
 
         fs::write(
             malformed_directory
@@ -1452,8 +1450,7 @@ mod tests {
             DiagnosticKind::StandardLibraryManifestInvalid,
         );
 
-        let unavailable_directory = tempfile::tempdir()
-            .unwrap_or_else(|error| panic!("temporary root must exist: {error}"));
+        let unavailable_directory = bray_testing::temporary_directory();
 
         let selected_target_name = "x86_64-unknown-linux-gnu";
         let unavailable_target_name = "aarch64-unknown-linux-gnu";
@@ -1485,8 +1482,7 @@ mod tests {
 
         bray_testing::assert_goal_state_diagnostic(unavailable_diagnostic);
 
-        let mismatch_directory = tempfile::tempdir()
-            .unwrap_or_else(|error| panic!("temporary root must exist: {error}"));
+        let mismatch_directory = bray_testing::temporary_directory();
 
         let selected_target = TargetIdentity::try_new(selected_target_name)
             .unwrap_or_else(|| panic!("test target identity must be valid"));
@@ -1530,8 +1526,7 @@ mod tests {
 
     #[test]
     fn unavailable_standard_library_imports_publish_diagnostics_without_panicking() {
-        let directory = tempfile::tempdir()
-            .unwrap_or_else(|error| panic!("temporary root must exist: {error}"));
+        let directory = bray_testing::temporary_directory();
 
         let root = StandardLibraryRoot::try_new(directory.path())
             .unwrap_or_else(|| panic!("temporary root must be absolute"));

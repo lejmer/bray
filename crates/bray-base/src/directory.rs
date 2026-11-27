@@ -80,9 +80,7 @@ mod tests {
 
     #[test]
     fn directories_publish_atomically_without_replacing_existing_content() {
-        let Ok(root) = tempfile::tempdir() else {
-            panic!("test output directory must be created");
-        };
+        let root = crate::test_support::temporary_directory();
 
         let source = root.path().join("private");
         let destination = root.path().join("published");

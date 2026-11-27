@@ -390,7 +390,7 @@ fn assert_native_exercise(
         })
         .expect("native entry retains its selected symbol");
 
-    let directory = tempfile::tempdir().expect("native view fixture directory must exist");
+    let directory = bray_testing::temporary_directory();
     let mut objects = Vec::new();
 
     for (index, bytes) in generated_artifacts(backend, &plan).into_iter().enumerate() {

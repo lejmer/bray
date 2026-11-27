@@ -19,6 +19,7 @@ serde_json = "1"
 [dev-dependencies]
 bray-runtime-abi = { path = "../bray-runtime-abi" }
 bray-testing = { path = "../bray-testing", features = ["mir-unit"] }
+tempfile = "3"
 
 [lints]
 workspace = true

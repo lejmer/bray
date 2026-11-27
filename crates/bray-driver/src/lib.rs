@@ -4,8 +4,6 @@
 
 mod command;
 mod run;
-#[cfg(test)]
-mod test_support;
 
 pub use bray_tooling::{InspectionTarget, OutputFormat};
 pub use command::{

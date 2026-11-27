@@ -799,8 +799,7 @@ mod tests {
 
     #[test]
     fn runtime_selection_uses_exact_purpose_and_requirement_owners() {
-        let directory = tempfile::tempdir()
-            .unwrap_or_else(|error| panic!("test runtime directory must exist: {error}"));
+        let directory = bray_testing::temporary_directory();
 
         let index = native_index(directory.path());
 
@@ -846,8 +845,7 @@ mod tests {
 
     #[test]
     fn runtime_selection_authenticates_only_when_a_unit_is_selected() {
-        let directory = tempfile::tempdir()
-            .unwrap_or_else(|error| panic!("test runtime directory must exist: {error}"));
+        let directory = bray_testing::temporary_directory();
 
         let index = native_index(directory.path());
 

@@ -151,7 +151,7 @@ mod tests {
 
     #[test]
     fn accepts_compiled_scenarios_headers_and_structural_entry_names() {
-        let root = tempfile::tempdir().expect("test workspace");
+        let root = crate::workspace::temporary_directory();
 
         for file in [
             "xtask/fixtures/main.bray",
@@ -177,7 +177,7 @@ mod tests {
 
     #[test]
     fn rejects_mixed_names_across_compiled_languages_in_path_order() {
-        let root = tempfile::tempdir().expect("test workspace");
+        let root = crate::workspace::temporary_directory();
 
         let files = [
             "nested/invalid_name.bray",
@@ -219,7 +219,7 @@ mod tests {
 
     #[test]
     fn leaves_production_corpus_data_and_generated_output_names_outside_the_rule() {
-        let root = tempfile::tempdir().expect("test workspace");
+        let root = crate::workspace::temporary_directory();
 
         for file in [
             "standard-library/std/src/some_module.bray",
@@ -239,7 +239,7 @@ mod tests {
 
     #[test]
     fn preserves_the_directory_and_io_cause_when_fixtures_cannot_be_read() {
-        let root = tempfile::tempdir().expect("test workspace");
+        let root = crate::workspace::temporary_directory();
 
         write_file(root.path(), "xtask/fixtures");
 

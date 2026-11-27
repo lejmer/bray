@@ -131,9 +131,7 @@ fn failed_indirect_writes_flushes_and_commits_discard_buffered_bytes() {
 
 #[test]
 fn filesystem_publication_obeys_replacement_policy() {
-    let Ok(output) = tempfile::tempdir() else {
-        panic!("test output directory must be created");
-    };
+    let output = bray_testing::temporary_directory();
 
     let require_absent = filesystem_plan(output.path(), ReplacementPolicy::RequireAbsent);
 
@@ -224,7 +222,7 @@ fn filesystem_publication_obeys_replacement_policy() {
 
 #[test]
 fn publication_creates_a_missing_managed_root_without_link_staging() {
-    let directory = tempfile::tempdir().expect("temporary fixture directory must be created");
+    let directory = bray_testing::temporary_directory();
     let output = directory.path().join("fresh").join("output");
     let plan = filesystem_plan(&output, ReplacementPolicy::ReplaceExisting);
 

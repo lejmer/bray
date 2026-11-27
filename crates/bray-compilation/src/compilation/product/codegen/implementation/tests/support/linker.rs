@@ -49,7 +49,7 @@ pub(in super::super) fn run_native_caller(
     plan: &crate::compilation::product::codegen::NativeProductPlan,
     caller: &str,
 ) {
-    let directory = tempfile::tempdir().expect("temporary fixture directory must be created");
+    let directory = bray_testing::temporary_directory();
     let mut objects = Vec::new();
 
     for (index, bytes) in super::artifacts::generated_artifacts(backend, plan)

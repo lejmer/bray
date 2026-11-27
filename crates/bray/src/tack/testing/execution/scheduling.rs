@@ -500,8 +500,7 @@ mod tests {
 
     #[test]
     fn one_fresh_host_executes_multiple_ordered_plans_without_reloading_artifacts() {
-        let directory = tempfile::tempdir()
-            .unwrap_or_else(|error| panic!("test directory should be created: {error:?}"));
+        let directory = bray_testing::temporary_directory();
 
         let (executable, catalog) = write_empty_test_host(directory.path());
 

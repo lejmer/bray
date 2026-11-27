@@ -206,8 +206,7 @@ mod tests {
 
     #[test]
     fn toolchain_digest_excludes_separately_identified_runtime_and_standard_library() {
-        let directory = tempfile::tempdir()
-            .unwrap_or_else(|error| panic!("temporary toolchain should exist: {error}"));
+        let directory = bray_testing::temporary_directory();
 
         let runtime = directory.path().join("runtime");
         let standard_library = directory.path().join("standard-library");

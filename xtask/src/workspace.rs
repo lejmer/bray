@@ -3,6 +3,26 @@ use std::path::{Path, PathBuf};
 
 pub(crate) use bray_llvm_toolchain::workspace_root as root;
 
+/// Creates a private directory beneath the repository's `target/test-tmp` for test outputs.
+///
+/// Test outputs, including built fixture executables, must stay inside the repository.
+#[cfg(any(test, feature = "full"))]
+pub(crate) fn test_directory(prefix: &str) -> std::io::Result<tempfile::TempDir> {
+    let parent = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("xtask must live directly beneath the repository root")
+        .join("target/test-tmp");
+
+    std::fs::create_dir_all(&parent)?;
+
+    tempfile::Builder::new().prefix(prefix).tempdir_in(parent)
+}
+
+#[cfg(test)]
+pub(crate) fn temporary_directory() -> tempfile::TempDir {
+    test_directory(".tmp").expect("test temporary directory must be created")
+}
+
 pub(crate) fn cargo_target(root: &Path) -> PathBuf {
     cargo_target_from(root, std::env::var_os("CARGO_TARGET_DIR"))
 }
@@ -72,7 +92,7 @@ mod tests {
 
     #[test]
     fn cargo_target_preserves_absolute_overrides() {
-        let absolute = std::env::temp_dir().join("bray-cargo-target");
+        let absolute = Path::new(env!("CARGO_MANIFEST_DIR")).join("bray-cargo-target");
 
         assert_eq!(
             cargo_target_from(

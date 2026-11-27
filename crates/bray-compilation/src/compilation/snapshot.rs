@@ -604,8 +604,7 @@ mod tests {
 
     #[test]
     fn updated_source_snapshots_preserve_the_configured_standard_library_root() {
-        let directory = tempfile::tempdir()
-            .unwrap_or_else(|error| panic!("fixture directory must exist: {error}"));
+        let directory = bray_testing::temporary_directory();
 
         let root = bray_standard_library::StandardLibraryRoot::try_new(directory.path())
             .unwrap_or_else(|| panic!("temporary root must be absolute"));
@@ -649,8 +648,7 @@ mod tests {
 
     #[test]
     fn updated_source_snapshots_preserve_native_dependencies_without_semantic_imports() {
-        let directory = tempfile::tempdir()
-            .unwrap_or_else(|error| panic!("fixture directory must exist: {error}"));
+        let directory = bray_testing::temporary_directory();
 
         let artifact = bray_package_interface::PackageArtifactInput::file(
             directory.path().join("native.brayimpl"),

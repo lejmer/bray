@@ -26,7 +26,7 @@ struct Fixture {
 impl Fixture {
     fn new() -> Self {
         let host = NativeTarget::current().expect("generator tests require a supported host");
-        let directory = tempfile::tempdir().expect("test workspace must be available");
+        let directory = bray_testing::temporary_directory();
 
         let fixture = Self {
             directory,

@@ -472,7 +472,7 @@ mod tests {
 
     #[test]
     fn spawn_failure_preserves_its_io_cause_and_command() {
-        let directory = tempfile::tempdir().expect("spawn fixture directory must exist");
+        let directory = crate::workspace::temporary_directory();
         let executable = directory.path().join("missing-validation-executable");
 
         let failure = output(Exec::cmd(&executable), Duration::from_secs(1))

@@ -41,7 +41,7 @@ fn native_products_allow_platform_runtime_dependencies() {
 #[test]
 #[ignore = "tier:native"]
 fn source_authority_selects_native_provider_units_and_flags() {
-    let directory = tempfile::tempdir().expect("temporary fixture directory must be created");
+    let directory = bray_testing::temporary_directory();
     let selected = SelectedTarget::baseline();
     let target = selected.profile().identity().clone();
 

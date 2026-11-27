@@ -533,8 +533,7 @@ mod tests {
 
     #[test]
     fn relative_tool_path_is_resolved_from_the_request_working_directory() {
-        let workspace = tempfile::tempdir()
-            .unwrap_or_else(|error| panic!("temporary workspace should exist: {error}"));
+        let workspace = bray_testing::temporary_directory();
 
         let selected = PathBuf::from("tools").join(executable_file_name("brayc"));
         let compiler = workspace.path().join(&selected);
@@ -563,11 +562,9 @@ mod tests {
 
     #[test]
     fn bare_tool_name_uses_the_host_search_order() {
-        let workspace = tempfile::tempdir()
-            .unwrap_or_else(|error| panic!("temporary workspace should exist: {error}"));
+        let workspace = bray_testing::temporary_directory();
 
-        let search = tempfile::tempdir()
-            .unwrap_or_else(|error| panic!("temporary search directory should exist: {error}"));
+        let search = bray_testing::temporary_directory();
 
         let file_name = executable_file_name("brayc");
         let workspace_compiler = workspace.path().join(&file_name);
@@ -604,11 +601,9 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn bare_tool_name_skips_nonexecutable_search_candidates() {
-        let first = tempfile::tempdir()
-            .unwrap_or_else(|error| panic!("first search directory should exist: {error}"));
+        let first = bray_testing::temporary_directory();
 
-        let second = tempfile::tempdir()
-            .unwrap_or_else(|error| panic!("second search directory should exist: {error}"));
+        let second = bray_testing::temporary_directory();
 
         let first_compiler = first.path().join("brayc");
         let second_compiler = second.path().join("brayc");

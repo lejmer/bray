@@ -669,7 +669,7 @@ fn compile_only_emission_preserves_specialized_cleanup_mir() {
     let outputs = bray_target::TargetOutputDescription::try_new(profile.clone(), [name])
         .expect("backend IR outputs must validate");
 
-    let destination = tempfile::tempdir().expect("output directory must exist");
+    let destination = bray_testing::temporary_directory();
 
     let request = bray_emitter::EmissionRequest::try_new(
         test_product_identity(),

@@ -133,8 +133,7 @@ fn command_options_require_paired_unique_pinned_inputs() {
 fn output_validation_rejects_peer_output_mismatches() {
     let expected = bray_base::lowercase_hex(&Sha256::digest([]));
 
-    let working_directory = tempfile::tempdir()
-        .unwrap_or_else(|error| panic!("output validation directory must exist: {error}"));
+    let working_directory = crate::workspace::temporary_directory();
 
     assert!(
         validate_output_parts(

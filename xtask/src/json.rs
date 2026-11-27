@@ -28,8 +28,7 @@ fn write(path: &Path, mut bytes: Vec<u8>) -> Result<(), String> {
 mod tests {
     #[test]
     fn compact_json_is_single_line_and_newline_terminated() {
-        let directory = tempfile::tempdir()
-            .unwrap_or_else(|error| panic!("temporary directory must exist: {error}"));
+        let directory = crate::workspace::temporary_directory();
 
         let path = directory.path().join("report.json");
 

@@ -551,8 +551,7 @@ mod tests {
 
     #[test]
     fn thin_lto_cache_roots_are_created_before_linker_invocation() {
-        let directory = tempfile::tempdir()
-            .unwrap_or_else(|error| panic!("test directory must be available: {error}"));
+        let directory = bray_testing::temporary_directory();
 
         let target = bray_target::NativeTarget::X86_64WindowsMsvc;
 
@@ -566,8 +565,7 @@ mod tests {
 
         assert!(path.directory().is_dir());
 
-        let blocked = tempfile::tempdir()
-            .unwrap_or_else(|error| panic!("blocked test directory must be available: {error}"));
+        let blocked = bray_testing::temporary_directory();
 
         std::fs::write(blocked.path().join(".bray"), b"file")
             .unwrap_or_else(|error| panic!("cache parent fixture must be writable: {error}"));

@@ -177,8 +177,8 @@ mod tests {
 
     #[test]
     fn loader_preserves_metadata_read_and_decode_failures() {
-        let directory = bray_testing::unique_temporary_directory();
-        let missing = directory.join("missing.brayrt");
+        let directory = bray_testing::temporary_directory();
+        let missing = directory.path().join("missing.brayrt");
 
         assert_eq!(
             load_runtime_artifact(
@@ -192,10 +192,7 @@ mod tests {
             })
         );
 
-        std::fs::create_dir_all(&directory)
-            .unwrap_or_else(|error| panic!("test runtime directory must be created: {error}"));
-
-        let malformed = directory.join("malformed.brayrt");
+        let malformed = directory.path().join("malformed.brayrt");
 
         std::fs::write(&malformed, b"not metadata")
             .unwrap_or_else(|error| panic!("malformed metadata must be written: {error}"));
@@ -208,19 +205,12 @@ mod tests {
             ),
             Err(RuntimeArtifactLoadError::InvalidMetadata { path, .. }) if path == malformed
         ));
-
-        std::fs::remove_dir_all(directory)
-            .unwrap_or_else(|error| panic!("test runtime directory must be removed: {error}"));
     }
 
     #[test]
     fn loader_validates_target_and_runtime_abi_before_resolving_archives() {
-        let directory = bray_testing::unique_temporary_directory();
-
-        std::fs::create_dir_all(&directory)
-            .unwrap_or_else(|error| panic!("test runtime directory must be created: {error}"));
-
-        let metadata_path = directory.join("bray-runtime.brayrt");
+        let directory = bray_testing::temporary_directory();
+        let metadata_path = directory.path().join("bray-runtime.brayrt");
 
         let metadata = metadata(
             "x86_64-pc-windows-msvc",
@@ -260,25 +250,33 @@ mod tests {
                 actual: RuntimeAbiVersion::new(1, 0),
             })
         );
-
-        std::fs::remove_dir_all(directory)
-            .unwrap_or_else(|error| panic!("test runtime directory must be removed: {error}"));
     }
 
     #[test]
     #[cfg(feature = "compiler")]
     fn relative_runtime_metadata_resolves_native_units_independently_of_linker_working_directory() {
-        let directory =
-            tempfile::tempdir_in(".").expect("fixture `tempfile::tempdir_in` call must succeed");
+        let root = bray_testing::temporary_directory();
 
-        let metadata_path = directory.path().join("bray-runtime.brayrt");
-        let archive = directory.path().join("runtime.lib");
+        let repository = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .ancestors()
+            .nth(2)
+            .expect("bray-tooling must live two levels beneath the repository root");
+
+        // Cargo runs unit tests from the package root, so this relative path reaches the temporary directory.
+        let directory = std::path::Path::new("../..").join(
+            root.path()
+                .strip_prefix(repository)
+                .expect("test temporary directories must live inside the repository"),
+        );
+
+        let metadata_path = directory.join("bray-runtime.brayrt");
+        let archive = directory.join("runtime.lib");
 
         std::fs::write(&archive, b"!<arch>\n").expect("fixture contents must be written");
 
         let indexes = RuntimeArtifactPurpose::ALL.map(|purpose| {
             bray_testing::test_runtime_native_index(
-                directory.path(),
+                &directory,
                 bray_target::NativeTarget::X86_64WindowsMsvc,
                 purpose,
                 std::iter::empty::<&str>(),
@@ -307,7 +305,7 @@ mod tests {
         )
         .expect("fixture `load_runtime_artifact` call must succeed");
 
-        let directory = std::path::absolute(directory.path())
+        let directory = std::path::absolute(&directory)
             .expect("fixture `std::path::absolute` call must succeed");
 
         assert_eq!(artifact.native_indexes().len(), indexes.len());

@@ -6,7 +6,7 @@ use crate::{ArtifactKind, ArtifactPublisher, EmissionPlan, ReplacementPolicy};
 
 #[test]
 fn a_live_product_reader_excludes_publication_until_it_releases_the_lock() {
-    let output = tempfile::tempdir().expect("temporary fixture directory must be created");
+    let output = bray_testing::temporary_directory();
     let plan = filesystem_plan(output.path(), ReplacementPolicy::ReplaceExisting);
     let product = product_identity();
 
@@ -28,7 +28,7 @@ fn a_live_product_reader_excludes_publication_until_it_releases_the_lock() {
 
 #[test]
 fn storage_clean_respects_live_pins_dry_runs_and_unmanaged_files() {
-    let output = tempfile::tempdir().expect("temporary fixture directory must be created");
+    let output = bray_testing::temporary_directory();
     let plan = filesystem_plan(output.path(), ReplacementPolicy::ReplaceExisting);
 
     let current = ArtifactPublisher::new(&never_cancelled)
@@ -88,7 +88,7 @@ fn storage_clean_respects_live_pins_dry_runs_and_unmanaged_files() {
 
 #[test]
 fn active_product_storage_respects_every_context_filter() {
-    let output = tempfile::tempdir().expect("temporary fixture directory must be created");
+    let output = bray_testing::temporary_directory();
     let plan = filesystem_plan(output.path(), ReplacementPolicy::ReplaceExisting);
 
     let active = ArtifactPublisher::new(&never_cancelled)
@@ -141,7 +141,7 @@ fn active_product_storage_respects_every_context_filter() {
 
 #[test]
 fn maintenance_removes_uncommitted_first_publication_and_abandoned_staging() {
-    let output = tempfile::tempdir().expect("temporary fixture directory must be created");
+    let output = bray_testing::temporary_directory();
     let plan = filesystem_plan(output.path(), ReplacementPolicy::ReplaceExisting);
 
     let current = ArtifactPublisher::new(&never_cancelled)
@@ -194,7 +194,7 @@ fn maintenance_removes_uncommitted_first_publication_and_abandoned_staging() {
 
 #[test]
 fn selective_clean_removes_previous_profile_and_staging_without_current_outputs() {
-    let output = tempfile::tempdir().expect("temporary fixture directory must be created");
+    let output = bray_testing::temporary_directory();
     let base = filesystem_plan(output.path(), ReplacementPolicy::ReplaceExisting);
 
     let profile_plan = |profile| {
@@ -331,7 +331,7 @@ fn selective_clean_removes_previous_profile_and_staging_without_current_outputs(
 
 #[test]
 fn inactive_product_reclamation_removes_public_files_and_preserves_unmanaged_neighbors() {
-    let output = tempfile::tempdir().expect("temporary fixture directory must be created");
+    let output = bray_testing::temporary_directory();
     let plan = filesystem_plan(output.path(), ReplacementPolicy::ReplaceExisting);
 
     let product = ArtifactPublisher::new(&never_cancelled)
@@ -382,7 +382,7 @@ fn inactive_product_reclamation_removes_public_files_and_preserves_unmanaged_nei
 
 #[test]
 fn interrupted_storage_clean_resumes_after_public_output_removal() {
-    let output = tempfile::tempdir().expect("temporary fixture directory must be created");
+    let output = bray_testing::temporary_directory();
     let plan = filesystem_plan(output.path(), ReplacementPolicy::ReplaceExisting);
 
     let current = ArtifactPublisher::new(&never_cancelled)

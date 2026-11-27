@@ -809,7 +809,7 @@ mod tests {
 
         let bytes = index.encode().expect("test index must encode");
         let index_digest = digest(&bytes);
-        let directory = tempfile::tempdir().expect("test directory must exist");
+        let directory = bray_testing::temporary_directory();
 
         for (digest, bytes) in &payloads {
             std::fs::write(
@@ -871,8 +871,7 @@ mod tests {
             .encode()
             .unwrap_or_else(|error| panic!("index must encode: {error:?}"));
 
-        let directory = tempfile::tempdir()
-            .unwrap_or_else(|error| panic!("test payload directory must exist: {error}"));
+        let directory = bray_testing::temporary_directory();
 
         for (digest, bytes) in &payloads {
             let kind = index
@@ -959,8 +958,7 @@ mod tests {
             .encode()
             .unwrap_or_else(|error| panic!("index must encode: {error:?}"));
 
-        let directory = tempfile::tempdir()
-            .unwrap_or_else(|error| panic!("test payload directory must exist: {error}"));
+        let directory = bray_testing::temporary_directory();
 
         assert!(matches!(
             NativeArtifactIndex::import(
@@ -1069,8 +1067,7 @@ mod tests {
                 digest(&malformed),
                 index.target(),
                 index.producer(),
-                tempfile::tempdir()
-                    .unwrap_or_else(|error| panic!("test directory must exist: {error}"))
+                bray_testing::temporary_directory()
                     .path(),
             ),
             Err(NativeIndexError::Wire(
@@ -1092,8 +1089,7 @@ mod tests {
                 digest(&wrong_format),
                 index.target(),
                 index.producer(),
-                tempfile::tempdir()
-                    .unwrap_or_else(|error| panic!("test directory must exist: {error}"))
+                bray_testing::temporary_directory()
                     .path(),
             ),
             Err(NativeIndexError::Wire(
@@ -1202,8 +1198,7 @@ mod tests {
                 digest(&bytes),
                 index.target(),
                 index.producer(),
-                tempfile::tempdir()
-                    .unwrap_or_else(|error| panic!("test directory must exist: {error}"))
+                bray_testing::temporary_directory()
                     .path(),
             ),
             Err(NativeIndexError::Wire(
@@ -1214,8 +1209,7 @@ mod tests {
 
     #[test]
     fn comdat_selection_rules_round_trip() {
-        let directory = tempfile::tempdir()
-            .unwrap_or_else(|error| panic!("test payload directory must exist: {error}"));
+        let directory = bray_testing::temporary_directory();
 
         for rule in [
             NativeComdatSelection::Any,

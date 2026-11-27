@@ -12,6 +12,8 @@ mod hex;
 mod path;
 mod slice;
 mod text;
+#[cfg(test)]
+mod test_support;
 
 pub use cancellation::Cancellation;
 pub use digest::{Sha256Reader, StableDigestHasher, sha256_file, sha256_reader};

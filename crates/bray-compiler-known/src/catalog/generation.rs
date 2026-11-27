@@ -484,9 +484,23 @@ mod tests {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("catalog")
     }
 
+    /// Creates a test directory beneath `target/test-tmp` without depending on `bray-testing`, which depends on this
+    /// crate.
+    fn temporary_directory() -> tempfile::TempDir {
+        let parent = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .ancestors()
+            .nth(2)
+            .expect("bray-compiler-known must live two levels beneath the repository root")
+            .join("target/test-tmp");
+
+        std::fs::create_dir_all(&parent).expect("test temporary root must be created");
+
+        tempfile::tempdir_in(parent).expect("test temporary directory must be created")
+    }
+
     #[test]
     fn generation_uses_selected_inputs_and_rejects_mismatched_executables() {
-        let directory = tempfile::tempdir().expect("temporary fixture directory must be created");
+        let directory = temporary_directory();
 
         for source in generator_input_inventory().sources() {
             let path = directory.path().join(source.relative_path());
@@ -528,7 +542,7 @@ mod tests {
 
     #[test]
     fn missing_selected_inputs_preserve_the_path_and_filesystem_error() {
-        let directory = tempfile::tempdir().expect("temporary fixture directory must be created");
+        let directory = temporary_directory();
 
         let error = generate_catalog_output(directory.path())
             .expect_err("fixture catalog without selected inputs must be rejected");

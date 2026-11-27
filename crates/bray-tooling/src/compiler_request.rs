@@ -60,7 +60,7 @@ mod tests {
 
     #[test]
     fn large_requests_preserve_order_and_native_arguments() {
-        let directory = tempfile::tempdir().expect("temporary fixture directory must be created");
+        let directory = bray_testing::temporary_directory();
         let path = directory.path().join("request.json");
 
         let mut arguments = vec![
@@ -95,7 +95,7 @@ mod tests {
     fn malformed_requests_preserve_document_causes() {
         use bray_diagnostics::{DiagnosticDocumentParseKind, DiagnosticProjectCommandFailure};
 
-        let directory = tempfile::tempdir().expect("temporary fixture directory must be created");
+        let directory = bray_testing::temporary_directory();
         let path = directory.path().join("request.json");
 
         for (bytes, expected) in [

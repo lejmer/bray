@@ -197,7 +197,7 @@ mod tests {
 
     #[test]
     fn whole_file_replacement_preserves_open_readers_and_failed_destinations() {
-        let directory = tempfile::tempdir().expect("temporary fixture directory must be created");
+        let directory = crate::test_support::temporary_directory();
         let destination = directory.path().join("source.rs");
 
         super::write_file_atomically(&destination, b"original")
@@ -223,9 +223,7 @@ mod tests {
 
     #[test]
     fn staging_stays_private_until_atomic_replacement() {
-        let Ok(directory) = tempfile::tempdir() else {
-            panic!("test output directory must be created");
-        };
+        let directory = crate::test_support::temporary_directory();
 
         let destination = directory.path().join("source.bray");
 
@@ -249,9 +247,7 @@ mod tests {
 
     #[test]
     fn failed_promotion_preserves_destination_and_cleans_staging() {
-        let Ok(directory) = tempfile::tempdir() else {
-            panic!("test output directory must be created");
-        };
+        let directory = crate::test_support::temporary_directory();
 
         let destination = directory.path().join("source.bray");
 
@@ -272,9 +268,7 @@ mod tests {
 
     #[test]
     fn staging_directory_can_be_private_and_separate_from_destination() {
-        let Ok(directory) = tempfile::tempdir() else {
-            panic!("test output directory must be created");
-        };
+        let directory = crate::test_support::temporary_directory();
 
         let staging_directory = directory.path().join(".bray").join("staging");
         let public_directory = directory.path().join("native").join("debug");
@@ -311,9 +305,7 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn promotions_support_windows_paths_beyond_the_legacy_limit() {
-        let Ok(directory) = tempfile::tempdir() else {
-            panic!("test output directory must be created");
-        };
+        let directory = crate::test_support::temporary_directory();
 
         let staging_directory = directory
             .path()
@@ -352,9 +344,7 @@ mod tests {
 
     #[test]
     fn dropped_staging_cleans_only_its_owned_path() {
-        let Ok(directory) = tempfile::tempdir() else {
-            panic!("test output directory must be created");
-        };
+        let directory = crate::test_support::temporary_directory();
 
         let unrelated = directory.path().join("unrelated");
         let destination = directory.path().join("source.bray");
@@ -375,9 +365,7 @@ mod tests {
     fn replacement_preserves_existing_file_permissions() {
         use std::os::unix::fs::PermissionsExt;
 
-        let Ok(directory) = tempfile::tempdir() else {
-            panic!("test output directory must be created");
-        };
+        let directory = crate::test_support::temporary_directory();
 
         let destination = directory.path().join("source.bray");
 

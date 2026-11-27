@@ -820,7 +820,7 @@ mod tests {
             }))
             .expect("fixture task observer must be installed");
 
-        let destination = tempfile::tempdir().expect("temporary fixture directory must be created");
+        let destination = bray_testing::temporary_directory();
         let target_outputs = target_outputs();
 
         let outcome = compilation
@@ -840,8 +840,7 @@ mod tests {
         let compilation = compilation("module app;", WorkerBudget::serial());
         let target_outputs = target_outputs();
 
-        let destination = tempfile::tempdir()
-            .unwrap_or_else(|error| panic!("test output directory must exist: {error}"));
+        let destination = bray_testing::temporary_directory();
 
         let inputs = ProductEmissionInputs::new(&target_outputs);
 

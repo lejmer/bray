@@ -1,6 +1,5 @@
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 use bray_diagnostics::{
     DiagnosticArgName, DiagnosticArgValue, DiagnosticBag, DiagnosticId, DiagnosticKind,
@@ -14,8 +13,7 @@ use bray_project::{
 use bray_standard_library::PackageSourceAuthority;
 use bray_symbols::PackageIdentity;
 use bray_target::{TargetOutputKind, TargetPropertyKind};
-
-static TEST_DIRECTORY_ORDINAL: AtomicUsize = AtomicUsize::new(0);
+use tempfile::TempDir;
 
 fn assert_manifest_problem(
     result: Result<ProjectGraph, ProjectLoadError>,
@@ -1305,36 +1303,17 @@ fn replace(path: PathBuf, from: &str, to: &str) {
 }
 
 struct TestWorkspace {
-    path: PathBuf,
+    directory: TempDir,
 }
 
 impl TestWorkspace {
     fn new() -> Self {
-        let ordinal = TEST_DIRECTORY_ORDINAL.fetch_add(1, Ordering::Relaxed);
-
-        let path =
-            std::env::temp_dir().join(format!("bray-project-{}-{ordinal}", std::process::id()));
-
-        if path.exists() {
-            fs::remove_dir_all(&path)
-                .unwrap_or_else(|error| panic!("stale test directory must be removed: {error}"));
+        Self {
+            directory: bray_testing::temporary_directory(),
         }
-
-        fs::create_dir_all(&path)
-            .unwrap_or_else(|error| panic!("test workspace must be created: {error}"));
-
-        Self { path }
     }
 
     fn path(&self) -> &Path {
-        &self.path
-    }
-}
-
-impl Drop for TestWorkspace {
-    fn drop(&mut self) {
-        if let Err(error) = fs::remove_dir_all(&self.path) {
-            panic!("test workspace must be removed: {error}");
-        }
+        self.directory.path()
     }
 }

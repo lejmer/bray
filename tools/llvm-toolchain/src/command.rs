@@ -893,9 +893,7 @@ mod tests {
             panic!("manifest must contain a test package");
         };
 
-        let Ok(directory) = tempfile::tempdir() else {
-            panic!("temporary directory must be available");
-        };
+        let directory = crate::test_support::temporary_directory();
 
         if let Err(error) = write_marker(directory.path(), "0.0.0", package, &manifest.source) {
             panic!("test marker must be written: {error}");
@@ -915,7 +913,7 @@ mod tests {
             .first()
             .expect("manifest must contain a test package");
 
-        let directory = tempfile::tempdir().expect("temporary directory must be available");
+        let directory = crate::test_support::temporary_directory();
 
         write_marker(
             directory.path(),
@@ -949,7 +947,7 @@ mod tests {
 
     #[test]
     fn extraction_preserves_linker_and_compiler_runtime_without_frontend_sdks() {
-        let directory = tempfile::tempdir().expect("temporary directory must be available");
+        let directory = crate::test_support::temporary_directory();
         let source = directory.path().join("source");
         let staging = directory.path().join("staging");
         let archive = directory.path().join("toolchain.tar.xz");
@@ -996,9 +994,7 @@ mod tests {
 
     #[test]
     fn failed_installations_remove_owned_staging_directories() {
-        let Ok(directory) = tempfile::tempdir() else {
-            panic!("temporary directory must be available");
-        };
+        let directory = crate::test_support::temporary_directory();
 
         let staging = directory.path().join("active-1.partial");
 
