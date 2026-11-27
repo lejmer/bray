@@ -417,6 +417,12 @@ pub trait CheckerRequestContext: Sync {
         substitution: bray_symbols::GenericSubstitutionId,
     ) -> CheckerQueryResult<Option<TypeId>, Self::UpstreamError>;
 
+    /// Returns whether the recognized standard deallocation completes normally
+    /// for valid inputs, so releasing storage without element cleanup cannot fail.
+    fn standard_deallocation_completes(&self) -> CheckerQueryResult<bool, Self::UpstreamError> {
+        Ok(false)
+    }
+
     /// Returns the target atomic representation selected for one concrete plain-storage type.
     fn plain_storage_atomic_representation(
         &self,

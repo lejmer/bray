@@ -574,8 +574,12 @@ fn opaque_cleanup_failure_kinds<C: CheckerRequestContext + ?Sized>(
         && let Some(element) = request.context().raw_buffer_element(*definition, *substitution)?
         && cleanup_shapes.requirement(element)? == bray_bound_tree::AsyncStorageCleanupRequirement::None
     {
-        // The initialized prefix needs no lifecycle work. The generated
-        // backing release can propagate only its checked panic report.
+        // The initialized prefix needs no lifecycle work, so the generated
+        // backing release only deallocates. A total deallocation cannot fail.
+        if request.context().standard_deallocation_completes()? {
+            return Ok(&[]);
+        }
+
         return Ok(&[DependencyFailureKind::Panic]);
     }
 

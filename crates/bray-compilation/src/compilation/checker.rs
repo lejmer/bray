@@ -994,6 +994,45 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
             .map_err(checker_query_error)
     }
 
+    fn standard_deallocation_completes(&self) -> CheckerQueryResult<bool> {
+        let compilation = self.binding_context.compilation();
+        let cancellation = self.binding_context.cancellation();
+
+        // Without a declared standard deallocation there is no total release to rely on.
+        let Ok(Some(callable)) = compilation.declared_standard_library_helper(
+            bray_ir::MirStandardLibraryHelper::MemoryDeallocate,
+            cancellation,
+        ) else {
+            return Ok(false);
+        };
+
+        let mut diagnostics = DiagnosticBag::new();
+
+        let Some(signature) = compilation
+            .resolve_callable_instance_signature(&self.binding_context, callable, &mut diagnostics)
+            .map_err(checker_query_error)?
+        else {
+            return Ok(false);
+        };
+
+        let bray_symbols::TypeData::Callable(behavior) = self
+            .binding_context
+            .semantic_values()
+            .type_data(signature.callable_type())
+            .as_ref()
+            .clone()
+        else {
+            return Ok(false);
+        };
+
+        // Total execution terminates normally on valid inputs, so its caller sees no failure.
+        Ok(behavior
+            .phase_behaviors()
+            .invocation()
+            .execution_properties()
+            .contains(&bray_symbols::ExecutionProperty::Total))
+    }
+
     fn plain_storage_atomic_representation(
         &self,
         ty: TypeId,
