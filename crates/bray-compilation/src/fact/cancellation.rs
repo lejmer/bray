@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::ops::Bound;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -92,26 +93,29 @@ impl CancellationToken {
         shared: &SharedCancellationState,
         active: &mut Vec<usize>,
     ) -> bool {
-        let interests = {
-            let interests = shared
+        // One live interest proves the evaluation is still wanted, so the
+        // common path clones a single token instead of the whole interest set.
+        let mut checked = Bound::Unbounded;
+
+        loop {
+            let next = shared
                 .interests
                 .lock()
-                .expect("shared cancellation interests must remain unpoisoned");
+                .expect("shared cancellation interests must remain unpoisoned")
+                .range((checked, Bound::Unbounded))
+                .next()
+                .map(|(identity, cancellation)| (*identity, cancellation.clone()));
 
-            interests.values().cloned().collect::<Vec<_>>()
-        };
+            let Some((identity, cancellation)) = next else {
+                return true;
+            };
 
-        if interests.is_empty() {
-            return true;
-        }
-
-        for cancellation in interests {
             if !cancellation.is_cancelled_with(active) {
                 return false;
             }
-        }
 
-        true
+            checked = Bound::Excluded(identity);
+        }
     }
 
     pub(crate) fn check(&self) -> Result<(), FactQueryError> {

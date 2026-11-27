@@ -330,6 +330,7 @@ fn infer_component(
     let members = component.iter().cloned().collect::<BTreeSet<_>>();
     let mut units = BTreeMap::new();
     let mut callees = BTreeSet::new();
+    let mut member_callees = BTreeMap::<_, Vec<_>>::new();
     let mut cyclic = component.len() > 1;
     let mut diagnostics = DiagnosticBag::new();
 
@@ -350,7 +351,9 @@ fn infer_component(
         ) {
             cyclic |= callee == *callable;
 
-            if !members.contains(&callee) {
+            if members.contains(&callee) {
+                member_callees.entry(callable.clone()).or_default().push(callee);
+            } else {
                 callees.insert(callee);
             }
         }
@@ -392,43 +395,93 @@ fn infer_component(
         BTreeSet::new()
     };
 
+    // Callees are solved before their callers, and a member is checked again
+    // only after the summary of a member it calls has changed.
+    let order = callee_first_order(&members, &member_callees);
+
+    let rank = order
+        .iter()
+        .enumerate()
+        .map(|(rank, member)| (*member, rank))
+        .collect::<BTreeMap<_, _>>();
+
+    let mut callers = BTreeMap::<_, Vec<_>>::new();
+
+    for (caller, callees) in &member_callees {
+        for callee in callees {
+            callers.entry(callee).or_default().push(rank[caller]);
+        }
+    }
+
+    let mut pending = (0..order.len()).collect::<BTreeSet<_>>();
     let mut bodies = BTreeMap::new();
 
-    loop {
+    while let Some(next) = pending.pop_first() {
         cancellation.check()?;
 
-        let mut changed = false;
+        let callable = order[next];
+        let body = units[callable].check(compilation, cancellation, Some(&templates), &recursive)?;
+        let values = context.semantic_values();
+        let checked = body.value().storage_flow().dependencies();
+        let previous = templates[callable];
 
-        for (callable, inputs) in &units {
-            let body = inputs.check(compilation, cancellation, Some(&templates), &recursive)?;
-            let values = context.semantic_values();
-            let checked = body.value().storage_flow().dependencies();
-            let previous = templates[callable];
+        let template = if previous == empty {
+            // The first solved body already owns the complete portable contract.
+            checked.clone()
+        } else {
+            let previous = values.dependency_contract_template_data(previous);
 
-            let template = if previous == empty {
-                // The first solved body already owns the complete portable contract.
-                checked.clone()
-            } else {
-                let previous = values.dependency_contract_template_data(previous);
+            body_result_dependencies(checked, &previous)
+        };
 
-                body_result_dependencies(checked, &previous)
-            };
+        let dependencies = values
+            .intern_dependency_contract_template(template)
+            .expect("checked component summary has established semantic identities");
 
-            let dependencies = values
-                .intern_dependency_contract_template(template)
-                .expect("checked component summary has established semantic identities");
+        bodies.insert(callable.clone(), BodyAnalysis { dependencies, body });
 
-            bodies.insert(callable.clone(), BodyAnalysis { dependencies, body });
-
-            changed |= templates.insert(callable.clone(), dependencies) != Some(dependencies);
-        }
-
-        if !cyclic || !changed {
-            break;
+        if templates.insert(callable.clone(), dependencies) != Some(dependencies) {
+            pending.extend(callers.get(callable).into_iter().flatten());
         }
     }
 
     Ok(DiagnosticResult::new(bodies, diagnostics))
+}
+
+/// Orders component members so each one follows the members it calls,
+/// except where a cycle forces a back edge.
+fn callee_first_order<'a>(
+    members: &'a BTreeSet<ResultDependencyOwner>,
+    callees: &'a BTreeMap<ResultDependencyOwner, Vec<ResultDependencyOwner>>,
+) -> Vec<&'a ResultDependencyOwner> {
+    let mut order = Vec::with_capacity(members.len());
+    let mut visited = BTreeSet::new();
+
+    for root in members {
+        if !visited.insert(root) {
+            continue;
+        }
+
+        let mut stack = vec![(root, 0)];
+
+        while let Some((member, next)) = stack.last_mut() {
+            match callees.get(*member).and_then(|callees| callees.get(*next)) {
+                Some(callee) => {
+                    *next += 1;
+
+                    if visited.insert(callee) {
+                        stack.push((callee, 0));
+                    }
+                }
+                None => {
+                    order.push(*member);
+                    stack.pop();
+                }
+            }
+        }
+    }
+
+    order
 }
 
 pub(in crate::compilation) fn expression_result_dependencies(
