@@ -209,61 +209,49 @@ fn source_members(
     }
 
     let mut units = BTreeSet::new();
-    let mut pending = vec![root.clone()];
+    let mut frontier = vec![root.clone()];
     let mut edges = BTreeMap::<ResultDependencyOwner, BTreeSet<ResultDependencyOwner>>::new();
     let mut visited = BTreeSet::new();
 
-    while let Some(owner) = pending.pop() {
+    // Each callee's inputs depend only on signatures, so one frontier level is
+    // discovered in parallel instead of checking bodies one after another.
+    while !frontier.is_empty() {
         context.cancellation.check().map_err(binder_error)?;
 
-        // A published component already includes its entire outgoing closure. It cannot
-        // return to an undiscovered node in this immutable snapshot.
-        if !visited.insert(owner.clone())
-            || cached_members(compilation, &owner).is_some()
-            || matches!(&owner, ResultDependencyOwner::Declaration(symbol)
-                if context.imported_semantic_address(*symbol)?.is_some())
-        {
-            continue;
+        let mut owners = Vec::new();
+
+        for owner in std::mem::take(&mut frontier) {
+            // A published component already includes its entire outgoing closure. It cannot
+            // return to an undiscovered node in this immutable snapshot.
+            if !visited.insert(owner.clone())
+                || cached_members(compilation, &owner).is_some()
+                || matches!(&owner, ResultDependencyOwner::Declaration(symbol)
+                    if context.imported_semantic_address(*symbol)?.is_some())
+            {
+                continue;
+            }
+
+            owners.push(owner);
         }
 
-        let Some(key) = body_key(compilation, &owner).map_err(binder_error)? else {
-            continue;
-        };
-
-        #[cfg(test)]
-        compilation
+        let discovered = compilation
             .state
-            .result_dependency_discoveries
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-
-        let behavior = compilation
-            .selected_body_behavior_with_cancellation(key.clone(), context.cancellation)
+            .fact_runtime
+            .map_indexed(owners.len(), |index| discovered_callees(context, &owners[index]))
             .map_err(binder_error)?;
 
-        let prepared = compilation
-            .prepared_body_analysis_with_cancellation(key.clone(), context.cancellation)
-            .map_err(binder_error)?;
+        for (owner, callees) in owners.into_iter().zip(discovered) {
+            let Some(callees) = callees? else {
+                continue;
+            };
 
-        let expressions = compilation
-            .expression_semantics_with_cancellation(key.clone(), context.cancellation)
-            .map_err(binder_error)?;
+            for callee in callees {
+                frontier.push(callee.clone());
+                edges.entry(owner.clone()).or_default().insert(callee);
+            }
 
-        let bound = compilation
-            .bound_unit_with_cancellation(key.clone(), context.cancellation)
-            .map_err(binder_error)?;
-
-        for callee in body_callees(
-            context.semantic_values(),
-            bound.result().value(),
-            behavior.result().value(),
-            prepared.result().value(),
-            expressions.result().value(),
-        ) {
-            pending.push(callee.clone());
-            edges.entry(owner.clone()).or_default().insert(callee);
+            units.insert(owner);
         }
-
-        units.insert(owner);
     }
 
     let components = bray_base::strongly_connected_components(units.iter(), |callable| {
@@ -308,6 +296,51 @@ fn source_members(
     }
 
     Ok(membership.get(root).map(std::sync::Arc::clone))
+}
+
+/// The callees of one source body, or None when it has no body to analyze.
+fn discovered_callees(
+    context: &CompilationBindingContext<'_>,
+    owner: &ResultDependencyOwner,
+) -> BindingQueryResult<Option<Vec<ResultDependencyOwner>>> {
+    let compilation = context.compilation();
+
+    let Some(key) = body_key(compilation, owner).map_err(binder_error)? else {
+        return Ok(None);
+    };
+
+    #[cfg(test)]
+    compilation
+        .state
+        .result_dependency_discoveries
+        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
+    let behavior = compilation
+        .selected_body_behavior_with_cancellation(key.clone(), context.cancellation)
+        .map_err(binder_error)?;
+
+    let prepared = compilation
+        .prepared_body_analysis_with_cancellation(key.clone(), context.cancellation)
+        .map_err(binder_error)?;
+
+    let expressions = compilation
+        .expression_semantics_with_cancellation(key.clone(), context.cancellation)
+        .map_err(binder_error)?;
+
+    let bound = compilation
+        .bound_unit_with_cancellation(key, context.cancellation)
+        .map_err(binder_error)?;
+
+    Ok(Some(
+        body_callees(
+            context.semantic_values(),
+            bound.result().value(),
+            behavior.result().value(),
+            prepared.result().value(),
+            expressions.result().value(),
+        )
+        .collect(),
+    ))
 }
 
 fn infer_component(
