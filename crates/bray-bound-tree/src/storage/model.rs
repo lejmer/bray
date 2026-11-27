@@ -14,6 +14,13 @@ define_unit_scoped_id!(
     StorageIdentityId,
     "Identifies one exact or symbolic storage origin in a checked semantic unit."
 );
+
+#[cfg(any(test, feature = "test-support"))]
+impl StorageIdentityId {
+    pub(crate) const fn from_test_slot(unit: crate::BoundUnitId, slot: u32) -> Self {
+        Self { unit, slot }
+    }
+}
 define_unit_scoped_id!(
     StorageAccessId,
     "Identifies one evaluated storage-access occurrence in a checked semantic unit."

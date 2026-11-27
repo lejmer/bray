@@ -70,6 +70,60 @@ impl ExecutionState {
         clauses
     }
 
+    /// A storage lifetime that ends at its last use leaves no initialization to
+    /// observe. Facts that distinguish paths by that storage's availability
+    /// keep only their consequences for live values.
+    pub(in crate::analysis) fn end_storage_lifetime(&mut self, identity: bray_bound_tree::StorageIdentityId) {
+        let ended_snapshot = |observed: &ExecutionCondition| matches!(
+            observed.kind(),
+            crate::ExecutionConditionKind::InitializedSnapshot(place, _, _)
+                if place.root == crate::execution_guarantees::ExecutionInput::Storage(identity)
+        );
+
+        let ended = |condition: &ExecutionCondition| condition.observations().any(ended_snapshot);
+
+        if !self.assumptions.iter().any(|(condition, _)| ended(condition)) {
+            return;
+        }
+
+        // A proven availability keeps its exact consequences.
+        let proof = self.proofs.ordinary_proof(&self.assumptions);
+
+        let known = self.assumptions.iter()
+            .filter(|(condition, _)| ended(condition))
+            .flat_map(|(condition, _)| condition.observations())
+            .filter(|observed| ended_snapshot(observed))
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .filter_map(|guard| proof.prove_mixed(guard, &mut { ExecutionCondition::WORK_LIMIT })
+                .map(|holds| (guard, ExecutionCondition::boolean(holds))))
+            .collect::<Vec<_>>();
+
+        let substitution = (!known.is_empty()).then(|| crate::execution_guarantees::GuardSubstitution::new(known));
+        let mut consequences = crate::execution_guarantees::ExecutionAssumptions::default();
+
+        for (condition, holds) in self.assumptions.iter().filter(|(condition, _)| ended(condition)) {
+            let condition = substitution.as_ref().map_or_else(|| condition.clone(), |substitution| substitution.apply(condition));
+
+            let condition = if *holds {
+                condition
+            } else {
+                ExecutionCondition::operation(bray_bound_tree::BoundOperator::LogicalNot, vec![condition])
+            };
+
+            // The remaining availability can hold either way. Weakening every
+            // occurrence keeps what all of its alternatives establish.
+            let weakened = weaken_observations(&condition, true, &ended);
+
+            if !matches!(weakened.kind(), crate::ExecutionConditionKind::Boolean(true) | crate::ExecutionConditionKind::Unknown) {
+                weakened.assume(true, &mut consequences);
+            }
+        }
+
+        self.assumptions.retain(|(condition, _)| !ended(condition));
+        self.assumptions.extend(consequences);
+    }
+
     pub(in crate::analysis) fn retire_captured_storage(&mut self,
         retirements: &[(bray_bound_tree::StorageTarget, bray_bound_tree::StorageValueRetirement)],
     ) {
@@ -815,6 +869,32 @@ impl ExecutionState {
 }
 
 /// Forget retired availability after discharging its known ordinary consequences.
+/// Replaces each Boolean operand that `affected` reaches with the value that
+/// weakens the whole condition in its polarity.
+fn weaken_observations(
+    condition: &ExecutionCondition,
+    positive: bool,
+    affected: &impl Fn(&ExecutionCondition) -> bool,
+) -> ExecutionCondition {
+    use bray_bound_tree::BoundOperator;
+
+    if !affected(condition) {
+        return condition.clone();
+    }
+
+    match condition.kind() {
+        crate::ExecutionConditionKind::Operation(operator @ (BoundOperator::LogicalAnd | BoundOperator::LogicalOr), operands) => {
+            ExecutionCondition::operation(*operator, operands.iter()
+                .map(|operand| weaken_observations(operand, positive, affected))
+                .collect())
+        }
+        crate::ExecutionConditionKind::Operation(BoundOperator::LogicalNot, operands) if operands.len() == 1 => {
+            ExecutionCondition::operation(BoundOperator::LogicalNot, vec![weaken_observations(&operands[0], !positive, affected)])
+        }
+        _ => ExecutionCondition::boolean(positive),
+    }
+}
+
 fn retain_ordinary_facts(
     facts: &mut crate::execution_guarantees::ExecutionAssumptions,
     proofs: &crate::execution_guarantees::ExecutionProofCache,
@@ -862,6 +942,66 @@ mod tests {
     use crate::ExecutionPlace;
     use bray_bound_tree::StorageProjection;
     use bray_symbols::{ConstantProjectionKind, SymbolOrdinal};
+
+    #[test]
+    fn ending_a_storage_lifetime_keeps_only_live_consequences_of_its_availability() {
+        use bray_bound_tree::{BoundOperator, BoundUnitId};
+        use std::sync::Arc;
+
+        let identity = bray_bound_tree::testing::storage_identity_id(BoundUnitId::new(93), 0);
+
+        let initialized = ExecutionCondition::new(crate::ExecutionConditionKind::InitializedSnapshot(
+            ExecutionPlace { root: crate::execution_guarantees::ExecutionInput::Storage(identity), projections: Arc::new([]) },
+            Arc::new(ExecutionCondition::boolean(true)),
+            Arc::new(ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(9))))),
+        ));
+
+        let live = |ordinal| ExecutionCondition::new(crate::ExecutionConditionKind::Input(ExecutionPlace::argument(SymbolOrdinal::new(ordinal))));
+        let not = |condition: &ExecutionCondition| ExecutionCondition::operation(BoundOperator::LogicalNot, vec![condition.clone()]);
+        let and = |left: ExecutionCondition, right| ExecutionCondition::operation(BoundOperator::LogicalAnd, vec![left, right]);
+        let mentions = |state: &ExecutionState| state.assumptions.iter().any(|(condition, _)| condition.observations().any(|observed| observed == &initialized));
+
+        // Path history that distinguishes paths by the ended storage's availability.
+        let mut state = ExecutionState::default();
+
+        ExecutionCondition::operation(BoundOperator::LogicalOr, vec![and(initialized.clone(), live(0)), and(not(&initialized), live(1))])
+            .assume(true, &mut state.assumptions);
+
+        live(2).assume(true, &mut state.assumptions);
+        state.end_storage_lifetime(identity);
+
+        assert!(!mentions(&state), "the ended storage's availability is no longer observable");
+        assert_eq!(live(2).prove_ordinary(&state.assumptions, Some(&state.proofs)), Some(true));
+
+        let either = ExecutionCondition::operation(BoundOperator::LogicalOr, vec![live(0), live(1)]);
+
+        assert_eq!(either.prove_ordinary(&state.assumptions, Some(&state.proofs)), Some(true),
+            "each path still establishes its own live fact");
+
+        // Both paths establish the same live fact.
+        let mut state = ExecutionState::default();
+
+        ExecutionCondition::operation(BoundOperator::LogicalOr, vec![and(initialized.clone(), live(4)), and(not(&initialized), live(4))])
+            .assume(true, &mut state.assumptions);
+
+        state.end_storage_lifetime(identity);
+
+        assert!(!mentions(&state));
+        assert_eq!(live(4).prove_ordinary(&state.assumptions, Some(&state.proofs)), Some(true));
+
+        // A known availability keeps its consequence for a live value.
+        let mut state = ExecutionState::default();
+
+        initialized.clone().assume(true, &mut state.assumptions);
+
+        ExecutionCondition::operation(BoundOperator::LogicalOr, vec![not(&initialized), live(3)])
+            .assume(true, &mut state.assumptions);
+
+        state.end_storage_lifetime(identity);
+
+        assert!(!mentions(&state));
+        assert_eq!(live(3).prove_ordinary(&state.assumptions, Some(&state.proofs)), Some(true));
+    }
 
     #[test]
     fn retiring_one_frame_keeps_a_distinct_frame_from_the_same_site() {

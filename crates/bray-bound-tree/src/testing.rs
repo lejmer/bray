@@ -10,6 +10,11 @@ pub fn scoped_capability_id(unit: crate::BoundUnitId, ordinal: u32) -> ScopedCap
     ScopedCapabilityId::from_test_slot(unit, ordinal)
 }
 
+/// Creates a storage identity for cross-crate semantic tests.
+pub fn storage_identity_id(unit: crate::BoundUnitId, ordinal: u32) -> crate::StorageIdentityId {
+    crate::StorageIdentityId::from_test_slot(unit, ordinal)
+}
+
 /// Creates a lifecycle-obligation identity for cross-crate semantic tests.
 pub fn lifecycle_obligation_id(unit: crate::BoundUnitId, ordinal: u32) -> LifecycleObligationId {
     LifecycleObligationId::from_test_slot(unit, ordinal)
