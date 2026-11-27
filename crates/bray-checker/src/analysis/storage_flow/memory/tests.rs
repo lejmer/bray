@@ -3447,6 +3447,35 @@ fn moved_structural_owner_keeps_its_backing_in_a_deferred_capture() {
 }
 
 #[test]
+fn unread_owning_backing_bounds_direct_effects_to_its_owner() {
+    let ([owner, ..], _) = places();
+
+    let pointer = bray_symbols::StructFieldSymbolId::from_symbol_id(bray_symbols::SymbolId::new(3));
+    let values = crate::test_support::semantic_values();
+    let slice = values.intern_type(bray_symbols::TypeData::Slice(error_type())).unwrap();
+    let descriptor = Target::storage(owner);
+
+    // The descriptor's pointer is unknown, as for a buffer returned by an opaque call.
+    let state = State::default();
+
+    let route = bray_bound_tree::StorageReferencePath::new(
+        [StorageProjection::OwnedTarget].into(),
+        [bray_bound_tree::StorageReferenceStep::Backing { index: 0, target: slice, pointer: Some(pointer) }].into(),
+    );
+
+    assert!(state.reference_locations(values, descriptor.clone(), &route, None).is_none());
+
+    // Only the owner reaches its backing, so releasing it affects nothing outside the owner.
+    assert_eq!(
+        state.reference_effect_targets(values, descriptor.clone(), Some(&route), false),
+        Some(vec![bray_bound_tree::StorageMutationTarget::bounded(descriptor.project(&[StorageProjection::OwnedTarget]))]),
+    );
+
+    assert!(state.reference_effect_targets(values, descriptor, Some(&route), true).is_none(),
+        "an indirect effect still needs the actual backing");
+}
+
+#[test]
 fn nested_backing_survives_descriptor_moves_and_pruning() {
     let ([owner, moved, alias, ..], origins) = places();
 
