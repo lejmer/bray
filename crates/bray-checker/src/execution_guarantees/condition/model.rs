@@ -199,15 +199,19 @@ impl ConditionNode {
             _ => false,
         };
 
-        if !(contains_deferred && contains_storage) {
-            for child in kind.structural_children() {
-                contains_deferred |= child.contains_deferred();
-                contains_storage |= child.contains_storage();
-                contains_redundant_reference_context |= child.contains_redundant_reference_context();
+        let mut roots = kind.root_bit();
+        let mut mutations = kind.mutation_bits();
+        let mut size = 1_u32;
 
-                if contains_deferred && contains_storage && contains_redundant_reference_context { break; }
-            }
-        }
+        // One pass keeps node construction to a single child iterator.
+        kind.for_each_structural_child(&mut |child| {
+            contains_deferred |= child.contains_deferred();
+            contains_storage |= child.contains_storage();
+            contains_redundant_reference_context |= child.contains_redundant_reference_context();
+            roots |= child.0.roots;
+            mutations |= child.0.mutations;
+            size = size.saturating_add(child.0.size);
+        });
 
         let prefix_starts_empty = match &kind {
             ExecutionConditionKind::StorageValue(bray_symbols::CapturedValueOperation::EmptyPrefix, _) => true,
@@ -216,10 +220,6 @@ impl ConditionNode {
             }
             _ => false,
         };
-
-        let roots = kind.structural_children().fold(kind.root_bit(), |roots, child| roots | child.0.roots);
-        let mutations = kind.structural_children().fold(kind.mutation_bits(), |mutations, child| mutations | child.0.mutations);
-        let size = kind.structural_children().fold(1_u32, |size, child| size.saturating_add(child.0.size));
 
         Self { kind, hash, contains_deferred, contains_storage, contains_redundant_reference_context, may_observe_live_value, prefix_starts_empty, roots, mutations, size, without_storage: OnceLock::new(), comparisons: OnceLock::new() }
     }

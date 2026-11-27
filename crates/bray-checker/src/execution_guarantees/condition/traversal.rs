@@ -37,6 +37,16 @@ pub(super) fn mutation_bit(occurrence: bray_bound_tree::BoundExecutionSite) -> u
     1 << (hash.finish() % 64)
 }
 
+#[inline(never)]
+fn visit_frame_conditions(
+    frame: &crate::execution_guarantees::ExecutionDeferredValue,
+    visit: &mut dyn FnMut(&ExecutionCondition),
+) {
+    for condition in frame.conditions() {
+        visit(condition);
+    }
+}
+
 pub(super) fn visit_once<K: Eq + Hash>(visited: &mut HashSet<K>, node: K, has_pending: bool) -> bool {
     if has_pending { visited.insert(node) } else { !visited.contains(&node) }
 }
@@ -188,6 +198,21 @@ impl super::ExecutionConditionKind {
     }
 
     /// Metadata belongs to the complete representation, including immutable epoch origins.
+    /// Visits the same children as `structural_children`, in the same order.
+    /// The deferred frame's conditions form a large iterator, so they are
+    /// visited out of line.
+    pub(super) fn for_each_structural_child(&self, visit: &mut dyn FnMut(&ExecutionCondition)) {
+        for child in self.children() {
+            visit(child);
+        }
+
+        match self {
+            K::PostState(_, origin) => visit(origin),
+            K::DeferredValue { frame, .. } => visit_frame_conditions(frame, visit),
+            _ => {}
+        }
+    }
+
     pub(super) fn structural_children(&self) -> impl Iterator<Item = &ExecutionCondition> {
         self.children().chain(match self {
             K::PostState(_, origin) => Some(origin.as_ref()),
