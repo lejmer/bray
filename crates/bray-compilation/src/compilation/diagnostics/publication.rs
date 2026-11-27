@@ -291,11 +291,17 @@ impl Compilation {
         }
 
         // Scheduled diagnostics retain shared identities independently of the inventory.
-        let roots = self
+        let mut roots = self
             .declared_unit_keys()?
             .iter()
             .cloned()
-            .map(unit_order_key);
+            .map(unit_order_key)
+            .collect::<Vec<_>>();
+
+        // Larger units usually take longer to check. Starting them first keeps
+        // the longest work from trailing the batch. Publication restores
+        // source order below.
+        roots.sort_by_key(|(_, range, _, _)| std::cmp::Reverse(range.len()));
 
         let mut units = self
             .state
