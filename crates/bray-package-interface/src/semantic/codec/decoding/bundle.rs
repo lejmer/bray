@@ -134,6 +134,19 @@ pub(crate) fn decode_selected_semantic_graph(
     selection::decode_selected_record_graph(sections, surface, owner, kind, context)
 }
 
+/// Decodes the interface values that one executable template references.
+pub(crate) fn decode_selected_template_values(
+    sections: &[ValidatedInterfaceSection<'_>],
+    surface: &PackageInterfaceSurface,
+    owner: bray_symbols::InterfaceSymbolId,
+    references: &crate::ExecutableTemplateReferences,
+    context: SemanticDecodeContext,
+) -> Result<(InterfaceSemantics, crate::ExecutableTemplateSlots), InterfaceValidationError> {
+    validate_decode_allocation(sections, context.limits())?;
+
+    selection::decode_selected_template_values(sections, surface, owner, references, context)
+}
+
 pub(crate) fn selected_semantic_sections(
     kind: crate::InterfaceSemanticRecordKind,
 ) -> Option<&'static [InterfaceSectionTag]> {

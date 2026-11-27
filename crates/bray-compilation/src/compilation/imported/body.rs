@@ -300,17 +300,46 @@ impl super::super::Compilation {
             return Ok(DiagnosticResult::new(None, skeleton.diagnostics().clone()));
         };
 
-        let graph = self
-            .imported_semantic_graph_result_with_cancellation(
-                symbol_address.interface(),
-                cancellation,
-            )?
-            .unwrap_or_else(|| {
-                panic!(
-                    "imported publication invariant MissingLoadedSemanticGraph: {:?}",
-                    symbol_address.interface()
-                )
-            });
+        let limits = input.validation_policy().limits();
+
+        let references = bray_package_interface::executable_template_references(&template, limits);
+
+        let references = match references {
+            Ok(references) => references,
+            Err(error) => {
+                return Ok(DiagnosticResult::new(
+                    None,
+                    executable_template_decode_diagnostics(input, error),
+                ));
+            }
+        };
+
+        let (Some(validated), Some(surface)) = (loaded.validated(), loaded.surface()) else {
+            return Ok(DiagnosticResult::without_diagnostics(None));
+        };
+
+        // The template decodes against only the interface values its body references.
+        let (values, slots) = match validated.decode_selected_template_values(
+            surface,
+            symbol_address.symbol(),
+            &references,
+        ) {
+            Ok(selected) => selected,
+            Err(error) => {
+                return Ok(DiagnosticResult::new(
+                    None,
+                    super::diagnostic::validation_diagnostics(error, input),
+                ));
+            }
+        };
+
+        let graph = self.intern_imported_semantics(
+            symbol_address.interface(),
+            input,
+            values,
+            skeleton,
+            cancellation,
+        )?;
 
         let Some(graph) = graph.value() else {
             return Ok(DiagnosticResult::new(None, graph.diagnostics().clone()));
@@ -343,8 +372,9 @@ impl super::super::Compilation {
             bray_ir::MirUnitId::new(0),
             target,
             graph,
+            Some(&slots),
             &resolver,
-            input.validation_policy().limits(),
+            limits,
         ) {
             Ok(template) => template,
             Err(error) => {

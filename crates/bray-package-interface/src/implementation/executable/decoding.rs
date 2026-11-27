@@ -43,7 +43,10 @@ use crate::{
 };
 use bray_target::InlineAssemblyOptions;
 
-use super::support::{FORMAT_VERSION, read_bool, read_count, read_optional, read_u32};
+use super::support::{
+    ExecutableTemplateReferences, ExecutableTemplateSlots, FORMAT_VERSION, TemplateTable, read_bool,
+    read_count, read_optional, read_u32,
+};
 
 /// Failure while reconstructing one imported executable template.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -56,13 +59,33 @@ pub enum ExecutableTemplateDecodeError {
     Validation(InterfaceValidationError),
 }
 
+/// Reads the interface slots that one executable template references.
+pub fn executable_template_references(
+    template: &InterfaceExecutableTemplate,
+    limits: InterfaceValidationLimits,
+) -> Result<ExecutableTemplateReferences, ExecutableTemplateDecodeError> {
+    let mut reader = WireReader::new(template.payload());
+
+    if read_u32(&mut reader)? != FORMAT_VERSION {
+        return Err(ExecutableTemplateDecodeError::Malformed);
+    }
+
+    Ok(ExecutableTemplateReferences::read(&mut reader, limits)?)
+}
+
 /// Reconstructs one source-independent executable template for a consumer target.
+/// `slots` maps the template's interface slots when `semantics` is a graph selected for it.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "decoding binds one payload to its exact semantic graph and consumer"
+)]
 pub fn decode_executable_template(
     template: &InterfaceExecutableTemplate,
     owner: AnySymbolId,
     unit: MirUnitId,
     target: MirTargetContract,
     semantics: &ImportedSemantics,
+    slots: Option<&ExecutableTemplateSlots>,
     symbols: &impl InterfaceSymbolResolver,
     limits: InterfaceValidationLimits,
 ) -> Result<MirUnit, ExecutableTemplateDecodeError> {
@@ -70,6 +93,7 @@ pub fn decode_executable_template(
         reader: WireReader::new(template.payload()),
         semantic: SemanticDecodeContext::new(limits),
         semantics,
+        slots,
         symbols,
         unit,
         owner,
@@ -81,6 +105,8 @@ pub fn decode_executable_template(
     if read_u32(&mut decoder.reader)? != FORMAT_VERSION {
         return Err(ExecutableTemplateDecodeError::Malformed);
     }
+
+    ExecutableTemplateReferences::read(&mut decoder.reader, limits)?;
 
     decoder.require_target(&target)?;
 
@@ -341,6 +367,8 @@ struct Decoder<'data, 'semantics, R> {
     reader: WireReader<'data>,
     semantic: SemanticDecodeContext,
     semantics: &'semantics ImportedSemantics,
+    // A selected graph renumbers the interface slots that the template encodes.
+    slots: Option<&'semantics ExecutableTemplateSlots>,
     symbols: &'semantics R,
     unit: MirUnitId,
     owner: AnySymbolId,
@@ -1264,7 +1292,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
             });
         }
 
-        let dependency_slot = index(read_u32(&mut self.reader)?)?;
+        let dependency_slot = self.slot(TemplateTable::DependencyContract)?;
 
         let dependency_contract = self
             .semantics
@@ -2507,8 +2535,19 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
         Ok(slots)
     }
 
+    fn slot(&mut self, table: TemplateTable) -> Result<usize, ExecutableTemplateDecodeError> {
+        let slot = read_u32(&mut self.reader)?;
+
+        let slot = match self.slots {
+            Some(slots) => slots.slot(table, slot).ok_or(ExecutableTemplateDecodeError::Malformed)?,
+            None => slot,
+        };
+
+        index(slot)
+    }
+
     fn ty(&mut self) -> Result<bray_symbols::TypeId, ExecutableTemplateDecodeError> {
-        let slot = index(read_u32(&mut self.reader)?)?;
+        let slot = self.slot(TemplateTable::Type)?;
 
         self.semantics
             .types()
@@ -2520,7 +2559,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
     fn constant_value(
         &mut self,
     ) -> Result<bray_symbols::ConstantValueId, ExecutableTemplateDecodeError> {
-        let slot = index(read_u32(&mut self.reader)?)?;
+        let slot = self.slot(TemplateTable::ConstantValue)?;
 
         self.semantics
             .constant_values()
@@ -2559,7 +2598,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
         (bray_symbols::ConstantValueId, AssemblyConstantPayload),
         ExecutableTemplateDecodeError,
     > {
-        let slot = index(read_u32(&mut self.reader)?)?;
+        let slot = self.slot(TemplateTable::ConstantValue)?;
 
         let value = self
             .semantics
@@ -2583,7 +2622,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
     fn constant_term(
         &mut self,
     ) -> Result<bray_symbols::ConstantTermId, ExecutableTemplateDecodeError> {
-        let slot = index(read_u32(&mut self.reader)?)?;
+        let slot = self.slot(TemplateTable::ConstantTerm)?;
 
         self.semantics
             .constant_terms()
@@ -2595,7 +2634,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
     fn substitution(
         &mut self,
     ) -> Result<bray_symbols::GenericSubstitutionId, ExecutableTemplateDecodeError> {
-        let slot = index(read_u32(&mut self.reader)?)?;
+        let slot = self.slot(TemplateTable::Substitution)?;
 
         self.semantics
             .substitutions()
@@ -2607,7 +2646,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
     fn trait_application(
         &mut self,
     ) -> Result<bray_symbols::TraitApplicationId, ExecutableTemplateDecodeError> {
-        let slot = index(read_u32(&mut self.reader)?)?;
+        let slot = self.slot(TemplateTable::TraitApplication)?;
 
         self.semantics
             .trait_applications()
@@ -2619,7 +2658,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
     fn implementation(
         &mut self,
     ) -> Result<bray_symbols::ImplementationInstanceId, ExecutableTemplateDecodeError> {
-        let slot = index(read_u32(&mut self.reader)?)?;
+        let slot = self.slot(TemplateTable::ImplementationInstance)?;
 
         self.semantics
             .implementation_instances()
@@ -3080,6 +3119,7 @@ mod tests {
                 crate::InterfaceValidationLimits::default(),
             ),
             semantics: &semantics,
+            slots: None,
             symbols,
             unit: bray_ir::MirUnitId::new(1),
             owner: symbols.0,

@@ -7,7 +7,9 @@ use bray_symbols::InterfaceSymbolId;
 use super::tables::SelectedTables;
 use crate::semantic::codec::common::SemanticDecodeContext;
 use crate::semantic::codec::decoding::selection::model::SelectedRecords;
-use crate::semantic::codec::decoding::selection::remap::remap_selected_records;
+use crate::semantic::codec::decoding::selection::remap::{
+    remap_selected_records, remap_selected_template_values,
+};
 use crate::semantic::codec::decoding::{bundle, contract, declaration, directory, surface, template, value};
 use crate::semantic::model::{
     InterfaceCallablePhaseBehavior, InterfaceConstantTerm, InterfaceConstantValueKind,
@@ -102,6 +104,55 @@ impl crate::semantic::model::InterfaceTemplateReferenceMap for ReferenceCollecto
 
         Ok(entity)
     }
+}
+
+/// Decodes the closure of the interface values that one executable template references.
+pub(in crate::semantic::codec::decoding) fn decode_selected_template_values(
+    sections: &[ValidatedInterfaceSection<'_>],
+    surface: &PackageInterfaceSurface,
+    owner: InterfaceSymbolId,
+    references: &crate::ExecutableTemplateReferences,
+    mut context: SemanticDecodeContext,
+) -> Result<(InterfaceSemantics, crate::ExecutableTemplateSlots), InterfaceValidationError> {
+    use crate::implementation::TemplateTable;
+
+    let limits = context.limits();
+
+    let directory =
+        bundle::required_section(sections, InterfaceSectionTag::SemanticRecordDirectory)?;
+
+    let directory = directory::decode_semantic_directory(directory, limits, &mut context)?;
+
+    // Template values need only the value tables, which every selection reads.
+    let tables = SelectedTables::read(
+        sections,
+        InterfaceSemanticRecordKind::GenericConstraint,
+        &mut context,
+    )?;
+
+    let mut builder = SelectionBuilder::new(tables, context, owner, &directory);
+
+    for (table, record) in [
+        (TemplateTable::Type, PendingRecord::Type as fn(u32) -> PendingRecord),
+        (TemplateTable::ConstantValue, PendingRecord::ConstantValue),
+        (TemplateTable::ConstantTerm, PendingRecord::ConstantTerm),
+        (TemplateTable::Substitution, PendingRecord::Substitution),
+        (TemplateTable::TraitApplication, PendingRecord::TraitApplication),
+        (TemplateTable::ImplementationInstance, PendingRecord::ImplementationInstance),
+        (TemplateTable::DependencyContract, PendingRecord::DependencyContract),
+    ] {
+        for &slot in references.slots(table) {
+            builder.enqueue(record(slot));
+        }
+    }
+
+    builder.include_pending_records()?;
+
+    let (semantics, slots) = remap_selected_template_values(builder.records)?;
+
+    semantics.validate(surface, limits)?;
+
+    Ok((semantics, slots))
 }
 
 #[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]

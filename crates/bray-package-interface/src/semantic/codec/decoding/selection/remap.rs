@@ -12,6 +12,15 @@ use crate::semantic::model::{
     InterfaceTypeId,
 };
 
+/// Remaps a template's selected values and keeps the slot maps its decoder reads through.
+pub(super) fn remap_selected_template_values(
+    records: SelectedRecords,
+) -> Result<(InterfaceSemantics, crate::ExecutableTemplateSlots), InterfaceValidationError> {
+    let slots = RecordMaps::new(&records)?.template_slots();
+
+    Ok((remap_selected_records(records)?, slots))
+}
+
 pub(super) fn remap_selected_records(
     records: SelectedRecords,
 ) -> Result<InterfaceSemantics, InterfaceValidationError> {

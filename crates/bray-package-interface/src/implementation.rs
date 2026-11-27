@@ -16,9 +16,11 @@ pub use artifact::{
 };
 pub use executable::{
     ExecutableTemplateDecodeError, ExecutableTemplateEncodeContext, ExecutableTemplateEncodeError,
-    decode_executable_template, encode_codegen_mir, encode_executable_template,
-    encode_pre_specialized_mir,
+    ExecutableTemplateReferences, ExecutableTemplateSlots, decode_executable_template,
+    encode_codegen_mir, encode_executable_template, encode_pre_specialized_mir,
+    executable_template_references,
 };
+pub(crate) use executable::TemplateTable;
 pub use identity::{
     CURRENT_TEMPLATE_SCHEMA_REVISION, ImplementationTemplateSchemaRevision,
     PackageImplementationConfiguration, PackageImplementationIdentity,

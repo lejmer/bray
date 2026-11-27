@@ -119,6 +119,21 @@ impl RecordMaps {
 }
 
 impl RecordMaps {
+    /// The renumbering of the tables that executable templates reference by slot.
+    pub(super) fn template_slots(&self) -> crate::ExecutableTemplateSlots {
+        crate::ExecutableTemplateSlots {
+            tables: [
+                self.types.clone(),
+                self.constant_values.clone(),
+                self.constant_terms.clone(),
+                self.substitutions.clone(),
+                self.trait_applications.clone(),
+                self.implementation_instances.clone(),
+                self.dependency_contracts.clone(),
+            ],
+        }
+    }
+
     pub(super) fn checked_template_id(
         &self,
         id: crate::semantic::model::InterfaceCheckedTemplateId,

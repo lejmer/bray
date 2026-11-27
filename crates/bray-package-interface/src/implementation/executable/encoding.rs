@@ -33,7 +33,10 @@ use crate::{
     InterfaceTypeId,
 };
 
-use super::support::{FORMAT_VERSION, write_bool, write_count, write_optional};
+use super::support::{
+    ExecutableTemplateReferences, FORMAT_VERSION, TemplateTable, write_bool, write_count,
+    write_optional,
+};
 
 /// Maps compilation-local semantic identities into one package interface's tables.
 pub trait ExecutableTemplateEncodeContext {
@@ -145,9 +148,8 @@ fn encode_unit<C: ExecutableTemplateEncodeContext>(
         wire: WireEncoder::new(),
         context,
         purpose,
+        references: Default::default(),
     };
-
-    encoder.wire.write_u32(FORMAT_VERSION);
 
     encoder.target(unit.target());
     encoder.unit_kind(unit.kind())?;
@@ -245,7 +247,19 @@ fn encode_unit<C: ExecutableTemplateEncodeContext>(
     encoder.frame_descriptor(unit)?;
     encoder.cleanup_continuation(unit)?;
 
-    Ok(Arc::from(encoder.wire.into_bytes()))
+    // The reference header lets a consumer decode only the interface values that the body uses.
+    let mut wire = WireEncoder::new();
+
+    wire.write_u32(FORMAT_VERSION);
+
+    ExecutableTemplateReferences {
+        tables: encoder.references.map(|table| table.into_iter().collect()),
+    }
+    .write(&mut wire);
+
+    wire.write_bytes(encoder.wire.bytes());
+
+    Ok(Arc::from(wire.into_bytes()))
 }
 
 #[cfg(test)]
@@ -257,6 +271,7 @@ pub(super) fn encode_projection_for_test<C: ExecutableTemplateEncodeContext>(
         wire: WireEncoder::new(),
         context,
         purpose: EncodingPurpose::InterfaceTemplate,
+        references: Default::default(),
     };
 
     encoder.projection_kind(projection)?;
@@ -283,6 +298,7 @@ struct Encoder<'context, C> {
     wire: WireEncoder,
     context: &'context mut C,
     purpose: EncodingPurpose,
+    references: [std::collections::BTreeSet<u32>; TemplateTable::COUNT],
 }
 
 impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
@@ -299,6 +315,7 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
     fn ty(&mut self, id: TypeId) -> Result<(), ExecutableTemplateEncodeError<C::Error>> {
         let id = Self::semantic(self.context.type_id(id))?;
 
+        self.references[TemplateTable::Type.index()].insert(id.raw());
         self.wire.write_u32(id.raw());
 
         Ok(())
@@ -310,6 +327,7 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
     ) -> Result<(), ExecutableTemplateEncodeError<C::Error>> {
         let id = Self::semantic(self.context.constant_value_id(id))?;
 
+        self.references[TemplateTable::ConstantValue.index()].insert(id.raw());
         self.wire.write_u32(id.raw());
 
         Ok(())
@@ -321,6 +339,7 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
     ) -> Result<(), ExecutableTemplateEncodeError<C::Error>> {
         let id = Self::semantic(self.context.constant_term_id(id))?;
 
+        self.references[TemplateTable::ConstantTerm.index()].insert(id.raw());
         self.wire.write_u32(id.raw());
 
         Ok(())
@@ -332,6 +351,7 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
     ) -> Result<(), ExecutableTemplateEncodeError<C::Error>> {
         let id = Self::semantic(self.context.substitution_id(id))?;
 
+        self.references[TemplateTable::Substitution.index()].insert(id.raw());
         self.wire.write_u32(id.raw());
 
         Ok(())
@@ -343,6 +363,7 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
     ) -> Result<(), ExecutableTemplateEncodeError<C::Error>> {
         let id = Self::semantic(self.context.trait_application_id(id))?;
 
+        self.references[TemplateTable::TraitApplication.index()].insert(id.raw());
         self.wire.write_u32(id.raw());
 
         Ok(())
@@ -373,6 +394,7 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
     ) -> Result<(), ExecutableTemplateEncodeError<C::Error>> {
         let id = Self::semantic(self.context.implementation_instance_id(id))?;
 
+        self.references[TemplateTable::ImplementationInstance.index()].insert(id.raw());
         self.wire.write_u32(id.raw());
 
         Ok(())
@@ -1204,6 +1226,7 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                 .dependency_contract_id(behavior.dependency_contract()),
         )?;
 
+        self.references[TemplateTable::DependencyContract.index()].insert(dependency.raw());
         self.wire.write_u32(dependency.raw());
 
         self.wire

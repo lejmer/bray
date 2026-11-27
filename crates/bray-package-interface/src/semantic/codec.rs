@@ -15,6 +15,7 @@ pub(crate) use common::{SemanticDecodeContext, read_symbol_reference, write_symb
 pub use decoding::decode_semantics;
 pub(crate) use decoding::{
     COMPLETE_SEMANTIC_SECTIONS, decode_inspection_records, decode_selected_semantic_graph,
+    decode_selected_template_values,
     decode_semantics_with_context, decode_template_payload, selected_semantic_sections,
     validate_decode_allocation,
 };

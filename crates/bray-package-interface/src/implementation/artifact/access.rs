@@ -323,6 +323,7 @@ impl PackageImplementationArtifact {
             unit,
             target,
             properties,
+            None,
             symbols,
             self.limits,
         )?;

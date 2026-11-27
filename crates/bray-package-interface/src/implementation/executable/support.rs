@@ -65,6 +65,84 @@ pub(super) fn read_u32(reader: &mut WireReader<'_>) -> Result<u32, InterfaceVali
     reader.read_u32().map_err(map_wire_error)
 }
 
+/// Interface tables that executable templates reference by slot, in wire order.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum TemplateTable {
+    Type,
+    ConstantValue,
+    ConstantTerm,
+    Substitution,
+    TraitApplication,
+    ImplementationInstance,
+    DependencyContract,
+}
+
+impl TemplateTable {
+    pub(crate) const COUNT: usize = 7;
+
+    pub(crate) const fn index(self) -> usize {
+        self as usize
+    }
+}
+
+/// Interface slots that one executable template references, so a consumer can
+/// decode only their closure. Each table lists strictly increasing slots.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct ExecutableTemplateReferences {
+    pub(crate) tables: [Vec<u32>; TemplateTable::COUNT],
+}
+
+impl ExecutableTemplateReferences {
+    pub(super) fn write(&self, encoder: &mut WireEncoder) {
+        for table in &self.tables {
+            write_count(encoder, table.len());
+
+            for slot in table {
+                encoder.write_u32(*slot);
+            }
+        }
+    }
+
+    pub(super) fn read(
+        reader: &mut WireReader<'_>,
+        limits: InterfaceValidationLimits,
+    ) -> Result<Self, InterfaceValidationError> {
+        let mut references = Self::default();
+
+        for table in &mut references.tables {
+            let count = read_count(reader, limits)?;
+
+            for _ in 0..count {
+                table.push(read_u32(reader)?);
+            }
+
+            if !table.windows(2).all(|pair| pair[0] < pair[1]) {
+                return Err(crate::implementation::invalid_value(
+                    crate::InterfaceValidationField::Value,
+                ));
+            }
+        }
+
+        Ok(references)
+    }
+
+    pub(crate) fn slots(&self, table: TemplateTable) -> &[u32] {
+        &self.tables[table.index()]
+    }
+}
+
+/// Maps a template's interface slots into the graph selected for that template.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct ExecutableTemplateSlots {
+    pub(crate) tables: [std::collections::BTreeMap<u32, u32>; TemplateTable::COUNT],
+}
+
+impl ExecutableTemplateSlots {
+    pub(crate) fn slot(&self, table: TemplateTable, slot: u32) -> Option<u32> {
+        self.tables[table.index()].get(&slot).copied()
+    }
+}
+
 const fn invalid_discriminant(actual: u32) -> InterfaceValidationError {
     InterfaceValidationError::Malformed {
         context: crate::InterfaceValidationContext::Artifact,
@@ -77,7 +155,10 @@ const fn invalid_discriminant(actual: u32) -> InterfaceValidationError {
 
 #[cfg(test)]
 mod tests {
-    use super::{FORMAT_VERSION, read_bool, read_count, read_optional};
+    use super::{
+        ExecutableTemplateReferences, FORMAT_VERSION, TemplateTable, read_bool, read_count,
+        read_optional,
+    };
     use crate::wire::{WireEncoder, WireReader};
     use crate::{
         InterfaceLimit, InterfaceMalformedCause, InterfaceValidationContext,
@@ -133,6 +214,37 @@ mod tests {
                 maximum: 1,
             })
         );
+    }
+
+    #[test]
+    fn template_references_round_trip_and_reject_unordered_slots() {
+        let mut references = ExecutableTemplateReferences::default();
+
+        references.tables[TemplateTable::Type.index()] = vec![0, 4, 9];
+        references.tables[TemplateTable::DependencyContract.index()] = vec![2];
+
+        let mut encoder = WireEncoder::new();
+
+        references.write(&mut encoder);
+
+        let mut reader = WireReader::new(encoder.bytes());
+        let limits = InterfaceValidationLimits::default();
+
+        assert_eq!(
+            ExecutableTemplateReferences::read(&mut reader, limits),
+            Ok(references.clone())
+        );
+
+        // Each table is canonical, so a repeated slot is malformed.
+        references.tables[TemplateTable::Type.index()] = vec![4, 4];
+
+        let mut encoder = WireEncoder::new();
+
+        references.write(&mut encoder);
+
+        let mut reader = WireReader::new(encoder.bytes());
+
+        assert!(ExecutableTemplateReferences::read(&mut reader, limits).is_err());
     }
 
     #[test]

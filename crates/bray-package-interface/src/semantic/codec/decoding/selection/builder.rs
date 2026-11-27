@@ -1,4 +1,6 @@
 mod build;
 mod tables;
 
-pub(in crate::semantic::codec::decoding) use build::decode_selected_record_graph;
+pub(in crate::semantic::codec::decoding) use build::{
+    decode_selected_record_graph, decode_selected_template_values,
+};

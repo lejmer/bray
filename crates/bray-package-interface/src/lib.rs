@@ -60,8 +60,9 @@ pub use implementation::{
     PackageImplementationConfiguration, PackageImplementationIdentity,
     PackageImplementationSpecializationKey, PackageImplementationTargetProperties,
     PackageImplementationTargetProperty, PackageImplementationTargetPropertyValue,
-    PackageNativeArtifactError, PreSpecializedMirDecodeError, decode_executable_template,
-    encode_codegen_mir, encode_executable_template, encode_pre_specialized_mir,
+    PackageNativeArtifactError, PreSpecializedMirDecodeError, ExecutableTemplateReferences,
+    ExecutableTemplateSlots, decode_executable_template, encode_codegen_mir,
+    encode_executable_template, encode_pre_specialized_mir, executable_template_references,
 };
 pub use input::{PackageArtifactInput, PackageArtifactLoadError};
 pub use inspection::{

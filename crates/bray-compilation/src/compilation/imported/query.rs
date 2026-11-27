@@ -466,7 +466,7 @@ impl super::super::Compilation {
             .map(Some)
     }
 
-    fn intern_imported_semantics(
+    pub(super) fn intern_imported_semantics(
         &self,
         interface: ImportedInterfaceId,
         input: &DependencyInterfaceInput,

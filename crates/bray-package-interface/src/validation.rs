@@ -282,6 +282,29 @@ impl ValidatedPackageInterface {
         self.decode_semantics(surface)
     }
 
+    /// Decodes only the interface values that one executable template references, with the
+    /// renumbering its decoder reads through.
+    pub fn decode_selected_template_values(
+        &self,
+        surface: &crate::PackageInterfaceSurface,
+        owner: bray_symbols::InterfaceSymbolId,
+        references: &crate::ExecutableTemplateReferences,
+    ) -> Result<(crate::InterfaceSemantics, crate::ExecutableTemplateSlots), InterfaceValidationError>
+    {
+        let sections = self.sections_by_tag(crate::semantic::COMPLETE_SEMANTIC_SECTIONS)?;
+
+        crate::semantic::decode_selected_template_values(
+            &sections,
+            surface,
+            owner,
+            references,
+            crate::semantic::SemanticDecodeContext::with_index(
+                self.limits,
+                Arc::clone(&self.semantic_records),
+            ),
+        )
+    }
+
     /// Decodes the independently addressable semantic dependency graph for one symbol-owned record.
     ///
     /// Returns `None` when the record category requires the complete semantic graph.
