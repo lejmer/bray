@@ -329,10 +329,9 @@ impl State {
     ) -> BTreeSet<Target> {
         let regions = references.regions();
 
-        self.contents
-            .keys()
-            .chain(self.values.keys())
-            .chain(references.targets.iter())
+        // Each source is sorted, and most targets appear in more than one. A
+        // merged walk decides each target once and keeps the set in order.
+        merged_unique(merged_unique(self.contents.keys(), self.values.keys()), references.targets.iter())
             .filter(|candidate| {
                 let reaches = |target: &Target| {
                     self.target_relationship(target, candidate)
@@ -484,4 +483,27 @@ fn located_storage(references: AddressValue) -> Option<Vec<Place>> {
             _ => None,
         })
         .collect()
+}
+
+/// Merges two sorted target streams into one sorted stream without repeats.
+fn merged_unique<'a>(
+    left: impl Iterator<Item = &'a Target>,
+    right: impl Iterator<Item = &'a Target>,
+) -> impl Iterator<Item = &'a Target> {
+    let mut left = left.peekable();
+    let mut right = right.peekable();
+
+    std::iter::from_fn(move || match (left.peek(), right.peek()) {
+        (Some(next), Some(other)) => match next.cmp(other) {
+            std::cmp::Ordering::Less => left.next(),
+            std::cmp::Ordering::Greater => right.next(),
+            std::cmp::Ordering::Equal => {
+                right.next();
+
+                left.next()
+            }
+        },
+        (Some(_), None) => left.next(),
+        (None, _) => right.next(),
+    })
 }
