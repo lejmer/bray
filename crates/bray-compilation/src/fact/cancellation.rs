@@ -10,6 +10,11 @@ use super::{
     SynchronizationComponent,
 };
 
+/// Advances whenever a request is cancelled or a shared interest ends. Only
+/// those events can cancel a shared evaluation, so a shared evaluation found
+/// live at one epoch stays live until the epoch advances.
+static CANCELLATION_EPOCH: AtomicU64 = AtomicU64::new(0);
+
 /// A shareable cancellation signal for one compiler request.
 #[derive(Clone, Debug)]
 pub struct CancellationToken {
@@ -27,6 +32,9 @@ struct SharedCancellationState {
     next_interest: AtomicU64,
     // Checks only read the interests. Registration and release write them.
     interests: RwLock<BTreeMap<u64, CancellationToken>>,
+    // One more than the epoch at which a check last found a live interest, or
+    // zero before any such check.
+    live_epoch: AtomicU64,
 }
 
 #[derive(Clone, Debug)]
@@ -51,6 +59,7 @@ impl CancellationToken {
         match &*self.state {
             CancellationState::Request(cancelled) => {
                 cancelled.store(true, Ordering::Release);
+                CANCELLATION_EPOCH.fetch_add(1, Ordering::AcqRel);
             }
             CancellationState::Shared(_) => {
                 panic!("shared evaluation cancellation is derived from request interest")
@@ -90,6 +99,26 @@ impl CancellationToken {
     }
 
     fn shared_is_cancelled(
+        &self,
+        shared: &SharedCancellationState,
+        active: &mut Vec<usize>,
+    ) -> bool {
+        let epoch = CANCELLATION_EPOCH.load(Ordering::Acquire);
+
+        if shared.live_epoch.load(Ordering::Acquire) == epoch.wrapping_add(1) {
+            return false;
+        }
+
+        let cancelled = self.interests_cancelled(shared, active);
+
+        if !cancelled {
+            shared.live_epoch.store(epoch.wrapping_add(1), Ordering::Release);
+        }
+
+        cancelled
+    }
+
+    fn interests_cancelled(
         &self,
         shared: &SharedCancellationState,
         active: &mut Vec<usize>,
@@ -159,6 +188,7 @@ impl SharedCancellation {
                 state: Arc::new(CancellationState::Shared(SharedCancellationState {
                     next_interest: AtomicU64::new(0),
                     interests: RwLock::new(BTreeMap::new()),
+                    live_epoch: AtomicU64::new(0),
                 })),
             },
         }
@@ -227,6 +257,10 @@ impl Drop for CancellationInterest {
         };
 
         interests.remove(&self.identity);
+
+        drop(interests);
+
+        CANCELLATION_EPOCH.fetch_add(1, Ordering::AcqRel);
     }
 }
 
