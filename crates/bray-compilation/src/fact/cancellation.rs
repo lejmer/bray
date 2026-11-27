@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::ops::Bound;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, RwLock};
 
 use bray_base::Cancellation;
 
@@ -25,7 +25,8 @@ enum CancellationState {
 #[derive(Debug)]
 struct SharedCancellationState {
     next_interest: AtomicU64,
-    interests: Mutex<BTreeMap<u64, CancellationToken>>,
+    // Checks only read the interests. Registration and release write them.
+    interests: RwLock<BTreeMap<u64, CancellationToken>>,
 }
 
 #[derive(Clone, Debug)]
@@ -100,7 +101,7 @@ impl CancellationToken {
         loop {
             let next = shared
                 .interests
-                .lock()
+                .read()
                 .expect("shared cancellation interests must remain unpoisoned")
                 .range((checked, Bound::Unbounded))
                 .next()
@@ -135,7 +136,7 @@ impl CancellationToken {
         let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let _interests = state
                 .interests
-                .lock()
+                .write()
                 .unwrap_or_else(|_| panic!("test cancellation state should begin available"));
 
             panic!("poison test shared cancellation interests");
@@ -157,7 +158,7 @@ impl SharedCancellation {
             token: CancellationToken {
                 state: Arc::new(CancellationState::Shared(SharedCancellationState {
                     next_interest: AtomicU64::new(0),
-                    interests: Mutex::new(BTreeMap::new()),
+                    interests: RwLock::new(BTreeMap::new()),
                 })),
             },
         }
@@ -194,7 +195,7 @@ impl SharedCancellation {
                 task: None,
             })?;
 
-        let mut interests = state.interests.lock().unwrap_or_else(|_| {
+        let mut interests = state.interests.write().unwrap_or_else(|_| {
             panic!(
                 "query runtime SynchronizationPoisoned contract failed: component={:?}",
                 SynchronizationComponent::CancellationInterests
@@ -217,7 +218,7 @@ impl Drop for CancellationInterest {
             return;
         };
 
-        let mut interests = match state.interests.lock() {
+        let mut interests = match state.interests.write() {
             Ok(interests) => interests,
             Err(_) if std::thread::panicking() => return,
             Err(cause) => {

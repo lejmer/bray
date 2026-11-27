@@ -1,5 +1,5 @@
 use std::sync::{
-    Arc, Mutex, MutexGuard,
+    Arc, RwLock, RwLockReadGuard, RwLockWriteGuard,
     atomic::{AtomicU64, Ordering},
 };
 
@@ -36,7 +36,7 @@ static NEXT_STORE_ID: AtomicU64 = AtomicU64::new(1);
 /// Looking up an unknown ID panics because it violates that compiler contract.
 pub struct SemanticValueStore {
     id: SemanticValueStoreId,
-    tables: Mutex<SemanticTables>,
+    tables: RwLock<SemanticTables>,
 }
 
 impl SemanticValueStore {
@@ -141,7 +141,7 @@ impl SemanticValueStore {
     pub fn try_new() -> Result<Self, SemanticValueStoreCreateError> {
         Ok(Self {
             id: next_store_id()?,
-            tables: Mutex::new(SemanticTables::new()),
+            tables: RwLock::new(SemanticTables::new()),
         })
     }
 
@@ -152,7 +152,7 @@ impl SemanticValueStore {
         Ok(Self {
             id: next_store_id()?,
             // Each semantic table remains shared until the child changes that value category.
-            tables: Mutex::new(tables.clone()),
+            tables: RwLock::new(tables.clone()),
         })
     }
 
@@ -163,7 +163,12 @@ impl SemanticValueStore {
 
     /// Interns one canonical semantic type.
     pub fn intern_type(&self, data: TypeData) -> Result<TypeId, SemanticValueStoreError> {
-        let mut tables = self.tables();
+        // Most requests intern an existing value, which needs only shared access.
+        if let Some(id) = self.tables().types.lookup(&data) {
+            return Ok(id);
+        }
+
+        let mut tables = self.tables_mut();
 
         #[cfg(test)]
         validate_type_data(&tables, self.id, &data);
@@ -196,7 +201,12 @@ impl SemanticValueStore {
         &self,
         data: ConstantValueData,
     ) -> Result<ConstantValueId, SemanticValueStoreError> {
-        let mut tables = self.tables();
+        // Most requests intern an existing value, which needs only shared access.
+        if let Some(id) = self.tables().constant_values.lookup(&data) {
+            return Ok(id);
+        }
+
+        let mut tables = self.tables_mut();
 
         #[cfg(test)]
         validate_constant_value_data(&tables, self.id, &data);
@@ -231,7 +241,12 @@ impl SemanticValueStore {
         &self,
         data: ConstantTermData,
     ) -> Result<ConstantTermId, SemanticValueStoreError> {
-        let mut tables = self.tables();
+        // Most requests intern an existing value, which needs only shared access.
+        if let Some(id) = self.tables().constant_terms.lookup(&data) {
+            return Ok(id);
+        }
+
+        let mut tables = self.tables_mut();
 
         #[cfg(test)]
         validate_constant_term_data(&tables, self.id, &data);
@@ -275,7 +290,11 @@ impl SemanticValueStore {
     pub fn intern_static_reference(
         &self, selection: crate::StaticReferenceSelection,
     ) -> Result<crate::StaticReferenceId, SemanticValueStoreError> {
-        Arc::make_mut(&mut self.tables().statics).intern(self.id, selection)
+        if let Some(id) = self.tables().statics.lookup(&selection) {
+            return Ok(id);
+        }
+
+        Arc::make_mut(&mut self.tables_mut().statics).intern(self.id, selection)
     }
 
     /// Returns the selected static reference issued by this store.
@@ -288,7 +307,12 @@ impl SemanticValueStore {
         &self,
         data: GenericSubstitutionData,
     ) -> Result<GenericSubstitutionId, SemanticValueStoreError> {
-        let mut tables = self.tables();
+        // Most requests intern an existing value, which needs only shared access.
+        if let Some(id) = self.tables().substitutions.lookup(&data) {
+            return Ok(id);
+        }
+
+        let mut tables = self.tables_mut();
 
         #[cfg(test)]
         validate_substitution_data(&tables, self.id, &data);
@@ -330,7 +354,12 @@ impl SemanticValueStore {
         &self,
         data: TraitApplicationData,
     ) -> Result<TraitApplicationId, SemanticValueStoreError> {
-        let mut tables = self.tables();
+        // Most requests intern an existing value, which needs only shared access.
+        if let Some(id) = self.tables().trait_applications.lookup(&data) {
+            return Ok(id);
+        }
+
+        let mut tables = self.tables_mut();
 
         #[cfg(test)]
         validate_trait_application_data(&tables, self.id, data);
@@ -348,7 +377,12 @@ impl SemanticValueStore {
         &self,
         data: CallableInstanceData,
     ) -> Result<CallableInstanceId, SemanticValueStoreError> {
-        let mut tables = self.tables();
+        // Most requests intern an existing value, which needs only shared access.
+        if let Some(id) = self.tables().callable_instances.lookup(&data) {
+            return Ok(id);
+        }
+
+        let mut tables = self.tables_mut();
 
         #[cfg(test)]
         validate_callable_instance_data(&tables, self.id, data);
@@ -366,7 +400,12 @@ impl SemanticValueStore {
         &self,
         data: ImplementationInstanceData,
     ) -> Result<ImplementationInstanceId, SemanticValueStoreError> {
-        let mut tables = self.tables();
+        // Most requests intern an existing value, which needs only shared access.
+        if let Some(id) = self.tables().implementation_instances.lookup(&data) {
+            return Ok(id);
+        }
+
+        let mut tables = self.tables_mut();
 
         #[cfg(test)]
         validate_implementation_instance_data(&tables, self.id, data);
@@ -389,7 +428,12 @@ impl SemanticValueStore {
         &self,
         data: DependencyContractTemplateData,
     ) -> Result<DependencyContractTemplateId, SemanticValueStoreError> {
-        let mut tables = self.tables();
+        // Most requests intern an existing value, which needs only shared access.
+        if let Some(id) = self.tables().dependency_contracts.lookup(&data) {
+            return Ok(id);
+        }
+
+        let mut tables = self.tables_mut();
 
         #[cfg(test)]
         validate_dependency_template_data(&tables, self.id, &data);
@@ -412,10 +456,16 @@ impl SemanticValueStore {
         self.tables().dependency_contracts.get_shared(self.id, id)
     }
 
-    fn tables(&self) -> MutexGuard<'_, SemanticTables> {
+    fn tables(&self) -> RwLockReadGuard<'_, SemanticTables> {
         // Interned entries and their structural index are published under the same lock.
         self.tables
-            .lock()
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    fn tables_mut(&self) -> RwLockWriteGuard<'_, SemanticTables> {
+        self.tables
+            .write()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 }
