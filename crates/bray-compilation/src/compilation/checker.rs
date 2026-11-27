@@ -36,7 +36,9 @@ use super::binder::CompilationBindingContext;
 use super::implementation::{
     TypeValuedMemberResolution, implementation_fulfillments, selected_type_valued_member,
 };
-use super::standard_library::source_standard_library_scope_owner;
+use super::standard_library::{
+    ImportedStandardLibraryRecognition, source_standard_library_scope_owner,
+};
 use crate::fact::{CancellationToken, FactQueryError};
 
 type CheckerQueryError = bray_checker::CheckerQueryError<FactQueryError>;
@@ -634,12 +636,11 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
         };
 
         let imported = compilation
-            .imported_standard_library_implementations(self.binding_context.cancellation())
+            .imported_standard_library_recognition(self.binding_context.cancellation())
             .map_err(checker_query_error)?;
 
         Ok(imported
-            .get(&symbol)
-            .copied()
+            .and_then(|imported| imported.implementation_hook(symbol))
             .or_else(|| source.and_then(|source| source.get(&symbol).copied())))
     }
 
@@ -1251,60 +1252,35 @@ where
 }
 
 impl Compilation {
-    fn imported_standard_library_implementations(
+    pub(in crate::compilation) fn imported_standard_library_recognition(
         &self,
         cancellation: &CancellationToken,
-    ) -> Result<&BTreeMap<AnySymbolId, ImplementationHookResolution>, FactQueryError> {
+    ) -> Result<Option<&ImportedStandardLibraryRecognition>, FactQueryError> {
         self.query_with_cancellation(
-            crate::fact::CompilationFactKey::ImportedStandardLibraryImplementations,
-            &self.state.imported_standard_library_implementations,
+            crate::fact::CompilationFactKey::ImportedStandardLibraryRecognition,
+            &self.state.imported_standard_library_recognition,
             cancellation,
             |cancellation| {
-                let mut implementations = BTreeMap::new();
-
                 let imported =
                     self.imported_symbol_skeleton_result_with_cancellation(cancellation)?;
 
                 let Some(imported) = imported.value() else {
-                    return Ok(implementations);
+                    return Ok(None);
                 };
 
                 let standard_library =
                     standard_library_package_identity().map_err(FactQueryError::from)?;
 
-                let all =
-                    Arc::clone(imported).recognize_standard_library(&standard_library, |_| true);
-
                 let target = self.selected_target().target();
 
-                let available = Arc::clone(imported)
-                    .recognize_standard_library(&standard_library, |rule| target.supports(rule));
-
-                for declaration in all.declarations() {
-                    cancellation.check()?;
-
-                    let Some(descriptor) = COMPILER_KNOWN_CATALOG
-                        .recognized_standard_library_declaration(declaration.descriptor())
-                    else {
-                        continue;
-                    };
-
-                    let Some(hook) = descriptor.implementation_hook() else {
-                        continue;
-                    };
-
-                    implementations.insert(
-                        declaration.symbol(),
-                        ImplementationHookResolution::new(
-                            hook,
-                            available.descriptor(declaration.symbol()).is_some(),
-                        ),
-                    );
-                }
-
-                Ok(implementations)
+                Ok(Some(ImportedStandardLibraryRecognition {
+                    all: Arc::clone(imported).recognize_standard_library(&standard_library, |_| true),
+                    available: Arc::clone(imported)
+                        .recognize_standard_library(&standard_library, |rule| target.supports(rule)),
+                }))
             },
         )
+        .map(Option::as_ref)
     }
 
     /// Returns post-selection validity and diagnostics for one exact target requirement.
@@ -1845,7 +1821,7 @@ func exercise(pos value: Missing) -> Result<u8, ConversionError>
         assert!(
             compilation
                 .state
-                .imported_standard_library_implementations
+                .imported_standard_library_recognition
                 .get()
                 .is_none()
         );
@@ -1870,7 +1846,7 @@ func exercise(pos value: Missing) -> Result<u8, ConversionError>
         assert!(
             compilation
                 .state
-                .imported_standard_library_implementations
+                .imported_standard_library_recognition
                 .get()
                 .is_none()
         );
@@ -1901,11 +1877,15 @@ func exercise(pos value: Missing) -> Result<u8, ConversionError>
 
         let inventory = compilation
             .state
-            .imported_standard_library_implementations
+            .imported_standard_library_recognition
             .get()
             .expect("imported hooks must publish");
 
-        assert!(!inventory.is_empty());
+        assert!(
+            inventory
+                .as_ref()
+                .is_some_and(|recognition| !recognition.all.declarations().is_empty())
+        );
 
         let report = compilation
             .profile_report()
@@ -1937,10 +1917,10 @@ func exercise(pos value: Missing) -> Result<u8, ConversionError>
         let previous = Compilation::load(request()).expect("hook fixture must load");
 
         assert!(
-            !previous
-                .imported_standard_library_implementations(&previous.state.cancellation)
+            previous
+                .imported_standard_library_recognition(&previous.state.cancellation)
                 .expect("imported hooks must resolve")
-                .is_empty()
+                .is_some_and(|recognition| !recognition.all.declarations().is_empty())
         );
 
         let stable = previous
@@ -1950,8 +1930,8 @@ func exercise(pos value: Missing) -> Result<u8, ConversionError>
         assert!(
             previous
                 .state
-                .imported_standard_library_implementations
-                .shares_storage_with(&stable.state.imported_standard_library_implementations)
+                .imported_standard_library_recognition
+                .shares_storage_with(&stable.state.imported_standard_library_recognition)
         );
 
         let source_changed = previous
@@ -1967,7 +1947,7 @@ func exercise(pos value: Missing) -> Result<u8, ConversionError>
         assert!(
             source_changed
                 .state
-                .imported_standard_library_implementations
+                .imported_standard_library_recognition
                 .get()
                 .is_none()
         );
@@ -1975,11 +1955,12 @@ func exercise(pos value: Missing) -> Result<u8, ConversionError>
         assert_ne!(
             previous
                 .state
-                .imported_standard_library_implementations
+                .imported_standard_library_recognition
                 .get()
-                .expect("previous hooks must remain published"),
+                .expect("previous hooks must remain published")
+                .as_ref(),
             source_changed
-                .imported_standard_library_implementations(&source_changed.state.cancellation)
+                .imported_standard_library_recognition(&source_changed.state.cancellation)
                 .expect("changed source hooks must resolve"),
         );
 
@@ -2006,7 +1987,7 @@ func exercise(pos value: Missing) -> Result<u8, ConversionError>
         assert!(
             changed
                 .state
-                .imported_standard_library_implementations
+                .imported_standard_library_recognition
                 .get()
                 .is_none()
         );
@@ -2014,8 +1995,8 @@ func exercise(pos value: Missing) -> Result<u8, ConversionError>
         assert!(
             !previous
                 .state
-                .imported_standard_library_implementations
-                .shares_storage_with(&changed.state.imported_standard_library_implementations)
+                .imported_standard_library_recognition
+                .shares_storage_with(&changed.state.imported_standard_library_recognition)
         );
 
         let no_imports = previous
@@ -2028,16 +2009,16 @@ func exercise(pos value: Missing) -> Result<u8, ConversionError>
         assert!(
             no_imports
                 .state
-                .imported_standard_library_implementations
+                .imported_standard_library_recognition
                 .get()
                 .is_none()
         );
 
         assert!(
             no_imports
-                .imported_standard_library_implementations(&no_imports.state.cancellation)
+                .imported_standard_library_recognition(&no_imports.state.cancellation)
                 .expect("empty imported hooks must resolve")
-                .is_empty()
+                .is_none_or(|recognition| recognition.all.declarations().is_empty())
         );
     }
 

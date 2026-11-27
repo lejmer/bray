@@ -163,8 +163,8 @@ pub(super) fn compilation_fact_kind(value: &CompilationFactKey) -> &'static str 
         Value::CheckedBodyBehavior(_) => "checked_body_behavior",
         Value::SourceOutputUnit(_) => "source_output_unit",
         Value::ExecutionGuaranteeDiagnostics => "execution_guarantee_diagnostics",
-        Value::ImportedStandardLibraryImplementations => {
-            "imported_standard_library_implementations"
+        Value::ImportedStandardLibraryRecognition => {
+            "imported_standard_library_recognition"
         }
         Value::LoweredUnit(_) => "lowered_unit",
         Value::CodegenArtifact(_) => "codegen_artifact",

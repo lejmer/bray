@@ -559,7 +559,7 @@ define_profile_query_kinds! {
     OptimizedMir = 1077 => "optimized_mir",
     SourceOutputUnit = 1078 => "source_output_unit",
     ExecutionGuaranteeDiagnostics = 1079 => "execution_guarantee_diagnostics",
-    ImportedStandardLibraryImplementations = 1080 => "imported_standard_library_implementations",
+    ImportedStandardLibraryRecognition = 1080 => "imported_standard_library_recognition",
     UnwindCandidate = 1081 => "unwind_candidate",
     UnwindBehavior = 1082 => "unwind_behavior",
     SelectedBodyBehavior = 1083 => "selected_body_behavior",
@@ -661,8 +661,8 @@ impl ProfileQueryKind {
             CompilationFactKey::ExecutionGuaranteeDiagnostics => {
                 Self::ExecutionGuaranteeDiagnostics
             }
-            CompilationFactKey::ImportedStandardLibraryImplementations => {
-                Self::ImportedStandardLibraryImplementations
+            CompilationFactKey::ImportedStandardLibraryRecognition => {
+                Self::ImportedStandardLibraryRecognition
             }
             CompilationFactKey::SourceUnitSyntax(_) => Self::SourceUnitSyntax,
             CompilationFactKey::SourceReferenceIndex(_) => Self::SourceReferenceIndex,

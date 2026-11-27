@@ -238,8 +238,8 @@ fn reuse_fixed_cells(
     );
 
     reuse!(
-        imported_standard_library_implementations,
-        CompilationFactKey::ImportedStandardLibraryImplementations
+        imported_standard_library_recognition,
+        CompilationFactKey::ImportedStandardLibraryRecognition
     );
 
     reuse!(

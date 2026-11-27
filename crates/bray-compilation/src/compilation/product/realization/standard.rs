@@ -1,4 +1,3 @@
-use std::sync::Arc;
 
 use bray_codegen::CodegenTarget;
 use bray_compiler_known::{
@@ -123,11 +122,11 @@ impl Compilation {
             ));
         }
 
-        let Some(imported) = imported
+        if !imported
             .value()
             .as_ref()
-            .filter(|imported| imported.package_by_identity(&package).is_some())
-        else {
+            .is_some_and(|imported| imported.package_by_identity(&package).is_some())
+        {
             if self
                 .dependency_interfaces()
                 .iter()
@@ -139,11 +138,9 @@ impl Compilation {
             return Err(CodegenPreparationError::MissingStandardLibrary);
         };
 
-        let target = self.selected_target().target();
-
-        Ok(Arc::clone(imported)
-            .recognize_standard_library(&package, |rule| target.supports(rule))
-            .declaration_symbol(key))
+        Ok(self
+            .imported_standard_library_recognition(cancellation)?
+            .and_then(|recognition| recognition.available.declaration_symbol(key)))
     }
 }
 
