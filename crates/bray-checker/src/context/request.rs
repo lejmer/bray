@@ -96,10 +96,22 @@ impl<'source> CheckerSource<'source> {
 /// Narrow immutable services shared by checker unit views.
 pub trait CheckerRequestContext: Sync {
     /// Exact failure type owned by the coordinating query layer.
-    type UpstreamError;
+    type UpstreamError: Send;
 
     /// Returns the configured maximum active semantic analysis depth.
     fn maximum_recursion_depth(&self) -> usize;
+
+    /// Runs `work` once for each index below `count`. The provider may run
+    /// indices concurrently, so work that needs ordered results stores them by index.
+    fn for_each_index(
+        &self,
+        count: usize,
+        work: &(dyn Fn(usize) + Sync),
+    ) -> CheckerQueryResult<(), Self::UpstreamError> {
+        (0..count).for_each(work);
+
+        Ok(())
+    }
 
     /// Returns the canonical semantic values used by bound structure and queries.
     fn semantic_values(&self) -> &SemanticValueStore;

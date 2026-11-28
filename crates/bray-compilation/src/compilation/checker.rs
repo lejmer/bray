@@ -348,6 +348,20 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
             .semantic_recursion_limit()
     }
 
+    fn for_each_index(
+        &self,
+        count: usize,
+        work: &(dyn Fn(usize) + Sync),
+    ) -> CheckerQueryResult<()> {
+        self.binding_context
+            .compilation()
+            .state
+            .fact_runtime
+            .map_indexed(count, work)
+            .map(drop)
+            .map_err(checker_query_error)
+    }
+
     fn generic_constraint_scope(
         &self,
         context: &bray_checker::SemanticUnitContext,

@@ -12,6 +12,21 @@ use super::StorageFlowState;
 
 type FrameAlternatives = (Arc<ExecutionDeferredValue>, Vec<ExecutionDeferredValue>);
 
+type LaneInput = (Option<OutcomePath>, StorageFlowState);
+
+/// One outcome lane's collector and reached states for the operation in progress.
+struct LaneRun<'analysis, C: CheckerRequestContext + ?Sized> {
+    spent: usize,
+    collector: StorageFlowCollector<'analysis, C>,
+    outputs: Vec<LaneInput>,
+}
+
+enum LaneSlot<'analysis, C: CheckerRequestContext + ?Sized> {
+    Pending(StorageFlowCollector<'analysis, C>, Option<OutcomePath>, StorageFlowState, Option<LaneInput>),
+    Running,
+    Finished(LaneRun<'analysis, C>, Option<LaneInput>),
+}
+
 /// Storage states kept distinct by the edges that delivered actual result values.
 #[derive(Clone, Default, Eq, PartialEq)]
 pub(in crate::analysis::storage_flow) struct StorageFlowOutcomes(FlowOutcomes<StorageFlowState>);
@@ -39,43 +54,129 @@ impl StorageFlowOutcomes {
         block: AnalysisBlockId,
         operation: &AnalysisOperation,
     ) {
-        for (mut budget, incoming) in self.0.take() {
-            self.apply_paths(collector, block, operation, &mut budget, incoming);
+        for (budget, incoming) in self.0.take() {
+            for (path, state) in Self::apply_lanes(collector, block, operation, budget, incoming) {
+                self.merge(Some(block), path, Cow::Owned(state));
+            }
         }
     }
 
-    fn apply_paths<C: CheckerRequestContext + ?Sized>(
-        &mut self,
+    /// Applies one operation to each lane of an outcome group and returns the
+    /// reached states in sequential order.
+    ///
+    /// Lanes share only the budget for new alternatives. Each lane runs with its
+    /// own collector and the whole remaining budget. A lane that selects no new
+    /// alternative makes the same decisions under any smaller budget, so only a
+    /// lane that spends budget after an earlier lane did runs again with the
+    /// remainder. Lane records then merge in lane order.
+    fn apply_lanes<'analysis, C: CheckerRequestContext + ?Sized>(
+        collector: &mut StorageFlowCollector<'analysis, C>,
+        block: AnalysisBlockId,
+        operation: &AnalysisOperation,
+        budget: usize,
+        incoming: Vec<(Option<OutcomePath>, StorageFlowState)>,
+    ) -> Vec<(Option<OutcomePath>, StorageFlowState)> {
+        let mut outputs = Vec::new();
+
+        if incoming.len() < 2 {
+            let mut budget = budget;
+
+            for (path, state) in incoming {
+                Self::apply_path(collector, block, operation, &mut budget, path, state, &mut outputs);
+            }
+
+            return outputs;
+        }
+
+        let run = |mut lane: StorageFlowCollector<'analysis, C>, path, state, budget| -> LaneRun<'analysis, C> {
+            let mut remaining = budget;
+            let mut outputs = Vec::new();
+
+            Self::apply_path(&mut lane, block, operation, &mut remaining, path, state, &mut outputs);
+
+            LaneRun { spent: budget - remaining, collector: lane, outputs }
+        };
+
+        // A retained input lets a lane run again when an earlier lane spends budget first.
+        let lanes = incoming
+            .into_iter()
+            .map(|(path, state)| {
+                let retained = (budget > 0).then(|| (path.clone(), state.clone()));
+
+                std::sync::Mutex::new(LaneSlot::Pending(collector.lane(), path, state, retained))
+            })
+            .collect::<Vec<_>>();
+
+        let start = |index: usize| {
+            let mut slot = lanes[index].lock().expect("outcome lane lock is not poisoned");
+
+            if let LaneSlot::Pending(lane, path, state, retained) = std::mem::replace(&mut *slot, LaneSlot::Running) {
+                drop(slot);
+
+                let result = run(lane, path, state, budget);
+
+                *lanes[index].lock().expect("outcome lane lock is not poisoned") = LaneSlot::Finished(result, retained);
+            }
+        };
+
+        collector.for_each_lane(lanes.len(), &start);
+
+        let mut remaining = budget;
+
+        for slot in lanes {
+            let slot = slot.into_inner().expect("outcome lane lock is not poisoned");
+
+            let result = match slot {
+                LaneSlot::Finished(result, _) if result.spent == 0 || remaining == budget => result,
+                LaneSlot::Finished(_, retained) => {
+                    let (path, state) = retained.expect("a lane that spends budget retains its input");
+
+                    run(collector.lane(), path, state, remaining)
+                }
+                LaneSlot::Pending(lane, path, state, _) => run(lane, path, state, remaining),
+                LaneSlot::Running => unreachable!("every started outcome lane publishes its result"),
+            };
+
+            remaining -= result.spent;
+            collector.merge(result.collector);
+            outputs.extend(result.outputs);
+        }
+
+        outputs
+    }
+
+    #[expect(clippy::too_many_arguments, reason = "one lane applies an operation with its own collector, budget and output")]
+    fn apply_path<C: CheckerRequestContext + ?Sized>(
         collector: &mut StorageFlowCollector<'_, C>,
         block: AnalysisBlockId,
         operation: &AnalysisOperation,
         budget: &mut usize,
-        incoming: impl IntoIterator<Item = (Option<OutcomePath>, StorageFlowState)>,
+        path: Option<OutcomePath>,
+        mut state: StorageFlowState,
+        outputs: &mut Vec<(Option<OutcomePath>, StorageFlowState)>,
     ) {
+        let rows = collector.prepare_operation_outcomes(&mut state, operation);
+        let invocation = operation.kind().occurrence();
 
-        for (path, mut state) in incoming {
-            let rows = collector.prepare_operation_outcomes(&mut state, operation);
-            let invocation = operation.kind().occurrence();
+        apply_call_rows(state, path, invocation, &rows, budget, |mut branch, path, row, budget| {
+            if let Some(row) = row {
+                branch.execution.as_mut().expect("a bound output has an execution state")
+                    .select_call_output(invocation, row);
+            }
 
-            apply_call_rows(state, path, invocation, &rows, budget, |mut branch, path, row, budget| {
-                if let Some(row) = row {
-                    branch.execution.as_mut().expect("a bound output has an execution state")
-                        .select_call_output(invocation, row);
-                }
-
-                self.apply_selected(collector, block, operation, path, branch, budget);
-            });
-        }
+            Self::apply_selected(collector, block, operation, path, branch, budget, outputs);
+        });
     }
 
+    #[expect(clippy::too_many_arguments, reason = "one lane applies an operation with its own collector, budget and output")]
     fn apply_selected<C: CheckerRequestContext + ?Sized>(
-        &mut self,
         collector: &mut StorageFlowCollector<'_, C>,
         block: AnalysisBlockId,
         operation: &AnalysisOperation,
         path: Option<OutcomePath>,
         mut state: StorageFlowState,
         budget: &mut usize,
+        outputs: &mut Vec<(Option<OutcomePath>, StorageFlowState)>,
     ) {
         let kind = operation.kind();
         let site = kind.occurrence();
@@ -88,7 +189,7 @@ impl StorageFlowOutcomes {
                 collector.execution.visit_deferred_alternatives(state, kind, (frame, alternatives), operation_execution, |producer, branch| {
                     let path = Some(extend_path(path.as_ref(), OutcomeStep::Frame(site, producer)));
 
-                    self.apply_selected(collector, block, operation, path, branch, budget);
+                    Self::apply_selected(collector, block, operation, path, branch, budget, outputs);
                 });
 
                 return;
@@ -104,7 +205,7 @@ impl StorageFlowOutcomes {
                 }
 
                 collector.apply_operation(&mut branch, operation, None);
-                self.merge(Some(block), path, Cow::Owned(branch));
+                outputs.push((path, branch));
             });
 
             return;
@@ -122,7 +223,7 @@ impl StorageFlowOutcomes {
                 let path = Some(extend_path(path.as_ref(), OutcomeStep::TaskCompletion(site, selected.outcome)));
                 let branch = Self::apply_refined(collector, operation, branch, Some(selected));
 
-                self.merge(Some(block), path, Cow::Owned(branch));
+                outputs.push((path, branch));
             };
 
             for alternative in alternatives {
@@ -144,10 +245,10 @@ impl StorageFlowOutcomes {
 
             true
         }, |current, incoming| current.merge(incoming, None), |continued| {
-            self.merge(Some(block), path.clone(), Cow::Owned(continued));
+            outputs.push((path.clone(), continued));
         });
 
-        self.merge(Some(block), path, Cow::Owned(branch));
+        outputs.push((path, branch));
     }
 
     fn apply_refined<C: CheckerRequestContext + ?Sized>(

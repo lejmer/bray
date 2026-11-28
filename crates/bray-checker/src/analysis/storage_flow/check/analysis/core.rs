@@ -136,11 +136,15 @@ where
 
     for (id, (checks, records)) in cyclic {
         reached.insert(id);
-        collector.merge_block_checks(checks);
+        collector.merge(checks);
         publication.merge(records);
     }
 
-    let (failure_effects, reached_cleanup_edges) = domain.into_edge_outcomes();
+    let (failure_effects, reached_cleanup_edges, lane_failure) = domain.into_edge_outcomes();
+
+    if let Some(error) = lane_failure {
+        collector.fail_query(error);
+    }
 
     collector.publish_failure_effects(graph, failure_effects);
 
@@ -838,90 +842,85 @@ where
         }
     }
 
-    fn merge_block_checks(&mut self, incoming: Self) {
-        self.diagnostics.extend(incoming.diagnostics);
+    /// Combines the records of another block, or of another outcome lane of the
+    /// operation in progress, as if they had been recorded after this collector's own.
+    pub(in crate::analysis::storage_flow) fn merge(&mut self, incoming: Self) {
+        self.diagnostics.append(incoming.diagnostics);
         self.trusted.merge_block_failures(incoming.trusted);
-        self.exits.merge_block(incoming.exits);
+        self.exits.merge(incoming.exits);
         self.is_recovered |= incoming.is_recovered;
-
-        self.operation_invalidations
-            .extend(incoming.operation_invalidations);
-
-        self.pure_effect_premises
-            .extend(incoming.pure_effect_premises);
-
-        self.normal_completions.extend(incoming.normal_completions);
-
-        self.input_observation_scopes
-            .extend(incoming.input_observation_scopes);
-
-        self.outcome_mutations.extend(incoming.outcome_mutations);
-        self.completions.extend(incoming.completions);
-        self.value_captures.extend(incoming.value_captures);
-        self.value_transitions.extend(incoming.value_transitions);
-        self.state_targets.extend(incoming.state_targets);
-
-        self.operation_retirements
-            .extend(incoming.operation_retirements);
-
+        self.query_failed |= incoming.query_failed;
+        self.cleanup_continuations.extend(incoming.cleanup_continuations);
+        self.operation_invalidations.append(incoming.operation_invalidations);
+        self.pure_effect_premises.extend(incoming.pure_effect_premises);
+        self.normal_completions.append(incoming.normal_completions);
+        self.input_observation_scopes.append(incoming.input_observation_scopes);
+        self.outcome_mutations.append(incoming.outcome_mutations);
+        self.completions.append(incoming.completions);
         self.effects.extend(incoming.effects);
         self.report_collections.extend(incoming.report_collections);
-
-        self.reporting_completions
-            .extend(incoming.reporting_completions);
-
-        self.synchronous_cleanup
-            .extend(incoming.synchronous_cleanup);
-
+        self.reporting_completions.extend(incoming.reporting_completions);
+        self.synchronous_cleanup.extend(incoming.synchronous_cleanup);
         self.receiver_cleanup.extend(incoming.receiver_cleanup);
 
-        merge_records(
-            &mut self.deferred_calls,
-            incoming.deferred_calls,
-            BTreeSet::extend,
-        );
-
-        merge_records(
-            &mut self.cleanup_remainders,
-            incoming.cleanup_remainders,
-            BTreeSet::extend,
-        );
-
-        merge_records(
-            &mut self.capture_retirements,
-            incoming.capture_retirements,
-            BTreeSet::extend,
-        );
-
-        merge_records(
-            &mut self.preconditions,
-            incoming.preconditions,
-            |known, reached| *known &= reached,
-        );
-
-        merge_records(&mut self.statuses, incoming.statuses, |known, reached| {
-            *known = more_conservative(*known, reached)
+        merge_records(&mut self.value_captures, incoming.value_captures, |known, reached| {
+            bray_bound_tree::merge_storage_value_captures(known, &reached);
         });
 
-        merge_records(
-            &mut self.replacements,
-            incoming.replacements,
-            ReplacementState::merge,
+        merge_records(&mut self.value_transitions, incoming.value_transitions, |known, reached| {
+            bray_bound_tree::merge_storage_value_transitions(known, &reached);
+        });
+
+        merge_records(&mut self.state_targets, incoming.state_targets, retain_common);
+        merge_records(&mut self.operation_retirements, incoming.operation_retirements, BTreeSet::extend);
+        merge_records(&mut self.deferred_calls, incoming.deferred_calls, BTreeSet::extend);
+        merge_records(&mut self.cleanup_remainders, incoming.cleanup_remainders, BTreeSet::extend);
+        merge_records(&mut self.capture_retirements, incoming.capture_retirements, BTreeSet::extend);
+        merge_records(&mut self.preconditions, incoming.preconditions, |known, reached| *known &= reached);
+
+        merge_records(&mut self.statuses, incoming.statuses, |known, reached| {
+            *known = more_conservative(*known, reached);
+        });
+
+        merge_records(&mut self.replacements, incoming.replacements, ReplacementState::merge);
+        merge_records(&mut self.suspensions, incoming.suspensions, merge_suspension);
+
+        merge_records(&mut self.memory_decisions, incoming.memory_decisions, |known, reached| {
+            *known = super::memory::conservative_memory_status(*known, reached);
+        });
+    }
+
+    /// Runs independent outcome lanes, possibly concurrently.
+    pub(in crate::analysis::storage_flow) fn for_each_lane(&mut self, count: usize, work: &(dyn Fn(usize) + Sync)) {
+        if let Err(error) = self.request.context().for_each_index(count, work) {
+            self.fail_query(error);
+        }
+    }
+
+    /// A collector for one outcome lane of the operation in progress. It shares
+    /// this collector's block context and starts without records of its own.
+    pub(in crate::analysis::storage_flow) fn lane(&self) -> Self {
+        let mut lane = Self::new(
+            self.request,
+            self.storage,
+            self.liveness,
+            self.refinements,
+            self.memory,
+            self.input,
+            self.execution,
+            self.dependencies,
+            self.values,
+            self.patterns,
+            self.publish,
         );
 
-        merge_records(
-            &mut self.suspensions,
-            incoming.suspensions,
-            merge_suspension,
-        );
+        lane.report_boundary = self.report_boundary;
+        lane.block = self.block;
+        lane.diagnostics.block = self.block;
+        lane.trusted.block = self.block;
+        lane.query_failed = self.query_failed;
 
-        merge_records(
-            &mut self.memory_decisions,
-            incoming.memory_decisions,
-            |known, reached| {
-                *known = super::memory::conservative_memory_status(*known, reached);
-            },
-        );
+        lane
     }
 
     pub(in crate::analysis::storage_flow) fn apply_operation(

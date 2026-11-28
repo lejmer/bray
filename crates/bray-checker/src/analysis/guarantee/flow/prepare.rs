@@ -23,8 +23,8 @@ impl<'a, 'view, C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'a, 'view
         entry.clear();
         entry.extend_from_slice(assumptions);
         self.excluded_edges = excluded_edges;
-        self.candidate_evidence.get_mut().clear();
-        self.consumed_completion_dependencies.get_mut().clear();
+        self.candidate_evidence.get_mut().expect("candidate evidence lock is not poisoned").clear();
+        self.consumed_completion_dependencies.get_mut().expect("completion dependency lock is not poisoned").clear();
 
         let mut reached_acyclic = BTreeSet::new();
 

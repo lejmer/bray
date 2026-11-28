@@ -67,7 +67,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             self.replay_outcomes(&mut outcomes, block.id(), operation, &mut evidence);
         }
 
-        let mut records = self.candidate_evidence.borrow_mut();
+        let mut records = self.candidate_evidence.lock().expect("candidate evidence lock is not poisoned");
 
         if evidence.is_empty() {
             records.remove(&block.id());
@@ -369,7 +369,7 @@ impl<C: CheckerRequestContext + ?Sized> FixedPointDomain for ExecutionFlowDomain
 
         for (path, state) in source.into_states() {
             if !state.completion_dependencies.is_empty() {
-                self.consumed_completion_dependencies.borrow_mut().extend(state.completion_dependencies.iter().copied());
+                self.consumed_completion_dependencies.lock().expect("completion dependency lock is not poisoned").extend(state.completion_dependencies.iter().copied());
             }
 
             if let Some(incoming) = self.finish_edge(state, edge) {

@@ -34,7 +34,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
         let mut dependencies = self
             .domain
             .consumed_completion_dependencies
-            .borrow()
+            .lock()
+            .expect("completion dependency lock is not poisoned")
             .clone();
 
         let mut results = BTreeSet::new();
@@ -58,7 +59,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
             );
         }
 
-        for evidence in self.domain.candidate_evidence.borrow().values() {
+        for evidence in self.domain.candidate_evidence.lock().expect("candidate evidence lock is not poisoned").values() {
             for (&operation, calls) in &evidence.calls {
                 let point = self
                     .domain
