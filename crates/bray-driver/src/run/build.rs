@@ -89,13 +89,17 @@ pub fn run_build_request(
     let compilation = match compilation {
         Ok(compilation) => compilation,
         Err(error) => {
-            return DriverRunResult::new(
-                ExitCode::FAILURE,
-                DiagnosticBag::single(
-                    error.diagnostic(selected_target.profile().identity().as_str()),
-                ),
-                output_format,
+            let diagnostics = DiagnosticBag::single(
+                error.diagnostic(selected_target.profile().identity().as_str()),
             );
+
+            // A runtime problem comes first, as it does for front-end errors.
+            let diagnostics = match join_runtime_resolution(runtime) {
+                Ok(_) => diagnostics,
+                Err(runtime) => runtime.merged(&diagnostics),
+            };
+
+            return DriverRunResult::new(ExitCode::FAILURE, diagnostics, output_format);
         }
     };
 

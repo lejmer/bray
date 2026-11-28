@@ -6,15 +6,31 @@ use tempfile::{Builder, NamedTempFile, TempPath};
 
 const STAGING_FILE_PREFIX: &str = ".bray-stage-";
 
-/// Writes complete file contents through atomic replacement, preserving existing file permissions.
+/// Writes complete rebuildable file contents through atomic replacement, preserving existing
+/// file permissions.
 ///
 /// Existing readers retain their original file. A failed write leaves the destination unchanged.
+/// The contents are not forced to durable storage, so use this only for outputs a build can
+/// produce again.
 pub fn write_file_atomically(destination: &Path, bytes: &[u8]) -> io::Result<()> {
     let mut staging = StagedFile::create(destination, FileReplacementMode::ReplaceExisting, None)?;
 
     staging.write_all(bytes)?;
 
     staging.finish()?.promote(destination)
+}
+
+/// Writes complete user-owned file contents through atomic replacement, preserving existing
+/// file permissions.
+///
+/// Unlike [`write_file_atomically`], the contents reach durable storage before they replace the
+/// destination, so a system crash cannot leave the destination empty.
+pub fn write_file_durably(destination: &Path, bytes: &[u8]) -> io::Result<()> {
+    let mut staging = StagedFile::create(destination, FileReplacementMode::ReplaceExisting, None)?;
+
+    staging.write_all(bytes)?;
+
+    staging.finish_durably()?.promote(destination)
 }
 
 /// Returns whether a filename belongs to [`StagedFile`] private storage.
@@ -94,14 +110,29 @@ impl StagedFile {
     }
 
     /// Flushes staged bytes and completes preparation for publication.
+    ///
+    /// The bytes are not forced to durable storage, which suits outputs a build can produce
+    /// again.
     pub fn finish(mut self) -> io::Result<CompletedStagedFile> {
         self.file.flush()?;
 
-        Ok(CompletedStagedFile {
+        Ok(self.completed())
+    }
+
+    /// Flushes staged bytes to durable storage and completes preparation for publication.
+    pub fn finish_durably(mut self) -> io::Result<CompletedStagedFile> {
+        self.file.flush()?;
+        self.file.as_file().sync_all()?;
+
+        Ok(self.completed())
+    }
+
+    fn completed(self) -> CompletedStagedFile {
+        CompletedStagedFile {
             path: self.file.into_temp_path(),
             final_permissions: self.final_permissions,
             replacement: self.replacement,
-        })
+        }
     }
 }
 

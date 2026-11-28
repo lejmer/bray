@@ -247,6 +247,11 @@ fn encode_unit<C: ExecutableTemplateEncodeContext>(
     encoder.frame_descriptor(unit)?;
     encoder.cleanup_continuation(unit)?;
 
+    // Codegen content is only hashed, so it needs no reference header.
+    if purpose == EncodingPurpose::CodegenContent {
+        return Ok(Arc::from(encoder.wire.into_bytes()));
+    }
+
     // The reference header lets a consumer decode only the interface values that the body uses.
     let mut wire = WireEncoder::new();
 

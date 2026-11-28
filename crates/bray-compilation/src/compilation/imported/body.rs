@@ -314,8 +314,12 @@ impl super::super::Compilation {
             }
         };
 
+        // A published skeleton was built from every validated interface surface.
         let (Some(validated), Some(surface)) = (loaded.validated(), loaded.surface()) else {
-            return Ok(DiagnosticResult::without_diagnostics(None));
+            panic!(
+                "imported publication invariant MissingValidatedInterface: {:?}",
+                symbol_address.interface()
+            );
         };
 
         // The template decodes against only the interface values its body references.

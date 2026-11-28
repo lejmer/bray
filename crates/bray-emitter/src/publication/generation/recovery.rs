@@ -24,7 +24,9 @@ struct PendingPublication {
     paths: BTreeSet<String>,
 }
 
-/// The journal is durable before any public path changes. The reference remains the commit point.
+/// The journal is written before any public path changes, so an interrupted publication leaves a
+/// record of the paths to recover. It is not forced to durable storage, because every published
+/// path can be rebuilt. The reference remains the commit point.
 pub(super) fn record_publication(
     store: &Path,
     manifest: &GenerationManifest,

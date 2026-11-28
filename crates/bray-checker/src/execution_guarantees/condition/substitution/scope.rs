@@ -19,7 +19,6 @@ impl RewriteMemo {
     fn new() -> Self {
         Self { values: ExecutionMemo::default(), owners: ExecutionMemo::default(), rebind_frames: false }
     }
-
 }
 
 /// Immutable replacement entries retain whether any mapping changes its input.

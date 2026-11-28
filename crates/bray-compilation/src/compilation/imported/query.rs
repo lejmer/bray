@@ -1819,6 +1819,10 @@ mod tests {
             assert_eq!(definition.domain(), expected_domain);
         }
 
+        // Interface diagnostics cover loading and identity only, so reporting them
+        // decodes no semantic graph either.
+        assert!(!compilation.imported_diagnostics().has_errors());
+
         let interface_index = interface
             .to_index()
             .unwrap_or_else(|| panic!("test interface ID must fit the host index"));

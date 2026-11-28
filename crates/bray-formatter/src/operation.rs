@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc;
 use std::thread;
 
-use bray_base::write_file_atomically;
+use bray_base::write_file_durably;
 use bray_source::{
     SourceIdentity, SourceLoadError, SourceLoader, SourceOrigin, SourceUtf8Error, SourceVersion,
     TextSizeOverflow, leading_utf8_bom_len,
@@ -249,7 +249,7 @@ pub fn format_file(
         return Ok(FormatFileOutcome::WouldChange);
     }
 
-    write_file_atomically(path, formatted.text().as_bytes())
+    write_file_durably(path, formatted.text().as_bytes())
         .map_err(|error| FormatFileError::io(FormatFileErrorKind::Write, path, &error))?;
 
     Ok(FormatFileOutcome::Written)

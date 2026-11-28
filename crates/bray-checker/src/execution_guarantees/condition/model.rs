@@ -418,6 +418,11 @@ fn compare_operands(left: &[ExecutionCondition], right: &[ExecutionCondition], c
         .unwrap_or_else(|| left.len().cmp(&right.len()))
 }
 
+/// Orders shared records by contents, ending at identity first.
+fn same_or_cmp<T: Ord>(left: &Arc<T>, right: &Arc<T>) -> Ordering {
+    if Arc::ptr_eq(left, right) { Ordering::Equal } else { left.cmp(right) }
+}
+
 impl ConditionNode {
     /// Compares variant declaration order, then structural hashes, without traversal.
     fn shallow_cmp(&self, other: &Self) -> Ordering {
@@ -454,9 +459,9 @@ impl ConditionNode {
             (C::StorageValue(operation, operands), C::StorageValue(other_operation, other_operands)) =>
                 operation.cmp(other_operation).then_with(|| compare_operands(operands, other_operands, child)),
             (C::CapturedValue { value, storage }, C::CapturedValue { value: other_value, storage: other_storage }) =>
-                child(value, other_value).then_with(|| storage.cmp(other_storage)),
+                child(value, other_value).then_with(|| same_or_cmp(storage, other_storage)),
             (C::DeferredValue { value, frame }, C::DeferredValue { value: other_value, frame: other_frame }) =>
-                child(value, other_value).then_with(|| frame.cmp(other_frame)),
+                child(value, other_value).then_with(|| same_or_cmp(frame, other_frame)),
             (C::PostState(mutation, owner), C::PostState(other_mutation, other_owner)) =>
                 mutation.cmp(other_mutation).then_with(|| child(owner, other_owner)),
             (C::Joined(site, place), C::Joined(other_site, other_place)) =>
