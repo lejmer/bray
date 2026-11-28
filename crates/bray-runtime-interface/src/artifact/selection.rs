@@ -199,7 +199,16 @@ impl RuntimeArtifactPlan {
         self,
         selection: &NativeUnitSelection,
         artifact: usize,
-    ) -> RuntimeArtifactSelection {
+    ) -> Result<RuntimeArtifactSelection, RuntimePayloadError> {
+        self.artifact.authenticate(
+            &selection
+                .units()
+                .iter()
+                .filter(|location| location.artifact == artifact)
+                .map(|location| location.digest)
+                .collect::<Vec<_>>(),
+        );
+
         let native_units = selection
             .units()
             .iter()
@@ -213,13 +222,22 @@ impl RuntimeArtifactPlan {
                     .binary_search_by_key(&digest, |unit| unit.digest())
                     .expect("selected runtime unit must belong to its authenticated index");
 
-                RuntimeNativeUnit {
+                let path = self
+                    .artifact
+                    .payload(digest)
+                    .expect("selected runtime unit must belong to its authenticated index")
+                    .map_err(|source| RuntimePayloadError {
+                        path: self
+                            .artifact
+                            .payload_directory()
+                            .join(index.units()[unit].kind().file_name(digest, index.target())),
+                        source,
+                    })?
+                    .to_path_buf();
+
+                Ok(RuntimeNativeUnit {
                     digest,
-                    path: self
-                        .artifact
-                        .payload(digest)
-                        .expect("authenticated native unit must retain its payload")
-                        .to_path_buf(),
+                    path,
                     kind: index.units()[unit].kind(),
                     native_links: Arc::from(index.units()[unit].native_links()),
                     inclusion: selection
@@ -229,16 +247,16 @@ impl RuntimeArtifactPlan {
                         .cloned()
                         .collect::<Vec<_>>()
                         .into(),
-                }
+                })
             })
-            .collect::<Vec<_>>()
+            .collect::<Result<Vec<_>, _>>()?
             .into();
 
-        RuntimeArtifactSelection {
+        Ok(RuntimeArtifactSelection {
             contract: self.contract,
             components: self.components,
             native_units,
-        }
+        })
     }
 }
 
@@ -316,6 +334,15 @@ pub enum RuntimeArtifactBuildError {
     InvalidNativeTarget,
     /// An imported index targets another native platform.
     IncompatibleIndexTarget,
+}
+
+/// A selected runtime unit whose published payload cannot be used.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct RuntimePayloadError {
+    /// Content-addressed payload path.
+    pub path: PathBuf,
+    /// Exact authentication failure.
+    pub source: bray_native_artifact::NativeIndexError,
 }
 
 /// Failure to select a complete physical runtime surface for one product.

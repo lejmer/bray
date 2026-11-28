@@ -18,7 +18,7 @@ use bray_tooling::{
 };
 
 use super::execute::{DriverRunResult, compilation_request, driver_result_from_compilation};
-use super::runtime::resolve_runtime;
+use super::runtime::{join_runtime_resolution, spawn_runtime_resolution};
 use crate::command::{
     DriverBackend, DriverOptions, DriverProductConfiguration, DriverRuntimeSelection,
 };
@@ -79,16 +79,8 @@ pub fn run_build_request(
         }
     };
 
-    let runtime = if requires_generation {
-        match resolve_runtime(configuration.runtime(), &selected_target) {
-            Ok(runtime) => runtime,
-            Err(diagnostics) => {
-                return DriverRunResult::new(ExitCode::FAILURE, diagnostics, output_format);
-            }
-        }
-    } else {
-        None
-    };
+    let runtime = requires_generation
+        .then(|| spawn_runtime_resolution(configuration.runtime(), &selected_target));
 
     let compilation = match configuration.backend() {
         DriverBackend::Llvm => load_llvm_compilation(request),
@@ -107,24 +99,28 @@ pub fn run_build_request(
         }
     };
 
-    if compilation.source_diagnostics().has_errors()
+    // The front end runs before the join so the runtime load overlaps it.
+    let front_end_failed = compilation.source_diagnostics().has_errors()
         || compilation.syntax_tree_result().diagnostics().has_errors()
-        || compilation.imported_diagnostics().has_errors()
-    {
-        let diagnostics = compilation.check_diagnostics();
+        || compilation.imported_diagnostics().has_errors();
 
-        if diagnostics.has_errors() {
-            // The driver result owns diagnostics after consuming the profiled compilation.
-            let diagnostics = diagnostics.clone();
+    let runtime = join_runtime_resolution(runtime);
 
-            return driver_result_from_compilation(
-                compilation,
-                diagnostics,
-                output_format,
-                ExitCode::FAILURE,
-            );
+    let compilation = if front_end_failed {
+        match front_end_errors(compilation, runtime.as_ref().err(), output_format) {
+            Ok(compilation) => compilation,
+            Err(result) => return result,
         }
-    }
+    } else {
+        compilation
+    };
+
+    let runtime = match runtime {
+        Ok(runtime) => runtime,
+        Err(diagnostics) => {
+            return DriverRunResult::new(ExitCode::FAILURE, diagnostics, output_format);
+        }
+    };
 
     let linker = if linked || artifacts.contains(&TargetOutputKind::PackageNativeImplementation) {
         // The driver retains its selections while the linker owns its independent output path.
@@ -281,6 +277,32 @@ pub fn run_build_request(
     let outcome = compilation.emit_product(request, inputs);
 
     emission_result(compilation, outcome, output_format)
+}
+
+/// Reports front-end errors, with any runtime problem first, so a broken toolchain shows
+/// every missing part at once.
+fn front_end_errors(
+    compilation: bray_compilation::Compilation,
+    runtime: Option<&DiagnosticBag>,
+    output_format: OutputFormat,
+) -> Result<bray_compilation::Compilation, DriverRunResult> {
+    let diagnostics = compilation.check_diagnostics();
+
+    if !diagnostics.has_errors() {
+        return Ok(compilation);
+    }
+
+    let diagnostics = match runtime {
+        Some(runtime) => runtime.merged(diagnostics),
+        None => diagnostics.clone(),
+    };
+
+    Err(driver_result_from_compilation(
+        compilation,
+        diagnostics,
+        output_format,
+        ExitCode::FAILURE,
+    ))
 }
 
 fn emission_result(

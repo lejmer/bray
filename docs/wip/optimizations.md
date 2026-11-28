@@ -1,5 +1,7 @@
 Bray has exactly three optimization levels: **`None`, `Basic`, and `Full`**. Development builds use `Basic`; release builds use `Full`.
 
+`Basic` applies Bray's own bounded optimizations. The LLVM backend runs no optimization pipeline for it and selects instructions as it does for `None`, which keeps development builds fast.
+
 Below, **Level means the minimum level we recommend for future implementation**, not an existing setting for that optimization:
 
 | Level   | Meaning                                                                                                                   |

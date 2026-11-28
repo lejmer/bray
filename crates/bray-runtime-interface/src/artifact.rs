@@ -10,5 +10,5 @@ pub use catalog::{
 };
 pub use selection::{
     RuntimeArtifact, RuntimeArtifactBuildError, RuntimeArtifactPlan, RuntimeArtifactSelection,
-    RuntimeArtifactSelectionError, RuntimeNativeUnit,
+    RuntimeArtifactSelectionError, RuntimeNativeUnit, RuntimePayloadError,
 };

@@ -10,7 +10,7 @@ use crate::analysis::storage_flow::check::{BlockPublication, FailureEdgeEffects,
 use crate::{CheckerRequestContext, CheckerUnitView};
 use bray_bound_tree::{BoundDependencySubject, CheckedMemoryOperationKind, CheckedMemoryOperations, Liveness, StorageAccessId, StorageAccessPurpose, StoragePlan};
 use std::borrow::Cow;
-use std::cell::RefCell;
+use std::sync::Mutex;
 use std::collections::{BTreeMap, BTreeSet};
 
 pub(in crate::analysis::storage_flow) struct StorageFlowDomain<'analysis, C>
@@ -19,10 +19,12 @@ where
 {
     graph: &'analysis ControlFlowGraph,
     terminal_outputs: BTreeSet<AnalysisBlockId>,
-    entry: RefCell<Option<StorageFlowState>>,
-    failure_effects: RefCell<BTreeMap<AnalysisEdgeId, Vec<FailureEdgeEffects>>>,
-    reached_cleanup_edges: RefCell<BTreeSet<AnalysisEdgeId>>,
-    cyclic_publications: RefCell<BTreeMap<AnalysisBlockId, (StorageFlowCollector<'analysis, C>, BlockPublication)>>,
+    entry: Mutex<Option<StorageFlowState>>,
+    failure_effects: Mutex<BTreeMap<AnalysisEdgeId, Vec<FailureEdgeEffects>>>,
+    reached_cleanup_edges: Mutex<BTreeSet<AnalysisEdgeId>>,
+    cyclic_publications: Mutex<BTreeMap<AnalysisBlockId, (StorageFlowCollector<'analysis, C>, BlockPublication)>>,
+    // The first failure to schedule lane propagation, reported with the edge outcomes.
+    lane_failure: Mutex<Option<crate::CheckerQueryError<C::UpstreamError>>>,
     edge_lifetime_ends: &'analysis BTreeMap<AnalysisEdgeId, Vec<BoundDependencySubject>>,
     edge_future_accesses: &'analysis BTreeMap<AnalysisEdgeId, Vec<StorageAccessId>>,
     reachability: &'analysis ReachabilityResult,
@@ -70,10 +72,11 @@ where
         Self {
             graph,
             terminal_outputs: graph.exits().iter().map(|exit| exit.block()).collect(),
-            entry: RefCell::new(Some(entry)),
-            failure_effects: RefCell::default(),
-            reached_cleanup_edges: RefCell::default(),
-            cyclic_publications: RefCell::default(),
+            entry: Mutex::new(Some(entry)),
+            failure_effects: Mutex::default(),
+            reached_cleanup_edges: Mutex::default(),
+            cyclic_publications: Mutex::default(),
+            lane_failure: Mutex::new(None),
             edge_lifetime_ends,
             edge_future_accesses,
             reachability,
@@ -109,13 +112,17 @@ where
     pub(in crate::analysis::storage_flow) fn take_cyclic_publications(
         &mut self,
     ) -> BTreeMap<AnalysisBlockId, (StorageFlowCollector<'analysis, C>, BlockPublication)> {
-        std::mem::take(self.cyclic_publications.get_mut())
+        std::mem::take(self.cyclic_publications.get_mut().expect("cyclic publication lock is not poisoned"))
     }
 
     pub(in crate::analysis::storage_flow) fn into_edge_outcomes(
         self,
-    ) -> (BTreeMap<AnalysisEdgeId, Vec<FailureEdgeEffects>>, BTreeSet<AnalysisEdgeId>) {
-        (self.failure_effects.into_inner(), self.reached_cleanup_edges.into_inner())
+    ) -> EdgeOutcomes<C::UpstreamError> {
+        (
+            self.failure_effects.into_inner().expect("failure effect lock is not poisoned"),
+            self.reached_cleanup_edges.into_inner().expect("reached cleanup edge lock is not poisoned"),
+            self.lane_failure.into_inner().expect("lane failure lock is not poisoned"),
+        )
     }
 
     fn propagate_state(
@@ -286,38 +293,66 @@ where
         let mut failure_effects = Vec::new();
         let join = ExecutionJoin::incoming_block(self.graph, edge.target());
 
+        // Each lane and failure row propagates independently. Targets join in lane order.
+        let mut propagations = Vec::new();
+
         for (path, state) in source {
-            let path = path.as_ref().map(std::borrow::Borrow::borrow);
-
-            let mut merge = |reached, row| {
-                let Some((incoming, performed)) = reached else { return; };
-
-                reached_edge = true;
-                failure_effects.extend(performed);
-
-                let path = edge_path(self.graph, edge, path, self.execution.result_edges.contains(&edge.id()), row);
-
-                changed |= target.merge(join, path, Cow::Owned(incoming));
-            };
-
             if let Some(crate::analysis::model::AnalysisRefinement::InvocationFailure(occurrence, kind)) = edge.refinement() {
                 let admitted = state.failure_at(occurrence).map_or(state.as_ref(), |entry| entry.state.as_ref());
 
-                if let Some(execution) = &admitted.execution {
-                    for row in self.execution.invocation_failure_rows(execution, occurrence, kind) {
-                        merge(self.propagate_state(Cow::Borrowed(state.as_ref()), edge, row), row);
-                    }
+                let rows = admitted.execution.as_ref().map_or_else(Vec::new, |execution| {
+                    self.execution.invocation_failure_rows(execution, occurrence, kind).collect::<Vec<_>>()
+                });
+
+                let state = std::sync::Arc::new(state);
+
+                for row in rows {
+                    propagations.push(Propagation { path: path.as_ref().map(|path| std::borrow::Borrow::borrow(path).clone()), source: Some(PropagationSource::Shared(std::sync::Arc::clone(&state))), row, reached: None });
                 }
             } else {
-                merge(self.propagate_state(state, edge, None), None);
+                propagations.push(Propagation { path: path.as_ref().map(|path| std::borrow::Borrow::borrow(path).clone()), source: Some(PropagationSource::Owned(state)), row: None, reached: None });
             }
+        }
+
+        if propagations.len() < 2 {
+            for propagation in &mut propagations {
+                propagation.propagate(self, edge);
+            }
+        } else {
+            let slots = propagations.into_iter().map(Mutex::new).collect::<Vec<_>>();
+
+            let propagate = |index: usize| {
+                slots[index].lock().expect("propagation lock is not poisoned").propagate(self, edge);
+            };
+
+            if let Err(error) = self.request.context().for_each_index(slots.len(), &propagate) {
+                self.lane_failure.lock().expect("lane failure lock is not poisoned").get_or_insert(error);
+            }
+
+            propagations = slots.into_iter().map(|slot| slot.into_inner().expect("propagation lock is not poisoned")).collect();
+
+            // A failed lane schedule leaves unstarted propagations for this thread.
+            for propagation in &mut propagations {
+                propagation.propagate(self, edge);
+            }
+        }
+
+        for propagation in propagations {
+            let Some((incoming, performed)) = propagation.reached.flatten() else { continue; };
+
+            reached_edge = true;
+            failure_effects.extend(performed);
+
+            let path = edge_path(self.graph, edge, propagation.path.as_ref(), self.execution.result_edges.contains(&edge.id()), propagation.row);
+
+            changed |= target.merge(join, path, Cow::Owned(incoming));
         }
 
         if matches!(edge.refinement(),
             Some(crate::analysis::model::AnalysisRefinement::CleanupOutcome { failure: Some(_), .. }
                 | crate::analysis::model::AnalysisRefinement::InvocationFailure(bray_bound_tree::BoundExecutionSite::ScopedExit(_), _)
                 | crate::analysis::model::AnalysisRefinement::InvocationEntry { invocation: bray_bound_tree::BoundExecutionSite::ScopedExit(_), admitted: false })) {
-            let mut edges = self.reached_cleanup_edges.borrow_mut();
+            let mut edges = self.reached_cleanup_edges.lock().expect("reached cleanup edge lock is not poisoned");
 
             if reached_edge { edges.insert(edge.id()); }
             else { edges.remove(&edge.id()); }
@@ -325,7 +360,7 @@ where
 
         if matches!(edge.refinement(), Some(crate::analysis::model::AnalysisRefinement::InvocationFailure(..))) {
             // A changed loop contribution supersedes the effects of its earlier approximation.
-            let mut records = self.failure_effects.borrow_mut();
+            let mut records = self.failure_effects.lock().expect("failure effect lock is not poisoned");
 
             if failure_effects.is_empty() {
                 records.remove(&edge.id());
@@ -335,6 +370,38 @@ where
         }
 
         changed
+    }
+}
+
+/// Failure effects and reached cleanup edges, with any failure to schedule lane propagation.
+pub(in crate::analysis::storage_flow) type EdgeOutcomes<Upstream> = (
+    BTreeMap<AnalysisEdgeId, Vec<FailureEdgeEffects>>,
+    BTreeSet<AnalysisEdgeId>,
+    Option<crate::CheckerQueryError<Upstream>>,
+);
+
+/// A source lane's state, shared by the failure rows of one invocation.
+enum PropagationSource<'state> {
+    Owned(Cow<'state, StorageFlowState>),
+    Shared(std::sync::Arc<Cow<'state, StorageFlowState>>),
+}
+
+/// One lane and failure row crossing an edge, and the state it reaches.
+struct Propagation<'state> {
+    path: Option<crate::analysis::outcomes::OutcomePath>,
+    source: Option<PropagationSource<'state>>,
+    row: Option<usize>,
+    reached: Option<Option<(StorageFlowState, Option<FailureEdgeEffects>)>>,
+}
+
+impl Propagation<'_> {
+    fn propagate<C: CheckerRequestContext + ?Sized>(&mut self, domain: &StorageFlowDomain<'_, C>, edge: &AnalysisEdge) {
+        let Some(source) = self.source.take() else { return; };
+
+        self.reached = Some(match source {
+            PropagationSource::Owned(state) => domain.propagate_state(state, edge, self.row),
+            PropagationSource::Shared(state) => domain.propagate_state(Cow::Borrowed(&**state), edge, self.row),
+        });
     }
 }
 
@@ -353,7 +420,7 @@ where
     }
 
     fn boundary(&self) -> Self::State {
-        StorageFlowOutcomes::entry(self.entry.borrow_mut().take().expect("the fixed-point solver takes the body entry once"))
+        StorageFlowOutcomes::entry(self.entry.lock().expect("entry state lock is not poisoned").take().expect("the fixed-point solver takes the body entry once"))
     }
 
     fn merge(
@@ -374,7 +441,7 @@ where
 
     fn transfer(&self, block: &AnalysisBlock, source: &Self::State) -> Self::State {
         if source.states().next().is_none() {
-            self.cyclic_publications.borrow_mut().remove(&block.id());
+            self.cyclic_publications.lock().expect("cyclic publication lock is not poisoned").remove(&block.id());
 
             return Self::State::default();
         }
@@ -383,7 +450,7 @@ where
         let mut publication = BlockPublication::default();
         let output = publication.transfer(&mut collector, self.graph, block, source.clone());
 
-        self.cyclic_publications.borrow_mut().insert(block.id(), (collector, publication));
+        self.cyclic_publications.lock().expect("cyclic publication lock is not poisoned").insert(block.id(), (collector, publication));
 
         output
     }

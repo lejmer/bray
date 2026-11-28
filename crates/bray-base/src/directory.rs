@@ -1,6 +1,3 @@
-use std::fs::File;
-#[cfg(windows)]
-use std::fs::OpenOptions;
 use std::io;
 use std::path::Path;
 #[cfg(windows)]
@@ -74,45 +71,15 @@ fn retry_permission_denied_with_policy<T>(
     operation()
 }
 
-/// Flushes directory-entry changes to the filesystem's durable storage boundary.
-#[cfg(unix)]
-pub fn sync_directory(path: &Path) -> io::Result<()> {
-    File::open(path)?.sync_all()
-}
-
-/// Flushes directory-entry changes to the filesystem's durable storage boundary.
-#[cfg(windows)]
-pub fn sync_directory(path: &Path) -> io::Result<()> {
-    open_directory(path)?.sync_all()
-}
-
-#[cfg(windows)]
-fn open_directory(path: &Path) -> io::Result<File> {
-    use std::os::windows::fs::OpenOptionsExt;
-
-    const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
-
-    OpenOptions::new()
-        .read(true)
-        .write(true)
-        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
-        .open(path)
-}
-
-#[cfg(not(any(unix, windows)))]
-pub fn sync_directory(_: &Path) -> io::Result<()> {
-    Err(io::Error::from(io::ErrorKind::Unsupported))
-}
-
 #[cfg(test)]
 mod tests {
     use std::io::ErrorKind;
     use std::time::Duration;
 
-    use super::{atomic_rename_exclusive, retry_permission_denied_with_policy, sync_directory};
+    use super::{atomic_rename_exclusive, retry_permission_denied_with_policy};
 
     #[test]
-    fn directories_publish_durably_without_replacing_existing_content() {
+    fn directories_publish_atomically_without_replacing_existing_content() {
         let root = crate::test_support::temporary_directory();
 
         let source = root.path().join("private");
@@ -126,9 +93,6 @@ mod tests {
 
         atomic_rename_exclusive(&source, &destination)
             .unwrap_or_else(|error| panic!("directory must publish exclusively: {error}"));
-
-        sync_directory(root.path())
-            .unwrap_or_else(|error| panic!("published directory must become durable: {error}"));
 
         assert!(!source.exists());
         assert!(destination.is_dir());

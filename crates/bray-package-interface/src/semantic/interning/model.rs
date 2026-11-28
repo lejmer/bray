@@ -86,7 +86,6 @@ pub struct ImportedDeclarationTemplate {
     pub(super) owner: AnySymbolId,
     pub(super) kind: CheckedTemplateKind,
     pub(super) ordinal: bray_symbols::SymbolOrdinal,
-    pub(super) entity: bray_symbols::InterfaceSupportEntityId,
     pub(super) template: Arc<CheckedTemplate>,
 }
 
@@ -177,11 +176,6 @@ impl ImportedDeclarationTemplate {
     /// Returns the stable ordinal within the owner and template category.
     pub const fn ordinal(&self) -> bray_symbols::SymbolOrdinal {
         self.ordinal
-    }
-
-    /// Returns the private support entity containing the checked template.
-    pub const fn entity(&self) -> bray_symbols::InterfaceSupportEntityId {
-        self.entity
     }
 
     /// Returns the immutable source-independent checked template.

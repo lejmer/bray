@@ -30,6 +30,35 @@ fn production_byte_copy_does_not_publish_its_input_addresses() {
 }
 
 #[test]
+fn releasing_a_plain_buffer_keeps_total_execution() {
+    let source = r#"
+        trusted module probe;
+
+        using std.memory;
+
+        extern trusted func make_buffer() -> std.memory.RawBuffer<u8>
+            executes(total);
+
+        func caller()
+            executes(total)
+        {
+            let buffer: std.memory.RawBuffer<u8> = make_buffer();
+        }
+    "#;
+
+    let compilation = crate::test_support::production_standard_library_compilation(
+        crate::SelectedTarget::baseline(), source);
+
+    let key = source_function_body_key(&compilation, "caller");
+
+    let lowered = compilation.lowered_unit(key)
+        .expect("a released plain buffer retains its checked transition");
+
+    // The release only deallocates, and the standard deallocation is total.
+    assert!(!lowered.diagnostics().has_errors(), "{:?}", lowered.diagnostics());
+}
+
+#[test]
 fn absent_buffer_cleanup_preserves_unrelated_input_facts() {
     for value in ["none", "absent_buffer()"] {
         let source = format!(r#"

@@ -13,8 +13,9 @@ pub use inspection::{
 };
 pub use lifecycle::NativeStatic;
 pub use model::{
-    NativeCoRetentionGroup, NativeComdatSelection, NativeContentDigest, NativeDefinition,
-    NativeDefinitionSelection, NativeRoot, NativeUnit, NativeUnitKind, NativeUnitSummary,
+    NativeArchiveMember, NativeCoRetentionGroup, NativeComdatSelection, NativeContentDigest,
+    NativeDefinition, NativeDefinitionSelection, NativeRoot, NativeUnit, NativeUnitKind,
+    NativeUnitSummary,
 };
 pub use resolver::{
     NativeResolutionError, NativeUnitInclusion, NativeUnitLocation, NativeUnitResolver,

@@ -27,7 +27,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let borrowed = view.is_some_and(|view| matches!(self.request.semantic_values().type_data(view).as_ref(),
             TypeData::Borrow { target, .. } if *target == ty));
 
-        let place = path.and_then(|path| ExecutionPlace::storage_path(self.storage, &path))
+        let place = path.and_then(|path| self.storage_place(&path))
             .unwrap_or_else(|| ExecutionPlace::pointee(self.storage, target, ty));
 
         (place, borrowed)
@@ -115,7 +115,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 continue;
             }
 
-            let Some(place) = ExecutionPlace::storage_path(self.storage, path).filter(|place| output.contains(place)) else {
+            let Some(place) = self.storage_place(path).filter(|place| output.contains(place)) else {
                 continue;
             };
 

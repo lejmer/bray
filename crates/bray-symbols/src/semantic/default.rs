@@ -6,7 +6,7 @@ use bray_declarations::SyntaxAnchor;
 use crate::{
     AnySymbolId, BorrowKind, CallableParameterDefaultProviderSymbolId, CallableParameterSymbolId,
     DependencyContractTemplateId, ExternalSymbolKey, GenericParameterSymbolId,
-    GenericSubstitutionId, ImportedInterfaceId, InterfaceSupportEntityId, LifecycleObligationKind,
+    GenericSubstitutionId, ImportedInterfaceId, LifecycleObligationKind,
     ReceiverParameterSymbolId, StructFieldDefaultProviderSymbolId, StructFieldSymbolId,
     TrustedCapabilitySymbolId, TypeId, UnionPayloadDefaultProviderSymbolId,
     UnionPayloadFieldSymbolId,
@@ -228,8 +228,8 @@ pub enum RuntimeDefaultTemplateReference {
     Interface {
         /// The loaded package interface.
         interface: ImportedInterfaceId,
-        /// The private support entity containing the checked template.
-        entity: InterfaceSupportEntityId,
+        /// The provider that owns the runtime-default template record.
+        provider: AnySymbolId,
     },
     /// A stable source-independent compiler-known or synthesized provider key.
     External(ExternalSymbolKey),
@@ -455,7 +455,7 @@ mod tests {
         AnySymbolId, BorrowKind, CallableParameterDefaultProviderSymbolId,
         CallableParameterDefaultSurface, CallableParameterDefaultValue, CallableParameterSymbolId,
         DependencyContractTemplateData, FunctionSymbolId, ImportedInterfaceId,
-        InterfaceSupportEntityId, LifecycleObligationKind, ReceiverParameterSymbolId,
+        LifecycleObligationKind, ReceiverParameterSymbolId,
         RuntimeDefaultBehavior, RuntimeDefaultCapabilityRequirement,
         RuntimeDefaultEffectRequirement, RuntimeDefaultGenericContext, RuntimeDefaultOwnership,
         RuntimeDefaultProviderInput, RuntimeDefaultTemplateReference,
@@ -549,7 +549,7 @@ mod tests {
 
         let template = RuntimeDefaultTemplateReference::Interface {
             interface: ImportedInterfaceId::new(2),
-            entity: InterfaceSupportEntityId::new(7),
+            provider: AnySymbolId::from(CallableParameterDefaultProviderSymbolId::from_symbol_id(SymbolId::new(5))),
         };
 
         let surface = CallableParameterDefaultSurface::new(
@@ -657,7 +657,7 @@ mod tests {
     fn interface_template() -> RuntimeDefaultTemplateReference {
         RuntimeDefaultTemplateReference::Interface {
             interface: ImportedInterfaceId::new(2),
-            entity: InterfaceSupportEntityId::new(7),
+            provider: AnySymbolId::from(CallableParameterDefaultProviderSymbolId::from_symbol_id(SymbolId::new(5))),
         }
     }
 }

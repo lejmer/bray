@@ -1,4 +1,3 @@
-use std::sync::Arc;
 
 use bray_codegen::CodegenTarget;
 use bray_compiler_known::{
@@ -29,87 +28,90 @@ impl Compilation {
         self.concrete_codegen_callable(callable, [], target, cancellation)
     }
 
-    pub(super) fn standard_library_helper_callable(
+    pub(in crate::compilation) fn standard_library_helper_callable(
         &self,
         helper: MirStandardLibraryHelper,
         cancellation: &CancellationToken,
     ) -> Result<CallableInstanceData, CodegenPreparationError> {
-        let reference = MirHelperReference::StandardLibrary(helper);
-        let key = standard_library_helper_key(helper);
-
-        let key = RecognizedStandardLibraryDeclarationKey::try_new(key)
-            .ok_or_else(|| missing_helper(&reference))?;
-
-        self.recognized_standard_library_callable(&key, &reference, cancellation)
+        self.declared_standard_library_helper(helper, cancellation)?
+            .ok_or_else(|| missing_helper(&MirHelperReference::StandardLibrary(helper)))
     }
 
-    fn recognized_standard_library_callable(
+    /// Returns the standard-library helper declaration, or `None` when the selected
+    /// standard library does not declare it.
+    pub(in crate::compilation) fn declared_standard_library_helper(
         &self,
-        key: &RecognizedStandardLibraryDeclarationKey,
-        reference: &MirHelperReference,
+        helper: MirStandardLibraryHelper,
         cancellation: &CancellationToken,
-    ) -> Result<CallableInstanceData, CodegenPreparationError> {
+    ) -> Result<Option<CallableInstanceData>, CodegenPreparationError> {
+        let Some(key) = RecognizedStandardLibraryDeclarationKey::try_new(standard_library_helper_key(helper)) else {
+            return Ok(None);
+        };
+
         let function = if self.package_source_authority().is_standard_library()
             && bray_standard_library::is_public_standard_library_package(self.package_identity())
         {
-            self.source_standard_library_function(key, reference)?
+            self.source_standard_library_function(&key)?
         } else {
-            self.imported_standard_library_function(key, reference, cancellation)?
+            self.imported_standard_library_function(&key, cancellation)?
         };
 
-        let definition = CallableDefinitionId::try_new(function.into())
-            .ok_or_else(|| missing_helper(reference))?;
+        let Some(definition) = function.and_then(|function| CallableDefinitionId::try_new(function.into())) else {
+            return Ok(None);
+        };
 
         let substitution = empty_substitution(self.semantic_value_store()?, definition.symbol())?;
 
-        Ok(CallableInstanceData::new(definition, substitution))
+        Ok(Some(CallableInstanceData::new(definition, substitution)))
     }
 
     fn source_standard_library_function(
         &self,
         key: &RecognizedStandardLibraryDeclarationKey,
-        reference: &MirHelperReference,
-    ) -> Result<FunctionSymbolId, CodegenPreparationError> {
-        let descriptor = COMPILER_KNOWN_CATALOG
-            .recognized_standard_library_declaration_by_key(key)
-            .ok_or_else(|| missing_helper(reference))?;
+    ) -> Result<Option<FunctionSymbolId>, CodegenPreparationError> {
+        let Some(descriptor) = COMPILER_KNOWN_CATALOG.recognized_standard_library_declaration_by_key(key) else {
+            return Ok(None);
+        };
 
         let RecognizedStandardLibraryDeclarationOwner::Scope(scope) = descriptor.owner() else {
-            return Err(missing_helper(reference));
+            return Ok(None);
         };
 
         let graph = self.symbol_graph()?;
 
-        let package = graph
+        let Some(package) = graph
             .packages()
             .iter()
             .find(|package| package.identity() == self.package_identity())
-            .ok_or_else(|| missing_helper(reference))?;
+        else {
+            return Ok(None);
+        };
 
-        let owner = source_standard_library_scope_owner(graph, package.id(), scope)
-            .ok_or_else(|| missing_helper(reference))?;
+        let Some(owner) = source_standard_library_scope_owner(graph, package.id(), scope) else {
+            return Ok(None);
+        };
 
         let Some(name) = descriptor.identity().name() else {
-            return Err(missing_helper(reference));
+            return Ok(None);
         };
 
         let MemberLookupResult::Found(symbol) = graph.lookup_member(owner, name) else {
-            return Err(missing_helper(reference));
+            return Ok(None);
         };
 
-        FunctionSymbolId::try_from_any(symbol).ok_or_else(|| missing_helper(reference))
+        Ok(FunctionSymbolId::try_from_any(symbol))
     }
 
     fn imported_standard_library_function(
         &self,
         key: &RecognizedStandardLibraryDeclarationKey,
-        reference: &MirHelperReference,
         cancellation: &CancellationToken,
-    ) -> Result<FunctionSymbolId, CodegenPreparationError> {
-        let package = PackageIdentity::try_new(
+    ) -> Result<Option<FunctionSymbolId>, CodegenPreparationError> {
+        let Some(package) = PackageIdentity::try_new(
             bray_standard_library::PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY,
-        )
-        .ok_or_else(|| missing_helper(reference))?;
+        ) else {
+            return Ok(None);
+        };
 
         let imported = self.imported_symbol_skeleton_result_with_cancellation(cancellation)?;
 
@@ -120,28 +122,25 @@ impl Compilation {
             ));
         }
 
-        let imported = imported
+        if !imported
             .value()
             .as_ref()
-            .filter(|imported| imported.package_by_identity(&package).is_some())
-            .ok_or_else(|| {
-                if self
-                    .dependency_interfaces()
-                    .iter()
-                    .any(|input| input.package() == &package)
-                {
-                    return missing_helper(reference);
-                }
+            .is_some_and(|imported| imported.package_by_identity(&package).is_some())
+        {
+            if self
+                .dependency_interfaces()
+                .iter()
+                .any(|input| input.package() == &package)
+            {
+                return Ok(None);
+            }
 
-                CodegenPreparationError::MissingStandardLibrary
-            })?;
+            return Err(CodegenPreparationError::MissingStandardLibrary);
+        };
 
-        let target = self.selected_target().target();
-
-        Arc::clone(imported)
-            .recognize_standard_library(&package, |rule| target.supports(rule))
-            .declaration_symbol(key)
-            .ok_or_else(|| missing_helper(reference))
+        Ok(self
+            .imported_standard_library_recognition(cancellation)?
+            .and_then(|recognition| recognition.available.declaration_symbol(key)))
     }
 }
 

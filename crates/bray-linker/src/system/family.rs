@@ -14,6 +14,10 @@ pub enum SystemLinkerFamily {
     Microsoft,
     /// Microsoft-compatible compiler-driver command language for COFF targets.
     MicrosoftCompiler,
+    /// LLVM `lld-link` with the compiler driver's platform startup policy. Inputs
+    /// name the C runtime through default libraries, and the linker locates the
+    /// MSVC and Windows SDK libraries itself.
+    MicrosoftLld,
     /// Apple `ld` command language for Mach-O targets.
     Apple,
     /// Apple compiler-driver command language for Mach-O targets.
@@ -24,7 +28,7 @@ impl SystemLinkerFamily {
     pub(crate) const fn flavor(self) -> LldFlavor {
         match self {
             Self::Gnu | Self::GnuCompiler | Self::WslGnuCompiler => LldFlavor::Elf,
-            Self::Microsoft | Self::MicrosoftCompiler => LldFlavor::Coff,
+            Self::Microsoft | Self::MicrosoftCompiler | Self::MicrosoftLld => LldFlavor::Coff,
             Self::Apple | Self::AppleCompiler => LldFlavor::MachO,
         }
     }
@@ -34,7 +38,7 @@ impl SystemLinkerFamily {
             Self::Gnu | Self::GnuCompiler | Self::AppleCompiler => Some(ResponseFileEncoding::Utf8),
             Self::WslGnuCompiler => None,
             Self::Microsoft => Some(ResponseFileEncoding::Utf16LittleEndian),
-            Self::MicrosoftCompiler => Some(ResponseFileEncoding::Utf8),
+            Self::MicrosoftCompiler | Self::MicrosoftLld => Some(ResponseFileEncoding::Utf8),
             Self::Apple => None,
         }
     }
@@ -45,6 +49,7 @@ impl SystemLinkerFamily {
             Self::GnuCompiler
                 | Self::WslGnuCompiler
                 | Self::MicrosoftCompiler
+                | Self::MicrosoftLld
                 | Self::AppleCompiler
         )
     }

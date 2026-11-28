@@ -326,7 +326,24 @@ impl super::super::Compilation {
         cancellation: &CancellationToken,
     ) -> Result<DiagnosticResult<Arc<[ImportedSemanticRecord]>>, FactQueryError> {
         if let Some(graph) = self.compute_selected_imported_semantic_graph(key, cancellation)? {
-            return self.imported_semantics_from_graph(key, &graph, cancellation);
+            let selected = self.imported_semantics_from_graph(key, &graph, cancellation)?;
+
+            // Compare against a complete graph that another record already required,
+            // without forcing that decode on lazy consumers.
+            #[cfg(debug_assertions)]
+            if graph.value().is_some()
+                && let Some(complete) = key
+                    .interface()
+                    .to_index()
+                    .and_then(|index| self.state.imported_semantic_graphs.get(index))
+                    .and_then(|cache| cache.get())
+            {
+                let expected = self.imported_semantics_from_graph(key, complete, cancellation)?;
+
+                assert_eq!(selected.value(), expected.value(), "selected imported semantics differ from the complete graph for {key:?}");
+            }
+
+            return Ok(selected);
         }
 
         let graph = self
@@ -449,7 +466,7 @@ impl super::super::Compilation {
             .map(Some)
     }
 
-    fn intern_imported_semantics(
+    pub(super) fn intern_imported_semantics(
         &self,
         interface: ImportedInterfaceId,
         input: &DependencyInterfaceInput,
@@ -538,37 +555,13 @@ impl super::super::Compilation {
         Ok(Some(interfaces))
     }
 
+    /// Interface loading and identity diagnostics. Semantic records decode only
+    /// their requested closure, and each record query owns its own diagnostics.
     fn compute_imported_diagnostics(&self) -> DiagnosticBag {
-        let skeleton = match self.imported_symbol_skeleton_result() {
-            Ok(result) => result,
+        match self.imported_symbol_skeleton_result() {
+            Ok(result) => result.diagnostics().clone(),
             Err(error) => panic!("imported symbol diagnostics failed: {error:?}"),
-        };
-
-        let mut diagnostics = vec![skeleton.diagnostics()];
-
-        if skeleton.value().is_some() {
-            for index in 0..self.dependency_interface_count() {
-                let Some(interface) = ImportedInterfaceId::try_from_index(index) else {
-                    return dependency_graph_capacity_diagnostics(
-                        self,
-                        DiagnosticInterfaceLimit::LoadedInterfaceCount,
-                        stable_count(self.dependency_interface_count()),
-                        ImportedInterfaceId::CAPACITY,
-                    );
-                };
-
-                match self.imported_semantic_graph_result_with_cancellation(
-                    interface,
-                    &self.state.cancellation,
-                ) {
-                    Ok(Some(result)) => diagnostics.push(result.diagnostics()),
-                    Ok(None) => {}
-                    Err(error) => panic!("imported semantic diagnostics failed: {error:?}"),
-                }
-            }
         }
-
-        DiagnosticBag::merged_all(diagnostics)
     }
 }
 
@@ -1770,7 +1763,8 @@ mod tests {
         assert!(
             compilation.state.imported_semantic_graphs[interface_index]
                 .get()
-                .is_some()
+                .is_none(),
+            "templates and signatures decode only their own record closure"
         );
     }
 

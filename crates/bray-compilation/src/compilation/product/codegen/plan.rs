@@ -137,8 +137,8 @@ pub(super) fn product_preservation_roots<'plan>(
     let native_data = product_native_storage_exports(mappings);
 
     let lifecycle = product_host.into_iter().flat_map(|host| {
-        [host.descriptor_symbol(), host.control_symbol()]
-            .into_iter()
+        std::iter::once(host.descriptor_symbol())
+            .chain(host.requires_control().then(|| host.control_symbol()))
             .filter(|_| host.is_final_image())
             .chain(
                 host.statics()

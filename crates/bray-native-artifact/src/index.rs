@@ -213,7 +213,8 @@ impl NativeArtifactIndex {
         Ok(index)
     }
 
-    /// Authenticates a bounded index and every referenced payload at an artifact import boundary.
+    /// Authenticates a bounded index at an artifact import boundary. Each payload
+    /// is authenticated when a consumer first demands it.
     pub fn import(
         bytes: &[u8],
         expected_digest: NativeContentDigest,
@@ -230,48 +231,7 @@ impl NativeArtifactIndex {
             });
         }
 
-        let workers = std::thread::available_parallelism()
-            .map_or(1, usize::from)
-            .min(12);
-
-        let payloads = if index.units.len() < 16 || workers == 1 {
-            index
-                .units()
-                .iter()
-                .map(|unit| authenticate_payload(unit, index.target(), payload_directory))
-                .collect::<Result<Vec<_>, _>>()?
-        } else {
-            let chunk_size = index.units.len().div_ceil(workers);
-            let target = index.target();
-            let units = index.units();
-
-            std::thread::scope(|scope| {
-                let tasks = units
-                    .chunks(chunk_size)
-                    .map(|chunk| {
-                        scope.spawn(move || {
-                            chunk
-                                .iter()
-                                .map(|unit| authenticate_payload(unit, target, payload_directory))
-                                .collect::<Vec<_>>()
-                        })
-                    })
-                    .collect::<Vec<_>>();
-
-                tasks
-                    .into_iter()
-                    .flat_map(|task| {
-                        task.join()
-                            .expect("native payload validation worker panicked")
-                    })
-                    .collect::<Result<Vec<_>, _>>()
-            })?
-        };
-
-        Ok(ValidatedNativeArtifact {
-            index,
-            payloads: payloads.into(),
-        })
+        Ok(ValidatedNativeArtifact::new(index, payload_directory))
     }
 
     /// Returns the compilation target of these units.
@@ -334,28 +294,94 @@ fn authenticate_payload(
     Ok(path)
 }
 
-/// Authenticated index and payload paths in the index's stable order.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+/// An authenticated index whose payloads are authenticated on first demand.
+#[derive(Clone, Debug)]
 pub struct ValidatedNativeArtifact {
     index: NativeArtifactIndex,
-    payloads: Arc<[PathBuf]>,
+    payload_directory: Arc<Path>,
+    // Clones share one authentication result per unit, in the index's stable order.
+    payloads: Arc<[std::sync::OnceLock<Result<PathBuf, NativeIndexError>>]>,
 }
 
 impl ValidatedNativeArtifact {
+    /// Binds an authenticated index to its payload directory. Each payload is
+    /// authenticated when a consumer first demands it.
+    pub fn new(index: NativeArtifactIndex, payload_directory: &Path) -> Self {
+        let payloads = index.units.iter().map(|_| std::sync::OnceLock::new()).collect();
+
+        Self {
+            index,
+            payload_directory: payload_directory.into(),
+            payloads,
+        }
+    }
+
     /// Returns the validated unit contract.
     pub const fn index(&self) -> &NativeArtifactIndex {
         &self.index
     }
 
-    /// Returns the authenticated path of the exact content-addressed unit.
-    pub fn payload(&self, identity: NativeContentDigest) -> Option<&Path> {
+    /// Returns the directory that holds this artifact's content-addressed payloads.
+    pub fn payload_directory(&self) -> &Path {
+        &self.payload_directory
+    }
+
+    /// Returns the authenticated path of the exact content-addressed unit, or why
+    /// its payload cannot be used. Returns `None` for a unit absent from the index.
+    pub fn payload(
+        &self,
+        identity: NativeContentDigest,
+    ) -> Option<Result<&Path, NativeIndexError>> {
         let index = self
             .index
             .units()
             .binary_search_by_key(&identity, NativeUnit::digest)
             .ok()?;
 
-        Some(self.payloads[index].as_path())
+        let payload = self.payloads[index].get_or_init(|| {
+            authenticate_payload(&self.index.units()[index], self.index.target(), &self.payload_directory)
+        });
+
+        Some(payload.as_deref().map_err(Clone::clone))
+    }
+}
+
+impl ValidatedNativeArtifact {
+    /// Authenticates demanded payloads concurrently. Later `payload` calls reuse
+    /// each result, so callers can still report failures in their own order.
+    pub fn authenticate(&self, identities: &[NativeContentDigest]) {
+        const PARALLEL_THRESHOLD: usize = 16;
+
+        let workers = std::thread::available_parallelism().map_or(1, usize::from).min(12);
+
+        if identities.len() < PARALLEL_THRESHOLD || workers == 1 {
+            return;
+        }
+
+        std::thread::scope(|scope| {
+            for chunk in identities.chunks(identities.len().div_ceil(workers)) {
+                scope.spawn(move || {
+                    for identity in chunk {
+                        self.payload(*identity);
+                    }
+                });
+            }
+        });
+    }
+}
+
+impl PartialEq for ValidatedNativeArtifact {
+    fn eq(&self, other: &Self) -> bool {
+        self.index == other.index && self.payload_directory == other.payload_directory
+    }
+}
+
+impl Eq for ValidatedNativeArtifact {}
+
+impl std::hash::Hash for ValidatedNativeArtifact {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.index.hash(state);
+        self.payload_directory.hash(state);
     }
 }
 
@@ -753,7 +779,7 @@ mod tests {
     }
 
     #[test]
-    fn parallel_import_authenticates_all_units_and_reports_first_invalid_payload() {
+    fn payloads_authenticate_on_first_demand() {
         let target = NativeTarget::X86_64LinuxGnu;
         let producer = digest(b"test producer");
 
@@ -797,12 +823,15 @@ mod tests {
 
         let imported =
             NativeArtifactIndex::import(&bytes, index_digest, target, producer, directory.path())
-                .expect("all test payloads must authenticate");
+                .expect("test index must import");
 
         assert_eq!(imported.index().units().len(), 20);
 
         let first = index.units()[0].digest();
+        let middle = index.units()[10].digest();
         let last = index.units()[19].digest();
+
+        assert!(matches!(imported.payload(first), Some(Ok(_))));
 
         for digest in [first, last] {
             std::fs::write(
@@ -814,10 +843,22 @@ mod tests {
             .expect("test payload must be changed");
         }
 
-        assert!(matches!(
-            NativeArtifactIndex::import(&bytes, index_digest, target, producer, directory.path()),
-            Err(NativeIndexError::PayloadDigestMismatch { expected, .. }) if expected == first,
-        ));
+        let clone = imported.clone();
+
+        assert!(matches!(clone.payload(first), Some(Ok(_))), "clones share an earlier authentication");
+
+        let reimported =
+            NativeArtifactIndex::import(&bytes, index_digest, target, producer, directory.path())
+                .expect("corrupt payloads are not read at import");
+
+        assert!(matches!(reimported.payload(middle), Some(Ok(_))));
+
+        for digest in [first, last] {
+            assert!(matches!(
+                reimported.payload(digest),
+                Some(Err(NativeIndexError::PayloadDigestMismatch { expected, .. })) if expected == digest,
+            ));
+        }
     }
 
     #[test]
@@ -861,7 +902,7 @@ mod tests {
         assert_eq!(imported.index(), &index);
         assert_eq!(imported.index().units().len(), 3);
         assert_eq!(imported.index().co_retention_groups().len(), 3);
-        assert!(imported.payload(payloads[0].0).is_some());
+        assert!(matches!(imported.payload(payloads[0].0), Some(Ok(_))));
         assert!(imported.payload(digest(b"absent unit")).is_none());
 
         let reversed = NativeArtifactIndex::try_new(
@@ -910,7 +951,7 @@ mod tests {
     }
 
     #[test]
-    fn import_rejects_truncation_target_policy_and_payload_mismatch() {
+    fn import_rejects_index_failures_and_demanded_payload_mismatch() {
         let (index, _) = index();
 
         let bytes = index
@@ -963,15 +1004,18 @@ mod tests {
             Err(NativeIndexError::WrongProducer { .. })
         ));
 
+        let missing = NativeArtifactIndex::import(
+            &bytes,
+            digest(&bytes),
+            index.target(),
+            index.producer(),
+            directory.path(),
+        )
+        .unwrap_or_else(|error| panic!("missing payloads are not read at import: {error:?}"));
+
         assert!(matches!(
-            NativeArtifactIndex::import(
-                &bytes,
-                digest(&bytes),
-                index.target(),
-                index.producer(),
-                directory.path(),
-            ),
-            Err(NativeIndexError::Read { path, kind })
+            missing.payload(index.units()[0].digest()),
+            Some(Err(NativeIndexError::Read { path, kind }))
                 if path.parent() == Some(directory.path())
                     && kind == std::io::ErrorKind::NotFound
         ));
@@ -986,15 +1030,18 @@ mod tests {
             .unwrap_or_else(|error| panic!("test payload must be written: {error}"));
         }
 
+        let corrupt = NativeArtifactIndex::import(
+            &bytes,
+            digest(&bytes),
+            index.target(),
+            index.producer(),
+            directory.path(),
+        )
+        .unwrap_or_else(|error| panic!("corrupt payloads are not read at import: {error:?}"));
+
         assert!(matches!(
-            NativeArtifactIndex::import(
-                &bytes,
-                digest(&bytes),
-                index.target(),
-                index.producer(),
-                directory.path(),
-            ),
-            Err(NativeIndexError::PayloadDigestMismatch { .. })
+            corrupt.payload(index.units()[0].digest()),
+            Some(Err(NativeIndexError::PayloadDigestMismatch { .. }))
         ));
     }
 

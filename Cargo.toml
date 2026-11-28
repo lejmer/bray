@@ -80,6 +80,12 @@ debug = 1
 [profile.test.build-override]
 opt-level = 1
 
+# Cargo builds build dependencies without optimization by default. Match the release
+# settings so the runtime build script compiles Bray with the same optimized compiler.
+[profile.release.build-override]
+opt-level = 3
+codegen-units = 16
+
 # The task harness has little analysis work and benefits from cheap rebuilds.
 [profile.test.package.xtask]
 opt-level = 0

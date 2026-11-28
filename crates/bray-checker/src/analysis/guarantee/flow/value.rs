@@ -257,7 +257,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let path = self.storage.logical_path(access)?;
 
         matches!(self.storage.identity(path.root), Some(bray_bound_tree::StorageIdentity::InvocationResult(_)))
-            .then(|| crate::ExecutionPlace::storage_path(self.storage, path)).flatten()
+            .then(|| self.storage_place(path)).flatten()
     }
 
     pub(in crate::analysis::guarantee) fn invocation_result_place(
@@ -273,7 +273,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             Site::CallInput { .. } => self.input_place(invocation),
             Site::Iterate(_) | Site::Next(_) | Site::ScopedEnter(_) | Site::ScopedExit(_) => self.storage.invocation_result(invocation)
                 .and_then(|access| self.storage.logical_path(access))
-                .and_then(|path| crate::ExecutionPlace::storage_path(self.storage, path)),
+                .and_then(|path| self.storage_place(path)),
             _ => None,
         }
     }
@@ -300,7 +300,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 let place = self
                     .storage
                     .logical_path(access)
-                    .and_then(|path| crate::ExecutionPlace::storage_path(self.storage, path))
+                    .and_then(|path| self.storage_place(path))
                     .expect("input slot has an execution place");
 
                 place
@@ -445,7 +445,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         state: &ExecutionState,
         path: &bray_bound_tree::StoragePath,
     ) -> Option<ExecutionCondition> {
-        crate::ExecutionPlace::storage_path(self.storage, path)?.value_in(&state.current)
+        self.storage_place(path)?.value_in(&state.current)
     }
 
     /// Read the current source selected by the owning storage transition before
@@ -510,7 +510,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         };
 
         let place = if let Some(path) = target.value_observation_path() {
-            let Some(place) = crate::ExecutionPlace::storage_path(self.storage, &path) else {
+            let Some(place) = self.storage_place(&path) else {
                 return;
             };
 

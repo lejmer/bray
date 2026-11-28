@@ -1,16 +1,52 @@
 use bray_compiler_known::{COMPILER_KNOWN_CATALOG, RecognizedStandardLibraryScopeId};
-use bray_symbols::{AnySymbolId, ModuleOwnerId, ModulePathKey, PackageSymbolId, SymbolGraph};
+use bray_symbols::{
+    AnySymbolId, ModuleOwnerId, ModulePathKey, PackageSymbolId,
+    RecognizedStandardLibraryDeclarations, SymbolGraph,
+};
 
 use bray_binder::BindingQueryContext;
 use bray_bound_tree::{
     BoundReferenceTarget, ConstructionInputId, ConstructionTarget, SelectedConstruction,
     SelectedConstructionInput,
 };
-use bray_checker::{ExecutionCondition, TrustedCallContract};
+use bray_checker::{ExecutionCondition, ImplementationHookResolution, TrustedCallContract};
 
 use super::Compilation;
 use super::binder::{CompilationBindingContext, binding_query_error};
 use crate::fact::{CancellationToken, FactQueryError};
+
+/// Imported standard-library declarations recognized for every target and for the selected one.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::compilation) struct ImportedStandardLibraryRecognition {
+    pub(in crate::compilation) all: RecognizedStandardLibraryDeclarations,
+    pub(in crate::compilation) available: RecognizedStandardLibraryDeclarations,
+}
+
+impl std::hash::Hash for ImportedStandardLibraryRecognition {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        // The matches identify the recognition. Hashing the shared imported
+        // skeleton again would repeat the import fingerprint.
+        self.all.declarations().hash(state);
+        self.available.declarations().hash(state);
+    }
+}
+
+impl ImportedStandardLibraryRecognition {
+    /// Returns the implementation hook of a recognized declaration and whether the selected target
+    /// provides that declaration.
+    pub(in crate::compilation) fn implementation_hook(
+        &self,
+        symbol: AnySymbolId,
+    ) -> Option<ImplementationHookResolution> {
+        let descriptor = COMPILER_KNOWN_CATALOG
+            .recognized_standard_library_declaration(self.all.descriptor(symbol)?)?;
+
+        Some(ImplementationHookResolution::new(
+            descriptor.implementation_hook()?,
+            self.available.descriptor(symbol).is_some(),
+        ))
+    }
+}
 
 impl Compilation {
     pub(in crate::compilation) fn raw_buffer_element(
@@ -331,19 +367,10 @@ pub(super) fn recognized_declaration(
                 return Ok(false);
             }
 
-            let imported = context
+            context
                 .compilation()
-                .imported_symbol_skeleton_result_with_cancellation(context.cancellation())?;
-
-            let Some(imported) = imported.value() else {
-                return Ok(false);
-            };
-
-            let target = context.compilation().selected_target().target();
-
-            std::sync::Arc::clone(imported)
-                .recognize_standard_library(key.package_identity(), |rule| target.supports(rule))
-                .descriptor(symbol)
+                .imported_standard_library_recognition(context.cancellation())?
+                .and_then(|recognition| recognition.available.descriptor(symbol))
                 == Some(descriptor.id())
         }
         _ => false,

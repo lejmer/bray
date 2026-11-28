@@ -23,8 +23,8 @@ impl<'a, 'view, C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'a, 'view
         entry.clear();
         entry.extend_from_slice(assumptions);
         self.excluded_edges = excluded_edges;
-        self.candidate_evidence.get_mut().clear();
-        self.consumed_completion_dependencies.get_mut().clear();
+        self.candidate_evidence.get_mut().expect("candidate evidence lock is not poisoned").clear();
+        self.consumed_completion_dependencies.get_mut().expect("completion dependency lock is not poisoned").clear();
 
         let mut reached_acyclic = BTreeSet::new();
 
@@ -161,6 +161,7 @@ pub(crate) fn prepare_execution_flow<'a, 'view, C: CheckerRequestContext + ?Size
 
     ExecutionFlowDomain {
         candidate_evidence: Default::default(),
+        storage_places: Default::default(),
         consumed_completion_dependencies: Default::default(),
         // Exact immutable query results survive cleanup-feasibility rounds within this body.
         proofs: Default::default(),

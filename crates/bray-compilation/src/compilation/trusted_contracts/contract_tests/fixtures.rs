@@ -135,6 +135,12 @@ pub(super) fn body_belongs_to(
 
 pub(super) use crate::test_support::diagnostic_at_call;
 
+/// Accepts any of several `|`-separated predicates when a case loses more than one
+/// witness and the checker reports whichever failure it reaches first.
+fn condition_contains_any_predicate(condition: &bray_diagnostics::DiagnosticCondition, predicates: &str) -> bool {
+    predicates.split('|').any(|predicate| condition_contains_predicate(condition, predicate))
+}
+
 fn condition_contains_predicate(condition: &bray_diagnostics::DiagnosticCondition, predicate: &str) -> bool {
     use bray_diagnostics::DiagnosticCondition;
 
@@ -212,12 +218,12 @@ fn assert_contract_case(
                 DiagnosticArgValue::ContractObligation(obligation)
                     if expected == DiagnosticKind::CheckingTrustedObligationNotProven => {
                     obligation.kind == DiagnosticContractObligationKind::CallRequirement
-                        && condition_contains_predicate(&obligation.required, predicate)
+                        && condition_contains_any_predicate(&obligation.required, predicate)
                 }
                 DiagnosticArgValue::WitnessTransfer(transfer)
                     if expected == DiagnosticKind::CheckingTrustedWitnessTransferNotProven => {
                     transfer.kind == DiagnosticWitnessTransferKind::Separation
-                        && condition_contains_predicate(&transfer.guarantee, predicate)
+                        && condition_contains_any_predicate(&transfer.guarantee, predicate)
                 }
                 _ => false,
             }))

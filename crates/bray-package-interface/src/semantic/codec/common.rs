@@ -285,14 +285,6 @@ impl SemanticDecodeContext {
         self.budget.include(budget)
     }
 
-    pub(super) fn restart(self) -> Self {
-        Self {
-            budget: DecodeBudget::new(self.limits()),
-            validation: InterfaceValidationContext::Artifact,
-            index: self.index,
-        }
-    }
-
     pub(crate) const fn limits(&self) -> InterfaceValidationLimits {
         self.budget.limits()
     }

@@ -15,7 +15,31 @@ use bray_tooling::{RuntimeArtifactLoadError, load_runtime_artifact};
 
 use crate::command::{DriverRuntimeProfile, DriverRuntimeSelection};
 
-pub(super) fn resolve_runtime(
+type RuntimeResolution = Result<Option<RuntimeArtifact>, DiagnosticBag>;
+
+/// Starts loading the runtime so it overlaps the front end's source and package reads.
+pub(super) fn spawn_runtime_resolution(
+    selection: Option<&DriverRuntimeSelection>,
+    target: &SelectedTarget,
+) -> std::thread::JoinHandle<RuntimeResolution> {
+    let selection = selection.cloned();
+    let target = target.clone();
+
+    std::thread::spawn(move || resolve_runtime(selection.as_ref(), &target))
+}
+
+/// Waits for a started runtime load, or resolves no runtime when none was started.
+pub(super) fn join_runtime_resolution(
+    loading: Option<std::thread::JoinHandle<RuntimeResolution>>,
+) -> RuntimeResolution {
+    loading.map_or(Ok(None), |loading| {
+        loading
+            .join()
+            .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+    })
+}
+
+fn resolve_runtime(
     selection: Option<&DriverRuntimeSelection>,
     target: &SelectedTarget,
 ) -> Result<Option<RuntimeArtifact>, DiagnosticBag> {

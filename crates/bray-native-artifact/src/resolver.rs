@@ -113,7 +113,10 @@ pub struct NativeUnitResolver {
     statics: BTreeMap<[u8; 32], (usize, usize)>,
     static_symbols: BTreeMap<NativeSymbolIdentity, BTreeSet<[u8; 32]>>,
     groups: BTreeMap<usize, BTreeSet<usize>>,
-    archive_providers: BTreeMap<NativeSymbolIdentity, Vec<usize>>,
+    // Each provider is an archive unit and the member that defines the symbol.
+    archive_providers: BTreeMap<NativeSymbolIdentity, Vec<(usize, usize)>>,
+    // Archives whose short import records bind a symbol to a dynamic library export.
+    import_providers: BTreeMap<NativeSymbolIdentity, Vec<usize>>,
     selections: Mutex<BTreeMap<Vec<NativeSymbolContract>, SelectionResult>>,
 }
 
@@ -127,6 +130,7 @@ impl NativeUnitResolver {
         let mut providers: BTreeMap<_, Vec<_>> = BTreeMap::new();
         let mut groups: BTreeMap<usize, BTreeSet<usize>> = BTreeMap::new();
         let mut archive_providers: BTreeMap<_, Vec<_>> = BTreeMap::new();
+        let mut import_providers: BTreeMap<_, Vec<_>> = BTreeMap::new();
 
         for (artifact, index) in artifacts.iter().enumerate() {
             let offset = locations.len();
@@ -163,9 +167,21 @@ impl NativeUnitResolver {
                     }
                 }
 
-                if let NativeUnitSummary::LazyArchive { provided, .. } = unit.summary() {
-                    for symbol in provided.iter() {
-                        archive_providers
+                if let NativeUnitSummary::LazyArchive {
+                    members, imports, ..
+                } = unit.summary()
+                {
+                    for (member_index, member) in members.iter().enumerate() {
+                        for symbol in member.provided() {
+                            archive_providers
+                                .entry(symbol.clone())
+                                .or_default()
+                                .push((unit_index, member_index));
+                        }
+                    }
+
+                    for symbol in imports.iter() {
+                        import_providers
                             .entry(symbol.clone())
                             .or_default()
                             .push(unit_index);
@@ -203,6 +219,7 @@ impl NativeUnitResolver {
             static_symbols,
             groups,
             archive_providers,
+            import_providers,
             selections: Mutex::new(BTreeMap::new()),
         }
     }
@@ -376,7 +393,10 @@ impl NativeUnitResolver {
             }
         }
 
-        while !state.pending.is_empty() || !state.pending_statics.is_empty() {
+        while !state.pending.is_empty()
+            || !state.pending_members.is_empty()
+            || !state.pending_statics.is_empty()
+        {
             if let Some(unit_index) = state.pending.pop_first() {
                 let unit = self.unit(unit_index);
 
@@ -400,7 +420,33 @@ impl NativeUnitResolver {
                     )?;
                 }
 
-                for reference in unit.summary().references() {
+                // An archive closes through the members that demands select.
+                if !matches!(unit.summary(), NativeUnitSummary::LazyArchive { .. }) {
+                    for reference in unit.summary().references() {
+                        self.require(
+                            reference,
+                            NativeUnitInclusion::Reference {
+                                from: self.location(unit_index),
+                                symbol: reference.clone(),
+                            },
+                            Some(SelectionDependency::Unit(unit_index)),
+                            provided,
+                            &mut state,
+                        )?;
+                    }
+                }
+
+                continue;
+            }
+
+            if let Some((unit_index, member_index)) = state.pending_members.pop_first() {
+                let NativeUnitSummary::LazyArchive { members, .. } =
+                    self.unit(unit_index).summary()
+                else {
+                    unreachable!("a selected member belongs to a lazy archive");
+                };
+
+                for reference in members[member_index].references() {
                     self.require(
                         reference,
                         NativeUnitInclusion::Reference {
@@ -596,7 +642,7 @@ impl NativeUnitResolver {
         {
             let mut included = false;
 
-            for &archive in archives {
+            for &(archive, member) in archives {
                 let precise = candidates.is_some_and(|providers| {
                     providers.iter().any(|&(unit, definition)| {
                         let NativeUnitSummary::Exact { definitions, .. } =
@@ -617,6 +663,7 @@ impl NativeUnitResolver {
 
                 included = true;
                 state.include(archive, reason.clone(), from);
+                state.include_member(archive, member);
                 state.connect(symbol, from, SelectionDependency::Unit(archive));
             }
 
@@ -645,13 +692,27 @@ impl NativeUnitResolver {
                 }
             }
 
-            if opaque_terminal
-                || state.external_links
+            let declared = state.external_links
                 || from.is_some_and(|node| {
                     matches!(node,
                     SelectionDependency::Unit(unit) if !self.unit(unit).native_links().is_empty())
-                })
+                });
+
+            // An import record binds the same dynamic library export that a declared native
+            // library provides, so it selects its archive only for an otherwise undeclared demand.
+            if !declared
+                && symbol.version().is_none()
+                && let Some(archives) = self.import_providers.get(symbol.identity())
             {
+                for &archive in archives {
+                    state.include(archive, reason.clone(), from);
+                    state.connect(symbol, from, SelectionDependency::Unit(archive));
+                }
+
+                return Ok(());
+            }
+
+            if opaque_terminal || declared {
                 // Unknown definitions in opaque code or declared native libraries resolve at the linker.
                 return Ok(());
             }
@@ -709,6 +770,20 @@ impl NativeUnitResolver {
             return Err(NativeResolutionError::DuplicateStrong(symbol.clone()));
         }
 
+        // The linker keeps one of several interchangeable providers. Selecting only that one
+        // keeps the other providers' units, and everything they reference, out of the product.
+        let chosen = if chosen.iter().all(|(_, definition)| interchangeable(definition)) {
+            let provider = chosen
+                .iter()
+                .find(|(unit_index, _)| state.reasons.contains_key(unit_index))
+                .or_else(|| chosen.first())
+                .copied();
+
+            provider.into_iter().collect()
+        } else {
+            chosen
+        };
+
         for &&(unit_index, _) in &chosen {
             state.include(unit_index, reason.clone(), from);
 
@@ -718,6 +793,16 @@ impl NativeUnitResolver {
         }
 
         Ok(())
+    }
+}
+
+/// Whether a linker may keep any one provider of this definition and discard the rest.
+fn interchangeable(definition: &crate::NativeDefinition) -> bool {
+    match definition.selection() {
+        NativeDefinitionSelection::Fallback => true,
+        NativeDefinitionSelection::Ordinary => definition.symbol().binding() == NativeSymbolBinding::Weak,
+        // Size and content rules let the linker compare every copy, so they keep all providers.
+        NativeDefinitionSelection::Comdat { rule, .. } => *rule == crate::NativeComdatSelection::Any,
     }
 }
 
@@ -770,11 +855,19 @@ struct SelectionState {
     external_links: bool,
     reasons: BTreeMap<usize, BTreeSet<NativeUnitInclusion>>,
     pending: BTreeSet<usize>,
+    members: BTreeSet<(usize, usize)>,
+    pending_members: BTreeSet<(usize, usize)>,
     edges: BTreeMap<SelectionDependency, BTreeSet<SelectionDependency>>,
     roots: BTreeMap<SymbolKey, BTreeSet<SelectionDependency>>,
 }
 
 impl SelectionState {
+    fn include_member(&mut self, unit: usize, member: usize) {
+        if self.members.insert((unit, member)) {
+            self.pending_members.insert((unit, member));
+        }
+    }
+
     fn include(
         &mut self,
         unit: usize,
@@ -905,9 +998,9 @@ mod tests {
         NativeResolutionError, NativeUnitInclusion, NativeUnitLocation, NativeUnitResolver,
     };
     use crate::{
-        NativeArtifactIndex, NativeCoRetentionGroup, NativeComdatSelection, NativeContentDigest,
-        NativeDefinition, NativeDefinitionSelection, NativeRoot, NativeUnit, NativeUnitKind,
-        NativeUnitSummary,
+        NativeArchiveMember, NativeArtifactIndex, NativeCoRetentionGroup, NativeComdatSelection,
+        NativeContentDigest, NativeDefinition, NativeDefinitionSelection, NativeRoot, NativeUnit,
+        NativeUnitKind, NativeUnitSummary,
     };
 
     fn digest(value: u8) -> NativeContentDigest {
@@ -1937,7 +2030,162 @@ mod tests {
             .select([required("provider"), required("live")])
             .expect("fixture selection must succeed");
 
-        assert_eq!(selected.units().len(), 2);
+        // The mixed unit is already live, so its fallback serves the demand alone.
+        assert_eq!(
+            selected.units().iter().map(|unit| unit.digest).collect::<BTreeSet<_>>(),
+            [digest(1)].into()
+        );
+    }
+
+    #[test]
+    fn lazy_archive_closes_only_through_selected_members() {
+        let ordinary = |name| {
+            (
+                name,
+                NativeSymbolBinding::Strong,
+                NativeDefinitionSelection::Ordinary,
+            )
+        };
+
+        let archive = NativeUnit::new(
+            digest(1),
+            NativeUnitKind::OpaqueArchive,
+            NativeUnitSummary::lazy_archive(
+                [
+                    NativeArchiveMember::new(
+                        [required("used").identity().clone()],
+                        [required("needed")],
+                    ),
+                    NativeArchiveMember::new(
+                        [required("unused").identity().clone()],
+                        [required("unneeded")],
+                    ),
+                ],
+                [],
+            ),
+            [],
+        );
+
+        let resolver = NativeUnitResolver::new([index(
+            [
+                archive,
+                unit(2, &[ordinary("needed")], &[], &[]),
+                unit(3, &[ordinary("unneeded")], &[], &[]),
+            ],
+            [],
+        )]);
+
+        let selected = resolver.select([required("used")]).expect("the selected member must close");
+
+        assert_eq!(
+            selected.units().iter().map(|unit| unit.digest).collect::<BTreeSet<_>>(),
+            [digest(1), digest(2)].into(),
+            "an unselected member must not retain its references"
+        );
+    }
+
+    #[test]
+    fn import_records_select_their_archive_only_for_undeclared_demands() {
+        let archive = NativeUnit::new(
+            digest(1),
+            NativeUnitKind::OpaqueArchive,
+            NativeUnitSummary::lazy_archive(
+                [],
+                [
+                    required("WaitOnAddress").identity().clone(),
+                    required("__imp_WaitOnAddress").identity().clone(),
+                ],
+            ),
+            [],
+        );
+
+        let links = [NativeLinkRequirement::new(
+            NonEmptySharedStr::try_new("synchronization")
+                .expect("fixture library name must be valid"),
+            NativeLinkKind::Dynamic,
+        )];
+
+        let caller = |native_links: &[NativeLinkRequirement]| {
+            let unit = unit(
+                2,
+                &[(
+                    "caller",
+                    NativeSymbolBinding::Strong,
+                    NativeDefinitionSelection::Ordinary,
+                )],
+                &[required("WaitOnAddress")],
+                &[],
+            );
+
+            NativeUnit::new(
+                unit.digest(),
+                unit.kind(),
+                unit.summary().clone(),
+                native_links.iter().cloned(),
+            )
+        };
+
+        let selected = |caller, links: &[NativeLinkRequirement]| {
+            NativeUnitResolver::new([index([archive.clone(), caller], [])])
+                .select_with_provided([required("caller")], [], [], links)
+                .expect("the import closes")
+                .units()
+                .iter()
+                .map(|unit| unit.digest)
+                .collect::<BTreeSet<_>>()
+        };
+
+        assert_eq!(
+            selected(caller(&[]), &[]),
+            [digest(1), digest(2)].into(),
+            "an undeclared import selects the archive that records it"
+        );
+
+        assert_eq!(
+            selected(caller(&links), &[]),
+            [digest(2)].into(),
+            "the caller's own native library binds the same export"
+        );
+
+        assert_eq!(
+            selected(caller(&[]), &links),
+            [digest(2)].into(),
+            "a product native library binds the same export"
+        );
+    }
+
+    #[test]
+    fn interchangeable_providers_select_one_unit_and_prefer_a_selected_one() {
+        let any = NativeDefinitionSelection::Comdat {
+            group: NativeSymbolIdentity::Name(NonEmptySharedStr::try_new("group").expect("test group name")),
+            rule: NativeComdatSelection::Any,
+            associative_with: None,
+        };
+
+        for selection in [any, NativeDefinitionSelection::Fallback] {
+            let shared = ("shared", NativeSymbolBinding::Strong, selection.clone());
+
+            // Each unreferenced copy would otherwise retain its own references.
+            let first = unit(1, &[shared.clone()], &[required("first_only")], &[]);
+            let second = unit(2, &[shared.clone(), ("second", NativeSymbolBinding::Strong, NativeDefinitionSelection::Ordinary)], &[required("shared")], &[]);
+            let first_only = unit(3, &[("first_only", NativeSymbolBinding::Strong, NativeDefinitionSelection::Ordinary)], &[], &[]);
+
+            let resolver = NativeUnitResolver::new([index([first.clone(), second.clone(), first_only.clone()], [])]);
+
+            let selected = resolver.select([required("shared")]).expect("one provider must resolve the demand");
+
+            assert_eq!(
+                selected.units().iter().map(|unit| unit.digest).collect::<BTreeSet<_>>(),
+                [digest(1), digest(3)].into()
+            );
+
+            let selected = resolver.select([required("second")]).expect("the selected copy must serve its own reference");
+
+            assert_eq!(
+                selected.units().iter().map(|unit| unit.digest).collect::<BTreeSet<_>>(),
+                [digest(2)].into()
+            );
+        }
     }
 
     #[test]
@@ -2146,8 +2394,11 @@ mod tests {
             digest(1),
             NativeUnitKind::OpaqueArchive,
             NativeUnitSummary::lazy_archive(
-                [required("service").identity().clone()],
-                [required("bridge"), required("external")],
+                [NativeArchiveMember::new(
+                    [required("service").identity().clone()],
+                    [required("bridge"), required("external")],
+                )],
+                [],
             ),
             [],
         );
@@ -2206,7 +2457,13 @@ mod tests {
             let archive = NativeUnit::new(
                 digest(1),
                 NativeUnitKind::OpaqueArchive,
-                NativeUnitSummary::lazy_archive([required("service").identity().clone()], []),
+                NativeUnitSummary::lazy_archive(
+                    [NativeArchiveMember::new(
+                        [required("service").identity().clone()],
+                        [],
+                    )],
+                    [],
+                ),
                 [],
             );
 

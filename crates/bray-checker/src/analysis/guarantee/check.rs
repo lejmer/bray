@@ -225,7 +225,7 @@ fn check_operations<C: CheckerRequestContext + ?Sized>(
         && (predicate || internal || reachable.domain.has_bounds_checks)
         && request.unit().key().is_static_initializer();
 
-    let evidence = reachable.domain.candidate_evidence.borrow();
+    let evidence = reachable.domain.candidate_evidence.lock().expect("candidate evidence lock is not poisoned");
     let mut operation_domains = BTreeMap::<_, super::flow::OperationDomainEvidence>::new();
 
     if property == ExecutionProperty::Total {

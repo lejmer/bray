@@ -1,5 +1,4 @@
 use std::borrow::Cow;
-use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
@@ -62,8 +61,10 @@ impl OperationDomainEvidence {
 
 pub(crate) struct ExecutionFlowDomain<'a, 'view, C: CheckerRequestContext + ?Sized> {
     pub(in crate::analysis::guarantee) proofs: Arc<crate::execution_guarantees::ExecutionProofCache>,
-    pub(in crate::analysis::guarantee) candidate_evidence: RefCell<BTreeMap<AnalysisBlockId, BlockExecutionEvidence>>,
-    pub(in crate::analysis::guarantee) consumed_completion_dependencies: RefCell<BTreeSet<crate::ExecutionCompletionDependency>>,
+    pub(in crate::analysis::guarantee) candidate_evidence: std::sync::Mutex<BTreeMap<AnalysisBlockId, BlockExecutionEvidence>>,
+    // Each checked storage path names one immutable execution place in this body.
+    pub(in crate::analysis::guarantee) storage_places: std::sync::Mutex<hashbrown::HashMap<bray_bound_tree::StoragePath, Option<crate::ExecutionPlace>>>,
+    pub(in crate::analysis::guarantee) consumed_completion_dependencies: std::sync::Mutex<BTreeSet<crate::ExecutionCompletionDependency>>,
     pub(super) values: &'a crate::analysis::liveness::ValueRetention,
     pub(in crate::analysis::guarantee) liveness: &'a bray_bound_tree::Liveness,
     pub(in crate::analysis) retained_storage: BTreeSet<bray_bound_tree::StorageAccessId>,
@@ -116,6 +117,19 @@ pub(crate) struct ExecutionFlowDomain<'a, 'view, C: CheckerRequestContext + ?Siz
 }
 
 impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
+    /// The execution place for a checked storage path, memoized for this body.
+    pub(in crate::analysis::guarantee) fn storage_place(&self, path: &bray_bound_tree::StoragePath) -> Option<crate::ExecutionPlace> {
+        if let Some(place) = self.storage_places.lock().expect("storage place cache lock is not poisoned").get(path) {
+            return place.clone();
+        }
+
+        let place = crate::ExecutionPlace::storage_path(self.storage, path);
+
+        self.storage_places.lock().expect("storage place cache lock is not poisoned").insert(path.clone(), place.clone());
+
+        place
+    }
+
     pub(super) fn replay_edge(&self, state: &ExecutionState, edge: &AnalysisEdge,
         mut emit: impl FnMut(Option<usize>, ExecutionState),
     ) {
@@ -714,7 +728,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 unreachable!("entry proof observations retain their checked input origin");
             };
 
-            let Some(place) = ExecutionPlace::storage_path(self.storage, reference) else { continue; };
+            let Some(place) = self.storage_place(reference) else { continue; };
 
             match kind {
                 DependencyReferenceKind::Borrow if place.is_callable_input() => {

@@ -115,7 +115,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             return ExecutionCondition::boolean(false).into();
         }
 
-        let place = owner.as_deref().and_then(|path| ExecutionPlace::storage_path(self.storage, path));
+        let place = owner.as_deref().and_then(|path| self.storage_place(path));
         let available = place.as_ref().map(|place| state.current.availability(place));
 
         // Backing has no logical value slot of its own. An absent enclosing
@@ -127,7 +127,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     projections: path.projections[..length].into(),
                 };
 
-                ExecutionPlace::storage_path(self.storage, &parent).is_some_and(|parent| {
+                self.storage_place(&parent).is_some_and(|parent| {
                     match state.current.availability(&parent) {
                         ValueAvailability::Absent => true,
                         ValueAvailability::Guarded(guard) =>
@@ -175,7 +175,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 && payload.is_exact()
             {
                 payloads.push(GuardedPayload {
-                    observation: ExecutionPlace::storage_path(self.storage, &payload),
+                    observation: self.storage_place(&payload),
                     path: payload.into_owned(),
                     present: present.clone(),
                 });

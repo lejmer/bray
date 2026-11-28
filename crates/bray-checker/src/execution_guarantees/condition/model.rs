@@ -163,7 +163,29 @@ pub(in crate::execution_guarantees) struct ConditionNode {
     contains_redundant_reference_context: bool,
     may_observe_live_value: bool,
     prefix_starts_empty: bool,
+    // Each identified value or storage root sets one bit. A subterm can equal
+    // another condition only if this node's bits include all of that condition's bits.
+    roots: u64,
+    // Each storage mutation that can invalidate a subterm sets one bit. A
+    // mutation whose bit is absent cannot invalidate this condition.
+    mutations: u64,
+    // Nodes in the expanded tree, saturating. Bounded work cannot exhaust its
+    // budget on a condition whose tree fits that budget.
+    size: u32,
+    // A stripped value is a rebuilt descendant tree, so retaining it here cannot
+    // form a cycle. None records that stripping leaves this node unchanged.
+    without_storage: OnceLock<Option<ExecutionCondition>>,
     comparisons: OnceLock<Box<ComparisonForms>>,
+    // Only a published canonical node owns an interner entry.
+    interned: bool,
+}
+
+impl Drop for ConditionNode {
+    fn drop(&mut self) {
+        if self.interned {
+            super::interning::release(self);
+        }
+    }
 }
 
 impl std::fmt::Debug for ConditionNode {
@@ -187,15 +209,21 @@ impl ConditionNode {
             _ => false,
         };
 
-        if !(contains_deferred && contains_storage) {
-            for child in kind.structural_children() {
-                contains_deferred |= child.contains_deferred();
-                contains_storage |= child.contains_storage();
-                contains_redundant_reference_context |= child.contains_redundant_reference_context();
+        let mut roots = kind.root_bit();
+        let mut mutations = kind.mutation_bits();
+        let mut size = 1_u32;
 
-                if contains_deferred && contains_storage && contains_redundant_reference_context { break; }
-            }
-        }
+        // One pass keeps node construction to a single child iterator.
+        let _ = kind.try_for_each_structural_child(&mut |child| {
+            contains_deferred |= child.contains_deferred();
+            contains_storage |= child.contains_storage();
+            contains_redundant_reference_context |= child.contains_redundant_reference_context();
+            roots |= child.0.roots;
+            mutations |= child.0.mutations;
+            size = size.saturating_add(child.0.size);
+
+            std::ops::ControlFlow::Continue(())
+        });
 
         let prefix_starts_empty = match &kind {
             ExecutionConditionKind::StorageValue(bray_symbols::CapturedValueOperation::EmptyPrefix, _) => true,
@@ -205,12 +233,41 @@ impl ConditionNode {
             _ => false,
         };
 
-        Self { kind, hash, contains_deferred, contains_storage, contains_redundant_reference_context, may_observe_live_value, prefix_starts_empty, comparisons: OnceLock::new() }
+        Self { kind, hash, contains_deferred, contains_storage, contains_redundant_reference_context, may_observe_live_value, prefix_starts_empty, roots, mutations, size, without_storage: OnceLock::new(), comparisons: OnceLock::new(), interned: false }
     }
 
     #[cfg(test)]
     fn with_test_hash(kind: ExecutionConditionKind, hash: u64) -> Self {
-        Self { hash, ..Self::new(kind) }
+        let mut node = Self::new(kind);
+
+        node.hash = hash;
+
+        node
+    }
+
+    pub(super) const fn hash(&self) -> u64 { self.hash }
+
+    pub(super) fn mark_interned(&mut self) { self.interned = true; }
+
+    /// Whether this node and a node with canonical children have equal fields,
+    /// identical children and the same storage and frame records.
+    ///
+    /// Captured storage and deferred frames compare by contents, but state
+    /// transitions map each record by identity, so equal records stay distinct.
+    pub(super) fn same_node(&self, other: &Self) -> bool {
+        let same_records = match (&self.kind, &other.kind) {
+            (ExecutionConditionKind::CapturedValue { storage, .. }, ExecutionConditionKind::CapturedValue { storage: other, .. }) =>
+                Arc::ptr_eq(storage, other),
+            (ExecutionConditionKind::DeferredValue { frame, .. }, ExecutionConditionKind::DeferredValue { frame: other, .. }) =>
+                Arc::ptr_eq(frame, other),
+            _ => true,
+        };
+
+        same_records
+            && self.shallow_cmp(other).is_eq()
+            && self.cmp_parts(other, &mut |left, right| {
+                if Arc::ptr_eq(&left.0, &right.0) { Ordering::Equal } else { Ordering::Less }
+            }).is_eq()
     }
 }
 
@@ -228,7 +285,7 @@ impl PreparedCondition {
     pub(in crate::execution_guarantees) fn finish(self) -> ExecutionCondition {
         match self {
             Self::Retained(value) => value,
-            Self::Unpublished(node) => ExecutionCondition(Arc::new(node)),
+            Self::Unpublished(node) => ExecutionCondition(super::interning::intern(node)),
         }
     }
 
@@ -253,20 +310,40 @@ impl From<ExecutionCondition> for PreparedCondition {
 
 impl hashbrown::Equivalent<ExecutionCondition> for PreparedCondition {
     fn equivalent(&self, key: &ExecutionCondition) -> bool {
-        compare_nodes(self.node(), &key.0, true, &mut ComparedPairs::new()).is_eq()
+        compare_nodes(self.node(), &key.0).is_eq()
     }
 }
 
 impl ExecutionCondition {
     /// Creates a condition from its checked structural kind.
     pub fn new(kind: ExecutionConditionKind) -> Self {
-        Self(Arc::new(ConditionNode::new(kind)))
+        Self(super::interning::intern(ConditionNode::new(kind)))
     }
 
     /// Returns the condition's structural kind.
     pub fn kind(&self) -> &ExecutionConditionKind { &self.0.kind }
 
     pub(super) fn contains_deferred(&self) -> bool { self.0.contains_deferred }
+
+    /// The root bits of every identified value or storage root in this condition.
+    pub(crate) fn roots(&self) -> u64 { self.0.roots }
+
+    /// The memoized result of a pure rewrite of this node into a value without its own root.
+    pub(super) fn without_storage_memo(&self, rewrite: impl FnOnce(&Self) -> Self) -> Self {
+        self.0.without_storage.get_or_init(|| {
+            let rewritten = rewrite(self);
+
+            (!Arc::ptr_eq(&rewritten.0, &self.0)).then_some(rewritten)
+        }).clone().unwrap_or_else(|| self.clone())
+    }
+
+    /// Whether a subterm can equal an input with these root bits. `u64::MAX`
+    /// admits every subterm, including inputs that have no identified root.
+    pub(crate) fn may_contain(&self, roots: u64) -> bool { roots == u64::MAX || self.0.roots & roots != 0 }
+
+    pub(super) fn may_depend_on(&self, mutation: bray_bound_tree::StorageMutation) -> bool {
+        self.0.mutations & super::traversal::mutation_bit(mutation.occurrence()) != 0
+    }
 
     pub(super) fn contains_storage(&self) -> bool { self.0.contains_storage }
 
@@ -342,6 +419,15 @@ fn compare_operands(left: &[ExecutionCondition], right: &[ExecutionCondition], c
 }
 
 impl ConditionNode {
+    /// Compares variant declaration order, then structural hashes, without traversal.
+    fn shallow_cmp(&self, other: &Self) -> Ordering {
+        if std::mem::discriminant(&self.kind) != std::mem::discriminant(&other.kind) {
+            return self.kind.partial_cmp(&other.kind).expect("execution condition variants retain their declaration order");
+        }
+
+        self.hash.cmp(&other.hash)
+    }
+
     /// Compare exact root fields in declaration order, delegating recursive identity to the caller.
     fn cmp_parts(&self, other: &Self, child: &mut impl FnMut(&ExecutionCondition, &ExecutionCondition) -> Ordering) -> Ordering {
         use ExecutionConditionKind as C;
@@ -401,15 +487,29 @@ impl ConditionNode {
 }
 
 // Input nodes and their children remain alive throughout one comparison.
-type ComparedPairs = HashSet<(*const ConditionNode, *const ConditionNode)>;
+type ComparedPairs = hashbrown::HashSet<(*const ConditionNode, *const ConditionNode)>;
 
-fn compare_nodes(left: &ConditionNode, right: &ConditionNode, equality_only: bool, pairs: &mut ComparedPairs) -> Ordering {
+/// Orders conditions by variant, then by cached structural hash. Variant order
+/// keeps simple terms such as literals and inputs before compound terms. Unequal
+/// trees of one variant almost always differ by hash, so only equal hashes need
+/// a structural traversal.
+fn compare_nodes(left: &ConditionNode, right: &ConditionNode) -> Ordering {
     if std::ptr::eq(left, right) {
         return Ordering::Equal;
     }
 
-    if equality_only && left.hash != right.hash {
-        return Ordering::Less;
+    left.shallow_cmp(right).then_with(|| compare_structure(left, right, &mut ComparedPairs::default()))
+}
+
+fn compare_structure(left: &ConditionNode, right: &ConditionNode, pairs: &mut ComparedPairs) -> Ordering {
+    if std::ptr::eq(left, right) {
+        return Ordering::Equal;
+    }
+
+    let order = left.shallow_cmp(right);
+
+    if !order.is_eq() {
+        return order;
     }
 
     let pair = (left as *const ConditionNode, right as *const ConditionNode);
@@ -423,7 +523,7 @@ fn compare_nodes(left: &ConditionNode, right: &ConditionNode, equality_only: boo
     let result = left.cmp_parts(right, &mut |left, right| {
         descended = true;
 
-        compare_nodes(&left.0, &right.0, equality_only, pairs)
+        compare_structure(&left.0, &right.0, pairs)
     });
 
     // Only equal pairs can be visited again. A difference ends the comparison.
@@ -436,7 +536,7 @@ fn compare_nodes(left: &ConditionNode, right: &ConditionNode, equality_only: boo
 
 impl Ord for ExecutionCondition {
     fn cmp(&self, other: &Self) -> Ordering {
-        compare_nodes(&self.0, &other.0, false, &mut ComparedPairs::new())
+        compare_nodes(&self.0, &other.0)
     }
 }
 
@@ -448,7 +548,7 @@ impl std::fmt::Debug for ExecutionCondition {
 
 impl PartialEq for ExecutionCondition {
     fn eq(&self, other: &Self) -> bool {
-        compare_nodes(&self.0, &other.0, true, &mut ComparedPairs::new()).is_eq()
+        compare_nodes(&self.0, &other.0).is_eq()
     }
 }
 
@@ -629,19 +729,14 @@ mod tests {
         let right = graph();
         let mut pairs = super::ComparedPairs::new();
 
-        assert!(super::compare_nodes(&left.0, &right.0, true, &mut pairs).is_eq());
-        assert!(pairs.len() <= 20, "equality must compare shared node pairs once");
-
-        pairs.clear();
-
-        assert!(super::compare_nodes(&left.0, &right.0, false, &mut pairs).is_eq());
-        assert!(pairs.len() <= 20, "ordering must compare shared node pairs once");
+        assert!(super::compare_structure(&left.0, &right.0, &mut pairs).is_eq());
+        assert!(pairs.len() <= 20, "comparison must visit shared node pairs once");
         assert_eq!(left, right);
         assert_eq!(left.cmp(&right), std::cmp::Ordering::Equal);
     }
 
     #[test]
-    fn shared_ordering_preserves_derived_field_precedence() {
+    fn ordering_is_total_and_agrees_with_structural_equality() {
         use bray_bound_tree::BoundOperator::LogicalAnd;
         use super::ExecutionObservationKind::{Owned, Reference};
 
@@ -672,8 +767,15 @@ mod tests {
 
         for left in &terms {
             for right in &terms {
-                assert_eq!(Some(left.cmp(right)), left.kind().partial_cmp(right.kind()));
+                assert_eq!(left == right, left.kind() == right.kind());
                 assert_eq!(left == right, left.cmp(right).is_eq());
+                assert_eq!(left.cmp(right), right.cmp(left).reverse());
+
+                for third in &terms {
+                    if left <= right && right <= third {
+                        assert!(left <= third, "condition ordering must be transitive");
+                    }
+                }
             }
         }
     }

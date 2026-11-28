@@ -48,8 +48,11 @@ impl<Upstream> Default for BlockChecks<Upstream> {
 }
 
 impl<Upstream> BlockChecks<Upstream> {
-    pub(super) fn extend(&mut self, incoming: Self) {
-        self.entries.extend(incoming.entries);
+    /// Appends checks after those already recorded for each block.
+    pub(super) fn append(&mut self, incoming: Self) {
+        for (block, checks) in incoming.entries {
+            self.entries.entry(block).or_default().extend(checks);
+        }
     }
 
     pub(super) fn record(&mut self, subject: DiagnosticSubject, diagnostic: Diagnostic) {

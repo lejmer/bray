@@ -54,7 +54,7 @@ pub(super) fn decode_predicate_definition(
     owner: InterfaceSymbolId,
     mut context: SemanticDecodeContext,
     directory: &[InterfaceSemanticRecord],
-) -> Result<InterfaceSemantics, InterfaceValidationError> {
+) -> Result<Option<InterfaceSemantics>, InterfaceValidationError> {
     let owner = InterfaceSymbolReference::Local(owner);
 
     let record = declaration_record(
@@ -74,7 +74,7 @@ pub(super) fn decode_predicate_definition(
 
     // Parameter types and checked meanings may reach the complete semantic value graph.
     if !definition.parameters().is_empty() || definition.condition().is_some() {
-        return bundle::decode_semantics_with_context(sections, surface, context.restart());
+        return Ok(None);
     }
 
     if definition.owner() != &owner {
@@ -130,7 +130,7 @@ pub(super) fn decode_predicate_definition(
         predicate_template_count,
     )?;
 
-    Ok(InterfaceSemantics::new().with_declarations([], [], [], [definition]))
+    Ok(Some(InterfaceSemantics::new().with_declarations([], [], [], [definition])))
 }
 
 fn validate_declaration_template_directory(

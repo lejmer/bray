@@ -1,7 +1,9 @@
 use std::io;
 use std::path::{Path, PathBuf};
 
-use bray_native_artifact::{NativeArtifactIndex, NativeContentDigest, NativeIndexError};
+use bray_native_artifact::{
+    NativeArtifactIndex, NativeContentDigest, NativeIndexError, ValidatedNativeArtifact,
+};
 use bray_runtime_interface::{
     RuntimeAbiVersion, RuntimeArtifact, RuntimeArtifactBuildError, RuntimeArtifactMetadata,
     RuntimeArtifactMetadataDecodeError,
@@ -103,47 +105,51 @@ pub fn load_runtime_artifact(
 
     let directory = absolute_path.parent().unwrap_or_else(|| Path::new(""));
 
-    let indexes = metadata
-        .native_indexes()
-        .iter()
-        .map(|reference| {
-            let path = directory.join(reference.file_name());
+    let load = |reference: &bray_runtime_interface::RuntimeNativeIndexMetadata| {
+        let path = directory.join(reference.file_name());
 
-            let bytes =
-                std::fs::read(&path).map_err(|error| RuntimeArtifactLoadError::NativeIndex {
+        let bytes =
+            std::fs::read(&path).map_err(|error| RuntimeArtifactLoadError::NativeIndex {
+                path: path.clone(),
+                source: NativeIndexError::Read {
                     path: path.clone(),
-                    source: NativeIndexError::Read {
-                        path: path.clone(),
-                        kind: error.kind(),
-                    },
-                })?;
-
-            let target = NativeTarget::for_identity(expected_target).ok_or_else(|| {
-                RuntimeArtifactLoadError::InvalidArtifact {
-                    path: metadata_path.to_path_buf(),
-                    source: RuntimeArtifactBuildError::InvalidNativeTarget,
-                }
+                    kind: error.kind(),
+                },
             })?;
 
-            let digest = NativeContentDigest::new(reference.digest().bytes());
+        let target = NativeTarget::for_identity(expected_target).ok_or_else(|| {
+            RuntimeArtifactLoadError::InvalidArtifact {
+                path: metadata_path.to_path_buf(),
+                source: RuntimeArtifactBuildError::InvalidNativeTarget,
+            }
+        })?;
 
-            let index = NativeArtifactIndex::decode(&bytes, digest, target).map_err(|source| {
-                RuntimeArtifactLoadError::NativeIndex {
-                    path: path.clone(),
-                    source,
-                }
-            })?;
+        let digest = NativeContentDigest::new(reference.digest().bytes());
 
-            NativeArtifactIndex::import(
-                &bytes,
-                digest,
-                target,
-                index.producer(),
-                &directory.join("native"),
-            )
-            .map_err(|source| RuntimeArtifactLoadError::NativeIndex { path, source })
-        })
-        .collect::<Result<Vec<_>, _>>()?;
+        // The runtime accepts the producer that its own index records.
+        let index = NativeArtifactIndex::decode(&bytes, digest, target)
+            .map_err(|source| RuntimeArtifactLoadError::NativeIndex { path, source })?;
+
+        Ok(ValidatedNativeArtifact::new(index, &directory.join("native")))
+    };
+
+    // Each index decodes independently, and the test runner index is the larger one.
+    let indexes = std::thread::scope(|scope| {
+        let loading = metadata
+            .native_indexes()
+            .iter()
+            .map(|reference| scope.spawn(|| load(reference)))
+            .collect::<Vec<_>>();
+
+        loading
+            .into_iter()
+            .map(|loading| {
+                loading
+                    .join()
+                    .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+            })
+            .collect::<Result<Vec<_>, RuntimeArtifactLoadError>>()
+    })?;
 
     let indexes: [_; 2] = indexes
         .try_into()
@@ -320,7 +326,7 @@ mod tests {
                 bray_target::NativeTarget::X86_64WindowsMsvc,
             ));
 
-            assert_eq!(index.payload(archive.digest()), Some(expected_path.as_path()));
+            assert_eq!(index.payload(archive.digest()), Some(Ok(expected_path.as_path())));
         }
     }
 

@@ -18,6 +18,17 @@ pub(super) fn decode_support_graph(
     context: &mut SemanticDecodeContext,
     semantics: &mut InterfaceSemantics,
 ) -> Result<(), InterfaceValidationError> {
+    semantics.support_entities = decode_support_entities(section, limits, context)?.into();
+
+    Ok(())
+}
+
+/// Decodes every private support entity in its stable order.
+pub(super) fn decode_support_entities(
+    section: ValidatedInterfaceSection<'_>,
+    limits: InterfaceValidationLimits,
+    context: &mut SemanticDecodeContext,
+) -> Result<Vec<InterfaceSupportEntity>, InterfaceValidationError> {
     let mut reader = WireReader::new(section.bytes());
     let count = read_count(&mut reader, limits, InterfaceLimit::RecordCount)?;
 
@@ -53,7 +64,5 @@ pub(super) fn decode_support_graph(
 
     reader.finish().map_err(map_wire_error)?;
 
-    semantics.support_entities = entities.into();
-
-    Ok(())
+    Ok(entities)
 }

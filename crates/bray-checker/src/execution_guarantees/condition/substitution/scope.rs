@@ -19,6 +19,7 @@ impl RewriteMemo {
     fn new() -> Self {
         Self { values: ExecutionMemo::default(), owners: ExecutionMemo::default(), rebind_frames: false }
     }
+
 }
 
 /// Immutable replacement entries retain whether any mapping changes its input.
@@ -30,8 +31,16 @@ pub(super) struct RewriteMap<'a> {
 
 impl<'a> RewriteMap<'a> {
     pub(super) fn new(entries: &'a BTreeMap<ExecutionCondition, ExecutionCondition>) -> Self {
-        Self { entries, changed: ExecutionCondition::has_value_changes(entries) }
+        Self { entries, changed: changes_any(entries.iter()) }
     }
+}
+
+/// An identity entry only stops descent into an unchanged value, so maps without
+/// a changing entry rewrite every condition to itself.
+pub(super) fn changes_any<'a>(
+    mut entries: impl Iterator<Item = (&'a ExecutionCondition, &'a ExecutionCondition)>,
+) -> bool {
+    entries.any(|(before, after)| before != after)
 }
 
 /// Reuse pure bounded rewriting across one forest and one immutable pair of maps.
@@ -86,8 +95,9 @@ impl<'a> SnapshotSubstitution<'a> {
     pub(crate) fn apply(&self, condition: &ExecutionCondition) -> ExecutionCondition {
         if !self.snapshots.changed { return condition.clone(); }
 
-        condition.substitute_values(&|value| super::rewriting::snapshot_value(value, self.snapshots.entries),
-            &mut { ExecutionCondition::WORK_LIMIT }, Some(&self.mapped))
+        let replace = |value: &ExecutionCondition| super::rewriting::snapshot_value(value, self.snapshots.entries);
+
+        condition.substitute_values(&replace, &mut { ExecutionCondition::WORK_LIMIT }, Some(&self.mapped))
     }
 }
 
@@ -106,7 +116,7 @@ impl GuardSubstitution {
 
         for (condition, replacement) in replacements { facts.insert(condition.clone(), replacement); }
 
-        let changed = facts.iter().any(|(condition, replacement)| condition != replacement);
+        let changed = changes_any(facts.iter());
 
         Self { facts, mapped: ExecutionMemo::default(), changed }
     }
@@ -114,10 +124,12 @@ impl GuardSubstitution {
     pub(crate) fn apply(&self, condition: &ExecutionCondition) -> ExecutionCondition {
         if !self.changed { return condition.clone(); }
 
-        condition.substitute_values(&|value| match value.kind() {
+        let replace = |value: &ExecutionCondition| match value.kind() {
             crate::ExecutionConditionKind::Trusted(_) => Some(value.clone()),
             _ => self.facts.get(value).cloned(),
-        }, &mut { ExecutionCondition::WORK_LIMIT }, Some(&self.mapped))
+        };
+
+        condition.substitute_values(&replace, &mut { ExecutionCondition::WORK_LIMIT }, Some(&self.mapped))
     }
 }
 

@@ -1,8 +1,6 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use bray_base::sync_directory;
-
 use super::manifest::GenerationManifest;
 use super::reference::{GenerationReference, GenerationReferenceEntry};
 use super::transaction::{ManagedLayout, storage_failure};
@@ -65,16 +63,5 @@ pub(super) fn retain_recent_generations(
         Some(reference),
         cancellation,
     )
-    .map_err(|error| planned_error(planned, PublicationErrorKind::Storage(Box::new(error))))?;
-
-    sync_directory(&layout.metadata).map_err(|error| {
-        planned_error(
-            planned,
-            PublicationErrorKind::Storage(Box::new(crate::StorageError::io(
-                &layout.metadata,
-                crate::StorageOperation::Flush,
-                error,
-            ))),
-        )
-    })
+    .map_err(|error| planned_error(planned, PublicationErrorKind::Storage(Box::new(error))))
 }

@@ -7,10 +7,6 @@ use super::scope::{MapRole, RewriteMap, RewriteMemo};
 use super::super::memo::{ExecutionMemo, memoized};
 
 impl ExecutionCondition {
-    pub(crate) fn has_value_changes(replacements: &BTreeMap<Self, Self>) -> bool {
-        replacements.iter().any(|(before, after)| before != after)
-    }
-
     pub(crate) fn substitute(
         &self,
         input: &impl Fn(&crate::execution_guarantees::ExecutionPlace) -> Self,
@@ -187,7 +183,7 @@ impl ExecutionCondition {
     }
 
     pub(crate) fn with_equalities(&self, replacements: &BTreeMap<Self, Self>) -> Self {
-        if !Self::has_value_changes(replacements) { return self.clone(); }
+        if !super::scope::changes_any(replacements.iter()) { return self.clone(); }
 
         rewrite_equalities(self, replacements, None, &mut { Self::WORK_LIMIT }, None)
     }
@@ -280,7 +276,9 @@ pub(super) fn joined_owner(
     }
 
     rewrite_equalities(owner, replacements.entries, Some(owners), &mut { ExecutionCondition::WORK_LIMIT },
-        memo.map(|memo| (memo, role))).owner_identity().clone()
+        memo.map(|memo| (memo, role)))
+        .owner_identity()
+        .clone()
 }
 
 fn rewrite_identity(
@@ -303,7 +301,8 @@ fn rewrite_equalities(
     budget: &mut usize,
     memo: Option<(&RewriteMemo, MapRole)>,
 ) -> ExecutionCondition {
-    if replacements.is_empty() && identities.is_none_or(|map| map.entries.is_empty()) {
+    if replacements.is_empty() && identities.is_none_or(|map| map.entries.is_empty())
+    {
         return value.clone();
     }
 

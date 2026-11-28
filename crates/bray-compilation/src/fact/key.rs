@@ -634,7 +634,7 @@ pub(crate) enum CompilationFactKey {
     /// The deterministic compilation-local imported symbol identity skeleton.
     ImportedSymbolSkeleton,
     /// Imported standard-library implementation hooks for the selected target.
-    ImportedStandardLibraryImplementations,
+    ImportedStandardLibraryRecognition,
     /// The current library product's complete immutable interface export bundle.
     PackageInterfaceExportBundle,
     /// Binding and semantic-analysis diagnostics for the source package.
@@ -762,7 +762,7 @@ impl CompilationFactKey {
             | Self::DeclaredTypeRepresentation(_)
             | Self::TypeAssociatedImplementationIndex
             | Self::ImportedSymbolSkeleton
-            | Self::ImportedStandardLibraryImplementations
+            | Self::ImportedStandardLibraryRecognition
             | Self::PackageInterfaceExportBundle
             | Self::SemanticDiagnostics
             | Self::ExecutionGuaranteeDiagnostics

@@ -55,4 +55,5 @@ pub use template::{
     InterfaceCheckedTemplateOperation, InterfaceCheckedTemplateTemporary,
     InterfaceDeclarationTemplate,
 };
+pub(crate) use template::InterfaceTemplateReferenceMap;
 pub use ty::{InterfaceCallableParameter, InterfaceType};

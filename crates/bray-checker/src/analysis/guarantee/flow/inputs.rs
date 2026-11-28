@@ -356,7 +356,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
                 self.storage
                     .logical_path(access)
-                    .and_then(|path| ExecutionPlace::storage_path(self.storage, path))
+                    .and_then(|path| self.storage_place(path))
             }
             BoundExecutionSite::Node(bray_bound_tree::AnyBoundNodeId::Expression(expression)) => {
                 crate::execution_guarantees::expression_place(
@@ -376,7 +376,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
                 self.storage
                     .logical_path(access)
-                    .and_then(|path| ExecutionPlace::storage_path(self.storage, path))
+                    .and_then(|path| self.storage_place(path))
             }
             _ => panic!("call input has an evaluated value site: {input:?}"),
         }

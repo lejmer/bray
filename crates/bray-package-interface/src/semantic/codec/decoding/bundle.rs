@@ -131,7 +131,20 @@ pub(crate) fn decode_selected_semantic_graph(
 
     validate_decode_allocation(&selected_sections, limits)?;
 
-    selection::decode_selected_record_graph(sections, surface, owner, kind, context).map(Some)
+    selection::decode_selected_record_graph(sections, surface, owner, kind, context)
+}
+
+/// Decodes the interface values that one executable template references.
+pub(crate) fn decode_selected_template_values(
+    sections: &[ValidatedInterfaceSection<'_>],
+    surface: &PackageInterfaceSurface,
+    owner: bray_symbols::InterfaceSymbolId,
+    references: &crate::ExecutableTemplateReferences,
+    context: SemanticDecodeContext,
+) -> Result<(InterfaceSemantics, crate::ExecutableTemplateSlots), InterfaceValidationError> {
+    validate_decode_allocation(sections, context.limits())?;
+
+    selection::decode_selected_template_values(sections, surface, owner, references, context)
 }
 
 pub(crate) fn selected_semantic_sections(
@@ -190,14 +203,18 @@ pub(crate) fn selected_semantic_sections(
             Some(PREDICATE_DEFINITION_SECTIONS)
         }
         crate::InterfaceSemanticRecordKind::DeclaredType => Some(CALLABLE_SIGNATURE_SECTIONS),
-        crate::InterfaceSemanticRecordKind::TypeRepresentation => None,
+        crate::InterfaceSemanticRecordKind::TypeRepresentation => {
+            Some(CALLABLE_SIGNATURE_SECTIONS)
+        }
         crate::InterfaceSemanticRecordKind::GenericConstraint => Some(GENERIC_CONSTRAINT_SECTIONS),
         crate::InterfaceSemanticRecordKind::CallableContracts => Some(COMPLETE_SEMANTIC_SECTIONS),
         crate::InterfaceSemanticRecordKind::Implementation => Some(IMPLEMENTATION_SECTIONS),
         crate::InterfaceSemanticRecordKind::TargetProperty => Some(TARGET_SEMANTIC_SECTIONS),
         crate::InterfaceSemanticRecordKind::Runtime => Some(TARGET_SEMANTIC_SECTIONS),
-        crate::InterfaceSemanticRecordKind::DeclarationTemplate
-        | crate::InterfaceSemanticRecordKind::Abi => None,
+        crate::InterfaceSemanticRecordKind::DeclarationTemplate => {
+            Some(COMPLETE_SEMANTIC_SECTIONS)
+        }
+        crate::InterfaceSemanticRecordKind::Abi => None,
     }
 }
 

@@ -253,7 +253,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let consumed = self.storage.value_retirements(
             invocation, bray_bound_tree::StorageValueConsumptionPhase::Admission,
-        ).filter_map(|path| ExecutionPlace::storage_path(self.storage, path))
+        ).filter_map(|path| self.storage_place(path))
             .collect::<Vec<_>>();
 
         state

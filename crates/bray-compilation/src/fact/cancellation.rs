@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
+use std::ops::Bound;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, RwLock};
 
 use bray_base::Cancellation;
 
@@ -8,6 +9,11 @@ use super::{
     CancellationStateKind, CapacityResource, FactQueryError, FactRuntimeFailure,
     SynchronizationComponent,
 };
+
+/// Advances whenever a request is cancelled or a shared interest ends. Only
+/// those events can cancel a shared evaluation, so a shared evaluation found
+/// live at one epoch stays live until the epoch advances.
+static CANCELLATION_EPOCH: AtomicU64 = AtomicU64::new(0);
 
 /// A shareable cancellation signal for one compiler request.
 #[derive(Clone, Debug)]
@@ -24,7 +30,11 @@ enum CancellationState {
 #[derive(Debug)]
 struct SharedCancellationState {
     next_interest: AtomicU64,
-    interests: Mutex<BTreeMap<u64, CancellationToken>>,
+    // Checks only read the interests. Registration and release write them.
+    interests: RwLock<BTreeMap<u64, CancellationToken>>,
+    // One more than the epoch at which a check last found a live interest, or
+    // zero before any such check.
+    live_epoch: AtomicU64,
 }
 
 #[derive(Clone, Debug)]
@@ -49,6 +59,7 @@ impl CancellationToken {
         match &*self.state {
             CancellationState::Request(cancelled) => {
                 cancelled.store(true, Ordering::Release);
+                CANCELLATION_EPOCH.fetch_add(1, Ordering::AcqRel);
             }
             CancellationState::Shared(_) => {
                 panic!("shared evaluation cancellation is derived from request interest")
@@ -92,26 +103,49 @@ impl CancellationToken {
         shared: &SharedCancellationState,
         active: &mut Vec<usize>,
     ) -> bool {
-        let interests = {
-            let interests = shared
-                .interests
-                .lock()
-                .expect("shared cancellation interests must remain unpoisoned");
+        let epoch = CANCELLATION_EPOCH.load(Ordering::Acquire);
 
-            interests.values().cloned().collect::<Vec<_>>()
-        };
-
-        if interests.is_empty() {
-            return true;
+        if shared.live_epoch.load(Ordering::Acquire) == epoch.wrapping_add(1) {
+            return false;
         }
 
-        for cancellation in interests {
+        let cancelled = self.interests_cancelled(shared, active);
+
+        if !cancelled {
+            shared.live_epoch.store(epoch.wrapping_add(1), Ordering::Release);
+        }
+
+        cancelled
+    }
+
+    fn interests_cancelled(
+        &self,
+        shared: &SharedCancellationState,
+        active: &mut Vec<usize>,
+    ) -> bool {
+        // One live interest proves the evaluation is still wanted, so the
+        // common path clones a single token instead of the whole interest set.
+        let mut checked = Bound::Unbounded;
+
+        loop {
+            let next = shared
+                .interests
+                .read()
+                .expect("shared cancellation interests must remain unpoisoned")
+                .range((checked, Bound::Unbounded))
+                .next()
+                .map(|(identity, cancellation)| (*identity, cancellation.clone()));
+
+            let Some((identity, cancellation)) = next else {
+                return true;
+            };
+
             if !cancellation.is_cancelled_with(active) {
                 return false;
             }
-        }
 
-        true
+            checked = Bound::Excluded(identity);
+        }
     }
 
     pub(crate) fn check(&self) -> Result<(), FactQueryError> {
@@ -131,7 +165,7 @@ impl CancellationToken {
         let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let _interests = state
                 .interests
-                .lock()
+                .write()
                 .unwrap_or_else(|_| panic!("test cancellation state should begin available"));
 
             panic!("poison test shared cancellation interests");
@@ -153,7 +187,8 @@ impl SharedCancellation {
             token: CancellationToken {
                 state: Arc::new(CancellationState::Shared(SharedCancellationState {
                     next_interest: AtomicU64::new(0),
-                    interests: Mutex::new(BTreeMap::new()),
+                    interests: RwLock::new(BTreeMap::new()),
+                    live_epoch: AtomicU64::new(0),
                 })),
             },
         }
@@ -190,7 +225,7 @@ impl SharedCancellation {
                 task: None,
             })?;
 
-        let mut interests = state.interests.lock().unwrap_or_else(|_| {
+        let mut interests = state.interests.write().unwrap_or_else(|_| {
             panic!(
                 "query runtime SynchronizationPoisoned contract failed: component={:?}",
                 SynchronizationComponent::CancellationInterests
@@ -213,7 +248,7 @@ impl Drop for CancellationInterest {
             return;
         };
 
-        let mut interests = match state.interests.lock() {
+        let mut interests = match state.interests.write() {
             Ok(interests) => interests,
             Err(_) if std::thread::panicking() => return,
             Err(cause) => {
@@ -222,6 +257,10 @@ impl Drop for CancellationInterest {
         };
 
         interests.remove(&self.identity);
+
+        drop(interests);
+
+        CANCELLATION_EPOCH.fetch_add(1, Ordering::AcqRel);
     }
 }
 

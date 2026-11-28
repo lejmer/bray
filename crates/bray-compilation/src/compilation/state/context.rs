@@ -6,7 +6,7 @@ use bray_bound_tree::{
     CheckedExpressionSemantics, CheckedMemoryOperations, CheckedPatterns,
     DeclaredValueTypeTemplates, SelectedIterationSource, StoragePlan,
 };
-use bray_checker::{ImplementationHookResolution, TargetValidity, TargetValidityRequest};
+use bray_checker::{TargetValidity, TargetValidityRequest};
 use bray_codegen::{CodegenConfiguration, CodegenOutcome};
 use bray_declarations::{DeclarationChunkResult, DeclarationTableResult, ModulePartId};
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
@@ -16,7 +16,7 @@ use bray_package_interface::{
 use bray_parser::{SourceUnitSyntaxResult, SyntaxTreeResult};
 use bray_source::SourceStore;
 use bray_symbols::{
-    AnySymbolId, CallableTypeDirectiveKey, CompilerKnownSymbolProvider,
+    CallableTypeDirectiveKey, CompilerKnownSymbolProvider,
     ConstantExpressionExpectedType, ConstantExpressionOccurrenceKey, ConstantTermId,
     DeclaredTypeRepresentation, DirectiveSurface, ForeignCallableContract, ForeignStaticContract,
     FunctionSymbolId, GenericConstraintObligationKey, ImplementationCandidateSet,
@@ -101,8 +101,8 @@ pub(in crate::compilation) struct CompilationState {
         Vec<FactCell<DiagnosticResult<Option<crate::compilation::imported::LoadedImplementation>>>>,
     pub(in crate::compilation) imported_symbol_skeleton:
         FactCell<DiagnosticResult<Option<Arc<ImportedSymbolSkeleton>>>>,
-    pub(in crate::compilation) imported_standard_library_implementations:
-        FactCell<BTreeMap<AnySymbolId, ImplementationHookResolution>>,
+    pub(in crate::compilation) imported_standard_library_recognition:
+        FactCell<Option<crate::compilation::standard_library::ImportedStandardLibraryRecognition>>,
     pub(in crate::compilation) imported_semantic_graphs:
         Vec<FactCell<DiagnosticResult<Option<Arc<ImportedSemantics>>>>>,
     pub(in crate::compilation) imported_semantics: FactCellMap<

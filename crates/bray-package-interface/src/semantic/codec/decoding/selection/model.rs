@@ -7,6 +7,7 @@ use crate::semantic::model::{
     InterfaceDependencyContract, InterfaceGenericDeclaration, InterfaceGenericSubstitution,
     InterfaceImplementationInstance, InterfaceImplementationRecord, InterfaceRuntimeRequirement,
     InterfaceTargetPropertyDependency, InterfaceTraitApplication, InterfaceType, InterfaceTypeRepresentation,
+    InterfaceCheckedTemplate, InterfaceDeclarationTemplate, InterfaceSupportEntity,
 };
 
 pub(super) struct RecordSet<T> {
@@ -53,6 +54,9 @@ pub(super) struct SelectedRecords {
     pub(super) coherence: RecordSet<InterfaceCoherenceRecord>,
     pub(super) target_dependencies: RecordSet<InterfaceTargetPropertyDependency>,
     pub(super) runtime_requirements: RecordSet<InterfaceRuntimeRequirement>,
+    pub(super) checked_templates: RecordSet<InterfaceCheckedTemplate>,
+    pub(super) declaration_templates: RecordSet<InterfaceDeclarationTemplate>,
+    pub(super) support_entities: RecordSet<InterfaceSupportEntity>,
 }
 
 impl SelectedRecords {
@@ -77,6 +81,9 @@ impl SelectedRecords {
             coherence: RecordSet::new(),
             target_dependencies: RecordSet::new(),
             runtime_requirements: RecordSet::new(),
+            checked_templates: RecordSet::new(),
+            declaration_templates: RecordSet::new(),
+            support_entities: RecordSet::new(),
         }
     }
 }

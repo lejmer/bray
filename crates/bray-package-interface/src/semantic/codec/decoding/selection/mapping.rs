@@ -17,6 +17,8 @@ pub(super) struct RecordMaps {
     constant_values: BTreeMap<u32, u32>,
     constant_terms: BTreeMap<u32, u32>,
     dependency_contracts: BTreeMap<u32, u32>,
+    checked_templates: BTreeMap<u32, u32>,
+    support_entities: BTreeMap<u32, u32>,
 }
 
 impl RecordMaps {
@@ -30,6 +32,8 @@ impl RecordMaps {
             constant_values: record_map(&records.constant_values)?,
             constant_terms: record_map(&records.constant_terms)?,
             dependency_contracts: record_map(&records.dependency_contracts)?,
+            checked_templates: record_map(&records.checked_templates)?,
+            support_entities: record_map(&records.support_entities)?,
         })
     }
 
@@ -111,6 +115,62 @@ impl RecordMaps {
             id.raw(),
             InterfaceDependencyContractId::new,
         )
+    }
+}
+
+impl RecordMaps {
+    /// The renumbering of the tables that executable templates reference by slot.
+    pub(super) fn template_slots(&self) -> crate::ExecutableTemplateSlots {
+        crate::ExecutableTemplateSlots {
+            tables: [
+                self.types.clone(),
+                self.constant_values.clone(),
+                self.constant_terms.clone(),
+                self.substitutions.clone(),
+                self.trait_applications.clone(),
+                self.implementation_instances.clone(),
+                self.dependency_contracts.clone(),
+            ],
+        }
+    }
+
+    pub(super) fn checked_template_id(
+        &self,
+        id: crate::semantic::model::InterfaceCheckedTemplateId,
+    ) -> Result<crate::semantic::model::InterfaceCheckedTemplateId, InterfaceValidationError> {
+        remap_id(&self.checked_templates, id.raw(), crate::semantic::model::InterfaceCheckedTemplateId::new)
+    }
+
+    pub(super) fn support_entity_id(
+        &self,
+        id: bray_symbols::InterfaceSupportEntityId,
+    ) -> Result<bray_symbols::InterfaceSupportEntityId, InterfaceValidationError> {
+        remap_id(&self.support_entities, id.raw(), bray_symbols::InterfaceSupportEntityId::new)
+    }
+}
+
+/// Renumbers one selected template into the selected graph.
+impl crate::semantic::model::InterfaceTemplateReferenceMap for &RecordMaps {
+    type Error = InterfaceValidationError;
+
+    fn term(&mut self, term: InterfaceConstantTermId) -> Result<InterfaceConstantTermId, Self::Error> {
+        self.constant_term_id(term)
+    }
+
+    fn ty(&mut self, ty: InterfaceTypeId) -> Result<InterfaceTypeId, Self::Error> {
+        self.type_id(ty)
+    }
+
+    fn substitution(&mut self, substitution: InterfaceGenericSubstitutionId) -> Result<InterfaceGenericSubstitutionId, Self::Error> {
+        self.substitution_id(substitution)
+    }
+
+    fn dependency(&mut self, contract: InterfaceDependencyContractId) -> Result<InterfaceDependencyContractId, Self::Error> {
+        self.dependency_contract_id(contract)
+    }
+
+    fn support(&mut self, entity: bray_symbols::InterfaceSupportEntityId) -> Result<bray_symbols::InterfaceSupportEntityId, Self::Error> {
+        self.support_entity_id(entity)
     }
 }
 

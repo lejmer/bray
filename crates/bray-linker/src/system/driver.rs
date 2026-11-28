@@ -41,6 +41,7 @@ impl SystemLinkerDriver {
                 configuration.family(),
                 SystemLinkerFamily::GnuCompiler
                     | SystemLinkerFamily::MicrosoftCompiler
+                    | SystemLinkerFamily::MicrosoftLld
                     | SystemLinkerFamily::AppleCompiler
             );
 
@@ -234,6 +235,10 @@ fn thin_lto_cache_arguments(
             "-Xlinker".into(),
             format!("/lldltocache:{}", root.display()).into(),
             "-Xlinker".into(),
+            "/lldltocachepolicy:cache_size_bytes=1073741824".into(),
+        ],
+        SystemLinkerFamily::MicrosoftLld => vec![
+            format!("/lldltocache:{}", root.display()).into(),
             "/lldltocachepolicy:cache_size_bytes=1073741824".into(),
         ],
         SystemLinkerFamily::AppleCompiler => vec![
@@ -1135,9 +1140,9 @@ mod tests {
             SystemLinkerFamily::Gnu
             | SystemLinkerFamily::GnuCompiler
             | SystemLinkerFamily::WslGnuCompiler => ObjectFormat::Elf,
-            SystemLinkerFamily::Microsoft | SystemLinkerFamily::MicrosoftCompiler => {
-                ObjectFormat::Coff
-            }
+            SystemLinkerFamily::Microsoft
+            | SystemLinkerFamily::MicrosoftCompiler
+            | SystemLinkerFamily::MicrosoftLld => ObjectFormat::Coff,
             SystemLinkerFamily::Apple | SystemLinkerFamily::AppleCompiler => ObjectFormat::MachO,
         };
 

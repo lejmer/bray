@@ -109,7 +109,10 @@ impl ExecutionCondition {
     /// Proof data observes the value, independently of physical transport metadata.
     /// CurrentValues retains the paired snapshot for storage propagation and fixed-point equality.
     pub(crate) fn without_captured_storage(&self) -> Self {
-        Self::map_value_metadata(Self::contains_storage, |_| None, |_| false, |_, frame| Some(Arc::clone(frame)), false)(self)
+        if !self.contains_storage() { return self.clone(); }
+
+        self.without_storage_memo(|value| Self::map_value_metadata(Self::contains_storage, |_| None, |_| false,
+            |_, frame| Some(Arc::clone(frame)), false)(value))
     }
 
     /// Reads the predicate's data observation without altering the current carrier tree.
@@ -207,7 +210,11 @@ impl ExecutionCondition {
                     if let K::DeferredValue { value: data, .. } = value.kind() && !keep(value) {
                         if visit(data) { pending.push((data.as_ref(), false)); }
                     } else {
-                        pending.extend(value.structural_children().filter(|child| visit(child)).map(|child| (child, false)));
+                        let _ = value.kind().try_for_each_structural_child(&mut |child| {
+                            if visit(child) { pending.push((child, false)); }
+
+                            std::ops::ControlFlow::Continue(())
+                        });
                     }
 
                     continue;
@@ -256,7 +263,9 @@ impl ExecutionCondition {
                             Self::reference_value(context.clone(), reached.clone())
                         }
                     }
-                    _ if value.structural_children().any(changed) => value.map_children(child),
+                    _ if value.kind().try_for_each_structural_child(&mut |original| {
+                        if changed(original) { std::ops::ControlFlow::Break(()) } else { std::ops::ControlFlow::Continue(()) }
+                    }).is_break() => value.map_children(child),
                     _ => value.clone(),
                 };
 

@@ -4,7 +4,7 @@ use std::path::Path;
 use std::time::SystemTime;
 
 use bray_base::{
-    Cancellation, StableDigestHasher, atomic_rename_exclusive, lowercase_hex, sync_directory,
+    Cancellation, StableDigestHasher, atomic_rename_exclusive, lowercase_hex,
 };
 
 use super::error::{StorageError, StorageOperation};
@@ -222,7 +222,10 @@ impl ManagedStore {
         cancellation: &dyn Cancellation,
     ) -> Result<(), StorageError> {
         let source = self.metadata.join(key);
-        let retired = create_managed_path(&self.metadata, Path::new("retired"))?;
+
+        // Retirement renames the entry into this directory.
+        create_managed_path(&self.metadata, Path::new("retired"))?;
+
         let destination = self.retirement_path(key);
 
         self.forget_content_directory(&source)?;
@@ -245,9 +248,6 @@ impl ManagedStore {
         if managed_directory_exists(&self.metadata, Path::new(key))? {
             atomic_rename_exclusive(&source, &destination)
                 .map_err(|error| StorageError::io(&source, StorageOperation::Rename, error))?;
-
-            sync_directory(&retired)
-                .map_err(|error| StorageError::io(&retired, StorageOperation::Flush, error))?;
         }
 
         if let Some(record) = self.index.entries.get(key)

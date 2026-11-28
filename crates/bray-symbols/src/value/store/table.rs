@@ -73,6 +73,10 @@ where
         Ok(I::from_value_id(id))
     }
 
+    pub(super) fn lookup(&self, data: &T) -> Option<I> {
+        self.indices.get(data).map(|id| I::from_value_id(*id))
+    }
+
     pub(super) fn get(&self, store: SemanticValueStoreId, id: I) -> &T {
         self.entry(store, id)
     }

@@ -793,6 +793,30 @@ pub(super) fn native_package_error(
     )
 }
 
+/// A selected runtime unit is authenticated when the product demands it.
+pub(super) fn runtime_payload_error(
+    error: &bray_runtime_interface::RuntimePayloadError,
+) -> NativeProductPlanningError {
+    NativeProductPlanningError::Codegen(crate::compilation::CodegenPreparationError::Diagnostics(
+        DiagnosticBag::single(
+            Diagnostic::new(
+                DiagnosticId::new(0),
+                DiagnosticKind::RuntimeArtifactMetadataInvalid,
+                SeverityKind::Error,
+            )
+            .with_note(bray_diagnostics::DiagnosticNote::new(
+                bray_diagnostics::DiagnosticNoteKind::RuntimeArtifactMustBeUsable,
+            ))
+            .with_arg(DiagnosticArg::artifact_path(&error.path))
+            .with_arg(DiagnosticArg::runtime_artifact_problem(
+                bray_diagnostics::DiagnosticRuntimeArtifactProblem::InvalidNativeArtifact(
+                    crate::diagnostic_native_artifact_cause(&error.source),
+                ),
+            )),
+        ),
+    ))
+}
+
 fn package_diagnostic(path: &Path, diagnostic: Diagnostic) -> NativeProductPlanningError {
     NativeProductPlanningError::Codegen(crate::compilation::CodegenPreparationError::Diagnostics(
         DiagnosticBag::single(

@@ -203,7 +203,7 @@ fn activation_callback_requires_one_exact_authorized_invocation() {
             "#,
             Some(separation),
             "acquisition = owner.acquisition",
-            "authorized",
+            "authorized|outputs_owned",
         ),
     ];
 

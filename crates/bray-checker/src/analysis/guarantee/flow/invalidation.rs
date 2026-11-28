@@ -197,7 +197,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         paths: &'path BTreeMap<StoragePath, StorageObservationKind>,
     ) -> Vec<StoragePreservation<'path>> {
         paths.iter().map(|(path, kind)| StoragePreservation {
-            place: crate::ExecutionPlace::storage_path(self.storage, path),
+            place: self.storage_place(path),
             path,
             kind: *kind,
         }).collect()
@@ -347,7 +347,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let descriptor_paths = descriptors
             .iter()
-            .flat_map(|path| crate::ExecutionPlace::storage_path(self.storage, &path).into_iter().map(move |place| (place, path.clone())))
+            .flat_map(|path| self.storage_place(&path).into_iter().map(move |place| (place, path.clone())))
             .collect::<BTreeMap<_, _>>();
 
         let values = self.storage_preservations(stable_values);
@@ -482,7 +482,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             let mut address_slots = BTreeSet::new();
 
             for path in referents {
-                let Some(value) = crate::ExecutionPlace::storage_path(self.storage, path)
+                let Some(value) = self.storage_place(path)
                     .and_then(|place| place.value_in(&state.current))
                 else {
                     continue;
@@ -535,7 +535,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         // Keep only descriptor identity. A fresh payload snapshot prevents opaque calls
         // and predicates from equating the old contents with the new contents.
         let descriptor_paths = stable_descriptors.iter().filter_map(|path| {
-            let place = crate::ExecutionPlace::storage_path(self.storage, path)?;
+            let place = self.storage_place(path)?;
 
             Some((place, path.projections.clone()))
         }).collect::<BTreeMap<_, _>>();
@@ -729,7 +729,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     return None;
                 }
 
-                let place = crate::ExecutionPlace::storage_path(self.storage, path);
+                let place = self.storage_place(path);
                 let value = self.current_target_value(state, target, observation.pointee)?;
 
                 let value = if observation.pointee.is_some() {

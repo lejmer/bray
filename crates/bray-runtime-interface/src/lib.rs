@@ -19,7 +19,7 @@ pub use artifact::{
     RuntimeArtifactDigest, RuntimeArtifactMetadata, RuntimeArtifactMetadataBuildError,
     RuntimeArtifactMetadataDecodeError, RuntimeArtifactMetadataEncodeError, RuntimeArtifactPlan,
     RuntimeArtifactPurpose, RuntimeArtifactSelection, RuntimeArtifactSelectionError,
-    RuntimeNativeIndexMetadata, RuntimeNativeUnit,
+    RuntimeNativeIndexMetadata, RuntimeNativeUnit, RuntimePayloadError,
 };
 pub use binding::{NativeEntryKind, SourceRoleBinding};
 pub use bray_runtime_model::{

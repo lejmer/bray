@@ -26,8 +26,11 @@ impl<Key: Ord, Value> BlockRecords<Key, Value> {
         self.0.entry(block).or_default().push((key, value));
     }
 
-    pub(super) fn extend(&mut self, incoming: Self) {
-        self.0.extend(incoming.0);
+    /// Appends records after those already recorded for each block.
+    pub(super) fn append(&mut self, incoming: Self) {
+        for (block, records) in incoming.0 {
+            self.0.entry(block).or_default().extend(records);
+        }
     }
 
     pub(super) fn publish(self, merge: impl Fn(&mut Value, &Value)) -> BTreeMap<Key, Value> {
@@ -65,6 +68,8 @@ struct ReachedCleanup {
     replacement: Option<StorageTarget>,
 }
 
+/// The maximal reached cleanup orders. A selected order covers each of its
+/// subsequences, so the result does not depend on the order of recording.
 enum ReachedLifecycle {
     Ordered(Arc<[StorageAccessId]>),
     Multiple(BTreeSet<Arc<[StorageAccessId]>>),
@@ -78,7 +83,31 @@ impl ReachedLifecycle {
             Self::Ordered(current) => {
                 *self = Self::Multiple([Arc::clone(current), incoming].into());
             }
-            Self::Multiple(orders) => { orders.insert(incoming); }
+            Self::Multiple(orders) => {
+                if orders.iter().any(|order| is_subsequence(&incoming, order)) {
+                    return;
+                }
+
+                orders.retain(|order| !is_subsequence(order, &incoming));
+                orders.insert(incoming);
+
+                if orders.len() == 1 {
+                    let order = orders.pop_first().expect("one maximal order remains");
+
+                    *self = Self::Ordered(order);
+                }
+            }
+        }
+    }
+
+    fn merge(&mut self, incoming: Self) {
+        match incoming {
+            Self::Ordered(order) => self.record(order),
+            Self::Multiple(orders) => {
+                for order in orders {
+                    self.record(order);
+                }
+            }
         }
     }
 
@@ -100,26 +129,33 @@ fn is_subsequence(selection: &[StorageAccessId], ordered: &[StorageAccessId]) ->
 }
 
 impl CleanupSnapshots {
-    pub(super) fn merge_block(&mut self, incoming: Self) {
-        self.entries.extend(incoming.entries);
+    /// Combines records of disjoint blocks, or of outcome lanes of one operation.
+    pub(super) fn merge(&mut self, incoming: Self) {
+        super::core::merge_records(&mut self.entries, incoming.entries, |known, reached| {
+            match (&mut known.orders, reached.orders) {
+                (Some(known), Some(reached)) => known.merge(reached),
+                (known @ None, reached) => *known = reached,
+                (Some(_), None) => {}
+            }
+
+            for (part, absent) in reached.part_absence {
+                known.part_absence.entry(part).and_modify(|known| *known &= absent).or_insert(absent);
+            }
+
+            if known.replacement != reached.replacement {
+                known.replacement = None;
+            }
+        });
 
         super::core::merge_records(&mut self.exits, incoming.exits, |snapshot, reached| {
             snapshot.broadcast.extend(reached.broadcast);
             snapshot.cleanup_recoveries.extend(reached.cleanup_recoveries);
             snapshot.phase_recovered |= reached.phase_recovered;
 
-            if let Some(incoming) = reached.lifecycle_accesses {
-                match &mut snapshot.lifecycle_accesses {
-                    Some(known) => match incoming {
-                        ReachedLifecycle::Ordered(order) => known.record(order),
-                        ReachedLifecycle::Multiple(orders) => {
-                            for order in orders {
-                                known.record(order);
-                            }
-                        }
-                    },
-                    None => snapshot.lifecycle_accesses = Some(incoming),
-                }
+            match (&mut snapshot.lifecycle_accesses, reached.lifecycle_accesses) {
+                (Some(known), Some(reached)) => known.merge(reached),
+                (known @ None, reached) => *known = reached,
+                (Some(_), None) => {}
             }
 
             if let Some(incoming) = reached.lifecycle {
@@ -477,6 +513,21 @@ mod tests {
         selection.record([first, third].into());
 
         assert!(matches!(&selection, ReachedLifecycle::Multiple(orders) if orders.len() == 2));
+
+        // Lane records merge in any grouping, so the maximal orders cannot depend on arrival.
+        let orders: [std::sync::Arc<[_]>; 3] = [[first, second].into(), [third].into(), [first, second, third].into()];
+
+        for permutation in [[0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0]] {
+            let mut selection = ReachedLifecycle::Ordered(std::sync::Arc::clone(&orders[permutation[0]]));
+
+            selection.record(std::sync::Arc::clone(&orders[permutation[1]]));
+            selection.record(std::sync::Arc::clone(&orders[permutation[2]]));
+
+            assert!(
+                matches!(&selection, ReachedLifecycle::Ordered(order) if order.as_ref() == &[first, second, third]),
+                "{permutation:?}"
+            );
+        }
     }
 
     #[test]

@@ -151,7 +151,7 @@ impl ToolOutput {
     }
 }
 
-pub(crate) trait ToolExecutor {
+pub(crate) trait ToolExecutor: Sync {
     fn identity(
         &self,
         tool: Tool,

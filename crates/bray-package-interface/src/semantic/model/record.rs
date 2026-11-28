@@ -449,6 +449,18 @@ pub struct InterfaceCallableContract {
 }
 
 impl InterfaceCallableContract {
+    /// Whether execution validation must check this contract against its signature and proof graph.
+    pub(crate) fn has_execution_semantics(&self) -> bool {
+        !self.execution_contract.domains.is_empty()
+            || !self.execution_contract.evidence.is_empty()
+            || std::iter::once(&self.invocation_behavior)
+                .chain(self.deferred_execution_behavior.as_ref())
+                .any(|behavior| {
+                    !behavior.execution_properties.is_empty()
+                        || !behavior.execution_domains.is_empty()
+                })
+    }
+
     /// Creates a complete phase-separated callable contract surface.
     pub fn new(
         owner: InterfaceSymbolReference,

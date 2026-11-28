@@ -106,7 +106,9 @@ impl SystemLinkerConfiguration {
 
         if !matches!(
             self.family,
-            SystemLinkerFamily::Microsoft | SystemLinkerFamily::MicrosoftCompiler
+            SystemLinkerFamily::Microsoft
+                | SystemLinkerFamily::MicrosoftCompiler
+                | SystemLinkerFamily::MicrosoftLld
         ) || plan.policy().debug() != DebugLinkPolicy::Companion
         {
             return None;
@@ -156,7 +158,7 @@ impl SystemLinkerMapOutput {
 
         match family {
             SystemLinkerFamily::Gnu => vec!["-Map".into(), path.as_os_str().to_owned()],
-            SystemLinkerFamily::Microsoft => {
+            SystemLinkerFamily::Microsoft | SystemLinkerFamily::MicrosoftLld => {
                 vec![format!("/map:{}", path.display()).into()]
             }
             SystemLinkerFamily::Apple => vec!["-map".into(), path.as_os_str().to_owned()],

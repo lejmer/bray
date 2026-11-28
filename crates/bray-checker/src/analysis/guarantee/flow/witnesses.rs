@@ -30,6 +30,7 @@ pub(super) fn conditional_facts<'value>(
     results: impl IntoIterator<Item = ([Option<&'value ExecutionCondition>; 2], &'value ExecutionCondition)>,
     availability: &BTreeSet<(ExecutionCondition, ExecutionCondition)>,
     selector: Option<&ExecutionCondition>,
+    collected: Option<&BTreeSet<crate::execution_guarantees::ExecutionInput>>,
     facts: &mut Vec<(ExecutionCondition, bool)>,
 ) -> Vec<JoinedWitness> {
     let mut guards = availability.clone();
@@ -37,6 +38,8 @@ pub(super) fn conditional_facts<'value>(
     let absent = [left.0, right.0].map(absent_observations);
 
     for (place, joined) in current {
+        if collected.is_some_and(|roots| !roots.contains(&place.root)) { continue; }
+
         let source = [left.0, right.0].map(|state| {
             (super::merge::resolved_availability(state, place) != super::super::current::ValueAvailability::Absent)
                 .then(|| place.value_in(&state.current).unwrap_or_else(ExecutionCondition::unknown))
@@ -513,7 +516,7 @@ mod tests {
         let mut facts = Vec::new();
 
         let retained = conditional_facts((&left, &substitution), (&right, &substitution),
-            &BTreeMap::new(), [], &availability, None, &mut facts);
+            &BTreeMap::new(), [], &availability, None, None, &mut facts);
 
         assert!(retained.is_empty(), "an ordinary tautology establishes no carrier authority");
     }
@@ -554,7 +557,7 @@ mod tests {
         let mut facts = Vec::new();
 
         let retained = conditional_facts((&left, &substitution), (&right, &substitution),
-            &BTreeMap::new(), [], &BTreeSet::new(), None, &mut facts);
+            &BTreeMap::new(), [], &BTreeSet::new(), None, None, &mut facts);
 
         assert_eq!(retained.len(), 1);
         assert_eq!(retained[0].owner, owner);
@@ -593,7 +596,7 @@ mod tests {
         let mut facts = Vec::new();
 
         let retained = conditional_facts((&left, &crate::execution_guarantees::ExecutionSubstitution::new(&empty, &empty)), (&right, &crate::execution_guarantees::ExecutionSubstitution::new(&empty, &empty)),
-            &BTreeMap::new(), [], &availability, None, &mut facts);
+            &BTreeMap::new(), [], &availability, None, None, &mut facts);
 
         assert!(retained.is_empty());
         assert!(facts.contains(&(guard, false)));
@@ -754,10 +757,8 @@ fn collect_observations(
             if let Some(source) = source { insert_snapshot(inputs, joined, source, origin); }
         }
 
-        let sources = sources.map(|source| source.map(|source|
-            source.clone().project(bray_bound_tree::StorageProjection::NullableValue)));
-
         let payload = joined.clone().project(bray_bound_tree::StorageProjection::NullableValue);
+        let sources = project_sources(sources, joined, &payload, bray_bound_tree::StorageProjection::NullableValue);
 
         collect_observations([sources[0].as_ref(), sources[1].as_ref()], &payload,
             inputs, guards, absent, active, origin, budget);
@@ -794,7 +795,8 @@ fn collect_observations(
                 let observed = observed.get_or_init(|| joined.clone().borrowed().predicate_observation());
 
                 if !observed.contains_unknown() {
-                    let previous = source.clone().borrowed().predicate_observation();
+                    // An unchanged predecessor value observes the same predicate argument.
+                    let previous = if source == joined { observed.clone() } else { source.clone().borrowed().predicate_observation() };
 
                     insert_snapshot(inputs, observed, &previous, origin);
                 }
@@ -869,8 +871,8 @@ fn collect_observations(
             insert_guard(guards, &owner, active.clone());
         }
 
-        let values = sources.map(|source| source.map(|source| source.clone().project(field)));
         let selected = joined.clone().project(field);
+        let values = project_sources(sources, joined, &selected, field);
 
         if let [Some(left), Some(right)] = values.each_ref().map(Option::as_ref)
             && let (crate::ExecutionConditionKind::Boolean(left), crate::ExecutionConditionKind::Boolean(right)) =
@@ -896,6 +898,26 @@ fn collect_observations(
             [values[0].as_ref(), values[1].as_ref()], &selected, inputs, guards, absent,
             &active, origin, budget,
         );
+    }
+}
+
+/// Projects each predecessor value, reusing the joined projection for an
+/// unchanged value and one projection for a value both predecessors share.
+fn project_sources(
+    sources: [Option<&ExecutionCondition>; 2],
+    joined: &ExecutionCondition,
+    selected: &ExecutionCondition,
+    field: bray_bound_tree::StorageProjection,
+) -> [Option<ExecutionCondition>; 2] {
+    let project = |source: &ExecutionCondition| if source == joined { selected.clone() } else { source.clone().project(field) };
+
+    match sources {
+        [Some(left), Some(right)] if left == right => {
+            let value = project(left);
+
+            [Some(value.clone()), Some(value)]
+        }
+        _ => sources.map(|source| source.map(project)),
     }
 }
 
@@ -973,8 +995,9 @@ fn insert_snapshot(
 
     // Predicates already observe the logical value. Physical capture coordinates
     // belong to storage transport and cannot make two proof operands disagree.
+    let source = if source == joined { None } else { Some(source.without_captured_storage()) };
     let joined = joined.without_captured_storage();
-    let source = source.without_captured_storage();
+    let source = source.unwrap_or_else(|| joined.clone());
 
     inputs.entry(joined.clone()).and_modify(|previous| {
         if *previous == source { return; }

@@ -499,16 +499,10 @@ fn run_check(
         executor,
     );
 
-    let mut outputs = Vec::new();
-
-    for product in products {
-        match compiler.check(&product) {
-            Ok(product_outputs) => outputs.extend(product_outputs),
-            Err(diagnostics) => return failure(diagnostics, output_format),
-        }
+    match compiler.check(&products) {
+        Ok(outputs) => result_from_outputs(outputs, output_format),
+        Err(diagnostics) => failure(diagnostics, output_format),
     }
-
-    result_from_outputs(outputs, output_format)
 }
 
 #[expect(

@@ -21,7 +21,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         ty: bray_symbols::TypeId,
         observed: &ExecutionCondition,
     ) {
-        if let Some(place) = crate::ExecutionPlace::storage_path(self.storage, path) {
+        if let Some(place) = self.storage_place(path) {
             if !matches!(self.request.semantic_values().type_data(ty).as_ref(), bray_symbols::TypeData::Borrow { .. }) {
                 // The checked transition can follow semantic consumption. Its
                 // evaluated source still owns the value that actually moved.

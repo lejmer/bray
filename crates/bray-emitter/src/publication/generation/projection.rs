@@ -1,7 +1,6 @@
-use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use bray_base::{Cancellation, CompletedStagedFile, FileReplacementMode, sync_directory};
+use bray_base::{Cancellation, CompletedStagedFile, FileReplacementMode};
 
 use super::locator::GenerationLocator;
 use super::transaction::ManagedLayout;
@@ -144,8 +143,6 @@ pub(super) fn rollback_public_projections(
     projections: Vec<CommittedPublicProjection>,
     planned: &crate::PlannedArtifact,
 ) -> Result<(), ArtifactPublicationFailure> {
-    let directories = public_projection_directories(&projections);
-
     for projection in projections.into_iter().rev() {
         match projection.backup {
             Some(backup) => backup.promote(&projection.destination).map_err(|error| {
@@ -164,14 +161,7 @@ pub(super) fn rollback_public_projections(
         }
     }
 
-    sync_public_directories(directories, planned)
-}
-
-pub(super) fn sync_public_projections(
-    projections: &[CommittedPublicProjection],
-    planned: &crate::PlannedArtifact,
-) -> Result<(), ArtifactPublicationFailure> {
-    sync_public_directories(public_projection_directories(projections), planned)
+    Ok(())
 }
 
 fn prepare_public_backup(
@@ -218,31 +208,4 @@ fn copy_public_projection(
         cancellation,
     )
     .map_err(|error| storage_failure(planned, error))
-}
-
-fn public_projection_directories(projections: &[CommittedPublicProjection]) -> BTreeSet<PathBuf> {
-    projections
-        .iter()
-        .map(|projection| {
-            projection
-                .destination
-                .parent()
-                .filter(|directory| !directory.as_os_str().is_empty())
-                .unwrap_or_else(|| Path::new("."))
-                .to_owned()
-        })
-        .collect()
-}
-
-fn sync_public_directories(
-    directories: BTreeSet<PathBuf>,
-    planned: &crate::PlannedArtifact,
-) -> Result<(), ArtifactPublicationFailure> {
-    for directory in directories {
-        sync_directory(&directory).map_err(|error| {
-            artifact_failure(planned, PublicationErrorKind::Flush(error.kind()))
-        })?;
-    }
-
-    Ok(())
 }

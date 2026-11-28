@@ -90,7 +90,7 @@ pub(crate) fn decode_template_payload(
     Ok(template)
 }
 
-fn decode_template(
+pub(super) fn decode_template(
     reader: &mut WireReader<'_>,
     limits: InterfaceValidationLimits,
     context: &mut SemanticDecodeContext,

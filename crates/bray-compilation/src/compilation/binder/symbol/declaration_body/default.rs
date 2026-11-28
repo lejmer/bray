@@ -280,7 +280,7 @@ fn checked_runtime_default(
                     behavior,
                     template: RuntimeDefaultTemplateReference::Interface {
                         interface: address.interface(),
-                        entity: template_record.entity(),
+                        provider,
                     },
                     is_recovered: diagnostics.has_errors(),
                 },

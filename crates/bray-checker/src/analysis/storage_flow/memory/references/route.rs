@@ -290,10 +290,23 @@ impl State {
         &self, values: &bray_symbols::SemanticValueStore, start: Target,
         path: Option<&StorageReferencePath>, indirect: bool, staged: Option<(&Transfer, &Target)>,
     ) -> Option<Vec<StorageMutationTarget>> {
+        let footprint = start.clone();
         let start = ReferenceRouteValue::Locations(vec![start], None);
 
         let reached = if let Some(path) = path {
-            self.follow_reference_route(values, start, path, None, staged, RouteTail::Access(None))?
+            match self.follow_reference_route(values, start, path, None, staged, RouteTail::Access(None)) {
+                Some(reached) => reached,
+                // Owning storage bounds its backing even when its pointer is
+                // unknown. Only the owner reaches that backing, so the direct
+                // effect stays within the owner's footprint.
+                None if !indirect
+                    && !path.steps().is_empty()
+                    && path.steps().iter().all(|step| matches!(step, StorageReferenceStep::Backing { .. })) =>
+                {
+                    return Some(vec![StorageMutationTarget::bounded(footprint.project(path.projections()))]);
+                }
+                None => return None,
+            }
         } else {
             start
         };

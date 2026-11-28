@@ -252,6 +252,10 @@ impl StorageFlowState {
             return;
         }
 
+        if let Some(execution) = &mut self.execution {
+            execution.end_storage_lifetime(identity);
+        }
+
         self.forget_storage(identity, storage, input);
     }
 

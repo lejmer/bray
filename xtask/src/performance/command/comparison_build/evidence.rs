@@ -38,14 +38,13 @@ pub(super) fn bray_reuse_evidence(
     .native_indexes()
     .iter()
     .flat_map(|index| {
+        let index = index.index();
+
         index
-            .index()
             .units()
             .iter()
-            .filter_map(|unit| index.payload(unit.digest()))
+            .map(|unit| unit.kind().file_name(unit.digest(), index.target()).to_ascii_lowercase())
     })
-    .filter_map(|path| path.file_name())
-    .map(|name| name.to_string_lossy().to_ascii_lowercase())
     .collect::<BTreeSet<_>>();
 
     Ok(reuse_evidence(std::slice::from_ref(artifact), |input| {
