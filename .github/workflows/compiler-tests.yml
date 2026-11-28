@@ -39,7 +39,8 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: target/toolchains/llvm/active
-          key: llvm-prepared-ubuntu-24.04-${{ runner.arch }}-${{ hashFiles('toolchains/llvm.json', 'tools/llvm-toolchain/**', 'crates/bray-base/**') }}
+          # The toolchain tool uses only the digest and hex helpers from bray-base.
+          key: llvm-prepared-ubuntu-24.04-${{ runner.arch }}-${{ hashFiles('toolchains/llvm.json', 'tools/llvm-toolchain/**', 'crates/bray-base/Cargo.toml', 'crates/bray-base/src/digest.rs', 'crates/bray-base/src/hex.rs') }}
       - name: Restore LLVM downloads on a prepared-cache miss
         if: ${{ steps.llvm.outputs.cache-hit != 'true' }}
         uses: actions/cache@v4

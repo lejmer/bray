@@ -1,7 +1,7 @@
 # Testing
 
 Follow the [unit-test placement rules](coding-conventions.md#tests). Use integration tests for repository contracts that
-cross module or crate boundaries.
+cross module or crate boundaries, except in `bray-compilation`, whose scenarios stay in its unit tests.
 
 See [Repository tasks](xtask.md) for common commands and specialized workflows.
 

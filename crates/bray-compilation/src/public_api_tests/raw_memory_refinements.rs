@@ -1,5 +1,5 @@
 use bray_base::NonEmptySharedStr;
-use bray_compilation::{
+use crate::{
     Compilation, CompilationOptions, CompilationRequest, SelectedTarget, WorkerBudget,
 };
 use bray_source::{SourceIdentity, SourceInput, SourceVersion};
@@ -33,13 +33,13 @@ fn raw_move_from_distinct_input_preserves_nullable_heap_refinement() {
         "#;
 
     let sources = [
-        include_str!("../../../standard-library/std/src/std.bray"),
-        include_str!("../../../standard-library/std/src/memory/pointer.bray"),
-        include_str!("../../../standard-library/std/src/memory/storage.bray"),
-        include_str!("../../../standard-library/std/src/memory/allocation.bray"),
-        include_str!("../../../standard-library/std/src/numeric/limits.bray"),
-        include_str!("../../../standard-library/std/src/memory/buffer.bray"),
-        include_str!("../../../standard-library/std/src/memory/function.bray"),
+        include_str!("../../../../standard-library/std/src/std.bray"),
+        include_str!("../../../../standard-library/std/src/memory/pointer.bray"),
+        include_str!("../../../../standard-library/std/src/memory/storage.bray"),
+        include_str!("../../../../standard-library/std/src/memory/allocation.bray"),
+        include_str!("../../../../standard-library/std/src/numeric/limits.bray"),
+        include_str!("../../../../standard-library/std/src/memory/buffer.bray"),
+        include_str!("../../../../standard-library/std/src/memory/function.bray"),
         source,
     ]
     .into_iter()

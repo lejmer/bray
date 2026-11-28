@@ -11,6 +11,8 @@ mod target;
 mod worker;
 
 #[cfg(test)]
+mod public_api_tests;
+#[cfg(test)]
 mod test_support;
 
 pub use compilation::{

@@ -112,7 +112,7 @@ fn production_report_pool_mutation_requires_protocol_authority() {
 
 #[test]
 fn production_observer_keeps_authority_through_conditional_protocol_changes() {
-    for target in [bray_target::NativeTarget::X86_64LinuxGnu, bray_target::NativeTarget::X86_64WindowsMsvc] {
+    let check = |target: bray_target::NativeTarget| {
         let compilation = super::fixtures::production_host_compilation_for_target(
             "module app;", crate::SelectedTarget::for_native(target));
 
@@ -130,5 +130,15 @@ fn production_observer_keeps_authority_through_conditional_protocol_changes() {
         ).expect("observer callback certifies its transitive postconditions");
 
         assert!(!certification.diagnostics().has_errors(), "{target:?}: {:?}", certification.diagnostics());
-    }
+    };
+
+    // Each target's check is one long serial chain, so the targets run side by side.
+    std::thread::scope(|scope| {
+        let targets = [bray_target::NativeTarget::X86_64LinuxGnu, bray_target::NativeTarget::X86_64WindowsMsvc]
+            .map(|target| scope.spawn(move || check(target)));
+
+        for target in targets {
+            target.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic));
+        }
+    });
 }
