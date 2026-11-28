@@ -1,10 +1,9 @@
-#[path = "support/scalar_target.rs"]
-mod scalar_target;
+use super::scalar_target;
 
 use bray_bound_tree::{
     BoundExpressionId, BoundSourceAnchor, BoundUnitKey, CheckedExpressionTypes, SemanticSelection,
 };
-use bray_compilation::{Compilation, CompilationRequest};
+use crate::{Compilation, CompilationRequest};
 use bray_compiler_known::RepresentationRole;
 use bray_diagnostics::DiagnosticKind;
 use bray_source::{SourceIdentity, SourceInput, SourceVersion};

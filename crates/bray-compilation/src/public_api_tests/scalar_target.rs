@@ -1,4 +1,4 @@
-use bray_compilation::{CompilationOptions, SelectedTarget, WorkerBudget};
+use crate::{CompilationOptions, SelectedTarget, WorkerBudget};
 use bray_symbols::ProductKind;
 use bray_target::{TargetProfile, TargetProperties, TargetScalarSupport};
 
