@@ -869,7 +869,6 @@ impl ExecutionState {
     }
 }
 
-/// Forget retired availability after discharging its known ordinary consequences.
 /// Replaces each Boolean operand that `affected` reaches with the value that
 /// weakens the whole condition in its polarity.
 fn weaken_observations(
@@ -896,6 +895,7 @@ fn weaken_observations(
     }
 }
 
+/// Forget retired availability after discharging its known ordinary consequences.
 fn retain_ordinary_facts(
     facts: &mut crate::execution_guarantees::ExecutionAssumptions,
     proofs: &crate::execution_guarantees::ExecutionProofCache,

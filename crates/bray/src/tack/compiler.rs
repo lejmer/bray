@@ -119,13 +119,29 @@ impl<'project> ProjectCompiler<'project> {
 
         let compiler = &*self;
 
-        let checks = std::thread::scope(|scope| {
-            let running = prepared
-                .iter()
-                .map(|(product, target, _, ready)| {
-                    ready.then(|| {
-                        scope.spawn(move || {
-                            compiler.run_compiler(
+        let ready = prepared
+            .iter()
+            .filter(|(_, _, _, ready)| *ready)
+            .collect::<Vec<_>>();
+
+        let next = std::sync::atomic::AtomicUsize::new(0);
+
+        // Each compiler process runs its own worker pool, so at most `worker_count`
+        // processes run at once.
+        let finished = std::thread::scope(|scope| {
+            let workers = (0..self.worker_count.clamp(1, ready.len().max(1)))
+                .map(|_| {
+                    scope.spawn(|| {
+                        let mut finished = Vec::new();
+
+                        loop {
+                            let index = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
+                            let Some((product, target, _, _)) = ready.get(index) else {
+                                return finished;
+                            };
+
+                            let check = compiler.run_compiler(
                                 product,
                                 target,
                                 CompilerAction::Check {
@@ -133,31 +149,38 @@ impl<'project> ProjectCompiler<'project> {
                                     expected_source_digest: None,
                                 },
                                 None,
-                            )
-                        })
+                            );
+
+                            finished.push((index, check));
+                        }
                     })
                 })
                 .collect::<Vec<_>>();
 
-            running
+            workers
                 .into_iter()
-                .map(|check| {
-                    check.map(|check| {
-                        check
-                            .join()
-                            .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
-                    })
+                .flat_map(|worker| {
+                    worker
+                        .join()
+                        .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
                 })
                 .collect::<Vec<_>>()
         });
 
+        let mut checks = (0..ready.len()).map(|_| None).collect::<Vec<_>>();
+
+        for (index, check) in finished {
+            checks[index] = Some(check);
+        }
+
+        let mut checks = checks.into_iter().map(|check| check.expect("every ready product was checked"));
         let mut outputs = Vec::new();
 
-        for ((_, _, dependency_outputs, _), check) in prepared.into_iter().zip(checks) {
+        for (_, _, dependency_outputs, ready) in prepared {
             outputs.extend(dependency_outputs);
 
-            if let Some(check) = check {
-                outputs.push(check?);
+            if ready {
+                outputs.push(checks.next().expect("every ready product has a check")?);
             }
         }
 

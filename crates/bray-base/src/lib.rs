@@ -20,7 +20,7 @@ pub use digest::{Sha256Reader, StableDigestHasher, sha256_file, sha256_reader};
 pub use directory::{atomic_rename_exclusive, retry_permission_denied};
 pub use file_staging::{
     CompletedStagedFile, FileReplacementMode, StagedFile, is_staged_file_name,
-    write_file_atomically,
+    write_file_atomically, write_file_durably,
 };
 pub use graph::{strongly_connected_components, transitive_dependencies};
 pub use hex::{decode_lowercase_hex, is_lowercase_hex, lowercase_hex};

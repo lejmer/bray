@@ -85,3 +85,39 @@ pub(super) fn release(node: &ConditionNode) {
         entry.remove();
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::super::{ExecutionCondition as C, ExecutionConditionKind as K};
+    use bray_bound_tree::BoundOperator::LogicalAnd;
+
+    // No other test builds this shape, so concurrent tests cannot share its entry.
+    fn condition() -> C {
+        let operands = [true, false, true, true, false, false, true].map(C::boolean);
+
+        C::new(K::Operation(LogicalAnd, operands.to_vec().into()))
+    }
+
+    #[test]
+    fn equal_conditions_share_one_node_until_the_last_handle_drops() {
+        let first = condition();
+        let second = condition();
+
+        assert!(std::ptr::eq(first.kind(), second.kind()));
+
+        let hash = first.cached_hash();
+
+        drop(first);
+
+        let table = super::shard(hash).lock().expect("condition interner lock is not poisoned");
+
+        assert!(table.find(hash, |(entry_hash, _)| *entry_hash == hash).is_some());
+
+        drop(table);
+        drop(second);
+
+        let table = super::shard(hash).lock().expect("condition interner lock is not poisoned");
+
+        assert!(table.find(hash, |(entry_hash, _)| *entry_hash == hash).is_none());
+    }
+}

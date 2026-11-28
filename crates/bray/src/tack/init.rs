@@ -222,7 +222,7 @@ fn write_new_file(path: &Path, bytes: &[u8]) -> Result<(), DiagnosticBag> {
         .map_err(|error| write_failed(path, error.kind()))?;
 
     staging
-        .finish()
+        .finish_durably()
         .and_then(|staged| staged.promote(path))
         .map_err(|error| publication_failed(path, error.kind()))
 }

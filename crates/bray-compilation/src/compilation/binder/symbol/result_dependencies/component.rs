@@ -106,31 +106,22 @@ pub(super) fn infer_component(
         BTreeSet::new()
     };
 
-    // Callees are solved before their callers, and a member is checked again
-    // only after the summary of a member it calls has changed.
+    // Callees are solved before their callers. A check reads member summaries
+    // through the summaries of the members it calls, so in a cycle any changed
+    // summary can affect every member. The sweep ends once every member has been
+    // checked against the summaries left by the last change.
     let order = callee_first_order(&members, &member_callees);
 
-    let rank = order
-        .iter()
-        .enumerate()
-        .map(|(rank, member)| (*member, rank))
-        .collect::<BTreeMap<_, _>>();
-
-    let mut callers = BTreeMap::<_, Vec<_>>::new();
-
-    for (caller, callees) in &member_callees {
-        for callee in callees {
-            callers.entry(callee).or_default().push(rank[caller]);
-        }
-    }
-
-    let mut pending = (0..order.len()).collect::<BTreeSet<_>>();
+    let mut unchanged = 0;
     let mut bodies = BTreeMap::new();
 
-    while let Some(next) = pending.pop_first() {
+    for &callable in order.iter().cycle() {
+        if unchanged == order.len() {
+            break;
+        }
+
         cancellation.check()?;
 
-        let callable = order[next];
         let body = units[callable].check(compilation, cancellation, Some(&templates), &recursive)?;
         let values = context.semantic_values();
         let checked = body.value().storage_flow().dependencies();
@@ -151,9 +142,9 @@ pub(super) fn infer_component(
 
         bodies.insert(callable.clone(), BodyAnalysis { dependencies, body });
 
-        if templates.insert(callable.clone(), dependencies) != Some(dependencies) {
-            pending.extend(callers.get(callable).into_iter().flatten());
-        }
+        let changed = templates.insert(callable.clone(), dependencies) != Some(dependencies);
+
+        unchanged = if cyclic && changed { 0 } else { unchanged + 1 };
     }
 
     Ok(DiagnosticResult::new(bodies, diagnostics))

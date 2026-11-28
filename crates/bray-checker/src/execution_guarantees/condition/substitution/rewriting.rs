@@ -301,8 +301,7 @@ fn rewrite_equalities(
     budget: &mut usize,
     memo: Option<(&RewriteMemo, MapRole)>,
 ) -> ExecutionCondition {
-    if replacements.is_empty() && identities.is_none_or(|map| map.entries.is_empty())
-    {
+    if replacements.is_empty() && identities.is_none_or(|map| map.entries.is_empty()) {
         return value.clone();
     }
 
