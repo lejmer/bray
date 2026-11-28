@@ -60,8 +60,13 @@ mod tests {
         let copied_slots = C::new(K::ValueAlias(child, std::sync::Arc::new(C::boolean(false))));
 
         assert_eq!(shared_slots, copied_slots);
-        assert_eq!(shared_slots.observations().count(), 2, "one shared child slot is visited once");
-        assert_eq!(copied_slots.observations().count(), 3, "distinct handle slots remain distinct observations");
+
+        // Equal nodes share one canonical allocation, so both observe the same conditions.
+        assert_eq!(
+            shared_slots.observations().collect::<std::collections::BTreeSet<_>>(),
+            copied_slots.observations().collect::<std::collections::BTreeSet<_>>(),
+        );
+
         assert_eq!(shared, independent);
         assert_eq!(shared.cmp(&independent), std::cmp::Ordering::Equal);
         assert_eq!(digest(&shared), digest(&independent));

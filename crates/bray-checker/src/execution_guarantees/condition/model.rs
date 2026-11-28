@@ -176,6 +176,16 @@ pub(in crate::execution_guarantees) struct ConditionNode {
     // form a cycle. None records that stripping leaves this node unchanged.
     without_storage: OnceLock<Option<ExecutionCondition>>,
     comparisons: OnceLock<Box<ComparisonForms>>,
+    // Only a published canonical node owns an interner entry.
+    interned: bool,
+}
+
+impl Drop for ConditionNode {
+    fn drop(&mut self) {
+        if self.interned {
+            super::interning::release(self);
+        }
+    }
 }
 
 impl std::fmt::Debug for ConditionNode {
@@ -223,12 +233,41 @@ impl ConditionNode {
             _ => false,
         };
 
-        Self { kind, hash, contains_deferred, contains_storage, contains_redundant_reference_context, may_observe_live_value, prefix_starts_empty, roots, mutations, size, without_storage: OnceLock::new(), comparisons: OnceLock::new() }
+        Self { kind, hash, contains_deferred, contains_storage, contains_redundant_reference_context, may_observe_live_value, prefix_starts_empty, roots, mutations, size, without_storage: OnceLock::new(), comparisons: OnceLock::new(), interned: false }
     }
 
     #[cfg(test)]
     fn with_test_hash(kind: ExecutionConditionKind, hash: u64) -> Self {
-        Self { hash, ..Self::new(kind) }
+        let mut node = Self::new(kind);
+
+        node.hash = hash;
+
+        node
+    }
+
+    pub(super) const fn hash(&self) -> u64 { self.hash }
+
+    pub(super) fn mark_interned(&mut self) { self.interned = true; }
+
+    /// Whether this node and a node with canonical children have equal fields,
+    /// identical children and the same storage and frame records.
+    ///
+    /// Captured storage and deferred frames compare by contents, but state
+    /// transitions map each record by identity, so equal records stay distinct.
+    pub(super) fn same_node(&self, other: &Self) -> bool {
+        let same_records = match (&self.kind, &other.kind) {
+            (ExecutionConditionKind::CapturedValue { storage, .. }, ExecutionConditionKind::CapturedValue { storage: other, .. }) =>
+                Arc::ptr_eq(storage, other),
+            (ExecutionConditionKind::DeferredValue { frame, .. }, ExecutionConditionKind::DeferredValue { frame: other, .. }) =>
+                Arc::ptr_eq(frame, other),
+            _ => true,
+        };
+
+        same_records
+            && self.shallow_cmp(other).is_eq()
+            && self.cmp_parts(other, &mut |left, right| {
+                if Arc::ptr_eq(&left.0, &right.0) { Ordering::Equal } else { Ordering::Less }
+            }).is_eq()
     }
 }
 
@@ -246,7 +285,7 @@ impl PreparedCondition {
     pub(in crate::execution_guarantees) fn finish(self) -> ExecutionCondition {
         match self {
             Self::Retained(value) => value,
-            Self::Unpublished(node) => ExecutionCondition(Arc::new(node)),
+            Self::Unpublished(node) => ExecutionCondition(super::interning::intern(node)),
         }
     }
 
@@ -278,7 +317,7 @@ impl hashbrown::Equivalent<ExecutionCondition> for PreparedCondition {
 impl ExecutionCondition {
     /// Creates a condition from its checked structural kind.
     pub fn new(kind: ExecutionConditionKind) -> Self {
-        Self(Arc::new(ConditionNode::new(kind)))
+        Self(super::interning::intern(ConditionNode::new(kind)))
     }
 
     /// Returns the condition's structural kind.

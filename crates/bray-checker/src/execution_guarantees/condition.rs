@@ -1,6 +1,7 @@
 mod model;
 mod operands;
 mod hashing;
+mod interning;
 mod memo;
 mod context;
 mod observations;
