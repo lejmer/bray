@@ -63,8 +63,8 @@ where
             .checked_add(1)
             .ok_or(SemanticValueStoreError::CapacityExhausted { kind: I::KIND })?;
 
+        let id = SemanticValueId::new(&data, store, slot);
         let data = Arc::new(data);
-        let id = SemanticValueId::new(store, slot);
 
         // The identity table and structural index retain the same immutable allocation.
         self.entries.insert(id, Arc::clone(&data));

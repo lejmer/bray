@@ -114,10 +114,10 @@ impl SystemLinkerConfiguration {
             return None;
         }
 
-        plan.primary_output()
-            .filter(|output| output.destination().path().is_absolute())
-            .and_then(|output| output.destination().path().parent())
-            .filter(|directory| !directory.as_os_str().is_empty())
+        shared_output_directory(
+            plan.primary_output()?.destination().path(),
+            plan.outputs().iter().map(|output| output.destination().path()),
+        )
     }
 
     /// Returns the optional linker-map destination selected by the host workflow.
@@ -195,6 +195,23 @@ pub enum SystemLinkerConfigurationBuildError {
     ThinLtoCacheRootEmpty,
 }
 
+/// The deepest directory that holds the primary output and every other output.
+///
+/// Linking from it keeps staged paths relative, so a debug companion records no
+/// per-transaction staging name and repeated builds stay byte-identical.
+fn shared_output_directory<'path>(
+    primary: &'path Path,
+    outputs: impl IntoIterator<Item = &'path Path>,
+) -> Option<&'path Path> {
+    let directory = primary
+        .parent()
+        .filter(|directory| primary.is_absolute() && !directory.as_os_str().is_empty())?;
+
+    outputs.into_iter().try_fold(directory, |directory, output| {
+        directory.ancestors().find(|ancestor| output.starts_with(ancestor))
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
@@ -202,6 +219,31 @@ mod tests {
     };
     use crate::{LinkerTargetIdentity, SystemLinkerFamily};
     use bray_target::{ObjectFormat, TargetArchitecture, TargetIdentity};
+
+    #[test]
+    fn links_run_from_the_directory_that_holds_every_output() {
+        let root = std::env::current_dir()
+            .unwrap_or_else(|error| panic!("test working directory must exist: {error}"))
+            .join("transaction");
+
+        let executable = root.join("output-executable").join("application.exe");
+        let companion = root.join("output-companion").join("application.pdb");
+
+        assert_eq!(
+            super::shared_output_directory(&executable, [executable.as_path(), companion.as_path()]),
+            Some(root.as_path())
+        );
+
+        assert_eq!(
+            super::shared_output_directory(&executable, [executable.as_path()]),
+            executable.parent()
+        );
+
+        assert_eq!(
+            super::shared_output_directory(std::path::Path::new("application.exe"), []),
+            None
+        );
+    }
 
     #[test]
     fn configurations_reject_program_names_that_require_path_discovery() {
