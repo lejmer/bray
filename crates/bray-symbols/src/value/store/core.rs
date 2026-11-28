@@ -1,6 +1,6 @@
 use std::sync::{
     Arc, RwLock, RwLockReadGuard, RwLockWriteGuard,
-    atomic::{AtomicU64, Ordering},
+    atomic::{AtomicU32, Ordering},
 };
 
 use crate::{
@@ -26,7 +26,7 @@ use super::validation::{
     validate_substitution_data, validate_trait_application_data, validate_type_data,
 };
 
-static NEXT_STORE_ID: AtomicU64 = AtomicU64::new(1);
+static NEXT_STORE_ID: AtomicU32 = AtomicU32::new(1);
 
 /// A thread-safe canonical store for immutable semantic values.
 ///
@@ -544,6 +544,35 @@ mod tests {
         match store.intern_type(data) {
             Ok(id) => id,
             Err(error) => panic!("named type interning failed: {error:?}"),
+        }
+    }
+
+    #[test]
+    fn value_order_and_hashes_do_not_depend_on_interning_order() {
+        let digest = |id: crate::TypeId| {
+            let mut hash = std::hash::DefaultHasher::new();
+
+            std::hash::Hash::hash(&id, &mut hash);
+
+            std::hash::Hasher::finish(&hash)
+        };
+
+        let forward = store();
+        let forward = [1, 2, 3].map(|raw| concrete_named_type(&forward, raw));
+
+        let reversed = store();
+        let mut backward = [3, 2, 1].map(|raw| concrete_named_type(&reversed, raw));
+
+        backward.reverse();
+
+        // Slots differ between the stores, but contents order and hash each value the same way.
+        assert_ne!(forward.map(crate::TypeId::slot), backward.map(crate::TypeId::slot));
+        assert_eq!(forward.map(digest), backward.map(digest));
+
+        for left in 0..3 {
+            for right in 0..3 {
+                assert_eq!(forward[left].cmp(&forward[right]), backward[left].cmp(&backward[right]));
+            }
         }
     }
 

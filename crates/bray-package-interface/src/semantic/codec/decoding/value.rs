@@ -1073,10 +1073,12 @@ mod tests {
 
         assert_eq!(deferred.execution_requirements().len(), 1);
 
-        assert_eq!(
-            deferred.receiver_cleanup(),
-            [imported.types()[0], imported.types()[2]]
-        );
+        // Cleanup types are canonical, so they keep value order rather than import order.
+        let mut cleanup = [imported.types()[0], imported.types()[2]];
+
+        cleanup.sort();
+
+        assert_eq!(deferred.receiver_cleanup(), cleanup);
     }
 
     #[test]

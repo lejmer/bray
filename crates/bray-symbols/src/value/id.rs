@@ -1,15 +1,15 @@
 /// Identifies the semantic value store that issued an opaque value ID.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct SemanticValueStoreId(u64);
+pub struct SemanticValueStoreId(u32);
 
 impl SemanticValueStoreId {
-    pub(super) const fn new(raw: u64) -> Self {
+    pub(super) const fn new(raw: u32) -> Self {
         Self(raw)
     }
 
     /// Returns the process-local numeric identity used in structured diagnostics.
     pub const fn raw(self) -> u64 {
-        self.0
+        self.0 as u64
     }
 }
 
@@ -36,15 +36,34 @@ pub enum SemanticValueKind {
     DependencyContractTemplate,
 }
 
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+/// One interned value.
+///
+/// Slots follow interning order, which depends on thread scheduling. Order and
+/// hashing therefore follow a content digest, so maps, sets and conditions keyed
+/// by values iterate the same way in every build. The slot breaks ties only
+/// between distinct values whose digests collide.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub(super) struct SemanticValueId {
+    digest: u64,
     store: SemanticValueStoreId,
     slot: u32,
 }
 
+impl std::hash::Hash for SemanticValueId {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.digest.hash(state);
+    }
+}
+
 impl SemanticValueId {
-    pub(super) const fn new(store: SemanticValueStoreId, slot: u32) -> Self {
-        Self { store, slot }
+    /// Identifies `data` by a digest of its contents, where referenced values
+    /// contribute their own digests.
+    pub(super) fn new(data: &impl std::hash::Hash, store: SemanticValueStoreId, slot: u32) -> Self {
+        let mut digest = std::hash::DefaultHasher::new();
+
+        data.hash(&mut digest);
+
+        Self { digest: std::hash::Hasher::finish(&digest), store, slot }
     }
 
     pub(super) const fn store(self) -> SemanticValueStoreId {

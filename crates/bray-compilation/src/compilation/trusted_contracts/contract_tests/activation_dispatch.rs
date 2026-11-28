@@ -178,7 +178,8 @@ fn activation_callback_requires_one_exact_authorized_invocation() {
     let separation = DiagnosticKind::CheckingTrustedWitnessTransferNotProven;
 
     let contracts = [
-        (String::new(), invoke, Some(requirement), invoke, "authorized"),
+        // Both requirements are missing, and the canonical requirement set reports either.
+        (String::new(), invoke, Some(requirement), invoke, "authorized|outputs_owned"),
         (authorized.to_owned(), invoke, Some(requirement), invoke, "outputs_owned"),
         (outputs.to_owned(), invoke, Some(requirement), invoke, "authorized"),
         (format!("{other_authorized}, {outputs}"), invoke, Some(requirement), invoke, "authorized"),
